@@ -1,0 +1,30 @@
+{
+  "name": "@zhcsyncer/pi-extensions",
+  "version": "0.1.0",
+  "description": "A collection of Pi extensions by zhcsyncer.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-extensions"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./packages/pi-recap/extensions/recap.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}

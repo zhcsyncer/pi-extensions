@@ -1,0 +1,34 @@
+{
+  "recap": {
+    "enabled": true,
+    "auto": true,
+    "manualCommand": true,
+    "idleAfterTurnMs": 180000,
+    "minSessionTurns": 3,
+    "neverTwiceInARow": true,
+    "interactiveOnly": true,
+    "model": "current",
+    "fallbackToCurrentModel": true,
+    "maxRecentChars": 20000,
+    "maxTokens": 300,
+    "language": "auto"
+  },
+  "display": {
+    "notify": true,
+    "widget": false,
+    "widgetPlacement": "aboveEditor",
+    "clearWidgetOnNextAgentStart": true
+  },
+  "title": {
+    "generate": true,
+    "applyToSessionName": false,
+    "applyPolicy": "if-empty-or-auto",
+    "maxLength": 50
+  },
+  "tmux": {
+    "enabled": true,
+    "template": "π {session} · {project}",
+    "maxLength": 48,
+    "restoreOnShutdown": true
+  }
+}

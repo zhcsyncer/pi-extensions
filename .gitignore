@@ -1,0 +1,16 @@
+# Local Pi project/runtime files
+.pi/
+
+# Local notes not part of the package repo
+pi-onboarding-cases.md
+recap-extension-design.md
+
+# Dependencies and build artifacts
+node_modules/
+dist/
+coverage/
+*.tgz
+
+# Logs and OS files
+*.log
+.DS_Store
