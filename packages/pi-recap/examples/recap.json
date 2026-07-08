@@ -6,7 +6,6 @@
     "idleAfterTurnMs": 180000,
     "minSessionTurns": 3,
     "neverTwiceInARow": true,
-    "interactiveOnly": true,
     "model": "current",
     "fallbackToCurrentModel": true,
     "maxRecentChars": 20000,

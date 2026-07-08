@@ -43,7 +43,6 @@ type RecapConfig = {
 		idleAfterTurnMs: number;
 		minSessionTurns: number;
 		neverTwiceInARow: boolean;
-		interactiveOnly: boolean;
 		model: "current" | string;
 		fallbackToCurrentModel: boolean;
 		maxRecentChars: number;
@@ -98,7 +97,6 @@ const DEFAULT_CONFIG: RecapConfig = {
 		idleAfterTurnMs: 3 * 60_000,
 		minSessionTurns: 3,
 		neverTwiceInARow: true,
-		interactiveOnly: true,
 		model: "current",
 		fallbackToCurrentModel: true,
 		maxRecentChars: 20_000,
@@ -178,7 +176,7 @@ async function loadConfig(ctx: ExtensionContext): Promise<RecapConfig> {
 }
 
 function normalizeConfig(config: RecapConfig): RecapConfig {
-	return {
+	const normalized = {
 		recap: {
 			...DEFAULT_CONFIG.recap,
 			...config.recap,
@@ -204,6 +202,10 @@ function normalizeConfig(config: RecapConfig): RecapConfig {
 			maxLength: positiveNumber(config.tmux?.maxLength, DEFAULT_CONFIG.tmux.maxLength),
 		},
 	};
+
+	// `interactiveOnly` existed in 0.1.0 but recap is now always TUI-only.
+	delete (normalized.recap as Record<string, unknown>).interactiveOnly;
+	return normalized;
 }
 
 function positiveNumber(value: unknown, fallback: number): number {
@@ -435,7 +437,10 @@ async function runRecap(
 		if (reason === "manual" && ctx.hasUI) ctx.ui.notify("recap is disabled by config", "warning");
 		return undefined;
 	}
-	if (config.recap.interactiveOnly && ctx.mode !== "tui") return undefined;
+	if (ctx.mode !== "tui") {
+		if (reason === "manual" && ctx.hasUI) ctx.ui.notify("recap requires TUI mode", "warning");
+		return undefined;
+	}
 
 	const entries = ctx.sessionManager.getBranch();
 	if (!force && countUserTurns(entries) < config.recap.minSessionTurns) return undefined;
@@ -578,13 +583,6 @@ function settingItems(config: RecapConfig): SettingItem[] {
 			values: ["on", "off"],
 		},
 		{
-			id: "recap.interactiveOnly",
-			label: "Interactive only",
-			description: "Skip recap outside TUI mode.",
-			currentValue: boolValue(config.recap.interactiveOnly),
-			values: ["on", "off"],
-		},
-		{
 			id: "title.applyToSessionName",
 			label: "Apply title to session name",
 			description: "Use generated title to rename the Pi session according to policy.",
@@ -647,9 +645,6 @@ function applyConfigSetting(config: RecapConfig, id: string, value: string): Rec
 		case "recap.auto":
 			next.recap.auto = on;
 			break;
-		case "recap.interactiveOnly":
-			next.recap.interactiveOnly = on;
-			break;
 		case "title.applyToSessionName":
 			next.title.applyToSessionName = on;
 			break;
@@ -677,7 +672,8 @@ function applyConfigSetting(config: RecapConfig, id: string, value: string): Rec
 }
 
 async function editConfigJson(pi: ExtensionAPI, ctx: ExtensionContext, state: RecapState) {
-	if (!ctx.hasUI) {
+	if (ctx.mode !== "tui") {
+		if (ctx.hasUI) ctx.ui.notify("/recap-config json requires TUI mode", "warning");
 		return;
 	}
 
@@ -844,7 +840,7 @@ function scheduleAutoRecap(pi: ExtensionAPI, ctx: ExtensionContext, state: Recap
 
 	const config = state.config;
 	if (!config.recap.enabled || !config.recap.auto) return;
-	if (config.recap.interactiveOnly && ctx.mode !== "tui") return;
+	if (ctx.mode !== "tui") return;
 
 	state.autoTimer = setTimeout(() => {
 		state.autoTimer = undefined;

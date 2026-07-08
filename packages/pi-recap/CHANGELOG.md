@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Remove `recap.interactiveOnly`; recap is now always disabled outside TUI mode.
+- Split Chinese documentation into `README.zh-CN.md`; `README.md` is English by default.
+
 ## 0.1.0
 
 - Initial release.

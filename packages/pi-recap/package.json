@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-recap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Recent activity recap extension for Pi with optional session title and tmux window sync.",
   "repository": {
     "type": "git",
@@ -21,7 +21,9 @@
   "license": "MIT",
   "type": "module",
   "pi": {
-    "extensions": ["./extensions/recap.ts"]
+    "extensions": [
+      "./extensions/recap.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
