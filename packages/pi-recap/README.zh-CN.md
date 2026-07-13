@@ -8,6 +8,8 @@
 
 - 手动 `/recap` 生成最近活动摘要；
 - agent 完成后空闲一段时间自动生成 recap；
+- 发送新消息时取消尚未完成的自动 recap，避免写入或展示过期结果；
+- 使用互斥的 footer status 或 editor widget 展示 recap；
 - recap 时顺便生成短 title；
 - 是否用 title 更新 Pi session name 由配置控制；
 - session name 变化时可选同步 tmux window name；
@@ -112,9 +114,8 @@ examples/recap.json
   },
   "display": {
     "notify": true,
-    "widget": false,
-    "widgetPlacement": "aboveEditor",
-    "clearWidgetOnNextAgentStart": true
+    "mode": "status",
+    "widgetPlacement": "aboveEditor"
   },
   "title": {
     "generate": true,
@@ -165,16 +166,20 @@ examples/recap.json
 }
 ```
 
-启用 widget 展示：
+切换为 widget 展示：
 
 ```json
 {
   "display": {
-    "widget": true,
+    "mode": "widget",
     "widgetPlacement": "aboveEditor"
   }
 }
 ```
+
+`display.mode` 可选 `"status"` 或 `"widget"`。两种模式互斥：生成中的提示和最终 recap 都只使用当前模式。status 或 widget 会在下一条消息开始时清除；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
+
+旧配置中的 `display.widget: true/false` 会在读取时自动迁移为 `display.mode: "widget"/"status"`；`clearWidgetOnNextAgentStart` 已不再需要。
 
 自定义 tmux window 名称：
 

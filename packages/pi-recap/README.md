@@ -8,6 +8,8 @@ Features:
 
 - Generate a recent activity recap with `/recap`.
 - Automatically recap after the agent has been idle for a while.
+- Cancel an unfinished automatic recap when a new message arrives, preventing stale results from being stored or displayed.
+- Display recaps through mutually exclusive footer status or editor widget modes.
 - Generate a short title as a recap side effect.
 - Optionally apply the title to the Pi session name.
 - Optionally sync Pi session name changes to the current tmux window name.
@@ -112,9 +114,8 @@ Default config:
   },
   "display": {
     "notify": true,
-    "widget": false,
-    "widgetPlacement": "aboveEditor",
-    "clearWidgetOnNextAgentStart": true
+    "mode": "status",
+    "widgetPlacement": "aboveEditor"
   },
   "title": {
     "generate": true,
@@ -165,16 +166,20 @@ Use a specific recap model:
 }
 ```
 
-Enable widget display:
+Switch to widget display:
 
 ```json
 {
   "display": {
-    "widget": true,
+    "mode": "widget",
     "widgetPlacement": "aboveEditor"
   }
 }
 ```
+
+`display.mode` accepts `"status"` or `"widget"`. The modes are mutually exclusive: both generation progress and the completed recap use only the selected surface. The status or widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
+
+Legacy `display.widget: true/false` settings are migrated at load time to `display.mode: "widget"/"status"`; `clearWidgetOnNextAgentStart` is no longer needed.
 
 Customize tmux window name:
 

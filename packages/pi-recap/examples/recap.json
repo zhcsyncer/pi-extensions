@@ -14,9 +14,8 @@
   },
   "display": {
     "notify": true,
-    "widget": false,
-    "widgetPlacement": "aboveEditor",
-    "clearWidgetOnNextAgentStart": true
+    "mode": "status",
+    "widgetPlacement": "aboveEditor"
   },
   "title": {
     "generate": true,
