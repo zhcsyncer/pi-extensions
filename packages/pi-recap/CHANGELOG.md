@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+### Patch Changes
+
+- 5e41607: Cancel in-flight automatic recaps when new input starts, prevent stale runs from writing results, and replace the independent widget toggle with mutually exclusive status/widget display modes.
+
 ## 0.1.2
 
 ### Patch Changes
