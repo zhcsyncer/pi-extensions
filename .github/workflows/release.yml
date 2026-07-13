@@ -55,6 +55,7 @@ jobs:
       - name: Reconcile package tags and repository release
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLISHED_THIS_RUN: ${{ steps.changesets.outputs.published }}
         shell: bash
         run: |
           set -euo pipefail
@@ -67,11 +68,25 @@ jobs:
           fi
 
           for PACKAGE in @zhcsyncer/pi-extensions @zhcsyncer/pi-recap; do
-            PUBLISHED_VERSION=$(npm view "$PACKAGE@$VERSION" version 2>/dev/null || true)
-            if [[ "$PUBLISHED_VERSION" != "$VERSION" ]]; then
-              echo "$PACKAGE@$VERSION is not published yet; skipping GitHub release reconciliation."
-              exit 0
-            fi
+            for ATTEMPT in {1..12}; do
+              PUBLISHED_VERSION=$(npm view "$PACKAGE@$VERSION" version 2>/dev/null || true)
+              if [[ "$PUBLISHED_VERSION" == "$VERSION" ]]; then
+                break
+              fi
+
+              if [[ "$PUBLISHED_THIS_RUN" != "true" ]]; then
+                echo "$PACKAGE@$VERSION is not published; skipping GitHub release reconciliation."
+                exit 0
+              fi
+
+              if [[ "$ATTEMPT" == "12" ]]; then
+                echo "$PACKAGE@$VERSION did not become visible on npm in time." >&2
+                exit 1
+              fi
+
+              echo "Waiting for $PACKAGE@$VERSION to become visible on npm (attempt $ATTEMPT/12)..."
+              sleep 5
+            done
           done
 
           REPO_TAG="v$VERSION"
