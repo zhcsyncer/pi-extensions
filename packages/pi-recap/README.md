@@ -9,7 +9,7 @@ Features:
 - Generate a recent activity recap with `/recap`.
 - Automatically recap after the agent has been idle for a while.
 - Cancel an unfinished automatic recap when a new message arrives, preventing stale results from being stored or displayed.
-- Display recaps through mutually exclusive footer status or editor widget modes.
+- Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications.
 - Generate a short title as a recap side effect.
 - Optionally apply the title to the Pi session name.
 - Optionally sync Pi session name changes to the current tmux window name.
@@ -54,7 +54,7 @@ Generate a recent activity recap. It will:
 2. call a model to generate a one-line recap;
 3. generate a short title;
 4. persist state with `pi.appendEntry("recap", ...)`;
-5. display the recap according to config;
+5. display the recap in an editor widget;
 6. optionally apply the title to the Pi session name;
 7. optionally sync the session name to the current tmux window.
 
@@ -113,8 +113,6 @@ Default config:
     "language": "auto"
   },
   "display": {
-    "notify": true,
-    "mode": "status",
     "widgetPlacement": "aboveEditor"
   },
   "title": {
@@ -166,20 +164,19 @@ Use a specific recap model:
 }
 ```
 
-Switch to widget display:
+Choose widget placement:
 
 ```json
 {
   "display": {
-    "mode": "widget",
     "widgetPlacement": "aboveEditor"
   }
 }
 ```
 
-`display.mode` accepts `"status"` or `"widget"`. The modes are mutually exclusive: both generation progress and the completed recap use only the selected surface. The status or widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
+Recap display always uses an editor widget; the display surface is not configurable. Automatic recap progress is replaced by the result in that widget. Manual `/recap` uses a cancellable loader while generating, then shows the result in the widget. The widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
 
-Legacy `display.widget: true/false` settings are migrated at load time to `display.mode: "widget"/"status"`; `clearWidgetOnNextAgentStart` is no longer needed.
+When an older config is loaded, obsolete `display.notify`, `display.mode`, `display.widget`, and `display.clearWidgetOnNextAgentStart` fields are removed and the source config file is updated. `display.widgetPlacement` is preserved.
 
 Customize tmux window name:
 

@@ -9,7 +9,7 @@
 - 手动 `/recap` 生成最近活动摘要；
 - agent 完成后空闲一段时间自动生成 recap；
 - 发送新消息时取消尚未完成的自动 recap，避免写入或展示过期结果；
-- 使用互斥的 footer status 或 editor widget 展示 recap；
+- 使用 editor widget 展示自动 recap 的进度以及 recap 结果和错误，成功结果不会再重复显示为聊天区通知；
 - recap 时顺便生成短 title；
 - 是否用 title 更新 Pi session name 由配置控制；
 - session name 变化时可选同步 tmux window name；
@@ -54,7 +54,7 @@ pi -e ./packages/pi-recap
 2. 调用模型生成一行 recap；
 3. 顺便生成一个短 title；
 4. 使用 `pi.appendEntry("recap", ...)` 保存状态；
-5. 按配置展示 recap；
+5. 在 editor widget 中展示 recap；
 6. 如果配置允许，用 title 更新 Pi session name；
 7. 如果启用 tmux 同步，session name 变化会同步到当前 tmux window。
 
@@ -113,8 +113,6 @@ examples/recap.json
     "language": "auto"
   },
   "display": {
-    "notify": true,
-    "mode": "status",
     "widgetPlacement": "aboveEditor"
   },
   "title": {
@@ -166,20 +164,19 @@ examples/recap.json
 }
 ```
 
-切换为 widget 展示：
+选择 widget 位置：
 
 ```json
 {
   "display": {
-    "mode": "widget",
     "widgetPlacement": "aboveEditor"
   }
 }
 ```
 
-`display.mode` 可选 `"status"` 或 `"widget"`。两种模式互斥：生成中的提示和最终 recap 都只使用当前模式。status 或 widget 会在下一条消息开始时清除；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
+recap 始终使用 editor widget，展示区域不再支持配置。自动 recap 的生成进度会在同一个 widget 中被最终结果替换；手动 `/recap` 生成时使用可取消 Loader，完成后在 widget 中显示结果。下一条消息开始时会清除 widget；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
 
-旧配置中的 `display.widget: true/false` 会在读取时自动迁移为 `display.mode: "widget"/"status"`；`clearWidgetOnNextAgentStart` 已不再需要。
+读取旧配置时，插件会移除已废弃的 `display.notify`、`display.mode`、`display.widget` 和 `display.clearWidgetOnNextAgentStart`，并更新原配置文件；`display.widgetPlacement` 会保留。
 
 自定义 tmux window 名称：
 
