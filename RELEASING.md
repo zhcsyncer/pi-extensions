@@ -5,7 +5,7 @@ This repository uses Changesets and GitHub Actions to keep these public npm pack
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
 
-A successful publish also creates package-level Git tags and one repository-level `vX.Y.Z` GitHub Release.
+A successful publish creates package-level Git tags and two GitHub Releases: `pi-extensions vX.Y.Z` on the repository `vX.Y.Z` tag, and `pi-recap vX.Y.Z` on the `@zhcsyncer/pi-recap@X.Y.Z` package tag.
 
 ## One-time setup
 
@@ -57,6 +57,6 @@ Changes that do not need a release, such as CI-only or internal documentation ch
 2. `.github/workflows/release.yml` creates or updates `chore: version packages`.
 3. Review and merge that version PR when ready to release.
 4. The workflow validates and publishes every package version not already present on npm.
-5. The workflow reconciles package tags and creates one `vX.Y.Z` GitHub Release.
+5. The workflow reconciles package tags and creates GitHub Releases for both `pi-extensions` and `pi-recap`.
 
 Publishing and release reconciliation are idempotent. If npm publishing partially succeeds or GitHub Release creation fails, rerun the failed workflow job.

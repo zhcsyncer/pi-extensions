@@ -56,7 +56,7 @@ Add a changeset to each user-facing pull request:
 pnpm changeset
 ```
 
-The packages are kept on the same version and released together. After changes land on `main`, GitHub Actions opens a version PR. Merging that PR publishes both npm packages and creates one repository-level GitHub Release. See [RELEASING.md](./RELEASING.md) for one-time npm and GitHub setup.
+The packages are kept on the same version and released together. After changes land on `main`, GitHub Actions opens a version PR. Merging that PR publishes both npm packages and creates a GitHub Release for each package. See [RELEASING.md](./RELEASING.md) for one-time npm and GitHub setup.
 
 ## License
 

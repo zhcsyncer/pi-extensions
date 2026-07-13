@@ -90,9 +90,10 @@ jobs:
           done
 
           REPO_TAG="v$VERSION"
+          RECAP_TAG="@zhcsyncer/pi-recap@$VERSION"
           TAGS=(
             "@zhcsyncer/pi-extensions@$VERSION"
-            "@zhcsyncer/pi-recap@$VERSION"
+            "$RECAP_TAG"
             "$REPO_TAG"
           )
           PUSH_TAGS=false
@@ -115,4 +116,20 @@ jobs:
               --verify-tag \
               --generate-notes \
               --title "pi-extensions $REPO_TAG"
+          fi
+
+          if ! gh release view "$RECAP_TAG" >/dev/null 2>&1; then
+            RECAP_NOTES=$(awk -v version="$VERSION" '
+              $0 == "## " version { found = 1; next }
+              found && /^## / { exit }
+              found { print }
+            ' packages/pi-recap/CHANGELOG.md)
+            if [[ -z "$RECAP_NOTES" ]]; then
+              RECAP_NOTES="Release @zhcsyncer/pi-recap@$VERSION"
+            fi
+
+            gh release create "$RECAP_TAG" \
+              --verify-tag \
+              --notes "$RECAP_NOTES" \
+              --title "pi-recap v$VERSION"
           fi
