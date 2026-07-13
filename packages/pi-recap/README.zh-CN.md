@@ -19,7 +19,7 @@
 从 Git 安装整个 `zhcsyncer/pi-extensions` bundle：
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.1.1
+pi install git:github.com/zhcsyncer/pi-extensions@v0.1.2
 ```
 
 临时试用：
