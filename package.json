@@ -17,6 +17,21 @@
   ],
   "license": "MIT",
   "type": "module",
+  "files": [
+    "packages/*/extensions/**/*.ts",
+    "packages/*/extensions/**/*.js"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "changeset": "changeset",
+    "version-packages": "changeset version && node scripts/sync-release-version.mjs",
+    "release": "changeset publish",
+    "check": "pnpm check:smoke && pnpm check:pack",
+    "check:smoke": "pi -e . --list-models __pi_release_check__ && pi -e ./packages/pi-recap --list-models __pi_release_check__",
+    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap"
+  },
   "pi": {
     "extensions": [
       "./packages/pi-recap/extensions/recap.ts"
@@ -26,5 +41,9 @@
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
-  }
+  },
+  "devDependencies": {
+    "@changesets/cli": "2.31.0"
+  },
+  "packageManager": "pnpm@11.11.0"
 }

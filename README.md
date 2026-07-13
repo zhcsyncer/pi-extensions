@@ -20,7 +20,15 @@ Try without installing:
 pi -e git:github.com/zhcsyncer/pi-extensions
 ```
 
-## Install individual npm packages
+## Install from npm
+
+Install the complete bundle:
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
+
+Install only recap:
 
 ```bash
 pi install npm:@zhcsyncer/pi-recap
@@ -39,6 +47,16 @@ Test a package directly:
 ```bash
 pi -e ./packages/pi-recap --list-models nope
 ```
+
+## Releasing
+
+Add a changeset to each user-facing pull request:
+
+```bash
+pnpm changeset
+```
+
+The packages are kept on the same version and released together. After changes land on `main`, GitHub Actions opens a version PR. Merging that PR publishes both npm packages and creates one repository-level GitHub Release. See [RELEASING.md](./RELEASING.md) for one-time npm and GitHub setup.
 
 ## License
 

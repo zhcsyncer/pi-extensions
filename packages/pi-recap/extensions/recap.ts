@@ -24,7 +24,7 @@ import {
 	type ExtensionContext,
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import { CancellableLoader, Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 
 const execFileAsync = promisify(execFile);
 const CUSTOM_TYPE = "recap";
@@ -431,6 +431,7 @@ async function runRecap(
 	state: RecapState,
 	reason: RecapReason,
 	force = false,
+	signal?: AbortSignal,
 ): Promise<RecapEntryData | undefined> {
 	if (state.running) return undefined;
 	if (!config.recap.enabled) {
@@ -488,9 +489,11 @@ async function runRecap(
 				headers: auth.headers,
 				env: auth.env,
 				maxTokens: config.recap.maxTokens,
-				signal: ctx.signal,
+				signal: signal ?? ctx.signal,
 			},
 		);
+
+		if (response.stopReason === "aborted") return undefined;
 
 		const raw = response.content
 			.filter((item): item is { type: "text"; text: string } => item.type === "text")
@@ -543,19 +546,35 @@ async function runRecap(
 	}
 }
 
+function displayRecapWidget(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
+	if (!config.display.widget || ctx.mode !== "tui") return;
+
+	ctx.ui.setWidget(
+		WIDGET_KEY,
+		(_tui, theme) => {
+			const title = data.title ?? "Recent activity";
+			const generatedTime = new Intl.DateTimeFormat(undefined, {
+				hour: "2-digit",
+				minute: "2-digit",
+			}).format(data.generatedAt);
+			const text = [
+				theme.fg("muted", "RECAP  ") + theme.fg("accent", theme.bold(title)),
+				theme.fg("text", data.recap),
+				theme.fg("dim", `Generated ${generatedTime}`),
+			].join("\n");
+
+			return new Text(text, 1, 0);
+		},
+		{ placement: config.display.widgetPlacement },
+	);
+}
+
 function displayRecap(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
 	if (config.display.notify && ctx.hasUI) {
 		ctx.ui.notify(`Recap: ${data.recap}`, "info");
 	}
 
-	if (config.display.widget && ctx.hasUI) {
-		const lines = [
-			data.title ? `Recap · ${data.title}` : "Recap",
-			data.recap,
-			`Generated ${new Date(data.generatedAt).toLocaleTimeString()}`,
-		];
-		ctx.ui.setWidget(WIDGET_KEY, lines, { placement: config.display.widgetPlacement });
-	}
+	displayRecapWidget(ctx, config, data);
 }
 
 function clearWidget(ctx: ExtensionContext) {
@@ -879,6 +898,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		await refreshStateFromSession(ctx, state);
+		if (state.lastRecap) displayRecapWidget(ctx, state.config, state.lastRecap);
 		await updateTmuxWindow(pi, ctx, state.config, state);
 	});
 
@@ -914,7 +934,38 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			await ctx.waitForIdle();
-			await runRecap(pi, ctx, state.config, state, "manual", true);
+			if (ctx.mode !== "tui") {
+				await runRecap(pi, ctx, state.config, state, "manual", true);
+				return;
+			}
+
+			await ctx.ui.custom<RecapEntryData | undefined>((tui, theme, _keybindings, done) => {
+				const loader = new CancellableLoader(
+					tui,
+					(text) => theme.fg("accent", text),
+					(text) => theme.fg("muted", text),
+					"Generating recap... (esc to cancel)",
+				);
+				let closed = false;
+				const finish = (result: RecapEntryData | undefined) => {
+					if (closed) return;
+					closed = true;
+					done(result);
+				};
+
+				loader.onAbort = () => finish(undefined);
+				void runRecap(pi, ctx, state.config, state, "manual", true, loader.signal)
+					.then(finish)
+					.catch((error) => {
+						if (!loader.signal.aborted) {
+							const message = error instanceof Error ? error.message : String(error);
+							ctx.ui.notify(`Failed to generate recap: ${message}`, "error");
+						}
+						finish(undefined);
+					});
+
+				return loader;
+			});
 		},
 	});
 
