@@ -13,8 +13,6 @@
     "language": "auto"
   },
   "display": {
-    "notify": true,
-    "mode": "status",
     "widgetPlacement": "aboveEditor"
   },
   "title": {
