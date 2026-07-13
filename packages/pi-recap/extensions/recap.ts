@@ -33,6 +33,7 @@ const STATUS_KEY = "recap";
 
 type RecapReason = "manual" | "auto";
 type TitleApplyPolicy = "never" | "if-empty" | "if-empty-or-auto" | "always";
+type DisplayMode = "status" | "widget";
 type WidgetPlacement = "aboveEditor" | "belowEditor";
 
 type RecapConfig = {
@@ -51,9 +52,8 @@ type RecapConfig = {
 	};
 	display: {
 		notify: boolean;
-		widget: boolean;
+		mode: DisplayMode;
 		widgetPlacement: WidgetPlacement;
-		clearWidgetOnNextAgentStart: boolean;
 	};
 	title: {
 		generate: boolean;
@@ -105,9 +105,8 @@ const DEFAULT_CONFIG: RecapConfig = {
 	},
 	display: {
 		notify: true,
-		widget: false,
+		mode: "status",
 		widgetPlacement: "aboveEditor",
-		clearWidgetOnNextAgentStart: true,
 	},
 	title: {
 		generate: true,
@@ -142,6 +141,19 @@ function deepMerge<T extends Record<string, unknown>>(base: T, override: unknown
 	return result as T;
 }
 
+function migrateLegacyConfig(value: unknown): unknown {
+	if (!isRecord(value) || !isRecord(value.display)) return value;
+
+	const display = { ...value.display };
+	if (!("mode" in display) && typeof display.widget === "boolean") {
+		display.mode = display.widget ? "widget" : "status";
+	}
+	delete display.widget;
+	delete display.clearWidgetOnNextAgentStart;
+
+	return { ...value, display };
+}
+
 async function readJsonIfExists(file: string): Promise<unknown | undefined> {
 	try {
 		return JSON.parse(await readFile(file, "utf8"));
@@ -164,11 +176,11 @@ async function saveGlobalConfig(config: RecapConfig): Promise<void> {
 async function loadConfig(ctx: ExtensionContext): Promise<RecapConfig> {
 	let config = deepMerge(DEFAULT_CONFIG as unknown as Record<string, unknown>, {}) as RecapConfig;
 
-	const globalConfig = await readJsonIfExists(path.join(getAgentDir(), "recap.json"));
+	const globalConfig = migrateLegacyConfig(await readJsonIfExists(path.join(getAgentDir(), "recap.json")));
 	config = deepMerge(config as unknown as Record<string, unknown>, globalConfig) as RecapConfig;
 
 	if (ctx.isProjectTrusted()) {
-		const projectConfig = await readJsonIfExists(path.join(ctx.cwd, CONFIG_DIR_NAME, "recap.json"));
+		const projectConfig = migrateLegacyConfig(await readJsonIfExists(path.join(ctx.cwd, CONFIG_DIR_NAME, "recap.json")));
 		config = deepMerge(config as unknown as Record<string, unknown>, projectConfig) as RecapConfig;
 	}
 
@@ -176,7 +188,7 @@ async function loadConfig(ctx: ExtensionContext): Promise<RecapConfig> {
 }
 
 function normalizeConfig(config: RecapConfig): RecapConfig {
-	const normalized = {
+	const normalized: RecapConfig = {
 		recap: {
 			...DEFAULT_CONFIG.recap,
 			...config.recap,
@@ -188,6 +200,7 @@ function normalizeConfig(config: RecapConfig): RecapConfig {
 		display: {
 			...DEFAULT_CONFIG.display,
 			...config.display,
+			mode: normalizeDisplayMode(config.display?.mode),
 			widgetPlacement: config.display?.widgetPlacement === "belowEditor" ? "belowEditor" : "aboveEditor",
 		},
 		title: {
@@ -215,6 +228,10 @@ function positiveNumber(value: unknown, fallback: number): number {
 function normalizeTitlePolicy(value: unknown): TitleApplyPolicy {
 	if (value === "never" || value === "if-empty" || value === "if-empty-or-auto" || value === "always") return value;
 	return DEFAULT_CONFIG.title.applyPolicy;
+}
+
+function normalizeDisplayMode(value: unknown): DisplayMode {
+	return value === "widget" ? "widget" : "status";
 }
 
 function currentSessionName(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
@@ -391,7 +408,7 @@ function cleanOneLine(value: string, maxLength?: number): string {
 	return cleaned;
 }
 
-async function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
+function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 	if (config.recap.model === "current") return ctx.model;
 
 	const separator = config.recap.model.indexOf("/");
@@ -456,19 +473,37 @@ async function runRecap(
 		return undefined;
 	}
 
-	const model = await resolveRecapModel(ctx, config);
+	const model = resolveRecapModel(ctx, config);
 	if (!model) {
 		if (ctx.hasUI) ctx.ui.notify("No model available for recap", "warning");
 		return undefined;
 	}
+	if (signal?.aborted) return undefined;
+
+	const controller = reason === "auto" ? new AbortController() : undefined;
+	const runSignal = signal ?? controller?.signal ?? ctx.signal;
+	const run: ActiveRecapRun = {
+		id: ++state.nextRunId,
+		reason,
+		controller,
+		signal: runSignal,
+	};
+	let displayed = false;
 
 	state.running = true;
-	ctx.ui.setStatus(STATUS_KEY, "recap...");
+	state.activeRun = run;
+	showRecapProgress(ctx, config);
 
 	try {
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (!auth.ok || !auth.apiKey) {
-			if (ctx.hasUI) ctx.ui.notify(auth.ok ? `No API key for ${model.provider}` : auth.error, "warning");
+		if (!isCurrentRecapRun(state, run)) return undefined;
+		if (!auth.ok) {
+			const message = "error" in auth ? auth.error : `Failed to resolve API key for ${model.provider}`;
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			return undefined;
+		}
+		if (!auth.apiKey) {
+			if (ctx.hasUI) ctx.ui.notify(`No API key for ${model.provider}`, "warning");
 			return undefined;
 		}
 
@@ -489,11 +524,11 @@ async function runRecap(
 				headers: auth.headers,
 				env: auth.env,
 				maxTokens: config.recap.maxTokens,
-				signal: signal ?? ctx.signal,
+				signal: runSignal,
 			},
 		);
 
-		if (response.stopReason === "aborted") return undefined;
+		if (!isCurrentRecapRun(state, run) || response.stopReason === "aborted") return undefined;
 
 		const raw = response.content
 			.filter((item): item is { type: "text"; text: string } => item.type === "text")
@@ -539,15 +574,41 @@ async function runRecap(
 		state.lastRecapAt = data.generatedAt;
 
 		displayRecap(ctx, config, data);
+		displayed = true;
 		return data;
+	} catch (error) {
+		if (runSignal?.aborted || state.activeRun !== run) return undefined;
+		throw error;
 	} finally {
-		state.running = false;
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		if (state.activeRun === run) {
+			state.activeRun = undefined;
+			state.running = false;
+			if (!displayed) clearRecapDisplay(ctx);
+		}
 	}
 }
 
+function isCurrentRecapRun(state: RecapState, run: ActiveRecapRun): boolean {
+	return state.activeRun === run && !run.signal?.aborted;
+}
+
+function clearRecapDisplay(ctx: ExtensionContext) {
+	ctx.ui.setStatus(STATUS_KEY, undefined);
+	ctx.ui.setWidget(WIDGET_KEY, undefined);
+}
+
+function showRecapProgress(ctx: ExtensionContext, config: RecapConfig) {
+	clearRecapDisplay(ctx);
+	if (config.display.mode === "status") {
+		ctx.ui.setStatus(STATUS_KEY, "Generating recap...");
+		return;
+	}
+
+	ctx.ui.setWidget(WIDGET_KEY, ["RECAP  Generating..."], { placement: config.display.widgetPlacement });
+}
+
 function displayRecapWidget(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
-	if (!config.display.widget || ctx.mode !== "tui") return;
+	if (ctx.mode !== "tui") return;
 
 	ctx.ui.setWidget(
 		WIDGET_KEY,
@@ -569,16 +630,22 @@ function displayRecapWidget(ctx: ExtensionContext, config: RecapConfig, data: Re
 	);
 }
 
-function displayRecap(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
-	if (config.display.notify && ctx.hasUI) {
-		ctx.ui.notify(`Recap: ${data.recap}`, "info");
+function displayRecapSurface(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
+	clearRecapDisplay(ctx);
+	if (config.display.mode === "status") {
+		ctx.ui.setStatus(STATUS_KEY, `Recap: ${data.recap}`);
+		return;
 	}
 
 	displayRecapWidget(ctx, config, data);
 }
 
-function clearWidget(ctx: ExtensionContext) {
-	ctx.ui.setWidget(WIDGET_KEY, undefined);
+function displayRecap(ctx: ExtensionContext, config: RecapConfig, data: RecapEntryData) {
+	if (config.display.notify && ctx.hasUI) {
+		ctx.ui.notify(`Recap: ${data.recap}`, "info");
+	}
+
+	displayRecapSurface(ctx, config, data);
 }
 
 function boolValue(value: boolean): string {
@@ -623,16 +690,16 @@ function settingItems(config: RecapConfig): SettingItem[] {
 			values: ["on", "off"],
 		},
 		{
-			id: "display.widget",
-			label: "Widget display",
-			description: "Keep latest recap near the editor.",
-			currentValue: boolValue(config.display.widget),
-			values: ["on", "off"],
+			id: "display.mode",
+			label: "Display mode",
+			description: "Show recap in either the footer status or an editor widget.",
+			currentValue: config.display.mode,
+			values: ["status", "widget"],
 		},
 		{
 			id: "display.widgetPlacement",
 			label: "Widget placement",
-			description: "Where to render recap widget if enabled.",
+			description: "Where to render recap when widget mode is selected.",
 			currentValue: config.display.widgetPlacement,
 			values: ["aboveEditor", "belowEditor"],
 		},
@@ -673,8 +740,8 @@ function applyConfigSetting(config: RecapConfig, id: string, value: string): Rec
 		case "display.notify":
 			next.display.notify = on;
 			break;
-		case "display.widget":
-			next.display.widget = on;
+		case "display.mode":
+			next.display.mode = normalizeDisplayMode(value);
 			break;
 		case "display.widgetPlacement":
 			next.display.widgetPlacement = value === "belowEditor" ? "belowEditor" : "aboveEditor";
@@ -700,10 +767,11 @@ async function editConfigJson(pi: ExtensionAPI, ctx: ExtensionContext, state: Re
 	if (edited === undefined) return;
 
 	try {
-		const parsed = JSON.parse(edited) as unknown;
+		const parsed = migrateLegacyConfig(JSON.parse(edited) as unknown);
 		const next = normalizeConfig(deepMerge(DEFAULT_CONFIG as unknown as Record<string, unknown>, parsed) as RecapConfig);
 		state.config = next;
-		if (!next.recap.enabled || !next.recap.auto) clearAutoTimer(state);
+		if (!next.recap.enabled || !next.recap.auto) stopAutomaticRecap(ctx, state);
+		refreshRecapDisplay(ctx, state);
 		await saveGlobalConfig(next);
 		await updateTmuxWindow(pi, ctx, next, state);
 		ctx.ui.notify(`Saved recap config: ${getGlobalConfigPath()}`, "info");
@@ -734,12 +802,11 @@ async function openConfigUi(pi: ExtensionAPI, ctx: ExtensionContext, state: Reca
 				state.config = next;
 				settingsList.updateValue(id, newValue);
 
-				if (!next.recap.enabled || !next.recap.auto) clearAutoTimer(state);
+				if (!next.recap.enabled || !next.recap.auto) stopAutomaticRecap(ctx, state);
+				refreshRecapDisplay(ctx, state);
 				void saveGlobalConfig(next)
 					.then(async () => {
 						await updateTmuxWindow(pi, ctx, next, state);
-						ctx.ui.setStatus("recap-config", "saved");
-						setTimeout(() => ctx.ui.setStatus("recap-config", undefined), 2000);
 					})
 					.catch((error) => {
 						ctx.ui.notify(`Failed to save recap config: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -836,9 +903,18 @@ async function restoreTmuxWindow(state: RecapState) {
 	}
 }
 
+type ActiveRecapRun = {
+	id: number;
+	reason: RecapReason;
+	controller?: AbortController;
+	signal?: AbortSignal;
+};
+
 type RecapState = {
 	config: RecapConfig;
 	running: boolean;
+	nextRunId: number;
+	activeRun?: ActiveRecapRun;
 	applyingSessionName: boolean;
 	lastRecap?: RecapEntryData;
 	lastRecapAt?: number;
@@ -854,6 +930,29 @@ function clearAutoTimer(state: RecapState) {
 	state.autoTimer = undefined;
 }
 
+function cancelActiveAutoRecap(state: RecapState): boolean {
+	const run = state.activeRun;
+	if (!run || run.reason !== "auto") return false;
+
+	state.activeRun = undefined;
+	state.running = false;
+	run.controller?.abort();
+	return true;
+}
+
+function stopAutomaticRecap(ctx: ExtensionContext, state: RecapState) {
+	clearAutoTimer(state);
+	cancelActiveAutoRecap(state);
+	clearRecapDisplay(ctx);
+}
+
+function refreshRecapDisplay(ctx: ExtensionContext, state: RecapState) {
+	clearRecapDisplay(ctx);
+	if (state.config.recap.enabled && state.lastRecap) {
+		displayRecapSurface(ctx, state.config, state.lastRecap);
+	}
+}
+
 function scheduleAutoRecap(pi: ExtensionAPI, ctx: ExtensionContext, state: RecapState) {
 	clearAutoTimer(state);
 
@@ -864,7 +963,10 @@ function scheduleAutoRecap(pi: ExtensionAPI, ctx: ExtensionContext, state: Recap
 	state.autoTimer = setTimeout(() => {
 		state.autoTimer = undefined;
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
-		void runRecap(pi, ctx, state.config, state, "auto");
+		void runRecap(pi, ctx, state.config, state, "auto").catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Failed to generate automatic recap: ${message}`, "error");
+		});
 	}, config.recap.idleAfterTurnMs);
 }
 
@@ -885,6 +987,7 @@ export default function (pi: ExtensionAPI) {
 	const state: RecapState = {
 		config: DEFAULT_CONFIG,
 		running: false,
+		nextRunId: 0,
 		applyingSessionName: false,
 		lastAppliedSessionName: false,
 	};
@@ -898,7 +1001,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		await refreshStateFromSession(ctx, state);
-		if (state.lastRecap) displayRecapWidget(ctx, state.config, state.lastRecap);
+		refreshRecapDisplay(ctx, state);
 		await updateTmuxWindow(pi, ctx, state.config, state);
 	});
 
@@ -910,17 +1013,20 @@ export default function (pi: ExtensionAPI) {
 		await updateTmuxWindow(pi, ctx, state.config, state);
 	});
 
+	pi.on("input", async (_event, ctx) => {
+		stopAutomaticRecap(ctx, state);
+	});
+
 	pi.on("agent_start", async (_event, ctx) => {
-		clearAutoTimer(state);
-		if (state.config.display.clearWidgetOnNextAgentStart) clearWidget(ctx);
+		stopAutomaticRecap(ctx, state);
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
 		scheduleAutoRecap(pi, ctx, state);
 	});
 
-	pi.on("session_shutdown", async (event, _ctx) => {
-		clearAutoTimer(state);
+	pi.on("session_shutdown", async (event, ctx) => {
+		stopAutomaticRecap(ctx, state);
 		if (state.config.tmux.restoreOnShutdown && event.reason !== "reload") {
 			await restoreTmuxWindow(state);
 		}
@@ -929,6 +1035,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("recap", {
 		description: "Generate a recent activity recap",
 		handler: async (_args, ctx: ExtensionCommandContext) => {
+			stopAutomaticRecap(ctx, state);
 			if (!state.config.recap.manualCommand) {
 				ctx.ui.notify("/recap is disabled by config", "warning");
 				return;
@@ -972,6 +1079,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("recap-config", {
 		description: "Configure recap extension",
 		handler: async (args, ctx) => {
+			stopAutomaticRecap(ctx, state);
 			const mode = args.trim();
 			if (mode === "json") {
 				await editConfigJson(pi, ctx, state);
