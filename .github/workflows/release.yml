@@ -130,6 +130,7 @@ jobs:
 
             gh release create "$RECAP_TAG" \
               --verify-tag \
+              --latest=false \
               --notes "$RECAP_NOTES" \
               --title "pi-recap v$VERSION"
           fi
