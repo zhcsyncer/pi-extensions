@@ -20,6 +20,17 @@
   ],
   "license": "MIT",
   "type": "module",
+  "files": [
+    "extensions",
+    "examples",
+    "CHANGELOG.md",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./extensions/recap.ts"
