@@ -25,10 +25,13 @@ import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import {
-  getDisplaySummary,
   stripDisplaySummary,
   withDisplaySummary,
 } from "./display-summary.js";
+import {
+  buildDeterministicDisplaySummary,
+  resolveDisplaySummaryForTool,
+} from "./display-summary-fallback.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { registerCleanup } from "./disposable.js";
 import {
@@ -58,6 +61,10 @@ import {
   MCP_PROXY_PROMPT_SNIPPET,
   toRecord,
 } from "./tool-metadata.js";
+import {
+  applyToolResultStyle,
+  formatClaudeToolCall,
+} from "./tool-call-style.js";
 import { BUILT_IN_TOOL_OVERRIDE_NAMES } from "./types.js";
 import { toCustomToolOverrideKind, toCustomToolOutputMode, normalizeCustomToolOverrideEntry } from "./config-store.js";
 import type {
@@ -117,9 +124,12 @@ interface ToolRenderContextLike {
   state?: unknown;
   cwd?: string;
   argsComplete?: boolean;
+  executionStarted?: boolean;
   isError?: boolean;
   isPartial?: boolean;
   expanded?: boolean;
+  invalidate?: () => void;
+  lastComponent?: unknown;
 }
 
 export interface WriteExecutionMeta {
@@ -208,20 +218,46 @@ type PiWithRegisterToolInterception = ExtensionAPI & {
 const decoratedToolDescriptors = new WeakMap<RuntimeToolDefinition, ToolPropertyDescriptorSnapshot>();
 const decoratedTools = new Set<RuntimeToolDefinition>();
 
+function applyRuntimeToolCallStyle(
+  tool: RuntimeToolDefinition,
+  getConfig: ConfigGetter,
+): RuntimeToolDefinition {
+  const styledTool: RuntimeToolDefinition = { ...tool };
+  if (getConfig().toolCallStyle === "claude") {
+    styledTool.renderShell = "self";
+  }
+
+  const originalRenderResult = tool.renderResult;
+  if (typeof originalRenderResult === "function") {
+    styledTool.renderResult = function renderStyledResult(result, options, theme, context) {
+      const component = originalRenderResult.call(tool, result, options, theme, context);
+      return applyToolResultStyle(component, getConfig().toolCallStyle);
+    };
+  }
+
+  return styledTool;
+}
+
 function registerRuntimeTool(
   pi: ExtensionAPI,
   tool: RuntimeToolDefinition,
   getConfig: ConfigGetter,
 ): void {
+  const styledTool = applyRuntimeToolCallStyle(tool, getConfig);
   const summaryConfig = getConfig().displaySummary;
   const registeredTool = summaryConfig.enabled
-    ? withDisplaySummary(tool as never, {
+    ? withDisplaySummary(styledTool as never, {
         required: summaryConfig.required,
         language: summaryConfig.language,
         maxLength: summaryConfig.maxLength,
         preserveRendererArgs: true,
+        fallback: () => buildDeterministicDisplaySummary(
+          tool.name,
+          summaryConfig.language,
+          summaryConfig.maxLength,
+        ),
       })
-    : tool;
+    : styledTool;
   pi.registerTool(registeredTool as unknown as ToolDefinition);
 }
 
@@ -401,19 +437,21 @@ function captureExistingWriteContent(
 
 function formatDisplaySummarySuffix(
   args: unknown,
+  toolName: string,
   theme: RenderTheme,
   config: ToolDisplayConfig,
 ): string {
-  if (!config.displaySummary.enabled || !config.displaySummary.showInTui) {
+  if (!config.displaySummary.showInTui) {
     return "";
   }
 
-  const summary = getDisplaySummary(args, config.displaySummary.maxLength);
+  const summary = resolveDisplaySummaryForTool(args, toolName, config.displaySummary);
   if (!summary) {
     return "";
   }
 
-  return `${theme.fg("muted", " — ")}${theme.fg("toolOutput", summary)}`;
+  const color = summary.source === "model" ? "toolOutput" : "dim";
+  return `${theme.fg("muted", " — ")}${theme.fg(color, summary.text)}`;
 }
 
 function formatExpandHint(theme: RenderTheme): string {
@@ -646,28 +684,30 @@ function buildPendingDiffCallComponent(
 
   const container = new Container();
   container.addChild(new Text(summaryText, 0, 0));
-  container.addChild(new Spacer(1));
+  if (config.toolCallStyle !== "claude") {
+    container.addChild(new Spacer(1));
+  }
 
   if (previewData.notice || typeof previewData.nextContent !== "string") {
-    container.addChild(new Text(theme.fg("warning", previewData.notice || "Preview unavailable."), 0, 0));
+    const notice = new Text(theme.fg("warning", previewData.notice || "Preview unavailable."), 0, 0);
+    container.addChild(applyToolResultStyle(notice, config.toolCallStyle) as Text);
     return container;
   }
 
-  container.addChild(
-    renderWriteDiffResult(
-      previewData.nextContent,
-      {
-        expanded: context.expanded === true,
-        filePath: previewData.filePath,
-        previousContent: previewData.previousContent,
-        fileExistedBeforeWrite: previewData.fileExistedBeforeWrite,
-        headerLabel: previewData.headerLabel,
-      },
-      config,
-      theme,
-      "",
-    ),
+  const diff = renderWriteDiffResult(
+    previewData.nextContent,
+    {
+      expanded: context.expanded === true,
+      filePath: previewData.filePath,
+      previousContent: previewData.previousContent,
+      fileExistedBeforeWrite: previewData.fileExistedBeforeWrite,
+      headerLabel: previewData.headerLabel,
+    },
+    config,
+    theme,
+    "",
   );
+  container.addChild(applyToolResultStyle(diff, config.toolCallStyle) as typeof diff);
   return container;
 }
 
@@ -1194,6 +1234,7 @@ function formatMcpCallLine(
   args: Record<string, unknown>,
   theme: RenderTheme,
   config: ToolDisplayConfig,
+  context?: ToolRenderContextLike,
 ): Text {
   const toolArgs = toRecord(stripDisplaySummary(args));
   const argCount = Object.keys(toolArgs).length;
@@ -1204,12 +1245,12 @@ function formatMcpCallLine(
       : toolLabel.startsWith("MCP ")
         ? toolLabel.slice("MCP ".length)
         : toolLabel;
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const line = config.toolCallStyle === "claude"
+    ? formatClaudeToolCall("mcp", theme.fg("accent", target), argSuffix, intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("accent", target)}${argSuffix}${intentSuffix}`;
 
-  return new Text(
-    `${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("accent", target)}${argSuffix}${formatDisplaySummarySuffix(args, theme, config)}`,
-    0,
-    0,
-  );
+  return new Text(line, 0, 0);
 }
 
 function getMcpTruncationDetails(details: unknown): {
@@ -1293,15 +1334,23 @@ function formatGenericToolCallLine(
   args: unknown,
   theme: RenderTheme,
   config: ToolDisplayConfig,
+  context?: ToolRenderContextLike,
 ): Text {
   const argRecord = toRecord(stripDisplaySummary(args));
   const argCount = Object.keys(argRecord).length;
   const argSuffix = formatArgCountSuffix(argCount, theme);
-  return new Text(
-    `${theme.fg("toolTitle", theme.bold(toolName))}${argSuffix}${formatDisplaySummarySuffix(args, theme, config)}`,
-    0,
-    0,
-  );
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const line = config.toolCallStyle === "claude"
+    ? formatClaudeToolCall(
+        toolName,
+        theme.fg("muted", argCount === 0 ? "no args" : `${argCount} ${pluralize(argCount, "arg")}`),
+        "",
+        intentSuffix,
+        theme,
+        context,
+      )
+    : `${theme.fg("toolTitle", theme.bold(toolName))}${argSuffix}${intentSuffix}`;
+  return new Text(line, 0, 0);
 }
 
 function getSearchScope(args: Record<string, unknown>): string {
@@ -1315,12 +1364,14 @@ function formatSearchCallLine(
   theme: RenderTheme,
   args: unknown,
   config: ToolDisplayConfig,
+  context?: ToolRenderContextLike,
 ): Text {
-  return new Text(
-    `${theme.fg("toolTitle", theme.bold(toolName))} ${theme.fg("accent", accent)}${theme.fg("muted", mutedSuffix)}${formatDisplaySummarySuffix(args, theme, config)}`,
-    0,
-    0,
-  );
+  const target = `${theme.fg("accent", accent)}${theme.fg("muted", mutedSuffix)}`;
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const line = config.toolCallStyle === "claude"
+    ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
+  return new Text(line, 0, 0);
 }
 
 function renderCustomToolResult(
@@ -1369,6 +1420,7 @@ function renderReadDisplayCall(
   theme: RenderTheme,
   adapter: ToolDisplayAdapter = {},
   config?: ToolDisplayConfig,
+  context?: ToolRenderContextLike,
  ): Text {
   const path = shortenPath(getAdapterPath(args, adapter));
   const offset = getNumericField(args, "offset");
@@ -1379,8 +1431,11 @@ function renderReadDisplayCall(
     const to = limit !== undefined ? from + limit - 1 : undefined;
     suffix = to ? `:${from}-${to}` : `:${from}`;
   }
-  const intentSuffix = config ? formatDisplaySummarySuffix(args, theme, config) : "";
-  const line = `${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", path || "...")}${theme.fg("warning", suffix)}${intentSuffix}`;
+  const target = `${theme.fg("accent", path || "...")}${theme.fg("warning", suffix)}`;
+  const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config) : "";
+  const line = config?.toolCallStyle === "claude"
+    ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold("read"))} ${target}${intentSuffix}`;
   return textResult(line);
 }
 
@@ -1434,7 +1489,12 @@ function renderEditDisplayCall(
  ): Text | Container {
   const path = shortenPath(getAdapterPath(args, adapter));
   const lineCount = adapter.getEditLineCount?.(args) ?? getEditLineCount(args);
-  const summaryText = `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${formatLineCountSuffix(lineCount, theme)}${formatDisplaySummarySuffix(args, theme, getConfig())}`;
+  const config = getConfig();
+  const lineCountSuffix = formatLineCountSuffix(lineCount, theme);
+  const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config);
+  const summaryText = config.toolCallStyle === "claude"
+    ? formatClaudeToolCall("edit", theme.fg("accent", path || "..."), lineCountSuffix, intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${lineCountSuffix}${intentSuffix}`;
   if (!context?.argsComplete || !context.isPartial) {
     return textResult(summaryText);
   }
@@ -1556,19 +1616,19 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
       if (resolvedAdapter.renderCall && (overrideExisting || typeof decorated.renderCall !== "function")) {
         decorated.renderCall = resolvedAdapter.renderCall;
       } else if (kind === "read" && (overrideExisting || typeof decorated.renderCall !== "function")) {
-        decorated.renderCall = (args: unknown, theme: RenderTheme) => renderReadDisplayCall(args, theme, resolvedAdapter, getConfig());
+        decorated.renderCall = (args: unknown, theme: RenderTheme, context?: ToolRenderContextLike) => renderReadDisplayCall(args, theme, resolvedAdapter, getConfig(), context);
       } else if (kind === "edit" && (overrideExisting || typeof decorated.renderCall !== "function")) {
         decorated.renderCall = (args: unknown, theme: RenderTheme, context: ToolRenderContextLike) => renderEditDisplayCall(args, theme, context, resolvedAdapter, getConfig);
       } else if (kind === "mcp" && (overrideExisting || typeof decorated.renderCall !== "function")) {
-        decorated.renderCall = (args: unknown, theme: RenderTheme) => {
+        decorated.renderCall = (args: unknown, theme: RenderTheme, context?: ToolRenderContextLike) => {
           const toolName = getTextField(decorated, "name") ?? "mcp";
           const toolLabel = getTextField(decorated, "label") ?? (toolName === "mcp" ? "MCP Proxy" : `MCP ${toolName}`);
-          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig());
+          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig(), context);
         };
       } else if (kind === "generic" && (overrideExisting || typeof decorated.renderCall !== "function")) {
-        decorated.renderCall = (args: unknown, theme: RenderTheme) => {
+        decorated.renderCall = (args: unknown, theme: RenderTheme, context?: ToolRenderContextLike) => {
           const toolName = getTextField(decorated, "name") ?? "tool";
-          return formatGenericToolCallLine(toolName, args, theme, getConfig());
+          return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
         };
       }
 
@@ -1585,7 +1645,17 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
           renderMcpResult(result, options, getConfig(), theme);
       }
 
-      if (kind === "edit" && (overrideExisting || typeof decorated.renderShell !== "string")) {
+      const renderResult = decorated.renderResult;
+      if (typeof renderResult === "function") {
+        decorated.renderResult = function renderStyledDecoratedResult(result, options, theme, context) {
+          const component = renderResult.call(tool, result, options, theme, context);
+          return applyToolResultStyle(component, getConfig().toolCallStyle);
+        };
+      }
+
+      if (getConfig().toolCallStyle === "claude") {
+        decorated.renderShell = "self";
+      } else if (kind === "edit" && (overrideExisting || typeof decorated.renderShell !== "string")) {
         decorated.renderShell = "default";
       }
 
@@ -1718,8 +1788,8 @@ export function registerToolDisplayOverrides(
       name: "read",
       label: "read",
       ...createBuiltinToolBase("read"),
-      renderCall(args, theme) {
-        return renderReadDisplayCall(args, theme, {}, getConfig());
+      renderCall(args, theme, context) {
+        return renderReadDisplayCall(args, theme, {}, getConfig(), context);
       },
       renderResult(result, options, theme) {
         return renderReadDisplayResult(result, options, getConfig(), theme);
@@ -1732,12 +1802,12 @@ export function registerToolDisplayOverrides(
       name: "grep",
     label: "grep",
     ...createBuiltinToolBase("grep"),
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const scope = getSearchScope(args);
       const globSuffix = args.glob ? ` (${args.glob})` : "";
       const limitSuffix =
         args.limit !== undefined ? ` limit ${args.limit}` : "";
-      return formatSearchCallLine("grep", `/${args.pattern}/`, ` in ${scope}${globSuffix}${limitSuffix}`, theme, args, getConfig());
+      return formatSearchCallLine("grep", `/${args.pattern}/`, ` in ${scope}${globSuffix}${limitSuffix}`, theme, args, getConfig(), context);
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "match", "matches");
@@ -1750,9 +1820,9 @@ export function registerToolDisplayOverrides(
       name: "find",
     label: "find",
     ...createBuiltinToolBase("find"),
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("find", args.pattern as string, ` in ${scope}${limitSuffix}`, theme, args, getConfig());
+      return formatSearchCallLine("find", args.pattern as string, ` in ${scope}${limitSuffix}`, theme, args, getConfig(), context);
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "result");
@@ -1765,9 +1835,9 @@ export function registerToolDisplayOverrides(
       name: "ls",
     label: "ls",
     ...createBuiltinToolBase("ls"),
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("ls", scope, limitSuffix, theme, args, getConfig());
+      return formatSearchCallLine("ls", scope, limitSuffix, theme, args, getConfig(), context);
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "entry", "entries");
@@ -1834,7 +1904,11 @@ export function registerToolDisplayOverrides(
       })
         ? formatWriteCallSuffix(lineCount, sizeBytes, theme)
         : "";
-      const summaryText = `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}${formatDisplaySummarySuffix(args, theme, getConfig())}`;
+      const config = getConfig();
+      const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config);
+      const summaryText = config.toolCallStyle === "claude"
+        ? formatClaudeToolCall("write", theme.fg("accent", path || "..."), suffix, intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}${intentSuffix}`;
       if (!context.argsComplete || !context.isPartial) {
         return textResult(summaryText);
       }
@@ -1883,7 +1957,8 @@ export function registerToolDisplayOverrides(
     label: "bash",
     ...createBuiltinToolBase("bash"),
     renderCall(args, theme, context) {
-      return renderBashCall(args, theme, context as never, getConfig().displaySummary);
+      const config = getConfig();
+      return renderBashCall(args, theme, context as never, config.displaySummary, config.toolCallStyle);
     },
     renderResult(result, options, theme, context) {
       const config = getConfig();
@@ -1988,11 +2063,11 @@ export function registerToolDisplayOverrides(
       {
         kind: override.kind,
         overrideExistingRenderers: true,
-        renderCall(args, theme) {
+        renderCall(args, theme, context) {
           if (override.kind === "mcp") {
-            return formatMcpCallLine("mcp", "MCP Proxy", toRecord(args), theme, getConfig());
+            return formatMcpCallLine("mcp", "MCP Proxy", toRecord(args), theme, getConfig(), context);
           }
-          return formatGenericToolCallLine(toolName, args, theme, getConfig());
+          return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
         },
         renderResult(result, options, theme) {
           return renderCustomToolResult(
@@ -2059,8 +2134,8 @@ export function registerToolDisplayOverrides(
       {
         kind: "mcp",
         overrideExistingRenderers: true,
-        renderCall(args, theme) {
-          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig());
+        renderCall(args, theme, context) {
+          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig(), context);
         },
         renderResult(result, options, theme) {
           return renderMcpResult(

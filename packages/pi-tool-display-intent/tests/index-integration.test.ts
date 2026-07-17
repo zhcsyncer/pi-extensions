@@ -282,6 +282,39 @@ test("lifecycle events fire in expected order during a session lifecycle", async
   assert.ok(true, "lifecycle handlers completed without error");
 });
 
+test("context handlers retain displaySummary examples for follow-up model calls", async () => {
+  const { api, capturedHandlers } = createApiStub();
+  toolDisplayExtension(api);
+
+  const contextHandlers = capturedHandlers.filter((entry) => entry.event === "context");
+  assert.ok(contextHandlers.length > 0);
+  const event = {
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "read",
+            arguments: {
+              path: "README.md",
+              displaySummary: "检查项目说明",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  for (const entry of contextHandlers) {
+    await entry.handler(event, {});
+  }
+
+  const content = event.messages[0]?.content[0];
+  assert.equal(content?.arguments.displaySummary, "检查项目说明");
+});
+
 test("session_start handler tolerates missing ctx.ui", async () => {
   const { api, capturedHandlers } = createApiStub();
   toolDisplayExtension(api);

@@ -7,6 +7,7 @@ export const BASH_OUTPUT_MODES = ["opencode", "summary", "preview"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
 export const DISPLAY_SUMMARY_LANGUAGES = ["auto", "zh-CN", "en"] as const;
+export const TOOL_CALL_STYLES = ["compact", "claude"] as const;
 
 export type ReadOutputMode = (typeof READ_OUTPUT_MODES)[number];
 export type SearchOutputMode = (typeof SEARCH_OUTPUT_MODES)[number];
@@ -17,6 +18,7 @@ export type BashOutputMode = (typeof BASH_OUTPUT_MODES)[number];
 export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 export type DisplaySummaryLanguage = (typeof DISPLAY_SUMMARY_LANGUAGES)[number];
+export type ToolCallStyle = (typeof TOOL_CALL_STYLES)[number];
 
 export const BUILT_IN_TOOL_OVERRIDE_NAMES = [
 	"read",
@@ -59,6 +61,7 @@ export interface ToolDisplayConfig {
 	registerToolOverrides: ToolOverrideOwnership;
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	displaySummary: DisplaySummaryConfig;
+	toolCallStyle: ToolCallStyle;
 	enableNativeUserMessageBox: boolean;
 	readOutputMode: ReadOutputMode;
 	searchOutputMode: SearchOutputMode;
@@ -95,6 +98,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		showInTui: true,
 		maxLength: 96,
 	},
+	toolCallStyle: "compact",
 	enableNativeUserMessageBox: true,
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",

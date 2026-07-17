@@ -16,6 +16,7 @@ import {
 	MCP_OUTPUT_MODES,
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
+	TOOL_CALL_STYLES,
 	type ToolDisplayConfig,
 	type ToolOverrideOwnership,
 } from "./types.js";
@@ -64,6 +65,12 @@ function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
 	return BASH_OUTPUT_MODES.includes(value as ToolDisplayConfig["bashOutputMode"])
 		? (value as ToolDisplayConfig["bashOutputMode"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode;
+}
+
+function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
+	return TOOL_CALL_STYLES.includes(value as ToolDisplayConfig["toolCallStyle"])
+		? (value as ToolDisplayConfig["toolCallStyle"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle;
 }
 
 function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
@@ -232,6 +239,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		displaySummary: normalizeDisplaySummaryConfig(source.displaySummary),
+		toolCallStyle: toToolCallStyle(source.toolCallStyle),
 		enableNativeUserMessageBox: toBoolean(
 			source.enableNativeUserMessageBox,
 			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,

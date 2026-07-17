@@ -45,6 +45,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`owners={${toolOwnershipSummary(config)}}`,
 		`intent=${toOnOff(config.displaySummary.enabled)}/${config.displaySummary.language}/${config.displaySummary.required ? "required" : "optional"}`,
 		`intentTui=${toOnOff(config.displaySummary.showInTui)}`,
+		`toolCallStyle=${config.toolCallStyle}`,
 		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
 		`read=${config.readOutputMode}`,
 		`search=${config.searchOutputMode}`,
@@ -84,7 +85,7 @@ function buildAdvancedNotes(
 ): string[] {
 	const notes = [
 		...extra,
-		"Manual JSON edits also expose displaySummary.*, registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
+		"Manual JSON edits also expose displaySummary.*, toolCallStyle, registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
 		`Tool ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
 		`Truncation hints are ${toOnOff(config.showTruncationHints)}${capabilities.hasRtkOptimizer ? `; RTK hints are ${toOnOff(config.showRtkCompactionHints)}.` : "."}`,
 	];
@@ -139,6 +140,27 @@ function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["intent", "summary", "model", "rpc", "progress", "displaySummary"],
+		},
+		{
+			id: "toolCallStyle",
+			label: "Tool call style",
+			currentValue: config.toolCallStyle,
+			values: ["compact", "claude"],
+			inspectorTitle: "Tool Call Style",
+			inspectorSummary: [
+				"Controls the framing used for tool calls and results in the Pi transcript.",
+				"Claude style uses status markers, Name(target) headers, an unboxed shell, and indented ⎿ result rows while preserving real arguments and diffs.",
+			],
+			inspectorOptions: [
+				"compact — original boxed pi-tool-display layout",
+				"claude — Claude Code-inspired status and result framing",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Changing the shell style takes effect after /reload.",
+				"Model-written intent remains a suffix; deterministic paths, commands, patterns, and diff metadata are never replaced.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["tool", "style", "claude", "compact", "status", "result", "shell"],
 		},
 		{
 			id: "readOutputMode",
@@ -354,6 +376,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 					...config.displaySummary,
 					enabled: value === "on",
 				},
+			};
+		case "toolCallStyle":
+			return {
+				...config,
+				toolCallStyle: value as ToolDisplayConfig["toolCallStyle"],
 			};
 		case "enableNativeUserMessageBox":
 			return {

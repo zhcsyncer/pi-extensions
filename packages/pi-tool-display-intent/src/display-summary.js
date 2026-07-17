@@ -140,6 +140,18 @@ function resolveFallback(tool, args, options) {
   return normalizeDisplaySummary(fallback, options.maxLength);
 }
 
+function backfillDisplaySummary(args, summary) {
+  if (!isRecord(args) || !summary || getDisplaySummary(args)) {
+    return;
+  }
+
+  try {
+    Reflect.set(args, DISPLAY_SUMMARY_FIELD, summary);
+  } catch {
+    // Frozen or proxy-backed provider arguments still receive the prepared fallback.
+  }
+}
+
 export function withDisplaySummary(tool, rawOptions = {}) {
   if (!isRecord(tool)) {
     throw new TypeError("A tool definition object is required.");
@@ -161,7 +173,8 @@ export function withDisplaySummary(tool, rawOptions = {}) {
     : undefined;
   const originalGuidelines = Array.isArray(tool.promptGuidelines) ? tool.promptGuidelines : [];
   const languageGuideline = languageInstruction(options.language);
-  const intentGuideline = `For every tool call, set ${DISPLAY_SUMMARY_FIELD} to a concise user-facing phrase describing that call's intent. ${languageGuideline} Never include secrets or credentials.`;
+  const toolName = typeof tool.name === "string" && tool.name.trim() ? tool.name.trim() : "tool";
+  const intentGuideline = `Every ${toolName} call must include ${DISPLAY_SUMMARY_FIELD}, including follow-up calls in the same agent run. Set it to a concise user-facing phrase describing that call's intent. ${languageGuideline} Never include secrets or credentials.`;
 
   const wrapped = {
     ...tool,
@@ -170,6 +183,7 @@ export function withDisplaySummary(tool, rawOptions = {}) {
     parameters: addDisplaySummaryParameter(tool.parameters, options),
     prepareArguments(args) {
       const summary = getDisplaySummary(args, options.maxLength) ?? resolveFallback(tool, args, options);
+      backfillDisplaySummary(args, summary);
       const toolArgs = stripDisplaySummary(args);
       const prepared = originalPrepareArguments
         ? originalPrepareArguments.call(tool, toolArgs)

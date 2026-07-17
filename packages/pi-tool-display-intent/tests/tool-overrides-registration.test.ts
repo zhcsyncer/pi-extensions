@@ -280,6 +280,62 @@ test("registerToolDisplayOverrides forces edit into the default render shell so 
 	assert.equal(byName.get("edit")?.renderShell, "default");
 });
 
+test("Claude style uses self-rendered tool headers, deterministic fallbacks, and indented results", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallStyle: "claude" as const,
+		readOutputMode: "summary" as const,
+		displaySummary: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary,
+			language: "zh-CN" as const,
+		},
+	};
+	registerToolDisplayOverrides(api, () => config);
+
+	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
+	for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
+		assert.equal(byName.get(name)?.renderShell, "self", `${name} uses the self shell`);
+	}
+
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+	const read = byName.get("read");
+	const call = read?.renderCall?.(
+		{ path: "sample.txt" },
+		theme,
+		{ executionStarted: true, isPartial: false },
+	) as { render(width: number): string[] };
+	assert.equal(call.render(120).map((line) => line.trimEnd()).join("\n"), "● Read(sample.txt) — 读取文件");
+
+	const callCases: Array<{ name: string; args: Record<string, unknown>; expected: RegExp }> = [
+		{ name: "grep", args: { pattern: "needle", path: "src" }, expected: /^● Search\(\/needle\/ in src\).*搜索文件内容$/ },
+		{ name: "find", args: { pattern: "**\/*.ts" }, expected: /^● Find\(\*\*\/\*\.ts in \.\).*查找匹配文件$/ },
+		{ name: "ls", args: { path: "src" }, expected: /^● List\(src\).*列出目录内容$/ },
+		{ name: "bash", args: { command: "pnpm test" }, expected: /^● Bash\(pnpm test\).*执行命令$/ },
+		{ name: "edit", args: { path: "sample.txt", edits: [{ oldText: "a", newText: "b" }] }, expected: /^● Update\(sample\.txt\).*更新文件$/ },
+		{ name: "write", args: { path: "sample.txt", content: "hello" }, expected: /^● Write\(sample\.txt\).*写入文件$/ },
+	];
+	for (const entry of callCases) {
+		const rendered = byName.get(entry.name)?.renderCall?.(
+			entry.args,
+			theme,
+			{ argsComplete: false, executionStarted: true, isPartial: false },
+		) as { render(width: number): string[] };
+		assert.match(rendered.render(160).map((line) => line.trimEnd()).join("\n"), entry.expected);
+	}
+
+	const result = read?.renderResult?.(
+		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
+		{ expanded: false, isPartial: false },
+		theme,
+		{},
+	) as { render(width: number): string[] };
+	assert.equal(result.render(120).map((line) => line.trimEnd()).join("\n"), "  ⎿ loaded 2 lines • Ctrl+O to expand");
+});
+
 test("registerToolDisplayOverrides leaves externally owned read/edit/grep tools active", async () => {
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub([
 		{ name: "read", sourceInfo: { source: "local", path: "agent/extensions/example-read/src/read.ts" } },

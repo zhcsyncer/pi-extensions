@@ -348,7 +348,7 @@ test("MCP renderCall shows tool target and arg count with no args", async () => 
 
 	const component = mcpTool.renderCall!({}, createTheme());
 	const rendered = (component as { render: (w: number) => string[] }).render(120).map(l => l.trimEnd()).join("\n").trim();
-	assert.equal(rendered, "MCP status (no args)");
+	assert.equal(rendered, "MCP status (no args) — Run mcp");
 });
 
 test("MCP renderCall shows server:tool when both tool and server args are present", async () => {
@@ -364,7 +364,7 @@ test("MCP renderCall shows server:tool when both tool and server args are presen
 	await runLifecycle(eventHandlers);
 
 	const component = mcpTool.renderCall!({ tool: "read_file", server: "filesystem" }, createTheme());
-	assert.equal(renderToText(component), "MCP call filesystem:read_file (2 args)");
+	assert.equal(renderToText(component), "MCP call filesystem:read_file (2 args) — Run mcp");
 });
 
 // ─── Existing MCP Adapter Renderers ──────────────────────────────────────────
@@ -388,7 +388,7 @@ test("pi-mcp-adapter tools with existing renderers are overridden by MCP display
 	const callText = renderToText(mcpTool.renderCall!({ tool: "read_file", server: "filesystem" }, createTheme()));
 	const resultText = renderToText(mcpTool.renderResult!({ content: [{ type: "text", text: "line 1\nline 2" }] }, { expanded: false }, createTheme()));
 
-	assert.equal(callText, "MCP call filesystem:read_file (2 args)");
+	assert.equal(callText, "MCP call filesystem:read_file (2 args) — Run mcp");
 	assert.equal(resultText, "↳ 2 lines returned • Ctrl+O to expand");
 });
 

@@ -7,6 +7,9 @@
 ```text
 read docs/tax-code.pdf — Checking the Colorado tax code
 $ pnpm test — Verifying the extension test suite
+
+● Read(docs/tax-code.pdf) — Checking the Colorado tax code
+  ⎿ loaded 42 lines
 ```
 
 The model writes `displaySummary` as part of the normal tool call. The extension does **not** make an additional inference request, use a second model, or require another API key.
@@ -16,9 +19,10 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 - Adds `displaySummary` to the owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` schemas.
 - Shows the intent beside deterministic metadata such as paths, commands, patterns, and diff information.
 - Strips the presentation field before calling the original tool implementation.
-- Keeps the raw field available to Pi RPC consumers.
-- Removes old intent phrases from future model context while retaining session/RPC history.
+- Keeps the raw field available to Pi RPC consumers and retains it in later model context so follow-up calls keep producing intent.
+- Uses deterministic per-tool fallbacks when a model or historical call omits the field.
 - Sanitizes terminal control sequences and bounds displayed intent length.
+- Offers an optional Claude Code-inspired TUI style with status markers, `Name(target)` headers, unboxed rows, and indented `⎿` results.
 - Preserves the compact output modes, MCP rendering, pending diff previews, adaptive edit/write diffs, thinking labels, and native user prompt box inherited from `pi-tool-display`.
 - Provides a cooperative API for custom tools.
 
@@ -80,7 +84,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. A complete template is available at [`config/config.example.json`](./config/config.example.json).
 
-Intent settings:
+Intent and tool-call style settings:
 
 ```json
 {
@@ -90,7 +94,8 @@ Intent settings:
     "language": "auto",
     "showInTui": true,
     "maxLength": 96
-  }
+  },
+  "toolCallStyle": "compact"
 }
 ```
 
@@ -101,8 +106,9 @@ Intent settings:
 | `language` | `"auto"` | `auto`, `zh-CN`, or `en`. Auto follows the user's primary language. |
 | `showInTui` | `true` | Show the sanitized intent beside deterministic call metadata. |
 | `maxLength` | `96` | Maximum accepted/displayed length, clamped to 16–256 characters. |
+| `toolCallStyle` | `"compact"` | Use `compact` or the optional Claude Code-inspired `claude` framing. Changing it requires `/reload`. |
 
-If an old or incomplete call omits the required field, `prepareArguments` supplies a deterministic fallback so validation and execution can continue. Since Pi emits `tool_execution_start` before preparation, RPC clients should still provide their own fallback when the raw event has no summary.
+If an old or incomplete call omits the required field, the renderer immediately shows a deterministic per-tool fallback and `prepareArguments` backfills the raw argument object before validation. Execution can therefore continue, and later TUI/RPC updates can observe the fallback. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 
 The remaining display settings are inherited from `pi-tool-display`, including:
 
@@ -165,7 +171,7 @@ The raw call remains suitable for RPC UI progress:
 }
 ```
 
-Before a later model request, the extension removes `displaySummary` from assistant tool-call arguments in the outgoing context copy. This avoids accumulating presentation-only tokens without modifying persisted session or RPC history.
+The extension retains `displaySummary` in later model context. This small token cost gives the model valid recent examples and prevents resumed or multi-turn runs from teaching the model to omit the required field. Persisted Session and RPC history keep the same argument as well.
 
 ## Security and cost
 
@@ -207,7 +213,7 @@ This package is a modified fork of:
 
 The original `pi-tool-display` license is preserved verbatim in [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE), and its release history is preserved in [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md). The combined copyright and permission notice is in [`LICENSE`](./LICENSE).
 
-Major modifications in this fork include model-written intent schemas, TUI intent rendering, context cleanup, a cooperative custom-tool wrapper, renamed package/config/command namespaces, pnpm workspace integration, and macOS-safe workspace preview path handling.
+Major modifications in this fork include model-written intent schemas, deterministic fallbacks, optional Claude Code-inspired TUI framing, a cooperative custom-tool wrapper, renamed package/config/command namespaces, pnpm workspace integration, and macOS-safe workspace preview path handling.
 
 ## License
 

@@ -7,6 +7,9 @@
 ```text
 read docs/tax-code.pdf — 检查 Colorado 税法
 $ pnpm test — 验证 extension 测试套件
+
+● Read(docs/tax-code.pdf) — 检查 Colorado 税法
+  ⎿ loaded 42 lines
 ```
 
 `displaySummary` 由当前模型在正常 tool call 中生成。这个 extension **不会**额外发起推理请求，不使用第二个模型，也不需要额外 API Key。
@@ -16,9 +19,10 @@ $ pnpm test — 验证 extension 测试套件
 - 为持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` Schema 添加 `displaySummary`。
 - 在 TUI 中同时展示模型意图与路径、命令、pattern、diff 等确定性信息。
 - 调用原始工具前剥离纯展示字段，保持工具执行语义不变。
-- 在 Pi RPC 原始事件中保留该字段，供自定义 UI 显示进度。
-- 后续模型请求前从上下文副本中清理旧意图，避免展示 token 累积；Session/RPC 历史不受影响。
+- 在 Pi RPC 原始事件及后续模型上下文中保留该字段，让 follow-up 调用继续生成意图。
+- 模型或历史调用漏掉字段时，使用按工具区分的确定性 fallback。
 - 渲染前清理终端控制序列，并限制摘要长度。
+- 可选用 Claude Code 风格 TUI：状态标记、`Name(target)` 标题、无背景框调用行和缩进的 `⎿` 结果。
 - 保留 fork 自 `pi-tool-display` 的输出折叠、MCP 展示、pending diff、edit/write diff、thinking label 和原生用户消息框。
 - 为自定义工具提供合作式包装 API。
 
@@ -80,7 +84,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。完整模板见 [`config/config.example.json`](./config/config.example.json)。
 
-意图相关配置：
+意图和工具调用样式配置：
 
 ```json
 {
@@ -90,7 +94,8 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
     "language": "auto",
     "showInTui": true,
     "maxLength": 96
-  }
+  },
+  "toolCallStyle": "compact"
 }
 ```
 
@@ -101,8 +106,9 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 | `language` | `"auto"` | 支持 `auto`、`zh-CN`、`en`；auto 跟随用户主要语言。 |
 | `showInTui` | `true` | 在确定性调用信息旁显示清理后的意图。 |
 | `maxLength` | `96` | 接受和显示的最大长度，限制在 16～256 字符。 |
+| `toolCallStyle` | `"compact"` | 支持 `compact` 或可选的 Claude Code 风格 `claude`；修改后需要 `/reload`。 |
 
-旧 Session 或不完整 tool call 缺少必填字段时，`prepareArguments` 会补充确定性 fallback，避免校验和执行失败。由于 Pi 在参数准备前发送 `tool_execution_start`，RPC 客户端仍应在原始事件没有摘要时自行 fallback。
+旧 Session 或不完整 tool call 缺少必填字段时，renderer 会立即显示按工具区分的确定性 fallback，`prepareArguments` 也会在校验前回填原始参数对象。这样执行不会失败，后续 TUI/RPC 更新也能观察到 fallback。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 
 其余展示配置继承自 `pi-tool-display`，包括：
 
@@ -165,7 +171,7 @@ RPC UI 可以直接读取原始调用：
 }
 ```
 
-后续调用模型前，extension 会从待发送的 assistant tool-call 参数副本中删除 `displaySummary`，避免纯展示 token 持续累积，同时不修改持久化 Session 或 RPC 历史。
+extension 会在后续模型上下文中保留 `displaySummary`。这会增加少量 token，但能给模型持续提供正确示例，避免恢复旧 Session 或连续工具 turn 时反向教会模型省略必填字段。持久化 Session 与 RPC 历史同样保留该参数。
 
 ## 安全与成本
 
@@ -225,7 +231,7 @@ pnpm --filter @zhcsyncer/pi-tool-display-intent check
 
 原 `pi-tool-display` 许可证原文保存在 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)，其发版历史保存在 [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)。合并后的版权和授权声明见 [`LICENSE`](./LICENSE)。
 
-本 fork 的主要修改包括：模型意图 Schema、TUI 意图展示、上下文清理、自定义工具合作式 wrapper、独立 package/config/command 命名空间、pnpm workspace 集成，以及兼容 macOS 路径别名的 workspace preview 安全检查。
+本 fork 的主要修改包括：模型意图 Schema、确定性 fallback、可选的 Claude Code 风格 TUI、自定义工具合作式 wrapper、独立 package/config/command 命名空间、pnpm workspace 集成，以及兼容 macOS 路径别名的 workspace preview 安全检查。
 
 ## License
 

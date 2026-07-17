@@ -14,7 +14,6 @@ import {
 } from "./capabilities.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
-import { registerDisplaySummaryContextSanitizer } from "./display-summary-context.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
 import registerNativeUserMessageBox from "./user-message-box-native.js";
 import {
@@ -35,7 +34,8 @@ function toolRegistrationChanged(
     previous.displaySummary.enabled !== next.displaySummary.enabled ||
     previous.displaySummary.required !== next.displaySummary.required ||
     previous.displaySummary.language !== next.displaySummary.language ||
-    previous.displaySummary.maxLength !== next.displaySummary.maxLength;
+    previous.displaySummary.maxLength !== next.displaySummary.maxLength ||
+    previous.toolCallStyle !== next.toolCallStyle;
   return ownershipChanged || summarySchemaChanged;
 }
 
@@ -93,7 +93,6 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   registerToolDisplayOverrides(pi, getEffectiveConfig);
   registerNativeUserMessageBox(pi, getConfig);
   registerThinkingLabeling(pi);
-  registerDisplaySummaryContextSanitizer(pi);
 
   pi.registerCommand("tool-display-intent", {
     description: "Configure intent-aware tool rendering",

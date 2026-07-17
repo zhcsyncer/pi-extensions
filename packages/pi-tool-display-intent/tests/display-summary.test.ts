@@ -7,7 +7,6 @@ import {
 	stripDisplaySummary,
 	withDisplaySummary,
 } from "../src/display-summary.js";
-import { stripDisplaySummariesFromContextMessages } from "../src/display-summary-context.js";
 
 const SCHEMA_KIND = Symbol("schema-kind");
 
@@ -91,12 +90,14 @@ test("withDisplaySummary preserves preparation order and strips presentation arg
 	assert.deepEqual(executedInput, { value: "alpha", prepared: true });
 });
 
-test("withDisplaySummary supplies a validation fallback for old or incomplete calls", () => {
+test("withDisplaySummary supplies and backfills a validation fallback for incomplete calls", () => {
+	const raw = { value: "alpha" };
 	const wrapped = withDisplaySummary(createTool(), { language: "zh-CN" });
-	assert.deepEqual(wrapped.prepareArguments?.({ value: "alpha" }), {
+	assert.deepEqual(wrapped.prepareArguments?.(raw), {
 		value: "alpha",
 		displaySummary: "正在运行 Probe",
 	});
+	assert.equal((raw as Record<string, unknown>).displaySummary, "正在运行 Probe");
 });
 
 test("renderer args are stripped by default and can be preserved for intent-aware renderers", () => {
@@ -130,30 +131,4 @@ test("summary helpers sanitize terminal controls, normalize whitespace, and are 
 
 	const wrapped = withDisplaySummary(createTool());
 	assert.equal(withDisplaySummary(wrapped), wrapped);
-});
-
-test("context sanitization removes summaries only from outgoing assistant tool calls", () => {
-	const messages = [
-		{ role: "user", content: "Inspect alpha" },
-		{
-			role: "assistant",
-			content: [
-				{ type: "thinking", thinking: "Need a tool" },
-				{
-					type: "toolCall",
-					id: "call-1",
-					name: "probe",
-					arguments: { value: "alpha", displaySummary: "Inspecting alpha" },
-				},
-			],
-		},
-	];
-
-	const sanitized = stripDisplaySummariesFromContextMessages(messages) as typeof messages;
-	assert.notEqual(sanitized, messages);
-	assert.deepEqual((sanitized[1]?.content as Array<Record<string, unknown>>)[1]?.arguments, { value: "alpha" });
-	assert.deepEqual((messages[1]?.content as Array<Record<string, unknown>>)[1]?.arguments, {
-		value: "alpha",
-		displaySummary: "Inspecting alpha",
-	});
 });

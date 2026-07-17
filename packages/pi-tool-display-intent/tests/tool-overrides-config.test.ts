@@ -502,7 +502,7 @@ test("bash call spinner appears only while execution is active", async () => {
 
 	const bashTool = registeredTools.find((tool) => tool.name === "bash");
 	const idle = renderToolCall(bashTool, { command: "npm test" });
-	assert.equal(idle.output, "$ npm test");
+	assert.equal(idle.output, "$ npm test — Run command");
 
 	let invalidateCount = 0;
 	const running = renderToolCall(
@@ -517,12 +517,12 @@ test("bash call spinner appears only while execution is active", async () => {
 			},
 		},
 	);
-	assert.match(running.output, /^⠋ \$ npm test · 0s$/);
+	assert.match(running.output, /^⠋ \$ npm test · 0s — Run command$/);
 
 	await new Promise((resolve) => setTimeout(resolve, 220));
 	const animatedFrame = normalizeRenderedText(running.component);
 	assert.notEqual(animatedFrame, running.output);
-	assert.match(animatedFrame, /^⠙ \$ npm test · 0s$/);
+	assert.match(animatedFrame, /^⠙ \$ npm test · 0s — Run command$/);
 	assert.ok(invalidateCount > 0);
 
 	const complete = renderToolCall(
@@ -535,7 +535,7 @@ test("bash call spinner appears only while execution is active", async () => {
 			isPartial: false,
 		},
 	);
-	assert.equal(complete.output, "$ npm test");
+	assert.equal(complete.output, "$ npm test — Run command");
 });
 
 test("bash render keeps the running result area empty until output exists", async () => {

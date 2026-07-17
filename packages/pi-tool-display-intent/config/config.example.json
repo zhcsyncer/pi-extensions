@@ -16,6 +16,7 @@
     "showInTui": true,
     "maxLength": 96
   },
+  "toolCallStyle": "compact",
   "customToolOverrides": {
     "ide_find_symbol": {
       "enabled": false,

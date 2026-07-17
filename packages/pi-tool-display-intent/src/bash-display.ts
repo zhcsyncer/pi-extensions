@@ -1,6 +1,8 @@
 import { Text } from "@earendil-works/pi-tui";
-import { getDisplaySummary } from "./display-summary.js";
+import { resolveDisplaySummaryForTool } from "./display-summary-fallback.js";
 import { registerCleanup, registerTimer } from "./disposable.js";
+import { formatClaudeToolCall } from "./tool-call-style.js";
+import type { DisplaySummaryConfig, ToolCallStyle } from "./types.js";
 
 const BASH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const BASH_SPINNER_INTERVAL_MS = 200;
@@ -15,11 +17,7 @@ interface BashCallArgs {
 	timeout?: number;
 }
 
-interface BashDisplaySummaryConfig {
-	enabled: boolean;
-	showInTui: boolean;
-	maxLength: number;
-}
+type BashDisplaySummaryConfig = DisplaySummaryConfig;
 
 interface BashCallRenderTheme {
 	fg(color: string, text: string): string;
@@ -39,6 +37,7 @@ interface BashSpinnerStateCarrier {
 
 interface BashCallRenderContextLike {
 	executionStarted: boolean;
+	isError?: boolean;
 	isPartial: boolean;
 	invalidate?: () => void;
 	lastComponent?: unknown;
@@ -150,6 +149,8 @@ function buildBashCallText(
 	spinnerFrame?: string,
 	elapsedMs?: number,
 	displaySummaryConfig?: BashDisplaySummaryConfig,
+	toolCallStyle: ToolCallStyle = "compact",
+	context?: BashCallRenderContextLike,
 ): string {
 	const commandDisplay = buildCommandDisplay(args);
 	const shellSuffix =
@@ -166,13 +167,24 @@ function buildBashCallText(
 		spinnerFrame && elapsedMs !== undefined
 			? theme.fg("muted", ` · ${formatElapsed(elapsedMs)}`)
 			: "";
-	const displaySummary =
-		displaySummaryConfig?.enabled && displaySummaryConfig.showInTui
-			? getDisplaySummary(args, displaySummaryConfig.maxLength)
-			: undefined;
+	const displaySummary = displaySummaryConfig?.showInTui
+		? resolveDisplaySummaryForTool(args, "bash", displaySummaryConfig)
+		: undefined;
 	const intentSuffix = displaySummary
-		? `${theme.fg("muted", " — ")}${theme.fg("toolOutput", displaySummary)}`
+		? `${theme.fg("muted", " — ")}${theme.fg(displaySummary.source === "model" ? "toolOutput" : "dim", displaySummary.text)}`
 		: "";
+
+	if (toolCallStyle === "claude") {
+		return formatClaudeToolCall(
+			"bash",
+			theme.fg("accent", commandDisplay),
+			`${shellSuffix}${timeoutSuffix}${elapsedSuffix}`,
+			intentSuffix,
+			theme,
+			context,
+			spinnerFrame,
+		);
+	}
 
 	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${theme.fg("accent", commandDisplay)}${shellSuffix}${timeoutSuffix}${elapsedSuffix}${intentSuffix}`;
 }
@@ -182,6 +194,7 @@ export function renderBashCall(
 	theme: BashCallRenderTheme,
 	context: BashCallRenderContextLike,
 	displaySummaryConfig?: BashDisplaySummaryConfig,
+	toolCallStyle: ToolCallStyle = "compact",
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const carrier = toStateCarrier(context.state);
@@ -191,7 +204,7 @@ export function renderBashCall(
 
 	if (!shouldSpin) {
 		stopSpinner(toolCallId, spinnerState);
-		text.setText(buildBashCallText(args, theme, undefined, undefined, displaySummaryConfig));
+		text.setText(buildBashCallText(args, theme, undefined, undefined, displaySummaryConfig, toolCallStyle, context));
 		return text;
 	}
 
@@ -207,6 +220,8 @@ export function renderBashCall(
 						BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 						Date.now() - (spinnerState.startedAt ?? Date.now()),
 						displaySummaryConfig,
+						toolCallStyle,
+						context,
 					),
 				);
 				context.invalidate?.();
@@ -225,6 +240,6 @@ export function renderBashCall(
 	const elapsedMs = spinnerState?.startedAt !== undefined
 		? Date.now() - spinnerState.startedAt
 		: undefined;
-	text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs, displaySummaryConfig));
+	text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs, displaySummaryConfig, toolCallStyle, context));
 	return text;
 }

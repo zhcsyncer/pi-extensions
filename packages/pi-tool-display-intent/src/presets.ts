@@ -71,6 +71,7 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		a.displaySummary.language === b.displaySummary.language &&
 		a.displaySummary.showInTui === b.displaySummary.showInTui &&
 		a.displaySummary.maxLength === b.displaySummary.maxLength &&
+		a.toolCallStyle === b.toolCallStyle &&
 		a.enableNativeUserMessageBox === b.enableNativeUserMessageBox &&
 		a.readOutputMode === b.readOutputMode &&
 		a.searchOutputMode === b.searchOutputMode &&
