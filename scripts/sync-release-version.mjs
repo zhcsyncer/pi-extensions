@@ -1,12 +1,21 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const rootPackage = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-const recapPackage = JSON.parse(await readFile(new URL("../packages/pi-recap/package.json", import.meta.url), "utf8"));
+const packageFiles = [
+	new URL("../package.json", import.meta.url),
+	new URL("../packages/pi-recap/package.json", import.meta.url),
+	new URL("../packages/pi-tool-display-intent/package.json", import.meta.url),
+];
+const packages = await Promise.all(
+	packageFiles.map(async (packageFile) => JSON.parse(await readFile(packageFile, "utf8"))),
+);
+const [rootPackage, ...workspacePackages] = packages;
 
-if (rootPackage.version !== recapPackage.version) {
-	throw new Error(
-		`Fixed package versions diverged: ${rootPackage.name}@${rootPackage.version} and ${recapPackage.name}@${recapPackage.version}`,
-	);
+for (const workspacePackage of workspacePackages) {
+	if (rootPackage.version !== workspacePackage.version) {
+		throw new Error(
+			`Fixed package versions diverged: ${rootPackage.name}@${rootPackage.version} and ${workspacePackage.name}@${workspacePackage.version}`,
+		);
+	}
 }
 
 const version = rootPackage.version;
@@ -14,6 +23,8 @@ const readmes = [
 	new URL("../README.md", import.meta.url),
 	new URL("../packages/pi-recap/README.md", import.meta.url),
 	new URL("../packages/pi-recap/README.zh-CN.md", import.meta.url),
+	new URL("../packages/pi-tool-display-intent/README.md", import.meta.url),
+	new URL("../packages/pi-tool-display-intent/README.zh-CN.md", import.meta.url),
 ];
 const gitInstallPattern = /(git:github\.com\/zhcsyncer\/pi-extensions)@v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g;
 

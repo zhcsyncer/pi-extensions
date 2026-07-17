@@ -19,7 +19,13 @@
   "type": "module",
   "files": [
     "packages/*/extensions/**/*.ts",
-    "packages/*/extensions/**/*.js"
+    "packages/*/extensions/**/*.js",
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.js",
+    "packages/*/src/**/*.d.ts",
+    "packages/*/README*.md",
+    "packages/*/LICENSE",
+    "packages/*/UPSTREAM_LICENSE"
   ],
   "publishConfig": {
     "access": "public"
@@ -29,12 +35,13 @@
     "version-packages": "changeset version && node scripts/sync-release-version.mjs",
     "release": "changeset publish",
     "check": "pnpm check:smoke && pnpm check:pack",
-    "check:smoke": "pi -e . --list-models __pi_release_check__ && pi -e ./packages/pi-recap --list-models __pi_release_check__",
-    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap"
+    "check:smoke": "pi --no-extensions -e . --list-models __pi_release_check__ && pi --no-extensions -e ./packages/pi-recap --list-models __pi_release_check__ && pi --no-extensions -e ./packages/pi-tool-display-intent --list-models __pi_release_check__",
+    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap && npm pack --dry-run ./packages/pi-tool-display-intent"
   },
   "pi": {
     "extensions": [
-      "./packages/pi-recap/extensions/recap.ts"
+      "./packages/pi-recap/extensions/recap.ts",
+      "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts"
     ]
   },
   "peerDependencies": {

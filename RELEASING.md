@@ -4,8 +4,9 @@ This repository uses Changesets and GitHub Actions to keep these public npm pack
 
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
+- `@zhcsyncer/pi-tool-display-intent`
 
-A successful publish creates package-level Git tags and two GitHub Releases: `pi-extensions vX.Y.Z` on the repository `vX.Y.Z` tag, and `pi-recap vX.Y.Z` on the `@zhcsyncer/pi-recap@X.Y.Z` package tag.
+A successful publish creates package-level Git tags and three GitHub Releases: `pi-extensions vX.Y.Z` on the repository `vX.Y.Z` tag, `pi-recap vX.Y.Z` on `@zhcsyncer/pi-recap@X.Y.Z`, and `pi-tool-display-intent vX.Y.Z` on `@zhcsyncer/pi-tool-display-intent@X.Y.Z`.
 
 ## One-time setup
 
@@ -25,7 +26,7 @@ This avoids publishing unreleased working-tree changes as version `0.1.1`.
 
 ### 2. Configure npm trusted publishers
 
-In the npm settings for both packages, add the same GitHub Actions trusted publisher:
+In the npm settings for all three packages, add the same GitHub Actions trusted publisher:
 
 - Organization or user: `zhcsyncer`
 - Repository: `pi-extensions`
@@ -57,6 +58,6 @@ Changes that do not need a release, such as CI-only or internal documentation ch
 2. `.github/workflows/release.yml` creates or updates `chore: version packages`.
 3. Review and merge that version PR when ready to release.
 4. The workflow validates and publishes every package version not already present on npm.
-5. The workflow reconciles package tags and creates GitHub Releases for both `pi-extensions` and `pi-recap`.
+5. The workflow reconciles package tags and creates GitHub Releases for `pi-extensions`, `pi-recap`, and `pi-tool-display-intent`.
 
 Publishing and release reconciliation are idempotent. If npm publishing partially succeeds or GitHub Release creation fails, rerun the failed workflow job.
