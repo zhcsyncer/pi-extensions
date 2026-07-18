@@ -74,6 +74,8 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 
 修改工具 ownership 或意图 Schema 后需要执行 `/reload`。
 
+`opencode`、`balanced` 和 `verbose` 现在只表示输出 profile：它们调整 read/search/MCP/bash 输出模式和折叠行数，但保留 `toolCallStyle`、`toolIntent`、ownership、diff 及其他高级设置。只有在需要恢复完整默认配置时才使用 `reset`。
+
 ## 配置
 
 全局配置位置：
@@ -88,11 +90,9 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 ```json
 {
-  "displaySummary": {
+  "toolIntent": {
     "enabled": true,
-    "required": true,
     "language": "auto",
-    "showInTui": true,
     "maxLength": 96
   },
   "toolCallStyle": "compact"
@@ -101,12 +101,12 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 | 配置 | 默认值 | 含义 |
 |---|---:|---|
-| `enabled` | `true` | 为本 extension 持有的内置工具增加字段。 |
-| `required` | `true` | 在模型可见 Schema 中将字段设为必填。 |
-| `language` | `"auto"` | 支持 `auto`、`zh-CN`、`en`；auto 跟随用户主要语言。 |
-| `showInTui` | `true` | 在确定性调用信息旁显示清理后的意图。 |
-| `maxLength` | `96` | 接受和显示的最大长度，限制在 16～256 字符。 |
+| `toolIntent.enabled` | `true` | 为本 extension 持有的内置工具增加 `displaySummary` 字段并在 TUI 中显示。 |
+| `toolIntent.language` | `"auto"` | 支持 `auto`、`zh-CN`、`en`；auto 跟随用户主要语言。 |
+| `toolIntent.maxLength` | `96` | 接受和显示的最大长度，限制在 16～256 字符。 |
 | `toolCallStyle` | `"compact"` | 支持 `compact` 或可选的 Claude Code 风格 `claude`；修改后需要 `/reload`。 |
+
+启用工具意图后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填，并始终显示在 TUI。关闭 `toolIntent.enabled` 可保留继承自 `pi-tool-display` 的展示，但不再生成意图。旧 `displaySummary` 配置对象仍可迁移读取，保存时会规范化为 `toolIntent`；旧的 `required` 和 `showInTui` 开关会被忽略。
 
 旧 Session 或不完整 tool call 缺少必填字段时，renderer 会立即显示按工具区分的确定性 fallback，`prepareArguments` 也会在校验前回填原始参数对象。这样执行不会失败，后续 TUI/RPC 更新也能观察到 fallback。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 
@@ -153,6 +153,7 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `withDisplaySummary` 会：
 
+- 为自定义工具提供独立的 API 级 `required` 选项，不受精简后的内置工具 `toolIntent` 配置影响；
 - 在工具已经定义同名字段时拒绝包装，避免改变原字段语义；
 - 保留并委托原始 `prepareArguments` 和 `execute`；
 - 在适当阶段剥离展示参数；

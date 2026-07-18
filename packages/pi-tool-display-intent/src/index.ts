@@ -30,13 +30,12 @@ function toolRegistrationChanged(
       previous.registerToolOverrides[toolName] !==
       next.registerToolOverrides[toolName],
   );
-  const summarySchemaChanged =
-    previous.displaySummary.enabled !== next.displaySummary.enabled ||
-    previous.displaySummary.required !== next.displaySummary.required ||
-    previous.displaySummary.language !== next.displaySummary.language ||
-    previous.displaySummary.maxLength !== next.displaySummary.maxLength ||
+  const intentSchemaChanged =
+    previous.toolIntent.enabled !== next.toolIntent.enabled ||
+    previous.toolIntent.language !== next.toolIntent.language ||
+    previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
     previous.toolCallStyle !== next.toolCallStyle;
-  return ownershipChanged || summarySchemaChanged;
+  return ownershipChanged || intentSchemaChanged;
 }
 
 export default function toolDisplayExtension(pi: ExtensionAPI): void {

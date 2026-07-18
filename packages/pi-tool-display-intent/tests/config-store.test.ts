@@ -52,33 +52,56 @@ test("config normalization clamps invalid values and migrates legacy read overri
   assert.equal(config.diffWordWrap, false);
 });
 
-test("config normalization validates displaySummary options independently", () => {
+test("config normalization validates toolIntent options independently", () => {
 	const normalized = normalizeToolDisplayConfig({
+		toolIntent: {
+			enabled: false,
+			language: "zh-CN",
+			maxLength: 999,
+		},
+	});
+
+	assert.deepEqual(normalized.toolIntent, {
+		enabled: false,
+		language: "zh-CN",
+		maxLength: 256,
+	});
+
+	const fallback = normalizeToolDisplayConfig({
+		toolIntent: {
+			language: "unsupported",
+			maxLength: 1,
+		},
+	});
+	assert.equal(fallback.toolIntent.language, DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language);
+	assert.equal(fallback.toolIntent.maxLength, 16);
+});
+
+test("config normalization migrates legacy displaySummary while preferring toolIntent", () => {
+	const migrated = normalizeToolDisplayConfig({
 		displaySummary: {
 			enabled: false,
 			required: false,
 			language: "zh-CN",
 			showInTui: false,
-			maxLength: 999,
+			maxLength: 64,
 		},
 	});
-
-	assert.deepEqual(normalized.displaySummary, {
+	assert.deepEqual(migrated.toolIntent, {
 		enabled: false,
-		required: false,
 		language: "zh-CN",
-		showInTui: false,
-		maxLength: 256,
+		maxLength: 64,
 	});
 
-	const fallback = normalizeToolDisplayConfig({
-		displaySummary: {
-			language: "unsupported",
-			maxLength: 1,
-		},
+	const preferred = normalizeToolDisplayConfig({
+		toolIntent: { enabled: true, language: "en", maxLength: 80 },
+		displaySummary: { enabled: false, language: "zh-CN", maxLength: 32 },
 	});
-	assert.equal(fallback.displaySummary.language, DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary.language);
-	assert.equal(fallback.displaySummary.maxLength, 16);
+	assert.deepEqual(preferred.toolIntent, {
+		enabled: true,
+		language: "en",
+		maxLength: 80,
+	});
 });
 
 test("config normalization falls back from unsupported tool call styles", () => {
@@ -110,8 +133,14 @@ test("config save writes normalized JSON and cleans temporary file on failure", 
     );
 
     assert.equal(saved.success, true);
-    const persisted = JSON.parse(readFileSync(configFile, "utf8")) as { previewLines?: number };
+    const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
+      displaySummary?: unknown;
+      previewLines?: number;
+      toolIntent?: unknown;
+    };
     assert.equal(persisted.previewLines, 80);
+    assert.deepEqual(persisted.toolIntent, DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent);
+    assert.equal(persisted.displaySummary, undefined);
 
     const parentFile = join(dir, "not-a-directory");
     writeFileSync(parentFile, "blocks mkdir", "utf8");

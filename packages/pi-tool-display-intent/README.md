@@ -74,6 +74,8 @@ Direct commands:
 
 Tool ownership and intent-schema changes take effect after `/reload`.
 
+The `opencode`, `balanced`, and `verbose` presets are output profiles only. They update read/search/MCP/bash output modes and collapsed line budgets while preserving `toolCallStyle`, `toolIntent`, ownership, diff settings, and other advanced preferences. Use `reset` when you intentionally want to restore the complete default configuration.
+
 ## Configuration
 
 The global config is stored at:
@@ -88,11 +90,9 @@ Intent and tool-call style settings:
 
 ```json
 {
-  "displaySummary": {
+  "toolIntent": {
     "enabled": true,
-    "required": true,
     "language": "auto",
-    "showInTui": true,
     "maxLength": 96
   },
   "toolCallStyle": "compact"
@@ -101,12 +101,12 @@ Intent and tool-call style settings:
 
 | Option | Default | Meaning |
 |---|---:|---|
-| `enabled` | `true` | Add the field to owned built-in tool schemas. |
-| `required` | `true` | Mark the field required in the model-facing schema. |
-| `language` | `"auto"` | `auto`, `zh-CN`, or `en`. Auto follows the user's primary language. |
-| `showInTui` | `true` | Show the sanitized intent beside deterministic call metadata. |
-| `maxLength` | `96` | Maximum accepted/displayed length, clamped to 16–256 characters. |
+| `toolIntent.enabled` | `true` | Add the `displaySummary` field to owned built-in tool schemas and show it in TUI. |
+| `toolIntent.language` | `"auto"` | `auto`, `zh-CN`, or `en`. Auto follows the user's primary language. |
+| `toolIntent.maxLength` | `96` | Maximum accepted/displayed length, clamped to 16–256 characters. |
 | `toolCallStyle` | `"compact"` | Use `compact` or the optional Claude Code-inspired `claude` framing. Changing it requires `/reload`. |
+
+When tool intent is enabled, `displaySummary` is always required in owned built-in schemas and always shown in TUI. Disable `toolIntent.enabled` to keep the inherited `pi-tool-display` rendering without generating intent. The legacy `displaySummary` config object is accepted for migration, but saves are normalized to `toolIntent`; its old `required` and `showInTui` switches are ignored.
 
 If an old or incomplete call omits the required field, the renderer immediately shows a deterministic per-tool fallback and `prepareArguments` backfills the raw argument object before validation. Execution can therefore continue, and later TUI/RPC updates can observe the fallback. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 
@@ -153,6 +153,7 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `withDisplaySummary`:
 
+- keeps its API-level `required` option for custom tool providers, independently of the simplified built-in `toolIntent` config;
 - rejects a tool that already defines a field named `displaySummary`, rather than changing that field's semantics;
 - preserves and delegates the original `prepareArguments` and `execute` functions;
 - strips the field before both delegation points where appropriate;

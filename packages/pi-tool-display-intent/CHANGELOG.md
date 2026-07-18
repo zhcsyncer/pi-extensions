@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added a cooperative `withDisplaySummary()` API for custom tool providers.
 - Added English and Chinese documentation, upstream attribution, and preserved upstream license/history files.
 
+### Changed
+
+- Simplified built-in intent configuration to `toolIntent.enabled`, `toolIntent.language`, and `toolIntent.maxLength`; enabled intent is now always schema-required and visible in TUI, while legacy `displaySummary` config is migrated on load.
+- Increased intent contrast by rendering model-written phrases with the theme's primary text color and deterministic fallbacks with the muted color.
+- Decoupled output profiles from tool-call style, intent, ownership, diff, and advanced settings; applying a preset now updates only read/search/MCP/bash output density, while `reset` restores the complete defaults.
+
 ### Fixed
 
 - Retained recent intent fields in model context so resumed and multi-turn runs continue producing `displaySummary`.

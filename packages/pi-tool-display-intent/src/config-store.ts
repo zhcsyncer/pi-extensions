@@ -12,11 +12,11 @@ import {
 	type CustomToolOverrideConfig,
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
-	DISPLAY_SUMMARY_LANGUAGES,
 	MCP_OUTPUT_MODES,
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
 	TOOL_CALL_STYLES,
+	TOOL_INTENT_LANGUAGES,
 	type ToolDisplayConfig,
 	type ToolOverrideOwnership,
 } from "./types.js";
@@ -26,6 +26,7 @@ const CONFIG_DIR = join(resolvePiAgentDir(), "extensions", "pi-tool-display-inte
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
+	displaySummary?: unknown;
 	registerReadToolOverride?: unknown;
 }
 
@@ -90,20 +91,18 @@ function toDiffIndicatorMode(value: unknown): ToolDisplayConfig["diffIndicatorMo
 		: DEFAULT_TOOL_DISPLAY_CONFIG.diffIndicatorMode;
 }
 
-function normalizeDisplaySummaryConfig(rawConfig: unknown): ToolDisplayConfig["displaySummary"] {
+function normalizeToolIntentConfig(rawConfig: unknown): ToolDisplayConfig["toolIntent"] {
 	const source = toRecord(rawConfig);
-	const defaults = DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary;
-	const language = DISPLAY_SUMMARY_LANGUAGES.includes(
-		source.language as ToolDisplayConfig["displaySummary"]["language"],
+	const defaults = DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent;
+	const language = TOOL_INTENT_LANGUAGES.includes(
+		source.language as ToolDisplayConfig["toolIntent"]["language"],
 	)
-		? (source.language as ToolDisplayConfig["displaySummary"]["language"])
+		? (source.language as ToolDisplayConfig["toolIntent"]["language"])
 		: defaults.language;
 
 	return {
 		enabled: toBoolean(source.enabled, defaults.enabled),
-		required: toBoolean(source.required, defaults.required),
 		language,
-		showInTui: toBoolean(source.showInTui, defaults.showInTui),
 		maxLength: clampNumber(source.maxLength, 16, 256, defaults.maxLength),
 	};
 }
@@ -124,7 +123,7 @@ function cloneDefaultConfig(): ToolDisplayConfig {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
 		customToolOverrides: cloneCustomToolOverrides(DEFAULT_TOOL_DISPLAY_CONFIG.customToolOverrides),
-		displaySummary: { ...DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary },
+		toolIntent: { ...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent },
 	};
 }
 
@@ -231,6 +230,10 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 	const source =
 		typeof raw === "object" && raw !== null ? (raw as LegacyToolDisplayConfigSource) : ({} as LegacyToolDisplayConfigSource);
 
+	const rawToolIntent = Object.prototype.hasOwnProperty.call(source, "toolIntent")
+		? source.toolIntent
+		: source.displaySummary;
+
 	return {
 		enabled: toBoolean(source.enabled, DEFAULT_TOOL_DISPLAY_CONFIG.enabled),
 		registerToolOverrides: normalizeToolOverrideOwnership(
@@ -238,7 +241,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			source.registerReadToolOverride,
 		),
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
-		displaySummary: normalizeDisplaySummaryConfig(source.displaySummary),
+		toolIntent: normalizeToolIntentConfig(rawToolIntent),
 		toolCallStyle: toToolCallStyle(source.toolCallStyle),
 		enableNativeUserMessageBox: toBoolean(
 			source.enableNativeUserMessageBox,

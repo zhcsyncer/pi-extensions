@@ -2,7 +2,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { resolveDisplaySummaryForTool } from "./display-summary-fallback.js";
 import { registerCleanup, registerTimer } from "./disposable.js";
 import { formatClaudeToolCall } from "./tool-call-style.js";
-import type { DisplaySummaryConfig, ToolCallStyle } from "./types.js";
+import type { ToolCallStyle, ToolIntentConfig } from "./types.js";
 
 const BASH_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const BASH_SPINNER_INTERVAL_MS = 200;
@@ -17,7 +17,7 @@ interface BashCallArgs {
 	timeout?: number;
 }
 
-type BashDisplaySummaryConfig = DisplaySummaryConfig;
+type BashToolIntentConfig = ToolIntentConfig;
 
 interface BashCallRenderTheme {
 	fg(color: string, text: string): string;
@@ -148,7 +148,7 @@ function buildBashCallText(
 	theme: BashCallRenderTheme,
 	spinnerFrame?: string,
 	elapsedMs?: number,
-	displaySummaryConfig?: BashDisplaySummaryConfig,
+	toolIntentConfig?: BashToolIntentConfig,
 	toolCallStyle: ToolCallStyle = "compact",
 	context?: BashCallRenderContextLike,
 ): string {
@@ -167,11 +167,11 @@ function buildBashCallText(
 		spinnerFrame && elapsedMs !== undefined
 			? theme.fg("muted", ` · ${formatElapsed(elapsedMs)}`)
 			: "";
-	const displaySummary = displaySummaryConfig?.showInTui
-		? resolveDisplaySummaryForTool(args, "bash", displaySummaryConfig)
+	const displaySummary = toolIntentConfig
+		? resolveDisplaySummaryForTool(args, "bash", toolIntentConfig)
 		: undefined;
 	const intentSuffix = displaySummary
-		? `${theme.fg("muted", " — ")}${theme.fg(displaySummary.source === "model" ? "toolOutput" : "dim", displaySummary.text)}`
+		? `${theme.fg("muted", " — ")}${theme.fg(displaySummary.source === "model" ? "text" : "muted", displaySummary.text)}`
 		: "";
 
 	if (toolCallStyle === "claude") {
@@ -193,7 +193,7 @@ export function renderBashCall(
 	args: BashCallArgs,
 	theme: BashCallRenderTheme,
 	context: BashCallRenderContextLike,
-	displaySummaryConfig?: BashDisplaySummaryConfig,
+	toolIntentConfig?: BashToolIntentConfig,
 	toolCallStyle: ToolCallStyle = "compact",
 ): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
@@ -204,7 +204,7 @@ export function renderBashCall(
 
 	if (!shouldSpin) {
 		stopSpinner(toolCallId, spinnerState);
-		text.setText(buildBashCallText(args, theme, undefined, undefined, displaySummaryConfig, toolCallStyle, context));
+		text.setText(buildBashCallText(args, theme, undefined, undefined, toolIntentConfig, toolCallStyle, context));
 		return text;
 	}
 
@@ -219,7 +219,7 @@ export function renderBashCall(
 						theme,
 						BASH_SPINNER_FRAMES[spinnerState.frameIndex],
 						Date.now() - (spinnerState.startedAt ?? Date.now()),
-						displaySummaryConfig,
+						toolIntentConfig,
 						toolCallStyle,
 						context,
 					),
@@ -240,6 +240,6 @@ export function renderBashCall(
 	const elapsedMs = spinnerState?.startedAt !== undefined
 		? Date.now() - spinnerState.startedAt
 		: undefined;
-	text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs, displaySummaryConfig, toolCallStyle, context));
+	text.setText(buildBashCallText(args, theme, spinnerFrame, elapsedMs, toolIntentConfig, toolCallStyle, context));
 	return text;
 }

@@ -18,11 +18,11 @@ function makeMcpSettings(hasMcp: boolean, hasRtk: boolean): InspectorSettingItem
 	const items: InspectorSettingItem[] = [
 		{
 			id: "preset",
-			label: "Preset profile",
+			label: "Output profile",
 			currentValue: "opencode",
 			values: ["opencode", "balanced", "verbose"],
-			inspectorTitle: "Preset Profile",
-			inspectorSummary: ["Determines the overall verbosity."],
+			inspectorTitle: "Output Profile",
+			inspectorSummary: ["Controls read, search, MCP, and bash output density."],
 			inspectorOptions: ["opencode", "balanced", "verbose"],
 			searchTerms: ["verbosity", "profile"],
 		},
@@ -356,11 +356,10 @@ test("inspector panel shows item summary", () => {
 	const lines = modal.render(120);
 	const joined = lines.join(" ");
 
-	// The first (selected) item 'preset' has summary "Determines the overall verbosity."
-	assert.ok(joined.includes("Determines"), "should show preset summary");
-	// The path only appears for the currently selected item; 'preset' has no path,
-	// but the summary is visible in the inspector pane.
-	assert.ok(joined.includes("verbosity"), "should show preset summary detail");
+	// The first selected item describes the output profile's scoped density controls.
+	assert.ok(joined.includes("Controls"), "should show output profile summary");
+	// The path only appears for the currently selected item; the summary remains visible.
+	assert.ok(joined.includes("output density"), "should show output profile summary detail");
 });
 
 test("theme application adds styled text via fg()", () => {

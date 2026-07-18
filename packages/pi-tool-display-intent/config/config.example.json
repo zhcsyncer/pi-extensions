@@ -9,11 +9,9 @@
     "edit": true,
     "write": true
   },
-  "displaySummary": {
+  "toolIntent": {
     "enabled": true,
-    "required": true,
     "language": "auto",
-    "showInTui": true,
     "maxLength": 96
   },
   "toolCallStyle": "compact",

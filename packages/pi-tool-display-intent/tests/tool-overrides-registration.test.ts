@@ -175,7 +175,11 @@ test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI k
 		);
 		assert.deepEqual(
 			registeredTool.parameters,
-			addDisplaySummaryParameter(builtInTool.parameters, DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary),
+			addDisplaySummaryParameter(builtInTool.parameters, {
+				required: true,
+				language: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language,
+				maxLength: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.maxLength,
+			}),
 		);
 	}
 });
@@ -217,6 +221,31 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 	});
 });
 
+test("built-in renderers use text for model intent and muted for fallback intent", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const read = registeredTools.find((tool) => tool.name === "read");
+	assert.ok(read);
+	const theme = {
+		fg: (color: string, value: string): string => `<${color}>${value}</${color}>`,
+		bold: (value: string): string => value,
+	};
+
+	const modelIntent = read.renderCall?.(
+		{ path: "sample.txt", displaySummary: "Checking the sample file" },
+		theme,
+		{},
+	) as { render(width: number): string[] };
+	assert.match(modelIntent.render(160).join("\n"), /<text>Checking the sample file<\/text>/);
+
+	const fallbackIntent = read.renderCall?.(
+		{ path: "sample.txt" },
+		theme,
+		{},
+	) as { render(width: number): string[] };
+	assert.match(fallbackIntent.render(160).join("\n"), /<muted>Read file<\/muted>/);
+});
+
 test("cooperative custom tools can share intent schema, execution stripping, and generic TUI rendering", async () => {
 	const { api } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
@@ -253,12 +282,12 @@ test("cooperative custom tools can share intent schema, execution stripping, and
 	assert.deepEqual(executedArgs, { query: "alpha" });
 });
 
-test("displaySummary can be disabled without changing built-in execution schemas", () => {
+test("tool intent can be disabled without changing built-in execution schemas", () => {
 	const { api, registeredTools } = createExtensionApiStub();
 	const config = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		displaySummary: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary,
+		toolIntent: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
 			enabled: false,
 		},
 	};
@@ -286,8 +315,8 @@ test("Claude style uses self-rendered tool headers, deterministic fallbacks, and
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallStyle: "claude" as const,
 		readOutputMode: "summary" as const,
-		displaySummary: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.displaySummary,
+		toolIntent: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
 			language: "zh-CN" as const,
 		},
 	};

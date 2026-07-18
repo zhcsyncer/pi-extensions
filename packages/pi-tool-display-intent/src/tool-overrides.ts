@@ -244,17 +244,17 @@ function registerRuntimeTool(
   getConfig: ConfigGetter,
 ): void {
   const styledTool = applyRuntimeToolCallStyle(tool, getConfig);
-  const summaryConfig = getConfig().displaySummary;
-  const registeredTool = summaryConfig.enabled
+  const toolIntent = getConfig().toolIntent;
+  const registeredTool = toolIntent.enabled
     ? withDisplaySummary(styledTool as never, {
-        required: summaryConfig.required,
-        language: summaryConfig.language,
-        maxLength: summaryConfig.maxLength,
+        required: true,
+        language: toolIntent.language,
+        maxLength: toolIntent.maxLength,
         preserveRendererArgs: true,
         fallback: () => buildDeterministicDisplaySummary(
           tool.name,
-          summaryConfig.language,
-          summaryConfig.maxLength,
+          toolIntent.language,
+          toolIntent.maxLength,
         ),
       })
     : styledTool;
@@ -441,16 +441,12 @@ function formatDisplaySummarySuffix(
   theme: RenderTheme,
   config: ToolDisplayConfig,
 ): string {
-  if (!config.displaySummary.showInTui) {
-    return "";
-  }
-
-  const summary = resolveDisplaySummaryForTool(args, toolName, config.displaySummary);
+  const summary = resolveDisplaySummaryForTool(args, toolName, config.toolIntent);
   if (!summary) {
     return "";
   }
 
-  const color = summary.source === "model" ? "toolOutput" : "dim";
+  const color = summary.source === "model" ? "text" : "muted";
   return `${theme.fg("muted", " — ")}${theme.fg(color, summary.text)}`;
 }
 
@@ -1958,7 +1954,7 @@ export function registerToolDisplayOverrides(
     ...createBuiltinToolBase("bash"),
     renderCall(args, theme, context) {
       const config = getConfig();
-      return renderBashCall(args, theme, context as never, config.displaySummary, config.toolCallStyle);
+      return renderBashCall(args, theme, context as never, config.toolIntent, config.toolCallStyle);
     },
     renderResult(result, options, theme, context) {
       const config = getConfig();

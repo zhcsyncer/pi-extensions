@@ -171,6 +171,30 @@ test("renderBashCall applies ANSI color to command with ANSI theme", () => {
 	assert.ok(rendered.includes("\x1b[92mls\x1b[0m"), `expected green ls in: ${JSON.stringify(rendered)}`);
 });
 
+test("renderBashCall uses text for model intent and muted for fallback intent", () => {
+	const theme = {
+		fg: (color: string, value: string): string => `<${color}>${value}</${color}>`,
+		bold: (value: string): string => value,
+	};
+	const toolIntent = { enabled: true, language: "en" as const, maxLength: 96 };
+
+	const modelIntent = renderBashCall(
+		{ command: "pnpm test", displaySummary: "Running the test suite" },
+		theme,
+		makeContext(),
+		toolIntent,
+	);
+	assert.match(renderedText(modelIntent), /<text>Running the test suite<\/text>/);
+
+	const fallbackIntent = renderBashCall(
+		{ command: "pnpm test" },
+		theme,
+		makeContext(),
+		toolIntent,
+	);
+	assert.match(renderedText(fallbackIntent), /<muted>Run command<\/muted>/);
+});
+
 // ─── Context States ──────────────────────────────────────────────────────────
 
 test("renderBashCall no spinner when executionStarted is false", () => {

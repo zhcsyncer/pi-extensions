@@ -1,5 +1,5 @@
 import { getDisplaySummary, normalizeDisplaySummary } from "./display-summary.js";
-import type { DisplaySummaryConfig, DisplaySummaryLanguage } from "./types.js";
+import type { ToolIntentConfig, ToolIntentLanguage } from "./types.js";
 
 const BUILT_IN_FALLBACKS: Record<string, { en: string; zhCN: string }> = {
 	read: { en: "Read file", zhCN: "读取文件" },
@@ -11,13 +11,13 @@ const BUILT_IN_FALLBACKS: Record<string, { en: string; zhCN: string }> = {
 	write: { en: "Write file", zhCN: "写入文件" },
 };
 
-function useSimplifiedChinese(language: DisplaySummaryLanguage): boolean {
+function useSimplifiedChinese(language: ToolIntentLanguage): boolean {
 	return language === "zh-CN";
 }
 
 export function buildDeterministicDisplaySummary(
 	toolName: string | undefined,
-	language: DisplaySummaryLanguage,
+	language: ToolIntentLanguage,
 	maxLength: number,
 ): string {
 	const normalizedToolName = toolName?.trim() || "tool";
@@ -41,7 +41,7 @@ export interface ResolvedDisplaySummary {
 export function resolveDisplaySummaryForTool(
 	args: unknown,
 	toolName: string | undefined,
-	config: DisplaySummaryConfig,
+	config: ToolIntentConfig,
 ): ResolvedDisplaySummary | undefined {
 	if (!config.enabled) {
 		return undefined;

@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
-import { getToolDisplayConfigPath } from "./config-store.js";
+import { getToolDisplayConfigPath, normalizeToolDisplayConfig } from "./config-store.js";
 import {
+	applyToolDisplayPreset,
 	detectToolDisplayPreset,
-	getToolDisplayPresetConfig,
 	parseToolDisplayPreset,
 	TOOL_DISPLAY_PRESETS,
 	type ToolDisplayPreset,
@@ -41,10 +41,9 @@ function toolOwnershipSummary(config: ToolDisplayConfig): string {
 function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCapabilities): string {
 	const preset = detectToolDisplayPreset(config);
 	const parts = [
-		`preset=${preset}`,
+		`outputProfile=${preset}`,
 		`owners={${toolOwnershipSummary(config)}}`,
-		`intent=${toOnOff(config.displaySummary.enabled)}/${config.displaySummary.language}/${config.displaySummary.required ? "required" : "optional"}`,
-		`intentTui=${toOnOff(config.displaySummary.showInTui)}`,
+		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
 		`toolCallStyle=${config.toolCallStyle}`,
 		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
 		`read=${config.readOutputMode}`,
@@ -85,7 +84,7 @@ function buildAdvancedNotes(
 ): string[] {
 	const notes = [
 		...extra,
-		"Manual JSON edits also expose displaySummary.*, toolCallStyle, registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
+		"Manual JSON edits also expose toolIntent.*, toolCallStyle, registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
 		`Tool ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
 		`Truncation hints are ${toOnOff(config.showTruncationHints)}${capabilities.hasRtkOptimizer ? `; RTK hints are ${toOnOff(config.showRtkCompactionHints)}.` : "."}`,
 	];
@@ -100,13 +99,13 @@ function buildInspectorSettings(
 	const items: InspectorSettingItem[] = [
 		{
 			id: "preset",
-			label: "Preset profile",
+			label: "Output profile",
 			currentValue: detectToolDisplayPreset(config),
 			values: TOOL_DISPLAY_PRESETS,
-			inspectorTitle: "Preset Profile",
+			inspectorTitle: "Output Profile",
 			inspectorSummary: [
-				"Determines the overall verbosity and layout of the agent's tool output.",
-				"Choosing a preset applies a coherent profile across read, search, MCP, bash, and diff display settings.",
+				"Controls the output density of read, search, MCP, and bash results.",
+				"Choosing a profile preserves tool-call style, intent, ownership, diff settings, and other advanced preferences.",
 			],
 			inspectorOptions: [
 				"opencode — strict inline-only tool output",
@@ -115,15 +114,16 @@ function buildInspectorSettings(
 				"custom — shown automatically when manual overrides no longer match a preset",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Presets reset multiple fields together, so manual JSON tuning is the right place for durable custom combinations.",
+				"Profiles only update readOutputMode, searchOutputMode, mcpOutputMode, previewLines, bashOutputMode, and bashCollapsedLines.",
+				"Custom appears only when those output fields no longer match a profile.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["verbosity", "profile", "layout", "custom", ...TOOL_DISPLAY_PRESETS],
 		},
 		{
-			id: "displaySummaryEnabled",
+			id: "toolIntentEnabled",
 			label: "Model-written intent",
-			currentValue: toOnOff(config.displaySummary.enabled),
+			currentValue: toOnOff(config.toolIntent.enabled),
 			values: ["on", "off"],
 			inspectorTitle: "Model-written Tool Intent",
 			inspectorSummary: [
@@ -136,10 +136,11 @@ function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing this setting updates tool schemas and therefore takes effect after /reload.",
-				"Use displaySummary.language, required, showInTui, and maxLength in config.json for advanced control.",
+				"Use toolIntent.language and toolIntent.maxLength in config.json for advanced control.",
+				"Enabled intent is always required in owned tool schemas and shown in TUI.",
 			]),
 			inspectorPath: configPath,
-			searchTerms: ["intent", "summary", "model", "rpc", "progress", "displaySummary"],
+			searchTerms: ["intent", "summary", "model", "rpc", "progress", "toolIntent", "displaySummary"],
 		},
 		{
 			id: "toolCallStyle",
@@ -359,21 +360,21 @@ function buildInspectorSettings(
 	return items;
 }
 
-function applyPreset(preset: ToolDisplayPreset): ToolDisplayConfig {
-	return getToolDisplayPresetConfig(preset);
+function applyPreset(config: ToolDisplayConfig, preset: ToolDisplayPreset): ToolDisplayConfig {
+	return applyToolDisplayPreset(config, preset);
 }
 
 function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
 	switch (id) {
 		case "preset": {
 			const parsed = parseToolDisplayPreset(value);
-			return parsed ? applyPreset(parsed) : config;
+			return parsed ? applyPreset(config, parsed) : config;
 		}
-		case "displaySummaryEnabled":
+		case "toolIntentEnabled":
 			return {
 				...config,
-				displaySummary: {
-					...config.displaySummary,
+				toolIntent: {
+					...config.toolIntent,
 					enabled: value === "on",
 				},
 			};
@@ -523,8 +524,8 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 	}
 
 	if (normalized === "reset") {
-		controller.setConfig(getToolDisplayPresetConfig("opencode"), ctx);
-		ctx.ui.notify("Tool display preset reset to opencode.", "info");
+		controller.setConfig(normalizeToolDisplayConfig({}), ctx);
+		ctx.ui.notify("Tool display settings reset to defaults.", "info");
 		return true;
 	}
 
@@ -536,8 +537,8 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 			return true;
 		}
 
-		controller.setConfig(getToolDisplayPresetConfig(preset), ctx);
-		ctx.ui.notify(`Tool display preset set to ${preset}.`, "info");
+		controller.setConfig(applyToolDisplayPreset(controller.getConfig(), preset), ctx);
+		ctx.ui.notify(`Tool output profile set to ${preset}.`, "info");
 		return true;
 	}
 

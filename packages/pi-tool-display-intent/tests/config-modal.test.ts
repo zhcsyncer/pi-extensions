@@ -72,6 +72,9 @@ function createControllerStub(
 		registerToolOverrides: {
 			...(initialConfig?.registerToolOverrides ?? DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides),
 		},
+		toolIntent: {
+			...(initialConfig?.toolIntent ?? DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent),
+		},
 	};
 	const last = { config: null as ToolDisplayConfig | null, ctx: null as ExtensionCommandContext | null };
 
@@ -80,9 +83,14 @@ function createControllerStub(
 			getConfig: () => ({
 				...config,
 				registerToolOverrides: { ...config.registerToolOverrides },
+				toolIntent: { ...config.toolIntent },
 			}),
 			setConfig: (next: ToolDisplayConfig, ctx: ExtensionCommandContext) => {
-				config = { ...next, registerToolOverrides: { ...next.registerToolOverrides } };
+				config = {
+					...next,
+					registerToolOverrides: { ...next.registerToolOverrides },
+					toolIntent: { ...next.toolIntent },
+				};
 				last.config = config;
 				last.ctx = ctx;
 			},
@@ -119,7 +127,10 @@ test("'show' argument notifies with config summary", async () => {
 
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0]?.message ?? "", /^tool-display-intent: /);
-	assert.ok(notifications[0]?.message.includes("preset=opencode"));
+	assert.ok(notifications[0]?.message.includes("outputProfile=opencode"));
+	assert.ok(notifications[0]?.message.includes("intent=on/auto"));
+	assert.equal(notifications[0]?.message.includes("required"), false);
+	assert.equal(notifications[0]?.message.includes("intentTui"), false);
 	assert.ok(notifications[0]?.message.includes("mcp=hidden"), "MCP setting in summary with MCP capability");
 	assert.ok(
 		notifications[0]?.message.includes("rtkHints=off"),
@@ -144,12 +155,20 @@ test("'show' hides MCP and RTK sections when capabilities absent", async () => {
 	assert.ok(notifications[0]?.message.includes("rtkHints=auto-off"));
 });
 
-test("'reset' argument sets config to opencode preset", async () => {
+test("'reset' argument restores the complete default config", async () => {
 	const { api, getHandler } = createPiStub();
 	const { controller, getLastSet } = createControllerStub({
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		previewLines: 99,
+		toolCallStyle: "claude",
+		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
+		registerToolOverrides: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
+			read: false,
+		},
+		diffViewMode: "split",
+		showTruncationHints: true,
 	});
 	const { ctx, notifications } = createCtxStub(true);
 
@@ -161,19 +180,25 @@ test("'reset' argument sets config to opencode preset", async () => {
 
 	const last = getLastSet();
 	assert.ok(last.config, "expected setConfig to be called");
-	assert.equal(last.config!.readOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode);
-	assert.equal(last.config!.searchOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.searchOutputMode);
-	assert.equal(last.config!.previewLines, DEFAULT_TOOL_DISPLAY_CONFIG.previewLines);
-	assert.equal(last.config!.bashOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode);
-	assert.equal(last.config!.diffViewMode, DEFAULT_TOOL_DISPLAY_CONFIG.diffViewMode);
+	assert.deepEqual(last.config, DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(notifications.length, 1);
-	assert.match(notifications[0]?.message ?? "", /reset to opencode/i);
+	assert.match(notifications[0]?.message ?? "", /reset to defaults/i);
 	assert.equal(notifications[0]?.level, "info");
 });
 
-test("'preset balanced' sets correct config", async () => {
+test("'preset balanced' updates output density while preserving orthogonal settings", async () => {
 	const { api, getHandler } = createPiStub();
-	const { controller, getLastSet } = createControllerStub();
+	const { controller, getLastSet } = createControllerStub({
+		toolCallStyle: "claude",
+		toolIntent: { enabled: true, language: "zh-CN", maxLength: 64 },
+		registerToolOverrides: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
+			read: false,
+		},
+		diffViewMode: "split",
+		diffWordWrap: false,
+		enableNativeUserMessageBox: false,
+	});
 	const { ctx, notifications } = createCtxStub(true);
 
 	registerToolDisplayCommand(api, controller);
@@ -188,7 +213,13 @@ test("'preset balanced' sets correct config", async () => {
 	assert.equal(last.config!.searchOutputMode, "count");
 	assert.equal(last.config!.mcpOutputMode, "summary");
 	assert.equal(last.config!.bashOutputMode, "summary");
-	assert.match(notifications[0]?.message ?? "", /set to balanced/i);
+	assert.equal(last.config!.toolCallStyle, "claude");
+	assert.deepEqual(last.config!.toolIntent, { enabled: true, language: "zh-CN", maxLength: 64 });
+	assert.equal(last.config!.registerToolOverrides.read, false);
+	assert.equal(last.config!.diffViewMode, "split");
+	assert.equal(last.config!.diffWordWrap, false);
+	assert.equal(last.config!.enableNativeUserMessageBox, false);
+	assert.match(notifications[0]?.message ?? "", /output profile set to balanced/i);
 });
 
 test("'preset verbose' sets correct config", async () => {
