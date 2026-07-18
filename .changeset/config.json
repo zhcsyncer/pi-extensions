@@ -5,7 +5,8 @@
   "fixed": [
     [
       "@zhcsyncer/pi-extensions",
-      "@zhcsyncer/pi-recap"
+      "@zhcsyncer/pi-recap",
+      "@zhcsyncer/pi-tool-display-intent"
     ]
   ],
   "linked": [],

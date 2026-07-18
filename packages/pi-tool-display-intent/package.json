@@ -1,0 +1,79 @@
+{
+  "name": "@zhcsyncer/pi-tool-display-intent",
+  "version": "0.1.4",
+  "description": "Intent-aware tool rendering, diff visualization, and output compaction for Pi.",
+  "type": "module",
+  "main": "./extensions/tool-display-intent.ts",
+  "exports": {
+    ".": "./extensions/tool-display-intent.ts",
+    "./tool-display-api-consumer": {
+      "types": "./tool-display-api-consumer.d.ts",
+      "default": "./tool-display-api-consumer.js"
+    }
+  },
+  "files": [
+    "extensions",
+    "src",
+    "tool-display-api-consumer.js",
+    "tool-display-api-consumer.d.ts",
+    "config/config.example.json",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "UPSTREAM_LICENSE",
+    "UPSTREAM_CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "pi-tui",
+    "tool-rendering",
+    "tool-intent",
+    "display-summary",
+    "diff-visualization",
+    "output-truncation"
+  ],
+  "author": "zhcsyncer",
+  "contributors": [
+    "MasuRii (original pi-tool-display author)",
+    "Mert Deveci (pi-tool-display-summary author)"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-tool-display-intent"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/tool-display-intent.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@earendil-works/pi-tui": "^0.80.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
+  }
+}
