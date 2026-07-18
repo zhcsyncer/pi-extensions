@@ -43,7 +43,7 @@ pi install npm:@zhcsyncer/pi-extensions
 Or install the pinned bundle from Git:
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.1.4
+pi install git:github.com/zhcsyncer/pi-extensions@v0.2.0
 ```
 
 Try the local package during development:
