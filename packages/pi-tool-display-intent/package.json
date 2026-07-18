@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-tool-display-intent",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Intent-aware tool rendering, diff visualization, and output compaction for Pi.",
   "type": "module",
   "main": "./extensions/tool-display-intent.ts",
