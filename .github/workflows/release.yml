@@ -44,6 +44,8 @@ jobs:
       - name: Create version PR or publish packages
         id: changesets
         uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
           version: pnpm version-packages
           publish: pnpm release
