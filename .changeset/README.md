@@ -6,3 +6,23 @@ find the full documentation for it [in our repository](https://github.com/change
 
 We have a quick list of common questions to get you started engaging with this project in
 [our documentation](https://github.com/changesets/changesets/blob/main/docs/common-questions.md).
+
+## Repository release policy
+
+Packages use independent versions. The root `@zhcsyncer/pi-extensions` package embeds every child
+package's source, so a changeset that releases a child package must also release the root package.
+Unchanged sibling packages must be omitted.
+
+The root release type must be at least as high as the highest child release type in the release plan:
+
+```md
+---
+"@zhcsyncer/pi-extensions": minor
+"@zhcsyncer/pi-tool-display-intent": minor
+---
+
+Describe the user-visible change.
+```
+
+A root-only release is allowed. CI enforces this directional relationship with
+`scripts/check-release-policy.mjs`.

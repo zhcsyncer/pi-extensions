@@ -1,23 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const packageFiles = [
-	new URL("../package.json", import.meta.url),
-	new URL("../packages/pi-recap/package.json", import.meta.url),
-	new URL("../packages/pi-tool-display-intent/package.json", import.meta.url),
-];
-const packages = await Promise.all(
-	packageFiles.map(async (packageFile) => JSON.parse(await readFile(packageFile, "utf8"))),
+const rootPackage = JSON.parse(
+	await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
-const [rootPackage, ...workspacePackages] = packages;
-
-for (const workspacePackage of workspacePackages) {
-	if (rootPackage.version !== workspacePackage.version) {
-		throw new Error(
-			`Fixed package versions diverged: ${rootPackage.name}@${rootPackage.version} and ${workspacePackage.name}@${workspacePackage.version}`,
-		);
-	}
-}
-
 const version = rootPackage.version;
 const readmes = [
 	new URL("../README.md", import.meta.url),
