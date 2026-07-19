@@ -1,0 +1,15 @@
+{
+  "status.pending": "pending",
+  "status.in_progress": "in progress",
+  "status.completed": "completed",
+  "status.deleted": "deleted",
+
+  "overlay.heading": "Todos",
+  "overlay.more": "more",
+
+  "command.no_todos": "No todos yet. Ask the agent to add some!",
+  "command.requires_interactive": "/todos requires interactive mode",
+  "command.section.pending": "── Pending ──",
+  "command.section.in_progress": "── In Progress ──",
+  "command.section.completed": "── Completed ──"
+}
