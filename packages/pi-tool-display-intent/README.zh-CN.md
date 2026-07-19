@@ -43,7 +43,7 @@ pi install npm:@zhcsyncer/pi-extensions
 或者从 Git 安装固定版本：
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.2.0
+pi install git:github.com/zhcsyncer/pi-extensions@v0.3.0
 ```
 
 本地开发：

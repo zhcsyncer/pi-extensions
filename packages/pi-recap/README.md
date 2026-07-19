@@ -21,7 +21,7 @@ Features:
 Install the whole `zhcsyncer/pi-extensions` bundle from Git:
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.2.0
+pi install git:github.com/zhcsyncer/pi-extensions@v0.3.0
 ```
 
 Try without installing:
