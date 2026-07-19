@@ -5,6 +5,7 @@ PACKAGES=(
   "@zhcsyncer/pi-extensions|package.json|CHANGELOG.md|pi-extensions|root"
   "@zhcsyncer/pi-recap|packages/pi-recap/package.json|packages/pi-recap/CHANGELOG.md|pi-recap|child"
   "@zhcsyncer/pi-tool-display-intent|packages/pi-tool-display-intent/package.json|packages/pi-tool-display-intent/CHANGELOG.md|pi-tool-display-intent|child"
+  "@zhcsyncer/pi-todo|packages/pi-todo/package.json|packages/pi-todo/CHANGELOG.md|pi-todo|child"
 )
 
 wait_for_package() {

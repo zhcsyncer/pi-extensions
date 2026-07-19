@@ -1,8 +1,22 @@
 # pi-todo
 
-`@zhcsyncer/pi-extensions` 内置的 Todo 扩展 fork。它注册 `todo` 工具、`/todos` 命令以及持久化任务浮层。
+面向 Pi 的 Todo 扩展，维护自 `@juicesharp/rpiv-todo`。它注册 `todo` 工具、`/todos` 命令以及持久化任务浮层，可独立安装，也包含在 `@zhcsyncer/pi-extensions` 聚合包中。
 
 该 fork 有意不接入工具 intent。成功的 Todo 调用在 TUI transcript 中渲染为零行，由持久化 widget 作为唯一的状态展示；执行错误仍会显示。工具的 `content` 与完整状态 `details` 保持不变，模型反馈、session 分支恢复和 reload 后重建不受影响。
+
+## 安装
+
+只安装 Todo 扩展：
+
+```bash
+pi install npm:@zhcsyncer/pi-todo
+```
+
+也可以从仓库安装完整扩展集合：
+
+```bash
+pi install git:github.com/zhcsyncer/pi-extensions@v0.2.0
+```
 
 ## 来源
 
@@ -11,7 +25,7 @@
 - 上游文档：[`UPSTREAM_README.md`](./UPSTREAM_README.md)
 - 上游版本历史：[`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)
 
-该包目前作为 workspace 私有包随根 bundle 使用，不单独发布。
+该包作为 `@zhcsyncer/pi-todo` 独立发布；根 bundle 同时包含相同实现。
 
 ## 展示与持久化
 

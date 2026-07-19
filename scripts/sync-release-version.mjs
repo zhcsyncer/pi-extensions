@@ -10,6 +10,7 @@ const readmes = [
 	new URL("../packages/pi-recap/README.zh-CN.md", import.meta.url),
 	new URL("../packages/pi-tool-display-intent/README.md", import.meta.url),
 	new URL("../packages/pi-tool-display-intent/README.zh-CN.md", import.meta.url),
+	new URL("../packages/pi-todo/README.md", import.meta.url),
 ];
 const gitInstallPattern = /(git:github\.com\/zhcsyncer\/pi-extensions)@v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g;
 

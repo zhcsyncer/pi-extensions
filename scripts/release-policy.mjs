@@ -8,6 +8,7 @@ export const ROOT_PACKAGE = "@zhcsyncer/pi-extensions";
 export const CHILD_PACKAGES = Object.freeze([
 	"@zhcsyncer/pi-recap",
 	"@zhcsyncer/pi-tool-display-intent",
+	"@zhcsyncer/pi-todo",
 ]);
 
 /**

@@ -1,4 +1,4 @@
-import { buildSessionEntries, createMockCtx, makeTodoToolResult, makeUserMessage } from "@juicesharp/rpiv-test-utils";
+import { buildSessionEntries, createMockCtx, makeTodoToolResult, makeUserMessage } from "../test-fixtures.js";
 import { describe, expect, it } from "vitest";
 import type { Task, TaskDetails } from "../tool/types.js";
 import { isTaskDetails, replayFromBranch } from "./replay.js";

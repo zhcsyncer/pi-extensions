@@ -6,7 +6,7 @@ A collection of Pi extensions by zhcsyncer.
 
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and tmux window sync.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, and adaptive diffs.
-- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — internal fork of `@juicesharp/rpiv-todo` with a persistent task overlay and no duplicate successful tool nodes.
+- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — maintained fork of `@juicesharp/rpiv-todo` with a persistent task overlay and no duplicate successful tool nodes.
 
 ## Install from Git
 
@@ -42,6 +42,12 @@ Install only the intent-aware tool display:
 pi install npm:@zhcsyncer/pi-tool-display-intent
 ```
 
+Install only Todo:
+
+```bash
+pi install npm:@zhcsyncer/pi-todo
+```
+
 ## Development
 
 Test the root bundle:
@@ -68,7 +74,7 @@ Add a changeset to each user-facing pull request:
 pnpm changeset
 ```
 
-The packages are kept on the same version and released together. After changes land on `main`, GitHub Actions opens a version PR. Merging that PR publishes both npm packages and creates a GitHub Release for each package. See [RELEASING.md](./RELEASING.md) for one-time npm and GitHub setup.
+Public packages version independently. A changed child package must include the aggregate root package in the same release plan because the root tarball embeds child sources; unchanged siblings do not release. After changes land on `main`, GitHub Actions opens a version PR, and merging that PR publishes the planned packages and creates their GitHub Releases. See [RELEASING.md](./RELEASING.md) for one-time npm and GitHub setup.
 
 ## License
 
