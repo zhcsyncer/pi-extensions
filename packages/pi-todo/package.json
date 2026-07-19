@@ -1,8 +1,7 @@
 {
   "name": "@zhcsyncer/pi-todo",
   "version": "0.1.0",
-  "private": true,
-  "description": "Internal fork of rpiv-todo for the @zhcsyncer/pi-extensions bundle.",
+  "description": "Persistent task planning and branch-aware Todo overlay for Pi.",
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -37,9 +36,18 @@
     "locales/",
     "todo.ts",
     "todo-overlay.ts",
-    "state/",
-    "tool/",
-    "view/",
+    "state/i18n-bridge.ts",
+    "state/invariants.ts",
+    "state/replay.ts",
+    "state/selectors.ts",
+    "state/state-reducer.ts",
+    "state/state.ts",
+    "state/store.ts",
+    "state/task-graph.ts",
+    "tool/response-envelope.ts",
+    "tool/types.ts",
+    "view/format.ts",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "UPSTREAM_LICENSE",
@@ -47,6 +55,9 @@
     "UPSTREAM_CHANGELOG.md",
     "UPSTREAM_SOURCE.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -68,7 +79,6 @@
     "@juicesharp/rpiv-config": "1.20.0"
   },
   "devDependencies": {
-    "@juicesharp/rpiv-test-utils": "workspace:*",
     "@types/node": "25.6.0",
     "typescript": "6.0.3",
     "vitest": "4.1.7"

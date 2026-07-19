@@ -1,32 +1,21 @@
 # Releasing
 
-This repository uses Changesets and GitHub Actions to keep these public npm packages on the same version and publish them together:
+This repository publishes four public npm packages:
 
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
 - `@zhcsyncer/pi-tool-display-intent`
+- `@zhcsyncer/pi-todo`
 
-A successful publish creates package-level Git tags and three GitHub Releases: `pi-extensions vX.Y.Z` on the repository `vX.Y.Z` tag, `pi-recap vX.Y.Z` on `@zhcsyncer/pi-recap@X.Y.Z`, and `pi-tool-display-intent vX.Y.Z` on `@zhcsyncer/pi-tool-display-intent@X.Y.Z`.
+Packages version independently. Because the aggregate root tarball embeds child sources, every child release must include a root release of at least the same bump level. Unchanged siblings remain unreleased.
+
+A successful publish creates package-level Git tags and GitHub Releases. The root package also owns the repository `vX.Y.Z` tag and latest release.
 
 ## One-time setup
 
-### 1. Bootstrap the root npm package
+### Configure npm trusted publishers
 
-Trusted publishing is configured from an existing npm package's settings. Before enabling the workflow for the unpublished root package, publish the already-tagged `v0.1.1` source once:
-
-```bash
-git worktree add /tmp/pi-extensions-v0.1.1 v0.1.1
-cd /tmp/pi-extensions-v0.1.1
-npm publish . --access public
-cd -
-git worktree remove /tmp/pi-extensions-v0.1.1
-```
-
-This avoids publishing unreleased working-tree changes as version `0.1.1`.
-
-### 2. Configure npm trusted publishers
-
-In the npm settings for all three packages, add the same GitHub Actions trusted publisher:
+In the npm settings for every existing public package, add the same GitHub Actions trusted publisher:
 
 - Organization or user: `zhcsyncer`
 - Repository: `pi-extensions`
@@ -34,9 +23,19 @@ In the npm settings for all three packages, add the same GitHub Actions trusted 
 - Allowed action: `npm publish`
 - Environment: leave empty
 
-The release workflow uses OIDC and does not require an `NPM_TOKEN`. npm automatically generates provenance for these public packages when trusted publishing is used from this public repository.
+The release workflow uses OIDC and does not normally require an `NPM_TOKEN`. npm automatically generates provenance for public packages published from this repository.
 
-### 3. Allow Actions to create pull requests
+### Bootstrap a new npm package
+
+npm trusted publishing can only be configured after a package exists. A new package such as `@zhcsyncer/pi-todo` must still be published through the Changesets version-PR flow:
+
+1. Create a short-lived npm automation token and store it as the repository secret `NPM_TOKEN`.
+2. In a reviewed temporary change, expose that secret as `NPM_TOKEN` only to the Changesets publish step.
+3. Merge the generated `chore: version packages` PR and let GitHub Actions perform the first publish. Do not run `npm publish` manually.
+4. Configure the package's trusted publisher immediately after the first publish.
+5. Remove the temporary workflow token wiring and delete the repository secret.
+
+### Allow Actions to create pull requests
 
 In GitHub, open **Settings → Actions → General → Workflow permissions** and enable **Allow GitHub Actions to create and approve pull requests**.
 
@@ -48,7 +47,7 @@ Create a changeset in every user-facing pull request:
 pnpm changeset
 ```
 
-Select the affected package and bump type, then write a user-facing summary. The fixed package group ensures both packages receive the same final version and are published together.
+Select each affected public package and its bump type. When selecting a child package, also select `@zhcsyncer/pi-extensions` with an equal or higher bump.
 
 Changes that do not need a release, such as CI-only or internal documentation changes, do not need a changeset.
 
@@ -57,7 +56,7 @@ Changes that do not need a release, such as CI-only or internal documentation ch
 1. Changes with one or more changesets land on `main`.
 2. `.github/workflows/release.yml` creates or updates `chore: version packages`.
 3. Review and merge that version PR when ready to release.
-4. The workflow validates and publishes every package version not already present on npm.
-5. The workflow reconciles package tags and creates GitHub Releases for `pi-extensions`, `pi-recap`, and `pi-tool-display-intent`.
+4. The workflow validates and publishes every planned package version not already present on npm.
+5. The workflow reconciles package tags and creates GitHub Releases for the packages published in that plan.
 
 Publishing and release reconciliation are idempotent. If npm publishing partially succeeds or GitHub Release creation fails, rerun the failed workflow job.

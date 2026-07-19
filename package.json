@@ -46,8 +46,7 @@
     "packages/pi-todo/view/format.ts",
     "packages/pi-todo/UPSTREAM_README.md",
     "packages/pi-todo/UPSTREAM_CHANGELOG.md",
-    "packages/pi-todo/UPSTREAM_SOURCE.md",
-    "!packages/rpiv-test-utils/**"
+    "packages/pi-todo/UPSTREAM_SOURCE.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -59,7 +58,7 @@
     "check": "pnpm check:release-policy && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs && node scripts/check-release-policy.mjs",
     "check:smoke": "node scripts/check-smoke.mjs",
-    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap && npm pack --dry-run ./packages/pi-tool-display-intent"
+    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap && npm pack --dry-run ./packages/pi-tool-display-intent && npm pack --dry-run ./packages/pi-todo"
   },
   "pi": {
     "extensions": [

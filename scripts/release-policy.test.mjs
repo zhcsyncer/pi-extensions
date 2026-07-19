@@ -6,6 +6,7 @@ import { validateReleasePolicy } from "./release-policy.mjs";
 const ROOT = "@zhcsyncer/pi-extensions";
 const RECAP = "@zhcsyncer/pi-recap";
 const INTENT = "@zhcsyncer/pi-tool-display-intent";
+const TODO = "@zhcsyncer/pi-todo";
 
 function releases(...entries) {
 	return {
@@ -30,6 +31,12 @@ test("requires the root package when recap releases", () => {
 test("requires the root package when intent releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([INTENT, "minor"])), [
 		`${INTENT} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when todo releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([TODO, "minor"])), [
+		`${TODO} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 
@@ -59,7 +66,7 @@ test("rejects a root bump lower than a child bump", () => {
 test("compares the root against every changed child", () => {
 	assert.deepEqual(
 		validateReleasePolicy(
-			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"]),
+			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"], [TODO, "minor"]),
 		),
 		[
 			`${ROOT} has a minor release, which is lower than ${INTENT}'s major release.`,

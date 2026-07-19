@@ -1,4 +1,4 @@
-import { verifyShipManifest } from "@juicesharp/rpiv-test-utils";
+import { verifyShipManifest } from "./test-fixtures.js";
 import { describe, expect, it } from "vitest";
 
 describe("publish manifest", () => {
