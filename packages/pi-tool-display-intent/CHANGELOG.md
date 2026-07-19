@@ -23,12 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Replaced the flat configuration with a grouped, sparse v2 format that is strictly validated, atomically migrated with a one-time legacy backup, and documented by a bundled JSON Schema.
+- Renamed collapsed result budgets to `results.previewRows` and `results.overrides.bash.collapsedRows`; these limits now count wrapped terminal rows rather than newline-delimited logical lines.
 - Simplified built-in intent configuration to `toolIntent.enabled`, `toolIntent.language`, and `toolIntent.maxLength`; enabled intent is now always schema-required and visible in TUI, while legacy `displaySummary` config is migrated on load.
 - Increased intent contrast by rendering model-written phrases with the theme's primary text color and deterministic fallbacks with the muted color.
 - Decoupled output profiles from tool-call style, intent, ownership, diff, and advanced settings; applying a preset now updates only read/search/MCP/bash output density, while `reset` restores the complete defaults.
 
 ### Fixed
 
+- Prevented minified JSON, base64, and other very long single-line tool results from bypassing collapsed and expanded preview budgets across read, search, MCP, custom, and bash renderers.
 - Retained recent intent fields in model context so resumed and multi-turn runs continue producing `displaySummary`.
 - Backfilled missing intent into raw arguments before validation so later TUI/RPC updates can observe the fallback.
 - Canonicalized workspace preview containment checks without rejecting macOS `/var` paths that resolve under `/private/var`.

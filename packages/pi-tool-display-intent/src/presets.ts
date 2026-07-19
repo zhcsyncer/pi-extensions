@@ -7,9 +7,9 @@ export const TOOL_OUTPUT_PRESET_KEYS = [
 	"readOutputMode",
 	"searchOutputMode",
 	"mcpOutputMode",
-	"previewLines",
+	"previewRows",
 	"bashOutputMode",
-	"bashCollapsedLines",
+	"bashCollapsedRows",
 ] as const satisfies readonly (keyof ToolDisplayConfig)[];
 
 export type ToolOutputPresetKey = (typeof TOOL_OUTPUT_PRESET_KEYS)[number];
@@ -20,25 +20,25 @@ const TOOL_OUTPUT_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolOutputPresetConf
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
-		previewLines: 8,
+		previewRows: 8,
 		bashOutputMode: "opencode",
-		bashCollapsedLines: 10,
+		bashCollapsedRows: 10,
 	},
 	balanced: {
 		readOutputMode: "summary",
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
-		previewLines: 8,
+		previewRows: 8,
 		bashOutputMode: "summary",
-		bashCollapsedLines: 10,
+		bashCollapsedRows: 10,
 	},
 	detailed: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewLines: 12,
+		previewRows: 12,
 		bashOutputMode: "preview",
-		bashCollapsedLines: 20,
+		bashCollapsedRows: 20,
 	},
 };
 

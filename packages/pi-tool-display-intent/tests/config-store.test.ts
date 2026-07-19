@@ -46,9 +46,9 @@ test("config normalization clamps invalid values and migrates legacy read overri
 	assert.equal(config.readOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode);
 	assert.equal(config.searchOutputMode, "count");
 	assert.equal(config.mcpOutputMode, "preview");
-	assert.equal(config.previewLines, 80);
+	assert.equal(config.previewRows, 80);
 	assert.equal(config.expandedPreviewMaxLines, 0);
-	assert.equal(config.bashCollapsedLines, 80);
+	assert.equal(config.bashCollapsedRows, 80);
 	assert.equal(config.toolCallStyle, "claude");
 	assert.equal(config.diffViewMode, "unified");
 	assert.equal(config.diffSplitMinWidth, 70);
@@ -189,7 +189,7 @@ test("legacy config is migrated on load, backed up once, and preserves effective
 		assert.deepEqual(persisted.toolCalls, { frame: "claude" });
 		assert.deepEqual(persisted.results, {
 			profile: "minimal",
-			previewLines: 10,
+			previewRows: 10,
 			overrides: { read: "summary", search: "preview" },
 		});
 		assert.deepEqual(persisted.transcript, { userMessage: "default" });
@@ -226,10 +226,10 @@ test("v2 grouped config resolves profile baselines and explicit overrides", () =
 				toolCalls: { frame: "claude" },
 				results: {
 					profile: "balanced",
-					previewLines: 20,
+					previewRows: 20,
 					overrides: {
 						search: "preview",
-						bash: { mode: "inline", collapsedLines: 5 },
+						bash: { mode: "inline", collapsedRows: 5 },
 					},
 				},
 				diff: {
@@ -263,9 +263,9 @@ test("v2 grouped config resolves profile baselines and explicit overrides", () =
 		assert.equal(loaded.readOutputMode, "summary");
 		assert.equal(loaded.searchOutputMode, "preview");
 		assert.equal(loaded.mcpOutputMode, "summary");
-		assert.equal(loaded.previewLines, 20);
+		assert.equal(loaded.previewRows, 20);
 		assert.equal(loaded.bashOutputMode, "opencode");
-		assert.equal(loaded.bashCollapsedLines, 5);
+		assert.equal(loaded.bashCollapsedRows, 5);
 		assert.equal(loaded.registerToolOverrides.read, false);
 		assert.equal(loaded.registerToolOverrides.write, false);
 		assert.equal(loaded.registerToolOverrides.bash, true);
@@ -294,9 +294,9 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		readOutputMode: "summary",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewLines: 16,
+		previewRows: 16,
 		bashOutputMode: "preview",
-		bashCollapsedLines: 20,
+		bashCollapsedRows: 20,
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
 		enableThinkingLabel: false,
 	});
@@ -304,7 +304,7 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 
 	assert.deepEqual(serialized.results, {
 		profile: "detailed",
-		previewLines: 16,
+		previewRows: 16,
 		overrides: { read: "summary" },
 	});
 	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
@@ -324,14 +324,18 @@ test("invalid or unknown v2 fields are reported with paths and never rewritten",
 			version: 2,
 			results: {
 				profile: "minimal",
-				previewLine: 10,
-				overrides: { search: "count" },
+				previewLines: 10,
+				overrides: {
+					search: "count",
+					bash: { collapsedLines: 5 },
+				},
 			},
 		}, null, 2)}\n`;
 		writeFileSync(configFile, original, "utf8");
 
 		const loaded = loadToolDisplayConfig(configFile);
-		assert.match(loaded.error ?? "", /results\.previewLine: unknown setting/);
+		assert.match(loaded.error ?? "", /results\.previewLines: unknown setting/);
+		assert.match(loaded.error ?? "", /results\.overrides\.bash\.collapsedLines: unknown setting/);
 		assert.match(loaded.error ?? "", /results\.overrides\.search: expected hidden \| summary \| preview/);
 		assert.equal(readFileSync(configFile, "utf8"), original);
 	});
@@ -354,18 +358,18 @@ test("config save writes normalized v2 JSON and cleans temporary file on failure
 	withTempDir("pi-tool-display-config-save-", (dir) => {
 		const configFile = join(dir, "config.json");
 		const saved = saveToolDisplayConfig(
-			{ ...DEFAULT_TOOL_DISPLAY_CONFIG, previewLines: 999 },
+			{ ...DEFAULT_TOOL_DISPLAY_CONFIG, previewRows: 999 },
 			configFile,
 		);
 
 		assert.equal(saved.success, true);
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
 			version?: number;
-			results?: { profile?: string; previewLines?: number };
+			results?: { profile?: string; previewRows?: number };
 		};
 		assert.equal(persisted.version, 2);
 		assert.equal(persisted.results?.profile, "minimal");
-		assert.equal(persisted.results?.previewLines, 80);
+		assert.equal(persisted.results?.previewRows, 80);
 
 		const parentFile = join(dir, "not-a-directory");
 		writeFileSync(parentFile, "blocks mkdir", "utf8");

@@ -94,9 +94,9 @@ function createTheme(): RenderThemeLike {
 	};
 }
 
-function normalizeRenderedText(component: RenderComponentLike): string {
+function normalizeRenderedText(component: RenderComponentLike, width = 120): string {
 	return component
-		.render(120)
+		.render(width)
 		.map((line) => line.trimEnd())
 		.join("\n")
 		.trim();
@@ -113,6 +113,7 @@ function renderToolResult(
 				isPartial?: boolean;
 				isError?: boolean;
 		  },
+	width = 120,
 ): string {
 	assert.ok(tool?.renderResult, `expected renderResult for tool '${tool?.name ?? "unknown"}'`);
 	const payload = typeof input === "string" ? { text: input } : input;
@@ -126,6 +127,7 @@ function renderToolResult(
 			{ isPartial: payload.isPartial ?? false, expanded: payload.expanded ?? false },
 			createTheme(),
 		),
+		width,
 	);
 }
 
@@ -394,7 +396,7 @@ test("showRtkCompactionHints stays independent from showTruncationHints for prev
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewLines: 1,
+		previewRows: 1,
 		showTruncationHints: false,
 		showRtkCompactionHints: true,
 	});
@@ -449,7 +451,7 @@ test("bash output modes stay distinct across opencode, summary, and preview", as
 
 	const opencodeConfig = buildConfig({
 		bashOutputMode: "opencode",
-		bashCollapsedLines: 1,
+		bashCollapsedRows: 1,
 	});
 	const opencodeStub = createExtensionApiStub();
 	registerToolDisplayOverrides(opencodeStub.api, () => opencodeConfig);
@@ -461,7 +463,7 @@ test("bash output modes stay distinct across opencode, summary, and preview", as
 
 	const summaryConfig = buildConfig({
 		bashOutputMode: "summary",
-		bashCollapsedLines: 1,
+		bashCollapsedRows: 1,
 	});
 	const summaryStub = createExtensionApiStub();
 	registerToolDisplayOverrides(summaryStub.api, () => summaryConfig);
@@ -480,8 +482,8 @@ test("bash output modes stay distinct across opencode, summary, and preview", as
 
 	const previewConfig = buildConfig({
 		bashOutputMode: "preview",
-		previewLines: 2,
-		bashCollapsedLines: 1,
+		previewRows: 2,
+		bashCollapsedRows: 1,
 	});
 	const previewStub = createExtensionApiStub();
 	registerToolDisplayOverrides(previewStub.api, () => previewConfig);
@@ -556,7 +558,7 @@ test("bash render keeps the running result area empty until output exists", asyn
 test("bash render shows live partial output once streaming begins", async () => {
 	const config = buildConfig({
 		bashOutputMode: "summary",
-		previewLines: 2,
+		previewRows: 2,
 	});
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
@@ -575,8 +577,8 @@ test("bash render shows live partial output once streaming begins", async () => 
 test("bash live partial output respects opencode collapse settings", async () => {
 	const config = buildConfig({
 		bashOutputMode: "opencode",
-		bashCollapsedLines: 1,
-		previewLines: 4,
+		bashCollapsedRows: 1,
+		previewRows: 4,
 	});
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
@@ -595,7 +597,7 @@ test("bash live partial output respects opencode collapse settings", async () =>
 test("bash errors render with an explicit failure header and preview", async () => {
 	const config = buildConfig({
 		bashOutputMode: "summary",
-		previewLines: 2,
+		previewRows: 2,
 	});
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
@@ -609,4 +611,64 @@ test("bash errors render with an explicit failure header and preview", async () 
 		}),
 		"↳ command failed\nnpm ERR! missing script: test\nSee npm help run-script",
 	);
+});
+
+test("previewRows bounds long single-line read, search, and MCP results", async () => {
+	const config = buildConfig({
+		readOutputMode: "preview",
+		searchOutputMode: "preview",
+		mcpOutputMode: "preview",
+		previewRows: 2,
+	});
+	const mcpTool: RegisteredToolLike & Record<string, unknown> = {
+		name: "mcp",
+		description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
+		parameters: {},
+		execute(): void {
+			// No-op test stub.
+		},
+	};
+	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([mcpTool]);
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	const previewTools = [
+		registeredTools.find((tool) => tool.name === "read"),
+		registeredTools.find((tool) => tool.name === "grep"),
+		runtimeTools.find((tool) => tool.name === "mcp"),
+	];
+	for (const tool of previewTools) {
+		const output = renderToolResult(tool, "x".repeat(200), 20);
+		assert.equal(
+			output.split("\n").filter((line) => /^x+$/.test(line)).length,
+			2,
+			`${tool?.name} should render at most two content rows`,
+		);
+		assert.match(output.replace(/\n/g, " "), /long line truncated/);
+	}
+});
+
+test("bash collapsed, live, and error previews bound long single-line output", async () => {
+	const config = buildConfig({
+		bashOutputMode: "opencode",
+		bashCollapsedRows: 2,
+	});
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const bashTool = registeredTools.find((tool) => tool.name === "bash");
+	const inputs = [
+		{ text: "y".repeat(200) },
+		{ text: "y".repeat(200), isPartial: true },
+		{ text: "y".repeat(200), isError: true },
+	];
+	for (const input of inputs) {
+		const output = renderToolResult(bashTool, input, 20);
+		assert.equal(
+			output.split("\n").filter((line) => /^y+$/.test(line)).length,
+			2,
+		);
+		assert.match(output.replace(/\n/g, " "), /long line truncated/);
+	}
 });

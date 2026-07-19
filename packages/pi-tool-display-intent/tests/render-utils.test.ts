@@ -11,7 +11,6 @@ import {
   extractTextOutput,
   isLikelyQuietCommand,
   pluralize,
-  previewLines,
   shortenPath,
   splitLines,
 } from "../src/render-utils.ts";
@@ -560,50 +559,6 @@ test("pluralize: large count uses plural", () => {
 test("pluralize: custom plurals for diff contexts", () => {
   assert.equal(pluralize(1, "diff", "diffs"), "diff");
   assert.equal(pluralize(2, "diff", "diffs"), "diffs");
-});
-
-// ---------------------------------------------------------------------------
-// previewLines
-// ---------------------------------------------------------------------------
-
-test("previewLines: maxLines 0 returns empty shown, all remaining", () => {
-  const result = previewLines(["a", "b", "c"], 0);
-  assert.deepEqual(result, { shown: [], remaining: 3 });
-});
-
-test("previewLines: maxLines 1 returns first line, remaining", () => {
-  const result = previewLines(["a", "b", "c"], 1);
-  assert.deepEqual(result, { shown: ["a"], remaining: 2 });
-});
-
-test("previewLines: maxLines larger than array returns all, 0 remaining", () => {
-  const result = previewLines(["a", "b"], 10);
-  assert.deepEqual(result, { shown: ["a", "b"], remaining: 0 });
-});
-
-test("previewLines: empty array returns empty shown, 0 remaining", () => {
-  const result = previewLines([], 5);
-  assert.deepEqual(result, { shown: [], remaining: 0 });
-});
-
-test("previewLines: negative maxLines treated as 0", () => {
-  const result = previewLines(["a", "b"], -5);
-  assert.deepEqual(result, { shown: [], remaining: 2 });
-});
-
-test("previewLines: maxLines exactly equals array length", () => {
-  const result = previewLines(["a", "b", "c"], 3);
-  assert.deepEqual(result, { shown: ["a", "b", "c"], remaining: 0 });
-});
-
-test("previewLines: single element with maxLines 0 returns empty", () => {
-  const result = previewLines(["only"], 0);
-  assert.deepEqual(result, { shown: [], remaining: 1 });
-});
-
-test("previewLines: Infinity-like large value is clamped to array", () => {
-  const result = previewLines(["x"], Number.POSITIVE_INFINITY);
-  assert.deepEqual(result, { shown: ["x"], remaining: 0 });
 });
 
 // ---------------------------------------------------------------------------

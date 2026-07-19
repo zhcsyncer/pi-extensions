@@ -26,7 +26,8 @@ test("bundled config example is valid v2 and resolves expected effective setting
 		assert.equal(loaded.config.toolCallStyle, "claude");
 		assert.equal(loaded.config.readOutputMode, "summary");
 		assert.equal(loaded.config.searchOutputMode, "preview");
-		assert.equal(loaded.config.previewLines, 10);
+		assert.equal(loaded.config.previewRows, 10);
+		assert.equal(loaded.config.bashCollapsedRows, 12);
 		assert.equal(loaded.config.expandedPreviewMaxLines, 500);
 		assert.equal(loaded.config.debug, false);
 	} finally {
@@ -34,11 +35,35 @@ test("bundled config example is valid v2 and resolves expected effective setting
 	}
 });
 
-test("bundled JSON Schema identifies the same config version and URL", () => {
+test("bundled JSON Schema identifies the same config version and visual-row fields", () => {
 	const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as {
 		$id?: string;
-		properties?: { version?: { const?: number } };
+		properties?: {
+			version?: { const?: number };
+			results?: {
+				properties?: {
+					previewRows?: unknown;
+					previewLines?: unknown;
+					overrides?: {
+						properties?: {
+							bash?: {
+								properties?: { collapsedRows?: unknown; collapsedLines?: unknown };
+							};
+						};
+					};
+				};
+			};
+		};
 	};
 	assert.equal(schema.$id, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
 	assert.equal(schema.properties?.version?.const, TOOL_DISPLAY_CONFIG_VERSION);
+	assert.ok(schema.properties?.results?.properties?.previewRows);
+	assert.equal(schema.properties?.results?.properties?.previewLines, undefined);
+	assert.ok(
+		schema.properties?.results?.properties?.overrides?.properties?.bash?.properties?.collapsedRows,
+	);
+	assert.equal(
+		schema.properties?.results?.properties?.overrides?.properties?.bash?.properties?.collapsedLines,
+		undefined,
+	);
 });

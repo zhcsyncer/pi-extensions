@@ -21,7 +21,7 @@ import {
   createWriteTool,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import {
@@ -40,12 +40,11 @@ import {
   extractTextOutput,
   isLikelyQuietCommand,
   pluralize,
-  previewLines,
-  sanitizeAnsiForThemedOutput,
   shortenPath,
   splitLines,
 } from "./render-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
+import { MAX_PREVIEW_LAYOUT_ROWS, PreviewText } from "./preview-text.js";
 import {
   buildPendingEditPreviewData,
   buildPendingWritePreviewData,
@@ -454,32 +453,6 @@ function formatExpandHint(theme: RenderTheme): string {
   return theme.fg("muted", " • Ctrl+O to expand");
 }
 
-function formatTruncationHint(remaining: number, expanded: boolean, theme: RenderTheme): string {
-  if (remaining <= 0) {
-    return "";
-  }
-  const hint = expanded ? "" : " • Ctrl+O to expand";
-  return `\n${theme.fg("muted", `... (${remaining} more ${pluralize(remaining, "line")}${hint})`)}`;
-}
-
-function buildPreviewText(
-  lines: string[],
-  maxLines: number,
-  theme: RenderTheme,
-  expanded: boolean,
-): string {
-  if (lines.length === 0) {
-    return theme.fg("muted", "↳ (no output)");
-  }
-
-  const { shown, remaining } = previewLines(lines, maxLines);
-  let text = shown
-    .map((line) => theme.fg("toolOutput", sanitizeAnsiForThemedOutput(line)))
-    .join("\n");
-  text += formatTruncationHint(remaining, expanded, theme);
-  return text;
-}
-
 function prepareOutputLines(
   rawText: string,
   options: ToolRenderResultOptions,
@@ -844,11 +817,11 @@ function handlePartialResult(
   return options.isPartial ? partialResultText(theme, message) : undefined;
 }
 
-function renderSearchPreview(ctx: PreviewHintContext, expandedOnly = false): Text {
+function renderSearchPreview(ctx: PreviewHintContext, expandedOnly = false): Component {
   return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendPreviewHints(p, ctx), expandedOnly);
 }
 
-function renderMcpPreview(ctx: McpPreviewHintContext, expandedOnly = false): Text {
+function renderMcpPreview(ctx: McpPreviewHintContext, expandedOnly = false): Component {
   return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendMcpPreviewHints(p, ctx), expandedOnly);
 }
 
@@ -873,28 +846,9 @@ function formatRtkSummarySuffix(params: RtkHintParams): string {
   });
 }
 
-function getExpandedPreviewLineLimit(
-  lines: string[],
-  config: ToolDisplayConfig,
-): number {
+function getExpandedPreviewRowLimit(config: ToolDisplayConfig): number {
   const limit = Math.max(0, config.expandedPreviewMaxLines);
-  if (limit === 0) {
-    return lines.length;
-  }
-  return Math.min(lines.length, limit);
-}
-
-function formatExpandedPreviewCapHint(
-  lines: string[],
-  config: ToolDisplayConfig,
-  theme: RenderTheme,
-): string {
-  const cap = Math.max(0, config.expandedPreviewMaxLines);
-  if (cap === 0 || lines.length <= cap) {
-    return "";
-  }
-
-  return `\n${theme.fg("warning", `(display capped at ${cap} lines by tool-display setting)`)}`;
+  return limit === 0 ? MAX_PREVIEW_LAYOUT_ROWS : limit;
 }
 
 function formatRtkPreviewHint(params: RtkHintParams): string {
@@ -926,16 +880,12 @@ function formatRtkPreviewHint(params: RtkHintParams): string {
   });
 }
 
-function appendRtkAndExpandedHints(preview: string, ctx: PreviewHintContext): string {
-  preview += formatRtkPreviewHint(ctx);
-  if (ctx.options.expanded) {
-    preview += formatExpandedPreviewCapHint(ctx.lines, ctx.config, ctx.theme);
-  }
-  return preview;
+function appendRtkPreviewHints(preview: string, ctx: PreviewHintContext): string {
+  return preview + formatRtkPreviewHint(ctx);
 }
 
 function appendMcpPreviewHints(preview: string, ctx: McpPreviewHintContext): string {
-  const { config, theme, details, lines, options, truncation } = ctx;
+  const { config, theme, truncation } = ctx;
   if (config.showTruncationHints && (truncation.truncated || truncation.fullOutputPath)) {
     const hints: string[] = [];
     if (truncation.truncated) {
@@ -946,7 +896,7 @@ function appendMcpPreviewHints(preview: string, ctx: McpPreviewHintContext): str
     }
     preview += `\n${theme.fg("warning", `(${hints.join(" • ")})`)}`;
   }
-  return appendRtkAndExpandedHints(preview, ctx);
+  return appendRtkPreviewHints(preview, ctx);
 }
 
 function appendPreviewHints(preview: string, ctx: PreviewHintContext): string {
@@ -954,7 +904,7 @@ function appendPreviewHints(preview: string, ctx: PreviewHintContext): string {
   if (config.showTruncationHints && toRecord(toRecord(details).truncation).truncated) {
     preview += `\n${theme.fg("warning", "(truncated by backend limits)")}`;
   }
-  return appendRtkAndExpandedHints(preview, ctx);
+  return appendRtkPreviewHints(preview, ctx);
 }
 
 function renderPreviewText(
@@ -964,13 +914,19 @@ function renderPreviewText(
   options: ToolRenderResultOptions,
   appendHints: (preview: string) => string,
   expandedOnly: boolean = false,
-): Text {
+): Component {
   const useExpanded = expandedOnly || options.expanded;
-  const maxLines = useExpanded
-    ? getExpandedPreviewLineLimit(lines, config)
-    : config.previewLines;
-  const preview = buildPreviewText(lines, maxLines, theme, useExpanded);
-  return textResult(appendHints(preview));
+  return new PreviewText({
+    lines,
+    maxRows: useExpanded
+      ? getExpandedPreviewRowLimit(config)
+      : config.previewRows,
+    theme,
+    expanded: useExpanded,
+    emptyText: theme.fg("muted", "↳ (no output)"),
+    expandedRowCap: useExpanded ? config.expandedPreviewMaxLines : undefined,
+    appendHints,
+  });
 }
 
 function formatReadSummary(
@@ -1045,18 +1001,17 @@ function formatBashTruncationHints(
   return `\n${theme.fg("warning", `(${hints.join(" • ")})`)}`;
 }
 
-function getBashPreviewLineLimit(
-  lines: string[],
+function getBashPreviewRowLimit(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
 ): number {
   if (options.expanded) {
-    return getExpandedPreviewLineLimit(lines, config);
+    return getExpandedPreviewRowLimit(config);
   }
 
   return config.bashOutputMode === "opencode"
-    ? config.bashCollapsedLines
-    : config.previewLines;
+    ? config.bashCollapsedRows
+    : config.previewRows;
 }
 
 type ToolRenderInput = {
@@ -1074,36 +1029,40 @@ function partialResultText(theme: RenderTheme, label: string): Text {
 
 function renderBashPreviewWithHints(
   lines: string[],
-  maxLines: number,
+  maxRows: number,
   config: ToolDisplayConfig,
   theme: RenderTheme,
   options: ToolRenderResultOptions,
   details: BashToolDetails | undefined,
-): Text {
-  let preview = buildPreviewText(lines, maxLines, theme, options.expanded);
-  if (config.showTruncationHints) {
-    preview += formatBashTruncationHints(details, theme);
-  }
-  if (options.expanded) {
-    preview += formatExpandedPreviewCapHint(lines, config, theme);
-  }
-  return textResult(preview);
+): Component {
+  return new PreviewText({
+    lines,
+    maxRows,
+    theme,
+    expanded: options.expanded,
+    emptyText: theme.fg("muted", "↳ (no output)"),
+    expandedRowCap: options.expanded ? config.expandedPreviewMaxLines : undefined,
+    appendHints: (preview) =>
+      config.showTruncationHints
+        ? preview + formatBashTruncationHints(details, theme)
+        : preview,
+  });
 }
 
 function prepareBashLivePreview(
   rawOutput: string,
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
-): { lines: string[]; maxLines: number } | undefined {
+): { lines: string[]; maxRows: number } | undefined {
   const lines = prepareOutputLines(rawOutput, options);
   if (lines.length === 0) {
     return undefined;
   }
-  const maxLines = getBashPreviewLineLimit(lines, options, config);
-  if (!options.expanded && maxLines === 0) {
+  const maxRows = getBashPreviewRowLimit(options, config);
+  if (!options.expanded && maxRows === 0) {
     return undefined;
   }
-  return { lines, maxLines };
+  return { lines, maxRows };
 }
 
 function renderBashLivePreview(
@@ -1112,12 +1071,12 @@ function renderBashLivePreview(
   config: ToolDisplayConfig,
   theme: RenderTheme,
   details: BashToolDetails | undefined,
-): Text {
+): Component {
   const prepared = prepareBashLivePreview(rawOutput, options, config);
   if (!prepared) {
     return textResult("");
   }
-  return renderBashPreviewWithHints(prepared.lines, prepared.maxLines, config, theme, options, details);
+  return renderBashPreviewWithHints(prepared.lines, prepared.maxRows, config, theme, options, details);
 }
 
 function renderBashErrorResult(
@@ -1126,29 +1085,22 @@ function renderBashErrorResult(
   config: ToolDisplayConfig,
   theme: RenderTheme,
   details: BashToolDetails | undefined,
-): Text {
+): Component {
   const lines = prepareOutputLines(rawOutput, options);
-  let text = theme.fg("error", "↳ command failed");
-
-  if (lines.length > 0) {
-    const maxLines = getBashPreviewLineLimit(lines, options, config);
-    if (options.expanded || maxLines > 0) {
-      const { shown, remaining } = previewLines(lines, maxLines);
-      text += `\n${shown
-        .map((line) => theme.fg("error", sanitizeAnsiForThemedOutput(line)))
-        .join("\n")}`;
-      text += formatTruncationHint(remaining, options.expanded, theme);
-    }
-  }
-
-  if (config.showTruncationHints) {
-    text += formatBashTruncationHints(details, theme);
-  }
-  if (options.expanded && lines.length > 0) {
-    text += formatExpandedPreviewCapHint(lines, config, theme);
-  }
-
-  return textResult(text);
+  const maxRows = getBashPreviewRowLimit(options, config);
+  return new PreviewText({
+    lines: options.expanded || maxRows > 0 ? lines : [],
+    maxRows,
+    theme,
+    expanded: options.expanded,
+    outputColor: "error",
+    prefix: theme.fg("error", "↳ command failed"),
+    expandedRowCap: options.expanded ? config.expandedPreviewMaxLines : undefined,
+    appendHints: (preview) =>
+      config.showTruncationHints
+        ? preview + formatBashTruncationHints(details, theme)
+        : preview,
+  });
 }
 
 function renderSearchResult(
@@ -1159,7 +1111,7 @@ function renderSearchResult(
   unitLabel: string,
   details: GrepToolDetails | FindToolDetails | LsToolDetails | undefined,
   pluralLabel?: string,
-): Text {
+): Component {
   if (options.isPartial) {
     return partialResultText(theme, "running...");
   }
@@ -1274,7 +1226,7 @@ function renderMcpResult(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
   theme: RenderTheme,
-): Text {
+): Component {
   const partial = handlePartialResult(options, theme, "running...");
   if (partial) {
     return partial;
@@ -1376,7 +1328,7 @@ function renderCustomToolResult(
   config: ToolDisplayConfig,
   outputMode: CustomToolOverrideConfig["outputMode"],
   theme: RenderTheme,
-): Text {
+): Component {
   return renderMcpResult(
     result as ToolRenderInput,
     options,
@@ -1440,7 +1392,7 @@ function renderReadDisplayResult(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
   theme: RenderTheme,
- ): Text {
+ ): Component {
   if (options.isPartial) {
     return partialResultText(theme, "reading...");
   }
@@ -1770,7 +1722,7 @@ export function registerToolDisplayOverrides(
     theme: RenderTheme,
     unitLabel: string,
     pluralLabel?: string,
-  ): Text => {
+  ): Component => {
     const config = getConfig();
     return renderSearchResult(result as never, options, config, theme, unitLabel, result.details, pluralLabel);
   };
@@ -1981,8 +1933,8 @@ export function registerToolDisplayOverrides(
 
       if (config.bashOutputMode === "summary") {
         if (options.expanded) {
-          const maxLines = getExpandedPreviewLineLimit(lines, config);
-          return renderBashPreviewWithHints(lines, maxLines, config, theme, options, details);
+          const maxRows = getExpandedPreviewRowLimit(config);
+          return renderBashPreviewWithHints(lines, maxRows, config, theme, options, details);
         }
 
         let summary = formatBashSummary(
@@ -1999,13 +1951,13 @@ export function registerToolDisplayOverrides(
       }
 
       if (config.bashOutputMode === "preview") {
-        const maxLines = options.expanded
-          ? getExpandedPreviewLineLimit(lines, config)
-          : config.previewLines;
-        return renderBashPreviewWithHints(lines, maxLines, config, theme, options, details);
+        const maxRows = options.expanded
+          ? getExpandedPreviewRowLimit(config)
+          : config.previewRows;
+        return renderBashPreviewWithHints(lines, maxRows, config, theme, options, details);
       }
 
-      if (!options.expanded && config.bashCollapsedLines === 0) {
+      if (!options.expanded && config.bashCollapsedRows === 0) {
         let hidden = theme.fg("muted", "↳ output hidden");
         if (config.showTruncationHints) {
           hidden += formatBashTruncationHints(details, theme);
@@ -2013,14 +1965,8 @@ export function registerToolDisplayOverrides(
         return textResult(hidden);
       }
 
-      const maxLines = options.expanded
-        ? lines.length
-        : config.bashCollapsedLines;
-      let text = buildPreviewText(lines, maxLines, theme, options.expanded);
-      if (config.showTruncationHints) {
-        text += formatBashTruncationHints(details, theme);
-      }
-      return textResult(text);
+      const maxRows = getBashPreviewRowLimit(options, config);
+      return renderBashPreviewWithHints(lines, maxRows, config, theme, options, details);
     },
     });
   });

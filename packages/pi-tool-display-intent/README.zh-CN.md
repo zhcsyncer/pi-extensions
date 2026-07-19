@@ -74,7 +74,7 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 
 修改工具 ownership 或意图 Schema 后需要执行 `/reload`。
 
-`minimal`、`balanced` 和 `detailed` 是持久化的结果 Profile 基线：它们调整 read/search/MCP/bash 输出模式和折叠行数，但保留调用外框、意图、ownership、diff 及其他高级设置。旧名称 `opencode`、`verbose` 仍可作为命令别名。只有在需要恢复完整默认配置时才使用 `reset`。
+`minimal`、`balanced` 和 `detailed` 是持久化的结果 Profile 基线：它们调整 read/search/MCP/bash 输出模式和折叠视觉行预算，但保留调用外框、意图、ownership、diff 及其他高级设置。旧名称 `opencode`、`verbose` 仍可作为命令别名。只有在需要恢复完整默认配置时才使用 `reset`。
 
 ## 配置
 
@@ -98,7 +98,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
   },
   "results": {
     "profile": "minimal",
-    "previewLines": 10,
+    "previewRows": 10,
     "overrides": {
       "read": "summary",
       "search": "preview"
@@ -122,7 +122,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 | `extension` | 整体启停。通常应通过 Pi package 设置管理，不需要手写。 |
 | `intent` | 模型意图的启停、语言和最大长度。 |
 | `toolCalls` | `compact` 或 Claude Code 风格调用外框。 |
-| `results` | 结果 Profile、共享预览行数和单工具 override。 |
+| `results` | 结果 Profile、共享预览视觉行预算和单工具 override。 |
 | `diff` | edit/write diff 的布局、指示器、折行和行数。 |
 | `transcript` | 用户消息框和 thinking label。 |
 | `tools` | 禁用的内置工具 renderer 与自定义工具展示装饰。 |
@@ -136,6 +136,8 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 `results.overrides` 只保存相对基线的差异。搜索工具的 `summary` 表示计数摘要；bash 的 `inline` 对应紧凑的行内输出。旧命令名 `opencode` 和 `verbose` 仍分别作为 `minimal` 和 `detailed` 的兼容别名。
 
+`results.previewRows` 和 `results.overrides.bash.collapsedRows` 统计终端折行后的视觉行，而不是按换行符分隔的逻辑行。因此，压缩 JSON、base64 或其他超长单行也会消耗配置的视觉行预算，并以 `long line truncated` 展开提示结束，不再刷满 transcript。`advanced.expandedLineLimit` 对展开后的结果预览采用相同的视觉行语义；配置为 `0` 时仍保留内部安全上限以防御异常输入。
+
 ### 历史配置自动迁移
 
 扩展加载没有 `version` 的旧 flat 配置时，会在内存中规范化、验证 v2 round-trip 行为一致，然后立即原子更新原 `config.json`。首次迁移会保留一份 `config.legacy.json` 备份。迁移包括：
@@ -143,6 +145,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 - `displaySummary` / `toolIntent` → `intent`；
 - `toolCallStyle` → `toolCalls.frame`；
 - 各种 `*OutputMode` → `results` Profile 与 overrides；
+- `previewLines` → `results.previewRows`，`bashCollapsedLines` → `results.overrides.bash.collapsedRows`；
 - `registerToolOverrides` → `tools.disabled`；
 - `customToolOverrides` → `tools.custom`；
 - diff、transcript、hint 和 debug 字段进入对应分组。

@@ -46,6 +46,8 @@ const LEGACY_BACKUP_FILE_NAME = "config.legacy.json";
 interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
 	displaySummary?: unknown;
 	registerReadToolOverride?: unknown;
+	previewLines?: unknown;
+	bashCollapsedLines?: unknown;
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -281,7 +283,12 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		readOutputMode: toReadOutputMode(source.readOutputMode),
 		searchOutputMode: toSearchOutputMode(source.searchOutputMode),
 		mcpOutputMode: toMcpOutputMode(source.mcpOutputMode),
-		previewLines: clampNumber(source.previewLines, 1, 80, DEFAULT_TOOL_DISPLAY_CONFIG.previewLines),
+		previewRows: clampNumber(
+			source.previewRows ?? source.previewLines,
+			1,
+			80,
+			DEFAULT_TOOL_DISPLAY_CONFIG.previewRows,
+		),
 		expandedPreviewMaxLines: clampNumber(
 			source.expandedPreviewMaxLines,
 			0,
@@ -289,11 +296,11 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines,
 		),
 		bashOutputMode: toBashOutputMode(source.bashOutputMode),
-		bashCollapsedLines: clampNumber(
-			source.bashCollapsedLines,
+		bashCollapsedRows: clampNumber(
+			source.bashCollapsedRows ?? source.bashCollapsedLines,
 			0,
 			80,
-			DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedLines,
+			DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedRows,
 		),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
 		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
@@ -445,19 +452,19 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
 	const results = getV2Section(source, "results", errors);
-	validateKnownKeys(results, ["profile", "previewLines", "overrides"], "results.", errors);
+	validateKnownKeys(results, ["profile", "previewRows", "overrides"], "results.", errors);
 	if (!hasOwn(results, "profile")) errors.push("results.profile: required setting");
 	validateOptionalEnum(results, "profile", TOOL_DISPLAY_PRESETS, "results.", errors);
-	validateOptionalInteger(results, "previewLines", 1, 80, "results.", errors);
+	validateOptionalInteger(results, "previewRows", 1, 80, "results.", errors);
 	const resultOverrides = getV2Section(results, "overrides", errors, "results.overrides");
 	validateKnownKeys(resultOverrides, ["read", "search", "mcp", "bash"], "results.overrides.", errors);
 	validateOptionalEnum(resultOverrides, "read", READ_OUTPUT_MODES, "results.overrides.", errors);
 	validateOptionalEnum(resultOverrides, "search", ["hidden", "summary", "preview"], "results.overrides.", errors);
 	validateOptionalEnum(resultOverrides, "mcp", MCP_OUTPUT_MODES, "results.overrides.", errors);
 	const bash = getV2Section(resultOverrides, "bash", errors, "results.overrides.bash");
-	validateKnownKeys(bash, ["mode", "collapsedLines"], "results.overrides.bash.", errors);
+	validateKnownKeys(bash, ["mode", "collapsedRows"], "results.overrides.bash.", errors);
 	validateOptionalEnum(bash, "mode", ["inline", "summary", "preview"], "results.overrides.bash.", errors);
-	validateOptionalInteger(bash, "collapsedLines", 0, 80, "results.overrides.bash.", errors);
+	validateOptionalInteger(bash, "collapsedRows", 0, 80, "results.overrides.bash.", errors);
 
 	const diff = getV2Section(source, "diff", errors);
 	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedLines", "wordWrap"], "diff.", errors);
@@ -543,7 +550,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		readOutputMode: toReadOutputMode(resultOverrides.read, profileConfig.readOutputMode),
 		searchOutputMode: toV2SearchOutputMode(resultOverrides.search, profileConfig.searchOutputMode),
 		mcpOutputMode: toMcpOutputMode(resultOverrides.mcp, profileConfig.mcpOutputMode),
-		previewLines: clampNumber(results.previewLines, 1, 80, profileConfig.previewLines),
+		previewRows: clampNumber(results.previewRows, 1, 80, profileConfig.previewRows),
 		expandedPreviewMaxLines: clampNumber(
 			advanced.expandedLineLimit,
 			0,
@@ -551,11 +558,11 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 			DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines,
 		),
 		bashOutputMode: toV2BashOutputMode(bashOverride.mode, profileConfig.bashOutputMode),
-		bashCollapsedLines: clampNumber(
-			bashOverride.collapsedLines,
+		bashCollapsedRows: clampNumber(
+			bashOverride.collapsedRows,
 			0,
 			80,
-			profileConfig.bashCollapsedLines,
+			profileConfig.bashCollapsedRows,
 		),
 		diffViewMode: diff.layout,
 		diffIndicatorMode: diff.indicators,
@@ -614,13 +621,13 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.bashOutputMode !== baseline.bashOutputMode) {
 		bashOverride.mode = mapBashOutputModeToV2(config.bashOutputMode);
 	}
-	if (config.bashCollapsedLines !== baseline.bashCollapsedLines) {
-		bashOverride.collapsedLines = config.bashCollapsedLines;
+	if (config.bashCollapsedRows !== baseline.bashCollapsedRows) {
+		bashOverride.collapsedRows = config.bashCollapsedRows;
 	}
 	assignSection(resultOverrides, "bash", bashOverride);
 
 	const results: Record<string, unknown> = { profile: config.resultProfile };
-	if (config.previewLines !== baseline.previewLines) results.previewLines = config.previewLines;
+	if (config.previewRows !== baseline.previewRows) results.previewRows = config.previewRows;
 	assignSection(results, "overrides", resultOverrides);
 	output.results = results;
 

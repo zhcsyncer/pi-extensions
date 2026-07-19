@@ -174,13 +174,3 @@ export function pluralize(
 ): string {
   return count === 1 ? singular : plural;
 }
-
-export function previewLines(
-  lines: string[],
-  maxLines: number,
-): { shown: string[]; remaining: number } {
-  const limit = Math.max(0, maxLines);
-  const shown = lines.slice(0, limit);
-  const remaining = Math.max(0, lines.length - shown.length);
-  return { shown, remaining };
-}

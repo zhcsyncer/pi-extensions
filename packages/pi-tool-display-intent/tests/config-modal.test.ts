@@ -160,7 +160,7 @@ test("'reset' argument restores the complete default config", async () => {
 	const { controller, getLastSet } = createControllerStub({
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
-		previewLines: 99,
+		previewRows: 99,
 		toolCallStyle: "claude",
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
 		registerToolOverrides: {
@@ -238,8 +238,8 @@ test("legacy 'preset verbose' alias applies the detailed profile", async () => {
 	assert.equal(last.config!.readOutputMode, "preview");
 	assert.equal(last.config!.searchOutputMode, "preview");
 	assert.equal(last.config!.mcpOutputMode, "preview");
-	assert.equal(last.config!.previewLines, 12);
-	assert.equal(last.config!.bashCollapsedLines, 20);
+	assert.equal(last.config!.previewRows, 12);
+	assert.equal(last.config!.bashCollapsedRows, 20);
 	assert.equal(last.config!.resultProfile, "detailed");
 });
 
