@@ -34,7 +34,7 @@ test("preset detection only compares output-profile fields", () => {
 
   assert.equal(detectToolDisplayPreset(balanced), "balanced");
   assert.equal(
-    detectToolDisplayPreset({ ...balanced, previewLines: balanced.previewLines + 1 }),
+    detectToolDisplayPreset({ ...balanced, previewRows: balanced.previewRows + 1 }),
     "custom",
   );
 });
@@ -46,10 +46,10 @@ test("preset configs are independent output-only patches", () => {
   assert.notEqual(balanced, anotherBalanced);
   assert.deepEqual(balanced, anotherBalanced);
   assert.deepEqual(Object.keys(balanced).sort(), [
-    "bashCollapsedLines",
+    "bashCollapsedRows",
     "bashOutputMode",
     "mcpOutputMode",
-    "previewLines",
+    "previewRows",
     "readOutputMode",
     "searchOutputMode",
   ]);

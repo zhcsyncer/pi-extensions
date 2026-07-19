@@ -66,15 +66,15 @@ function makeMcpSettings(hasMcp: boolean, hasRtk: boolean): InspectorSettingItem
 
 	items.push(
 		{
-			id: "previewLines",
-			label: "Preview lines",
-			currentValue: String(config.previewLines),
+			id: "previewRows",
+			label: "Preview rows",
+			currentValue: String(config.previewRows),
 			values: ["4", "8", "12", "20", "40"],
-			inspectorTitle: "Preview Lines",
-			inspectorSummary: ["Sets preview line count."],
+			inspectorTitle: "Preview Rows",
+			inspectorSummary: ["Sets the wrapped terminal-row preview budget."],
 			inspectorOptions: ["4", "8", "12", "20", "40"],
 			inspectorPath: "~/.pi/extensions/pi-tool-display/config.json",
-			searchTerms: ["preview", "lines"],
+			searchTerms: ["preview", "rows", "lines"],
 		},
 		{
 			id: "enableNativeUserMessageBox",

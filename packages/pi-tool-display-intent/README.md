@@ -74,7 +74,7 @@ Direct commands:
 
 Tool ownership and intent-schema changes take effect after `/reload`.
 
-The `minimal`, `balanced`, and `detailed` result profiles are persisted baselines. They update read/search/MCP/bash output modes and collapsed line budgets while preserving call framing, intent, ownership, diff settings, and other advanced preferences. The old `opencode` and `verbose` command names remain aliases. Use `reset` only when you intentionally want to restore the complete default configuration.
+The `minimal`, `balanced`, and `detailed` result profiles are persisted baselines. They update read/search/MCP/bash output modes and collapsed rendered-row budgets while preserving call framing, intent, ownership, diff settings, and other advanced preferences. The old `opencode` and `verbose` command names remain aliases. Use `reset` only when you intentionally want to restore the complete default configuration.
 
 ## Configuration
 
@@ -98,7 +98,7 @@ When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. The v
   },
   "results": {
     "profile": "minimal",
-    "previewLines": 10,
+    "previewRows": 10,
     "overrides": {
       "read": "summary",
       "search": "preview"
@@ -122,11 +122,11 @@ See [`config/config.example.json`](./config/config.example.json) for a complete 
 | `extension` | Whole-extension enable switch; normally manage this through Pi package settings. |
 | `intent` | Model-written intent enablement, language, and maximum length. |
 | `toolCalls` | `compact` or Claude Code-inspired call framing. |
-| `results` | Result profile, shared preview budget, and per-tool overrides. |
+| `results` | Result profile, shared rendered-row preview budget, and per-tool overrides. |
 | `diff` | Edit/write diff layout, indicators, wrapping, and line budgets. |
 | `transcript` | User message box and thinking label. |
 | `tools` | Disabled built-in renderers and custom-tool display decoration. |
-| `advanced` | Expanded line limit, truncation/RTK hints, and debug logging. |
+| `advanced` | Expanded display limit, truncation/RTK hints, and debug logging. |
 
 Result profiles are persisted baselines:
 
@@ -136,6 +136,8 @@ Result profiles are persisted baselines:
 
 `results.overrides` stores only differences from the baseline. Search `summary` means a count summary; bash `inline` means compact inline output. The old `opencode` and `verbose` command names remain aliases for `minimal` and `detailed`.
 
+`results.previewRows` and `results.overrides.bash.collapsedRows` count terminal rows after wrapping, not newline-delimited logical lines. A minified JSON object, base64 payload, or other very long single line therefore consumes the configured visual-row budget and ends with a `long line truncated` expansion hint instead of flooding the transcript. `advanced.expandedLineLimit` applies the same rendered-row semantics to expanded result previews; an internal safety limit still protects pathological payloads when the configured value is `0`.
+
 ### Automatic legacy migration
 
 When the extension loads an old flat config without `version`, it normalizes the effective settings, verifies that a v2 round trip preserves behavior, and immediately replaces `config.json` atomically. The first migration keeps `config.legacy.json` as a backup. This includes:
@@ -143,6 +145,7 @@ When the extension loads an old flat config without `version`, it normalizes the
 - `displaySummary` / `toolIntent` → `intent`;
 - `toolCallStyle` → `toolCalls.frame`;
 - `*OutputMode` fields → the `results` profile and overrides;
+- `previewLines` → `results.previewRows`, and `bashCollapsedLines` → `results.overrides.bash.collapsedRows`;
 - `registerToolOverrides` → `tools.disabled`;
 - `customToolOverrides` → `tools.custom`;
 - diff, transcript, hint, and debug fields → their grouped sections.

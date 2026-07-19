@@ -16,25 +16,25 @@ const EXPECTED_PROFILES = {
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
-		previewLines: 8,
+		previewRows: 8,
 		bashOutputMode: "opencode",
-		bashCollapsedLines: 10,
+		bashCollapsedRows: 10,
 	},
 	balanced: {
 		readOutputMode: "summary",
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
-		previewLines: 8,
+		previewRows: 8,
 		bashOutputMode: "summary",
-		bashCollapsedLines: 10,
+		bashCollapsedRows: 10,
 	},
 	detailed: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewLines: 12,
+		previewRows: 12,
 		bashOutputMode: "preview",
-		bashCollapsedLines: 20,
+		bashCollapsedRows: 20,
 	},
 } as const;
 
@@ -43,9 +43,9 @@ test("output profiles expose exactly the fields they own", () => {
 		"readOutputMode",
 		"searchOutputMode",
 		"mcpOutputMode",
-		"previewLines",
+		"previewRows",
 		"bashOutputMode",
-		"bashCollapsedLines",
+		"bashCollapsedRows",
 	]);
 
 	for (const preset of TOOL_DISPLAY_PRESETS) {
@@ -123,9 +123,9 @@ test("changing any output-profile field makes detection custom", () => {
 		{ ...balanced, readOutputMode: "preview" },
 		{ ...balanced, searchOutputMode: "preview" },
 		{ ...balanced, mcpOutputMode: "preview" },
-		{ ...balanced, previewLines: 9 },
+		{ ...balanced, previewRows: 9 },
 		{ ...balanced, bashOutputMode: "preview" },
-		{ ...balanced, bashCollapsedLines: 11 },
+		{ ...balanced, bashCollapsedRows: 11 },
 	];
 
 	for (const variant of variants) {

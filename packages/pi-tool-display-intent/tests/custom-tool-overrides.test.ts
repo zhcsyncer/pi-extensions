@@ -319,7 +319,7 @@ test("generic custom tool preview mode supports collapsed previews, expanded pre
 	};
 	const config = buildConfigWithCustomOverrides(
 		{ preview_payload_tool: { enabled: true, outputMode: "preview" } },
-		{ previewLines: 2 },
+		{ previewRows: 2 },
 	);
 	const { api, eventHandlers } = createExtensionApiStub([previewTool]);
 

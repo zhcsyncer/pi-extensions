@@ -72,10 +72,10 @@ export interface ToolDisplayConfig {
 	readOutputMode: ReadOutputMode;
 	searchOutputMode: SearchOutputMode;
 	mcpOutputMode: McpOutputMode;
-	previewLines: number;
+	previewRows: number;
 	expandedPreviewMaxLines: number;
 	bashOutputMode: BashOutputMode;
-	bashCollapsedLines: number;
+	bashCollapsedRows: number;
 	diffViewMode: DiffViewMode;
 	diffIndicatorMode: DiffIndicatorMode;
 	diffSplitMinWidth: number;
@@ -110,10 +110,10 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",
 	mcpOutputMode: "hidden",
-	previewLines: 8,
+	previewRows: 8,
 	expandedPreviewMaxLines: 4000,
 	bashOutputMode: "opencode",
-	bashCollapsedLines: 10,
+	bashCollapsedRows: 10,
 	diffViewMode: "auto",
 	diffIndicatorMode: "bars",
 	diffSplitMinWidth: 120,

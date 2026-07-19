@@ -25,8 +25,8 @@ interface ModalOverlayOptions {
 	margin: number;
 }
 
-const PREVIEW_LINE_VALUES = ["4", "8", "12", "20", "40"] as const;
-const BASH_PREVIEW_LINE_VALUES = ["0", "5", "10", "20", "40"] as const;
+const PREVIEW_ROW_VALUES = ["4", "8", "12", "20", "40"] as const;
+const BASH_PREVIEW_ROW_VALUES = ["0", "5", "10", "20", "40"] as const;
 const PRESET_COMMAND_HINT = TOOL_DISPLAY_PRESETS.join("|");
 
 function toOnOff(value: boolean): string {
@@ -51,10 +51,10 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
 		`read=${config.readOutputMode}`,
 		`search=${config.searchOutputMode}`,
-		`preview=${config.previewLines}`,
+		`previewRows=${config.previewRows}`,
 		`expandedMax=${config.expandedPreviewMaxLines}`,
 		`bash=${config.bashOutputMode}`,
-		`bashLines=${config.bashCollapsedLines}`,
+		`bashRows=${config.bashCollapsedRows}`,
 		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
 		`diffLines=${config.diffCollapsedLines}`,
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
@@ -113,7 +113,7 @@ function buildInspectorSettings(
 			inspectorOptions: [
 				"minimal — headers plus compact inline bash output",
 				"balanced — compact summaries with counts",
-				"detailed — larger line previews and more visible bash output",
+				"detailed — larger rendered-row previews and more visible bash output",
 				"profile+overrides — shown when per-tool result settings differ from the selected baseline",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
@@ -179,10 +179,10 @@ function buildInspectorSettings(
 			inspectorOptions: [
 				"hidden — path and status only",
 				"summary — adds compact file metrics",
-				"preview — shows the first configured preview lines",
+				"preview — shows the first configured preview rows",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"advanced.expandedLineLimit bounds how many lines can appear after expanding a preview-heavy read result.",
+				"advanced.expandedLineLimit bounds rendered rows after expanding a preview-heavy read result.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["file", "source", "preview", "summary", "hidden"],
@@ -200,10 +200,10 @@ function buildInspectorSettings(
 			inspectorOptions: [
 				"hidden — call header only",
 				"count — totals only for matches or entries",
-				"preview — shows the first configured preview lines",
+				"preview — shows the first configured preview rows",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Preview-heavy search output is most effective when paired with larger previewLines values in custom configurations.",
+				"Preview-heavy search output is most effective when paired with larger previewRows values in custom configurations.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["grep", "find", "ls", "matches", "count", "results"],
@@ -224,7 +224,7 @@ function buildInspectorSettings(
 			inspectorOptions: [
 				"hidden — call metadata only",
 				"summary — compact line-count summary",
-				"preview — shows the first configured preview lines",
+				"preview — shows the first configured preview rows",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"This control appears only when MCP tooling is available in the current Pi session.",
@@ -236,14 +236,14 @@ function buildInspectorSettings(
 
 	items.push(
 		{
-			id: "previewLines",
-			label: "Preview lines",
-			currentValue: String(config.previewLines),
-			values: PREVIEW_LINE_VALUES,
-			inspectorTitle: "Preview Lines",
+			id: "previewRows",
+			label: "Preview rows",
+			currentValue: String(config.previewRows),
+			values: PREVIEW_ROW_VALUES,
+			inspectorTitle: "Preview Rows",
 			inspectorSummary: [
-				"Sets how many lines appear when read, search, MCP, or bash preview modes are collapsed inline.",
-				"Accepted manual range: 1 to 80 lines. The quick selector cycles through a curated set for fast tuning.",
+				"Sets the rendered terminal-row budget for collapsed read, search, MCP, and bash previews after wrapping.",
+				"Accepted manual range: 1 to 80 rows. A single long logical line consumes multiple rows instead of bypassing the limit.",
 			],
 			inspectorOptions: [
 				"Lower values keep transcripts dense and skimmable",
@@ -268,7 +268,7 @@ function buildInspectorSettings(
 			inspectorOptions: [
 				"opencode — Pi/OpenCode-style collapsed bash view",
 				"summary — output count only",
-				"preview — uses the shared previewLines setting",
+				"preview — uses the shared previewRows setting",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Quiet commands still collapse aggressively, so mode selection matters most on verbose build, test, and script output.",
@@ -277,24 +277,24 @@ function buildInspectorSettings(
 			searchTerms: ["bash", "shell", "stdout", "command", "opencode"],
 		},
 		{
-			id: "bashCollapsedLines",
-			label: "Bash collapsed lines",
-			currentValue: String(config.bashCollapsedLines),
-			values: BASH_PREVIEW_LINE_VALUES,
-			inspectorTitle: "Bash Collapsed Lines",
+			id: "bashCollapsedRows",
+			label: "Bash collapsed rows",
+			currentValue: String(config.bashCollapsedRows),
+			values: BASH_PREVIEW_ROW_VALUES,
+			inspectorTitle: "Bash Collapsed Rows",
 			inspectorSummary: [
-				"Sets the inline line budget used specifically by opencode bash mode before expansion.",
-				"Accepted manual range: 0 to 80 lines. Setting 0 hides collapsed bash output entirely while keeping the command visible.",
+				"Sets the rendered terminal-row budget used specifically by opencode bash mode before expansion.",
+				"Accepted manual range: 0 to 80 rows. Setting 0 hides collapsed bash output entirely while keeping the command visible.",
 			],
 			inspectorOptions: [
 				"0 — hide collapsed bash output",
 				"5/10/20/40 — progressively larger inline command previews",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This setting only changes the opencode bash renderer; preview mode continues to use previewLines instead.",
+				"This setting only changes the opencode bash renderer; preview mode continues to use previewRows instead.",
 			]),
 			inspectorPath: configPath,
-			searchTerms: ["bash", "collapsed", "lines", "stdout", "zero"],
+			searchTerms: ["bash", "collapsed", "rows", "lines", "stdout", "zero"],
 		},
 		{
 			id: "diffViewMode",
@@ -431,20 +431,20 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 				...config,
 				mcpOutputMode: value as ToolDisplayConfig["mcpOutputMode"],
 			};
-		case "previewLines":
+		case "previewRows":
 			return {
 				...config,
-				previewLines: parseNumber(value, config.previewLines),
+				previewRows: parseNumber(value, config.previewRows),
 			};
 		case "bashOutputMode":
 			return {
 				...config,
 				bashOutputMode: value as ToolDisplayConfig["bashOutputMode"],
 			};
-		case "bashCollapsedLines":
+		case "bashCollapsedRows":
 			return {
 				...config,
-				bashCollapsedLines: parseNumber(value, config.bashCollapsedLines),
+				bashCollapsedRows: parseNumber(value, config.bashCollapsedRows),
 			};
 		case "diffViewMode":
 			return {

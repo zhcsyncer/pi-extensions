@@ -9,10 +9,14 @@
   },
   "results": {
     "profile": "minimal",
-    "previewLines": 10,
+    "previewRows": 10,
     "overrides": {
       "read": "summary",
-      "search": "preview"
+      "search": "preview",
+      "bash": {
+        "mode": "inline",
+        "collapsedRows": 12
+      }
     }
   },
   "diff": {
