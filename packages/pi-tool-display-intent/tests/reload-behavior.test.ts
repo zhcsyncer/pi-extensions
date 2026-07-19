@@ -15,6 +15,7 @@ import { registerThinkingLabeling } from "../src/thinking-label.ts";
 import registerNativeUserMessageBox from "../src/user-message-box-native.ts";
 import { createToolDisplayDebugLogger } from "../src/debug-logger.ts";
 import { loadToolDisplayConfig, saveToolDisplayConfig } from "../src/config-store.ts";
+import { applyToolDisplayMode } from "../src/presets.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 import type { PatchableUserMessagePrototype } from "../src/user-message-box-patch.ts";
 
@@ -987,19 +988,18 @@ test("12: config-store reloads config on fingerprint change between calls", () =
     const initialResult = loadToolDisplayConfig(configFile);
     assert.equal(initialResult.config.readOutputMode, "hidden");
 
-    const nextConfig = {
-      ...initialResult.config,
-      readOutputMode: "preview" as const,
-    };
+    const nextConfig = applyToolDisplayMode(initialResult.config, "preview");
     const saveResult = saveToolDisplayConfig(nextConfig, configFile);
     assert.ok(saveResult.success, "config saved successfully (cache cleared)");
 
     const afterSaveResult = loadToolDisplayConfig(configFile);
     assert.equal(afterSaveResult.config.readOutputMode, "preview");
+    assert.equal(afterSaveResult.config.resultMode, "preview");
+    assert.equal(afterSaveResult.config.searchOutputMode, "preview");
     assert.equal(
-      afterSaveResult.config.searchOutputMode,
-      initialResult.config.searchOutputMode,
-      "unmodified settings survive save and reload",
+      afterSaveResult.config.previewRows,
+      initialResult.config.previewRows,
+      "mode-independent preview row budget survives save and reload",
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -21,6 +21,15 @@ import {
   type ToolDisplayConfig,
 } from "./types.js";
 
+export function publishToolDisplayMigrationNotice(
+  ui: { setStatus(key: string, text: string | undefined): void },
+  notice: string | undefined,
+): void {
+  if (notice) {
+    ui.setStatus("tool-display-intent-migration", notice);
+  }
+}
+
 function toolRegistrationChanged(
   previous: ToolDisplayConfig,
   next: ToolDisplayConfig,
@@ -40,10 +49,6 @@ function toolRegistrationChanged(
 
 export default function toolDisplayExtension(pi: ExtensionAPI): void {
   const initial = loadToolDisplayConfig();
-  if (!initial.config.enabled) {
-    return;
-  }
-
   resetDisposed();
 
   pi.on("session_shutdown", (event: { reason: string }) => {
@@ -54,6 +59,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
   let config: ToolDisplayConfig = initial.config;
   let pendingLoadError = initial.error;
+  let pendingLoadNotice = initial.notice;
   let capabilities: ToolDisplayCapabilities = {
     hasMcpTooling: false,
     hasRtkOptimizer: false,
@@ -106,6 +112,10 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
     if (pendingLoadError) {
       ctx.ui.notify(pendingLoadError, "warning");
       pendingLoadError = undefined;
+    }
+    if (pendingLoadNotice) {
+      publishToolDisplayMigrationNotice(ctx.ui, pendingLoadNotice);
+      pendingLoadNotice = undefined;
     }
   });
 

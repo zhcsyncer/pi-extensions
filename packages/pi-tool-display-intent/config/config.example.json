@@ -2,47 +2,39 @@
   "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
   "version": 2,
   "intent": {
-    "language": "zh-CN"
+    "enabled": true,
+    "language": "zh-CN",
+    "maxLength": 96
   },
   "toolCalls": {
-    "frame": "claude"
+    "style": "claude"
   },
   "results": {
-    "profile": "minimal",
-    "previewRows": 10,
-    "overrides": {
-      "read": "summary",
-      "search": "preview",
-      "bash": {
-        "mode": "inline",
-        "collapsedRows": 12
-      }
-    }
+    "mode": "summary",
+    "previewRows": 10
   },
   "diff": {
     "layout": "auto",
-    "indicators": "bars"
+    "indicators": "bars",
+    "splitMinWidth": 120,
+    "collapsedRows": 24,
+    "wordWrap": true
   },
   "transcript": {
-    "userMessage": "boxed",
+    "userMessageStyle": "boxed",
     "thinkingLabel": true
   },
   "tools": {
+    "passthrough": [],
     "custom": {
       "web_search": {
-        "enabled": true,
         "renderer": "generic",
-        "result": "summary"
-      },
-      "custom_mcp_gateway": {
-        "enabled": false,
-        "renderer": "mcp",
-        "result": "summary"
+        "mode": "summary"
       }
     }
   },
   "advanced": {
-    "expandedLineLimit": 500,
+    "expandedRows": 500,
     "truncationHints": false,
     "rtkCompactionHints": false,
     "debug": false

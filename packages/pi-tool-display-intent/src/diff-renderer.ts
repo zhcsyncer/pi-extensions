@@ -1936,10 +1936,10 @@ function applyLineLimit(
 ): string[] {
 	const expandedLimit = Number.isFinite(maxExpandedLines)
 		? maxExpandedLines
-		: DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines;
+		: DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxRows;
 	const collapsedLimit = Number.isFinite(maxCollapsedLines)
 		? maxCollapsedLines
-		: DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedLines;
+		: DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedRows;
 	const limit = expanded ? Math.max(0, expandedLimit) : Math.max(1, collapsedLimit);
 	if (limit === 0 || rows.length <= limit) {
 		return rows.map((row) => clampDiffLineToWidth(row.text, width));
@@ -2139,8 +2139,8 @@ export function renderEditDiffResult(
 				bodyRows,
 				safeWidth,
 				options.expanded,
-				config.diffCollapsedLines,
-				config.expandedPreviewMaxLines,
+				config.diffCollapsedRows,
+				config.expandedPreviewMaxRows,
 				parsed.stats.hunks,
 				theme,
 			);
@@ -2500,8 +2500,8 @@ export function renderWriteDiffResult(
 				bodyRows,
 				safeWidth,
 				options.expanded,
-				config.diffCollapsedLines,
-				config.expandedPreviewMaxLines,
+				config.diffCollapsedRows,
+				config.expandedPreviewMaxRows,
 				data.hunkCount,
 				theme,
 			);

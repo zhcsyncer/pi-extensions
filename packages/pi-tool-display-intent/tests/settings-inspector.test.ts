@@ -17,14 +17,14 @@ function makeMcpSettings(hasMcp: boolean, hasRtk: boolean): InspectorSettingItem
 	const config = DEFAULT_TOOL_DISPLAY_CONFIG;
 	const items: InspectorSettingItem[] = [
 		{
-			id: "preset",
-			label: "Output profile",
-			currentValue: "opencode",
-			values: ["opencode", "balanced", "verbose"],
-			inspectorTitle: "Output Profile",
+			id: "resultMode",
+			label: "Tool result mode",
+			currentValue: "compact",
+			values: ["compact", "summary", "preview"],
+			inspectorTitle: "Tool Result Mode",
 			inspectorSummary: ["Controls read, search, MCP, and bash output density."],
-			inspectorOptions: ["opencode", "balanced", "verbose"],
-			searchTerms: ["verbosity", "profile"],
+			inspectorOptions: ["compact", "summary", "preview"],
+			searchTerms: ["results", "mode"],
 		},
 		{
 			id: "readOutputMode",
@@ -203,12 +203,12 @@ test("handleInput cycles value with space", () => {
 		passThroughTheme,
 	);
 
-	// First item is "preset" with values ["opencode", "balanced", "verbose"]
+	// First item is resultMode with compact/summary/preview values
 	modal.handleInput(" ");
 
 	assert.equal(onChange.length, 1);
-	assert.equal(onChange[0]?.id, "preset");
-	assert.equal(onChange[0]?.value, "balanced");
+	assert.equal(onChange[0]?.id, "resultMode");
+	assert.equal(onChange[0]?.value, "summary");
 });
 
 test("handleInput cycles value with Enter (\\r)", () => {
@@ -227,7 +227,7 @@ test("handleInput cycles value with Enter (\\r)", () => {
 	modal.handleInput("\r");
 
 	assert.equal(onChange.length, 1);
-	assert.equal(onChange[0]?.value, "balanced");
+	assert.equal(onChange[0]?.value, "summary");
 });
 
 test("handleInput moves selection down with arrow key", () => {
@@ -249,7 +249,7 @@ test("handleInput moves selection down with arrow key", () => {
 	modal.handleInput(" ");
 
 	assert.equal(onChange.length, 1);
-	assert.notEqual(onChange[0]?.id, "preset", "should not cycle first item after moving down");
+	assert.notEqual(onChange[0]?.id, "resultMode", "should not cycle first item after moving down");
 });
 
 test("handleInput moves selection up with arrow key", () => {
@@ -271,7 +271,7 @@ test("handleInput moves selection up with arrow key", () => {
 	modal.handleInput("\x1b[A"); // up
 	modal.handleInput(" ");
 
-	assert.equal(onChange[0]?.id, "preset");
+	assert.equal(onChange[0]?.id, "resultMode");
 });
 
 test("handleInput calls onClose on Escape key", () => {
@@ -356,10 +356,10 @@ test("inspector panel shows item summary", () => {
 	const lines = modal.render(120);
 	const joined = lines.join(" ");
 
-	// The first selected item describes the output profile's scoped density controls.
-	assert.ok(joined.includes("Controls"), "should show output profile summary");
+	// The first selected item describes the result mode's scoped density controls.
+	assert.ok(joined.includes("Controls"), "should show result mode summary");
 	// The path only appears for the currently selected item; the summary remains visible.
-	assert.ok(joined.includes("output density"), "should show output profile summary detail");
+	assert.ok(joined.includes("output density"), "should show result mode summary detail");
 });
 
 test("theme application adds styled text via fg()", () => {
@@ -405,7 +405,7 @@ test("navigating past last item wraps to first", () => {
 	// Space should cycle the current (first) item after wrapping
 	modal.handleInput(" ");
 
-	assert.equal(onChange[0]?.id, "preset", "should wrap to first item");
+	assert.equal(onChange[0]?.id, "resultMode", "should wrap to first item");
 });
 
 test("cycle at last value wraps to first", () => {

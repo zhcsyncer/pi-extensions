@@ -1,16 +1,13 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
 import { getToolDisplayConfigPath, normalizeToolDisplayConfig } from "./config-store.js";
-import {
-	applyToolDisplayPreset,
-	hasToolDisplayProfileOverrides,
-	parseToolDisplayPreset,
-	TOOL_DISPLAY_PRESETS,
-	type ToolDisplayPreset,
-} from "./presets.js";
+import { applyToolDisplayMode, parseToolDisplayMode } from "./presets.js";
 import { shortenPath } from "./render-utils.js";
 import type { InspectorSettingItem } from "./settings-inspector-modal.js";
-import { type ToolDisplayConfig } from "./types.js";
+import {
+	RESULT_DISPLAY_MODES,
+	type ToolDisplayConfig,
+} from "./types.js";
 
 interface ToolDisplayConfigController {
 	getConfig(): ToolDisplayConfig;
@@ -26,52 +23,35 @@ interface ModalOverlayOptions {
 }
 
 const PREVIEW_ROW_VALUES = ["4", "8", "12", "20", "40"] as const;
-const BASH_PREVIEW_ROW_VALUES = ["0", "5", "10", "20", "40"] as const;
-const PRESET_COMMAND_HINT = TOOL_DISPLAY_PRESETS.join("|");
+const MODE_COMMAND_HINT = RESULT_DISPLAY_MODES.join("|");
 
 function toOnOff(value: boolean): string {
 	return value ? "on" : "off";
 }
 
 function toolOwnershipSummary(config: ToolDisplayConfig): string {
-	const overrides = config.registerToolOverrides;
-	return `read:${toOnOff(overrides.read)},grep:${toOnOff(overrides.grep)},find:${toOnOff(overrides.find)},ls:${toOnOff(overrides.ls)},bash:${toOnOff(overrides.bash)},edit:${toOnOff(overrides.edit)},write:${toOnOff(overrides.write)}`;
+	const ownership = config.registerToolOverrides;
+	return `read:${toOnOff(ownership.read)},grep:${toOnOff(ownership.grep)},find:${toOnOff(ownership.find)},ls:${toOnOff(ownership.ls)},bash:${toOnOff(ownership.bash)},edit:${toOnOff(ownership.edit)},write:${toOnOff(ownership.write)}`;
 }
 
 function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCapabilities): string {
-	const profileSummary = hasToolDisplayProfileOverrides(config)
-		? `${config.resultProfile}+overrides`
-		: config.resultProfile;
 	const parts = [
-		`resultProfile=${profileSummary}`,
-		`owners={${toolOwnershipSummary(config)}}`,
+		`results=${config.resultMode}/${config.previewRows}rows`,
 		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
-		`toolCallStyle=${config.toolCallStyle}`,
-		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
+		`toolCalls=${config.toolCallStyle}`,
+		`userMessage=${config.enableNativeUserMessageBox ? "boxed" : "default"}`,
 		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
-		`read=${config.readOutputMode}`,
-		`search=${config.searchOutputMode}`,
-		`previewRows=${config.previewRows}`,
-		`expandedMax=${config.expandedPreviewMaxLines}`,
-		`bash=${config.bashOutputMode}`,
-		`bashRows=${config.bashCollapsedRows}`,
 		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
-		`diffLines=${config.diffCollapsedLines}`,
+		`diffRows=${config.diffCollapsedRows}`,
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
+		`ownership={${toolOwnershipSummary(config)}}`,
 	];
-
-	if (capabilities.hasMcpTooling) {
-		parts.push(`mcp=${config.mcpOutputMode}`);
-	} else {
-		parts.push("mcp=auto-hidden");
-	}
-
-	if (capabilities.hasRtkOptimizer) {
-		parts.push(`rtkHints=${toOnOff(config.showRtkCompactionHints)}`);
-	} else {
-		parts.push("rtkHints=auto-off");
-	}
-
+	parts.push(capabilities.hasMcpTooling ? "mcp=available" : "mcp=unavailable");
+	parts.push(
+		capabilities.hasRtkOptimizer
+			? `rtkHints=${toOnOff(config.showRtkCompactionHints)}`
+			: "rtkHints=unavailable",
+	);
 	return parts.join(", ");
 }
 
@@ -85,13 +65,12 @@ function buildAdvancedNotes(
 	capabilities: ToolDisplayCapabilities,
 	extra: readonly string[],
 ): string[] {
-	const notes = [
+	return [
 		...extra,
-		"Manual JSON edits expose the grouped v2 sections: intent, toolCalls, results, diff, transcript, tools, and advanced.",
-		`Tool ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
+		"Manual JSON edits expose the grouped sections: intent, toolCalls, results, diff, transcript, tools, and advanced.",
+		`Built-in renderer ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
 		`Truncation hints are ${toOnOff(config.showTruncationHints)}${capabilities.hasRtkOptimizer ? `; RTK hints are ${toOnOff(config.showRtkCompactionHints)}.` : "."}`,
 	];
-	return notes;
 }
 
 function buildInspectorSettings(
@@ -99,29 +78,48 @@ function buildInspectorSettings(
 	capabilities: ToolDisplayCapabilities,
 ): InspectorSettingItem[] {
 	const configPath = shortenPath(getToolDisplayConfigPath());
-	const items: InspectorSettingItem[] = [
+	return [
 		{
-			id: "preset",
-			label: "Result detail profile",
-			currentValue: config.resultProfile,
-			values: TOOL_DISPLAY_PRESETS,
-			inspectorTitle: "Result Detail Profile",
+			id: "resultMode",
+			label: "Tool result mode",
+			currentValue: config.resultMode,
+			values: RESULT_DISPLAY_MODES,
+			inspectorTitle: "Tool Result Mode",
 			inspectorSummary: [
-				"Controls the output density of read, search, MCP, and bash results.",
-				"Choosing a profile preserves tool-call style, intent, ownership, diff settings, and other advanced preferences.",
+				"Controls how much output read, search, MCP, and bash tools show in the transcript.",
+				"It does not change custom-tool settings, intent, tool-call style, diff rendering, transcript styling, or tool ownership.",
 			],
 			inspectorOptions: [
-				"minimal — headers plus compact inline bash output",
-				"balanced — compact summaries with counts",
-				"detailed — larger rendered-row previews and more visible bash output",
-				"profile+overrides — shown when per-tool result settings differ from the selected baseline",
+				"compact — hide read/search/MCP bodies and keep a short bash preview",
+				"summary — show counts or compact summaries",
+				"preview — show wrapped content previews for read, search, MCP, and bash",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"The selected profile is persisted as the results.profile baseline; only differences are written under results.overrides.",
-				"Legacy preset names opencode and verbose remain accepted as aliases for minimal and detailed.",
+				"All content previews use the shared results.previewRows budget.",
+				"Legacy mode names minimal/opencode, balanced, and detailed/verbose map to compact, summary, and preview.",
 			]),
 			inspectorPath: configPath,
-			searchTerms: ["verbosity", "profile", "layout", "custom", ...TOOL_DISPLAY_PRESETS],
+			searchTerms: ["results", "mode", "compact", "summary", "preview", "output"],
+		},
+		{
+			id: "previewRows",
+			label: "Preview rows",
+			currentValue: String(config.previewRows),
+			values: PREVIEW_ROW_VALUES,
+			inspectorTitle: "Preview Rows",
+			inspectorSummary: [
+				"Sets one shared rendered-row budget for every collapsed content preview after terminal wrapping.",
+				"A single long logical line consumes multiple rows instead of bypassing the limit.",
+			],
+			inspectorOptions: [
+				"Lower values keep transcripts dense and skimmable",
+				"Higher values show more read, search, MCP, custom, and bash output",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"advanced.expandedRows separately bounds output after Ctrl+O expansion.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["preview", "rows", "range", "collapsed", "read", "search", "mcp", "bash"],
 		},
 		{
 			id: "toolIntentEnabled",
@@ -131,7 +129,7 @@ function buildInspectorSettings(
 			inspectorTitle: "Model-written Tool Intent",
 			inspectorSummary: [
 				"Adds a displaySummary field to owned built-in tool schemas so the current model describes each call's intent.",
-				"The phrase is shown beside deterministic tool metadata in TUI and remains available to RPC clients without an extra inference request.",
+				"The phrase is shown beside deterministic tool metadata and remains available to RPC clients without another inference request.",
 			],
 			inspectorOptions: [
 				"on — request and render a short intent phrase",
@@ -140,10 +138,9 @@ function buildInspectorSettings(
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing this setting updates tool schemas and therefore takes effect after /reload.",
 				"Use intent.language and intent.maxLength in config.json for advanced control.",
-				"Enabled intent is always required in owned tool schemas and shown in TUI.",
 			]),
 			inspectorPath: configPath,
-			searchTerms: ["intent", "summary", "model", "rpc", "progress", "toolIntent", "displaySummary"],
+			searchTerms: ["intent", "summary", "model", "rpc", "displaySummary"],
 		},
 		{
 			id: "toolCallStyle",
@@ -153,148 +150,17 @@ function buildInspectorSettings(
 			inspectorTitle: "Tool Call Style",
 			inspectorSummary: [
 				"Controls the framing used for tool calls and results in the Pi transcript.",
-				"Claude style uses status markers, Name(target) headers, an unboxed shell, and indented ⎿ result rows while preserving real arguments and diffs.",
+				"Claude style uses status markers, Name(target) headers, an unboxed shell, and indented result rows.",
 			],
 			inspectorOptions: [
 				"compact — original boxed pi-tool-display layout",
-				"claude — Claude Code-inspired status and result framing",
+				"claude — Claude Code-inspired call framing",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing the shell style takes effect after /reload.",
-				"Model-written intent remains a suffix; deterministic paths, commands, patterns, and diff metadata are never replaced.",
 			]),
 			inspectorPath: configPath,
-			searchTerms: ["tool", "style", "claude", "compact", "status", "result", "shell"],
-		},
-		{
-			id: "readOutputMode",
-			label: "Read tool output",
-			currentValue: config.readOutputMode,
-			values: ["hidden", "summary", "preview"],
-			inspectorTitle: "Read Tool Output",
-			inspectorSummary: [
-				"Controls how read results appear inline after the tool call header.",
-				"Use hidden for the cleanest transcript, summary for file metrics, or preview when seeing source lines matters in-context.",
-			],
-			inspectorOptions: [
-				"hidden — path and status only",
-				"summary — adds compact file metrics",
-				"preview — shows the first configured preview rows",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"advanced.expandedLineLimit bounds rendered rows after expanding a preview-heavy read result.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["file", "source", "preview", "summary", "hidden"],
-		},
-		{
-			id: "searchOutputMode",
-			label: "Grep/Find/Ls output",
-			currentValue: config.searchOutputMode,
-			values: ["hidden", "count", "preview"],
-			inspectorTitle: "Grep / Find / Ls Output",
-			inspectorSummary: [
-				"Controls how search-style tools compress their result sets inside the transcript.",
-				"Count mode keeps discovery actions readable while still surfacing how much data the tool matched.",
-			],
-			inspectorOptions: [
-				"hidden — call header only",
-				"count — totals only for matches or entries",
-				"preview — shows the first configured preview rows",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Preview-heavy search output is most effective when paired with larger previewRows values in custom configurations.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["grep", "find", "ls", "matches", "count", "results"],
-		},
-	];
-
-	if (capabilities.hasMcpTooling) {
-		items.push({
-			id: "mcpOutputMode",
-			label: "MCP tool output",
-			currentValue: config.mcpOutputMode,
-			values: ["hidden", "summary", "preview"],
-			inspectorTitle: "MCP Tool Output",
-			inspectorSummary: [
-				"Controls how proxied MCP tool results are compacted when they return text output.",
-				"Summary mode is the safest default when you want awareness without flooding the chat pane.",
-			],
-			inspectorOptions: [
-				"hidden — call metadata only",
-				"summary — compact line-count summary",
-				"preview — shows the first configured preview rows",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This control appears only when MCP tooling is available in the current Pi session.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["mcp", "proxy", "server", "summary", "preview"],
-		});
-	}
-
-	items.push(
-		{
-			id: "previewRows",
-			label: "Preview rows",
-			currentValue: String(config.previewRows),
-			values: PREVIEW_ROW_VALUES,
-			inspectorTitle: "Preview Rows",
-			inspectorSummary: [
-				"Sets the rendered terminal-row budget for collapsed read, search, MCP, and bash previews after wrapping.",
-				"Accepted manual range: 1 to 80 rows. A single long logical line consumes multiple rows instead of bypassing the limit.",
-			],
-			inspectorOptions: [
-				"Lower values keep transcripts dense and skimmable",
-				"Higher values surface more source context before expansion",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Pair this with advanced.expandedLineLimit when you want larger expanded previews without making collapsed output noisy.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["preview", "lines", "range", "collapsed", "read", "grep", "mcp", "bash"],
-		},
-		{
-			id: "bashOutputMode",
-			label: "Bash tool output",
-			currentValue: config.bashOutputMode,
-			values: ["opencode", "summary", "preview"],
-			inspectorTitle: "Bash Tool Output",
-			inspectorSummary: [
-				"Controls how shell command output is rendered when the command finishes successfully.",
-				"The opencode mode keeps command output recognizable while still compressing walls of stdout.",
-			],
-			inspectorOptions: [
-				"opencode — Pi/OpenCode-style collapsed bash view",
-				"summary — output count only",
-				"preview — uses the shared previewRows setting",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Quiet commands still collapse aggressively, so mode selection matters most on verbose build, test, and script output.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["bash", "shell", "stdout", "command", "opencode"],
-		},
-		{
-			id: "bashCollapsedRows",
-			label: "Bash collapsed rows",
-			currentValue: String(config.bashCollapsedRows),
-			values: BASH_PREVIEW_ROW_VALUES,
-			inspectorTitle: "Bash Collapsed Rows",
-			inspectorSummary: [
-				"Sets the rendered terminal-row budget used specifically by opencode bash mode before expansion.",
-				"Accepted manual range: 0 to 80 rows. Setting 0 hides collapsed bash output entirely while keeping the command visible.",
-			],
-			inspectorOptions: [
-				"0 — hide collapsed bash output",
-				"5/10/20/40 — progressively larger inline command previews",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This setting only changes the opencode bash renderer; preview mode continues to use previewRows instead.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["bash", "collapsed", "rows", "lines", "stdout", "zero"],
+			searchTerms: ["tool", "style", "claude", "compact", "status", "shell"],
 		},
 		{
 			id: "diffViewMode",
@@ -303,8 +169,8 @@ function buildInspectorSettings(
 			values: ["auto", "split", "unified"],
 			inspectorTitle: "Edit Diff Layout",
 			inspectorSummary: [
-				"Controls how edit and write diffs are arranged when the extension renders code changes.",
-				"Auto mode adapts to terminal width so wide panes get side-by-side diffs while narrow panes stay readable.",
+				"Controls how edit and write diffs are arranged.",
+				"Auto uses side-by-side diffs in wide panes and unified diffs in narrow panes.",
 			],
 			inspectorOptions: [
 				"auto — adaptive layout based on available width",
@@ -312,7 +178,7 @@ function buildInspectorSettings(
 				"unified — force a single-column diff",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Manual JSON tuning exposes diff.splitMinWidth, diff.collapsedLines, diff.indicators, and diff.wordWrap for more aggressive diff control.",
+				"Manual JSON tuning exposes diff.splitMinWidth, diff.collapsedRows, diff.indicators, and diff.wordWrap.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "edit", "write", "split", "unified", "auto"],
@@ -324,19 +190,16 @@ function buildInspectorSettings(
 			values: ["bars", "classic", "none"],
 			inspectorTitle: "Diff Indicators",
 			inspectorSummary: [
-				"Controls whether changed diff lines use vertical bars, classic +/- markers, or no indicators at all.",
-				"Bars continue across wrapped changed rows, classic markers appear only on the first wrapped row, and none removes the indicator column styling.",
+				"Controls whether changed diff lines use vertical bars, classic +/- markers, or no indicators.",
 			],
 			inspectorOptions: [
 				"bars — persistent vertical indicators for changed rows",
-				"classic — + / - markers on the first visual row only",
+				"classic — + / - markers on the first visual row",
 				"none — no diff indicator marker",
 			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Use config.json when you want this indicator preference to remain explicit alongside other diff rendering overrides.",
-			]),
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
 			inspectorPath: configPath,
-			searchTerms: ["diff", "indicator", "bars", "classic", "none", "marker"],
+			searchTerms: ["diff", "indicator", "bars", "classic", "none"],
 		},
 		{
 			id: "enableThinkingLabel",
@@ -345,117 +208,60 @@ function buildInspectorSettings(
 			values: ["on", "off"],
 			inspectorTitle: "Thinking Label",
 			inspectorSummary: [
-				"Adds an explicit Thinking: label to supported provider reasoning blocks in the transcript.",
-				"Presentation labels are removed again before model context is sent.",
+				"Adds an explicit Thinking: label to supported provider reasoning blocks.",
+				"Presentation labels are removed before model context is sent.",
 			],
 			inspectorOptions: [
 				"on — show the transcript label",
-				"off — leave Pi's reasoning block presentation unchanged",
+				"off — leave Pi's reasoning presentation unchanged",
 			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This setting is stored as transcript.thinkingLabel and applies without changing tool schemas.",
-			]),
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
 			inspectorPath: configPath,
 			searchTerms: ["thinking", "reasoning", "label", "transcript"],
 		},
 		{
 			id: "enableNativeUserMessageBox",
-			label: "Native user message box",
-			currentValue: toOnOff(config.enableNativeUserMessageBox),
-			values: ["on", "off"],
-			inspectorTitle: "Native User Message Box",
+			label: "User message style",
+			currentValue: config.enableNativeUserMessageBox ? "boxed" : "default",
+			values: ["boxed", "default"],
+			inspectorTitle: "User Message Style",
 			inspectorSummary: [
-				"Toggles the bordered native renderer used for user prompts inside the Pi transcript.",
-				"Keep it on when you want clearer message separation, or turn it off to fall back to Pi's default user message rendering.",
+				"Controls whether user prompts use a bordered box or Pi's default transcript style.",
 			],
 			inspectorOptions: [
-				"on — bordered native user prompt box",
-				"off — default Pi prompt rendering",
+				"boxed — bordered native user prompt box",
+				"default — Pi's default user message rendering",
 			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This switch only affects presentation. It does not change stored prompts, markdown handling, or tool behavior.",
-			]),
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
 			inspectorPath: configPath,
-			searchTerms: ["user", "message", "box", "prompt", "native"],
+			searchTerms: ["user", "message", "style", "box", "prompt"],
 		},
-	);
-
-	return items;
-}
-
-function applyPreset(config: ToolDisplayConfig, preset: ToolDisplayPreset): ToolDisplayConfig {
-	return applyToolDisplayPreset(config, preset);
+	];
 }
 
 function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
 	switch (id) {
-		case "preset": {
-			const parsed = parseToolDisplayPreset(value);
-			return parsed ? applyPreset(config, parsed) : config;
+		case "resultMode": {
+			const mode = parseToolDisplayMode(value);
+			return mode ? applyToolDisplayMode(config, mode) : config;
 		}
+		case "previewRows":
+			return { ...config, previewRows: parseNumber(value, config.previewRows) };
 		case "toolIntentEnabled":
 			return {
 				...config,
-				toolIntent: {
-					...config.toolIntent,
-					enabled: value === "on",
-				},
+				toolIntent: { ...config.toolIntent, enabled: value === "on" },
 			};
 		case "toolCallStyle":
-			return {
-				...config,
-				toolCallStyle: value as ToolDisplayConfig["toolCallStyle"],
-			};
+			return { ...config, toolCallStyle: value as ToolDisplayConfig["toolCallStyle"] };
 		case "enableThinkingLabel":
-			return {
-				...config,
-				enableThinkingLabel: value === "on",
-			};
+			return { ...config, enableThinkingLabel: value === "on" };
 		case "enableNativeUserMessageBox":
-			return {
-				...config,
-				enableNativeUserMessageBox: value === "on",
-			};
-		case "readOutputMode":
-			return {
-				...config,
-				readOutputMode: value as ToolDisplayConfig["readOutputMode"],
-			};
-		case "searchOutputMode":
-			return {
-				...config,
-				searchOutputMode: value as ToolDisplayConfig["searchOutputMode"],
-			};
-		case "mcpOutputMode":
-			return {
-				...config,
-				mcpOutputMode: value as ToolDisplayConfig["mcpOutputMode"],
-			};
-		case "previewRows":
-			return {
-				...config,
-				previewRows: parseNumber(value, config.previewRows),
-			};
-		case "bashOutputMode":
-			return {
-				...config,
-				bashOutputMode: value as ToolDisplayConfig["bashOutputMode"],
-			};
-		case "bashCollapsedRows":
-			return {
-				...config,
-				bashCollapsedRows: parseNumber(value, config.bashCollapsedRows),
-			};
+			return { ...config, enableNativeUserMessageBox: value === "boxed" };
 		case "diffViewMode":
-			return {
-				...config,
-				diffViewMode: value as ToolDisplayConfig["diffViewMode"],
-			};
+			return { ...config, diffViewMode: value as ToolDisplayConfig["diffViewMode"] };
 		case "diffIndicatorMode":
-			return {
-				...config,
-				diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"],
-			};
+			return { ...config, diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"] };
 		default:
 			return config;
 	}
@@ -470,28 +276,19 @@ function resolveResponsiveOverlayOptions(): ModalOverlayOptions {
 		typeof process.stdout.rows === "number" && Number.isFinite(process.stdout.rows)
 			? process.stdout.rows
 			: 36;
-
 	const margin = 1;
 	const availableWidth = Math.max(72, terminalWidth - margin * 2);
 	const preferredWidth = terminalWidth >= 170 ? 128 : terminalWidth >= 145 ? 118 : terminalWidth >= 120 ? 106 : 92;
 	const width = Math.max(72, Math.min(preferredWidth, availableWidth));
-
 	const availableHeight = Math.max(14, terminalHeight - margin * 2);
 	const preferredHeight = Math.max(14, Math.floor(terminalHeight * 0.78));
 	const maxHeight = Math.min(preferredHeight, availableHeight);
-
-	return {
-		anchor: "center",
-		width,
-		maxHeight,
-		margin,
-	};
+	return { anchor: "center", width, maxHeight, margin };
 }
 
 export async function openSettingsModal(ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): Promise<void> {
 	const overlayOptions = resolveResponsiveOverlayOptions();
 	const capabilities = controller.getCapabilities();
-
 	const [{ ZellijModal }, { SplitPaneInspectorModal }] = await Promise.all([
 		import("./zellij-modal.js"),
 		import("./settings-inspector-modal.js"),
@@ -510,7 +307,6 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 				},
 				theme,
 			);
-
 			const modal = new ZellijModal(
 				inspector,
 				{
@@ -521,7 +317,6 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 				},
 				theme,
 			);
-
 			return {
 				render: (width: number) => modal.renderModal(width).lines,
 				invalidate: () => modal.invalidate(),
@@ -535,12 +330,24 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 	);
 }
 
+function applyModeCommand(
+	candidate: string,
+	ctx: ExtensionCommandContext,
+	controller: ToolDisplayConfigController,
+): boolean {
+	const mode = parseToolDisplayMode(candidate);
+	if (!mode) {
+		ctx.ui.notify(`Unknown result mode. Use: /tool-display-intent mode ${MODE_COMMAND_HINT}`, "warning");
+		return true;
+	}
+	controller.setConfig(applyToolDisplayMode(controller.getConfig(), mode), ctx);
+	ctx.ui.notify(`Tool result mode set to ${mode}.`, "info");
+	return true;
+}
+
 export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): boolean {
 	const raw = args.trim();
-	if (!raw) {
-		return false;
-	}
-
+	if (!raw) return false;
 	const normalized = raw.toLowerCase();
 
 	if (normalized === "show") {
@@ -550,27 +357,18 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 		);
 		return true;
 	}
-
 	if (normalized === "reset") {
 		controller.setConfig(normalizeToolDisplayConfig({}), ctx);
 		ctx.ui.notify("Tool display settings reset to defaults.", "info");
 		return true;
 	}
-
-	if (normalized.startsWith("preset ")) {
-		const candidate = normalized.slice("preset ".length).trim();
-		const preset = parseToolDisplayPreset(candidate);
-		if (!preset) {
-			ctx.ui.notify(`Unknown preset. Use: /tool-display-intent preset ${PRESET_COMMAND_HINT}`, "warning");
-			return true;
-		}
-
-		controller.setConfig(applyToolDisplayPreset(controller.getConfig(), preset), ctx);
-		ctx.ui.notify(`Tool result profile set to ${preset}.`, "info");
-		return true;
+	if (normalized.startsWith("mode ")) {
+		return applyModeCommand(normalized.slice("mode ".length).trim(), ctx, controller);
 	}
-
-	ctx.ui.notify(`Usage: /tool-display-intent [show|reset|preset ${PRESET_COMMAND_HINT}]`, "warning");
+	if (normalized.startsWith("preset ")) {
+		return applyModeCommand(normalized.slice("preset ".length).trim(), ctx, controller);
+	}
+	ctx.ui.notify(`Usage: /tool-display-intent [show|reset|mode ${MODE_COMMAND_HINT}]`, "warning");
 	return true;
 }
 
@@ -579,15 +377,11 @@ export async function runToolDisplayCommandHandler(
 	ctx: ExtensionCommandContext,
 	controller: ToolDisplayConfigController,
 ): Promise<void> {
-	if (handleToolDisplayArgs(args, ctx, controller)) {
-		return;
-	}
-
+	if (handleToolDisplayArgs(args, ctx, controller)) return;
 	if (!ctx.hasUI) {
 		ctx.ui.notify("/tool-display-intent requires interactive TUI mode.", "warning");
 		return;
 	}
-
 	await openSettingsModal(ctx, controller);
 }
 

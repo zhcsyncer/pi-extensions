@@ -22,7 +22,7 @@ const passThroughTheme = {
 const defaultConfig: Partial<ToolDisplayConfig> = {
 	diffViewMode: "auto",
 	diffSplitMinWidth: 80,
-	diffCollapsedLines: 24,
+	diffCollapsedRows: 24,
 	diffWordWrap: false,
 	diffIndicatorMode: "bars",
 };
@@ -138,7 +138,7 @@ test("renderEditDiffResult handles entirely empty diff string", () => {
 	const component = renderEditDiffResult(
 		{ diff: "" },
 		{ expanded: true },
-		{ diffViewMode: "auto", diffSplitMinWidth: 80, diffCollapsedLines: 24, diffWordWrap: false } as any,
+		{ diffViewMode: "auto", diffSplitMinWidth: 80, diffCollapsedRows: 24, diffWordWrap: false } as any,
 		passThroughTheme,
 		"",
 	);
@@ -397,7 +397,7 @@ test("renderEditDiffResult narrow width auto mode falls back from split to unifi
 		{
 			diffViewMode: "auto",
 			diffSplitMinWidth: 200, // Requires 200+ width for split
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: false,
 		} as any,
 		passThroughTheme,

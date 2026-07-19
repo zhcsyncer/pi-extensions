@@ -1,55 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  applyToolDisplayPreset,
-  detectToolDisplayPreset,
-  getToolOutputPresetConfig,
-  parseToolDisplayPreset,
+  applyToolDisplayMode,
+  detectToolDisplayMode,
+  getToolResultModeConfig,
+  parseToolDisplayMode,
 } from "../src/presets.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 
-test("preset parsing is case-insensitive and rejects unknown names", () => {
-  assert.equal(parseToolDisplayPreset(" BALANCED "), "balanced");
-  assert.equal(parseToolDisplayPreset("Detailed"), "detailed");
-  assert.equal(parseToolDisplayPreset("Verbose"), "detailed");
-  assert.equal(parseToolDisplayPreset("OpenCode"), "minimal");
-  assert.equal(parseToolDisplayPreset(""), undefined);
-  assert.equal(parseToolDisplayPreset("custom"), undefined);
+test("result mode parsing accepts final names and legacy aliases", () => {
+  assert.equal(parseToolDisplayMode(" SUMMARY "), "summary");
+  assert.equal(parseToolDisplayMode("Preview"), "preview");
+  assert.equal(parseToolDisplayMode("Verbose"), "preview");
+  assert.equal(parseToolDisplayMode("Detailed"), "preview");
+  assert.equal(parseToolDisplayMode("Balanced"), "summary");
+  assert.equal(parseToolDisplayMode("OpenCode"), "compact");
+  assert.equal(parseToolDisplayMode("minimal"), "compact");
+  assert.equal(parseToolDisplayMode(""), undefined);
+  assert.equal(parseToolDisplayMode("custom"), undefined);
 });
 
-test("preset detection only compares output-profile fields", () => {
-  const balanced = applyToolDisplayPreset(
+test("result mode detection compares only derived tool output modes", () => {
+  const summary = applyToolDisplayMode(
     {
       ...DEFAULT_TOOL_DISPLAY_CONFIG,
       toolCallStyle: "claude",
-      toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
-      registerToolOverrides: {
-        ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
-        read: false,
-      },
-      diffViewMode: "split",
+      previewRows: 40,
+      diffWordWrap: false,
     },
-    "balanced",
+    "summary",
   );
 
-  assert.equal(detectToolDisplayPreset(balanced), "balanced");
+  assert.equal(detectToolDisplayMode(summary), "summary");
   assert.equal(
-    detectToolDisplayPreset({ ...balanced, previewRows: balanced.previewRows + 1 }),
+    detectToolDisplayMode({ ...summary, readOutputMode: "preview" }),
     "custom",
   );
 });
 
-test("preset configs are independent output-only patches", () => {
-  const balanced = getToolOutputPresetConfig("balanced");
-  const anotherBalanced = getToolOutputPresetConfig("balanced");
+test("result mode configs are independent output-only patches", () => {
+  const summary = getToolResultModeConfig("summary");
+  const anotherSummary = getToolResultModeConfig("summary");
 
-  assert.notEqual(balanced, anotherBalanced);
-  assert.deepEqual(balanced, anotherBalanced);
-  assert.deepEqual(Object.keys(balanced).sort(), [
-    "bashCollapsedRows",
+  assert.notEqual(summary, anotherSummary);
+  assert.deepEqual(summary, anotherSummary);
+  assert.deepEqual(Object.keys(summary).sort(), [
     "bashOutputMode",
     "mcpOutputMode",
-    "previewRows",
     "readOutputMode",
     "searchOutputMode",
   ]);

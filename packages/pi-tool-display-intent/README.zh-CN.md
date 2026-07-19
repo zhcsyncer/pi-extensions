@@ -67,14 +67,12 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 ```text
 /tool-display-intent show
 /tool-display-intent reset
-/tool-display-intent preset minimal
-/tool-display-intent preset balanced
-/tool-display-intent preset detailed
+/tool-display-intent mode compact
+/tool-display-intent mode summary
+/tool-display-intent mode preview
 ```
 
-修改工具 ownership 或意图 Schema 后需要执行 `/reload`。
-
-`minimal`、`balanced` 和 `detailed` 是持久化的结果 Profile 基线：它们调整 read/search/MCP/bash 输出模式和折叠视觉行预算，但保留调用外框、意图、ownership、diff 及其他高级设置。旧名称 `opencode`、`verbose` 仍可作为命令别名。只有在需要恢复完整默认配置时才使用 `reset`。
+修改工具 ownership 或意图 Schema 后需要执行 `/reload`。历史命令 `preset minimal|balanced|detailed`、`opencode` 和 `verbose` 仍作为兼容别名接受。
 
 ## 配置
 
@@ -84,7 +82,7 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 ```
 
-未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。v2 配置按职责分组，并且只保存相对 Profile 和默认值的差异：
+未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。扩展启停统一通过 Pi package 设置管理，不再增加另一个配置开关。v2 按职责分组，只保存非默认值：
 
 ```json
 {
@@ -94,63 +92,52 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
     "language": "zh-CN"
   },
   "toolCalls": {
-    "frame": "claude"
+    "style": "claude"
   },
   "results": {
-    "profile": "minimal",
-    "previewRows": 10,
-    "overrides": {
-      "read": "summary",
-      "search": "preview"
-    }
-  },
-  "diff": {
-    "layout": "auto",
-    "indicators": "bars"
-  },
-  "transcript": {
-    "userMessage": "boxed",
-    "thinkingLabel": true
+    "mode": "summary",
+    "previewRows": 10
   }
 }
 ```
 
-完整模板见 [`config/config.example.json`](./config/config.example.json)，字段校验和编辑器补全见 [`config/config.schema.json`](./config/config.schema.json)。
+所有可配置字段见 [`config/config.example.json`](./config/config.example.json)，严格校验和编辑器补全见 [`config/config.schema.json`](./config/config.schema.json)。
 
-| 分组 | 作用 |
-|---|---|
-| `extension` | 整体启停。通常应通过 Pi package 设置管理，不需要手写。 |
-| `intent` | 模型意图的启停、语言和最大长度。 |
-| `toolCalls` | `compact` 或 Claude Code 风格调用外框。 |
-| `results` | 结果 Profile、共享预览视觉行预算和单工具 override。 |
-| `diff` | edit/write diff 的布局、指示器、折行和行数。 |
-| `transcript` | 用户消息框和 thinking label。 |
-| `tools` | 禁用的内置工具 renderer 与自定义工具展示装饰。 |
-| `advanced` | 展开上限、截断/RTK 提示和 debug。 |
+| 分组 | 可配置字段 | 作用 |
+|---|---|---|
+| `intent` | `enabled`、`language`、`maxLength` | 模型生成的工具调用意图。 |
+| `toolCalls` | `style` | `compact` 或 Claude Code 风格调用外框。 |
+| `results` | `mode`、`previewRows` | 结果显示量和统一的折行后视觉行预算。 |
+| `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`wordWrap` | edit/write diff 展示。 |
+| `transcript` | `userMessageStyle`、`thinkingLabel` | 用户消息和 reasoning 标签。 |
+| `tools` | `passthrough`、`custom` | renderer ownership 和明确列出的自定义工具。 |
+| `advanced` | `expandedRows`、`truncationHints`、`rtkCompactionHints`、`debug` | 展开安全上限和诊断。 |
 
-结果 Profile 是持久化基线：
+`results.mode` 只有一层直接语义：
 
-- `minimal`：调用头为主，bash 保留紧凑 inline 输出；
-- `balanced`：read/MCP 使用摘要，搜索使用计数；
-- `detailed`：read/search/MCP/bash 使用较大的 preview。
+| mode | read/search/MCP | bash |
+|---|---|---|
+| `compact` | 隐藏结果正文 | 显示短预览 |
+| `summary` | 显示数量或摘要 | 显示行数摘要 |
+| `preview` | 显示内容预览 | 显示内容预览 |
 
-`results.overrides` 只保存相对基线的差异。搜索工具的 `summary` 表示计数摘要；bash 的 `inline` 对应紧凑的行内输出。旧命令名 `opencode` 和 `verbose` 仍分别作为 `minimal` 和 `detailed` 的兼容别名。
+所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。`advanced.expandedRows` 单独限制展开后的输出。
 
-`results.previewRows` 和 `results.overrides.bash.collapsedRows` 统计终端折行后的视觉行，而不是按换行符分隔的逻辑行。因此，压缩 JSON、base64 或其他超长单行也会消耗配置的视觉行预算，并以 `long line truncated` 展开提示结束，不再刷满 transcript。`advanced.expandedLineLimit` 对展开后的结果预览采用相同的视觉行语义；配置为 `0` 时仍保留内部安全上限以防御异常输入。
+`tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。
 
 ### 历史配置自动迁移
 
-扩展加载没有 `version` 的旧 flat 配置时，会在内存中规范化、验证 v2 round-trip 行为一致，然后立即原子更新原 `config.json`。首次迁移会保留一份 `config.legacy.json` 备份。迁移包括：
+扩展加载没有 `version` 的旧 flat 配置时，会规范化配置，并在验证 v2 round-trip 后原子替换 `config.json`。首次迁移保留 `config.legacy.json`。主要映射：
 
 - `displaySummary` / `toolIntent` → `intent`；
-- `toolCallStyle` → `toolCalls.frame`；
-- 各种 `*OutputMode` → `results` Profile 与 overrides；
-- `previewLines` → `results.previewRows`，`bashCollapsedLines` → `results.overrides.bash.collapsedRows`；
-- `registerToolOverrides` → `tools.disabled`；
-- `customToolOverrides` → `tools.custom`；
-- diff、transcript、hint 和 debug 字段进入对应分组。
+- `toolCallStyle` → `toolCalls.style`；
+- 历史单工具输出模式 → 一个 `results.mode`；
+- `previewLines` → `results.previewRows`；
+- `registerToolOverrides` → `tools.passthrough`；
+- `customToolOverrides` → 没有 `enabled` 开关的 `tools.custom`；
+- diff、transcript、hint 和 debug → 对应分组。
 
-废弃的 `displaySummary.required` 和 `displaySummary.showInTui` 会被移除。无效 JSON、未知 v2 字段或错误值不会被自动改写，并会在 TUI 中报告具体字段路径。直接编辑配置后执行 `/reload` 重新读取。
+`bashCollapsedLines` 会直接丢弃，因为所有预览统一使用 `results.previewRows`。迁移完成后，Pi 状态栏会提示用户按需调整该值。废弃的 `displaySummary.required` 和 `displaySummary.showInTui` 也会移除。无效 JSON、未知 v2 字段或错误的 v2 值不会被改写，并会报告准确字段路径。直接编辑配置后执行 `/reload` 重新读取。
 
 启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。旧 Session 或不完整 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 

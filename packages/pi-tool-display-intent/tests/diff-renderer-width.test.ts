@@ -7,7 +7,7 @@ import { renderEditDiffResult, renderWriteDiffResult } from "../src/diff-rendere
 const diffConfig = {
 	diffViewMode: "auto" as const,
 	diffSplitMinWidth: 80,
-	diffCollapsedLines: 24,
+	diffCollapsedRows: 24,
 	diffWordWrap: true,
 };
 

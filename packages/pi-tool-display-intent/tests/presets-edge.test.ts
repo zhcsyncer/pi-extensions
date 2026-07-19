@@ -1,168 +1,158 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	applyToolDisplayPreset,
-	detectToolDisplayPreset,
-	getToolOutputPresetConfig,
-	parseToolDisplayPreset,
-	TOOL_DISPLAY_PRESETS,
-	TOOL_OUTPUT_PRESET_KEYS,
-	type ToolDisplayPreset,
+	applyToolDisplayMode,
+	detectToolDisplayMode,
+	getToolResultModeConfig,
+	parseToolDisplayMode,
+	TOOL_RESULT_MODE_KEYS,
 } from "../src/presets.ts";
-import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
+import {
+	DEFAULT_TOOL_DISPLAY_CONFIG,
+	RESULT_DISPLAY_MODES,
+	type ResultDisplayMode,
+	type ToolDisplayConfig,
+} from "../src/types.ts";
 
-const EXPECTED_PROFILES = {
-	minimal: {
+const EXPECTED_MODES = {
+	compact: {
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
-		previewRows: 8,
-		bashOutputMode: "opencode",
-		bashCollapsedRows: 10,
+		bashOutputMode: "preview",
 	},
-	balanced: {
+	summary: {
 		readOutputMode: "summary",
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
-		previewRows: 8,
 		bashOutputMode: "summary",
-		bashCollapsedRows: 10,
 	},
-	detailed: {
+	preview: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewRows: 12,
 		bashOutputMode: "preview",
-		bashCollapsedRows: 20,
 	},
 } as const;
 
-test("output profiles expose exactly the fields they own", () => {
-	assert.deepEqual(TOOL_OUTPUT_PRESET_KEYS, [
+test("result modes expose exactly the output fields they own", () => {
+	assert.deepEqual([...TOOL_RESULT_MODE_KEYS].sort(), [
+		"bashOutputMode",
+		"mcpOutputMode",
 		"readOutputMode",
 		"searchOutputMode",
-		"mcpOutputMode",
-		"previewRows",
-		"bashOutputMode",
-		"bashCollapsedRows",
 	]);
-
-	for (const preset of TOOL_DISPLAY_PRESETS) {
-		assert.deepEqual(getToolOutputPresetConfig(preset), EXPECTED_PROFILES[preset]);
+	for (const mode of RESULT_DISPLAY_MODES) {
+		assert.deepEqual(getToolResultModeConfig(mode), EXPECTED_MODES[mode]);
 	}
 });
 
-test("applying every output profile produces its declared values", () => {
-	for (const preset of TOOL_DISPLAY_PRESETS) {
-		const config = applyToolDisplayPreset(DEFAULT_TOOL_DISPLAY_CONFIG, preset);
-		for (const key of TOOL_OUTPUT_PRESET_KEYS) {
-			assert.equal(config[key], EXPECTED_PROFILES[preset][key], `${preset}.${key}`);
+test("applying every result mode produces its declared values", () => {
+	for (const mode of RESULT_DISPLAY_MODES) {
+		const config = applyToolDisplayMode(DEFAULT_TOOL_DISPLAY_CONFIG, mode);
+		for (const key of TOOL_RESULT_MODE_KEYS) {
+			assert.equal(config[key], EXPECTED_MODES[mode][key], `${mode}.${key}`);
 		}
-		assert.equal(detectToolDisplayPreset(config), preset);
+		assert.equal(config.resultMode, mode);
+		assert.equal(detectToolDisplayMode(config), mode);
 	}
 });
 
-test("applying an output profile preserves orthogonal and advanced settings", () => {
+test("applying a result mode preserves preview rows and independent settings", () => {
 	const current: ToolDisplayConfig = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		enabled: false,
-		registerToolOverrides: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
-			read: false,
-			bash: false,
-		},
-		customToolOverrides: {
-			custom_probe: { enabled: true, kind: "generic", outputMode: "preview" },
-		},
-		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
+		debug: true,
+		previewRows: 37,
+		expandedPreviewMaxRows: 777,
 		toolCallStyle: "claude",
+		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
 		enableNativeUserMessageBox: false,
-		expandedPreviewMaxLines: 123,
+		enableThinkingLabel: false,
 		diffViewMode: "split",
-		diffIndicatorMode: "classic",
-		diffSplitMinWidth: 180,
-		diffCollapsedLines: 40,
+		diffIndicatorMode: "none",
+		diffSplitMinWidth: 160,
+		diffCollapsedRows: 48,
 		diffWordWrap: false,
 		showTruncationHints: true,
 		showRtkCompactionHints: true,
-	};
-
-	const applied = applyToolDisplayPreset(current, "balanced");
-	const ownedKeys = new Set<string>([...TOOL_OUTPUT_PRESET_KEYS, "resultProfile"]);
-	for (const key of Object.keys(current) as Array<keyof ToolDisplayConfig>) {
-		if (!ownedKeys.has(key)) {
-			assert.deepEqual(applied[key], current[key], `preserves ${key}`);
-		}
-	}
-	assert.equal(detectToolDisplayPreset(applied), "balanced");
-});
-
-test("orthogonal setting changes do not make a detected output profile custom", () => {
-	const balanced = applyToolDisplayPreset(DEFAULT_TOOL_DISPLAY_CONFIG, "balanced");
-	const variants: ToolDisplayConfig[] = [
-		{ ...balanced, toolCallStyle: "claude" },
-		{ ...balanced, toolIntent: { enabled: false, language: "zh-CN", maxLength: 48 } },
-		{
-			...balanced,
-			registerToolOverrides: { ...balanced.registerToolOverrides, read: false },
+		registerToolOverrides: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
+			read: false,
 		},
-		{ ...balanced, diffViewMode: "split", diffWordWrap: false },
-		{ ...balanced, showTruncationHints: true, showRtkCompactionHints: true },
-		{ ...balanced, enableNativeUserMessageBox: false, expandedPreviewMaxLines: 99 },
-	];
+		customToolOverrides: {
+			custom: { kind: "mcp", outputMode: "preview" },
+		},
+	};
+	const applied = applyToolDisplayMode(current, "summary");
 
-	for (const variant of variants) {
-		assert.equal(detectToolDisplayPreset(variant), "balanced");
-	}
+	assert.equal(applied.previewRows, 37);
+	assert.equal(applied.debug, true);
+	assert.equal(applied.expandedPreviewMaxRows, 777);
+	assert.equal(applied.toolCallStyle, "claude");
+	assert.deepEqual(applied.toolIntent, current.toolIntent);
+	assert.equal(applied.enableNativeUserMessageBox, false);
+	assert.equal(applied.enableThinkingLabel, false);
+	assert.equal(applied.diffViewMode, "split");
+	assert.equal(applied.diffCollapsedRows, 48);
+	assert.equal(applied.showTruncationHints, true);
+	assert.equal(applied.showRtkCompactionHints, true);
+	assert.equal(applied.registerToolOverrides, current.registerToolOverrides);
+	assert.equal(applied.customToolOverrides, current.customToolOverrides);
 });
 
-test("changing any output-profile field makes detection custom", () => {
-	const balanced = applyToolDisplayPreset(DEFAULT_TOOL_DISPLAY_CONFIG, "balanced");
+test("independent setting changes do not change detected result mode", () => {
+	const summary = applyToolDisplayMode(DEFAULT_TOOL_DISPLAY_CONFIG, "summary");
 	const variants: ToolDisplayConfig[] = [
-		{ ...balanced, readOutputMode: "preview" },
-		{ ...balanced, searchOutputMode: "preview" },
-		{ ...balanced, mcpOutputMode: "preview" },
-		{ ...balanced, previewRows: 9 },
-		{ ...balanced, bashOutputMode: "preview" },
-		{ ...balanced, bashCollapsedRows: 11 },
+		{ ...summary, debug: !summary.debug },
+		{ ...summary, previewRows: summary.previewRows + 1 },
+		{ ...summary, toolCallStyle: "claude" },
+		{ ...summary, enableThinkingLabel: false },
+		{ ...summary, diffWordWrap: false },
 	];
-
 	for (const variant of variants) {
-		assert.equal(detectToolDisplayPreset(variant), "custom");
+		assert.equal(detectToolDisplayMode(variant), "summary");
 	}
 });
 
-test("applying a profile does not mutate the input config", () => {
-	const current: ToolDisplayConfig = {
+test("changing any mode-owned output field makes detection custom", () => {
+	const summary = applyToolDisplayMode(DEFAULT_TOOL_DISPLAY_CONFIG, "summary");
+	const variants: ToolDisplayConfig[] = [
+		{ ...summary, readOutputMode: "preview" },
+		{ ...summary, searchOutputMode: "preview" },
+		{ ...summary, mcpOutputMode: "preview" },
+		{ ...summary, bashOutputMode: "preview" },
+	];
+	for (const variant of variants) {
+		assert.equal(detectToolDisplayMode(variant), "custom");
+	}
+});
+
+test("applying a result mode does not mutate its input", () => {
+	const current = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallStyle: "claude",
-		toolIntent: { ...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent, language: "zh-CN" },
+		toolIntent: { ...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent },
+		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
 	};
 	const snapshot = structuredClone(current);
-	const applied = applyToolDisplayPreset(current, "detailed");
-
+	const applied = applyToolDisplayMode(current, "preview");
 	assert.deepEqual(current, snapshot);
 	assert.notEqual(applied, current);
-	assert.equal(applied.toolIntent, current.toolIntent);
-	assert.equal(applied.registerToolOverrides, current.registerToolOverrides);
 });
 
-test("parseToolDisplayPreset accepts every profile case-insensitively with whitespace", () => {
-	for (const preset of TOOL_DISPLAY_PRESETS) {
-		assert.equal(parseToolDisplayPreset(`  ${preset.toUpperCase()}  `), preset);
+test("result mode parsing is case-insensitive and supports every final mode", () => {
+	for (const mode of RESULT_DISPLAY_MODES) {
+		assert.equal(parseToolDisplayMode(`  ${mode.toUpperCase()}  `), mode);
 	}
-});
-
-test("parseToolDisplayPreset rejects empty, custom, and decorated names", () => {
-	for (const value of ["", "   ", "custom", "turbo", "minimal!", "balanced.", "detailed-2"]) {
-		assert.equal(parseToolDisplayPreset(value), undefined);
+	const aliases: Record<string, ResultDisplayMode> = {
+		minimal: "compact",
+		opencode: "compact",
+		balanced: "summary",
+		detailed: "preview",
+		verbose: "preview",
+	};
+	for (const [alias, mode] of Object.entries(aliases)) {
+		assert.equal(parseToolDisplayMode(alias), mode);
 	}
-});
-
-test("profile names are result-oriented while legacy aliases remain accepted", () => {
-	const expected: readonly ToolDisplayPreset[] = ["minimal", "balanced", "detailed"];
-	assert.deepEqual(TOOL_DISPLAY_PRESETS, expected);
-	assert.equal(parseToolDisplayPreset("opencode"), "minimal");
-	assert.equal(parseToolDisplayPreset("verbose"), "detailed");
+	assert.equal(parseToolDisplayMode("custom"), undefined);
+	assert.equal(parseToolDisplayMode("summary-mode"), undefined);
 });

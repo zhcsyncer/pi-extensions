@@ -67,7 +67,7 @@ test("unified diff wrapped continuation rows should not repeat line numbers", ()
 		{
 			diffViewMode: "unified",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: true,
 		} as any,
 		theme,
@@ -93,7 +93,7 @@ test("split diff falls back to unified with the same continuation numbering beha
 		{
 			diffViewMode: "split",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: true,
 		} as any,
 		theme,
@@ -119,7 +119,7 @@ test("multi-line unified diff keeps continuation rows blank while preserving log
 		{
 			diffViewMode: "unified",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: true,
 		} as any,
 		theme,
@@ -146,7 +146,7 @@ test("split diff keeps wrapped rows vertically aligned with blank placeholder ce
 		{
 			diffViewMode: "split",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: true,
 		} as any,
 		theme,

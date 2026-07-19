@@ -12,10 +12,10 @@ const theme = {
 const diffConfig = {
 	diffViewMode: "auto" as const,
 	diffSplitMinWidth: 80,
-	diffCollapsedLines: 24,
+	diffCollapsedRows: 24,
 	diffWordWrap: false,
 	diffIndicatorMode: "bars" as const,
-	expandedPreviewMaxLines: 32,
+	expandedPreviewMaxRows: 32,
 };
 
 function renderInsideToolBox(component: Component, width: number): string[] {
@@ -48,8 +48,8 @@ test("issue #23: expanded large diffs stay bounded for small tmux panes", () => 
 
 	const lines = renderInsideToolBox(component, 100);
 	assert.ok(
-		lines.length <= diffConfig.expandedPreviewMaxLines + 8,
-		`expected expanded large diff to stay bounded near ${diffConfig.expandedPreviewMaxLines} lines, rendered ${lines.length}`,
+		lines.length <= diffConfig.expandedPreviewMaxRows + 8,
+		`expected expanded large diff to stay bounded near ${diffConfig.expandedPreviewMaxRows} lines, rendered ${lines.length}`,
 	);
 	assert.ok(
 		lines.some((line) => /remaining|omitted|collapsed|more/i.test(line)),

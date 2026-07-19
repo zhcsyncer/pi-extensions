@@ -446,24 +446,12 @@ test("showRtkCompactionHints stays independent from showTruncationHints for prev
 	);
 });
 
-test("bash output modes stay distinct across opencode, summary, and preview", async () => {
+test("bash summary and preview modes stay distinct while preview uses shared rows", async () => {
 	const output = "alpha\nbeta\ngamma\n";
-
-	const opencodeConfig = buildConfig({
-		bashOutputMode: "opencode",
-		bashCollapsedRows: 1,
-	});
-	const opencodeStub = createExtensionApiStub();
-	registerToolDisplayOverrides(opencodeStub.api, () => opencodeConfig);
-	await opencodeStub.eventHandlers.before_agent_start?.();
-	assert.equal(
-		renderToolResult(opencodeStub.registeredTools.find((tool) => tool.name === "bash"), output),
-		"alpha\n... (2 more lines • Ctrl+O to expand)",
-	);
 
 	const summaryConfig = buildConfig({
 		bashOutputMode: "summary",
-		bashCollapsedRows: 1,
+		previewRows: 1,
 	});
 	const summaryStub = createExtensionApiStub();
 	registerToolDisplayOverrides(summaryStub.api, () => summaryConfig);
@@ -483,7 +471,6 @@ test("bash output modes stay distinct across opencode, summary, and preview", as
 	const previewConfig = buildConfig({
 		bashOutputMode: "preview",
 		previewRows: 2,
-		bashCollapsedRows: 1,
 	});
 	const previewStub = createExtensionApiStub();
 	registerToolDisplayOverrides(previewStub.api, () => previewConfig);
@@ -574,11 +561,10 @@ test("bash render shows live partial output once streaming begins", async () => 
 	);
 });
 
-test("bash live partial output respects opencode collapse settings", async () => {
+test("bash live partial output uses the shared preview row budget", async () => {
 	const config = buildConfig({
-		bashOutputMode: "opencode",
-		bashCollapsedRows: 1,
-		previewRows: 4,
+		bashOutputMode: "preview",
+		previewRows: 1,
 	});
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
@@ -648,10 +634,10 @@ test("previewRows bounds long single-line read, search, and MCP results", async 
 	}
 });
 
-test("bash collapsed, live, and error previews bound long single-line output", async () => {
+test("bash completed, live, and error previews share the long-line row budget", async () => {
 	const config = buildConfig({
-		bashOutputMode: "opencode",
-		bashCollapsedRows: 2,
+		bashOutputMode: "preview",
+		previewRows: 2,
 	});
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
