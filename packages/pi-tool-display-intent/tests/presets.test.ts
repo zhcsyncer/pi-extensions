@@ -10,7 +10,9 @@ import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 
 test("preset parsing is case-insensitive and rejects unknown names", () => {
   assert.equal(parseToolDisplayPreset(" BALANCED "), "balanced");
-  assert.equal(parseToolDisplayPreset("Verbose"), "verbose");
+  assert.equal(parseToolDisplayPreset("Detailed"), "detailed");
+  assert.equal(parseToolDisplayPreset("Verbose"), "detailed");
+  assert.equal(parseToolDisplayPreset("OpenCode"), "minimal");
   assert.equal(parseToolDisplayPreset(""), undefined);
   assert.equal(parseToolDisplayPreset("custom"), undefined);
 });

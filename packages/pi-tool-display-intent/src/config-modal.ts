@@ -3,7 +3,7 @@ import type { ToolDisplayCapabilities } from "./capabilities.js";
 import { getToolDisplayConfigPath, normalizeToolDisplayConfig } from "./config-store.js";
 import {
 	applyToolDisplayPreset,
-	detectToolDisplayPreset,
+	hasToolDisplayProfileOverrides,
 	parseToolDisplayPreset,
 	TOOL_DISPLAY_PRESETS,
 	type ToolDisplayPreset,
@@ -39,13 +39,16 @@ function toolOwnershipSummary(config: ToolDisplayConfig): string {
 }
 
 function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCapabilities): string {
-	const preset = detectToolDisplayPreset(config);
+	const profileSummary = hasToolDisplayProfileOverrides(config)
+		? `${config.resultProfile}+overrides`
+		: config.resultProfile;
 	const parts = [
-		`outputProfile=${preset}`,
+		`resultProfile=${profileSummary}`,
 		`owners={${toolOwnershipSummary(config)}}`,
 		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
 		`toolCallStyle=${config.toolCallStyle}`,
 		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
+		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
 		`read=${config.readOutputMode}`,
 		`search=${config.searchOutputMode}`,
 		`preview=${config.previewLines}`,
@@ -84,7 +87,7 @@ function buildAdvancedNotes(
 ): string[] {
 	const notes = [
 		...extra,
-		"Manual JSON edits also expose toolIntent.*, toolCallStyle, registerToolOverrides.*, expandedPreviewMaxLines, diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap.",
+		"Manual JSON edits expose the grouped v2 sections: intent, toolCalls, results, diff, transcript, tools, and advanced.",
 		`Tool ownership is currently ${toolOwnershipSummary(config)} and still applies after /reload.`,
 		`Truncation hints are ${toOnOff(config.showTruncationHints)}${capabilities.hasRtkOptimizer ? `; RTK hints are ${toOnOff(config.showRtkCompactionHints)}.` : "."}`,
 	];
@@ -99,23 +102,23 @@ function buildInspectorSettings(
 	const items: InspectorSettingItem[] = [
 		{
 			id: "preset",
-			label: "Output profile",
-			currentValue: detectToolDisplayPreset(config),
+			label: "Result detail profile",
+			currentValue: config.resultProfile,
 			values: TOOL_DISPLAY_PRESETS,
-			inspectorTitle: "Output Profile",
+			inspectorTitle: "Result Detail Profile",
 			inspectorSummary: [
 				"Controls the output density of read, search, MCP, and bash results.",
 				"Choosing a profile preserves tool-call style, intent, ownership, diff settings, and other advanced preferences.",
 			],
 			inspectorOptions: [
-				"opencode — strict inline-only tool output",
+				"minimal — headers plus compact inline bash output",
 				"balanced — compact summaries with counts",
-				"verbose — larger line previews and more visible bash output",
-				"custom — shown automatically when manual overrides no longer match a preset",
+				"detailed — larger line previews and more visible bash output",
+				"profile+overrides — shown when per-tool result settings differ from the selected baseline",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Profiles only update readOutputMode, searchOutputMode, mcpOutputMode, previewLines, bashOutputMode, and bashCollapsedLines.",
-				"Custom appears only when those output fields no longer match a profile.",
+				"The selected profile is persisted as the results.profile baseline; only differences are written under results.overrides.",
+				"Legacy preset names opencode and verbose remain accepted as aliases for minimal and detailed.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["verbosity", "profile", "layout", "custom", ...TOOL_DISPLAY_PRESETS],
@@ -136,7 +139,7 @@ function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing this setting updates tool schemas and therefore takes effect after /reload.",
-				"Use toolIntent.language and toolIntent.maxLength in config.json for advanced control.",
+				"Use intent.language and intent.maxLength in config.json for advanced control.",
 				"Enabled intent is always required in owned tool schemas and shown in TUI.",
 			]),
 			inspectorPath: configPath,
@@ -179,7 +182,7 @@ function buildInspectorSettings(
 				"preview — shows the first configured preview lines",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"expandedPreviewMaxLines bounds how many lines can appear after expanding a preview-heavy read result.",
+				"advanced.expandedLineLimit bounds how many lines can appear after expanding a preview-heavy read result.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["file", "source", "preview", "summary", "hidden"],
@@ -247,7 +250,7 @@ function buildInspectorSettings(
 				"Higher values surface more source context before expansion",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Pair this with expandedPreviewMaxLines when you want larger expanded previews without making collapsed output noisy.",
+				"Pair this with advanced.expandedLineLimit when you want larger expanded previews without making collapsed output noisy.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["preview", "lines", "range", "collapsed", "read", "grep", "mcp", "bash"],
@@ -309,7 +312,7 @@ function buildInspectorSettings(
 				"unified — force a single-column diff",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Manual JSON tuning exposes diffSplitMinWidth, diffCollapsedLines, diffIndicatorMode, and diffWordWrap for more aggressive diff control.",
+				"Manual JSON tuning exposes diff.splitMinWidth, diff.collapsedLines, diff.indicators, and diff.wordWrap for more aggressive diff control.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "edit", "write", "split", "unified", "auto"],
@@ -334,6 +337,26 @@ function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "indicator", "bars", "classic", "none", "marker"],
+		},
+		{
+			id: "enableThinkingLabel",
+			label: "Thinking label",
+			currentValue: toOnOff(config.enableThinkingLabel),
+			values: ["on", "off"],
+			inspectorTitle: "Thinking Label",
+			inspectorSummary: [
+				"Adds an explicit Thinking: label to supported provider reasoning blocks in the transcript.",
+				"Presentation labels are removed again before model context is sent.",
+			],
+			inspectorOptions: [
+				"on — show the transcript label",
+				"off — leave Pi's reasoning block presentation unchanged",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"This setting is stored as transcript.thinkingLabel and applies without changing tool schemas.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["thinking", "reasoning", "label", "transcript"],
 		},
 		{
 			id: "enableNativeUserMessageBox",
@@ -382,6 +405,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			return {
 				...config,
 				toolCallStyle: value as ToolDisplayConfig["toolCallStyle"],
+			};
+		case "enableThinkingLabel":
+			return {
+				...config,
+				enableThinkingLabel: value === "on",
 			};
 		case "enableNativeUserMessageBox":
 			return {
@@ -538,7 +566,7 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 		}
 
 		controller.setConfig(applyToolDisplayPreset(controller.getConfig(), preset), ctx);
-		ctx.ui.notify(`Tool output profile set to ${preset}.`, "info");
+		ctx.ui.notify(`Tool result profile set to ${preset}.`, "info");
 		return true;
 	}
 

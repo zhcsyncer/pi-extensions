@@ -1,6 +1,6 @@
-import type { ToolDisplayConfig } from "./types.js";
+import type { ToolDisplayConfig, ToolDisplayResultProfile } from "./types.js";
 
-export const TOOL_DISPLAY_PRESETS = ["opencode", "balanced", "verbose"] as const;
+export const TOOL_DISPLAY_PRESETS = ["minimal", "balanced", "detailed"] as const;
 export type ToolDisplayPreset = (typeof TOOL_DISPLAY_PRESETS)[number];
 
 export const TOOL_OUTPUT_PRESET_KEYS = [
@@ -16,7 +16,7 @@ export type ToolOutputPresetKey = (typeof TOOL_OUTPUT_PRESET_KEYS)[number];
 export type ToolOutputPresetConfig = Pick<ToolDisplayConfig, ToolOutputPresetKey>;
 
 const TOOL_OUTPUT_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolOutputPresetConfig> = {
-	opencode: {
+	minimal: {
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
@@ -32,7 +32,7 @@ const TOOL_OUTPUT_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolOutputPresetConf
 		bashOutputMode: "summary",
 		bashCollapsedLines: 10,
 	},
-	verbose: {
+	detailed: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
@@ -40,6 +40,11 @@ const TOOL_OUTPUT_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolOutputPresetConf
 		bashOutputMode: "preview",
 		bashCollapsedLines: 20,
 	},
+};
+
+const LEGACY_PRESET_ALIASES: Record<string, ToolDisplayPreset> = {
+	opencode: "minimal",
+	verbose: "detailed",
 };
 
 export function getToolOutputPresetConfig(preset: ToolDisplayPreset): ToolOutputPresetConfig {
@@ -52,6 +57,7 @@ export function applyToolDisplayPreset(
 ): ToolDisplayConfig {
 	return {
 		...config,
+		resultProfile: preset,
 		...TOOL_OUTPUT_PRESET_CONFIGS[preset],
 	};
 }
@@ -65,10 +71,26 @@ export function detectToolDisplayPreset(config: ToolDisplayConfig): ToolDisplayP
 	return TOOL_DISPLAY_PRESETS.find((preset) => configMatchesPreset(config, preset)) ?? "custom";
 }
 
+export function hasToolDisplayProfileOverrides(config: ToolDisplayConfig): boolean {
+	return !configMatchesPreset(config, config.resultProfile);
+}
+
 export function parseToolDisplayPreset(raw: string): ToolDisplayPreset | undefined {
 	const normalized = raw.trim().toLowerCase();
 	if (!normalized) {
 		return undefined;
 	}
-	return TOOL_DISPLAY_PRESETS.find((preset) => preset === normalized);
+	return (
+		TOOL_DISPLAY_PRESETS.find((preset) => preset === normalized) ??
+		LEGACY_PRESET_ALIASES[normalized]
+	);
+}
+
+export function normalizeToolDisplayResultProfile(
+	value: unknown,
+	fallback: ToolDisplayResultProfile = "minimal",
+): ToolDisplayResultProfile {
+	return TOOL_DISPLAY_PRESETS.includes(value as ToolDisplayPreset)
+		? (value as ToolDisplayResultProfile)
+		: fallback;
 }

@@ -17,6 +17,7 @@
     "tool-display-api-consumer.js",
     "tool-display-api-consumer.d.ts",
     "config/config.example.json",
+    "config/config.schema.json",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
@@ -27,7 +28,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "check": "pnpm typecheck && pnpm test"
   },
   "keywords": [

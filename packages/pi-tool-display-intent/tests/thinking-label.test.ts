@@ -4,13 +4,13 @@ import { registerThinkingLabeling } from "../src/thinking-label.ts";
 
 type CapturedHandler = (event: unknown, ctx?: unknown) => Promise<void> | void;
 
-function captureThinkingHandlers(): Map<string, CapturedHandler> {
+function captureThinkingHandlers(enabled = true): Map<string, CapturedHandler> {
   const handlers = new Map<string, CapturedHandler>();
   registerThinkingLabeling({
     on(eventName: string, handler: CapturedHandler): void {
       handlers.set(eventName, handler);
     },
-  } as never);
+  } as never, () => enabled);
   return handlers;
 }
 
@@ -47,6 +47,24 @@ test("thinking label formatting leaves unsupported explicit OpenAI APIs unchange
   await handlers.get("message_end")?.(event, {});
 
   assert.equal(event.message.content[0], thinkingBlock);
+});
+
+test("thinking label can be disabled while context sanitization remains active", async () => {
+  const handlers = captureThinkingHandlers(false);
+  const event = {
+    message: {
+      role: "assistant",
+      api: "anthropic-messages",
+      content: [{ type: "thinking", thinking: "checking options" }],
+    },
+  };
+
+  await handlers.get("message_update")?.(event, {});
+  await handlers.get("message_end")?.(event, {});
+
+  assert.deepEqual(event.message.content, [
+    { type: "thinking", thinking: "checking options" },
+  ]);
 });
 
 test("thinking context sanitization removes presentation labels before model context", async () => {

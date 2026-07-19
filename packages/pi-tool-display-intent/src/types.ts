@@ -8,6 +8,10 @@ export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
 export const TOOL_INTENT_LANGUAGES = ["auto", "zh-CN", "en"] as const;
 export const TOOL_CALL_STYLES = ["compact", "claude"] as const;
+export const TOOL_DISPLAY_RESULT_PROFILES = ["minimal", "balanced", "detailed"] as const;
+export const TOOL_DISPLAY_CONFIG_VERSION = 2 as const;
+export const TOOL_DISPLAY_CONFIG_SCHEMA_URL =
+	"https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json";
 
 export type ReadOutputMode = (typeof READ_OUTPUT_MODES)[number];
 export type SearchOutputMode = (typeof SEARCH_OUTPUT_MODES)[number];
@@ -19,6 +23,7 @@ export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 export type ToolIntentLanguage = (typeof TOOL_INTENT_LANGUAGES)[number];
 export type ToolCallStyle = (typeof TOOL_CALL_STYLES)[number];
+export type ToolDisplayResultProfile = (typeof TOOL_DISPLAY_RESULT_PROFILES)[number];
 
 export const BUILT_IN_TOOL_OVERRIDE_NAMES = [
 	"read",
@@ -56,11 +61,14 @@ export interface ToolIntentConfig {
 
 export interface ToolDisplayConfig {
 	enabled: boolean;
+	debug: boolean;
 	registerToolOverrides: ToolOverrideOwnership;
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	toolIntent: ToolIntentConfig;
 	toolCallStyle: ToolCallStyle;
+	resultProfile: ToolDisplayResultProfile;
 	enableNativeUserMessageBox: boolean;
+	enableThinkingLabel: boolean;
 	readOutputMode: ReadOutputMode;
 	searchOutputMode: SearchOutputMode;
 	mcpOutputMode: McpOutputMode;
@@ -79,6 +87,7 @@ export interface ToolDisplayConfig {
 
 export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	enabled: true,
+	debug: false,
 	registerToolOverrides: {
 		read: true,
 		grep: true,
@@ -95,7 +104,9 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		maxLength: 96,
 	},
 	toolCallStyle: "compact",
+	resultProfile: "minimal",
 	enableNativeUserMessageBox: true,
+	enableThinkingLabel: true,
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",
 	mcpOutputMode: "hidden",

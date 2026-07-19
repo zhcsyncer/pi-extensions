@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "title": "pi-tool-display-intent configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "results"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 2
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "language": {
+          "enum": ["auto", "zh-CN", "en"],
+          "default": "auto"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 256,
+          "default": 96
+        }
+      }
+    },
+    "toolCalls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "enum": ["compact", "claude"],
+          "default": "compact"
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile"],
+      "properties": {
+        "profile": {
+          "enum": ["minimal", "balanced", "detailed"],
+          "default": "minimal"
+        },
+        "previewLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 80
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "enum": ["hidden", "summary", "preview"]
+            },
+            "search": {
+              "enum": ["hidden", "summary", "preview"]
+            },
+            "mcp": {
+              "enum": ["hidden", "summary", "preview"]
+            },
+            "bash": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": ["inline", "summary", "preview"]
+                },
+                "collapsedLines": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 80
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "enum": ["auto", "split", "unified"],
+          "default": "auto"
+        },
+        "indicators": {
+          "enum": ["bars", "classic", "none"],
+          "default": "bars"
+        },
+        "splitMinWidth": {
+          "type": "integer",
+          "minimum": 70,
+          "maximum": 240,
+          "default": 120
+        },
+        "collapsedLines": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 240,
+          "default": 24
+        },
+        "wordWrap": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userMessage": {
+          "enum": ["boxed", "default"],
+          "default": "boxed"
+        },
+        "thinkingLabel": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disabled": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+          }
+        },
+        "custom": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/customTool"
+          }
+        }
+      }
+    },
+    "advanced": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expandedLineLimit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20000,
+          "default": 4000
+        },
+        "truncationHints": {
+          "type": "boolean",
+          "default": false
+        },
+        "rtkCompactionHints": {
+          "type": "boolean",
+          "default": false
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "$defs": {
+    "customTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "renderer": {
+          "enum": ["generic", "mcp"],
+          "default": "generic"
+        },
+        "result": {
+          "enum": ["hidden", "summary", "preview"],
+          "default": "summary"
+        }
+      }
+    }
+  }
+}
