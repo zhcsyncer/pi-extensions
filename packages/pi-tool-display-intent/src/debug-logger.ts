@@ -1,12 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolvePiAgentDir } from "./agent-dir.js";
 import { toRecord } from "./tool-metadata.js";
 
-const EXTENSION_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_DEBUG_CONFIG_FILE = join(EXTENSION_ROOT, "config.json");
-const DEFAULT_DEBUG_DIR = join(EXTENSION_ROOT, "debug");
+const DEFAULT_DEBUG_CONFIG_FILE = join(
+  resolvePiAgentDir(),
+  "extensions",
+  "pi-tool-display-intent",
+  "config.json",
+);
+const DEFAULT_DEBUG_DIR = join(dirname(DEFAULT_DEBUG_CONFIG_FILE), "debug");
 const DEFAULT_DEBUG_LOG_FILE = join(DEFAULT_DEBUG_DIR, "debug.log");
 
 const DEFAULT_DEBUG_CONFIG_CACHE_TTL_MS = 1_000;
@@ -92,7 +96,10 @@ export function createToolDisplayDebugLogger(options: ToolDisplayDebugLoggerOpti
       }
 
       const rawConfig = JSON.parse(fileSystem.readFileSync(configFile, "utf8") as string) as unknown;
-      cachedDebugEnabled = toRecord(rawConfig).debug === true;
+      const source = toRecord(rawConfig);
+      cachedDebugEnabled = source.version === 2
+        ? toRecord(source.advanced).debug === true
+        : source.debug === true;
       return cachedDebugEnabled;
     } catch {
       return cachedDebugEnabled;

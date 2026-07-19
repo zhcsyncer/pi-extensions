@@ -49,6 +49,22 @@ test("enabled debug logger writes on flush and redacts secret values", async () 
   });
 });
 
+test("debug logger reads v2 advanced.debug", async () => {
+  await withTempRoot(async (root) => {
+    writeFileSync(
+      join(root, "config.json"),
+      JSON.stringify({ version: 2, advanced: { debug: true } }),
+      "utf-8",
+    );
+    const logger = createLogger(root);
+
+    logger.log("v2-enabled");
+    await logger.flush();
+
+    assert.match(readFileSync(join(root, "debug", "debug.log"), "utf-8"), /v2-enabled/);
+  });
+});
+
 test("debug logger swallows append failures", async () => {
   await withTempRoot(async (root) => {
     writeFileSync(join(root, "config.json"), JSON.stringify({ debug: true }), "utf-8");

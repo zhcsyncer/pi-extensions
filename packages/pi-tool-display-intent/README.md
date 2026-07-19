@@ -67,14 +67,14 @@ Direct commands:
 ```text
 /tool-display-intent show
 /tool-display-intent reset
-/tool-display-intent preset opencode
+/tool-display-intent preset minimal
 /tool-display-intent preset balanced
-/tool-display-intent preset verbose
+/tool-display-intent preset detailed
 ```
 
 Tool ownership and intent-schema changes take effect after `/reload`.
 
-The `opencode`, `balanced`, and `verbose` presets are output profiles only. They update read/search/MCP/bash output modes and collapsed line budgets while preserving `toolCallStyle`, `toolIntent`, ownership, diff settings, and other advanced preferences. Use `reset` when you intentionally want to restore the complete default configuration.
+The `minimal`, `balanced`, and `detailed` result profiles are persisted baselines. They update read/search/MCP/bash output modes and collapsed line budgets while preserving call framing, intent, ownership, diff settings, and other advanced preferences. The old `opencode` and `verbose` command names remain aliases. Use `reset` only when you intentionally want to restore the complete default configuration.
 
 ## Configuration
 
@@ -84,39 +84,72 @@ The global config is stored at:
 $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 ```
 
-When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. A complete template is available at [`config/config.example.json`](./config/config.example.json).
-
-Intent and tool-call style settings:
+When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. The v2 config is grouped by responsibility and stores only differences from the selected profile and defaults:
 
 ```json
 {
-  "toolIntent": {
-    "enabled": true,
-    "language": "auto",
-    "maxLength": 96
+  "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "version": 2,
+  "intent": {
+    "language": "en"
   },
-  "toolCallStyle": "compact"
+  "toolCalls": {
+    "frame": "claude"
+  },
+  "results": {
+    "profile": "minimal",
+    "previewLines": 10,
+    "overrides": {
+      "read": "summary",
+      "search": "preview"
+    }
+  },
+  "diff": {
+    "layout": "auto",
+    "indicators": "bars"
+  },
+  "transcript": {
+    "userMessage": "boxed",
+    "thinkingLabel": true
+  }
 }
 ```
 
-| Option | Default | Meaning |
-|---|---:|---|
-| `toolIntent.enabled` | `true` | Add the `displaySummary` field to owned built-in tool schemas and show it in TUI. |
-| `toolIntent.language` | `"auto"` | `auto`, `zh-CN`, or `en`. Auto follows the user's primary language. |
-| `toolIntent.maxLength` | `96` | Maximum accepted/displayed length, clamped to 16–256 characters. |
-| `toolCallStyle` | `"compact"` | Use `compact` or the optional Claude Code-inspired `claude` framing. Changing it requires `/reload`. |
+See [`config/config.example.json`](./config/config.example.json) for a complete example and [`config/config.schema.json`](./config/config.schema.json) for validation and editor completion.
 
-When tool intent is enabled, `displaySummary` is always required in owned built-in schemas and always shown in TUI. Disable `toolIntent.enabled` to keep the inherited `pi-tool-display` rendering without generating intent. The legacy `displaySummary` config object is accepted for migration, but saves are normalized to `toolIntent`; its old `required` and `showInTui` switches are ignored.
+| Section | Purpose |
+|---|---|
+| `extension` | Whole-extension enable switch; normally manage this through Pi package settings. |
+| `intent` | Model-written intent enablement, language, and maximum length. |
+| `toolCalls` | `compact` or Claude Code-inspired call framing. |
+| `results` | Result profile, shared preview budget, and per-tool overrides. |
+| `diff` | Edit/write diff layout, indicators, wrapping, and line budgets. |
+| `transcript` | User message box and thinking label. |
+| `tools` | Disabled built-in renderers and custom-tool display decoration. |
+| `advanced` | Expanded line limit, truncation/RTK hints, and debug logging. |
 
-If an old or incomplete call omits the required field, the renderer immediately shows a deterministic per-tool fallback and `prepareArguments` backfills the raw argument object before validation. Execution can therefore continue, and later TUI/RPC updates can observe the fallback. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
+Result profiles are persisted baselines:
 
-The remaining display settings are inherited from `pi-tool-display`, including:
+- `minimal` favors call headers plus compact inline bash output;
+- `balanced` uses summaries for read/MCP and counts for search;
+- `detailed` uses larger previews for read/search/MCP/bash.
 
-- `readOutputMode`: `hidden`, `summary`, `preview`
-- `searchOutputMode`: `hidden`, `count`, `preview`
-- `mcpOutputMode`: `hidden`, `summary`, `preview`
-- `bashOutputMode`: `opencode`, `summary`, `preview`
-- diff layout, indicators, line limits, ownership, and native user-box settings
+`results.overrides` stores only differences from the baseline. Search `summary` means a count summary; bash `inline` means compact inline output. The old `opencode` and `verbose` command names remain aliases for `minimal` and `detailed`.
+
+### Automatic legacy migration
+
+When the extension loads an old flat config without `version`, it normalizes the effective settings, verifies that a v2 round trip preserves behavior, and immediately replaces `config.json` atomically. The first migration keeps `config.legacy.json` as a backup. This includes:
+
+- `displaySummary` / `toolIntent` → `intent`;
+- `toolCallStyle` → `toolCalls.frame`;
+- `*OutputMode` fields → the `results` profile and overrides;
+- `registerToolOverrides` → `tools.disabled`;
+- `customToolOverrides` → `tools.custom`;
+- diff, transcript, hint, and debug fields → their grouped sections.
+
+Deprecated `displaySummary.required` and `displaySummary.showInTui` fields are removed. Invalid JSON, unknown v2 fields, and invalid values are not rewritten and are reported in TUI with their field paths. Run `/reload` after editing the file directly.
+
+When `intent.enabled` is on, `displaySummary` is required in owned built-in schemas and always shown in TUI. If an old or incomplete call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 
 ## Custom tools
 
@@ -153,13 +186,13 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `withDisplaySummary`:
 
-- keeps its API-level `required` option for custom tool providers, independently of the simplified built-in `toolIntent` config;
+- keeps its API-level `required` option for custom tool providers, independently of the built-in `intent` config;
 - rejects a tool that already defines a field named `displaySummary`, rather than changing that field's semantics;
 - preserves and delegates the original `prepareArguments` and `execute` functions;
 - strips the field before both delegation points where appropriate;
 - is idempotent.
 
-Pi 0.80.x exposes metadata, not complete arbitrary tool definitions, through `getAllTools()`. Therefore configuration-only discovery should not be treated as a reliable way to add intent schemas to unrelated extensions. Use the cooperative wrapper for schema and execution guarantees. `customToolOverrides` remains useful for presentation-only decoration where the definition is available.
+Pi 0.80.x exposes metadata, not complete arbitrary tool definitions, through `getAllTools()`. Therefore configuration-only discovery should not be treated as a reliable way to add intent schemas to unrelated extensions. Use the cooperative wrapper for schema and execution guarantees. `tools.custom` remains useful for presentation-only decoration where the definition is available.
 
 ## RPC and model context
 

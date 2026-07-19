@@ -67,14 +67,14 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 ```text
 /tool-display-intent show
 /tool-display-intent reset
-/tool-display-intent preset opencode
+/tool-display-intent preset minimal
 /tool-display-intent preset balanced
-/tool-display-intent preset verbose
+/tool-display-intent preset detailed
 ```
 
 修改工具 ownership 或意图 Schema 后需要执行 `/reload`。
 
-`opencode`、`balanced` 和 `verbose` 现在只表示输出 profile：它们调整 read/search/MCP/bash 输出模式和折叠行数，但保留 `toolCallStyle`、`toolIntent`、ownership、diff 及其他高级设置。只有在需要恢复完整默认配置时才使用 `reset`。
+`minimal`、`balanced` 和 `detailed` 是持久化的结果 Profile 基线：它们调整 read/search/MCP/bash 输出模式和折叠行数，但保留调用外框、意图、ownership、diff 及其他高级设置。旧名称 `opencode`、`verbose` 仍可作为命令别名。只有在需要恢复完整默认配置时才使用 `reset`。
 
 ## 配置
 
@@ -84,39 +84,72 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 ```
 
-未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。完整模板见 [`config/config.example.json`](./config/config.example.json)。
-
-意图和工具调用样式配置：
+未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。v2 配置按职责分组，并且只保存相对 Profile 和默认值的差异：
 
 ```json
 {
-  "toolIntent": {
-    "enabled": true,
-    "language": "auto",
-    "maxLength": 96
+  "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "version": 2,
+  "intent": {
+    "language": "zh-CN"
   },
-  "toolCallStyle": "compact"
+  "toolCalls": {
+    "frame": "claude"
+  },
+  "results": {
+    "profile": "minimal",
+    "previewLines": 10,
+    "overrides": {
+      "read": "summary",
+      "search": "preview"
+    }
+  },
+  "diff": {
+    "layout": "auto",
+    "indicators": "bars"
+  },
+  "transcript": {
+    "userMessage": "boxed",
+    "thinkingLabel": true
+  }
 }
 ```
 
-| 配置 | 默认值 | 含义 |
-|---|---:|---|
-| `toolIntent.enabled` | `true` | 为本 extension 持有的内置工具增加 `displaySummary` 字段并在 TUI 中显示。 |
-| `toolIntent.language` | `"auto"` | 支持 `auto`、`zh-CN`、`en`；auto 跟随用户主要语言。 |
-| `toolIntent.maxLength` | `96` | 接受和显示的最大长度，限制在 16～256 字符。 |
-| `toolCallStyle` | `"compact"` | 支持 `compact` 或可选的 Claude Code 风格 `claude`；修改后需要 `/reload`。 |
+完整模板见 [`config/config.example.json`](./config/config.example.json)，字段校验和编辑器补全见 [`config/config.schema.json`](./config/config.schema.json)。
 
-启用工具意图后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填，并始终显示在 TUI。关闭 `toolIntent.enabled` 可保留继承自 `pi-tool-display` 的展示，但不再生成意图。旧 `displaySummary` 配置对象仍可迁移读取，保存时会规范化为 `toolIntent`；旧的 `required` 和 `showInTui` 开关会被忽略。
+| 分组 | 作用 |
+|---|---|
+| `extension` | 整体启停。通常应通过 Pi package 设置管理，不需要手写。 |
+| `intent` | 模型意图的启停、语言和最大长度。 |
+| `toolCalls` | `compact` 或 Claude Code 风格调用外框。 |
+| `results` | 结果 Profile、共享预览行数和单工具 override。 |
+| `diff` | edit/write diff 的布局、指示器、折行和行数。 |
+| `transcript` | 用户消息框和 thinking label。 |
+| `tools` | 禁用的内置工具 renderer 与自定义工具展示装饰。 |
+| `advanced` | 展开上限、截断/RTK 提示和 debug。 |
 
-旧 Session 或不完整 tool call 缺少必填字段时，renderer 会立即显示按工具区分的确定性 fallback，`prepareArguments` 也会在校验前回填原始参数对象。这样执行不会失败，后续 TUI/RPC 更新也能观察到 fallback。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
+结果 Profile 是持久化基线：
 
-其余展示配置继承自 `pi-tool-display`，包括：
+- `minimal`：调用头为主，bash 保留紧凑 inline 输出；
+- `balanced`：read/MCP 使用摘要，搜索使用计数；
+- `detailed`：read/search/MCP/bash 使用较大的 preview。
 
-- `readOutputMode`：`hidden`、`summary`、`preview`
-- `searchOutputMode`：`hidden`、`count`、`preview`
-- `mcpOutputMode`：`hidden`、`summary`、`preview`
-- `bashOutputMode`：`opencode`、`summary`、`preview`
-- diff 布局、指示器、行数限制、工具 ownership 和用户消息框设置
+`results.overrides` 只保存相对基线的差异。搜索工具的 `summary` 表示计数摘要；bash 的 `inline` 对应紧凑的行内输出。旧命令名 `opencode` 和 `verbose` 仍分别作为 `minimal` 和 `detailed` 的兼容别名。
+
+### 历史配置自动迁移
+
+扩展加载没有 `version` 的旧 flat 配置时，会在内存中规范化、验证 v2 round-trip 行为一致，然后立即原子更新原 `config.json`。首次迁移会保留一份 `config.legacy.json` 备份。迁移包括：
+
+- `displaySummary` / `toolIntent` → `intent`；
+- `toolCallStyle` → `toolCalls.frame`；
+- 各种 `*OutputMode` → `results` Profile 与 overrides；
+- `registerToolOverrides` → `tools.disabled`；
+- `customToolOverrides` → `tools.custom`；
+- diff、transcript、hint 和 debug 字段进入对应分组。
+
+废弃的 `displaySummary.required` 和 `displaySummary.showInTui` 会被移除。无效 JSON、未知 v2 字段或错误值不会被自动改写，并会在 TUI 中报告具体字段路径。直接编辑配置后执行 `/reload` 重新读取。
+
+启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。旧 Session 或不完整 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 
 ## 自定义工具
 
@@ -153,13 +186,13 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `withDisplaySummary` 会：
 
-- 为自定义工具提供独立的 API 级 `required` 选项，不受精简后的内置工具 `toolIntent` 配置影响；
+- 为自定义工具提供独立的 API 级 `required` 选项，不受内置工具 `intent` 配置影响；
 - 在工具已经定义同名字段时拒绝包装，避免改变原字段语义；
 - 保留并委托原始 `prepareArguments` 和 `execute`；
 - 在适当阶段剥离展示参数；
 - 支持幂等调用。
 
-Pi 0.80.x 的 `getAllTools()` 公开返回元数据，而不是任意工具的完整 definition。因此不能把“仅配置工具名”视为给其他 extension 添加意图 Schema 的可靠方式。需要 Schema 和执行保证时，应使用合作式 wrapper；definition 可用时，`customToolOverrides` 仍可用于纯展示装饰。
+Pi 0.80.x 的 `getAllTools()` 公开返回元数据，而不是任意工具的完整 definition。因此不能把“仅配置工具名”视为给其他 extension 添加意图 Schema 的可靠方式。需要 Schema 和执行保证时，应使用合作式 wrapper；definition 可用时，`tools.custom` 仍可用于纯展示装饰。
 
 ## RPC 与模型上下文
 

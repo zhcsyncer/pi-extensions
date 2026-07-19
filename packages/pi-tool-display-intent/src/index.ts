@@ -83,7 +83,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
     if (requiresReload) {
       ctx.ui.notify(
-        "Tool ownership or intent schema updates apply after /reload.",
+        "Tool ownership, intent schema, or call frame updates apply after /reload.",
         "warning",
       );
     }
@@ -91,7 +91,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
   registerToolDisplayOverrides(pi, getEffectiveConfig);
   registerNativeUserMessageBox(pi, getConfig);
-  registerThinkingLabeling(pi);
+  registerThinkingLabeling(pi, () => getConfig().enableThinkingLabel);
 
   pi.registerCommand("tool-display-intent", {
     description: "Configure intent-aware tool rendering",

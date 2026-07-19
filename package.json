@@ -23,6 +23,7 @@
     "packages/*/src/**/*.ts",
     "packages/*/src/**/*.js",
     "packages/*/src/**/*.d.ts",
+    "packages/*/config/*.json",
     "packages/*/README*.md",
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE"
@@ -36,7 +37,7 @@
     "release": "changeset publish",
     "check": "pnpm check:release-policy && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs && node scripts/check-release-policy.mjs",
-    "check:smoke": "pi --no-extensions -e . --list-models __pi_release_check__ && pi --no-extensions -e ./packages/pi-recap --list-models __pi_release_check__ && pi --no-extensions -e ./packages/pi-tool-display-intent --list-models __pi_release_check__",
+    "check:smoke": "node scripts/check-smoke.mjs",
     "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap && npm pack --dry-run ./packages/pi-tool-display-intent"
   },
   "pi": {

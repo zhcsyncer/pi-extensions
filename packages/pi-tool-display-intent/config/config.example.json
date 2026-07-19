@@ -1,45 +1,46 @@
 {
-  "debug": false,
-  "registerToolOverrides": {
-    "read": true,
-    "grep": true,
-    "find": true,
-    "ls": true,
-    "bash": true,
-    "edit": true,
-    "write": true
+  "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "version": 2,
+  "intent": {
+    "language": "zh-CN"
   },
-  "toolIntent": {
-    "enabled": true,
-    "language": "auto",
-    "maxLength": 96
+  "toolCalls": {
+    "frame": "claude"
   },
-  "toolCallStyle": "compact",
-  "customToolOverrides": {
-    "ide_find_symbol": {
-      "enabled": false,
-      "kind": "generic",
-      "outputMode": "summary"
-    },
-    "custom_mcp_gateway": {
-      "enabled": false,
-      "kind": "mcp",
-      "outputMode": "summary"
+  "results": {
+    "profile": "minimal",
+    "previewLines": 10,
+    "overrides": {
+      "read": "summary",
+      "search": "preview"
     }
   },
-  "enableNativeUserMessageBox": true,
-  "readOutputMode": "hidden",
-  "searchOutputMode": "hidden",
-  "mcpOutputMode": "hidden",
-  "previewLines": 8,
-  "expandedPreviewMaxLines": 4000,
-  "bashOutputMode": "opencode",
-  "bashCollapsedLines": 10,
-  "diffViewMode": "auto",
-  "diffIndicatorMode": "bars",
-  "diffSplitMinWidth": 120,
-  "diffCollapsedLines": 24,
-  "diffWordWrap": true,
-  "showTruncationHints": false,
-  "showRtkCompactionHints": false
+  "diff": {
+    "layout": "auto",
+    "indicators": "bars"
+  },
+  "transcript": {
+    "userMessage": "boxed",
+    "thinkingLabel": true
+  },
+  "tools": {
+    "custom": {
+      "web_search": {
+        "enabled": true,
+        "renderer": "generic",
+        "result": "summary"
+      },
+      "custom_mcp_gateway": {
+        "enabled": false,
+        "renderer": "mcp",
+        "result": "summary"
+      }
+    }
+  },
+  "advanced": {
+    "expandedLineLimit": 500,
+    "truncationHints": false,
+    "rtkCompactionHints": false,
+    "debug": false
+  }
 }

@@ -127,7 +127,7 @@ test("'show' argument notifies with config summary", async () => {
 
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0]?.message ?? "", /^tool-display-intent: /);
-	assert.ok(notifications[0]?.message.includes("outputProfile=opencode"));
+	assert.ok(notifications[0]?.message.includes("resultProfile=minimal"));
 	assert.ok(notifications[0]?.message.includes("intent=on/auto"));
 	assert.equal(notifications[0]?.message.includes("required"), false);
 	assert.equal(notifications[0]?.message.includes("intentTui"), false);
@@ -219,10 +219,10 @@ test("'preset balanced' updates output density while preserving orthogonal setti
 	assert.equal(last.config!.diffViewMode, "split");
 	assert.equal(last.config!.diffWordWrap, false);
 	assert.equal(last.config!.enableNativeUserMessageBox, false);
-	assert.match(notifications[0]?.message ?? "", /output profile set to balanced/i);
+	assert.match(notifications[0]?.message ?? "", /result profile set to balanced/i);
 });
 
-test("'preset verbose' sets correct config", async () => {
+test("legacy 'preset verbose' alias applies the detailed profile", async () => {
 	const { api, getHandler } = createPiStub();
 	const { controller, getLastSet } = createControllerStub();
 	const { ctx } = createCtxStub(true);
@@ -240,6 +240,7 @@ test("'preset verbose' sets correct config", async () => {
 	assert.equal(last.config!.mcpOutputMode, "preview");
 	assert.equal(last.config!.previewLines, 12);
 	assert.equal(last.config!.bashCollapsedLines, 20);
+	assert.equal(last.config!.resultProfile, "detailed");
 });
 
 test("'preset <invalid>' warns about unknown preset", async () => {

@@ -12,7 +12,7 @@ import {
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 
 const EXPECTED_PROFILES = {
-	opencode: {
+	minimal: {
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
@@ -28,7 +28,7 @@ const EXPECTED_PROFILES = {
 		bashOutputMode: "summary",
 		bashCollapsedLines: 10,
 	},
-	verbose: {
+	detailed: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
@@ -89,7 +89,7 @@ test("applying an output profile preserves orthogonal and advanced settings", ()
 	};
 
 	const applied = applyToolDisplayPreset(current, "balanced");
-	const ownedKeys = new Set<string>(TOOL_OUTPUT_PRESET_KEYS);
+	const ownedKeys = new Set<string>([...TOOL_OUTPUT_PRESET_KEYS, "resultProfile"]);
 	for (const key of Object.keys(current) as Array<keyof ToolDisplayConfig>) {
 		if (!ownedKeys.has(key)) {
 			assert.deepEqual(applied[key], current[key], `preserves ${key}`);
@@ -140,7 +140,7 @@ test("applying a profile does not mutate the input config", () => {
 		toolIntent: { ...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent, language: "zh-CN" },
 	};
 	const snapshot = structuredClone(current);
-	const applied = applyToolDisplayPreset(current, "verbose");
+	const applied = applyToolDisplayPreset(current, "detailed");
 
 	assert.deepEqual(current, snapshot);
 	assert.notEqual(applied, current);
@@ -155,12 +155,14 @@ test("parseToolDisplayPreset accepts every profile case-insensitively with white
 });
 
 test("parseToolDisplayPreset rejects empty, custom, and decorated names", () => {
-	for (const value of ["", "   ", "custom", "turbo", "opencode!", "balanced.", "verbose-2"]) {
+	for (const value of ["", "   ", "custom", "turbo", "minimal!", "balanced.", "detailed-2"]) {
 		assert.equal(parseToolDisplayPreset(value), undefined);
 	}
 });
 
-test("profile names retain the existing command surface", () => {
-	const expected: readonly ToolDisplayPreset[] = ["opencode", "balanced", "verbose"];
+test("profile names are result-oriented while legacy aliases remain accepted", () => {
+	const expected: readonly ToolDisplayPreset[] = ["minimal", "balanced", "detailed"];
 	assert.deepEqual(TOOL_DISPLAY_PRESETS, expected);
+	assert.equal(parseToolDisplayPreset("opencode"), "minimal");
+	assert.equal(parseToolDisplayPreset("verbose"), "detailed");
 });
