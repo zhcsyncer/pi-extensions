@@ -6,7 +6,6 @@ import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 
 interface NormalizedCustomToolOverride {
-	enabled: boolean;
 	kind: "generic" | "mcp";
 	outputMode: "hidden" | "summary" | "preview";
 }
@@ -142,25 +141,24 @@ test("normalizeToolDisplayConfig normalizes custom tool override shorthand, defa
 		customToolOverrides: {
 			ide_find_symbol: true,
 			" agent_gateway ": { outputMode: "preview" },
-			mcp_gateway: { enabled: true, kind: "mcp", outputMode: "hidden" },
+			mcp_gateway: { kind: "mcp", outputMode: "hidden" },
 			disabled_tool: false,
-			invalid_kind: { enabled: true, kind: "terminal", outputMode: "verbose" },
-			read: { enabled: true, kind: "mcp", outputMode: "summary" },
-			"": { enabled: true },
+			invalid_kind: { kind: "terminal", outputMode: "verbose" },
+			read: { kind: "mcp", outputMode: "summary" },
+			"": {},
 			"   ": true,
 		},
 	}) as ToolDisplayConfigWithCustomOverrides;
 
 	assert.deepEqual(config.customToolOverrides, {
-		ide_find_symbol: { enabled: true, kind: "generic", outputMode: "summary" },
-		agent_gateway: { enabled: true, kind: "generic", outputMode: "preview" },
-		mcp_gateway: { enabled: true, kind: "mcp", outputMode: "hidden" },
-		disabled_tool: { enabled: false, kind: "generic", outputMode: "summary" },
-		invalid_kind: { enabled: true, kind: "generic", outputMode: "summary" },
+		ide_find_symbol: { kind: "generic", outputMode: "summary" },
+		agent_gateway: { kind: "generic", outputMode: "preview" },
+		mcp_gateway: { kind: "mcp", outputMode: "hidden" },
+		invalid_kind: { kind: "generic", outputMode: "summary" },
 	});
 });
 
-test("enabled generic custom tool override replaces existing extension renderers and leaves other tools alone", async () => {
+test("listed generic custom tool override replaces existing extension renderers and leaves other tools alone", async () => {
 	const enabledTool: RuntimeTool = {
 		name: "ide_find_symbol",
 		description: "Find symbols through an IDE index.",
@@ -186,7 +184,7 @@ test("enabled generic custom tool override replaces existing extension renderers
 		renderResult: () => ({ render: () => ["RAW UNLISTED RESULT"] }),
 	};
 	const config = buildConfigWithCustomOverrides({
-		ide_find_symbol: { enabled: true, outputMode: "summary" },
+		ide_find_symbol: { outputMode: "summary" },
 		disabled_noisy_tool: { enabled: false, outputMode: "summary" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([enabledTool, disabledTool, unlistedTool]);
@@ -216,8 +214,8 @@ test("custom tool override defaults kind to generic unless the user chooses mcp"
 		execute: () => {},
 	};
 	const config = buildConfigWithCustomOverrides({
-		remote_gateway: { enabled: true },
-		remote_gateway_structured: { enabled: true, kind: "mcp" },
+		remote_gateway: {},
+		remote_gateway_structured: { kind: "mcp" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([genericTool, mcpTool]);
 
@@ -236,7 +234,7 @@ test("custom generic tool override honors per-tool hidden output mode", async ()
 		execute: () => {},
 	};
 	const config = buildConfigWithCustomOverrides({
-		large_payload_tool: { enabled: true, outputMode: "hidden" },
+		large_payload_tool: { outputMode: "hidden" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([quietTool]);
 
@@ -248,7 +246,7 @@ test("custom generic tool override honors per-tool hidden output mode", async ()
 
 test("custom tool overrides ignore missing tools instead of registering phantom tools", async () => {
 	const config = buildConfigWithCustomOverrides({
-		missing_tool: { enabled: true, outputMode: "summary" },
+		missing_tool: { outputMode: "summary" },
 	});
 	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([]);
 
@@ -272,16 +270,16 @@ test("normalizeToolDisplayConfig treats malformed customToolOverrides containers
 test("normalizeToolDisplayConfig preserves supported custom output modes and drops unknown entry fields", () => {
 	const config = normalizeToolDisplayConfig({
 		customToolOverrides: {
-			hidden_tool: { enabled: true, outputMode: "hidden", label: "Ignored Label" },
-			summary_tool: { enabled: true, outputMode: "summary", pathFields: ["file_path"] },
-			preview_tool: { enabled: true, outputMode: "preview", renderShell: "self" },
+			hidden_tool: { outputMode: "hidden", label: "Ignored Label" },
+			summary_tool: { outputMode: "summary", pathFields: ["file_path"] },
+			preview_tool: { outputMode: "preview", renderShell: "self" },
 		},
 	}) as ToolDisplayConfigWithCustomOverrides;
 
 	assert.deepEqual(config.customToolOverrides, {
-		hidden_tool: { enabled: true, kind: "generic", outputMode: "hidden" },
-		summary_tool: { enabled: true, kind: "generic", outputMode: "summary" },
-		preview_tool: { enabled: true, kind: "generic", outputMode: "preview" },
+		hidden_tool: { kind: "generic", outputMode: "hidden" },
+		summary_tool: { kind: "generic", outputMode: "summary" },
+		preview_tool: { kind: "generic", outputMode: "preview" },
 	});
 });
 
@@ -293,7 +291,7 @@ test("generic custom tool renderCall handles absent, non-object, and nested argu
 		execute: () => {},
 	};
 	const config = buildConfigWithCustomOverrides({
-		argument_probe: { enabled: true, outputMode: "summary" },
+		argument_probe: { outputMode: "summary" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([argumentProbe]);
 
@@ -318,7 +316,7 @@ test("generic custom tool preview mode supports collapsed previews, expanded pre
 		execute: () => {},
 	};
 	const config = buildConfigWithCustomOverrides(
-		{ preview_payload_tool: { enabled: true, outputMode: "preview" } },
+		{ preview_payload_tool: { outputMode: "preview" } },
 		{ previewRows: 2 },
 	);
 	const { api, eventHandlers } = createExtensionApiStub([previewTool]);
@@ -350,7 +348,7 @@ test("explicit mcp custom tool override interprets MCP proxy argument variants",
 		execute: () => {},
 	};
 	const config = buildConfigWithCustomOverrides({
-		custom_gateway: { enabled: true, kind: "mcp", outputMode: "summary" },
+		custom_gateway: { kind: "mcp", outputMode: "summary" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([customMcpProxy]);
 
@@ -377,7 +375,7 @@ test("custom tool override preserves execution contract, parameters, and prepare
 		prepareArguments,
 	};
 	const config = buildConfigWithCustomOverrides({
-		contract_tool: { enabled: true, outputMode: "summary" },
+		contract_tool: { outputMode: "summary" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([contractTool]);
 
@@ -393,7 +391,7 @@ test("custom tool override preserves execution contract, parameters, and prepare
 
 test("custom tool registered after lifecycle is decorated when it is explicitly opted in", async () => {
 	const config = buildConfigWithCustomOverrides({
-		late_custom_tool: { enabled: true, outputMode: "summary" },
+		late_custom_tool: { outputMode: "summary" },
 	});
 	const { api, eventHandlers } = createExtensionApiStub([]);
 

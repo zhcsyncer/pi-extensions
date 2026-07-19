@@ -12,7 +12,6 @@ import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
 	BUILT_IN_TOOL_OVERRIDE_NAMES,
-	BASH_OUTPUT_MODES,
 	CUSTOM_TOOL_OUTPUT_MODES,
 	CUSTOM_TOOL_OVERRIDE_KINDS,
 	DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -21,9 +20,7 @@ import {
 	type CustomToolOverrideConfig,
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
-	MCP_OUTPUT_MODES,
-	READ_OUTPUT_MODES,
-	SEARCH_OUTPUT_MODES,
+	RESULT_DISPLAY_MODES,
 	TOOL_CALL_STYLES,
 	TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 	TOOL_DISPLAY_CONFIG_VERSION,
@@ -32,10 +29,10 @@ import {
 	type ToolOverrideOwnership,
 } from "./types.js";
 import {
-	detectToolDisplayPreset,
-	getToolOutputPresetConfig,
-	normalizeToolDisplayResultProfile,
-	TOOL_DISPLAY_PRESETS,
+	applyToolDisplayMode,
+	detectToolDisplayMode,
+	getToolResultModeConfig,
+	normalizeToolDisplayMode,
 } from "./presets.js";
 import { toRecord } from "./tool-metadata.js";
 
@@ -43,11 +40,13 @@ const CONFIG_DIR = join(resolvePiAgentDir(), "extensions", "pi-tool-display-inte
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 const LEGACY_BACKUP_FILE_NAME = "config.legacy.json";
 
-interface LegacyToolDisplayConfigSource extends Partial<ToolDisplayConfig> {
+interface LegacyToolDisplayConfigSource extends Record<string, unknown> {
 	displaySummary?: unknown;
 	registerReadToolOverride?: unknown;
 	previewLines?: unknown;
 	bashCollapsedLines?: unknown;
+	expandedPreviewMaxLines?: unknown;
+	diffCollapsedLines?: unknown;
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -64,28 +63,34 @@ function toBoolean(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
-function toReadOutputMode(value: unknown, fallback = DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode): ToolDisplayConfig["readOutputMode"] {
-	return READ_OUTPUT_MODES.includes(value as ToolDisplayConfig["readOutputMode"])
-		? (value as ToolDisplayConfig["readOutputMode"])
-		: fallback;
+function hasOwn(source: Record<string, unknown>, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(source, key);
 }
 
-function toSearchOutputMode(value: unknown, fallback = DEFAULT_TOOL_DISPLAY_CONFIG.searchOutputMode): ToolDisplayConfig["searchOutputMode"] {
-	return SEARCH_OUTPUT_MODES.includes(value as ToolDisplayConfig["searchOutputMode"])
-		? (value as ToolDisplayConfig["searchOutputMode"])
-		: fallback;
+function toReadOutputMode(value: unknown): ToolDisplayConfig["readOutputMode"] {
+	return value === "summary" || value === "preview" || value === "hidden"
+		? value
+		: DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode;
 }
 
-function toMcpOutputMode(value: unknown, fallback = DEFAULT_TOOL_DISPLAY_CONFIG.mcpOutputMode): ToolDisplayConfig["mcpOutputMode"] {
-	return MCP_OUTPUT_MODES.includes(value as ToolDisplayConfig["mcpOutputMode"])
-		? (value as ToolDisplayConfig["mcpOutputMode"])
-		: fallback;
+function toSearchOutputMode(value: unknown): ToolDisplayConfig["searchOutputMode"] {
+	if (value === "summary") return "count";
+	return value === "count" || value === "preview" || value === "hidden"
+		? value
+		: DEFAULT_TOOL_DISPLAY_CONFIG.searchOutputMode;
 }
 
-function toBashOutputMode(value: unknown, fallback = DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode): ToolDisplayConfig["bashOutputMode"] {
-	return BASH_OUTPUT_MODES.includes(value as ToolDisplayConfig["bashOutputMode"])
-		? (value as ToolDisplayConfig["bashOutputMode"])
-		: fallback;
+function toMcpOutputMode(value: unknown): ToolDisplayConfig["mcpOutputMode"] {
+	return value === "summary" || value === "preview" || value === "hidden"
+		? value
+		: DEFAULT_TOOL_DISPLAY_CONFIG.mcpOutputMode;
+}
+
+function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
+	if (value === "opencode" || value === "inline") return "preview";
+	return value === "summary" || value === "preview"
+		? value
+		: DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode;
 }
 
 function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
@@ -95,10 +100,7 @@ function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
 }
 
 function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
-	if (value === "stacked") {
-		return "unified";
-	}
-
+	if (value === "stacked") return "unified";
 	return DIFF_VIEW_MODES.includes(value as ToolDisplayConfig["diffViewMode"])
 		? (value as ToolDisplayConfig["diffViewMode"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.diffViewMode;
@@ -130,10 +132,7 @@ export function cloneCustomToolOverrides(
 	overrides: Record<string, CustomToolOverrideConfig>,
 ): Record<string, CustomToolOverrideConfig> {
 	return Object.fromEntries(
-		Object.entries(overrides).map(([toolName, override]) => [
-			toolName,
-			{ ...override },
-		]),
+		Object.entries(overrides).map(([toolName, override]) => [toolName, { ...override }]),
 	);
 }
 
@@ -146,20 +145,17 @@ function cloneDefaultConfig(): ToolDisplayConfig {
 	};
 }
 
-let cachedConfigFile: string | undefined;
-let cachedConfigFingerprint: string | undefined;
-let cachedConfigResult: ConfigLoadResult | undefined;
-
 function cloneConfig(config: ToolDisplayConfig): ToolDisplayConfig {
 	return normalizeToolDisplayConfig(config);
 }
 
 function cloneLoadResult(result: ConfigLoadResult): ConfigLoadResult {
-	return {
-		...result,
-		config: cloneConfig(result.config),
-	};
+	return { ...result, config: cloneConfig(result.config) };
 }
+
+let cachedConfigFile: string | undefined;
+let cachedConfigFingerprint: string | undefined;
+let cachedConfigResult: ConfigLoadResult | undefined;
 
 function getConfigFingerprint(configFile: string): string {
 	try {
@@ -177,14 +173,27 @@ function normalizeToolOverrideOwnership(
 	const source = toRecord(rawOverrides);
 	const defaults = DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides;
 	const legacyReadDefault = toBoolean(legacyRegisterReadToolOverride, defaults.read);
-
 	const overrides = { ...defaults };
+
 	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
 		const fallback = toolName === "read" ? legacyReadDefault : defaults[toolName];
 		overrides[toolName] = toBoolean(source[toolName], fallback);
 	}
-
 	return overrides;
+}
+
+function normalizeV2ToolOwnership(rawTools: unknown): ToolOverrideOwnership {
+	const tools = toRecord(rawTools);
+	const passthrough = new Set(
+		Array.isArray(tools.passthrough)
+			? tools.passthrough.filter((name): name is string => typeof name === "string")
+			: [],
+	);
+	const ownership = { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides };
+	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
+		ownership[toolName] = !passthrough.has(toolName);
+	}
+	return ownership;
 }
 
 function isBuiltInToolOverrideName(toolName: string): boolean {
@@ -205,64 +214,84 @@ export function toCustomToolOutputMode(value: unknown): CustomToolOverrideConfig
 
 export function normalizeCustomToolOverrideEntry(rawEntry: unknown): CustomToolOverrideConfig | undefined {
 	if (typeof rawEntry === "boolean") {
-		return {
-			enabled: rawEntry,
-			kind: "generic",
-			outputMode: "summary",
-		};
+		return rawEntry ? { kind: "generic", outputMode: "summary" } : undefined;
 	}
-
 	if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
 		return undefined;
 	}
-
 	const source = toRecord(rawEntry);
+	if (source.enabled === false) {
+		return undefined;
+	}
 	return {
-		enabled: toBoolean(source.enabled, true),
 		kind: toCustomToolOverrideKind(source.kind ?? source.renderer),
-		outputMode: toCustomToolOutputMode(source.outputMode ?? source.result),
+		outputMode: toCustomToolOutputMode(source.outputMode ?? source.result ?? source.mode),
 	};
 }
 
 function normalizeCustomToolOverrides(rawOverrides: unknown): Record<string, CustomToolOverrideConfig> {
 	const source = toRecord(rawOverrides);
 	const overrides: Record<string, CustomToolOverrideConfig> = {};
-
 	for (const [rawToolName, rawEntry] of Object.entries(source)) {
 		const toolName = rawToolName.trim();
-		if (!toolName || isBuiltInToolOverrideName(toolName)) {
-			continue;
-		}
-
+		if (!toolName || isBuiltInToolOverrideName(toolName)) continue;
 		const normalized = normalizeCustomToolOverrideEntry(rawEntry);
-		if (!normalized) {
-			continue;
-		}
-
-		overrides[toolName] = normalized;
+		if (normalized) overrides[toolName] = normalized;
 	}
-
 	return overrides;
 }
 
-function detectLegacyProfile(config: ToolDisplayConfig): ToolDisplayConfig["resultProfile"] {
-	const detected = detectToolDisplayPreset(config);
-	return detected === "custom" ? DEFAULT_TOOL_DISPLAY_CONFIG.resultProfile : detected;
+interface LegacyResultResolution {
+	mode: ToolDisplayConfig["resultMode"];
+	exact: boolean;
+}
+
+function resolveLegacyResultMode(source: Record<string, unknown>): LegacyResultResolution {
+	if (hasOwn(source, "resultMode")) {
+		return { mode: normalizeToolDisplayMode(source.resultMode), exact: true };
+	}
+	const hasExplicitToolModes =
+		hasOwn(source, "readOutputMode") ||
+		hasOwn(source, "searchOutputMode") ||
+		hasOwn(source, "mcpOutputMode") ||
+		hasOwn(source, "bashOutputMode");
+	if (!hasExplicitToolModes && hasOwn(source, "resultProfile")) {
+		return {
+			mode: normalizeToolDisplayMode(source.resultProfile),
+			exact: true,
+		};
+	}
+
+	const effective = {
+		readOutputMode: toReadOutputMode(source.readOutputMode),
+		searchOutputMode: toSearchOutputMode(source.searchOutputMode),
+		mcpOutputMode: toMcpOutputMode(source.mcpOutputMode),
+		bashOutputMode: toBashOutputMode(source.bashOutputMode),
+	};
+	const candidate = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		...effective,
+	};
+	const detected = detectToolDisplayMode(candidate);
+	if (detected !== "custom") {
+		return { mode: detected, exact: true };
+	}
+
+	const values = Object.values(effective);
+	if (values.includes("preview")) return { mode: "preview", exact: false };
+	if (values.includes("summary") || values.includes("count")) {
+		return { mode: "summary", exact: false };
+	}
+	return { mode: "compact", exact: false };
 }
 
 export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
-	const source =
-		typeof raw === "object" && raw !== null
-			? (raw as LegacyToolDisplayConfigSource)
-			: ({} as LegacyToolDisplayConfigSource);
+	const source = toRecord(raw) as LegacyToolDisplayConfigSource;
+	const rawToolIntent = hasOwn(source, "toolIntent") ? source.toolIntent : source.displaySummary;
+	const resultResolution = resolveLegacyResultMode(source);
+	const resultConfig = getToolResultModeConfig(resultResolution.mode);
 
-	const rawToolIntent = Object.prototype.hasOwnProperty.call(source, "toolIntent")
-		? source.toolIntent
-		: source.displaySummary;
-	const hasExplicitProfile = TOOL_DISPLAY_PRESETS.includes(source.resultProfile as never);
-
-	const config: ToolDisplayConfig = {
-		enabled: toBoolean(source.enabled, DEFAULT_TOOL_DISPLAY_CONFIG.enabled),
+	return {
 		debug: toBoolean(source.debug, DEFAULT_TOOL_DISPLAY_CONFIG.debug),
 		registerToolOverrides: normalizeToolOverrideOwnership(
 			source.registerToolOverrides,
@@ -271,7 +300,8 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
 		toolCallStyle: toToolCallStyle(source.toolCallStyle),
-		resultProfile: normalizeToolDisplayResultProfile(source.resultProfile),
+		resultMode: resultResolution.mode,
+		...resultConfig,
 		enableNativeUserMessageBox: toBoolean(
 			source.enableNativeUserMessageBox,
 			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
@@ -280,27 +310,17 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			source.enableThinkingLabel,
 			DEFAULT_TOOL_DISPLAY_CONFIG.enableThinkingLabel,
 		),
-		readOutputMode: toReadOutputMode(source.readOutputMode),
-		searchOutputMode: toSearchOutputMode(source.searchOutputMode),
-		mcpOutputMode: toMcpOutputMode(source.mcpOutputMode),
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
 			1,
 			80,
 			DEFAULT_TOOL_DISPLAY_CONFIG.previewRows,
 		),
-		expandedPreviewMaxLines: clampNumber(
-			source.expandedPreviewMaxLines,
+		expandedPreviewMaxRows: clampNumber(
+			source.expandedPreviewMaxRows ?? source.expandedPreviewMaxLines,
 			0,
 			20_000,
-			DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines,
-		),
-		bashOutputMode: toBashOutputMode(source.bashOutputMode),
-		bashCollapsedRows: clampNumber(
-			source.bashCollapsedRows ?? source.bashCollapsedLines,
-			0,
-			80,
-			DEFAULT_TOOL_DISPLAY_CONFIG.bashCollapsedRows,
+			DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxRows,
 		),
 		diffViewMode: toDiffViewMode(source.diffViewMode),
 		diffIndicatorMode: toDiffIndicatorMode(source.diffIndicatorMode),
@@ -310,11 +330,11 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			240,
 			DEFAULT_TOOL_DISPLAY_CONFIG.diffSplitMinWidth,
 		),
-		diffCollapsedLines: clampNumber(
-			source.diffCollapsedLines,
+		diffCollapsedRows: clampNumber(
+			source.diffCollapsedRows ?? source.diffCollapsedLines,
 			4,
 			240,
-			DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedLines,
+			DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedRows,
 		),
 		diffWordWrap: toBoolean(source.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap),
 		showTruncationHints: toBoolean(
@@ -326,37 +346,6 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			DEFAULT_TOOL_DISPLAY_CONFIG.showRtkCompactionHints,
 		),
 	};
-
-	if (!hasExplicitProfile) {
-		config.resultProfile = detectLegacyProfile(config);
-	}
-	return config;
-}
-
-function toV2SearchOutputMode(value: unknown, fallback: ToolDisplayConfig["searchOutputMode"]): ToolDisplayConfig["searchOutputMode"] {
-	return value === "summary" ? "count" : toSearchOutputMode(value, fallback);
-}
-
-function toV2BashOutputMode(value: unknown, fallback: ToolDisplayConfig["bashOutputMode"]): ToolDisplayConfig["bashOutputMode"] {
-	return value === "inline" ? "opencode" : toBashOutputMode(value, fallback);
-}
-
-function normalizeV2ToolOwnership(rawTools: unknown): ToolOverrideOwnership {
-	const tools = toRecord(rawTools);
-	const disabled = new Set(
-		Array.isArray(tools.disabled)
-			? tools.disabled.filter((name): name is string => typeof name === "string")
-			: [],
-	);
-	const ownership = { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides };
-	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
-		ownership[toolName] = !disabled.has(toolName);
-	}
-	return ownership;
-}
-
-function hasOwn(source: Record<string, unknown>, key: string): boolean {
-	return Object.prototype.hasOwnProperty.call(source, key);
 }
 
 function validateKnownKeys(
@@ -367,9 +356,7 @@ function validateKnownKeys(
 ): void {
 	const allowedKeys = new Set(allowed);
 	for (const key of Object.keys(source)) {
-		if (!allowedKeys.has(key)) {
-			errors.push(`${path}${key}: unknown setting`);
-		}
+		if (!allowedKeys.has(key)) errors.push(`${path}${key}: unknown setting`);
 	}
 }
 
@@ -429,16 +416,10 @@ function getV2Section(
 function validateToolDisplayConfigV2(raw: unknown): string[] {
 	const source = toRecord(raw);
 	const errors: string[] = [];
-	validateKnownKeys(
-		source,
-		["$schema", "version", "extension", "intent", "toolCalls", "results", "diff", "transcript", "tools", "advanced"],
-		"",
-		errors,
-	);
-
-	const extension = getV2Section(source, "extension", errors);
-	validateKnownKeys(extension, ["enabled"], "extension.", errors);
-	validateOptionalBoolean(extension, "enabled", "extension.", errors);
+	validateKnownKeys(source, ["$schema", "version", "intent", "toolCalls", "results", "diff", "transcript", "tools", "advanced"], "", errors);
+	if (hasOwn(source, "$schema") && typeof source.$schema !== "string") {
+		errors.push("$schema: expected string");
+	}
 
 	const intent = getV2Section(source, "intent", errors);
 	validateKnownKeys(intent, ["enabled", "language", "maxLength"], "intent.", errors);
@@ -447,159 +428,117 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["frame"], "toolCalls.", errors);
-	validateOptionalEnum(toolCalls, "frame", TOOL_CALL_STYLES, "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["style"], "toolCalls.", errors);
+	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
 	const results = getV2Section(source, "results", errors);
-	validateKnownKeys(results, ["profile", "previewRows", "overrides"], "results.", errors);
-	if (!hasOwn(results, "profile")) errors.push("results.profile: required setting");
-	validateOptionalEnum(results, "profile", TOOL_DISPLAY_PRESETS, "results.", errors);
+	validateKnownKeys(results, ["mode", "previewRows"], "results.", errors);
+	if (!hasOwn(results, "mode")) errors.push("results.mode: required setting");
+	validateOptionalEnum(results, "mode", RESULT_DISPLAY_MODES, "results.", errors);
 	validateOptionalInteger(results, "previewRows", 1, 80, "results.", errors);
-	const resultOverrides = getV2Section(results, "overrides", errors, "results.overrides");
-	validateKnownKeys(resultOverrides, ["read", "search", "mcp", "bash"], "results.overrides.", errors);
-	validateOptionalEnum(resultOverrides, "read", READ_OUTPUT_MODES, "results.overrides.", errors);
-	validateOptionalEnum(resultOverrides, "search", ["hidden", "summary", "preview"], "results.overrides.", errors);
-	validateOptionalEnum(resultOverrides, "mcp", MCP_OUTPUT_MODES, "results.overrides.", errors);
-	const bash = getV2Section(resultOverrides, "bash", errors, "results.overrides.bash");
-	validateKnownKeys(bash, ["mode", "collapsedRows"], "results.overrides.bash.", errors);
-	validateOptionalEnum(bash, "mode", ["inline", "summary", "preview"], "results.overrides.bash.", errors);
-	validateOptionalInteger(bash, "collapsedRows", 0, 80, "results.overrides.bash.", errors);
 
 	const diff = getV2Section(source, "diff", errors);
-	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedLines", "wordWrap"], "diff.", errors);
+	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedRows", "wordWrap"], "diff.", errors);
 	validateOptionalEnum(diff, "layout", DIFF_VIEW_MODES, "diff.", errors);
 	validateOptionalEnum(diff, "indicators", DIFF_INDICATOR_MODES, "diff.", errors);
 	validateOptionalInteger(diff, "splitMinWidth", 70, 240, "diff.", errors);
-	validateOptionalInteger(diff, "collapsedLines", 4, 240, "diff.", errors);
+	validateOptionalInteger(diff, "collapsedRows", 4, 240, "diff.", errors);
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
-	validateKnownKeys(transcript, ["userMessage", "thinkingLabel"], "transcript.", errors);
-	validateOptionalEnum(transcript, "userMessage", ["boxed", "default"], "transcript.", errors);
+	validateKnownKeys(transcript, ["userMessageStyle", "thinkingLabel"], "transcript.", errors);
+	validateOptionalEnum(transcript, "userMessageStyle", ["boxed", "default"], "transcript.", errors);
 	validateOptionalBoolean(transcript, "thinkingLabel", "transcript.", errors);
 
 	const tools = getV2Section(source, "tools", errors);
-	validateKnownKeys(tools, ["disabled", "custom"], "tools.", errors);
-	if (hasOwn(tools, "disabled")) {
-		if (!Array.isArray(tools.disabled)) {
-			errors.push("tools.disabled: expected array");
+	validateKnownKeys(tools, ["passthrough", "custom"], "tools.", errors);
+	if (hasOwn(tools, "passthrough")) {
+		if (!Array.isArray(tools.passthrough)) {
+			errors.push("tools.passthrough: expected array");
 		} else {
-			for (const [index, toolName] of tools.disabled.entries()) {
+			const seen = new Set<unknown>();
+			for (const [index, toolName] of tools.passthrough.entries()) {
 				if (!(BUILT_IN_TOOL_OVERRIDE_NAMES as readonly unknown[]).includes(toolName)) {
-					errors.push(`tools.disabled.${index}: unknown built-in tool`);
+					errors.push(`tools.passthrough.${index}: unknown built-in tool`);
+				} else if (seen.has(toolName)) {
+					errors.push(`tools.passthrough.${index}: duplicate built-in tool`);
 				}
+				seen.add(toolName);
 			}
 		}
 	}
 	const custom = getV2Section(tools, "custom", errors, "tools.custom");
 	for (const [toolName, rawEntry] of Object.entries(custom)) {
+		if (!toolName.trim() || toolName.trim() !== toolName || isBuiltInToolOverrideName(toolName)) {
+			errors.push(`tools.custom.${toolName}: expected a non-empty trimmed non-built-in tool name`);
+		}
 		const entry = toRecord(rawEntry);
 		if (Object.keys(entry).length === 0 && (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry))) {
 			errors.push(`tools.custom.${toolName}: expected object`);
 			continue;
 		}
-		validateKnownKeys(entry, ["enabled", "renderer", "result"], `tools.custom.${toolName}.`, errors);
-		validateOptionalBoolean(entry, "enabled", `tools.custom.${toolName}.`, errors);
+		validateKnownKeys(entry, ["renderer", "mode"], `tools.custom.${toolName}.`, errors);
 		validateOptionalEnum(entry, "renderer", CUSTOM_TOOL_OVERRIDE_KINDS, `tools.custom.${toolName}.`, errors);
-		validateOptionalEnum(entry, "result", CUSTOM_TOOL_OUTPUT_MODES, `tools.custom.${toolName}.`, errors);
+		validateOptionalEnum(entry, "mode", CUSTOM_TOOL_OUTPUT_MODES, `tools.custom.${toolName}.`, errors);
 	}
 
 	const advanced = getV2Section(source, "advanced", errors);
-	validateKnownKeys(advanced, ["expandedLineLimit", "truncationHints", "rtkCompactionHints", "debug"], "advanced.", errors);
-	validateOptionalInteger(advanced, "expandedLineLimit", 0, 20_000, "advanced.", errors);
+	validateKnownKeys(advanced, ["expandedRows", "truncationHints", "rtkCompactionHints", "debug"], "advanced.", errors);
+	validateOptionalInteger(advanced, "expandedRows", 0, 20_000, "advanced.", errors);
 	validateOptionalBoolean(advanced, "truncationHints", "advanced.", errors);
 	validateOptionalBoolean(advanced, "rtkCompactionHints", "advanced.", errors);
 	validateOptionalBoolean(advanced, "debug", "advanced.", errors);
-
 	return errors;
 }
 
 function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 	const source = toRecord(raw);
-	const extension = toRecord(source.extension);
 	const results = toRecord(source.results);
-	const resultOverrides = toRecord(results.overrides);
-	const bashOverride = toRecord(resultOverrides.bash);
 	const diff = toRecord(source.diff);
 	const transcript = toRecord(source.transcript);
 	const tools = toRecord(source.tools);
 	const advanced = toRecord(source.advanced);
 	const toolCalls = toRecord(source.toolCalls);
-	const profile = normalizeToolDisplayResultProfile(results.profile);
-	const profileConfig = getToolOutputPresetConfig(profile);
+	const mode = normalizeToolDisplayMode(results.mode);
 
 	return normalizeToolDisplayConfig({
-		enabled: toBoolean(extension.enabled, DEFAULT_TOOL_DISPLAY_CONFIG.enabled),
-		debug: toBoolean(advanced.debug, DEFAULT_TOOL_DISPLAY_CONFIG.debug),
-		resultProfile: profile,
+		debug: advanced.debug,
+		resultMode: mode,
 		registerToolOverrides: normalizeV2ToolOwnership(tools),
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
-		toolCallStyle: toolCalls.frame,
+		toolCallStyle: toolCalls.style,
 		enableNativeUserMessageBox:
-			transcript.userMessage === "default"
+			transcript.userMessageStyle === "default"
 				? false
-				: transcript.userMessage === "boxed"
+				: transcript.userMessageStyle === "boxed"
 					? true
 					: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
-		enableThinkingLabel: toBoolean(
-			transcript.thinkingLabel,
-			DEFAULT_TOOL_DISPLAY_CONFIG.enableThinkingLabel,
-		),
-		readOutputMode: toReadOutputMode(resultOverrides.read, profileConfig.readOutputMode),
-		searchOutputMode: toV2SearchOutputMode(resultOverrides.search, profileConfig.searchOutputMode),
-		mcpOutputMode: toMcpOutputMode(resultOverrides.mcp, profileConfig.mcpOutputMode),
-		previewRows: clampNumber(results.previewRows, 1, 80, profileConfig.previewRows),
-		expandedPreviewMaxLines: clampNumber(
-			advanced.expandedLineLimit,
-			0,
-			20_000,
-			DEFAULT_TOOL_DISPLAY_CONFIG.expandedPreviewMaxLines,
-		),
-		bashOutputMode: toV2BashOutputMode(bashOverride.mode, profileConfig.bashOutputMode),
-		bashCollapsedRows: clampNumber(
-			bashOverride.collapsedRows,
-			0,
-			80,
-			profileConfig.bashCollapsedRows,
-		),
+		enableThinkingLabel: transcript.thinkingLabel,
+		previewRows: results.previewRows,
+		expandedPreviewMaxRows: advanced.expandedRows,
 		diffViewMode: diff.layout,
 		diffIndicatorMode: diff.indicators,
 		diffSplitMinWidth: diff.splitMinWidth,
-		diffCollapsedLines: diff.collapsedLines,
+		diffCollapsedRows: diff.collapsedRows,
 		diffWordWrap: diff.wordWrap,
 		showTruncationHints: advanced.truncationHints,
 		showRtkCompactionHints: advanced.rtkCompactionHints,
 	});
 }
 
-function mapSearchOutputModeToV2(value: ToolDisplayConfig["searchOutputMode"]): "hidden" | "summary" | "preview" {
-	return value === "count" ? "summary" : value;
-}
-
-function mapBashOutputModeToV2(value: ToolDisplayConfig["bashOutputMode"]): "inline" | "summary" | "preview" {
-	return value === "opencode" ? "inline" : value;
-}
-
 function assignSection(target: Record<string, unknown>, key: string, section: Record<string, unknown>): void {
-	if (Object.keys(section).length > 0) {
-		target[key] = section;
-	}
+	if (Object.keys(section).length > 0) target[key] = section;
 }
 
 export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Record<string, unknown> {
 	const config = normalizeToolDisplayConfig(rawConfig);
 	const defaults = DEFAULT_TOOL_DISPLAY_CONFIG;
-	const baseline = getToolOutputPresetConfig(config.resultProfile);
 	const output: Record<string, unknown> = {
 		$schema: TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 		version: TOOL_DISPLAY_CONFIG_VERSION,
 	};
-
-	if (config.enabled !== defaults.enabled) {
-		output.extension = { enabled: config.enabled };
-	}
 
 	const intent: Record<string, unknown> = {};
 	if (config.toolIntent.enabled !== defaults.toolIntent.enabled) intent.enabled = config.toolIntent.enabled;
@@ -608,40 +547,24 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	assignSection(output, "intent", intent);
 
 	if (config.toolCallStyle !== defaults.toolCallStyle) {
-		output.toolCalls = { frame: config.toolCallStyle };
+		output.toolCalls = { style: config.toolCallStyle };
 	}
 
-	const resultOverrides: Record<string, unknown> = {};
-	if (config.readOutputMode !== baseline.readOutputMode) resultOverrides.read = config.readOutputMode;
-	if (config.searchOutputMode !== baseline.searchOutputMode) {
-		resultOverrides.search = mapSearchOutputModeToV2(config.searchOutputMode);
-	}
-	if (config.mcpOutputMode !== baseline.mcpOutputMode) resultOverrides.mcp = config.mcpOutputMode;
-	const bashOverride: Record<string, unknown> = {};
-	if (config.bashOutputMode !== baseline.bashOutputMode) {
-		bashOverride.mode = mapBashOutputModeToV2(config.bashOutputMode);
-	}
-	if (config.bashCollapsedRows !== baseline.bashCollapsedRows) {
-		bashOverride.collapsedRows = config.bashCollapsedRows;
-	}
-	assignSection(resultOverrides, "bash", bashOverride);
-
-	const results: Record<string, unknown> = { profile: config.resultProfile };
-	if (config.previewRows !== baseline.previewRows) results.previewRows = config.previewRows;
-	assignSection(results, "overrides", resultOverrides);
+	const results: Record<string, unknown> = { mode: config.resultMode };
+	if (config.previewRows !== defaults.previewRows) results.previewRows = config.previewRows;
 	output.results = results;
 
 	const diff: Record<string, unknown> = {};
 	if (config.diffViewMode !== defaults.diffViewMode) diff.layout = config.diffViewMode;
 	if (config.diffIndicatorMode !== defaults.diffIndicatorMode) diff.indicators = config.diffIndicatorMode;
 	if (config.diffSplitMinWidth !== defaults.diffSplitMinWidth) diff.splitMinWidth = config.diffSplitMinWidth;
-	if (config.diffCollapsedLines !== defaults.diffCollapsedLines) diff.collapsedLines = config.diffCollapsedLines;
+	if (config.diffCollapsedRows !== defaults.diffCollapsedRows) diff.collapsedRows = config.diffCollapsedRows;
 	if (config.diffWordWrap !== defaults.diffWordWrap) diff.wordWrap = config.diffWordWrap;
 	assignSection(output, "diff", diff);
 
 	const transcript: Record<string, unknown> = {};
 	if (config.enableNativeUserMessageBox !== defaults.enableNativeUserMessageBox) {
-		transcript.userMessage = config.enableNativeUserMessageBox ? "boxed" : "default";
+		transcript.userMessageStyle = config.enableNativeUserMessageBox ? "boxed" : "default";
 	}
 	if (config.enableThinkingLabel !== defaults.enableThinkingLabel) {
 		transcript.thinkingLabel = config.enableThinkingLabel;
@@ -649,27 +572,23 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	assignSection(output, "transcript", transcript);
 
 	const tools: Record<string, unknown> = {};
-	const disabled = BUILT_IN_TOOL_OVERRIDE_NAMES.filter(
+	const passthrough = BUILT_IN_TOOL_OVERRIDE_NAMES.filter(
 		(toolName) => !config.registerToolOverrides[toolName],
 	);
-	if (disabled.length > 0) tools.disabled = disabled;
+	if (passthrough.length > 0) tools.passthrough = passthrough;
 	if (Object.keys(config.customToolOverrides).length > 0) {
 		tools.custom = Object.fromEntries(
 			Object.entries(config.customToolOverrides).map(([toolName, override]) => [
 				toolName,
-				{
-					enabled: override.enabled,
-					renderer: override.kind,
-					result: override.outputMode,
-				},
+				{ renderer: override.kind, mode: override.outputMode },
 			]),
 		);
 	}
 	assignSection(output, "tools", tools);
 
 	const advanced: Record<string, unknown> = {};
-	if (config.expandedPreviewMaxLines !== defaults.expandedPreviewMaxLines) {
-		advanced.expandedLineLimit = config.expandedPreviewMaxLines;
+	if (config.expandedPreviewMaxRows !== defaults.expandedPreviewMaxRows) {
+		advanced.expandedRows = config.expandedPreviewMaxRows;
 	}
 	if (config.showTruncationHints !== defaults.showTruncationHints) {
 		advanced.truncationHints = config.showTruncationHints;
@@ -679,7 +598,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	}
 	if (config.debug !== defaults.debug) advanced.debug = config.debug;
 	assignSection(output, "advanced", advanced);
-
 	return output;
 }
 
@@ -699,6 +617,27 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 	}
 }
 
+function buildLegacyMigrationNotice(
+	source: Record<string, unknown>,
+	config: ToolDisplayConfig,
+): string | undefined {
+	const messages: string[] = [];
+	if (hasOwn(source, "bashCollapsedLines") || hasOwn(source, "bashCollapsedRows")) {
+		messages.push(
+			`bashCollapsedLines was removed; adjust results.previewRows (currently ${config.previewRows}) if needed`,
+		);
+	}
+	if (source.enabled === false) {
+		messages.push("extension.enabled was removed; disable the package through Pi settings if needed");
+	}
+	if (!resolveLegacyResultMode(source).exact) {
+		messages.push(`per-tool result settings were consolidated to results.mode=${config.resultMode}`);
+	}
+	return messages.length > 0
+		? `tool-display-intent migrated its config: ${messages.join("; ")}`
+		: undefined;
+}
+
 function migrateLegacyConfigFile(
 	configFile: string,
 	rawText: string,
@@ -708,7 +647,7 @@ function migrateLegacyConfigFile(
 		const serialized = serializeToolDisplayConfigV2(config);
 		const roundTripped = normalizeToolDisplayConfigV2(serialized);
 		if (!isDeepStrictEqual(normalizeToolDisplayConfig(config), roundTripped)) {
-			throw new Error("v2 migration changed the effective configuration");
+			throw new Error("v2 migration changed the normalized configuration");
 		}
 
 		const backupFile = join(dirname(configFile), LEGACY_BACKUP_FILE_NAME);
@@ -735,10 +674,12 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 	} else {
 		try {
 			const rawText = readFileSync(configFile, "utf-8");
-			const rawConfig = JSON.parse(rawText) as unknown;
-			const source = toRecord(rawConfig);
-
-			if (Object.prototype.hasOwnProperty.call(source, "version")) {
+			const parsed = JSON.parse(rawText) as unknown;
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+				throw new Error("root: expected object");
+			}
+			const source = parsed as Record<string, unknown>;
+			if (hasOwn(source, "version")) {
 				if (source.version !== TOOL_DISPLAY_CONFIG_VERSION) {
 					result = {
 						config: cloneDefaultConfig(),
@@ -746,19 +687,22 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 					};
 				} else {
 					const validationErrors = validateToolDisplayConfigV2(source);
-					result = {
-						config: normalizeToolDisplayConfigV2(source),
-						...(validationErrors.length > 0
-							? {
-								error: `Invalid tool display v2 config in ${configFile}: ${validationErrors.join("; ")}`,
-							}
-							: {}),
-					};
+					result = validationErrors.length > 0
+						? {
+							config: cloneDefaultConfig(),
+							error: `Invalid tool display v2 config in ${configFile}: ${validationErrors.join("; ")}`,
+						}
+						: { config: normalizeToolDisplayConfigV2(source) };
 				}
 			} else {
 				const config = normalizeToolDisplayConfig(source);
+				const notice = buildLegacyMigrationNotice(source, config);
 				const migrationError = migrateLegacyConfigFile(configFile, rawText, config);
-				result = { config, ...(migrationError ? { error: migrationError } : {}) };
+				result = {
+					config,
+					...(migrationError ? { error: migrationError } : {}),
+					...(!migrationError && notice ? { notice } : {}),
+				};
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -772,12 +716,14 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 	cachedConfigFile = configFile;
 	cachedConfigFingerprint = getConfigFingerprint(configFile);
 	cachedConfigResult = cloneLoadResult(result);
+	if (cachedConfigResult.notice) {
+		cachedConfigResult.notice = undefined;
+	}
 	return result;
 }
 
 export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = CONFIG_FILE): ConfigSaveResult {
 	const normalized = normalizeToolDisplayConfig(config);
-
 	try {
 		writeConfigAtomically(configFile, serializeToolDisplayConfigV2(normalized));
 		cachedConfigFile = undefined;
@@ -786,10 +732,7 @@ export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = CO
 		return { success: true };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return {
-			success: false,
-			error: `Failed to save ${configFile}: ${message}`,
-		};
+		return { success: false, error: `Failed to save ${configFile}: ${message}` };
 	}
 }
 

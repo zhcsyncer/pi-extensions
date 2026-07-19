@@ -12,13 +12,6 @@
     "version": {
       "const": 2
     },
-    "extension": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean", "default": true }
-      }
-    },
     "intent": {
       "type": "object",
       "additionalProperties": false,
@@ -40,7 +33,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "frame": {
+        "style": {
           "enum": ["compact", "claude"],
           "default": "compact"
         }
@@ -49,47 +42,19 @@
     "results": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["profile"],
+      "required": ["mode"],
       "properties": {
-        "profile": {
-          "enum": ["minimal", "balanced", "detailed"],
-          "default": "minimal"
+        "mode": {
+          "enum": ["compact", "summary", "preview"],
+          "default": "compact",
+          "description": "Controls whether tool results are compact, summarized, or previewed."
         },
         "previewRows": {
           "type": "integer",
           "minimum": 1,
           "maximum": 80,
-          "description": "Maximum rendered terminal rows shown by collapsed result previews after wrapping."
-        },
-        "overrides": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "read": {
-              "enum": ["hidden", "summary", "preview"]
-            },
-            "search": {
-              "enum": ["hidden", "summary", "preview"]
-            },
-            "mcp": {
-              "enum": ["hidden", "summary", "preview"]
-            },
-            "bash": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "mode": {
-                  "enum": ["inline", "summary", "preview"]
-                },
-                "collapsedRows": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 80,
-                  "description": "Maximum rendered terminal rows shown by collapsed inline bash output."
-                }
-              }
-            }
-          }
+          "default": 8,
+          "description": "Maximum rendered terminal rows shown by collapsed tool-result content previews after wrapping."
         }
       }
     },
@@ -111,7 +76,7 @@
           "maximum": 240,
           "default": 120
         },
-        "collapsedLines": {
+        "collapsedRows": {
           "type": "integer",
           "minimum": 4,
           "maximum": 240,
@@ -127,7 +92,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "userMessage": {
+        "userMessageStyle": {
           "enum": ["boxed", "default"],
           "default": "boxed"
         },
@@ -141,7 +106,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "disabled": {
+        "passthrough": {
           "type": "array",
           "uniqueItems": true,
           "items": {
@@ -150,6 +115,13 @@
         },
         "custom": {
           "type": "object",
+          "propertyNames": {
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$",
+            "not": {
+              "enum": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+            }
+          },
           "additionalProperties": {
             "$ref": "#/$defs/customTool"
           }
@@ -160,12 +132,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "expandedLineLimit": {
+        "expandedRows": {
           "type": "integer",
           "minimum": 0,
           "maximum": 20000,
           "default": 4000,
-          "description": "Expanded display cap. Result previews count wrapped terminal rows; diff renderers count their laid-out rows. Zero removes the configured cap while internal safety limits still apply."
+          "description": "Maximum laid-out rows shown after expansion. Zero removes the configured cap while internal safety limits still apply."
         },
         "truncationHints": {
           "type": "boolean",
@@ -187,12 +159,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
         "renderer": {
           "enum": ["generic", "mcp"],
           "default": "generic"
         },
-        "result": {
+        "mode": {
           "enum": ["hidden", "summary", "preview"],
           "default": "summary"
         }

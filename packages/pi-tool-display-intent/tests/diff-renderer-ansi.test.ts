@@ -22,7 +22,7 @@ function renderAddedLineWithTheme(theme: {
 			diffViewMode: "unified",
 			diffIndicatorMode: "bars",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: true,
 		} as any,
 		theme,

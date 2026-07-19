@@ -4,7 +4,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import toolDisplayExtension from "../src/index.ts";
+import toolDisplayExtension, { publishToolDisplayMigrationNotice } from "../src/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,6 +66,24 @@ function createApiStub(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test("migration notice is published through Pi status output", () => {
+  const statuses: Array<{ key: string; text: string | undefined }> = [];
+  publishToolDisplayMigrationNotice(
+    {
+      setStatus(key, text): void {
+        statuses.push({ key, text });
+      },
+    },
+    "bashCollapsedLines was removed; adjust results.previewRows",
+  );
+  assert.deepEqual(statuses, [
+    {
+      key: "tool-display-intent-migration",
+      text: "bashCollapsedLines was removed; adjust results.previewRows",
+    },
+  ]);
+});
 
 test("entry point registers expected lifecycle handlers", () => {
   const { api, capturedHandlers } = createApiStub();

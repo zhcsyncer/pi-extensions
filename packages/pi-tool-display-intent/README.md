@@ -67,14 +67,12 @@ Direct commands:
 ```text
 /tool-display-intent show
 /tool-display-intent reset
-/tool-display-intent preset minimal
-/tool-display-intent preset balanced
-/tool-display-intent preset detailed
+/tool-display-intent mode compact
+/tool-display-intent mode summary
+/tool-display-intent mode preview
 ```
 
-Tool ownership and intent-schema changes take effect after `/reload`.
-
-The `minimal`, `balanced`, and `detailed` result profiles are persisted baselines. They update read/search/MCP/bash output modes and collapsed rendered-row budgets while preserving call framing, intent, ownership, diff settings, and other advanced preferences. The old `opencode` and `verbose` command names remain aliases. Use `reset` only when you intentionally want to restore the complete default configuration.
+Tool ownership and intent-schema changes take effect after `/reload`. Legacy `preset minimal|balanced|detailed`, `opencode`, and `verbose` command names remain accepted as aliases.
 
 ## Configuration
 
@@ -84,7 +82,7 @@ The global config is stored at:
 $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 ```
 
-When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. The v2 config is grouped by responsibility and stores only differences from the selected profile and defaults:
+When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Extension enablement is managed through Pi package settings rather than another config switch. The v2 file is grouped by responsibility and stores only non-default values:
 
 ```json
 {
@@ -94,63 +92,52 @@ When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. The v
     "language": "en"
   },
   "toolCalls": {
-    "frame": "claude"
+    "style": "claude"
   },
   "results": {
-    "profile": "minimal",
-    "previewRows": 10,
-    "overrides": {
-      "read": "summary",
-      "search": "preview"
-    }
-  },
-  "diff": {
-    "layout": "auto",
-    "indicators": "bars"
-  },
-  "transcript": {
-    "userMessage": "boxed",
-    "thinkingLabel": true
+    "mode": "summary",
+    "previewRows": 10
   }
 }
 ```
 
-See [`config/config.example.json`](./config/config.example.json) for a complete example and [`config/config.schema.json`](./config/config.schema.json) for validation and editor completion.
+See [`config/config.example.json`](./config/config.example.json) for every configurable field and [`config/config.schema.json`](./config/config.schema.json) for strict validation and editor completion.
 
-| Section | Purpose |
-|---|---|
-| `extension` | Whole-extension enable switch; normally manage this through Pi package settings. |
-| `intent` | Model-written intent enablement, language, and maximum length. |
-| `toolCalls` | `compact` or Claude Code-inspired call framing. |
-| `results` | Result profile, shared rendered-row preview budget, and per-tool overrides. |
-| `diff` | Edit/write diff layout, indicators, wrapping, and line budgets. |
-| `transcript` | User message box and thinking label. |
-| `tools` | Disabled built-in renderers and custom-tool display decoration. |
-| `advanced` | Expanded display limit, truncation/RTK hints, and debug logging. |
+| Section | Configurable fields | Purpose |
+|---|---|---|
+| `intent` | `enabled`, `language`, `maxLength` | Model-written tool intent. |
+| `toolCalls` | `style` | `compact` or Claude Code-inspired call framing. |
+| `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
+| `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `wordWrap` | Edit/write diff presentation. |
+| `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
+| `tools` | `passthrough`, `custom` | Renderer ownership and explicitly listed custom tools. |
+| `advanced` | `expandedRows`, `truncationHints`, `rtkCompactionHints`, `debug` | Expansion safety and diagnostics. |
 
-Result profiles are persisted baselines:
+`results.mode` has one direct meaning:
 
-- `minimal` favors call headers plus compact inline bash output;
-- `balanced` uses summaries for read/MCP and counts for search;
-- `detailed` uses larger previews for read/search/MCP/bash.
+| Mode | Read/search/MCP | Bash |
+|---|---|---|
+| `compact` | Hide result bodies | Show a short preview |
+| `summary` | Show counts or summaries | Show a line-count summary |
+| `preview` | Show content previews | Show a content preview |
 
-`results.overrides` stores only differences from the baseline. Search `summary` means a count summary; bash `inline` means compact inline output. The old `opencode` and `verbose` command names remain aliases for `minimal` and `detailed`.
+Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. It counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. `advanced.expandedRows` separately caps expanded output.
 
-`results.previewRows` and `results.overrides.bash.collapsedRows` count terminal rows after wrapping, not newline-delimited logical lines. A minified JSON object, base64 payload, or other very long single line therefore consumes the configured visual-row budget and ends with a `long line truncated` expansion hint instead of flooding the transcript. `advanced.expandedLineLimit` applies the same rendered-row semantics to expanded result previews; an internal safety limit still protects pathological payloads when the configured value is `0`.
+`tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`.
 
 ### Automatic legacy migration
 
-When the extension loads an old flat config without `version`, it normalizes the effective settings, verifies that a v2 round trip preserves behavior, and immediately replaces `config.json` atomically. The first migration keeps `config.legacy.json` as a backup. This includes:
+When the extension loads an old flat config without `version`, it normalizes it and atomically replaces `config.json` after a validated v2 round trip. The first migration keeps `config.legacy.json` as a backup. Key mappings are:
 
 - `displaySummary` / `toolIntent` → `intent`;
-- `toolCallStyle` → `toolCalls.frame`;
-- `*OutputMode` fields → the `results` profile and overrides;
-- `previewLines` → `results.previewRows`, and `bashCollapsedLines` → `results.overrides.bash.collapsedRows`;
-- `registerToolOverrides` → `tools.disabled`;
-- `customToolOverrides` → `tools.custom`;
-- diff, transcript, hint, and debug fields → their grouped sections.
+- `toolCallStyle` → `toolCalls.style`;
+- legacy per-tool output modes → one `results.mode`;
+- `previewLines` → `results.previewRows`;
+- `registerToolOverrides` → `tools.passthrough`;
+- `customToolOverrides` → `tools.custom` without an `enabled` switch;
+- diff, transcript, hints, and debug → their corresponding sections.
 
-Deprecated `displaySummary.required` and `displaySummary.showInTui` fields are removed. Invalid JSON, unknown v2 fields, and invalid values are not rewritten and are reported in TUI with their field paths. Run `/reload` after editing the file directly.
+`bashCollapsedLines` is intentionally discarded because all previews now share `results.previewRows`. After migration, the Pi status bar tells the user to adjust that value if needed. Deprecated `displaySummary.required` and `displaySummary.showInTui` are also removed. Invalid JSON, unknown v2 fields, and invalid v2 values are never rewritten and are reported with exact field paths. Run `/reload` after editing the file directly.
 
 When `intent.enabled` is on, `displaySummary` is required in owned built-in schemas and always shown in TUI. If an old or incomplete call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 

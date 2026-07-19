@@ -1,96 +1,89 @@
-import type { ToolDisplayConfig, ToolDisplayResultProfile } from "./types.js";
+import type { ResultDisplayMode, ToolDisplayConfig } from "./types.js";
+import { RESULT_DISPLAY_MODES } from "./types.js";
 
-export const TOOL_DISPLAY_PRESETS = ["minimal", "balanced", "detailed"] as const;
-export type ToolDisplayPreset = (typeof TOOL_DISPLAY_PRESETS)[number];
-
-export const TOOL_OUTPUT_PRESET_KEYS = [
+export const TOOL_RESULT_MODE_KEYS = [
 	"readOutputMode",
 	"searchOutputMode",
 	"mcpOutputMode",
-	"previewRows",
 	"bashOutputMode",
-	"bashCollapsedRows",
 ] as const satisfies readonly (keyof ToolDisplayConfig)[];
 
-export type ToolOutputPresetKey = (typeof TOOL_OUTPUT_PRESET_KEYS)[number];
-export type ToolOutputPresetConfig = Pick<ToolDisplayConfig, ToolOutputPresetKey>;
+export type ToolResultModeKey = (typeof TOOL_RESULT_MODE_KEYS)[number];
+export type ToolResultModeConfig = Pick<ToolDisplayConfig, ToolResultModeKey>;
 
-const TOOL_OUTPUT_PRESET_CONFIGS: Record<ToolDisplayPreset, ToolOutputPresetConfig> = {
-	minimal: {
+const TOOL_RESULT_MODE_CONFIGS: Record<ResultDisplayMode, ToolResultModeConfig> = {
+	compact: {
 		readOutputMode: "hidden",
 		searchOutputMode: "hidden",
 		mcpOutputMode: "hidden",
-		previewRows: 8,
-		bashOutputMode: "opencode",
-		bashCollapsedRows: 10,
+		bashOutputMode: "preview",
 	},
-	balanced: {
+	summary: {
 		readOutputMode: "summary",
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
-		previewRows: 8,
 		bashOutputMode: "summary",
-		bashCollapsedRows: 10,
 	},
-	detailed: {
+	preview: {
 		readOutputMode: "preview",
 		searchOutputMode: "preview",
 		mcpOutputMode: "preview",
-		previewRows: 12,
 		bashOutputMode: "preview",
-		bashCollapsedRows: 20,
 	},
 };
 
-const LEGACY_PRESET_ALIASES: Record<string, ToolDisplayPreset> = {
-	opencode: "minimal",
-	verbose: "detailed",
+const LEGACY_MODE_ALIASES: Record<string, ResultDisplayMode> = {
+	minimal: "compact",
+	opencode: "compact",
+	balanced: "summary",
+	detailed: "preview",
+	verbose: "preview",
 };
 
-export function getToolOutputPresetConfig(preset: ToolDisplayPreset): ToolOutputPresetConfig {
-	return { ...TOOL_OUTPUT_PRESET_CONFIGS[preset] };
+export function getToolResultModeConfig(mode: ResultDisplayMode): ToolResultModeConfig {
+	return { ...TOOL_RESULT_MODE_CONFIGS[mode] };
 }
 
-export function applyToolDisplayPreset(
+export function applyToolDisplayMode(
 	config: ToolDisplayConfig,
-	preset: ToolDisplayPreset,
+	mode: ResultDisplayMode,
 ): ToolDisplayConfig {
 	return {
 		...config,
-		resultProfile: preset,
-		...TOOL_OUTPUT_PRESET_CONFIGS[preset],
+		resultMode: mode,
+		...TOOL_RESULT_MODE_CONFIGS[mode],
 	};
 }
 
-function configMatchesPreset(config: ToolDisplayConfig, preset: ToolDisplayPreset): boolean {
-	const expected = TOOL_OUTPUT_PRESET_CONFIGS[preset];
-	return TOOL_OUTPUT_PRESET_KEYS.every((key) => config[key] === expected[key]);
+function configMatchesMode(config: ToolDisplayConfig, mode: ResultDisplayMode): boolean {
+	const expected = TOOL_RESULT_MODE_CONFIGS[mode];
+	return TOOL_RESULT_MODE_KEYS.every((key) => config[key] === expected[key]);
 }
 
-export function detectToolDisplayPreset(config: ToolDisplayConfig): ToolDisplayPreset | "custom" {
-	return TOOL_DISPLAY_PRESETS.find((preset) => configMatchesPreset(config, preset)) ?? "custom";
+export function detectToolDisplayMode(config: ToolDisplayConfig): ResultDisplayMode | "custom" {
+	return RESULT_DISPLAY_MODES.find((mode) => configMatchesMode(config, mode)) ?? "custom";
 }
 
-export function hasToolDisplayProfileOverrides(config: ToolDisplayConfig): boolean {
-	return !configMatchesPreset(config, config.resultProfile);
-}
-
-export function parseToolDisplayPreset(raw: string): ToolDisplayPreset | undefined {
+export function parseToolDisplayMode(raw: string): ResultDisplayMode | undefined {
 	const normalized = raw.trim().toLowerCase();
 	if (!normalized) {
 		return undefined;
 	}
 	return (
-		TOOL_DISPLAY_PRESETS.find((preset) => preset === normalized) ??
-		LEGACY_PRESET_ALIASES[normalized]
+		RESULT_DISPLAY_MODES.find((mode) => mode === normalized) ??
+		LEGACY_MODE_ALIASES[normalized]
 	);
 }
 
-export function normalizeToolDisplayResultProfile(
+export function normalizeToolDisplayMode(
 	value: unknown,
-	fallback: ToolDisplayResultProfile = "minimal",
-): ToolDisplayResultProfile {
-	return TOOL_DISPLAY_PRESETS.includes(value as ToolDisplayPreset)
-		? (value as ToolDisplayResultProfile)
-		: fallback;
+	fallback: ResultDisplayMode = "compact",
+): ResultDisplayMode {
+	if (RESULT_DISPLAY_MODES.includes(value as ResultDisplayMode)) {
+		return value as ResultDisplayMode;
+	}
+	if (typeof value === "string") {
+		return LEGACY_MODE_ALIASES[value.trim().toLowerCase()] ?? fallback;
+	}
+	return fallback;
 }

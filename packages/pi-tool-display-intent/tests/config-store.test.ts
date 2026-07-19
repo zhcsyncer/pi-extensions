@@ -23,16 +23,17 @@ function withTempDir(name: string, run: (dir: string) => void): void {
 	}
 }
 
-test("config normalization clamps invalid values and migrates legacy read override", () => {
+test("legacy normalization maps result modes, clamps rows, and discards bashCollapsedLines", () => {
 	const config = normalizeToolDisplayConfig({
 		registerReadToolOverride: false,
 		registerToolOverrides: { bash: false },
-		readOutputMode: "invalid",
-		searchOutputMode: "count",
-		mcpOutputMode: "preview",
+		readOutputMode: "hidden",
+		searchOutputMode: "hidden",
+		mcpOutputMode: "hidden",
+		bashOutputMode: "opencode",
 		previewLines: 999,
+		bashCollapsedLines: 1,
 		expandedPreviewMaxLines: -1,
-		bashCollapsedLines: 999,
 		toolCallStyle: "claude",
 		diffViewMode: "stacked",
 		diffSplitMinWidth: 1,
@@ -40,89 +41,57 @@ test("config normalization clamps invalid values and migrates legacy read overri
 		diffWordWrap: false,
 	});
 
-	assert.equal(config.registerToolOverrides.read, false);
-	assert.equal(config.registerToolOverrides.grep, true);
-	assert.equal(config.registerToolOverrides.bash, false);
-	assert.equal(config.readOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode);
-	assert.equal(config.searchOutputMode, "count");
-	assert.equal(config.mcpOutputMode, "preview");
+	assert.equal(config.resultMode, "compact");
 	assert.equal(config.previewRows, 80);
-	assert.equal(config.expandedPreviewMaxLines, 0);
-	assert.equal(config.bashCollapsedRows, 80);
+	assert.equal(config.bashOutputMode, "preview");
+	assert.equal(config.expandedPreviewMaxRows, 0);
+	assert.equal(config.registerToolOverrides.read, false);
+	assert.equal(config.registerToolOverrides.bash, false);
 	assert.equal(config.toolCallStyle, "claude");
 	assert.equal(config.diffViewMode, "unified");
 	assert.equal(config.diffSplitMinWidth, 70);
-	assert.equal(config.diffCollapsedLines, 240);
+	assert.equal(config.diffCollapsedRows, 240);
 	assert.equal(config.diffWordWrap, false);
-	assert.equal(config.resultProfile, "minimal");
 });
 
-test("config normalization validates toolIntent options independently", () => {
-	const normalized = normalizeToolDisplayConfig({
-		toolIntent: {
-			enabled: false,
-			language: "zh-CN",
-			maxLength: 999,
-		},
-	});
+test("legacy stored Profile names map to final result modes", () => {
+	assert.equal(normalizeToolDisplayConfig({ resultProfile: "minimal" }).resultMode, "compact");
+	assert.equal(normalizeToolDisplayConfig({ resultProfile: "balanced" }).resultMode, "summary");
+	assert.equal(normalizeToolDisplayConfig({ resultProfile: "detailed" }).resultMode, "preview");
+});
 
+test("legacy normalization validates toolIntent and displaySummary independently", () => {
+	const normalized = normalizeToolDisplayConfig({
+		toolIntent: { enabled: false, language: "zh-CN", maxLength: 999 },
+		displaySummary: { enabled: true, language: "en", maxLength: 32 },
+	});
 	assert.deepEqual(normalized.toolIntent, {
 		enabled: false,
 		language: "zh-CN",
 		maxLength: 256,
 	});
 
-	const fallback = normalizeToolDisplayConfig({
-		toolIntent: {
-			language: "unsupported",
-			maxLength: 1,
-		},
-	});
-	assert.equal(fallback.toolIntent.language, DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language);
-	assert.equal(fallback.toolIntent.maxLength, 16);
-});
-
-test("config normalization migrates legacy displaySummary while preferring toolIntent", () => {
 	const migrated = normalizeToolDisplayConfig({
 		displaySummary: {
 			enabled: false,
 			required: false,
-			language: "zh-CN",
+			language: "en",
 			showInTui: false,
 			maxLength: 64,
 		},
 	});
 	assert.deepEqual(migrated.toolIntent, {
 		enabled: false,
-		language: "zh-CN",
+		language: "en",
 		maxLength: 64,
 	});
-
-	const preferred = normalizeToolDisplayConfig({
-		toolIntent: { enabled: true, language: "en", maxLength: 80 },
-		displaySummary: { enabled: false, language: "zh-CN", maxLength: 32 },
-	});
-	assert.deepEqual(preferred.toolIntent, {
-		enabled: true,
-		language: "en",
-		maxLength: 80,
-	});
-});
-
-test("config normalization falls back from unsupported tool call styles", () => {
-	assert.equal(
-		normalizeToolDisplayConfig({ toolCallStyle: "unsupported" }).toolCallStyle,
-		DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
-	);
 });
 
 test("config load reports parse errors and never overwrites invalid JSON", () => {
 	withTempDir("pi-tool-display-config-load-", (dir) => {
 		const configFile = join(dir, "config.json");
 		writeFileSync(configFile, "{not-json", "utf8");
-
 		const result = loadToolDisplayConfig(configFile);
-
 		assert.deepEqual(result.config, DEFAULT_TOOL_DISPLAY_CONFIG);
 		assert.match(result.error ?? "", /Failed to parse/);
 		assert.match(result.error ?? "", /config\.json/);
@@ -131,7 +100,7 @@ test("config load reports parse errors and never overwrites invalid JSON", () =>
 	});
 });
 
-test("legacy config is migrated on load, backed up once, and preserves effective behavior", () => {
+test("legacy config migrates to simple v2 and reports discarded bash rows through notice", () => {
 	withTempDir("pi-tool-display-config-migrate-", (dir) => {
 		const configFile = join(dir, "config.json");
 		const legacyConfig = {
@@ -156,15 +125,16 @@ test("legacy config is migrated on load, backed up once, and preserves effective
 			toolCallStyle: "claude",
 			customToolOverrides: {
 				web_search: { enabled: true, kind: "generic", outputMode: "summary" },
+				disabled_tool: { enabled: false, kind: "generic", outputMode: "preview" },
 			},
 			enableNativeUserMessageBox: false,
-			readOutputMode: "summary",
-			searchOutputMode: "preview",
+			readOutputMode: "hidden",
+			searchOutputMode: "hidden",
 			mcpOutputMode: "hidden",
 			previewLines: 10,
 			expandedPreviewMaxLines: 500,
 			bashOutputMode: "opencode",
-			bashCollapsedLines: 10,
+			bashCollapsedLines: 20,
 			diffViewMode: "auto",
 			diffIndicatorMode: "classic",
 			diffSplitMinWidth: 120,
@@ -176,31 +146,30 @@ test("legacy config is migrated on load, backed up once, and preserves effective
 		const legacyText = `${JSON.stringify(legacyConfig, null, 2)}\n`;
 		writeFileSync(configFile, legacyText, "utf8");
 
-		const expected = normalizeToolDisplayConfig(legacyConfig);
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
-		assert.deepEqual(loaded.config, expected);
+		assert.equal(loaded.config.resultMode, "compact");
+		assert.equal(loaded.config.previewRows, 10);
+		assert.match(loaded.notice ?? "", /bashCollapsedLines was removed/);
+		assert.match(loaded.notice ?? "", /results\.previewRows \(currently 10\)/);
 
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as Record<string, unknown>;
 		assert.equal(persisted.version, 2);
 		assert.equal(persisted.$schema, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
-		assert.equal(persisted.displaySummary, undefined);
+		assert.equal(persisted.enabled, undefined);
 		assert.deepEqual(persisted.intent, { language: "zh-CN" });
-		assert.deepEqual(persisted.toolCalls, { frame: "claude" });
-		assert.deepEqual(persisted.results, {
-			profile: "minimal",
-			previewRows: 10,
-			overrides: { read: "summary", search: "preview" },
-		});
-		assert.deepEqual(persisted.transcript, { userMessage: "default" });
+		assert.deepEqual(persisted.toolCalls, { style: "claude" });
+		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
+		assert.deepEqual(persisted.transcript, { userMessageStyle: "default" });
 		assert.deepEqual(persisted.tools, {
-			disabled: ["grep"],
+			passthrough: ["grep"],
 			custom: {
-				web_search: { enabled: true, renderer: "generic", result: "summary" },
+				web_search: { renderer: "generic", mode: "summary" },
 			},
 		});
+		assert.deepEqual(persisted.diff, { indicators: "classic" });
 		assert.deepEqual(persisted.advanced, {
-			expandedLineLimit: 500,
+			expandedRows: 500,
 			truncationHints: true,
 			debug: true,
 		});
@@ -208,105 +177,89 @@ test("legacy config is migrated on load, backed up once, and preserves effective
 
 		const persistedText = readFileSync(configFile, "utf8");
 		const reloaded = loadToolDisplayConfig(configFile);
-		assert.deepEqual(reloaded.config, expected);
+		assert.equal(reloaded.notice, undefined);
+		assert.deepEqual(reloaded.config, loaded.config);
 		assert.equal(readFileSync(configFile, "utf8"), persistedText);
-		assert.equal(readFileSync(join(dir, "config.legacy.json"), "utf8"), legacyText);
 	});
 });
 
-test("v2 grouped config resolves profile baselines and explicit overrides", () => {
+test("legacy custom per-tool modes consolidate to one result mode with a notice", () => {
+	withTempDir("pi-tool-display-config-custom-mode-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, JSON.stringify({
+			readOutputMode: "summary",
+			searchOutputMode: "preview",
+			mcpOutputMode: "hidden",
+			bashOutputMode: "summary",
+		}), "utf8");
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.config.resultMode, "preview");
+		assert.match(loaded.notice ?? "", /per-tool result settings were consolidated/);
+	});
+});
+
+test("v2 grouped config resolves simple result mode and clear field names", () => {
 	withTempDir("pi-tool-display-config-v2-", (dir) => {
 		const configFile = join(dir, "config.json");
-		writeFileSync(
-			configFile,
-			`${JSON.stringify({
-				version: 2,
-				extension: { enabled: false },
-				intent: { enabled: false, language: "en", maxLength: 64 },
-				toolCalls: { frame: "claude" },
-				results: {
-					profile: "balanced",
-					previewRows: 20,
-					overrides: {
-						search: "preview",
-						bash: { mode: "inline", collapsedRows: 5 },
-					},
+		writeFileSync(configFile, `${JSON.stringify({
+			version: 2,
+			intent: { enabled: false, language: "en", maxLength: 64 },
+			toolCalls: { style: "claude" },
+			results: { mode: "summary", previewRows: 20 },
+			diff: {
+				layout: "split",
+				indicators: "none",
+				splitMinWidth: 160,
+				collapsedRows: 40,
+				wordWrap: false,
+			},
+			transcript: { userMessageStyle: "default", thinkingLabel: false },
+			tools: {
+				passthrough: ["read", "write"],
+				custom: {
+					custom_mcp: { renderer: "mcp", mode: "preview" },
 				},
-				diff: {
-					layout: "split",
-					indicators: "none",
-					splitMinWidth: 160,
-					collapsedLines: 40,
-					wordWrap: false,
-				},
-				transcript: { userMessage: "default", thinkingLabel: false },
-				tools: {
-					disabled: ["read", "write"],
-					custom: {
-						custom_mcp: { enabled: true, renderer: "mcp", result: "preview" },
-					},
-				},
-				advanced: {
-					expandedLineLimit: 300,
-					truncationHints: true,
-					rtkCompactionHints: true,
-					debug: true,
-				},
-			}, null, 2)}\n`,
-			"utf8",
-		);
+			},
+			advanced: {
+				expandedRows: 300,
+				truncationHints: true,
+				rtkCompactionHints: true,
+				debug: true,
+			},
+		}, null, 2)}\n`, "utf8");
 
-		const loaded = loadToolDisplayConfig(configFile).config;
-		assert.equal(loaded.enabled, false);
-		assert.equal(loaded.debug, true);
-		assert.equal(loaded.resultProfile, "balanced");
-		assert.equal(loaded.readOutputMode, "summary");
-		assert.equal(loaded.searchOutputMode, "preview");
-		assert.equal(loaded.mcpOutputMode, "summary");
-		assert.equal(loaded.previewRows, 20);
-		assert.equal(loaded.bashOutputMode, "opencode");
-		assert.equal(loaded.bashCollapsedRows, 5);
-		assert.equal(loaded.registerToolOverrides.read, false);
-		assert.equal(loaded.registerToolOverrides.write, false);
-		assert.equal(loaded.registerToolOverrides.bash, true);
-		assert.deepEqual(loaded.customToolOverrides.custom_mcp, {
-			enabled: true,
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.config.resultMode, "summary");
+		assert.equal(loaded.config.readOutputMode, "summary");
+		assert.equal(loaded.config.searchOutputMode, "count");
+		assert.equal(loaded.config.mcpOutputMode, "summary");
+		assert.equal(loaded.config.bashOutputMode, "summary");
+		assert.equal(loaded.config.previewRows, 20);
+		assert.equal(loaded.config.registerToolOverrides.read, false);
+		assert.equal(loaded.config.registerToolOverrides.write, false);
+		assert.deepEqual(loaded.config.customToolOverrides.custom_mcp, {
 			kind: "mcp",
 			outputMode: "preview",
 		});
-		assert.equal(loaded.enableNativeUserMessageBox, false);
-		assert.equal(loaded.enableThinkingLabel, false);
-		assert.equal(loaded.diffViewMode, "split");
-		assert.equal(loaded.diffIndicatorMode, "none");
-		assert.equal(loaded.diffSplitMinWidth, 160);
-		assert.equal(loaded.diffCollapsedLines, 40);
-		assert.equal(loaded.diffWordWrap, false);
-		assert.equal(loaded.expandedPreviewMaxLines, 300);
-		assert.equal(loaded.showTruncationHints, true);
-		assert.equal(loaded.showRtkCompactionHints, true);
+		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal(loaded.config.enableThinkingLabel, false);
+		assert.equal(loaded.config.diffCollapsedRows, 40);
+		assert.equal(loaded.config.expandedPreviewMaxRows, 300);
+		assert.equal(loaded.config.debug, true);
 	});
 });
 
 test("v2 serialization is sparse and round-trips the effective config", () => {
 	const config = normalizeToolDisplayConfig({
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		resultProfile: "detailed",
-		readOutputMode: "summary",
-		searchOutputMode: "preview",
-		mcpOutputMode: "preview",
+		resultMode: "preview",
 		previewRows: 16,
-		bashOutputMode: "preview",
-		bashCollapsedRows: 20,
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
 		enableThinkingLabel: false,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
-
-	assert.deepEqual(serialized.results, {
-		profile: "detailed",
-		previewRows: 16,
-		overrides: { read: "summary" },
-	});
+	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
 	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
 	assert.deepEqual(serialized.transcript, { thinkingLabel: false });
 
@@ -317,36 +270,72 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 	});
 });
 
-test("invalid or unknown v2 fields are reported with paths and never rewritten", () => {
+test("invalid or old v2 fields are reported with paths and never rewritten", () => {
 	withTempDir("pi-tool-display-config-invalid-v2-", (dir) => {
 		const configFile = join(dir, "config.json");
 		const original = `${JSON.stringify({
 			version: 2,
+			extension: { enabled: false },
+			toolCalls: { frame: "claude" },
 			results: {
 				profile: "minimal",
 				previewLines: 10,
-				overrides: {
-					search: "count",
-					bash: { collapsedLines: 5 },
+				overrides: { bash: { collapsedRows: 5 } },
+			},
+		}, null, 2)}\n`;
+		writeFileSync(configFile, original, "utf8");
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.deepEqual(loaded.config, DEFAULT_TOOL_DISPLAY_CONFIG);
+		assert.match(loaded.error ?? "", /extension: unknown setting/);
+		assert.match(loaded.error ?? "", /toolCalls\.frame: unknown setting/);
+		assert.match(loaded.error ?? "", /results\.profile: unknown setting/);
+		assert.match(loaded.error ?? "", /results\.mode: required setting/);
+		assert.equal(readFileSync(configFile, "utf8"), original);
+	});
+});
+
+test("strict v2 validation rejects schema type, duplicate passthrough entries, and invalid custom tool names", () => {
+	withTempDir("pi-tool-display-config-strict-v2-", (dir) => {
+		const configFile = join(dir, "config.json");
+		const original = `${JSON.stringify({
+			$schema: 2,
+			version: 2,
+			results: { mode: "compact" },
+			tools: {
+				passthrough: ["read", "read"],
+				custom: {
+					read: {},
+					" padded ": {},
 				},
 			},
 		}, null, 2)}\n`;
 		writeFileSync(configFile, original, "utf8");
-
 		const loaded = loadToolDisplayConfig(configFile);
-		assert.match(loaded.error ?? "", /results\.previewLines: unknown setting/);
-		assert.match(loaded.error ?? "", /results\.overrides\.bash\.collapsedLines: unknown setting/);
-		assert.match(loaded.error ?? "", /results\.overrides\.search: expected hidden \| summary \| preview/);
+		assert.match(loaded.error ?? "", /\$schema: expected string/);
+		assert.match(loaded.error ?? "", /tools\.passthrough\.1: duplicate built-in tool/);
+		assert.match(loaded.error ?? "", /tools\.custom\.read: expected a non-empty trimmed non-built-in tool name/);
+		assert.match(loaded.error ?? "", /tools\.custom\. padded : expected a non-empty trimmed non-built-in tool name/);
 		assert.equal(readFileSync(configFile, "utf8"), original);
+	});
+});
+
+test("non-object JSON is rejected without legacy migration or rewriting", () => {
+	withTempDir("pi-tool-display-config-root-", (dir) => {
+		const configFile = join(dir, "config.json");
+		const original = "[]\n";
+		writeFileSync(configFile, original, "utf8");
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.match(loaded.error ?? "", /root: expected object/);
+		assert.equal(readFileSync(configFile, "utf8"), original);
+		assert.equal(existsSync(join(dir, "config.legacy.json")), false);
 	});
 });
 
 test("unsupported explicit config versions are reported without rewriting", () => {
 	withTempDir("pi-tool-display-config-version-", (dir) => {
 		const configFile = join(dir, "config.json");
-		const original = '{"version":99,"results":{"profile":"minimal"}}\n';
+		const original = '{"version":99,"results":{"mode":"compact"}}\n';
 		writeFileSync(configFile, original, "utf8");
-
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.deepEqual(loaded.config, DEFAULT_TOOL_DISPLAY_CONFIG);
 		assert.match(loaded.error ?? "", /Unsupported tool display config version/);
@@ -361,21 +350,19 @@ test("config save writes normalized v2 JSON and cleans temporary file on failure
 			{ ...DEFAULT_TOOL_DISPLAY_CONFIG, previewRows: 999 },
 			configFile,
 		);
-
 		assert.equal(saved.success, true);
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
 			version?: number;
-			results?: { profile?: string; previewRows?: number };
+			results?: { mode?: string; previewRows?: number };
 		};
 		assert.equal(persisted.version, 2);
-		assert.equal(persisted.results?.profile, "minimal");
+		assert.equal(persisted.results?.mode, "compact");
 		assert.equal(persisted.results?.previewRows, 80);
 
 		const parentFile = join(dir, "not-a-directory");
 		writeFileSync(parentFile, "blocks mkdir", "utf8");
 		const blockedConfigFile = join(parentFile, "config.json");
 		const failed = saveToolDisplayConfig(DEFAULT_TOOL_DISPLAY_CONFIG, blockedConfigFile);
-
 		assert.equal(failed.success, false);
 		assert.match(failed.error ?? "", /Failed to save/);
 		assert.equal(existsSync(`${blockedConfigFile}.tmp`), false);

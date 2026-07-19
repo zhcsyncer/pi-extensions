@@ -847,7 +847,7 @@ function formatRtkSummarySuffix(params: RtkHintParams): string {
 }
 
 function getExpandedPreviewRowLimit(config: ToolDisplayConfig): number {
-  const limit = Math.max(0, config.expandedPreviewMaxLines);
+  const limit = Math.max(0, config.expandedPreviewMaxRows);
   return limit === 0 ? MAX_PREVIEW_LAYOUT_ROWS : limit;
 }
 
@@ -924,7 +924,7 @@ function renderPreviewText(
     theme,
     expanded: useExpanded,
     emptyText: theme.fg("muted", "↳ (no output)"),
-    expandedRowCap: useExpanded ? config.expandedPreviewMaxLines : undefined,
+    expandedRowCap: useExpanded ? config.expandedPreviewMaxRows : undefined,
     appendHints,
   });
 }
@@ -1005,12 +1005,8 @@ function getBashPreviewRowLimit(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
 ): number {
-  if (options.expanded) {
-    return getExpandedPreviewRowLimit(config);
-  }
-
-  return config.bashOutputMode === "opencode"
-    ? config.bashCollapsedRows
+  return options.expanded
+    ? getExpandedPreviewRowLimit(config)
     : config.previewRows;
 }
 
@@ -1041,7 +1037,7 @@ function renderBashPreviewWithHints(
     theme,
     expanded: options.expanded,
     emptyText: theme.fg("muted", "↳ (no output)"),
-    expandedRowCap: options.expanded ? config.expandedPreviewMaxLines : undefined,
+    expandedRowCap: options.expanded ? config.expandedPreviewMaxRows : undefined,
     appendHints: (preview) =>
       config.showTruncationHints
         ? preview + formatBashTruncationHints(details, theme)
@@ -1059,9 +1055,6 @@ function prepareBashLivePreview(
     return undefined;
   }
   const maxRows = getBashPreviewRowLimit(options, config);
-  if (!options.expanded && maxRows === 0) {
-    return undefined;
-  }
   return { lines, maxRows };
 }
 
@@ -1095,7 +1088,7 @@ function renderBashErrorResult(
     expanded: options.expanded,
     outputColor: "error",
     prefix: theme.fg("error", "↳ command failed"),
-    expandedRowCap: options.expanded ? config.expandedPreviewMaxLines : undefined,
+    expandedRowCap: options.expanded ? config.expandedPreviewMaxRows : undefined,
     appendHints: (preview) =>
       config.showTruncationHints
         ? preview + formatBashTruncationHints(details, theme)
@@ -1950,21 +1943,6 @@ export function registerToolDisplayOverrides(
         return textResult(summary);
       }
 
-      if (config.bashOutputMode === "preview") {
-        const maxRows = options.expanded
-          ? getExpandedPreviewRowLimit(config)
-          : config.previewRows;
-        return renderBashPreviewWithHints(lines, maxRows, config, theme, options, details);
-      }
-
-      if (!options.expanded && config.bashCollapsedRows === 0) {
-        let hidden = theme.fg("muted", "↳ output hidden");
-        if (config.showTruncationHints) {
-          hidden += formatBashTruncationHints(details, theme);
-        }
-        return textResult(hidden);
-      }
-
       const maxRows = getBashPreviewRowLimit(options, config);
       return renderBashPreviewWithHints(lines, maxRows, config, theme, options, details);
     },
@@ -1984,11 +1962,7 @@ export function registerToolDisplayOverrides(
     }
 
     const override = getRuntimeCustomToolOverride(toolName, getConfig());
-    if (!override?.enabled) {
-      return undefined;
-    }
-
-    return { toolName, override };
+    return override ? { toolName, override } : undefined;
   };
 
   const decorateCustomToolOverrideCandidate = (candidate: unknown): boolean => {

@@ -65,7 +65,7 @@ test("split diff derives sequential new-side line numbers for canonical numbered
 		{
 			diffViewMode: "split",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: false,
 		} as any,
 		theme,
@@ -100,7 +100,7 @@ function renderHashlineDiff(expanded: boolean): string {
 		{
 			diffViewMode: "unified",
 			diffSplitMinWidth: 80,
-			diffCollapsedLines: 24,
+			diffCollapsedRows: 24,
 			diffWordWrap: false,
 		} as any,
 		theme,

@@ -3,12 +3,12 @@ export const SEARCH_OUTPUT_MODES = ["hidden", "count", "preview"] as const;
 export const MCP_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
 export const CUSTOM_TOOL_OVERRIDE_KINDS = ["generic", "mcp"] as const;
 export const CUSTOM_TOOL_OUTPUT_MODES = ["hidden", "summary", "preview"] as const;
-export const BASH_OUTPUT_MODES = ["opencode", "summary", "preview"] as const;
+export const BASH_OUTPUT_MODES = ["summary", "preview"] as const;
+export const RESULT_DISPLAY_MODES = ["compact", "summary", "preview"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
 export const TOOL_INTENT_LANGUAGES = ["auto", "zh-CN", "en"] as const;
 export const TOOL_CALL_STYLES = ["compact", "claude"] as const;
-export const TOOL_DISPLAY_RESULT_PROFILES = ["minimal", "balanced", "detailed"] as const;
 export const TOOL_DISPLAY_CONFIG_VERSION = 2 as const;
 export const TOOL_DISPLAY_CONFIG_SCHEMA_URL =
 	"https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json";
@@ -19,11 +19,11 @@ export type McpOutputMode = (typeof MCP_OUTPUT_MODES)[number];
 export type CustomToolOverrideKind = (typeof CUSTOM_TOOL_OVERRIDE_KINDS)[number];
 export type CustomToolOutputMode = (typeof CUSTOM_TOOL_OUTPUT_MODES)[number];
 export type BashOutputMode = (typeof BASH_OUTPUT_MODES)[number];
+export type ResultDisplayMode = (typeof RESULT_DISPLAY_MODES)[number];
 export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 export type ToolIntentLanguage = (typeof TOOL_INTENT_LANGUAGES)[number];
 export type ToolCallStyle = (typeof TOOL_CALL_STYLES)[number];
-export type ToolDisplayResultProfile = (typeof TOOL_DISPLAY_RESULT_PROFILES)[number];
 
 export const BUILT_IN_TOOL_OVERRIDE_NAMES = [
 	"read",
@@ -48,7 +48,6 @@ export interface ToolOverrideOwnership {
 }
 
 export interface CustomToolOverrideConfig {
-	enabled: boolean;
 	kind: CustomToolOverrideKind;
 	outputMode: CustomToolOutputMode;
 }
@@ -59,34 +58,32 @@ export interface ToolIntentConfig {
 	maxLength: number;
 }
 
+/** Effective runtime configuration after public result modes are resolved. */
 export interface ToolDisplayConfig {
-	enabled: boolean;
 	debug: boolean;
 	registerToolOverrides: ToolOverrideOwnership;
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	toolIntent: ToolIntentConfig;
 	toolCallStyle: ToolCallStyle;
-	resultProfile: ToolDisplayResultProfile;
+	resultMode: ResultDisplayMode;
 	enableNativeUserMessageBox: boolean;
 	enableThinkingLabel: boolean;
 	readOutputMode: ReadOutputMode;
 	searchOutputMode: SearchOutputMode;
 	mcpOutputMode: McpOutputMode;
 	previewRows: number;
-	expandedPreviewMaxLines: number;
+	expandedPreviewMaxRows: number;
 	bashOutputMode: BashOutputMode;
-	bashCollapsedRows: number;
 	diffViewMode: DiffViewMode;
 	diffIndicatorMode: DiffIndicatorMode;
 	diffSplitMinWidth: number;
-	diffCollapsedLines: number;
+	diffCollapsedRows: number;
 	diffWordWrap: boolean;
 	showTruncationHints: boolean;
 	showRtkCompactionHints: boolean;
 }
 
 export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
-	enabled: true,
 	debug: false,
 	registerToolOverrides: {
 		read: true,
@@ -104,20 +101,19 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		maxLength: 96,
 	},
 	toolCallStyle: "compact",
-	resultProfile: "minimal",
+	resultMode: "compact",
 	enableNativeUserMessageBox: true,
 	enableThinkingLabel: true,
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",
 	mcpOutputMode: "hidden",
 	previewRows: 8,
-	expandedPreviewMaxLines: 4000,
-	bashOutputMode: "opencode",
-	bashCollapsedRows: 10,
+	expandedPreviewMaxRows: 4000,
+	bashOutputMode: "preview",
 	diffViewMode: "auto",
 	diffIndicatorMode: "bars",
 	diffSplitMinWidth: 120,
-	diffCollapsedLines: 24,
+	diffCollapsedRows: 24,
 	diffWordWrap: true,
 	showTruncationHints: false,
 	showRtkCompactionHints: false,
@@ -126,6 +122,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 export interface ConfigLoadResult {
 	config: ToolDisplayConfig;
 	error?: string;
+	notice?: string;
 }
 
 export interface ConfigSaveResult {
