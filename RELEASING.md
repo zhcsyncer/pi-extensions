@@ -29,11 +29,11 @@ The release workflow uses OIDC and does not normally require an `NPM_TOKEN`. npm
 
 npm trusted publishing can only be configured after a package exists. A new package such as `@zhcsyncer/pi-todo` must still be published through the Changesets version-PR flow:
 
-1. Create a short-lived npm automation token and store it as the repository secret `NPM_TOKEN`.
+1. Create or rotate a granular npm token with an explicit expiration, read/write access limited to the `@zhcsyncer` package scope, and CI-compatible 2FA settings; store it as the repository secret `NPM_TOKEN`.
 2. In a reviewed temporary change, expose that secret as `NPM_TOKEN` only to the Changesets publish step.
 3. Merge the generated `chore: version packages` PR and let GitHub Actions perform the first publish. Do not run `npm publish` manually.
 4. Configure the package's trusted publisher immediately after the first publish.
-5. Remove the temporary workflow token wiring and delete the repository secret.
+5. Remove the temporary workflow token wiring. The encrypted repository secret may remain for future package bootstraps, but must stay disconnected from normal releases and be rotated before its npm expiration date.
 
 ### Allow Actions to create pull requests
 
