@@ -26,7 +26,28 @@
     "packages/*/config/*.json",
     "packages/*/README*.md",
     "packages/*/LICENSE",
-    "packages/*/UPSTREAM_LICENSE"
+    "packages/*/UPSTREAM_LICENSE",
+    "packages/pi-todo/package.json",
+    "packages/pi-todo/config.ts",
+    "packages/pi-todo/index.ts",
+    "packages/pi-todo/todo.ts",
+    "packages/pi-todo/todo-overlay.ts",
+    "packages/pi-todo/locales/*.json",
+    "packages/pi-todo/state/invariants.ts",
+    "packages/pi-todo/state/i18n-bridge.ts",
+    "packages/pi-todo/state/replay.ts",
+    "packages/pi-todo/state/selectors.ts",
+    "packages/pi-todo/state/state-reducer.ts",
+    "packages/pi-todo/state/state.ts",
+    "packages/pi-todo/state/store.ts",
+    "packages/pi-todo/state/task-graph.ts",
+    "packages/pi-todo/tool/response-envelope.ts",
+    "packages/pi-todo/tool/types.ts",
+    "packages/pi-todo/view/format.ts",
+    "packages/pi-todo/UPSTREAM_README.md",
+    "packages/pi-todo/UPSTREAM_CHANGELOG.md",
+    "packages/pi-todo/UPSTREAM_SOURCE.md",
+    "!packages/rpiv-test-utils/**"
   ],
   "publishConfig": {
     "access": "public"
@@ -43,8 +64,13 @@
   "pi": {
     "extensions": [
       "./packages/pi-recap/extensions/recap.ts",
-      "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts"
+      "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts",
+      "./packages/pi-todo/index.ts"
     ]
+  },
+  "dependencies": {
+    "@juicesharp/rpiv-config": "1.20.0",
+    "typebox": "1.1.24"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

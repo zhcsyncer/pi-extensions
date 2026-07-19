@@ -8,6 +8,7 @@ const packagePaths = [
 	".",
 	"./packages/pi-recap",
 	"./packages/pi-tool-display-intent",
+	"./packages/pi-todo",
 ];
 
 try {
