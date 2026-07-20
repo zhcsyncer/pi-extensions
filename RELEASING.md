@@ -51,6 +51,16 @@ Select each affected public package and its bump type. When selecting a child pa
 
 Changes that do not need a release, such as CI-only or internal documentation changes, do not need a changeset.
 
+## Release review gate
+
+Before pushing a release-bearing change to `main`:
+
+1. Run `pnpm changeset status` to calculate the complete release plan.
+2. Show the user every planned package with its current version, bump type, and target version.
+3. Wait for explicit user review and approval.
+
+Do not push the release-bearing change to `main`, merge the generated version PR, or trigger publishing before that approval.
+
 ## Automated flow
 
 1. Changes with one or more changesets land on `main`.
