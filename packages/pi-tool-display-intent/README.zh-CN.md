@@ -40,10 +40,10 @@ pi install npm:@zhcsyncer/pi-tool-display-intent
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-或者从 Git 安装固定版本：
+或者从 Git 安装 bundle：
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
+pi install git:github.com/zhcsyncer/pi-extensions
 ```
 
 本地开发：

@@ -40,10 +40,10 @@ Install the complete extension bundle:
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-Or install the pinned bundle from Git:
+Or install the bundle from Git:
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
+pi install git:github.com/zhcsyncer/pi-extensions
 ```
 
 Try the local package during development:

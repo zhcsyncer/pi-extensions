@@ -65,7 +65,7 @@
   },
   "scripts": {
     "changeset": "changeset",
-    "version-packages": "changeset version && node scripts/sync-release-version.mjs",
+    "version-packages": "changeset version",
     "release": "changeset publish",
     "check": "pnpm check:release-policy && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs && node scripts/check-release-policy.mjs",

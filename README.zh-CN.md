@@ -22,7 +22,7 @@ zhcsyncer 维护的一组 Pi extensions。
 从本仓库安装完整 extension bundle：
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
+pi install git:github.com/zhcsyncer/pi-extensions
 ```
 
 不安装直接试用：
