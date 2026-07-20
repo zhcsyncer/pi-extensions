@@ -1,0 +1,36 @@
+# Session artifacts
+handoffs/
+scout*.md
+researcher*.md
+context.md
+research.md
+
+# Personal/social media drafts
+github-meta.md
+reddit-post.md
+
+# Git
+.git/
+.gitignore
+
+# All markdown except README
+*.md
+!README.md
+
+# All TypeScript in extensions/ — allow all (modular structure)
+# !extensions/search-hub.ts  --  old rule for monolith, not needed anymore
+.pi/
+benchmark/
+
+# Ralph loop state
+.ralph/
+
+# Docs artifacts
+docs/
+
+# Tests
+backends/*.test.ts
+
+# Misc
+*.log
+.DS_Store

@@ -23,6 +23,8 @@
     "packages/*/src/**/*.ts",
     "packages/*/src/**/*.js",
     "packages/*/src/**/*.d.ts",
+    "packages/pi-tool-display-intent/tool-display-api-consumer.js",
+    "packages/pi-tool-display-intent/tool-display-api-consumer.d.ts",
     "packages/*/config/*.json",
     "packages/*/README*.md",
     "packages/*/LICENSE",
@@ -46,7 +48,15 @@
     "packages/pi-todo/view/format.ts",
     "packages/pi-todo/UPSTREAM_README.md",
     "packages/pi-todo/UPSTREAM_CHANGELOG.md",
-    "packages/pi-todo/UPSTREAM_SOURCE.md"
+    "packages/pi-todo/UPSTREAM_SOURCE.md",
+    "packages/pi-search-hub/package.json",
+    "packages/pi-search-hub/backends/parsers.ts",
+    "packages/pi-search-hub/search.json.example",
+    "packages/pi-search-hub/UPSTREAM_NOTICE.md",
+    "packages/pi-search-hub/UPSTREAM_README.md",
+    "packages/pi-search-hub/UPSTREAM_CHANGELOG.md",
+    "packages/pi-search-hub/UPSTREAM_SOURCE.md",
+    "!packages/pi-search-hub/**/*.test.ts"
   ],
   "publishConfig": {
     "access": "public"
@@ -64,12 +74,14 @@
     "extensions": [
       "./packages/pi-recap/extensions/recap.ts",
       "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts",
-      "./packages/pi-todo/index.ts"
+      "./packages/pi-todo/index.ts",
+      "./packages/pi-search-hub/extensions/search-hub.ts"
     ]
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "1.20.0",
-    "typebox": "1.1.24"
+    "typebox": "1.1.24",
+    "wreq-js": "2.3.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

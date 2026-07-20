@@ -123,7 +123,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。`advanced.expandedRows` 单独限制展开后的输出。
 
-`tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。
+`tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
 
 ### 历史配置自动迁移
 
@@ -170,6 +170,7 @@ const tool = withDisplaySummary({
 
 pi.registerTool(decorateToolForDisplay(tool, {
   kind: "generic",
+  outputMode: "inherit",
   overrideExistingRenderers: true
 }));
 ```
@@ -181,6 +182,8 @@ pi.registerTool(decorateToolForDisplay(tool, {
 - 保留并委托原始 `prepareArguments` 和 `execute`；
 - 在适当阶段剥离展示参数；
 - 支持幂等调用。
+
+`decorateToolForDisplay` 提供统一的调用行渲染。对于 `generic` 工具，设置 `outputMode` 还会启用统一结果渲染：`inherit` 跟随全局 `results.mode`，`hidden`、`summary` 和 `preview` 则固定该工具的结果模式。不设置 `outputMode` 时会保留工具原有的结果 renderer。工具提供方还可以通过 `getCallPresentation` 返回主目标与元数据，用语义字段替代通用 `(N args)`；通过 `getResultPresentation` 返回结果状态与 `previewStartLine`，在共享视觉行预算内展示 backend、数量等摘要并跳过重复的原始头部。这些文本会被单行清理，回调失败时自动退回通用展示。
 
 Pi 0.80.x 的 `getAllTools()` 公开返回元数据，而不是任意工具的完整 definition。因此不能把“仅配置工具名”视为给其他 extension 添加意图 Schema 的可靠方式。需要 Schema 和执行保证时，应使用合作式 wrapper；definition 可用时，`tools.custom` 仍可用于纯展示装饰。
 

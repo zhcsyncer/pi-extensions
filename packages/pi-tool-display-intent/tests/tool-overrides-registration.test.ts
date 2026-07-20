@@ -246,9 +246,13 @@ test("built-in renderers use text for model intent and muted for fallback intent
 	assert.match(fallbackIntent.render(160).join("\n"), /<muted>Read file<\/muted>/);
 });
 
-test("cooperative custom tools can share intent schema, execution stripping, and generic TUI rendering", async () => {
+test("cooperative custom tools can share intent, execution stripping, and inherited result rendering", async () => {
 	const { api } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		mcpOutputMode: "summary" as const,
+	};
+	registerToolDisplayOverrides(api, () => config);
 	let executedArgs: unknown;
 	const customTool = decorateToolForDisplay(
 		withDisplaySummary({
@@ -265,21 +269,79 @@ test("cooperative custom tools can share intent schema, execution stripping, and
 				return { content: [{ type: "text", text: "ok" }] };
 			},
 		}),
-		{ kind: "generic", overrideExistingRenderers: true },
+		{
+			kind: "generic",
+			outputMode: "inherit",
+			overrideExistingRenderers: true,
+			getCallPresentation(args: unknown) {
+				assert.deepEqual(args, { query: "alpha" });
+				return { target: "remote alpha", metadata: ["cached"] };
+			},
+			getResultPresentation() {
+				return { summary: "Remote · 2 values" };
+			},
+		},
 	);
 	const args = { query: "alpha", displaySummary: "Checking the remote value" };
-	const component = customTool.renderCall?.(
-		args,
-		{
-			fg: (_color: string, text: string) => text,
-			bold: (text: string) => text,
-		},
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+	const callComponent = customTool.renderCall?.(args, theme, {}) as { render(width: number): string[] };
+	assert.match(callComponent.render(160).join("\n"), /custom_probe remote alpha · cached — Checking the remote value/);
+
+	const resultComponent = customTool.renderResult?.(
+		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
+		{ expanded: false, isPartial: false },
+		theme,
 		{},
 	) as { render(width: number): string[] };
-	assert.match(component.render(160).join("\n"), /custom_probe \(1 arg\) — Checking the remote value/);
+	assert.match(resultComponent.render(160).join("\n"), /Remote · 2 values/);
 
 	await customTool.execute("call-custom", args);
 	assert.deepEqual(executedArgs, { query: "alpha" });
+});
+
+test("cooperative result presentations share preview rows and skip duplicated raw headers", () => {
+	const { api } = createExtensionApiStub();
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		mcpOutputMode: "preview" as const,
+		previewRows: 3,
+	};
+	registerToolDisplayOverrides(api, () => config);
+	const customTool = decorateToolForDisplay(
+		withDisplaySummary({
+			name: "preview_probe",
+			label: "Preview Probe",
+			description: "Preview remote values.",
+			parameters: { type: "object", properties: {} },
+			execute() {
+				return { content: [{ type: "text", text: "ok" }] };
+			},
+		}),
+		{
+			kind: "generic",
+			outputMode: "inherit",
+			overrideExistingRenderers: true,
+			getResultPresentation() {
+				return { summary: "Remote · 2 values", previewStartLine: 2 };
+			},
+		},
+	);
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+	const component = customTool.renderResult?.(
+		{ content: [{ type: "text", text: "duplicate title\nduplicate metadata\nalpha\nbeta" }], details: {} },
+		{ expanded: false, isPartial: false },
+		theme,
+		{},
+	) as { render(width: number): string[] };
+	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
+	assert.equal(rendered, "↳ Remote · 2 values\nalpha\nbeta");
+	assert.doesNotMatch(rendered, /duplicate/);
 });
 
 test("tool intent can be disabled without changing built-in execution schemas", () => {
