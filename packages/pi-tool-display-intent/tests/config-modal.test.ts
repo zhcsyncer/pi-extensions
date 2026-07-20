@@ -101,6 +101,7 @@ test("show reports the simple result mode and independent groups", async () => {
 	assert.match(notifications[0]?.message ?? "", /^tool-display-intent: /);
 	assert.match(notifications[0]?.message ?? "", /results=compact\/8rows/);
 	assert.match(notifications[0]?.message ?? "", /intent=on\/auto/);
+	assert.match(notifications[0]?.message ?? "", /toolCalls=compact\/bash1rows/);
 	assert.match(notifications[0]?.message ?? "", /mcp=available/);
 	assert.match(notifications[0]?.message ?? "", /rtkHints=off/);
 	assert.equal(notifications[0]?.message.includes("profile"), false);

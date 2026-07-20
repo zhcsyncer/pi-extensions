@@ -65,6 +65,7 @@ export interface ToolDisplayConfig {
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	toolIntent: ToolIntentConfig;
 	toolCallStyle: ToolCallStyle;
+	bashCommandPreviewRows: number;
 	resultMode: ResultDisplayMode;
 	enableNativeUserMessageBox: boolean;
 	enableThinkingLabel: boolean;
@@ -101,6 +102,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		maxLength: 96,
 	},
 	toolCallStyle: "compact",
+	bashCommandPreviewRows: 1,
 	resultMode: "compact",
 	enableNativeUserMessageBox: true,
 	enableThinkingLabel: true,

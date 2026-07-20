@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Text } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { renderBashCall } from "../src/bash-display.ts";
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ interface BashCallRenderTheme {
 
 interface BashCallRenderContextLike {
 	executionStarted: boolean;
+	expanded?: boolean;
 	isPartial: boolean;
 	invalidate(): void;
 	lastComponent?: unknown;
@@ -32,7 +33,7 @@ function createPassThroughTheme(): BashCallRenderTheme {
 function createAnsiTheme(): BashCallRenderTheme {
 	return {
 		fg: (color: string, text: string): string =>
-			`\x1b[${color === "warning" ? "93" : color === "muted" ? "90" : color === "toolTitle" ? "94" : color === "accent" ? "92" : "0"}m${text}\x1b[0m`,
+			`\x1b[${color === "warning" ? "93" : color === "muted" ? "90" : color === "toolTitle" ? "94" : color === "accent" ? "92" : color === "text" ? "97" : "0"}m${text}\x1b[0m`,
 		bold: (text: string): string => `\x1b[1m${text}\x1b[0m`,
 	};
 }
@@ -46,8 +47,8 @@ function makeContext(overrides: Partial<BashCallRenderContextLike> = {}): BashCa
 	};
 }
 
-function renderedText(component: Text): string {
-	return component.render(120).map((line) => line.trimEnd()).join("\n").trim();
+function renderedText(component: Component, width = 120): string {
+	return component.render(width).map((line) => line.trimEnd()).join("\n").trim();
 }
 
 /**
@@ -58,7 +59,7 @@ function createSpinningBashCall(
 	args: { command?: string; timeout?: number },
 	state: Record<string, unknown>,
 	extra?: Partial<BashCallRenderContextLike>,
-): { text: Text; stop(): void } {
+): { text: Component; stop(): void } {
 	const text = renderBashCall(
 		args,
 		createPassThroughTheme(),
@@ -110,7 +111,7 @@ test("renderBashCall displays short command", () => {
 });
 
 test("renderBashCall handles very long commands without crashing", () => {
-	// Text wraps at render width (120), extremely long commands wrap to multiple lines
+	// Long command calls use a width-aware component instead of flooding the transcript
 	const longCmd = "node " + "a".repeat(200);
 	const text = renderBashCall({ command: longCmd }, createPassThroughTheme(), makeContext());
 	const output = renderedText(text);
@@ -121,13 +122,68 @@ test("renderBashCall handles very long commands without crashing", () => {
 	assert.ok(output.length > 10, "output should have content");
 });
 
-test("renderBashCall displays multiline command", () => {
+test("renderBashCall keeps collapsed command rows within narrow CJK-aware widths", () => {
+	const text = renderBashCall(
+		{ command: `printf '${"模型菜单".repeat(20)}'\nprintf done` },
+		createPassThroughTheme(),
+		makeContext(),
+	);
+	const lines = text.render(32);
+	assert.ok(lines.length <= 2);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 32));
+});
+
+test("renderBashCall collapses multiline commands by default", () => {
 	const text = renderBashCall(
 		{ command: "echo hello\necho world" },
 		createPassThroughTheme(),
 		makeContext(),
 	);
+	const output = renderedText(text);
+	assert.match(output, /^\$ echo hello … \(2 lines · \d+B · Ctrl\+O\)$/);
+	assert.doesNotMatch(output, /echo world/);
+});
+
+test("renderBashCall shows the complete multiline command when tools are expanded", () => {
+	const text = renderBashCall(
+		{ command: "echo hello\necho world" },
+		createPassThroughTheme(),
+		makeContext({ expanded: true }),
+	);
 	assert.ok(renderedText(text).includes("echo hello\necho world"));
+});
+
+test("renderBashCall gives collapsed Claude calls an intent-first header and command row", () => {
+	const text = renderBashCall(
+		{
+			command: "set -euo pipefail\nprintf done",
+			displaySummary: "Verifying the model menu",
+			timeout: 20,
+		},
+		createPassThroughTheme(),
+		makeContext(),
+		{ enabled: true, language: "en", maxLength: 96 },
+		"claude",
+	);
+	assert.equal(
+		renderedText(text),
+		"● Bash (timeout 20s) — Verifying the model menu\n  $ set -euo pipefail … (2 lines · 29B · Ctrl+O)",
+	);
+});
+
+test("renderBashCall respects the configured collapsed command row budget", () => {
+	const text = renderBashCall(
+		{ command: "printf one\nprintf two\nprintf three" },
+		createPassThroughTheme(),
+		makeContext(),
+		undefined,
+		"compact",
+		2,
+	);
+	assert.equal(
+		renderedText(text),
+		"$ printf one\n  printf two … (3 lines · 34B · Ctrl+O)",
+	);
 });
 
 test("renderBashCall appends timeout suffix when timeout is provided", () => {
@@ -165,13 +221,13 @@ test("renderBashCall applies ANSI bold to the dollar sign with ANSI theme", () =
 	assert.ok(rendered.includes("\x1b[1m$\x1b[0m"), `expected bold $ in: ${JSON.stringify(rendered)}`);
 });
 
-test("renderBashCall applies ANSI color to command with ANSI theme", () => {
+test("renderBashCall applies text color to commands with ANSI theme", () => {
 	const text = renderBashCall({ command: "ls" }, createAnsiTheme(), makeContext());
 	const rendered = renderedText(text);
-	assert.ok(rendered.includes("\x1b[92mls\x1b[0m"), `expected green ls in: ${JSON.stringify(rendered)}`);
+	assert.ok(rendered.includes("\x1b[97mls\x1b[0m"), `expected text-colored ls in: ${JSON.stringify(rendered)}`);
 });
 
-test("renderBashCall uses text for model intent and muted for fallback intent", () => {
+test("renderBashCall uses accent for model intent and muted for fallback intent", () => {
 	const theme = {
 		fg: (color: string, value: string): string => `<${color}>${value}</${color}>`,
 		bold: (value: string): string => value,
@@ -184,7 +240,7 @@ test("renderBashCall uses text for model intent and muted for fallback intent", 
 		makeContext(),
 		toolIntent,
 	);
-	assert.match(renderedText(modelIntent), /<text>Running the test suite<\/text>/);
+	assert.match(renderedText(modelIntent), /<accent>Running the test suite<\/accent>/);
 
 	const fallbackIntent = renderBashCall(
 		{ command: "pnpm test" },
@@ -425,7 +481,7 @@ test("renderBashCall handles repeated calls without creating multiple timers", (
 
 // ─── lastComponent Preservation ──────────────────────────────────────────────
 
-test("renderBashCall preserves the same Text component reference when lastComponent is a Text", () => {
+test("renderBashCall preserves the same component reference through lastComponent", () => {
 	const initialState: Record<string, unknown> = {};
 	const { text: first, stop } = createSpinningBashCall({ command: "npm test" }, initialState);
 
@@ -440,7 +496,7 @@ test("renderBashCall preserves the same Text component reference when lastCompon
 		}),
 	);
 
-	assert.equal(first, second, "should return the same Text instance via lastComponent");
+	assert.equal(first, second, "should return the same component instance via lastComponent");
 	stop();
 });
 

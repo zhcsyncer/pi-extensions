@@ -92,7 +92,8 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
     "language": "zh-CN"
   },
   "toolCalls": {
-    "style": "claude"
+    "style": "claude",
+    "bashCommandPreviewRows": 1
   },
   "results": {
     "mode": "summary",
@@ -106,7 +107,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 | 分组 | 可配置字段 | 作用 |
 |---|---|---|
 | `intent` | `enabled`、`language`、`maxLength` | 模型生成的工具调用意图。 |
-| `toolCalls` | `style` | `compact` 或 Claude Code 风格调用外框。 |
+| `toolCalls` | `style`、`bashCommandPreviewRows` | 调用外框和 Bash 命令参数折叠后的视觉行预算。 |
 | `results` | `mode`、`previewRows` | 结果显示量和统一的折行后视觉行预算。 |
 | `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`wordWrap` | edit/write diff 展示。 |
 | `transcript` | `userMessageStyle`、`thinkingLabel` | 用户消息和 reasoning 标签。 |
@@ -122,6 +123,10 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 | `preview` | 显示内容预览 | 显示内容预览 |
 
 所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。`advanced.expandedRows` 单独限制展开后的输出。
+
+`toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，并把命令预览放到独立行。按 `Ctrl+O` 可查看完整原始命令。该配置不影响命令输出。
+
+模型生成的 intent 使用主题的常规 `accent` 色，不加粗、不加背景。确定性的命令、路径和 query 使用普通 `text`；元数据、分隔符和确定性 fallback intent 继续使用 `muted`。
 
 `tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
 

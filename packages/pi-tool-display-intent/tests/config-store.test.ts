@@ -204,7 +204,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 		writeFileSync(configFile, `${JSON.stringify({
 			version: 2,
 			intent: { enabled: false, language: "en", maxLength: 64 },
-			toolCalls: { style: "claude" },
+			toolCalls: { style: "claude", bashCommandPreviewRows: 3 },
 			results: { mode: "summary", previewRows: 20 },
 			diff: {
 				layout: "split",
@@ -236,6 +236,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 		assert.equal(loaded.config.mcpOutputMode, "summary");
 		assert.equal(loaded.config.bashOutputMode, "summary");
 		assert.equal(loaded.config.previewRows, 20);
+		assert.equal(loaded.config.bashCommandPreviewRows, 3);
 		assert.equal(loaded.config.registerToolOverrides.read, false);
 		assert.equal(loaded.config.registerToolOverrides.write, false);
 		assert.deepEqual(loaded.config.customToolOverrides.custom_mcp, {
@@ -256,11 +257,13 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		resultMode: "preview",
 		previewRows: 16,
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
+		bashCommandPreviewRows: 2,
 		enableThinkingLabel: false,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
 	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
 	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
+	assert.deepEqual(serialized.toolCalls, { bashCommandPreviewRows: 2 });
 	assert.deepEqual(serialized.transcript, { thinkingLabel: false });
 
 	withTempDir("pi-tool-display-config-roundtrip-", (dir) => {
@@ -276,7 +279,7 @@ test("invalid or old v2 fields are reported with paths and never rewritten", () 
 		const original = `${JSON.stringify({
 			version: 2,
 			extension: { enabled: false },
-			toolCalls: { frame: "claude" },
+			toolCalls: { frame: "claude", bashCommandPreviewRows: 9 },
 			results: {
 				profile: "minimal",
 				previewLines: 10,
@@ -288,6 +291,7 @@ test("invalid or old v2 fields are reported with paths and never rewritten", () 
 		assert.deepEqual(loaded.config, DEFAULT_TOOL_DISPLAY_CONFIG);
 		assert.match(loaded.error ?? "", /extension: unknown setting/);
 		assert.match(loaded.error ?? "", /toolCalls\.frame: unknown setting/);
+		assert.match(loaded.error ?? "", /toolCalls\.bashCommandPreviewRows: expected integer from 1 to 8/);
 		assert.match(loaded.error ?? "", /results\.profile: unknown setting/);
 		assert.match(loaded.error ?? "", /results\.mode: required setting/);
 		assert.equal(readFileSync(configFile, "utf8"), original);
