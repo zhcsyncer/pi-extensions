@@ -22,7 +22,7 @@ This fork keeps upstream multi-backend search and page extraction while integrat
 Install the whole extension bundle from this repository:
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
+pi install git:github.com/zhcsyncer/pi-extensions
 ```
 
 Try without installing:

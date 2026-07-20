@@ -22,6 +22,19 @@ const requiredPackFiles = new Map([
 	]],
 	["./packages/pi-search-hub", ["README.md", "README.zh-CN.md"]],
 ]);
+const maintainedReadmes = [
+	".changeset/README.md",
+	"README.md",
+	"README.zh-CN.md",
+	"packages/pi-recap/README.md",
+	"packages/pi-recap/README.zh-CN.md",
+	"packages/pi-search-hub/README.md",
+	"packages/pi-search-hub/README.zh-CN.md",
+	"packages/pi-todo/README.md",
+	"packages/pi-tool-display-intent/README.md",
+	"packages/pi-tool-display-intent/README.zh-CN.md",
+];
+const pinnedInstallPattern = /(?:pi\s+(?:install|-e)|npm\s+(?:install|i)|pnpm\s+add|yarn\s+add)[^\n]*@v?\d+\.\d+\.\d+/;
 
 async function assertBilingualPair(englishPath, chinesePath) {
 	const [english, chinese] = await Promise.all([
@@ -46,6 +59,14 @@ await assertBilingualPair(
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
 );
+for (const readmePath of maintainedReadmes) {
+	const readme = await readFile(resolve(repositoryRoot, readmePath), "utf8");
+	assert.doesNotMatch(
+		readme,
+		pinnedInstallPattern,
+		`${readmePath} installation commands must not pin a release version`,
+	);
+}
 
 for (const packagePath of packagePaths) {
 	const result = spawnSync(
