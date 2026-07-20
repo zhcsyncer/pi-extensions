@@ -1,5 +1,18 @@
 # @zhcsyncer/pi-extensions
 
+## 0.5.0
+
+### Minor Changes
+
+- c1b1172: Collapse long and multiline Bash call arguments into a width-aware preview with line and size metadata, while letting Ctrl+O reveal the complete original command. Add `toolCalls.bashCommandPreviewRows` to control the collapsed command budget and keep Claude-style intents in an intent-first header.
+
+  Emphasize model-written tool intents with the theme accent color while rendering deterministic commands, paths, and queries as normal text and retaining muted fallback intents.
+
+### Patch Changes
+
+- c1b1172: Add structurally aligned English and Simplified Chinese documentation for the root bundle and its private Search Hub fork. Document Search Hub's intent-aware semantic call lines, backend and reader result status, inherited display modes, shared preview budget, and Jina CSS selector semantics, and verify both README variants in npm pack checks.
+- 7a843b3: Remove release-version pins from every maintained README installation command so users always install the current repository release without documentation churn. Remove the version-time README rewrite and add a pack check that prevents pinned installation examples from returning.
+
 ## 0.4.0
 
 ### Minor Changes
