@@ -221,7 +221,7 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 	});
 });
 
-test("built-in renderers use text for model intent and muted for fallback intent", () => {
+test("built-in renderers use accent for model intent and muted for fallback intent", () => {
 	const { api, registeredTools } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 	const read = registeredTools.find((tool) => tool.name === "read");
@@ -236,7 +236,9 @@ test("built-in renderers use text for model intent and muted for fallback intent
 		theme,
 		{},
 	) as { render(width: number): string[] };
-	assert.match(modelIntent.render(160).join("\n"), /<text>Checking the sample file<\/text>/);
+	const modelIntentText = modelIntent.render(160).join("\n");
+	assert.match(modelIntentText, /<text>sample\.txt<\/text>/);
+	assert.match(modelIntentText, /<accent>Checking the sample file<\/accent>/);
 
 	const fallbackIntent = read.renderCall?.(
 		{ path: "sample.txt" },

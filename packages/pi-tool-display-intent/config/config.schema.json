@@ -36,6 +36,13 @@
         "style": {
           "enum": ["compact", "claude"],
           "default": "compact"
+        },
+        "bashCommandPreviewRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 1,
+          "description": "Maximum rendered terminal rows used by collapsed Bash command arguments. Ctrl+O shows the complete command."
         }
       }
     },

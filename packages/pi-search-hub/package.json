@@ -39,6 +39,7 @@
     "extensions/",
     "search.json.example",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE",
     "UPSTREAM_NOTICE.md",
     "UPSTREAM_README.md",

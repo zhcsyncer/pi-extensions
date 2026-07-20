@@ -6,6 +6,7 @@ const rootPackage = JSON.parse(
 const version = rootPackage.version;
 const readmes = [
 	new URL("../README.md", import.meta.url),
+	new URL("../README.zh-CN.md", import.meta.url),
 	new URL("../packages/pi-recap/README.md", import.meta.url),
 	new URL("../packages/pi-recap/README.zh-CN.md", import.meta.url),
 	new URL("../packages/pi-tool-display-intent/README.md", import.meta.url),

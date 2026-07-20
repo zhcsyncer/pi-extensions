@@ -22,6 +22,7 @@ test("bundled config example is valid simple v2", () => {
 		assert.equal(loaded.config.resultMode, "summary");
 		assert.equal(loaded.config.toolIntent.language, "zh-CN");
 		assert.equal(loaded.config.toolCallStyle, "claude");
+		assert.equal(loaded.config.bashCommandPreviewRows, 1);
 		assert.equal(loaded.config.previewRows, 10);
 		assert.equal(loaded.config.diffCollapsedRows, 24);
 		assert.equal(loaded.config.expandedPreviewMaxRows, 500);
@@ -48,6 +49,7 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.equal(schema.properties?.results?.properties?.profile, undefined);
 	assert.equal(schema.properties?.results?.properties?.overrides, undefined);
 	assert.ok(schema.properties?.toolCalls?.properties?.style);
+	assert.ok(schema.properties?.toolCalls?.properties?.bashCommandPreviewRows);
 	assert.equal(schema.properties?.toolCalls?.properties?.frame, undefined);
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);

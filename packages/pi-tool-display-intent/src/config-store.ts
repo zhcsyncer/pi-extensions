@@ -300,6 +300,12 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
 		toolCallStyle: toToolCallStyle(source.toolCallStyle),
+		bashCommandPreviewRows: clampNumber(
+			source.bashCommandPreviewRows,
+			1,
+			8,
+			DEFAULT_TOOL_DISPLAY_CONFIG.bashCommandPreviewRows,
+		),
 		resultMode: resultResolution.mode,
 		...resultConfig,
 		enableNativeUserMessageBox: toBoolean(
@@ -428,8 +434,9 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["style"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["style", "bashCommandPreviewRows"], "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
+	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
 	const results = getV2Section(source, "results", errors);
@@ -509,6 +516,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
 		toolCallStyle: toolCalls.style,
+		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
 		enableNativeUserMessageBox:
 			transcript.userMessageStyle === "default"
 				? false
@@ -546,9 +554,12 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.toolIntent.maxLength !== defaults.toolIntent.maxLength) intent.maxLength = config.toolIntent.maxLength;
 	assignSection(output, "intent", intent);
 
-	if (config.toolCallStyle !== defaults.toolCallStyle) {
-		output.toolCalls = { style: config.toolCallStyle };
+	const toolCalls: Record<string, unknown> = {};
+	if (config.toolCallStyle !== defaults.toolCallStyle) toolCalls.style = config.toolCallStyle;
+	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
+		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
 	}
+	assignSection(output, "toolCalls", toolCalls);
 
 	const results: Record<string, unknown> = { mode: config.resultMode };
 	if (config.previewRows !== defaults.previewRows) results.previewRows = config.previewRows;

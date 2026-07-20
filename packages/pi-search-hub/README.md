@@ -1,25 +1,112 @@
 # pi-search-hub
 
-`@zhcsyncer/pi-extensions` 内置的 Search Hub 扩展 fork。它提供统一的 `web_search` 与 `web_read` 工具，并支持多个搜索与内容读取后端。
+[简体中文](./README.zh-CN.md)
 
-当前 fork 保持上游 `pi-search-hub` 2.8.0 的搜索行为，并通过 `pi-tool-display-intent` 的合作式消费 API 为两个工具增加模型意图字段、统一调用行和继承全局 `results.mode` 的结果展示。调用行会用搜索词或缩短后的 URL 代替通用参数计数，并展示 backend、结果上限、reader、读取模式等关键元数据；结果区会展示实际 backend/reader、结果数、字符数、组合后端可用率和截断状态，同时去掉与语义状态重复的原始搜索头部。搜索正文的数量与截断仍由 Search Hub 自己负责。
+A bundle-private fork of Search Hub for `@zhcsyncer/pi-extensions`. It provides unified `web_search` and `web_read` tools across multiple search and content-reading backends.
 
-## 来源
+This package is private and is not published separately. Install `@zhcsyncer/pi-extensions` to use it.
 
-- 上游：[`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub)
-- 基线：`v2.8.0` / `96ccf692123d35a3cf4b615d597a80fe9e9f6229`
-- 上游文档：[`UPSTREAM_README.md`](./UPSTREAM_README.md)
-- 上游版本历史：[`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)
+## Tools
 
-该包目前作为 workspace 私有包随根 bundle 使用，不单独发布。
+### `web_search`
 
-## 开发
+Searches the web through an explicitly selected backend or through automatic fallback. `combine=true` queries multiple enabled backends and merges/deduplicates their results; `combineMode: "targeted"` in `search.json` limits fan-out while still collecting multiple usable result sets.
+
+Important call options include:
+
+- `query` — natural-language search query;
+- `numResults` — requested result count from 1 to 20;
+- `backend` — a specific backend or `auto`;
+- `combine` — enable multi-backend search;
+- `compact` — return title-and-URL lines instead of verbose search content.
+
+DuckDuckGo is the keyless fallback when no backend is explicitly enabled. Other supported backends include Jina Search, Marginalia, Serper, Tavily, Exa, Exa MCP, OpenAI Codex, Brave, Brave LLM Context, LangSearch, Firecrawl, WebSearchAPI, Perplexity, SearXNG, Linkup, You.com, fastCRW, and Sofya.
+
+### `web_read`
+
+Fetches a URL and returns extracted Markdown. The default Jina reader supports cache bypass, keywords, `rush`/`smart` modes, and targeted extraction. Sofya, Firecrawl, Exa, and Exa MCP readers are also available.
+
+Important call options include:
+
+- `url` — page URL;
+- `fresh` — bypass reader caches where supported;
+- `keywords` — terms used to focus long-page extraction;
+- `mode` — `rush` for speed or `smart` for better narrowing;
+- `reader` — override the configured reader;
+- `objective` — a Jina CSS target selector.
+
+> `web_read.objective` is a CSS selector passed to Jina as `x-target-selector`. It is not a natural-language question or extraction instruction. Use values such as `main`, `article`, or `#pricing`, and use `keywords` for semantic focus.
+
+## Intent-aware display in this fork
+
+Both tools use the cooperative API from [`pi-tool-display-intent`](../pi-tool-display-intent) rather than maintaining separate TUI renderers:
+
+- the current model writes a required `displaySummary` intent in the normal tool call, with no additional inference request;
+- the presentation-only field is removed before Search Hub execution;
+- call lines show the search query or a shortened URL instead of generic `(N args)` text;
+- result rendering inherits the active global `results.mode` through `outputMode: "inherit"`.
+
+Semantic call metadata includes:
+
+| Tool | Target | Metadata |
+|---|---|---|
+| `web_search` | Search query | Requested backend, combine mode, result limit, compact mode |
+| `web_read` | Shortened URL | Reader, rush/smart mode, keyword count, fresh mode, selector presence |
+
+Semantic result status includes:
+
+| Tool | Status |
+|---|---|
+| `web_search` | Actual backend, result count, fallback state, and usable/attempted backend health for combined searches |
+| `web_read` | Actual reader, extracted character count, and whether display content was truncated to the 10k-character presentation limit |
+
+Verbose search output begins with a raw `## Search Results:` header. The shared renderer skips that duplicated header when its semantic status is already visible.
+
+Global `results.mode` controls whether Search Hub results are hidden, summarized, or previewed in the transcript. Content previews use the same wrapped-row `results.previewRows` budget as other decorated tools. Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. In particular, the `web_search.compact` argument changes the tool result itself and is independent of the TUI-only global result mode.
+
+## Configuration
+
+Search Hub reads configuration from:
+
+1. `$PI_CODING_AGENT_DIR/extensions/search.json` for global settings;
+2. `.pi/search.json` in the current project.
+
+Project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Configuration is refreshed during use, with a short in-process cache.
+
+Minimal example:
+
+```json
+{
+  "defaultBackend": "auto",
+  "combineMode": "targeted",
+  "reader": "jina",
+  "backends": {
+    "duckduckgo": { "enabled": true },
+    "serper": { "enabled": true, "apiKey": "SERPER_API_KEY" }
+  }
+}
+```
+
+Copy [`search.json.example`](./search.json.example) for a larger backend matrix. Credential values may be environment-variable names such as `SERPER_API_KEY`, shell commands prefixed with `!`, or literal keys. Prefer environment variables or a secret manager, and never commit credentials.
+
+See [`UPSTREAM_README.md`](./UPSTREAM_README.md) for the upstream backend-specific reference. Local behavior described in this README takes precedence for the bundled fork.
+
+## Upstream source
+
+- Repository: [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub)
+- Baseline: `v2.8.0` / `96ccf692123d35a3cf4b615d597a80fe9e9f6229`
+- Preserved documentation: [`UPSTREAM_README.md`](./UPSTREAM_README.md)
+- Preserved release history: [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)
+
+The exact source provenance is recorded in [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md).
+
+## Development
 
 ```bash
 pnpm --filter @zhcsyncer/pi-search-hub check
 pi --no-extensions -e ./packages/pi-search-hub --list-models __pi_search_hub_check__
 ```
 
-## 许可证
+## License
 
-上游 `package.json` 和 README 将项目声明为 MIT，但 `v2.8.0` 标签未包含独立许可证文件。来源说明见 [`UPSTREAM_NOTICE.md`](./UPSTREAM_NOTICE.md)。本 fork 的修改见 [`LICENSE`](./LICENSE)。
+The upstream `package.json` and README declare MIT, but the `v2.8.0` tag does not contain a standalone license file. See [`UPSTREAM_NOTICE.md`](./UPSTREAM_NOTICE.md) for the preserved notice and [`LICENSE`](./LICENSE) for this fork's combined terms.

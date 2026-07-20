@@ -23,6 +23,7 @@ interface ModalOverlayOptions {
 }
 
 const PREVIEW_ROW_VALUES = ["4", "8", "12", "20", "40"] as const;
+const BASH_COMMAND_PREVIEW_ROW_VALUES = ["1", "2", "3", "4"] as const;
 const MODE_COMMAND_HINT = RESULT_DISPLAY_MODES.join("|");
 
 function toOnOff(value: boolean): string {
@@ -38,7 +39,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 	const parts = [
 		`results=${config.resultMode}/${config.previewRows}rows`,
 		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
-		`toolCalls=${config.toolCallStyle}`,
+		`toolCalls=${config.toolCallStyle}/bash${config.bashCommandPreviewRows}rows`,
 		`userMessage=${config.enableNativeUserMessageBox ? "boxed" : "default"}`,
 		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
 		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
@@ -163,6 +164,26 @@ function buildInspectorSettings(
 			searchTerms: ["tool", "style", "claude", "compact", "status", "shell"],
 		},
 		{
+			id: "bashCommandPreviewRows",
+			label: "Bash command rows",
+			currentValue: String(config.bashCommandPreviewRows),
+			values: BASH_COMMAND_PREVIEW_ROW_VALUES,
+			inspectorTitle: "Bash Command Preview Rows",
+			inspectorSummary: [
+				"Limits collapsed Bash command text after terminal wrapping while leaving short commands unchanged.",
+				"Long Claude-style calls keep intent in the header and move the bounded command preview to its own row.",
+			],
+			inspectorOptions: [
+				"1 — densest transcript and the default",
+				"2–4 — retain more command context before collapsing",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Ctrl+O expands the complete original command; results.previewRows controls output rather than call arguments.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["bash", "command", "preview", "rows", "collapse", "expand", "ctrl+o"],
+		},
+		{
 			id: "diffViewMode",
 			label: "Edit diff layout",
 			currentValue: config.diffViewMode,
@@ -254,6 +275,11 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			};
 		case "toolCallStyle":
 			return { ...config, toolCallStyle: value as ToolDisplayConfig["toolCallStyle"] };
+		case "bashCommandPreviewRows":
+			return {
+				...config,
+				bashCommandPreviewRows: parseNumber(value, config.bashCommandPreviewRows),
+			};
 		case "enableThinkingLabel":
 			return { ...config, enableThinkingLabel: value === "on" };
 		case "enableNativeUserMessageBox":

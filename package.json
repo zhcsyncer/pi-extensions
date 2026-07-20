@@ -18,6 +18,8 @@
   "license": "MIT",
   "type": "module",
   "files": [
+    "README.md",
+    "README.zh-CN.md",
     "packages/*/extensions/**/*.ts",
     "packages/*/extensions/**/*.js",
     "packages/*/src/**/*.ts",
@@ -68,7 +70,7 @@
     "check": "pnpm check:release-policy && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs && node scripts/check-release-policy.mjs",
     "check:smoke": "node scripts/check-smoke.mjs",
-    "check:pack": "npm pack --dry-run . && npm pack --dry-run ./packages/pi-recap && npm pack --dry-run ./packages/pi-tool-display-intent && npm pack --dry-run ./packages/pi-todo"
+    "check:pack": "node scripts/check-pack.mjs"
   },
   "pi": {
     "extensions": [

@@ -460,7 +460,7 @@ function formatDisplaySummarySuffix(
     return "";
   }
 
-  const color = summary.source === "model" ? "text" : "muted";
+  const color = summary.source === "model" ? "accent" : "muted";
   return `${theme.fg("muted", " — ")}${theme.fg(color, summary.text)}`;
 }
 
@@ -1203,8 +1203,8 @@ function formatMcpCallLine(
         : toolLabel;
   const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
   const line = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall("mcp", theme.fg("accent", target), argSuffix, intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("accent", target)}${argSuffix}${intentSuffix}`;
+    ? formatClaudeToolCall("mcp", theme.fg("text", target), argSuffix, intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("text", target)}${argSuffix}${intentSuffix}`;
 
   return new Text(line, 0, 0);
 }
@@ -1351,7 +1351,7 @@ function formatGenericToolCallLine(
     const metadata = presentation.metadata?.length
       ? theme.fg("muted", ` · ${presentation.metadata.join(" · ")}`)
       : "";
-    const target = `${theme.fg("accent", presentation.target)}${metadata}`;
+    const target = `${theme.fg("text", presentation.target)}${metadata}`;
     const line = config.toolCallStyle === "claude"
       ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
       : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
@@ -1386,7 +1386,7 @@ function formatSearchCallLine(
   config: ToolDisplayConfig,
   context?: ToolRenderContextLike,
 ): Text {
-  const target = `${theme.fg("accent", accent)}${theme.fg("muted", mutedSuffix)}`;
+  const target = `${theme.fg("text", accent)}${theme.fg("muted", mutedSuffix)}`;
   const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
   const line = config.toolCallStyle === "claude"
     ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
@@ -1453,7 +1453,7 @@ function renderReadDisplayCall(
     const to = limit !== undefined ? from + limit - 1 : undefined;
     suffix = to ? `:${from}-${to}` : `:${from}`;
   }
-  const target = `${theme.fg("accent", path || "...")}${theme.fg("warning", suffix)}`;
+  const target = `${theme.fg("text", path || "...")}${theme.fg("warning", suffix)}`;
   const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config) : "";
   const line = config?.toolCallStyle === "claude"
     ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
@@ -1515,8 +1515,8 @@ function renderEditDisplayCall(
   const lineCountSuffix = formatLineCountSuffix(lineCount, theme);
   const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config);
   const summaryText = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall("edit", theme.fg("accent", path || "..."), lineCountSuffix, intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path || "...")}${lineCountSuffix}${intentSuffix}`;
+    ? formatClaudeToolCall("edit", theme.fg("text", path || "..."), lineCountSuffix, intentSuffix, theme, context)
+    : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("text", path || "...")}${lineCountSuffix}${intentSuffix}`;
   if (!context?.argsComplete || !context.isPartial) {
     return textResult(summaryText);
   }
@@ -1937,8 +1937,8 @@ export function registerToolDisplayOverrides(
       const config = getConfig();
       const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config);
       const summaryText = config.toolCallStyle === "claude"
-        ? formatClaudeToolCall("write", theme.fg("accent", path || "..."), suffix, intentSuffix, theme, context)
-        : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path || "...")}${suffix}${intentSuffix}`;
+        ? formatClaudeToolCall("write", theme.fg("text", path || "..."), suffix, intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("text", path || "...")}${suffix}${intentSuffix}`;
       if (!context.argsComplete || !context.isPartial) {
         return textResult(summaryText);
       }
@@ -1988,7 +1988,14 @@ export function registerToolDisplayOverrides(
     ...createBuiltinToolBase("bash"),
     renderCall(args, theme, context) {
       const config = getConfig();
-      return renderBashCall(args, theme, context as never, config.toolIntent, config.toolCallStyle);
+      return renderBashCall(
+        args,
+        theme,
+        context as never,
+        config.toolIntent,
+        config.toolCallStyle,
+        config.bashCommandPreviewRows,
+      );
     },
     renderResult(result, options, theme, context) {
       const config = getConfig();

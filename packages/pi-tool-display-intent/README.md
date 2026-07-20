@@ -92,7 +92,8 @@ When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Exten
     "language": "en"
   },
   "toolCalls": {
-    "style": "claude"
+    "style": "claude",
+    "bashCommandPreviewRows": 1
   },
   "results": {
     "mode": "summary",
@@ -106,7 +107,7 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | Section | Configurable fields | Purpose |
 |---|---|---|
 | `intent` | `enabled`, `language`, `maxLength` | Model-written tool intent. |
-| `toolCalls` | `style` | `compact` or Claude Code-inspired call framing. |
+| `toolCalls` | `style`, `bashCommandPreviewRows` | Call framing and the wrapped-row budget for collapsed Bash command arguments. |
 | `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
 | `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `wordWrap` | Edit/write diff presentation. |
 | `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
@@ -122,6 +123,10 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | `preview` | Show content previews | Show a content preview |
 
 Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. It counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. `advanced.expandedRows` separately caps expanded output.
+
+`toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header and put the command preview on its own row. `Ctrl+O` reveals the complete original command. This setting does not affect command output.
+
+Model-written intent uses the theme's regular `accent` color without bold or background styling. Deterministic commands, paths, and queries use normal `text`; metadata, separators, and deterministic fallback intents remain `muted`.
 
 `tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
 
