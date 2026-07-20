@@ -14,7 +14,7 @@ A collection of Pi extensions by zhcsyncer.
 Install the whole extension bundle from this repository:
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.3.0
+pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
 ```
 
 Try without installing:
