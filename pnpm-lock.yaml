@@ -23,6 +23,9 @@ importers:
       typebox:
         specifier: 1.1.24
         version: 1.1.24
+      wreq-js:
+        specifier: 2.3.1
+        version: 2.3.1
     devDependencies:
       '@changesets/cli':
         specifier: 2.31.0
@@ -39,6 +42,31 @@ importers:
       '@earendil-works/pi-tui':
         specifier: '*'
         version: 0.80.3
+
+  packages/pi-search-hub:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: ^0.80.0
+        version: 0.80.3(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.80.0
+        version: 0.80.3(ws@8.21.0)(zod@4.4.3)
+      typebox:
+        specifier: 1.1.24
+        version: 1.1.24
+      wreq-js:
+        specifier: 2.3.1
+        version: 2.3.1
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/pi-todo:
     dependencies:
@@ -1580,6 +1608,11 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  wreq-js@2.3.1:
+    resolution: {integrity: sha512-vaKasaKeskrDKEuuO5Q5uamEG9a6FrF5ZSicH7TCvYS4RxF7/gzaU/vYqwJzcs+uydyJPVWY1KCvfVCgp0tiGA==}
+    cpu: [x64, arm64]
+    os: [darwin, linux, win32]
+
   ws@8.21.0:
     resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
@@ -2420,6 +2453,7 @@ snapshots:
   '@types/node@26.1.1':
     dependencies:
       undici-types: 8.3.0
+    optional: true
 
   '@types/retry@0.12.0': {}
 
@@ -2940,7 +2974,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.2
-      '@types/node': 26.1.1
+      '@types/node': 25.6.0
       long: 5.3.2
 
   quansync@0.2.11: {}
@@ -3061,7 +3095,8 @@ snapshots:
 
   undici-types@7.19.2: {}
 
-  undici-types@8.3.0: {}
+  undici-types@8.3.0:
+    optional: true
 
   undici@8.5.0: {}
 
@@ -3120,6 +3155,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  wreq-js@2.3.1: {}
 
   ws@8.21.0: {}
 

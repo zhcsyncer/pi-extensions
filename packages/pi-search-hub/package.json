@@ -1,0 +1,66 @@
+{
+  "name": "@zhcsyncer/pi-search-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal fork of pi-search-hub for the @zhcsyncer/pi-extensions bundle.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "web-search",
+    "web-read",
+    "search-hub"
+  ],
+  "author": "pi-search-hub contributors",
+  "contributors": [
+    "zhcsyncer (fork maintainer)"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-search-hub"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-search-hub#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "files": [
+    "backends/",
+    "extensions/",
+    "search.json.example",
+    "README.md",
+    "LICENSE",
+    "UPSTREAM_NOTICE.md",
+    "UPSTREAM_README.md",
+    "UPSTREAM_CHANGELOG.md",
+    "UPSTREAM_SOURCE.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/search-hub.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^0.80.0",
+    "@earendil-works/pi-coding-agent": "^0.80.0"
+  },
+  "dependencies": {
+    "typebox": "1.1.24",
+    "wreq-js": "2.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}

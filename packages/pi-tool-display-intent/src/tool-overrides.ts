@@ -25,6 +25,7 @@ import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui"
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import {
+  normalizeDisplaySummary,
   stripDisplaySummary,
   withDisplaySummary,
 } from "./display-summary.js";
@@ -174,12 +175,26 @@ const TOOL_DISPLAY_DECORATED_PROPERTIES = [
 ] as const;
 
 type ToolDisplayKind = "read" | "edit" | "mcp" | "generic";
+type ToolDisplayOutputMode = CustomToolOverrideConfig["outputMode"] | "inherit";
+
+export interface ToolDisplayCallPresentation {
+  target: string;
+  metadata?: string[];
+}
+
+export interface ToolDisplayResultPresentation {
+  summary: string;
+  previewStartLine?: number;
+}
 
 export interface ToolDisplayAdapter {
   id?: string;
   toolName?: string;
   kind?: ToolDisplayKind;
   overrideExistingRenderers?: boolean;
+  outputMode?: ToolDisplayOutputMode;
+  getCallPresentation?: (args: unknown) => ToolDisplayCallPresentation | undefined;
+  getResultPresentation?: (result: unknown) => ToolDisplayResultPresentation | undefined;
   pathFields?: string[];
   getPath?: (args: unknown) => string | undefined;
   getEditLineCount?: (args: unknown) => number;
@@ -1219,6 +1234,7 @@ function renderMcpResult(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
   theme: RenderTheme,
+  presentation?: ToolDisplayResultPresentation,
 ): Component {
   const partial = handlePartialResult(options, theme, "running...");
   if (partial) {
@@ -1229,7 +1245,14 @@ function renderMcpResult(
     return textResult("");
   }
 
-  const lines = prepareOutputLines(extractTextOutput(result), options);
+  const outputLines = prepareOutputLines(extractTextOutput(result), options);
+  const previewStartLine = Math.min(
+    outputLines.length,
+    normalizePositiveInteger(presentation?.previewStartLine) ?? 0,
+  );
+  const lines = presentation
+    ? [theme.fg("muted", `↳ ${presentation.summary}`), ...outputLines.slice(previewStartLine)]
+    : outputLines;
   const truncation = getMcpTruncationDetails(result.details);
   const mcpCtx: McpPreviewHintContext = { lines, config, theme, options, details: result.details, truncation };
 
@@ -1238,11 +1261,13 @@ function renderMcpResult(
       return renderMcpPreview(mcpCtx, true);
     }
 
-    const lineCount = countNonEmptyLines(lines);
-    let summary = theme.fg(
-      "muted",
-      `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
-    );
+    const lineCount = countNonEmptyLines(outputLines);
+    let summary = presentation
+      ? theme.fg("muted", `↳ ${presentation.summary}`)
+      : theme.fg(
+          "muted",
+          `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
+        );
     summary += formatExpandHint(theme);
     if (config.showTruncationHints && truncation.truncated) {
       summary += theme.fg("warning", " • truncated");
@@ -1270,17 +1295,71 @@ function getRuntimeCustomToolOverride(
   return normalizeCustomToolOverrideEntry(overrides[toolName]);
 }
 
+function resolveCallPresentation(
+  args: Record<string, unknown>,
+  adapter: ToolDisplayAdapter,
+): ToolDisplayCallPresentation | undefined {
+  if (!adapter.getCallPresentation) return undefined;
+  try {
+    const candidate = adapter.getCallPresentation(args);
+    const target = normalizeDisplaySummary(candidate?.target, 160);
+    if (!target) return undefined;
+    const metadata = Array.isArray(candidate?.metadata)
+      ? candidate.metadata
+          .map((entry) => normalizeDisplaySummary(entry, 64))
+          .filter((entry): entry is string => Boolean(entry))
+      : [];
+    return { target, metadata };
+  } catch (error) {
+    logToolDisplayDebug("Tool call presentation failed.", error);
+    return undefined;
+  }
+}
+
+function resolveResultPresentation(
+  result: unknown,
+  adapter: ToolDisplayAdapter,
+): ToolDisplayResultPresentation | undefined {
+  if (!adapter.getResultPresentation) return undefined;
+  try {
+    const candidate = adapter.getResultPresentation(result);
+    const summary = normalizeDisplaySummary(candidate?.summary, 200);
+    if (!summary) return undefined;
+    return {
+      summary,
+      previewStartLine: normalizePositiveInteger(candidate?.previewStartLine),
+    };
+  } catch (error) {
+    logToolDisplayDebug("Tool result presentation failed.", error);
+    return undefined;
+  }
+}
+
 function formatGenericToolCallLine(
   toolName: string,
   args: unknown,
   theme: RenderTheme,
   config: ToolDisplayConfig,
   context?: ToolRenderContextLike,
+  adapter: ToolDisplayAdapter = {},
 ): Text {
   const argRecord = toRecord(stripDisplaySummary(args));
+  const presentation = resolveCallPresentation(argRecord, adapter);
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+
+  if (presentation) {
+    const metadata = presentation.metadata?.length
+      ? theme.fg("muted", ` · ${presentation.metadata.join(" · ")}`)
+      : "";
+    const target = `${theme.fg("accent", presentation.target)}${metadata}`;
+    const line = config.toolCallStyle === "claude"
+      ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
+      : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
+    return new Text(line, 0, 0);
+  }
+
   const argCount = Object.keys(argRecord).length;
   const argSuffix = formatArgCountSuffix(argCount, theme);
-  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
   const line = config.toolCallStyle === "claude"
     ? formatClaudeToolCall(
         toolName,
@@ -1321,12 +1400,14 @@ function renderCustomToolResult(
   config: ToolDisplayConfig,
   outputMode: CustomToolOverrideConfig["outputMode"],
   theme: RenderTheme,
+  adapter: ToolDisplayAdapter = {},
 ): Component {
   return renderMcpResult(
     result as ToolRenderInput,
     options,
     { ...config, mcpOutputMode: outputMode },
     theme,
+    resolveResultPresentation(result, adapter),
   );
 }
 
@@ -1569,7 +1650,7 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
       } else if (kind === "generic" && (overrideExisting || typeof decorated.renderCall !== "function")) {
         decorated.renderCall = (args: unknown, theme: RenderTheme, context?: ToolRenderContextLike) => {
           const toolName = getTextField(decorated, "name") ?? "tool";
-          return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
+          return formatGenericToolCallLine(toolName, args, theme, getConfig(), context, resolvedAdapter);
         };
       }
 
@@ -1581,9 +1662,17 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
       } else if (kind === "edit" && (overrideExisting || typeof decorated.renderResult !== "function")) {
         decorated.renderResult = (result: ToolRenderInput & { isError?: boolean }, options: ToolRenderResultOptions, theme: RenderTheme, context?: ToolRenderContextLike) =>
           renderEditDisplayResult(result, options, theme, context, resolvedAdapter, getConfig);
-      } else if (kind === "mcp" && (overrideExisting || typeof decorated.renderResult !== "function")) {
-        decorated.renderResult = (result: ToolRenderInput, options: ToolRenderResultOptions, theme: RenderTheme) =>
-          renderMcpResult(result, options, getConfig(), theme);
+      } else if (
+        (kind === "mcp" || (kind === "generic" && resolvedAdapter.outputMode !== undefined)) &&
+        (overrideExisting || typeof decorated.renderResult !== "function")
+      ) {
+        decorated.renderResult = (result: ToolRenderInput, options: ToolRenderResultOptions, theme: RenderTheme) => {
+          const config = getConfig();
+          const outputMode = resolvedAdapter.outputMode === undefined || resolvedAdapter.outputMode === "inherit"
+            ? config.mcpOutputMode
+            : resolvedAdapter.outputMode;
+          return renderCustomToolResult(result, options, config, outputMode, theme, resolvedAdapter);
+        };
       }
 
       const renderResult = decorated.renderResult;

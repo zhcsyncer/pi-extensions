@@ -123,7 +123,7 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 
 Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. It counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. `advanced.expandedRows` separately caps expanded output.
 
-`tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`.
+`tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
 
 ### Automatic legacy migration
 
@@ -170,6 +170,7 @@ const tool = withDisplaySummary({
 
 pi.registerTool(decorateToolForDisplay(tool, {
   kind: "generic",
+  outputMode: "inherit",
   overrideExistingRenderers: true
 }));
 ```
@@ -181,6 +182,8 @@ pi.registerTool(decorateToolForDisplay(tool, {
 - preserves and delegates the original `prepareArguments` and `execute` functions;
 - strips the field before both delegation points where appropriate;
 - is idempotent.
+
+`decorateToolForDisplay` adds shared call rendering. For `generic` tools, setting `outputMode` also adds shared result rendering: `inherit` follows the active global `results.mode`, while `hidden`, `summary`, and `preview` pin the tool to one result mode. Omitting `outputMode` leaves the tool's existing result renderer untouched. Providers can also return a primary target plus metadata from `getCallPresentation` to replace generic `(N args)` text, and return semantic status plus `previewStartLine` from `getResultPresentation` to show backend/count summaries while skipping duplicated raw headers inside the shared visual-row budget. Presentation text is sanitized to one line, and callback failures fall back to generic rendering.
 
 Pi 0.80.x exposes metadata, not complete arbitrary tool definitions, through `getAllTools()`. Therefore configuration-only discovery should not be treated as a reliable way to add intent schemas to unrelated extensions. Use the cooperative wrapper for schema and execution guarantees. `tools.custom` remains useful for presentation-only decoration where the definition is available.
 
