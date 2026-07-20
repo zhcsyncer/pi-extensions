@@ -13,9 +13,10 @@ reddit-post.md
 .git/
 .gitignore
 
-# All markdown except README
+# All markdown except bilingual README files
 *.md
 !README.md
+!README.zh-CN.md
 
 # All TypeScript in extensions/ — allow all (modular structure)
 # !extensions/search-hub.ts  --  old rule for monolith, not needed anymore
