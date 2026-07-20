@@ -15,7 +15,7 @@ pi install npm:@zhcsyncer/pi-todo
 也可以从仓库安装完整扩展集合：
 
 ```bash
-pi install git:github.com/zhcsyncer/pi-extensions@v0.3.0
+pi install git:github.com/zhcsyncer/pi-extensions@v0.4.0
 ```
 
 ## 来源
