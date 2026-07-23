@@ -7,6 +7,7 @@ const ROOT = "@zhcsyncer/pi-extensions";
 const RECAP = "@zhcsyncer/pi-recap";
 const INTENT = "@zhcsyncer/pi-tool-display-intent";
 const TODO = "@zhcsyncer/pi-todo";
+const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
 	return {
@@ -20,6 +21,10 @@ test("allows an empty release plan", () => {
 
 test("allows the root package to release independently", () => {
 	assert.deepEqual(validateReleasePolicy(releases([ROOT, "patch"])), []);
+});
+
+test("allows the standalone Agent Plan provider to release without the root", () => {
+	assert.deepEqual(validateReleasePolicy(releases([AGENT_PLAN, "patch"])), []);
 });
 
 test("requires the root package when recap releases", () => {

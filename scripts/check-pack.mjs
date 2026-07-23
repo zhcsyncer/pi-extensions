@@ -11,6 +11,7 @@ const packagePaths = [
 	"./packages/pi-tool-display-intent",
 	"./packages/pi-todo",
 	"./packages/pi-search-hub",
+	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
 const requiredPackFiles = new Map([
@@ -21,6 +22,12 @@ const requiredPackFiles = new Map([
 		"packages/pi-search-hub/README.zh-CN.md",
 	]],
 	["./packages/pi-search-hub", ["README.md", "README.zh-CN.md"]],
+	["./providers/pi-provider-volcengine-agent-plan", [
+		"index.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"LICENSE",
+	]],
 ]);
 const maintainedReadmes = [
 	".changeset/README.md",
@@ -30,6 +37,8 @@ const maintainedReadmes = [
 	"packages/pi-recap/README.zh-CN.md",
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
+	"providers/pi-provider-volcengine-agent-plan/README.md",
+	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",
 	"packages/pi-tool-display-intent/README.md",
 	"packages/pi-tool-display-intent/README.zh-CN.md",
@@ -58,6 +67,10 @@ await assertBilingualPair("README.md", "README.zh-CN.md");
 await assertBilingualPair(
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"providers/pi-provider-volcengine-agent-plan/README.md",
+	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 );
 for (const readmePath of maintainedReadmes) {
 	const readme = await readFile(resolve(repositoryRoot, readmePath), "utf8");

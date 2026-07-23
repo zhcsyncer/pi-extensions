@@ -1,0 +1,60 @@
+{
+  "name": "pi-provider-volcengine-agent-plan",
+  "version": "0.0.0",
+  "description": "Unofficial Pi provider extension for Volcengine Ark Agent Plan.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-provider",
+    "volcengine",
+    "ark",
+    "agent-plan"
+  ],
+  "author": "zhcsyncer",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "providers/pi-provider-volcengine-agent-plan"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/providers/pi-provider-volcengine-agent-plan#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test test/**/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@types/node": "25.6.0",
+    "jiti": "2.7.0",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
+  }
+}
