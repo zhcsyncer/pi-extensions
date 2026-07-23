@@ -122,15 +122,20 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 		const registeredTool = byName.get(name);
 		const builtInMetadata = builtInTool as unknown as RegisteredToolLike;
 		assert.ok(registeredTool, `expected '${name}' to be registered`);
+		assert.equal(registeredTool.description, builtInMetadata.description);
 		assert.equal(registeredTool.promptSnippet, builtInMetadata.promptSnippet);
 	}
 
+	const intentGuidelines = new Set<string>();
 	for (const [name, builtInTool] of Object.entries(builtInTools)) {
 		const registeredGuidelines = byName.get(name)?.promptGuidelines ?? [];
 		const builtInGuidelines = (builtInTool as unknown as RegisteredToolLike).promptGuidelines ?? [];
 		assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
-		assert.match(registeredGuidelines.at(-1) ?? "", /displaySummary/);
+		const intentGuideline = registeredGuidelines.at(-1) ?? "";
+		assert.match(intentGuideline, /displaySummary/);
+		intentGuidelines.add(intentGuideline);
 	}
+	assert.equal(intentGuidelines.size, 1);
 });
 
 test("registerToolDisplayOverrides registers built-in display renderers during extension load for pre-bind history rendering", () => {

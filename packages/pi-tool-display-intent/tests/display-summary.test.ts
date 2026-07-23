@@ -49,6 +49,21 @@ test("adds a required displaySummary without mutating the original schema", () =
 	assert.equal("displaySummary" in originalParameters.properties, false);
 });
 
+test("shares one deduplicatable guideline without rewriting tool descriptions", () => {
+	const first = withDisplaySummary(createTool());
+	const second = withDisplaySummary(createTool({
+		name: "other_probe",
+		description: "Inspect another value.",
+	}));
+	const firstGuideline = (first as { promptGuidelines?: string[] }).promptGuidelines?.at(-1);
+	const secondGuideline = (second as { promptGuidelines?: string[] }).promptGuidelines?.at(-1);
+
+	assert.equal(first.description, "Inspect a value.");
+	assert.equal(second.description, "Inspect another value.");
+	assert.match(firstGuideline ?? "", /Every tool call whose schema defines displaySummary must include it/);
+	assert.equal(secondGuideline, firstGuideline);
+});
+
 test("refuses to hijack a custom tool's existing displaySummary parameter", () => {
 	assert.throws(
 		() => addDisplaySummaryParameter({

@@ -17,6 +17,7 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 ## Features
 
 - Adds `displaySummary` to the owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` schemas.
+- Uses one Pi-deduplicated system-prompt guideline while keeping field-specific intent guidance in each tool schema.
 - Shows the intent beside deterministic metadata such as paths, commands, patterns, and diff information.
 - Strips the presentation field before calling the original tool implementation.
 - Keeps the raw field available to Pi RPC consumers and retains it in later model context so follow-up calls keep producing intent.
