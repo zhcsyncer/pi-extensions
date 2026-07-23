@@ -31,6 +31,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
       - name: Set up npm trusted publishing client
         run: npm install --global npm@11.18.0
@@ -44,9 +45,11 @@ jobs:
       - name: Create version PR or publish packages
         id: changesets
         uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0
+        env:
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         with:
           version: pnpm version-packages
-          publish: pnpm release
+          publish: bash scripts/publish-packages.sh
           createGithubReleases: false
           commit: "chore: version packages"
           title: "chore: version packages"
