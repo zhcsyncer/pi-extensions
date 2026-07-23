@@ -17,6 +17,7 @@ $ pnpm test — 验证 extension 测试套件
 ## 功能
 
 - 为持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` Schema 添加 `displaySummary`。
+- 使用一条可由 Pi 去重的 system prompt guideline，同时在各工具 Schema 中保留字段级意图说明。
 - 在 TUI 中同时展示模型意图与路径、命令、pattern、diff 等确定性信息。
 - 调用原始工具前剥离纯展示字段，保持工具执行语义不变。
 - 在 Pi RPC 原始事件及后续模型上下文中保留该字段，让 follow-up 调用继续生成意图。

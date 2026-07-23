@@ -173,12 +173,12 @@ export function withDisplaySummary(tool, rawOptions = {}) {
     : undefined;
   const originalGuidelines = Array.isArray(tool.promptGuidelines) ? tool.promptGuidelines : [];
   const languageGuideline = languageInstruction(options.language);
-  const toolName = typeof tool.name === "string" && tool.name.trim() ? tool.name.trim() : "tool";
-  const intentGuideline = `Every ${toolName} call must include ${DISPLAY_SUMMARY_FIELD}, including follow-up calls in the same agent run. Set it to a concise user-facing phrase describing that call's intent. ${languageGuideline} Never include secrets or credentials.`;
+  // Keep this tool-name agnostic so Pi deduplicates the guideline across active
+  // wrapped tools. Per-tool semantics remain next to the field in its schema.
+  const intentGuideline = `Every tool call whose schema defines ${DISPLAY_SUMMARY_FIELD} must include it, including follow-up calls in the same agent run. Set it to a concise user-facing phrase describing that call's intent. ${languageGuideline} Never include secrets or credentials.`;
 
   const wrapped = {
     ...tool,
-    description: `${typeof tool.description === "string" ? tool.description : ""}\n\nEvery call includes ${DISPLAY_SUMMARY_FIELD}, a short user-facing phrase explaining what the tool is doing and why.`.trim(),
     promptGuidelines: [...originalGuidelines, intentGuideline],
     parameters: addDisplaySummaryParameter(tool.parameters, options),
     prepareArguments(args) {
