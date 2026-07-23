@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.5.1
+
+### Patch Changes
+
+- 9165916: Reduce prompt overhead for model-written tool intents. Wrapped tools now share one Pi-deduplicatable guideline, preserve their original descriptions, and retain detailed `displaySummary` field guidance in each schema. This trims the initial bundle prompt without changing execution, RPC, fallback, or rendering semantics.
+
 ## 0.5.0
 
 ### Minor Changes
