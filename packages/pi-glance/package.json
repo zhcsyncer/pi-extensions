@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-glance",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A polished Pi input surface with composable statuses, context progress, and highlighted auto-compaction.",
   "keywords": [
     "pi-package",

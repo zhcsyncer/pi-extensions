@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-extensions",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "A collection of Pi extensions by zhcsyncer.",
   "repository": {
     "type": "git",
