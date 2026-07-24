@@ -51,6 +51,9 @@
     "packages/pi-todo/UPSTREAM_README.md",
     "packages/pi-todo/UPSTREAM_CHANGELOG.md",
     "packages/pi-todo/UPSTREAM_SOURCE.md",
+    "packages/pi-glance/*.ts",
+    "packages/pi-glance/UPSTREAM_LICENSE",
+    "packages/pi-glance/UPSTREAM_SOURCE.md",
     "packages/pi-search-hub/package.json",
     "packages/pi-search-hub/backends/parsers.ts",
     "packages/pi-search-hub/search.json.example",
@@ -77,6 +80,7 @@
       "./packages/pi-recap/extensions/recap.ts",
       "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts",
       "./packages/pi-todo/index.ts",
+      "./packages/pi-glance/index.ts",
       "./packages/pi-search-hub/extensions/search-hub.ts"
     ]
   },

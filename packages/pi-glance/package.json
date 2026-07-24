@@ -1,0 +1,92 @@
+{
+  "name": "@zhcsyncer/pi-glance",
+  "version": "0.0.0",
+  "description": "A polished Pi input surface with composable statuses, context progress, and highlighted auto-compaction.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "input-surface",
+    "statusline",
+    "terminal",
+    "tui"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "linys77",
+  "contributors": [
+    "zhcsyncer (fork maintainer)"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-glance"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-glance#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "*.ts",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "UPSTREAM_LICENSE",
+    "UPSTREAM_README.md",
+    "UPSTREAM_SOURCE.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.80.0 <1",
+    "@earendil-works/pi-coding-agent": ">=0.80.0 <1",
+    "@earendil-works/pi-tui": ">=0.80.0 <1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@earendil-works/pi-tui": "0.81.1",
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:dev": "rm -rf .tmp-git-dev && tsc -p tsconfig.test.json",
+    "test": "pnpm test:dev",
+    "test:boundaries": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-boundaries.js",
+    "test:command-save": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-glance-command-save.js",
+    "test:config": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-config.js",
+    "test:config-schema": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-config-schema.js",
+    "test:config-io": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-config-io.js",
+    "test:footer": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-footer-facts.js",
+    "test:bottom-details": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-bottom-details.js",
+    "test:runtime": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-runtime.js",
+    "test:runtime:plan-executor": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-runtime-plan-executor.js",
+    "test:runtime:refresh-session": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-runtime-refresh-session.js",
+    "test:runtime:policy": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-runtime-policy.js",
+    "test:session-start": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-session-start-order.js",
+    "test:state-inputs": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-state-inputs.js",
+    "test:status-line": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-status-line.js",
+    "test:throughput": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-throughput.js && node .tmp-git-dev/scripts/test-throughput-run-tracker.js && node .tmp-git-dev/scripts/test-state-throughput.js && node .tmp-git-dev/scripts/test-runtime-throughput.js && node .tmp-git-dev/scripts/test-throughput-status-line.js && node .tmp-git-dev/scripts/test-throughput-config.js && node .tmp-git-dev/scripts/test-throughput-settings.js && node .tmp-git-dev/scripts/test-throughput-boundaries.js && node .tmp-git-dev/scripts/test-throughput-readme.js",
+    "test:dev": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-boundaries.js && node .tmp-git-dev/scripts/test-segment-feature-boundaries.js && node .tmp-git-dev/scripts/test-runtime-refresh-session.js && node .tmp-git-dev/scripts/test-runtime-plan-executor.js && node .tmp-git-dev/scripts/test-runtime-policy.js && node .tmp-git-dev/scripts/test-footer-facts.js && node .tmp-git-dev/scripts/test-bottom-details.js && node .tmp-git-dev/scripts/test-git.js && node .tmp-git-dev/scripts/test-git-refresher.js && node .tmp-git-dev/scripts/test-state-git.js && node .tmp-git-dev/scripts/test-state-inputs.js && node .tmp-git-dev/scripts/test-render-git.js && node .tmp-git-dev/scripts/test-render-segments.js && node .tmp-git-dev/scripts/test-status-line.js && node .tmp-git-dev/scripts/test-workspace-label.js && node .tmp-git-dev/scripts/test-surface-layout.js && node .tmp-git-dev/scripts/test-input-surface-frame.js && node .tmp-git-dev/scripts/test-surface-parity.js && node .tmp-git-dev/scripts/test-settings-catalog.js && node .tmp-git-dev/scripts/test-segment-registry.js && node .tmp-git-dev/scripts/test-pane-model.js && node .tmp-git-dev/scripts/test-config.js && node .tmp-git-dev/scripts/test-config-schema.js && node .tmp-git-dev/scripts/test-config-io.js && node .tmp-git-dev/scripts/test-runtime.js && node .tmp-git-dev/scripts/test-themes.js && node .tmp-git-dev/scripts/test-readme.js && node .tmp-git-dev/scripts/test-pane-render.js && node .tmp-git-dev/scripts/test-session-start-order.js && node .tmp-git-dev/scripts/test-glance-command-save.js && node .tmp-git-dev/scripts/test-throughput.js && node .tmp-git-dev/scripts/test-throughput-run-tracker.js && node .tmp-git-dev/scripts/test-state-throughput.js && node .tmp-git-dev/scripts/test-runtime-throughput.js && node .tmp-git-dev/scripts/test-throughput-status-line.js && node .tmp-git-dev/scripts/test-throughput-config.js && node .tmp-git-dev/scripts/test-throughput-settings.js && node .tmp-git-dev/scripts/test-throughput-boundaries.js && node .tmp-git-dev/scripts/test-throughput-readme.js",
+    "test:git": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-git.js && node .tmp-git-dev/scripts/test-git-refresher.js && node .tmp-git-dev/scripts/test-state-git.js && node .tmp-git-dev/scripts/test-render-git.js",
+    "test:catalog": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-settings-catalog.js",
+    "test:registry": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-segment-registry.js",
+    "test:readme": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-readme.js",
+    "test:pane:model": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-pane-model.js",
+    "test:pane": "pnpm --silent build:dev && node .tmp-git-dev/scripts/test-pane-model.js && node .tmp-git-dev/scripts/test-pane-render.js",
+    "debug:git": "pnpm --silent build:dev && node .tmp-git-dev/scripts/debug-git.js",
+    "pack:dry": "pnpm pack --dry-run",
+    "check": "pnpm typecheck && pnpm test"
+  }
+}

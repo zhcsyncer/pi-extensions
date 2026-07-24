@@ -31,6 +31,24 @@ importers:
         specifier: 2.31.0
         version: 2.31.0(@types/node@26.1.1)
 
+  packages/pi-glance:
+    devDependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.81.1
+        version: 0.81.1(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.81.1
+        version: 0.81.1(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.81.1
+        version: 0.81.1
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/pi-recap:
     dependencies:
       '@earendil-works/pi-ai':

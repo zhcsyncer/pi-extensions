@@ -7,6 +7,7 @@ const ROOT = "@zhcsyncer/pi-extensions";
 const RECAP = "@zhcsyncer/pi-recap";
 const INTENT = "@zhcsyncer/pi-tool-display-intent";
 const TODO = "@zhcsyncer/pi-todo";
+const GLANCE = "@zhcsyncer/pi-glance";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
@@ -42,6 +43,12 @@ test("requires the root package when intent releases", () => {
 test("requires the root package when todo releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([TODO, "minor"])), [
 		`${TODO} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Glance releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([GLANCE, "minor"])), [
+		`${GLANCE} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 

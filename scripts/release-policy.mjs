@@ -9,6 +9,7 @@ export const CHILD_PACKAGES = Object.freeze([
 	"@zhcsyncer/pi-recap",
 	"@zhcsyncer/pi-tool-display-intent",
 	"@zhcsyncer/pi-todo",
+	"@zhcsyncer/pi-glance",
 ]);
 
 /**
