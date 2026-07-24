@@ -35,7 +35,7 @@ const EXPECTED_LABELS: Record<ExpectedSegmentId, string> = {
 
 const EXPECTED_SEGMENT_SETTING_IDS: Record<ExpectedSegmentId, string[]> = {
 	git: ["git.dirtyMarker", "git.aheadBehind", "git.sha", "git.polling"],
-	context: ["context.display", "context.unknown"],
+	context: ["context.display", "context.progressStyle", "context.progressWidth", "context.unknown"],
 	cost: ["cost.hideZero", "cost.display"],
 	tokens: ["tokens.display", "tokens.cache"],
 	model: ["model.providerLabel", "model.thinkingLabel"],

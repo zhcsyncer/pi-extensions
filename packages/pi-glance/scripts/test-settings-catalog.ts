@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import {
 	CONTEXT_DISPLAY_MODE_VALUES,
+	CONTEXT_PROGRESS_STYLE_VALUES,
+	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_UNKNOWN_MODE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
@@ -303,6 +305,20 @@ const contextRows = assertRows(config, "context", [
 		kind: "cycle",
 	},
 	{
+		id: "context.progressStyle",
+		label: "Progress style",
+		value: "border",
+		hint: "Use a standalone track or the input border itself.",
+		kind: "cycle",
+	},
+	{
+		id: "context.progressWidth",
+		label: "Progress width",
+		value: "one third",
+		hint: "Use one third or all remaining bottom-border space.",
+		kind: "cycle",
+	},
+	{
 		id: "context.unknown",
 		label: "Unknown",
 		value: "show",
@@ -442,6 +458,8 @@ assert.deepEqual(pollingValues, ["2s", "5s", "10s", "30s"], "polling values shou
 
 assert.equal(rowById(contextRows, "context.enabled").apply!(config).segments.find((segment) => segment.id === "context")?.enabled, false, "context enabled should toggle off");
 assert.equal(rowById(contextRows, "context.display").apply!(config).context.display, "percent", "context display should cycle percent+tokens -> percent");
+assert.equal(rowById(contextRows, "context.progressStyle").apply!(config).context.progressStyle, "track", "context progress style should cycle border -> track");
+assert.equal(rowById(contextRows, "context.progressWidth").apply!(config).context.progressWidth, "remaining", "context progress width should cycle third -> remaining");
 assert.equal(rowById(contextRows, "context.unknown").apply!(config).context.unknown, "hide", "context unknown should cycle show -> hide");
 
 assert.equal(rowById(costRows, "cost.enabled").apply!(config).segments.find((segment) => segment.id === "cost")?.enabled, false, "cost enabled should toggle off");
@@ -516,6 +534,28 @@ assertCycleUsesValues(
 		next.context.display = display;
 	}),
 	(after) => after.context.display,
+);
+assertCycleUsesValues(
+	config,
+	CONTEXT_PROGRESS_STYLE_VALUES,
+	"context",
+	"context.progressStyle",
+	"Context Progress Style",
+	(base, progressStyle) => withTestConfig(base, (next) => {
+		next.context.progressStyle = progressStyle;
+	}),
+	(after) => after.context.progressStyle,
+);
+assertCycleUsesValues(
+	config,
+	CONTEXT_PROGRESS_WIDTH_VALUES,
+	"context",
+	"context.progressWidth",
+	"Context Progress Width",
+	(base, progressWidth) => withTestConfig(base, (next) => {
+		next.context.progressWidth = progressWidth;
+	}),
+	(after) => after.context.progressWidth,
 );
 assertCycleUsesValues(
 	config,

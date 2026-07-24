@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	CONTEXT_DISPLAY_MODE_VALUES,
+	CONTEXT_PROGRESS_STYLE_VALUES,
+	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_UNKNOWN_MODE_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
@@ -18,6 +20,8 @@ import { defaultSegmentConfigs, isSegmentId } from "./segment-registry.js";
 import { GLANCE_THEME_ID_SET } from "./themes.js";
 import type {
 	ContextDisplayMode,
+	ContextProgressStyle,
+	ContextProgressWidth,
 	ContextUnknownMode,
 	EditorTopMarginRows,
 	GitShaMode,
@@ -34,7 +38,7 @@ import type {
 
 const CONFIG_PATH = join(getAgentDir(), "pi-glance", "config.json");
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 9 as const;
+const CONFIG_VERSION = 10 as const;
 
 const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
 const PROVIDER_MODES = new Set<GlanceConfig["display"]["showProvider"]>(PROVIDER_DISPLAY_MODE_VALUES);
@@ -42,6 +46,8 @@ const WORKSPACE_LABEL_MODES = new Set<WorkspaceLabelMode>(WORKSPACE_LABEL_MODE_V
 const GIT_SHA_MODES = new Set<GitShaMode>(GIT_SHA_MODE_VALUES);
 const CONTEXT_DISPLAY_MODES = new Set<ContextDisplayMode>(CONTEXT_DISPLAY_MODE_VALUES);
 const CONTEXT_UNKNOWN_MODES = new Set<ContextUnknownMode>(CONTEXT_UNKNOWN_MODE_VALUES);
+const CONTEXT_PROGRESS_STYLES = new Set<ContextProgressStyle>(CONTEXT_PROGRESS_STYLE_VALUES);
+const CONTEXT_PROGRESS_WIDTHS = new Set<ContextProgressWidth>(CONTEXT_PROGRESS_WIDTH_VALUES);
 const TOKENS_DISPLAY_MODES = new Set<TokensDisplayMode>(TOKENS_DISPLAY_MODE_VALUES);
 const TOKENS_CACHE_MODES = new Set<TokensCacheMode>(TOKENS_CACHE_MODE_VALUES);
 const MODEL_THINKING_MODES = new Set<ModelThinkingMode>(MODEL_THINKING_MODE_VALUES);
@@ -76,6 +82,8 @@ export function defaultConfig(): GlanceConfig {
 		context: {
 			display: "percent+tokens",
 			unknown: "show",
+			progressStyle: "border",
+			progressWidth: "third",
 		},
 		cost: {
 			hideZero: false,
@@ -240,6 +248,8 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 		context: {
 			display: parseStringEnum(context.display, CONTEXT_DISPLAY_MODES, defaults.context.display),
 			unknown: parseStringEnum(context.unknown, CONTEXT_UNKNOWN_MODES, defaults.context.unknown),
+			progressStyle: parseStringEnum(context.progressStyle, CONTEXT_PROGRESS_STYLES, defaults.context.progressStyle),
+			progressWidth: parseStringEnum(context.progressWidth, CONTEXT_PROGRESS_WIDTHS, defaults.context.progressWidth),
 		},
 		cost: {
 			hideZero: parseBool(cost.hideZero, defaults.cost.hideZero),

@@ -5,7 +5,8 @@ import { defaultConfig } from "../config.js";
 import { GlanceEditor } from "../editor.js";
 import { PALETTES, fg } from "../palette.js";
 import { createPiRenderStyleContext } from "../render-style-context.js";
-import { bottomDetailsBudget, renderBottomDetails } from "../bottom-details.js";
+import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "../bottom-details.js";
+import { contextRiskLevel } from "../context-risk.js";
 import { renderInputSurface } from "../renderer.js";
 import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
 import { renderGlanceLine } from "../status-line.js";
@@ -231,15 +232,42 @@ function renderLegacyStyledEditorTop(state: GlanceState, config: GlanceConfig, w
 	});
 }
 
-function renderLegacyStyledEditorBottom(state: GlanceState, config: GlanceConfig, width: number, focused: boolean): string {
-	const details = renderBottomDetails(state, config, bottomDetailsBudget(surfaceMetrics(width).innerWidth), {
-		styles: resolveBuiltInGlanceStyles(themeName(config)),
-		dimmed: !focused,
-	});
-	return renderSurfaceChunks(planSurfaceBottomFrame({ width, status: details }).chunks, {
+function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: number, focused = true): string {
+	const innerWidth = surfaceMetrics(width).innerWidth;
+	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, 0);
+	const detailsBudget = config.context.progressWidth === "remaining"
+		? availableDetailsBudget
+		: Math.min(availableDetailsBudget, bottomDetailsBudget(innerWidth));
+	const styles = resolveBuiltInGlanceStyles(themeName(config));
+	const details = renderBottomDetails(state, config, detailsBudget, { styles, dimmed: !focused });
+	const progressPercent = bottomBorderProgressPercent(state, config);
+	const contextProgress = progressPercent === undefined
+		? undefined
+		: {
+				percent: progressPercent,
+				maxWidth: config.context.progressWidth === "third" ? Math.max(0, detailsBudget - visibleWidth(details)) : undefined,
+			};
+	const risk = contextRiskLevel(progressPercent);
+	const progressFilled = !focused
+		? styles.dim
+		: risk === "error"
+			? styles.error
+			: risk === "warning"
+				? styles.warn
+				: risk === "unknown"
+					? styles.dim
+					: styles.segments.context.fg;
+	const progressEmpty = !focused || risk === "unknown" ? styles.dim : styles.border;
+	return renderSurfaceChunks(planSurfaceBottomFrame({ width, status: details, contextProgress }).chunks, {
 		border: (text) => legacyEditorBorder(config, focused, text),
 		status: (text) => text,
+		contextProgressFilled: progressFilled,
+		contextProgressEmpty: progressEmpty,
 	});
+}
+
+function renderLegacyStyledEditorBottom(state: GlanceState, config: GlanceConfig, width: number, focused: boolean): string {
+	return renderLegacyBottom(state, config, width, focused);
 }
 
 function renderLegacyStyledInputSurface(state: GlanceState, config: GlanceConfig, width: number, options: LegacySurfaceOptions = {}): string[] {
@@ -284,15 +312,7 @@ function renderLegacyStyledInputSurface(state: GlanceState, config: GlanceConfig
 			}),
 		);
 	}
-	const details = renderBottomDetails(state, config, bottomDetailsBudget(innerWidth), {
-		styles: resolveBuiltInGlanceStyles(themeName(config)),
-	});
-	lines.push(
-		renderSurfaceChunks(planSurfaceBottomFrame({ width: safeWidth, status: details }).chunks, {
-			border: (text) => legacyBorder(config, text),
-			status: (text) => text,
-		}),
-	);
+	lines.push(renderLegacyBottom(state, config, safeWidth));
 	return lines;
 }
 

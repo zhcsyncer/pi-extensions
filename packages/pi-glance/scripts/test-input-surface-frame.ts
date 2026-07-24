@@ -153,4 +153,60 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	assert.ok(stripAnsi(unfocused.at(-1) ?? "").startsWith("╰"), "unfocused editor bottom frame should keep the same visible border glyphs");
 }
 
+{
+	const styles = resolveBuiltInGlanceStyles("dark");
+	function progressBottom(
+		progressStyle: GlanceConfig["context"]["progressStyle"],
+		progressWidth: GlanceConfig["context"]["progressWidth"],
+		percent: number | null = 23.4,
+		bottomScrollIndicator?: string,
+	): string {
+		const config = defaultConfig();
+		config.editor.topMarginRows = 0;
+		config.context.display = "progress";
+		config.context.progressStyle = progressStyle;
+		config.context.progressWidth = progressWidth;
+		config.bottomDetails.showAutoCompact = false;
+		onlySegments(config, ["context"]);
+		const base = richState();
+		const state = { ...base, context: { ...base.context, tokens: percent === null ? null : base.context.tokens, percent } };
+		return renderInputSurfaceFrame({
+			state,
+			config,
+			width: 80,
+			styles,
+			body: { kind: "preview", lines: [""] },
+			chrome: { bottomScrollIndicator },
+		}).at(-1) ?? "";
+	}
+
+	const trackThird = stripAnsi(progressBottom("track", "third"));
+	const trackRemaining = stripAnsi(progressBottom("track", "remaining"));
+	const borderThird = stripAnsi(progressBottom("border", "third"));
+	const borderRemaining = stripAnsi(progressBottom("border", "remaining"));
+	assert.ok(trackThird.includes("╶") && trackThird.includes("╴ 23%"), "track/third should preserve the standalone track renderer");
+	assert.ok(trackRemaining.includes("╶") && trackRemaining.indexOf("╶") < trackThird.indexOf("╶"), "track/remaining should expand into earlier bottom-border space");
+	assert.equal(borderThird.includes("╶"), false, "border/third should not render a standalone track");
+	assert.ok(borderThird.includes("╼") && borderThird.includes("━"), "border/third should render a light-to-heavy border transition");
+	assert.ok([...borderRemaining].filter((char) => char === "━").length > [...borderThird].filter((char) => char === "━").length, "border/remaining should use more heavy progress cells than border/third");
+	for (const [label, line] of Object.entries({ trackThird, trackRemaining, borderThird, borderRemaining })) {
+		assert.equal(visibleWidth(line), 80, `${label} bottom frame should preserve exact surface width`);
+	}
+
+	const normal = progressBottom("border", "third", 23.4);
+	const warning = progressBottom("border", "third", 70);
+	const error = progressBottom("border", "third", 85);
+	assert.ok(normal.includes(styles.segments.context.fg(`╼${"━".repeat(4)}`)), "border progress below 70 percent should use context color");
+	assert.ok(warning.includes(styles.warn(`╼${"━".repeat(15)}`)), "border progress at 70 percent should use warning color");
+	assert.ok(error.includes(styles.error(`╼${"━".repeat(19)}`)), "border progress at 85 percent should use error color");
+	const unknown = progressBottom("border", "third", null);
+	assert.ok(unknown.includes(styles.dim("─".repeat(25))), "unknown border progress should use a dim light track");
+	assert.equal(stripAnsi(unknown).includes("━"), false, "unknown border progress should not render heavy used cells");
+
+	const withScroll = progressBottom("border", "remaining", 70, "─── ↓ 2 more ");
+	assert.ok(stripAnsi(withScroll).includes("─── ↓ 2 more "), "remaining border progress should preserve the bottom scroll indicator");
+	assert.ok(withScroll.includes(styles.warn(`╼${"━".repeat(40)}`)), "remaining border progress should retain risk styling after reserving scroll-indicator space");
+	assert.equal(visibleWidth(withScroll), 80, "remaining border progress with scroll indicator should preserve exact width");
+}
+
 console.log("✓ input surface frame checks passed");

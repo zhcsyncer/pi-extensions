@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import {
 	CONTEXT_DISPLAY_MODE_VALUES,
+	CONTEXT_PROGRESS_STYLE_VALUES,
+	CONTEXT_PROGRESS_WIDTH_VALUES,
 	CONTEXT_UNKNOWN_MODE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
@@ -32,9 +34,9 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 9, "context progress and fixed status-only footer should bump CONFIG_VERSION to 9");
-assert.equal(normalizeConfig({ version: 0 }).version, 9, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 9, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 10, "configurable context progress should bump CONFIG_VERSION to 10");
+assert.equal(normalizeConfig({ version: 0 }).version, 10, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 10, "future raw version should normalize to current schema version");
 assert.deepEqual(defaults.theme, { light: "light", dark: "dark" }, "default theme pair should use light for light tone and dark for dark tone");
 assert.equal(defaults.throughput.precision, THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue, "default config throughput precision should come from descriptor default");
 assert.deepEqual((defaults as unknown as { throughput?: unknown }).throughput, { precision: THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue }, "default config should include throughput.precision=auto");
@@ -104,6 +106,12 @@ for (const display of CONTEXT_DISPLAY_MODE_VALUES) {
 for (const unknown of CONTEXT_UNKNOWN_MODE_VALUES) {
 	assert.equal(normalizeConfig({ context: { unknown } }).context.unknown, unknown, `${unknown} should normalize as a valid context unknown mode`);
 }
+for (const progressStyle of CONTEXT_PROGRESS_STYLE_VALUES) {
+	assert.equal(normalizeConfig({ context: { progressStyle } }).context.progressStyle, progressStyle, `${progressStyle} should normalize as a valid context progress style`);
+}
+for (const progressWidth of CONTEXT_PROGRESS_WIDTH_VALUES) {
+	assert.equal(normalizeConfig({ context: { progressWidth } }).context.progressWidth, progressWidth, `${progressWidth} should normalize as a valid context progress width`);
+}
 for (const display of TOKENS_DISPLAY_MODE_VALUES) {
 	assert.equal(normalizeConfig({ tokens: { display } }).tokens.display, display, `${display} should normalize as a valid tokens display mode`);
 }
@@ -159,6 +167,8 @@ const userConfig = normalizeConfig({
 	context: {
 		display: "tokens",
 		unknown: "hide",
+		progressStyle: "track",
+		progressWidth: "remaining",
 	},
 	cost: {
 		hideZero: true,
@@ -175,7 +185,7 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 9,
+		version: 10,
 		enabled: false,
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
 		icons: "nerd",
@@ -213,6 +223,8 @@ assert.deepEqual(
 		context: {
 			display: "tokens",
 			unknown: "hide",
+			progressStyle: "track",
+			progressWidth: "remaining",
 		},
 		cost: {
 			hideZero: true,
@@ -273,6 +285,8 @@ assert.equal(normalizeConfig({ display: { workspaceLabel: "repo" } }).display.wo
 assert.equal(normalizeConfig({ git: { shaMode: "branch" } }).git.shaMode, defaults.git.shaMode, "unknown git SHA mode should fall back to default");
 assert.equal(normalizeConfig({ context: { display: "window" } }).context.display, defaults.context.display, "unknown context display mode should fall back to default");
 assert.equal(normalizeConfig({ context: { unknown: "dim" } }).context.unknown, defaults.context.unknown, "unknown context unknown mode should fall back to default");
+assert.equal(normalizeConfig({ context: { progressStyle: "meter" } }).context.progressStyle, defaults.context.progressStyle, "unknown context progress style should fall back to default");
+assert.equal(normalizeConfig({ context: { progressWidth: "half" } }).context.progressWidth, defaults.context.progressWidth, "unknown context progress width should fall back to default");
 assert.equal(normalizeConfig({ tokens: { display: "input" } }).tokens.display, defaults.tokens.display, "unknown tokens display mode should fall back to default");
 assert.equal(normalizeConfig({ tokens: { cache: "read" } }).tokens.cache, defaults.tokens.cache, "unknown tokens cache mode should fall back to default");
 assert.equal(normalizeConfig({ model: { showThinking: "maybe" } }).model.showThinking, defaults.model.showThinking, "unknown thinking mode should fall back to default");

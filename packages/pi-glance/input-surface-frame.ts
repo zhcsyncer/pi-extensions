@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { bottomDetailsBudget, renderBottomDetails } from "./bottom-details.js";
+import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "./bottom-details.js";
+import { contextRiskLevel } from "./context-risk.js";
 import { renderGlanceLine } from "./status-line.js";
 import {
 	planSurfaceBottomFrame,
@@ -162,13 +163,41 @@ function renderBodyRow(input: InputSurfaceFrameInput, text: string, index: numbe
 function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string {
 	const dimmed = shouldDimChrome(input);
 	const border = dimmed ? input.styles.dim : input.styles.border;
-	const detailsBudget = bottomDetailsBudget(surfaceMetrics(width).innerWidth);
+	const innerWidth = surfaceMetrics(width).innerWidth;
+	const scrollIndicator = input.chrome?.bottomScrollIndicator;
+	const indicatorWidth = Math.min(innerWidth, visibleWidth(scrollIndicator ?? ""));
+	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, indicatorWidth);
+	const detailsBudget = input.config.context.progressWidth === "remaining"
+		? availableDetailsBudget
+		: Math.min(availableDetailsBudget, bottomDetailsBudget(innerWidth));
 	const status = renderBottomDetails(input.state, input.config, detailsBudget, { styles: input.styles, dimmed });
+	const progressPercent = bottomBorderProgressPercent(input.state, input.config);
+	const contextProgress = progressPercent === undefined
+		? undefined
+		: {
+				percent: progressPercent,
+				maxWidth: input.config.context.progressWidth === "third"
+					? Math.max(0, detailsBudget - visibleWidth(status))
+					: undefined,
+			};
+	const risk = contextRiskLevel(progressPercent);
+	const progressFilled = dimmed
+		? input.styles.dim
+		: risk === "error"
+			? input.styles.error
+			: risk === "warning"
+				? input.styles.warn
+				: risk === "unknown"
+					? input.styles.dim
+					: input.styles.segments.context.fg;
+	const progressEmpty = dimmed || risk === "unknown" ? input.styles.dim : border;
 	return renderSurfaceChunks(
-		planSurfaceBottomFrame({ width, scrollIndicator: input.chrome?.bottomScrollIndicator, status }).chunks,
+		planSurfaceBottomFrame({ width, scrollIndicator, status, contextProgress }).chunks,
 		{
 			border,
 			status: identity,
+			contextProgressFilled: progressFilled,
+			contextProgressEmpty: progressEmpty,
 		},
 	);
 }

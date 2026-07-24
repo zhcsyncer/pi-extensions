@@ -409,7 +409,7 @@ function assertInputSurfaceFrameSeamImports(files: SourceFile[]): void {
 	const inputSurfaceFrame = files.find((candidate) => basename(candidate.path) === INPUT_SURFACE_FRAME_MODULE);
 	assert.ok(inputSurfaceFrame, "input-surface-frame.ts frame composition seam should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./context-risk.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js"]);
 	const forbiddenLocalSpecifiers = new Set([
 		"./editor.js",
 		"./renderer.js",
@@ -685,7 +685,7 @@ function assertStatusLineSeamImports(files: SourceFile[]): void {
 	const statusLine = files.find((candidate) => basename(candidate.path) === STATUS_LINE_MODULE);
 	assert.ok(statusLine, "status-line.ts render seam should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./palette.js", "./segment-registry.js", "./segments.js", "./theme-adapter.js", "./types.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./context-risk.js", "./palette.js", "./segment-registry.js", "./segments.js", "./theme-adapter.js", "./types.js"]);
 	const forbiddenLocalSpecifiers = new Set([
 		"./renderer.js",
 		"./surface-layout.js",

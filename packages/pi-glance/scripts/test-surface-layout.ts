@@ -150,6 +150,26 @@ const plainBottom = planSurfaceBottomFrame({ width: 12 });
 assert.equal(plain(plainBottom.chunks), "╰──────────╯", "bottom frame without indicator fills the whole inner width");
 assert.equal(visibleWidth(plain(plainBottom.chunks)), safeSurfaceWidth(12), "plain bottom frame reaches the safe width exactly");
 
+const boundedProgressBottom = planSurfaceBottomFrame({ width: 20, status: "23%", contextProgress: { percent: 50, maxWidth: 6 } });
+assert.equal(plain(boundedProgressBottom.chunks), "╰─────────╼━━ 23% ─╯", "bounded border progress should grow heavy cells leftward from the status");
+assert.equal(boundedProgressBottom.progressWidth, 6, "bounded border progress should honor maxWidth");
+assert.equal(boundedProgressBottom.leadingFillerWidth, 6, "bounded border progress should preserve leading border filler");
+assert.equal(
+	renderSurfaceChunks(boundedProgressBottom.chunks, {
+		contextProgressEmpty: (text) => `<empty>${text}</empty>`,
+		contextProgressFilled: (text) => `<filled>${text}</filled>`,
+	}),
+	"╰──────<empty>───</empty><filled>╼━━</filled> 23% ─╯",
+	"border progress should expose separate empty and filled chunk roles for semantic styling",
+);
+const remainingProgressBottom = planSurfaceBottomFrame({ width: 20, status: "23%", contextProgress: { percent: 25 } });
+assert.equal(remainingProgressBottom.progressWidth, 12, "remaining border progress should consume all filler before the fixed status");
+assert.equal(remainingProgressBottom.leadingFillerWidth, 0, "remaining border progress should leave no unrelated leading filler");
+assert.equal(plain(remainingProgressBottom.chunks), "╰─────────╼━━ 23% ─╯", "remaining border progress should keep exact frame geometry");
+const unknownProgressBottom = planSurfaceBottomFrame({ width: 20, status: "?", contextProgress: { percent: null, maxWidth: 6 } });
+assert.equal(unknownProgressBottom.progressWidth, 6, "unknown progress should retain its configured width");
+assert.equal(plain(unknownProgressBottom.chunks), "╰────────────── ? ─╯", "unknown progress should remain a light border track");
+
 const indicator = formatSurfaceScrollIndicator("╰── ↓ 45 more ─╯", 20);
 assert.equal(indicator, "─── ↓ 45 more ", "down scroll indicator is extracted and framed");
 const upIndicator = formatSurfaceScrollIndicator("╭── ↑ 7 more ─╮", 20);

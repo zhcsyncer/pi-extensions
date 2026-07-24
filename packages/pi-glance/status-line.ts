@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { contextRiskLevel } from "./context-risk.js";
 import { ICONS } from "./palette.js";
 import { SEGMENT_BY_ID } from "./segment-registry.js";
 import { renderSegment } from "./segments.js";
@@ -10,9 +11,9 @@ const RESET = "\x1b[0m";
 function applyInlineSegmentStyle(segment: SegmentRenderResult, styles: ResolvedGlanceStyles, text: string): string {
 	if (segment.id === "context") {
 		const match = text.match(/([0-9]+(?:\.[0-9]+)?)%/);
-		const percent = match ? Number.parseFloat(match[1]!) : NaN;
-		if (Number.isFinite(percent) && percent >= 90) return styles.error(text);
-		if (Number.isFinite(percent) && percent >= 75) return styles.warn(text);
+		const risk = contextRiskLevel(match ? Number.parseFloat(match[1]!) : null);
+		if (risk === "error") return styles.error(text);
+		if (risk === "warning") return styles.warn(text);
 		return styles.segments.context.fg(text);
 	}
 	return styles.segments[segment.id].fg(text);

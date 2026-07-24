@@ -1,6 +1,8 @@
 import { THROUGHPUT_PRECISION_DESCRIPTOR } from "./config-schema.js";
 import type {
 	ContextDisplayMode,
+	ContextProgressStyle,
+	ContextProgressWidth,
 	ContextUnknownMode,
 	GitShaMode,
 	EditorTopMarginRows,
@@ -20,6 +22,8 @@ export const EDITOR_TOP_MARGIN_ROW_VALUES: ReadonlyArray<EditorTopMarginRows> = 
 export const GIT_SHA_MODE_VALUES: ReadonlyArray<GitShaMode> = ["off", "detached", "always"];
 export const CONTEXT_DISPLAY_MODE_VALUES: ReadonlyArray<ContextDisplayMode> = ["percent+tokens", "percent", "tokens", "progress"];
 export const CONTEXT_UNKNOWN_MODE_VALUES: ReadonlyArray<ContextUnknownMode> = ["show", "hide"];
+export const CONTEXT_PROGRESS_STYLE_VALUES: ReadonlyArray<ContextProgressStyle> = ["border", "track"];
+export const CONTEXT_PROGRESS_WIDTH_VALUES: ReadonlyArray<ContextProgressWidth> = ["third", "remaining"];
 export const TOKENS_DISPLAY_MODE_VALUES: ReadonlyArray<TokensDisplayMode> = ["input-output", "total"];
 export const TOKENS_CACHE_MODE_VALUES: ReadonlyArray<TokensCacheMode> = ["auto", "show", "hide"];
 export const MODEL_THINKING_MODE_VALUES: ReadonlyArray<ModelThinkingMode> = ["auto", "always", "never"];

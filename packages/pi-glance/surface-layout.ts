@@ -20,7 +20,7 @@ const SURFACE_BORDER = {
 	horizontal: "─",
 } as const;
 
-type SurfaceChunkRole = "border" | "title" | "status" | "content" | "text" | "dim";
+type SurfaceChunkRole = "border" | "title" | "status" | "content" | "text" | "dim" | "contextProgressFilled" | "contextProgressEmpty";
 
 interface SurfaceChunk {
 	role: SurfaceChunkRole;
@@ -68,6 +68,8 @@ interface SurfaceBottomFramePlan extends SurfaceFramePlan {
 	indicator: string;
 	status: SurfaceStatusPlan;
 	fillerWidth: number;
+	leadingFillerWidth: number;
+	progressWidth: number;
 }
 
 interface SurfaceRowPlan extends SurfaceFramePlan {
@@ -94,11 +96,17 @@ interface SurfaceTopFrameOptions {
 	statusEllipsis?: string;
 }
 
+interface SurfaceBottomProgressOptions {
+	percent: number | null;
+	maxWidth?: number;
+}
+
 interface SurfaceBottomFrameOptions {
 	width: number;
 	scrollIndicator?: string;
 	status?: string;
 	statusEllipsis?: string;
+	contextProgress?: SurfaceBottomProgressOptions;
 }
 
 interface SurfaceRowOptions {
@@ -264,6 +272,22 @@ export function formatSurfaceScrollIndicator(line: string, width: number): strin
 	return truncateSurfaceText(indicator, innerWidth, "");
 }
 
+function bottomProgressChunks(width: number, percent: number | null): SurfaceChunk[] {
+	if (width <= 0) return [];
+	if (percent === null || !Number.isFinite(percent)) {
+		return [chunk("contextProgressEmpty", repeat(SURFACE_BORDER.horizontal, width))];
+	}
+	const clamped = Math.max(0, Math.min(100, percent));
+	const filledWidth = Math.round((clamped / 100) * width);
+	if (filledWidth <= 0) return [chunk("contextProgressEmpty", repeat(SURFACE_BORDER.horizontal, width))];
+	if (filledWidth >= width) return [chunk("contextProgressFilled", "━".repeat(width))];
+	const emptyWidth = width - filledWidth;
+	return [
+		chunk("contextProgressEmpty", repeat(SURFACE_BORDER.horizontal, emptyWidth)),
+		chunk("contextProgressFilled", `╼${"━".repeat(Math.max(0, filledWidth - 1))}`),
+	];
+}
+
 export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): SurfaceBottomFramePlan {
 	const metrics = surfaceMetrics(options.width);
 	const indicator = options.scrollIndicator ? truncateSurfaceText(options.scrollIndicator, metrics.innerWidth, "") : "";
@@ -272,10 +296,16 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 	const status = planSurfaceStatus(options.status, statusBudget, options.statusEllipsis);
 	const statusChromeWidth = status.text ? SURFACE_STATUS_CHROME_WIDTH : 0;
 	const fillerWidth = Math.max(0, metrics.innerWidth - indicatorWidth - status.width - statusChromeWidth);
+	const requestedProgressWidth = options.contextProgress?.maxWidth === undefined
+		? fillerWidth
+		: Math.max(0, finiteFloor(options.contextProgress.maxWidth, 0));
+	const progressWidth = options.contextProgress ? Math.min(fillerWidth, requestedProgressWidth) : 0;
+	const leadingFillerWidth = fillerWidth - progressWidth;
 	const chunks: SurfaceChunk[] = [
 		chunk("border", SURFACE_BORDER.bottomLeft),
 		chunk("border", indicator),
-		chunk("border", repeat(SURFACE_BORDER.horizontal, fillerWidth)),
+		chunk("border", repeat(SURFACE_BORDER.horizontal, leadingFillerWidth)),
+		...bottomProgressChunks(progressWidth, options.contextProgress?.percent ?? null),
 	];
 	if (status.text) {
 		chunks.push(
@@ -286,7 +316,7 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 		);
 	}
 	chunks.push(chunk("border", SURFACE_BORDER.bottomRight));
-	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), indicator, status, fillerWidth };
+	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), indicator, status, fillerWidth, leadingFillerWidth, progressWidth };
 }
 
 export function planSurfaceRow(options: SurfaceRowOptions): SurfaceRowPlan {

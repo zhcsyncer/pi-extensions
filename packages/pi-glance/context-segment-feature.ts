@@ -1,4 +1,9 @@
-import { CONTEXT_DISPLAY_MODE_VALUES, CONTEXT_UNKNOWN_MODE_VALUES } from "./config-options.js";
+import {
+	CONTEXT_DISPLAY_MODE_VALUES,
+	CONTEXT_PROGRESS_STYLE_VALUES,
+	CONTEXT_PROGRESS_WIDTH_VALUES,
+	CONTEXT_UNKNOWN_MODE_VALUES,
+} from "./config-options.js";
 import { formatPercent, formatTokens } from "./segment-display-primitives.js";
 import type { SegmentFeature } from "./segment-feature.js";
 import type { GlanceConfig, SegmentData, SegmentRenderContext } from "./types.js";
@@ -17,6 +22,10 @@ function nextIn<T extends string | number>(current: T, values: readonly T[]): T 
 
 function contextDisplayLabel(mode: GlanceConfig["context"]["display"]): string {
 	return CONTEXT_DISPLAY_LABELS[mode];
+}
+
+function contextProgressWidthLabel(width: GlanceConfig["context"]["progressWidth"]): string {
+	return width === "third" ? "one third" : "remaining";
 }
 
 function contextTokenRatio(ctx: SegmentRenderContext): string {
@@ -70,6 +79,26 @@ export const contextSegmentFeature = {
 			value: (config: GlanceConfig) => contextDisplayLabel(config.context.display),
 			mutate: (config: GlanceConfig) => {
 				config.context.display = nextIn(config.context.display, CONTEXT_DISPLAY_MODE_VALUES);
+			},
+		},
+		{
+			id: "context.progressStyle",
+			label: "Progress style",
+			hint: "Use a standalone track or the input border itself.",
+			kind: "cycle",
+			value: (config: GlanceConfig) => config.context.progressStyle,
+			mutate: (config: GlanceConfig) => {
+				config.context.progressStyle = nextIn(config.context.progressStyle, CONTEXT_PROGRESS_STYLE_VALUES);
+			},
+		},
+		{
+			id: "context.progressWidth",
+			label: "Progress width",
+			hint: "Use one third or all remaining bottom-border space.",
+			kind: "cycle",
+			value: (config: GlanceConfig) => contextProgressWidthLabel(config.context.progressWidth),
+			mutate: (config: GlanceConfig) => {
+				config.context.progressWidth = nextIn(config.context.progressWidth, CONTEXT_PROGRESS_WIDTH_VALUES);
 			},
 		},
 		{

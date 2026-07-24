@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { contextRiskLevel } from "./context-risk.js";
 import { BOTTOM_DETAIL_ICONS } from "./palette.js";
 import { formatPercent } from "./segment-display-primitives.js";
 import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
@@ -20,6 +21,8 @@ interface DetailStylers {
 	text: TextStyler;
 	muted: TextStyler;
 	context: TextStyler;
+	warning: TextStyler;
+	error: TextStyler;
 	autoCompact: TextStyler;
 }
 
@@ -29,12 +32,18 @@ function identity(text: string): string {
 
 function detailStylers(options: BottomDetailsRenderOptions): DetailStylers {
 	const styles = options.styles;
-	if (!styles) return { text: identity, muted: identity, context: identity, autoCompact: identity };
-	if (options.dimmed) return { text: styles.dim, muted: styles.dim, context: styles.dim, autoCompact: styles.dim };
+	if (!styles) {
+		return { text: identity, muted: identity, context: identity, warning: identity, error: identity, autoCompact: identity };
+	}
+	if (options.dimmed) {
+		return { text: styles.dim, muted: styles.dim, context: styles.dim, warning: styles.dim, error: styles.dim, autoCompact: styles.dim };
+	}
 	return {
 		text: styles.text,
 		muted: styles.dim,
 		context: styles.segments.context.fg,
+		warning: styles.warn,
+		error: styles.error,
 		autoCompact: styles.success,
 	};
 }
@@ -55,6 +64,19 @@ function contextFillCells(percent: number | null, width: number): number {
 	return Math.round((clamped / 100) * width);
 }
 
+function progressStyler(stylers: DetailStylers, percent: number | null): TextStyler {
+	switch (contextRiskLevel(percent)) {
+		case "warning":
+			return stylers.warning;
+		case "error":
+			return stylers.error;
+		case "unknown":
+			return stylers.muted;
+		case "normal":
+			return stylers.context;
+	}
+}
+
 function renderContextProgress(
 	state: GlanceState,
 	config: GlanceConfig,
@@ -63,15 +85,18 @@ function renderContextProgress(
 ): string {
 	if (width <= 0 || !shouldRenderContext(state, config)) return "";
 	const percent = formatPercent(state.context.percent);
+	if (config.context.progressStyle === "border") {
+		return visibleWidth(percent) <= width ? stylers.text(percent) : "";
+	}
+
 	const suffixWidth = visibleWidth(` ${percent}`);
 	const trackWidth = Math.floor(width - suffixWidth);
-
 	if (trackWidth >= MIN_PROGRESS_WIDTH) {
 		const track = `${TRACK_START}${TRACK_CELL.repeat(trackWidth - 2)}${TRACK_END}`;
 		const filledWidth = contextFillCells(state.context.percent, trackWidth);
 		const filled = track.slice(0, filledWidth);
 		const empty = track.slice(filledWidth);
-		return `${stylers.context(filled)}${stylers.muted(empty)} ${stylers.text(percent)}`;
+		return `${progressStyler(stylers, state.context.percent)(filled)}${stylers.muted(empty)} ${stylers.text(percent)}`;
 	}
 
 	return visibleWidth(percent) <= width ? stylers.text(percent) : "";
@@ -85,6 +110,11 @@ function renderAutoCompact(state: GlanceState, config: GlanceConfig, stylers: De
 export function bottomDetailsBudget(innerWidth: number): number {
 	if (!Number.isFinite(innerWidth)) return 0;
 	return Math.max(0, Math.floor(innerWidth * BOTTOM_DETAILS_INNER_WIDTH_RATIO));
+}
+
+export function bottomBorderProgressPercent(state: GlanceState, config: GlanceConfig): number | null | undefined {
+	if (config.context.progressStyle !== "border" || !shouldRenderContext(state, config)) return undefined;
+	return state.context.percent;
 }
 
 export function renderBottomDetails(

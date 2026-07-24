@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { bottomDetailsBudget, renderBottomDetails } from "../bottom-details.js";
+import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "../bottom-details.js";
 import { defaultConfig } from "../config.js";
 import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
 import { planSurfaceBottomFrame, renderSurfaceChunks } from "../surface-layout.js";
@@ -9,6 +9,7 @@ import { testState } from "./helpers.js";
 function progressConfig() {
 	const config = defaultConfig();
 	config.context.display = "progress";
+	config.context.progressStyle = "track";
 	return config;
 }
 
@@ -45,6 +46,15 @@ const standardDetailsBudget = bottomDetailsBudget(78);
 		`${track(13)} 23% · 󰁄 auto`,
 		"bottom progress should omit the context icon while Nerd Font mode labels auto-compaction",
 	);
+}
+
+{
+	const config = progressConfig();
+	config.context.progressStyle = "border";
+	assert.equal(renderBottomDetails(state, config, standardDetailsBudget), "23% · auto", "border style should leave progress rendering to the input frame");
+	assert.equal(bottomBorderProgressPercent(state, config), 23.4, "border style should expose the known context percentage to the frame");
+	config.context.progressStyle = "track";
+	assert.equal(bottomBorderProgressPercent(state, config), undefined, "track style should not expose integrated border progress");
 }
 
 {
@@ -104,6 +114,12 @@ const standardDetailsBudget = bottomDetailsBudget(78);
 	assert.ok(highlighted.includes(styles.dim(`${"─".repeat(9)}╴`)), "remaining context track should use the dim style");
 	assert.ok(highlighted.includes(styles.text("23%")), "context percentage should use normal text instead of competing with the track highlight");
 	assert.equal(highlighted.includes("󰍛"), false, "bottom progress should omit the context icon");
+	const warningState = testState({ context: { tokens: 140_000, window: 200_000, percent: 70 } });
+	const warning = renderBottomDetails(warningState, config, standardDetailsBudget, { styles });
+	assert.ok(warning.includes(styles.warn(`╶${"─".repeat(8)}`)), "track style should use warning color from 70 percent");
+	const errorState = testState({ context: { tokens: 170_000, window: 200_000, percent: 85 } });
+	const error = renderBottomDetails(errorState, config, standardDetailsBudget, { styles });
+	assert.ok(error.includes(styles.error(`╶${"─".repeat(10)}`)), "track style should use error color from 85 percent");
 	const dimmed = renderBottomDetails(state, config, standardDetailsBudget, { styles, dimmed: true });
 	assert.ok(dimmed.includes(styles.dim("╶──")), "unfocused context track should follow dimmed chrome");
 	assert.ok(dimmed.includes(styles.dim("23%")), "unfocused context percentage should follow dimmed chrome");

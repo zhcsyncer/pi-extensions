@@ -84,7 +84,7 @@ That's the only command — opens a calm settings pane with a real input-surface
 - Nerd icons need a Nerd Font or Symbols Nerd Font fallback. If icons look like boxes, choose `plain`.
 - pi-glance does not auto-detect, install, or bundle terminal fonts.
 - Other extensions' `ctx.ui.setStatus()` values remain visible below the editor. Glance permanently omits Pi's two informational footer rows because the input surface already shows those primary facts; there is no setting to restore them.
-- Bottom-right details are always active and have no master switch. Choose `/glance` → **Context** → `Display` → `progress bar` to move context into a responsive progress bar there. Auto-compaction is shown when enabled and can be hidden under **Bottom details**.
+- Bottom-right details are always active and have no master switch. Choose `/glance` → **Context** → `Display` → `progress bar` to move context there, then choose a standalone `track` or a progress-aware `border` plus `one third` or `remaining` width. Auto-compaction is shown when enabled and can be hidden under **Bottom details**.
 - Reply speed is enabled by default and appears between cost and context. It shows output tokens per wall time: `?` means no trusted measurement yet, `~42 tok/s` is a provisional current-run checkpoint from completed turns, and `42 tok/s` is the finalized agent-end measurement.
 - Configure `/glance` → **Reply speed** → `Precision`: `auto`, `1 digit`, or `0 digits`. Wall time includes tools, waiting, network, and thinking, so it is not a benchmark. Reply speed uses no notifications, no timers/tickers, no token estimation from text/deltas, and adds no command, footer, dashboard, history, or average view.
 
@@ -118,7 +118,7 @@ At render time, pi-glance reads only Pi's public UI theme name to choose a slot:
 - **Git** — dirty marker, upstream counts, SHA, and polling.
 - **Cost** — hide zero cost.
 - **Reply speed** — enabled by default; shows unknown `?`, provisional `~`, or finalized output tokens per wall time in the status line. Precision can be `auto`, `1 digit`, or `0 digits`. It sends no notifications, uses no timers, and does not estimate tokens from text or deltas.
-- **Context** — percent / tokens, a bottom-right progress bar, or hide unknown usage.
+- **Context** — percent / tokens, a bottom-right progress bar, standalone track or border style, one-third or remaining width, and hide/show unknown usage.
 - **Tokens** — input / output, total, or cache details. Tokens stay off by default.
 - **Model** — provider and thinking labels. Model stays last by default.
 
@@ -128,13 +128,20 @@ The custom footer always renders only statuses published by extensions, sorted b
 
 The input box's bottom-right detail area is always active and has no master switch. It contains only:
 
-- **Context progress** — choose `/glance` → **Context** → `Display` → `progress bar`. Context then leaves the top-right status line and appears as an adaptive border-aligned track such as `╶───────────╴ 23%`. The used section carries the context color, the remainder is dim, and the percentage uses normal text. Bottom progress deliberately omits the context icon so it shares the rounded frame's visual baseline; Nerd Font text modes still use the `󰍛` memory icon.
+- **Context progress** — choose `/glance` → **Context** → `Display` → `progress bar`. `Progress style: track` preserves the standalone `╶───────────╴ 23%` renderer. `Progress style: border` uses the input border itself: unused cells stay light `─`, used cells become heavy `━`, and `╼` joins them. `Progress width` chooses whether progress plus labels use `one third` of the inner width or all `remaining` bottom-border space. The percentage keeps normal text color and bottom progress omits the context icon; Nerd Font text modes still use `󰍛`.
+- **Context risk** — below 70% the used section has the context color, from 70% to below 85% it uses warning, and at 85% or higher it uses error. The same fixed thresholds style top-line context text and both bottom progress styles. Unknown progress is dim.
 - **Auto compact** — appears only while Pi auto-compaction is enabled. Plain mode shows highlighted `auto`; Nerd Font mode shows the highlighted `󰁄 auto` marker. It reflects Pi's merged global/project setting, reading project settings only for trusted projects.
 
-When both facts are visible, context progress and auto compact share a responsive budget of one third of the input surface's inner width. On narrow terminals the progress bar shrinks first; context takes priority over the auto-compaction marker at the smallest widths. The only remaining bottom-detail preference is:
+On narrow terminals the progress visualization shrinks first; context takes priority over the auto-compaction marker at the smallest widths. The relevant config is:
 
 ```json
 {
+  "context": {
+    "display": "progress",
+    "unknown": "show",
+    "progressStyle": "border",
+    "progressWidth": "third"
+  },
   "bottomDetails": {
     "showAutoCompact": true
   }
@@ -179,7 +186,7 @@ pnpm debug:git
 
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
-- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 9; older configs migrate automatically and obsolete footer/detail switches are dropped)
+- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 10; older configs migrate automatically and obsolete footer/detail switches are dropped)
 
 ## License and attribution
 

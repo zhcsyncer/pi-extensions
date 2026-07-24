@@ -250,7 +250,7 @@ for (const themeId of ["light", "dark"] as const) {
 	const palette = PALETTES.light;
 	const normal = rawLine(
 		["context"],
-		testState({ context: { tokens: 140_000, window: 200_000, percent: 74 } }),
+		testState({ context: { tokens: 138_000, window: 200_000, percent: 69 } }),
 		120,
 		1,
 		(config) => {
@@ -259,7 +259,7 @@ for (const themeId of ["light", "dark"] as const) {
 	);
 	const warn = rawLine(
 		["context"],
-		testState({ context: { tokens: 150_000, window: 200_000, percent: 75 } }),
+		testState({ context: { tokens: 140_000, window: 200_000, percent: 70 } }),
 		120,
 		1,
 		(config) => {
@@ -268,7 +268,7 @@ for (const themeId of ["light", "dark"] as const) {
 	);
 	const error = rawLine(
 		["context"],
-		testState({ context: { tokens: 180_000, window: 200_000, percent: 90 } }),
+		testState({ context: { tokens: 170_000, window: 200_000, percent: 85 } }),
 		120,
 		1,
 		(config) => {
@@ -278,9 +278,9 @@ for (const themeId of ["light", "dark"] as const) {
 	assert.equal(lastColorBefore(normal, normal.indexOf("ctx")), fgSeq(palette.segments.context.fg), "context below warn threshold should use normal context color");
 	assert.equal(lastColorBefore(warn, warn.indexOf("ctx")), fgSeq(palette.warn), "context at warn threshold should use warning color");
 	assert.equal(lastColorBefore(error, error.indexOf("ctx")), fgSeq(palette.error), "context at error threshold should use error color");
-	assert.equal(normal, `${fg(palette.segments.context.fg, "ctx 74%")}${RESET}`, "context below warn threshold should preserve exact normal segment ANSI bytes");
-	assert.equal(warn, `${fg(palette.warn, "ctx 75%")}${RESET}`, "context at warn threshold should preserve exact warning ANSI bytes");
-	assert.equal(error, `${fg(palette.error, "ctx 90%")}${RESET}`, "context at error threshold should preserve exact error ANSI bytes");
+	assert.equal(normal, `${fg(palette.segments.context.fg, "ctx 69%")}${RESET}`, "context below warn threshold should preserve exact normal segment ANSI bytes");
+	assert.equal(warn, `${fg(palette.warn, "ctx 70%")}${RESET}`, "context at warn threshold should preserve exact warning ANSI bytes");
+	assert.equal(error, `${fg(palette.error, "ctx 85%")}${RESET}`, "context at error threshold should preserve exact error ANSI bytes");
 
 	const joined = rawLine(
 		["context", "model"],

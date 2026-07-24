@@ -14,6 +14,8 @@ export type GitStatus = "clean" | "dirty" | "conflict" | "unknown";
 export type GitShaMode = "off" | "detached" | "always";
 export type ContextDisplayMode = "percent+tokens" | "percent" | "tokens" | "progress";
 export type ContextUnknownMode = "show" | "hide";
+export type ContextProgressStyle = "track" | "border";
+export type ContextProgressWidth = "third" | "remaining";
 export type TokensDisplayMode = "input-output" | "total";
 export type TokensCacheMode = "auto" | "show" | "hide";
 export type ModelThinkingMode = "auto" | "always" | "never";
@@ -48,6 +50,8 @@ export interface GitConfig {
 interface ContextConfig {
 	display: ContextDisplayMode;
 	unknown: ContextUnknownMode;
+	progressStyle: ContextProgressStyle;
+	progressWidth: ContextProgressWidth;
 }
 
 interface CostConfig {
@@ -68,7 +72,7 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 9;
+	version: 10;
 	enabled: boolean;
 	theme: GlanceThemePair;
 	icons: IconMode;
