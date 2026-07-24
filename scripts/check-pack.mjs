@@ -10,6 +10,7 @@ const packagePaths = [
 	"./packages/pi-recap",
 	"./packages/pi-tool-display-intent",
 	"./packages/pi-todo",
+	"./packages/pi-glance",
 	"./packages/pi-search-hub",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
@@ -18,8 +19,22 @@ const requiredPackFiles = new Map([
 	[".", [
 		"README.md",
 		"README.zh-CN.md",
+		"packages/pi-glance/index.ts",
+		"packages/pi-glance/footer.ts",
+		"packages/pi-glance/README.md",
+		"packages/pi-glance/README.zh-CN.md",
 		"packages/pi-search-hub/README.md",
 		"packages/pi-search-hub/README.zh-CN.md",
+	]],
+	["./packages/pi-glance", [
+		"index.ts",
+		"bottom-details.ts",
+		"footer.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"LICENSE",
+		"UPSTREAM_LICENSE",
+		"UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-search-hub", ["README.md", "README.zh-CN.md"]],
 	["./providers/pi-provider-volcengine-agent-plan", [
@@ -35,6 +50,8 @@ const maintainedReadmes = [
 	"README.zh-CN.md",
 	"packages/pi-recap/README.md",
 	"packages/pi-recap/README.zh-CN.md",
+	"packages/pi-glance/README.md",
+	"packages/pi-glance/README.zh-CN.md",
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
@@ -64,6 +81,10 @@ async function assertBilingualPair(englishPath, chinesePath) {
 }
 
 await assertBilingualPair("README.md", "README.zh-CN.md");
+await assertBilingualPair(
+	"packages/pi-glance/README.md",
+	"packages/pi-glance/README.zh-CN.md",
+);
 await assertBilingualPair(
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",

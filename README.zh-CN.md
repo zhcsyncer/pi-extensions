@@ -9,6 +9,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — 最近活动回顾扩展，可选同步 Session 标题和 tmux 窗口名。
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — `@juicesharp/rpiv-todo` 的维护 fork，提供持久 Todo overlay，且不会重复展示成功的工具节点。
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 
 ## Bundle 私有 Search Hub
@@ -33,7 +34,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含私有 Search Hub fork 的完整 bundle：
+安装包含 Glance 和私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -57,6 +58,12 @@ pi install npm:@zhcsyncer/pi-tool-display-intent
 pi install npm:@zhcsyncer/pi-todo
 ```
 
+仅安装 Glance：
+
+```bash
+pi install npm:@zhcsyncer/pi-glance
+```
+
 ## 开发
 
 测试根 bundle：
@@ -71,6 +78,7 @@ pi -e . --list-models nope
 pi -e ./packages/pi-recap --list-models nope
 pi --no-extensions -e ./packages/pi-tool-display-intent
 pi --no-extensions -e ./packages/pi-todo --list-models nope
+pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 ```
 
@@ -93,5 +101,7 @@ MIT
 `pi-tool-display-intent` 修改自 MIT 许可的 [`MasuRii/pi-tool-display`](https://github.com/MasuRii/pi-tool-display) 0.5.0，并改编了 MIT 许可的 [`mertdeveci5/pi-tool-display-summary`](https://github.com/mertdeveci5/pi-tool-display-summary) 0.1.0 中的 `displaySummary` 机制。完整归属和保留声明见 [`packages/pi-tool-display-intent/README.md`](./packages/pi-tool-display-intent/README.md)、[`LICENSE`](./packages/pi-tool-display-intent/LICENSE) 和 [`UPSTREAM_LICENSE`](./packages/pi-tool-display-intent/UPSTREAM_LICENSE)。
 
 `pi-todo` fork 自 MIT 许可的 [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo) 1.20.0。准确 revision 和保留声明见 [`packages/pi-todo/UPSTREAM_SOURCE.md`](./packages/pi-todo/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-todo/LICENSE) 和 [`UPSTREAM_LICENSE`](./packages/pi-todo/UPSTREAM_LICENSE)。
+
+`pi-glance` fork 自 MIT 许可的 [`LinYS77/pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3。准确 revision 和保留声明见 [`packages/pi-glance/UPSTREAM_SOURCE.md`](./packages/pi-glance/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-glance/LICENSE) 和 [`UPSTREAM_LICENSE`](./packages/pi-glance/UPSTREAM_LICENSE)。
 
 `pi-search-hub` fork 自 [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0，其 package metadata 和 README 声明为 MIT。准确 revision 和保留声明见 [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) 与 [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md)。

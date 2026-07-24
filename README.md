@@ -9,6 +9,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and tmux window sync.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, adaptive diffs, and bounded Bash call previews.
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — maintained fork of `@juicesharp/rpiv-todo` with a persistent task overlay and no duplicate successful tool nodes.
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable extension statuses, bottom-right context progress, and a highlighted auto-compaction marker.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 
 ## Bundle-private Search Hub
@@ -33,7 +34,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including the private Search Hub fork:
+Install the complete bundle, including Glance and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -57,6 +58,12 @@ Install only Todo:
 pi install npm:@zhcsyncer/pi-todo
 ```
 
+Install only Glance:
+
+```bash
+pi install npm:@zhcsyncer/pi-glance
+```
+
 ## Development
 
 Test the root bundle:
@@ -71,6 +78,7 @@ Test a package directly:
 pi -e ./packages/pi-recap --list-models nope
 pi --no-extensions -e ./packages/pi-tool-display-intent
 pi --no-extensions -e ./packages/pi-todo --list-models nope
+pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 ```
 
@@ -93,5 +101,7 @@ MIT
 `pi-tool-display-intent` is a modified fork of MIT-licensed [`MasuRii/pi-tool-display`](https://github.com/MasuRii/pi-tool-display) 0.5.0 and adapts the MIT-licensed `displaySummary` mechanism from [`mertdeveci5/pi-tool-display-summary`](https://github.com/mertdeveci5/pi-tool-display-summary) 0.1.0. Full attribution and preserved notices are in [`packages/pi-tool-display-intent/README.md`](./packages/pi-tool-display-intent/README.md), [`LICENSE`](./packages/pi-tool-display-intent/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-tool-display-intent/UPSTREAM_LICENSE).
 
 `pi-todo` is forked from MIT-licensed [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo) 1.20.0. The exact revision and preserved notices are recorded in [`packages/pi-todo/UPSTREAM_SOURCE.md`](./packages/pi-todo/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-todo/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-todo/UPSTREAM_LICENSE).
+
+`pi-glance` is forked from MIT-licensed [`LinYS77/pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. The exact revision and preserved notices are recorded in [`packages/pi-glance/UPSTREAM_SOURCE.md`](./packages/pi-glance/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-glance/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-glance/UPSTREAM_LICENSE).
 
 `pi-search-hub` is forked from [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0, whose package metadata and README declare MIT. Its exact revision and preserved notices are recorded in [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) and [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md).
