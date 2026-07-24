@@ -6,6 +6,7 @@ PACKAGES=(
   "@zhcsyncer/pi-recap|packages/pi-recap/package.json|packages/pi-recap/CHANGELOG.md|pi-recap|child"
   "@zhcsyncer/pi-tool-display-intent|packages/pi-tool-display-intent/package.json|packages/pi-tool-display-intent/CHANGELOG.md|pi-tool-display-intent|child"
   "@zhcsyncer/pi-todo|packages/pi-todo/package.json|packages/pi-todo/CHANGELOG.md|pi-todo|child"
+  "@zhcsyncer/pi-glance|packages/pi-glance/package.json|packages/pi-glance/CHANGELOG.md|pi-glance|child"
   "pi-provider-volcengine-agent-plan|providers/pi-provider-volcengine-agent-plan/package.json|providers/pi-provider-volcengine-agent-plan/CHANGELOG.md|pi-provider-volcengine-agent-plan|child"
 )
 
