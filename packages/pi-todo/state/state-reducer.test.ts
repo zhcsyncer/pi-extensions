@@ -24,6 +24,14 @@ describe("applyTaskMutation — create", () => {
 		expect(result.state.nextId).toBe(1);
 	});
 
+	it("rejects activeForm on a pending create", () => {
+		const result = applyTaskMutation(emptyState(), "create", { subject: "x", activeForm: "Working" });
+		expect(result.op).toEqual({
+			kind: "error",
+			message: "activeForm is only valid when status is in_progress",
+		});
+	});
+
 	it("rejects dangling blockedBy", () => {
 		const result = applyTaskMutation(emptyState(), "create", { subject: "x", blockedBy: [99] });
 		expect(result.op).toEqual({ kind: "error", message: "blockedBy: #99 not found" });
@@ -61,6 +69,55 @@ describe("applyTaskMutation — update", () => {
 			kind: "error",
 			message: "illegal transition completed → in_progress",
 		});
+	});
+
+	it("rejects pending → completed but allows re-queuing in_progress → pending", () => {
+		const pending = stateWith(task({ id: 1, subject: "x" }));
+		expect(applyTaskMutation(pending, "update", { id: 1, status: "completed" }).op).toEqual({
+			kind: "error",
+			message: "illegal transition pending → completed",
+		});
+		const active = stateWith(task({ id: 1, subject: "x", status: "in_progress", activeForm: "Working" }));
+		const requeued = applyTaskMutation(active, "update", { id: 1, status: "pending" });
+		expect(requeued.op).toEqual({ kind: "update", id: 1, fromStatus: "in_progress", toStatus: "pending" });
+		expect("activeForm" in requeued.state.tasks[0]).toBe(false);
+	});
+
+	it("requires activeForm and enforces a single in-progress task", () => {
+		const state = stateWith(task({ id: 1, subject: "a" }), task({ id: 2, subject: "b" }));
+		expect(applyTaskMutation(state, "update", { id: 1, status: "in_progress" }).op).toEqual({
+			kind: "error",
+			message: "activeForm required when status is in_progress",
+		});
+		const started = applyTaskMutation(state, "update", {
+			id: 1,
+			status: "in_progress",
+			activeForm: "Working on a",
+		}).state;
+		expect(
+			applyTaskMutation(started, "update", {
+				id: 2,
+				status: "in_progress",
+				activeForm: "Working on b",
+			}).op,
+		).toEqual({ kind: "error", message: "another task is already in_progress: #1" });
+	});
+
+	it("prevents blocked tasks from starting until dependencies complete", () => {
+		const state = stateWith(task({ id: 1, subject: "base" }), task({ id: 2, subject: "next", blockedBy: [1] }));
+		const result = applyTaskMutation(state, "update", {
+			id: 2,
+			status: "in_progress",
+			activeForm: "Working",
+		});
+		expect(result.op).toEqual({ kind: "error", message: "#2 is blocked by incomplete task #1" });
+	});
+
+	it("clears activeForm when an in-progress task completes", () => {
+		const state = stateWith(task({ id: 1, subject: "x", status: "in_progress", activeForm: "Working" }));
+		const result = applyTaskMutation(state, "update", { id: 1, status: "completed" });
+		expect(result.state.tasks[0].status).toBe("completed");
+		expect("activeForm" in result.state.tasks[0]).toBe(false);
 	});
 
 	it("allows completed → deleted transition", () => {
@@ -115,6 +172,48 @@ describe("applyTaskMutation — update", () => {
 	});
 });
 
+describe("applyTaskMutation — batch", () => {
+	it("commits ordered operations atomically", () => {
+		const state = stateWith(
+			task({ id: 1, subject: "first", status: "in_progress", activeForm: "Working" }),
+			task({ id: 2, subject: "second" }),
+		);
+		const result = applyTaskMutation(state, "batch", {
+			operations: [
+				{ action: "update", id: 1, status: "completed" },
+				{ action: "update", id: 2, status: "in_progress", activeForm: "Working on second" },
+				{ action: "create", subject: "third" },
+			],
+		});
+		expect(result.op.kind).toBe("batch");
+		expect(result.state.tasks.map(({ id, status }) => ({ id, status }))).toEqual([
+			{ id: 1, status: "completed" },
+			{ id: 2, status: "in_progress" },
+			{ id: 3, status: "pending" },
+		]);
+	});
+
+	it("rolls back every operation when one fails", () => {
+		const state = emptyState();
+		const result = applyTaskMutation(state, "batch", {
+			operations: [
+				{ action: "create", subject: "would be rolled back" },
+				{ action: "update", id: 99, status: "in_progress", activeForm: "Missing" },
+			],
+		});
+		expect(result.op).toEqual({ kind: "error", message: "batch operation 2: #99 not found" });
+		expect(result.state).toBe(state);
+		expect(result.state.tasks).toEqual([]);
+	});
+
+	it("rejects an empty batch", () => {
+		expect(applyTaskMutation(emptyState(), "batch", { operations: [] }).op).toEqual({
+			kind: "error",
+			message: "operations required for batch",
+		});
+	});
+});
+
 describe("applyTaskMutation — list/get/delete/clear", () => {
 	it("list emits Op with includeDeleted flag and optional statusFilter", () => {
 		const state = stateWith(
@@ -132,11 +231,12 @@ describe("applyTaskMutation — list/get/delete/clear", () => {
 		expect(result.op).toEqual({ kind: "error", message: "#1 is already deleted" });
 	});
 
-	it("delete emits Op with id + subject", () => {
-		const state = stateWith(task({ id: 1, subject: "x" }));
+	it("delete emits Op and clears an in-progress label", () => {
+		const state = stateWith(task({ id: 1, subject: "x", status: "in_progress", activeForm: "Working" }));
 		const result = applyTaskMutation(state, "delete", { id: 1 });
 		expect(result.op).toEqual({ kind: "delete", id: 1, subject: "x" });
 		expect(result.state.tasks[0].status).toBe("deleted");
+		expect("activeForm" in result.state.tasks[0]).toBe(false);
 	});
 
 	it("clear emits Op with prior count and resets nextId to 1", () => {
@@ -165,5 +265,10 @@ describe("isTransitionValid", () => {
 
 	it("allows completed → deleted", () => {
 		expect(isTransitionValid("completed", "deleted")).toBe(true);
+	});
+
+	it("rejects pending completion shortcuts but allows blocker-driven requeue", () => {
+		expect(isTransitionValid("pending", "completed")).toBe(false);
+		expect(isTransitionValid("in_progress", "pending")).toBe(true);
 	});
 });

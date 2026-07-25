@@ -1,70 +1,67 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../tool/types.js";
 import { EMPTY_STATE, type TaskState } from "./state.js";
-import { __resetState, commitState, getNextId, getState, getTodos, replaceState } from "./store.js";
+import { createTodoStore } from "./store.js";
 
 function makeTask(id: number, subject = `t${id}`): Task {
 	return { id, subject, status: "pending" };
 }
 
-describe("rpiv-todo/state/store — accessors and seams", () => {
-	it("__resetState() restores EMPTY_STATE shape (independent of EMPTY_STATE.tasks identity)", () => {
-		__resetState();
-		expect(getTodos()).toEqual(EMPTY_STATE.tasks);
-		expect(getNextId()).toBe(EMPTY_STATE.nextId);
-		// Reset clones — must NOT alias EMPTY_STATE.tasks (else mutations leak).
-		expect(getTodos()).not.toBe(EMPTY_STATE.tasks);
+describe("rpiv-todo/state/store — isolated accessors and seams", () => {
+	it("isolates state between extension runtimes", () => {
+		const first = createTodoStore();
+		const second = createTodoStore();
+		first.commitState({ tasks: [makeTask(1, "first")], nextId: 2 });
+		expect(first.getTodos()).toEqual([makeTask(1, "first")]);
+		expect(second.getTodos()).toEqual([]);
+		expect(second.getNextId()).toBe(1);
+	});
+
+	it("starts with a fresh EMPTY_STATE shape", () => {
+		const store = createTodoStore();
+		expect(store.getTodos()).toEqual(EMPTY_STATE.tasks);
+		expect(store.getNextId()).toBe(EMPTY_STATE.nextId);
+		expect(store.getTodos()).not.toBe(EMPTY_STATE.tasks);
 	});
 
 	it("getTodos() returns the live tasks reference (read-only typed)", () => {
-		__resetState();
+		const store = createTodoStore();
 		const next: TaskState = { tasks: [makeTask(1)], nextId: 2 };
-		commitState(next);
-		expect(getTodos()).toBe(next.tasks);
-		expect(getTodos()).toEqual([makeTask(1)]);
+		store.commitState(next);
+		expect(store.getTodos()).toBe(next.tasks);
+		expect(store.getTodos()).toEqual([makeTask(1)]);
 	});
 
-	it("getNextId() reflects the current cell value", () => {
-		__resetState();
-		commitState({ tasks: [], nextId: 42 });
-		expect(getNextId()).toBe(42);
-	});
-
-	it("getState() returns the same cell that getTodos/getNextId read from", () => {
-		__resetState();
+	it("getState() matches the task and next-id accessors", () => {
+		const store = createTodoStore();
 		const next: TaskState = { tasks: [makeTask(7, "lucky")], nextId: 8 };
-		commitState(next);
-		const snap = getState();
+		store.commitState(next);
+		const snap = store.getState();
 		expect(snap).toBe(next);
-		expect(snap.tasks).toBe(getTodos());
-		expect(snap.nextId).toBe(getNextId());
+		expect(snap.tasks).toBe(store.getTodos());
+		expect(snap.nextId).toBe(store.getNextId());
 	});
 
-	it("replaceState() publishes a new cell wholesale (replay seam)", () => {
-		__resetState();
+	it("replaceState() publishes a replayed cell wholesale", () => {
+		const store = createTodoStore();
 		const replayed: TaskState = {
 			tasks: [makeTask(10, "from-branch"), makeTask(11, "from-branch-2")],
 			nextId: 12,
 		};
-		replaceState(replayed);
-		expect(getState()).toBe(replayed);
-		expect(getTodos()).toEqual(replayed.tasks);
-		expect(getNextId()).toBe(12);
+		store.replaceState(replayed);
+		expect(store.getState()).toBe(replayed);
+		expect(store.getTodos()).toEqual(replayed.tasks);
+		expect(store.getNextId()).toBe(12);
 	});
 
-	it("commitState() and replaceState() are interchangeable seams over the same cell", () => {
-		__resetState();
-		commitState({ tasks: [makeTask(1)], nextId: 2 });
-		expect(getNextId()).toBe(2);
-		replaceState({ tasks: [], nextId: 99 });
-		expect(getTodos()).toEqual([]);
-		expect(getNextId()).toBe(99);
-	});
-
-	it("__resetState() after a commit clears the cell (test-isolation contract)", () => {
-		commitState({ tasks: [makeTask(1)], nextId: 2 });
-		__resetState();
-		expect(getTodos()).toEqual([]);
-		expect(getNextId()).toBe(1);
+	it("reset() clears only that store", () => {
+		const first = createTodoStore();
+		const second = createTodoStore();
+		first.commitState({ tasks: [makeTask(1)], nextId: 2 });
+		second.commitState({ tasks: [makeTask(2)], nextId: 3 });
+		first.reset();
+		expect(first.getTodos()).toEqual([]);
+		expect(first.getNextId()).toBe(1);
+		expect(second.getTodos()).toEqual([makeTask(2)]);
 	});
 });

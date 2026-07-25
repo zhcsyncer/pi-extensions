@@ -110,6 +110,22 @@ describe("formatContent", () => {
 		expect(formatContent({ kind: "create", taskId: 999 }, stateWith())).toBe("Created #999");
 	});
 
+	it("batch — summarizes each committed operation", () => {
+		const state = stateWith(t({ id: 1, subject: "alpha" }), t({ id: 2, subject: "beta", status: "deleted" }));
+		expect(
+			formatContent(
+				{
+					kind: "batch",
+					operations: [
+						{ kind: "create", taskId: 1 },
+						{ kind: "delete", id: 2, subject: "beta" },
+					],
+				},
+				state,
+			),
+		).toBe("Applied 2 todo operations\n- Created #1: alpha (pending)\n- Deleted #2: beta");
+	});
+
 	it("error — 'Error: <message>'", () => {
 		expect(formatContent({ kind: "error", message: "subject required for create" }, stateWith())).toBe(
 			"Error: subject required for create",
@@ -123,7 +139,13 @@ describe("buildToolResult", () => {
 		const env = buildToolResult("create", { subject: "alpha" }, state, { kind: "create", taskId: 1 });
 		expect(env).toEqual({
 			content: [{ type: "text", text: "Created #1: alpha (pending)" }],
-			details: { action: "create", params: { subject: "alpha" }, tasks: state.tasks, nextId: state.nextId },
+			details: {
+				schemaVersion: 1,
+				action: "create",
+				params: { subject: "alpha" },
+				tasks: state.tasks,
+				nextId: state.nextId,
+			},
 		});
 	});
 

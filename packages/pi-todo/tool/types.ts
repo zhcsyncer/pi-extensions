@@ -25,7 +25,8 @@ export const MSG_NO_TODOS = "No todos yet. Ask the agent to add some!";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 
-export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear";
+export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear" | "batch";
+export type TaskBatchOperationAction = "create" | "update" | "delete";
 
 export interface Task {
 	id: number;
@@ -41,10 +42,12 @@ export interface Task {
 /**
  * Persistence + replay snapshot. Every successful `todo` tool call returns this
  * shape under `details`; `state/replay.ts` reads the latest one from the branch
- * to reconstruct module state. Field order and field names are pinned by
+ * to reconstruct runtime state. Field order and field names are pinned by
  * cross-version replay compatibility.
  */
 export interface TaskDetails {
+	/** Missing only on snapshots written by versions before schema versioning. */
+	schemaVersion?: 1;
 	action: TaskAction;
 	params: Record<string, unknown>;
 	tasks: Task[];
@@ -57,6 +60,10 @@ export interface TaskDetails {
  * signature (`[key: string]: unknown`) lets the runtime pass through TypeBox
  * `Static<typeof TodoParamsSchema>` without `as` casts.
  */
+export interface TaskBatchOperation extends TaskMutationParams {
+	action: TaskBatchOperationAction;
+}
+
 export interface TaskMutationParams {
 	[key: string]: unknown;
 	subject?: string;
@@ -70,6 +77,7 @@ export interface TaskMutationParams {
 	metadata?: Record<string, unknown>;
 	id?: number;
 	includeDeleted?: boolean;
+	operations?: TaskBatchOperation[];
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +86,22 @@ export interface TaskMutationParams {
 // pre-refactor schema at `packages/rpiv-todo/todo.ts:512-573`.
 // ---------------------------------------------------------------------------
 
+const TodoBatchOperationSchema = Type.Object({
+	action: StringEnum(["create", "update", "delete"] as const),
+	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
+	description: Type.Optional(Type.String({ description: "Long-form task description" })),
+	activeForm: Type.Optional(Type.String({ description: "Required when transitioning to in_progress" })),
+	status: Type.Optional(StringEnum(["pending", "in_progress", "completed", "deleted"] as const)),
+	blockedBy: Type.Optional(Type.Array(Type.Number())),
+	addBlockedBy: Type.Optional(Type.Array(Type.Number())),
+	removeBlockedBy: Type.Optional(Type.Array(Type.Number())),
+	owner: Type.Optional(Type.String()),
+	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+	id: Type.Optional(Type.Number()),
+});
+
 export const TodoParamsSchema = Type.Object({
-	action: StringEnum(["create", "update", "list", "get", "delete", "clear"] as const),
+	action: StringEnum(["create", "update", "list", "get", "delete", "clear", "batch"] as const),
 	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
 	activeForm: Type.Optional(
@@ -121,6 +143,13 @@ export const TodoParamsSchema = Type.Object({
 	includeDeleted: Type.Optional(
 		Type.Boolean({
 			description: "If true, list action returns deleted (tombstoned) tasks as well. Default: false.",
+		}),
+	),
+	operations: Type.Optional(
+		Type.Array(TodoBatchOperationSchema, {
+			minItems: 1,
+			maxItems: 50,
+			description: "Atomic create/update/delete operations for batch; all roll back if one fails",
 		}),
 	),
 });

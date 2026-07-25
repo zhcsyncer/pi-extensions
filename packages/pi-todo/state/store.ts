@@ -2,53 +2,42 @@ import type { Task } from "../tool/types.js";
 import { EMPTY_STATE, type TaskState } from "./state.js";
 
 /**
- * Module-level live state cell. Pre-refactor this lived as bare `tasks` /
- * `nextId` consts in `todo.ts`; centralizing here keeps the store as the
- * single mutation seam and lets the reducer remain pure.
+ * Session-local state boundary used by the tool, command, overlay, and replay
+ * handlers that belong to one extension runtime.
  */
-let state: TaskState = { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
-
-/**
- * Live tasks accessor. Returned `readonly Task[]` so callers (overlay render
- * hook, `/todos` command, `renderCall` subject lookup) cannot mutate the live
- * cell. Consumers must not cast back.
- */
-export function getTodos(): readonly Task[] {
-	return state.tasks;
+export interface TodoStore {
+	getTodos(): readonly Task[];
+	getNextId(): number;
+	getState(): TaskState;
+	replaceState(next: TaskState): void;
+	commitState(next: TaskState): void;
+	reset(): void;
 }
 
-export function getNextId(): number {
-	return state.nextId;
-}
-
-/** Snapshot accessor used by reducer callers to pass canonical state in. */
-export function getState(): TaskState {
-	return state;
+function freshState(): TaskState {
+	return { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
 }
 
 /**
- * Replay seam. Lifecycle handlers in `index.ts` call this on
- * `session_start` / `session_compact` / `session_tree` after
- * `replayFromBranch` decodes the latest snapshot.
+ * Create an isolated store for one extension runtime. Keeping the cell inside
+ * this factory prevents two AgentSession instances in the same Node.js process
+ * from overwriting each other's Todo state through the module cache.
  */
-export function replaceState(next: TaskState): void {
-	state = next;
-}
+export function createTodoStore(): TodoStore {
+	let state = freshState();
 
-/**
- * Post-reducer commit seam. Tool execute() calls this with the reducer's
- * `state` output to publish the new canonical state to live readers (overlay,
- * `/todos`, renderCall).
- */
-export function commitState(next: TaskState): void {
-	state = next;
-}
-
-/**
- * Test-setup reset. Wired into the global `test/setup.ts` `beforeEach` via
- * the existing `__resetState` import path. Name preserved verbatim — see
- * Plan §Decisions §Decision 7.
- */
-export function __resetState(): void {
-	state = { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
+	return {
+		getTodos: () => state.tasks,
+		getNextId: () => state.nextId,
+		getState: () => state,
+		replaceState: (next) => {
+			state = next;
+		},
+		commitState: (next) => {
+			state = next;
+		},
+		reset: () => {
+			state = freshState();
+		},
+	};
 }

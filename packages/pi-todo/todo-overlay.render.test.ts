@@ -1,7 +1,7 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createMockPi, createMockUI } from "./test-fixtures.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetState, registerTodoTool, type TaskAction } from "./todo.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createTodoStore, registerTodoTool, type TaskAction } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
 
 const identityTheme = {
@@ -11,16 +11,23 @@ const identityTheme = {
 	strikethrough: (s: string) => s,
 };
 
+function completeActions(id: number): Array<{ action: TaskAction; [k: string]: unknown }> {
+	return [
+		{ action: "update", id, status: "in_progress", activeForm: `Completing #${id}` },
+		{ action: "update", id, status: "completed" },
+	];
+}
+
 async function setup(actions: Array<{ action: TaskAction; [k: string]: unknown }>) {
-	__resetState();
 	const { pi, captured } = createMockPi();
-	registerTodoTool(pi);
+	const store = createTodoStore();
+	registerTodoTool(pi, store);
 	const tool = captured.tools.get("todo")!;
 	for (const p of actions) {
 		await tool.execute?.("tc", p as never, undefined as never, undefined as never, {} as never);
 	}
 	const ui = createMockUI() as unknown as ExtensionUIContext;
-	const overlay = new TodoOverlay();
+	const overlay = new TodoOverlay(store);
 	overlay.setUICtx(ui);
 	overlay.update();
 	const setWidget = ui.setWidget as ReturnType<typeof vi.fn>;
@@ -32,11 +39,7 @@ async function setup(actions: Array<{ action: TaskAction; [k: string]: unknown }
 	return { widget, tool, ui, overlay };
 }
 
-beforeEach(() => {
-	__resetState();
-});
 afterEach(() => {
-	__resetState();
 	vi.restoreAllMocks();
 });
 
@@ -45,7 +48,7 @@ describe("TodoOverlay — heading", () => {
 		const { widget } = await setup([
 			{ action: "create", subject: "a" },
 			{ action: "create", subject: "b" },
-			{ action: "update", id: 1, status: "completed" },
+			...completeActions(1),
 		]);
 		const lines = widget.render(200);
 		expect(lines[0]).toContain("Todos (1/2)");
@@ -59,7 +62,7 @@ describe("TodoOverlay — heading", () => {
 	it("uses hollow icon '○' when all tasks are completed", async () => {
 		const { widget } = await setup([
 			{ action: "create", subject: "a" },
-			{ action: "update", id: 1, status: "completed" },
+			...completeActions(1),
 		]);
 		expect(widget.render(200)[0]).toContain("○");
 	});
@@ -101,8 +104,8 @@ describe("TodoOverlay — per-task formatting", () => {
 
 	it("in_progress task uses '◐' glyph and appends (activeForm)", async () => {
 		const { widget } = await setup([
-			{ action: "create", subject: "do it", activeForm: "Doing it" },
-			{ action: "update", id: 1, status: "in_progress" },
+			{ action: "create", subject: "do it" },
+			{ action: "update", id: 1, status: "in_progress", activeForm: "Doing it" },
 		]);
 		const line = widget.render(200)[1];
 		expect(line).toContain("◐");
@@ -113,7 +116,7 @@ describe("TodoOverlay — per-task formatting", () => {
 	it("completed task stays visible until the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
 			{ action: "create", subject: "done" },
-			{ action: "update", id: 1, status: "completed" },
+			...completeActions(1),
 		]);
 		const firstRender = widget.render(200);
 		expect(firstRender[1]).toContain("✓");
@@ -154,7 +157,7 @@ describe("TodoOverlay — overflow collapse", () => {
 		for (let i = 1; i <= 8; i++) actions.push({ action: "create", subject: `p${i}` });
 		for (let i = 9; i <= 12; i++) {
 			actions.push({ action: "create", subject: `c${i}` });
-			actions.push({ action: "update", id: i, status: "completed" });
+			actions.push(...completeActions(i));
 		}
 		const { widget } = await setup(actions);
 		const lines = widget.render(200);
@@ -190,7 +193,7 @@ describe("TodoOverlay — overflow collapse", () => {
 		for (let i = 1; i <= 12; i++) actions.push({ action: "create", subject: `p${i}` });
 		for (let i = 13; i <= 15; i++) {
 			actions.push({ action: "create", subject: `c${i}` });
-			actions.push({ action: "update", id: i, status: "completed" });
+			actions.push(...completeActions(i));
 		}
 		const { widget } = await setup(actions);
 		// Last line is the trailing spacer, so the summary is the second-to-last.
@@ -205,7 +208,7 @@ describe("TodoOverlay — overflow collapse", () => {
 		for (let i = 1; i <= 11; i++) actions.push({ action: "create", subject: `p${i}` });
 		for (let i = 12; i <= 16; i++) {
 			actions.push({ action: "create", subject: `c${i}` });
-			actions.push({ action: "update", id: i, status: "completed" });
+			actions.push(...completeActions(i));
 		}
 		const { widget, overlay } = await setup(actions);
 		const beforeNextTurn = widget.render(200).join("\n");
@@ -245,7 +248,7 @@ describe("TodoOverlay — width truncation", () => {
 	it("drops completed tasks from counts after the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
 			{ action: "create", subject: "done" },
-			{ action: "update", id: 1, status: "completed" },
+			...completeActions(1),
 			{ action: "create", subject: "next" },
 		]);
 		expect(widget.render(200).join("\n")).toContain("Todos (1/2)");

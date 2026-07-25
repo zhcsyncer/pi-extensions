@@ -64,6 +64,11 @@ export function formatContent(op: Op, state: TaskState): string {
 		}
 		case "get":
 			return formatGetLines(op.task, state);
+		case "batch":
+			return [
+				`Applied ${op.operations.length} todo operations`,
+				...op.operations.map((operation) => `- ${formatContent(operation, state)}`),
+			].join("\n");
 		case "error":
 			return `Error: ${op.message}`;
 	}
@@ -84,6 +89,7 @@ export function buildToolResult(
 ): { content: Array<{ type: "text"; text: string }>; details: TaskDetails } {
 	const text = formatContent(op, state);
 	const details: TaskDetails = {
+		schemaVersion: 1,
 		action,
 		params: params as Record<string, unknown>,
 		tasks: state.tasks,
