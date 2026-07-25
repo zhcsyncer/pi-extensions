@@ -10,7 +10,7 @@ This package is private and is not published separately. Install `@zhcsyncer/pi-
 
 ### `web_search`
 
-Searches the web through an explicitly selected backend or through automatic fallback. `combine=true` queries multiple enabled backends and merges/deduplicates their results; `combineMode: "targeted"` in `search.json` limits fan-out while still collecting multiple usable result sets.
+Searches the web through an explicitly selected backend or through automatic routing. Fallback mode tries enabled backends in order and stops at the first success. `combine=true` queries multiple enabled backends and merges/deduplicates their results: `combineMode: "targeted"` collects up to three usable backend result sets, while `combineMode: "all"` queries every enabled backend. Combine is ignored when a call explicitly selects one backend.
 
 Important call options include:
 
@@ -24,7 +24,7 @@ DuckDuckGo is the keyless fallback when no backend is explicitly enabled. Other 
 
 ### `web_read`
 
-Fetches a URL and returns extracted Markdown. The default Jina reader supports cache bypass, keywords, `rush`/`smart` modes, and targeted extraction. Sofya, Firecrawl, Exa, and Exa MCP readers are also available.
+Fetches a URL and returns extracted Markdown. The configured `reader` is the default reader and is independent of the default search backend. When a call omits `reader`, Search Hub tries the default followed by `readerFallback` in order; an explicit `reader` uses only that reader. Readers fail over sequentially and are never queried or merged in parallel. The default Jina reader supports remote cache bypass, keywords, `rush`/`smart` modes, and targeted extraction. Sofya, Firecrawl, Exa, and Exa MCP readers are also available.
 
 Important call options include:
 
@@ -32,7 +32,7 @@ Important call options include:
 - `fresh` — bypass reader caches where supported;
 - `keywords` — terms used to focus long-page extraction;
 - `mode` — `rush` for speed or `smart` for better narrowing;
-- `reader` — override the configured reader;
+- `reader` — use only the specified reader, bypassing configured reader fallback;
 - `objective` — a Jina CSS target selector.
 
 > `web_read.objective` is a CSS selector passed to Jina as `x-target-selector`. It is not a natural-language question or extraction instruction. Use values such as `main`, `article`, or `#pricing`, and use `keywords` for semantic focus.
@@ -53,7 +53,7 @@ Semantic call metadata includes:
 | `web_search` | Search query | Requested backend, combine mode, result limit, compact mode |
 | `web_read` | Shortened URL | Reader, rush/smart mode, keyword count, fresh mode, selector presence |
 
-Semantic result status includes:
+Search and read progress is emitted through the active tool call rather than a persistent footer status. Semantic result status includes:
 
 | Tool | Status |
 |---|---|
@@ -71,15 +71,27 @@ Search Hub reads configuration from:
 1. `$PI_CODING_AGENT_DIR/extensions/search.json` for global settings;
 2. `.pi/search.json` in the current project.
 
-Project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Configuration is refreshed during use, with a short in-process cache.
+Project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Configuration is refreshed during use; interactive edits are staged until `Save & apply`.
+
+### Interactive setup
+
+Run `/search-setup` to view effective Search Hub status and edit the global configuration from one place. The top-level page summarizes search routing, web reading, backend and credential counts, and output, then opens dedicated `Search routing`, `Web reading`, `Backends`, and `Output` pages. The long backend list lives only on the Backends page; there is no separate `/search-status` command.
+
+Each concise backend row starts with `[ON]`, `[OFF]`, or `[AUTO]` and uses one `auth` vocabulary across API keys and Pi credentials: `auth ✓ saved key`, `auth ✓ env <name>`, `auth ✓ Pi /login`, `auth ✗ missing`, `auth — optional`, or `auth — not required`. An unset reference is treated as no resolved credential. A shell-command credential is marked `auth ? shell command` because setup does not execute it merely to render status. Selecting a backend compares the global draft with the effective configuration after project overrides, and offers separate switch, credential, URL, and Pi-auth actions. Disabling retains credentials; re-enabling reuses a still-resolvable credential. The bulk action enables only ready keyless hosted backends, leaving SearXNG off until an instance URL is configured.
+
+All pages edit one in-memory global draft. `Back` never writes, and the home page marks unsaved changes. `Save & apply` normalizes the draft, removes obsolete fields, writes the global file atomically with mode `0600`, refreshes runtime configuration once, and emits one result notification. Closing with pending edits offers `Save & apply`, `Discard changes`, or `Continue editing`. After a successful save, `/reload` or a new session is not required.
+
+`/search-setup` changes only the global file. A project `.pi/search.json` can override that change for the current project; Search Hub reports this after saving. Disabling a backend does not delete a stored credential; use `Remove saved API key or reference` in that backend's detail menu when it must also be removed from disk. Search Hub does not cache search results locally; `web_read.fresh` only asks supported remote readers to bypass their own caches.
 
 Minimal example:
 
 ```json
 {
-  "defaultBackend": "auto",
+  "defaultBackend": "duckduckgo",
+  "combine": false,
   "combineMode": "targeted",
   "reader": "jina",
+  "readerFallback": ["firecrawl", "exa_mcp"],
   "backends": {
     "duckduckgo": { "enabled": true },
     "serper": { "enabled": true, "apiKey": "SERPER_API_KEY" }
@@ -87,7 +99,7 @@ Minimal example:
 }
 ```
 
-Copy [`search.json.example`](./search.json.example) for a larger backend matrix. Credential values may be environment-variable names such as `SERPER_API_KEY`, shell commands prefixed with `!`, or literal keys. Prefer environment variables or a secret manager, and never commit credentials.
+Copy [`search.json.example`](./search.json.example) for a larger backend matrix. Search-service credentials (including Jina's optional key) may be environment-variable names such as `JINA_API_KEY`, shell commands prefixed with `!`, or key values saved directly in the configuration. Prefer environment variables or a secret manager, and never commit credentials. OpenAI Codex is the exception: it resolves the existing `openai-codex` provider credential from the current Pi model registry, so `/login openai-codex` remains the single source of truth. Other search services are not Pi model providers, and Pi currently exposes no generic extension secret store, so Search Hub does not register fake providers merely to place their keys in `auth.json`.
 
 See [`UPSTREAM_README.md`](./UPSTREAM_README.md) for the upstream backend-specific reference. Local behavior described in this README takes precedence for the bundled fork.
 

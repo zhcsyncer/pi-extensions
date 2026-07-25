@@ -1,7 +1,10 @@
 {
-  "defaultBackend": "auto",
+  "defaultBackend": "duckduckgo",
+  "combine": false,
+  "combineMode": "targeted",
+  "selectionStrategy": "sequential",
   "reader": "jina",
-  "showStatus": true,
+  "readerFallback": ["firecrawl", "exa_mcp"],
   "compact": false,
   "backends": {
     "duckduckgo": { "enabled": true },

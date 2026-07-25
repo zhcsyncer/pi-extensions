@@ -4,14 +4,6 @@ const { streamOpenAICodexResponsesMock } = vi.hoisted(() => ({
 	streamOpenAICodexResponsesMock: vi.fn(),
 }));
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-	AuthStorage: {
-		create: () => ({
-			getApiKey: async () => "test-api-key",
-		}),
-	},
-}));
-
 vi.mock("@earendil-works/pi-ai/compat", () => ({
 	getModel: () => ({ id: "gpt-5.4-mini" }),
 	streamOpenAICodexResponses: streamOpenAICodexResponsesMock,
@@ -37,7 +29,7 @@ describe("openai-codex helpers", () => {
 	it("searchOpenAICodex asks Codex for rich source-grounded snippets", async () => {
 		const { searchOpenAICodex } = await import("./backends/openai-codex.ts");
 
-		await expect(searchOpenAICodex("test query", 3)).rejects.toThrow("not used in helper tests");
+		await expect(searchOpenAICodex("test query", 3, "test-api-key")).rejects.toThrow("not used in helper tests");
 
 		const [, context] = streamOpenAICodexResponsesMock.mock.calls[0];
 		const submitTool = context.tools[0];
@@ -49,6 +41,15 @@ describe("openai-codex helpers", () => {
 		expect(resultSchema.snippet.description).toContain("450-500 character");
 		expect(resultSchema.snippet.description).toContain("Prefer completeness and concrete details over brevity");
 		expect("content" in resultSchema).toBe(false);
+	});
+
+	it("rejects a missing injected Pi provider credential before inference", async () => {
+		const { searchOpenAICodex } = await import("./backends/openai-codex.ts");
+
+		await expect(searchOpenAICodex("test query", 3, undefined)).rejects.toThrow(
+			"Run /login openai-codex",
+		);
+		expect(streamOpenAICodexResponsesMock).not.toHaveBeenCalled();
 	});
 
 	it("injectCodexSearchPayload prepends hosted search and preserves function tools", async () => {

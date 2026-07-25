@@ -2,6 +2,8 @@
  * Shared types for pi-search-hub extension.
  */
 
+export type ReaderName = "jina" | "sofya" | "firecrawl" | "exa" | "exa_mcp";
+
 export interface BackendConfig {
 	enabled?: boolean;
 	apiKey?: string;
@@ -39,14 +41,10 @@ export interface SearchConfig {
 	/** Combine strategy when combine is enabled. "all" queries every active backend; "targeted" queries only enough ordered backends to collect up to 3 usable result sets. */
 	combineMode?: "all" | "targeted";
 	selectionStrategy?: "sequential" | "random" | "round-robin" | "best-latency";
-	/** Reader backend for web_read. "jina" (default, free), "sofya" (250+ site parsers, needs key), "firecrawl" (keyless, 1000 credits/mo), "exa" (needs key, 1000 req/mo), or "exa_mcp" (zero-config, rate-limited). */
-	reader?: "jina" | "sofya" | "firecrawl" | "exa" | "exa_mcp";
-	/** Show status line with enabled backends. Default: true. Set to false to hide. */
-	showStatus?: boolean;
-	/** Cache TTL in milliseconds. Default: 300000 (5 min). Set to 0 to disable. */
-	cacheTtl?: number;
-	/** Max cached queries. Default: 100. */
-	cacheMax?: number;
+	/** Default reader backend for web_read when the tool call does not choose one explicitly. */
+	reader?: ReaderName;
+	/** Ordered readers tried after the default reader when web_read does not choose one explicitly. */
+	readerFallback?: ReaderName[];
 	/** Default compact output. When true, returns single-line results (title + URL). Default: false. */
 	compact?: boolean;
 	backends?: {
@@ -86,6 +84,8 @@ export interface SearchResultWithBackend extends SearchResult {
 }
 
 export interface BackendRunner {
+	/** Existing Pi provider whose credential must be resolved from the current session registry. */
+	providerAuth?: string;
 	needsKey: boolean;
 	needsKeyFromConfig: boolean;
 	optionalKey: boolean;
