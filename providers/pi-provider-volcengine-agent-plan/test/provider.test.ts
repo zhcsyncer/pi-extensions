@@ -7,6 +7,9 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, {
 	moduleCache: false,
 	alias: {
+		"@earendil-works/pi-ai/providers/all": fileURLToPath(
+			new URL("../node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url),
+		),
 		"@earendil-works/pi-ai": fileURLToPath(
 			new URL("../node_modules/@earendil-works/pi-ai/dist/compat.js", import.meta.url),
 		),
@@ -157,6 +160,29 @@ test("filters the static catalog by tier and resolves standard auth", async () =
 	assert.equal(auth?.env?.ARK_AGENT_PLAN_TIER, "medium");
 	assert.equal(auth?.source, "Pi auth.json");
 	assert.equal(await provider.auth.apiKey?.check?.({ ctx }), undefined);
+});
+
+test("provides public API cost estimates for every model", () => {
+	for (const model of createAgentPlanProvider().getModels()) {
+		assert.ok(model.cost.input > 0, `${model.id} must estimate input cost`);
+		assert.ok(model.cost.output > 0, `${model.id} must estimate output cost`);
+	}
+});
+
+test("exposes only Kimi K3's supported thinking levels", () => {
+	const kimiK3 = createAgentPlanProvider()
+		.getModels()
+		.find((model) => model.id === "kimi-k3");
+	assert.ok(kimiK3);
+	assert.deepEqual(kimiK3.thinkingLevelMap, {
+		off: null,
+		minimal: null,
+		low: "low",
+		medium: null,
+		high: "high",
+		xhigh: null,
+		max: "max",
+	});
 });
 
 test("applies MiniMax and Kimi request compatibility hooks", () => {

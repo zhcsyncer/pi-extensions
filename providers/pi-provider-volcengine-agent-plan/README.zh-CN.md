@@ -78,6 +78,14 @@ Kimi K2.6 和 Kimi K2.7 Code 使用 Chat Completions，因为兼容性测试中�
 
 当前网关不支持关闭 Kimi K2.7 Code 的 thinking。Pi 选择 `off` 时，本包不会发送不受支持的禁用参数，但无法保证模型停止内部推理。
 
+Kimi K3 只从 Pi 的 Moonshot 模型目录继承模型固有能力，并继续使用 Agent Plan 自己的协议、限额、兼容配置和套餐规则。Pi 中可选的 thinking 档位为 `low`、`high` 和 `max`。
+
+## 费用显示
+
+模型目录保留公共按量 API 的美元/百万 token 参考单价，因此 Pi 会根据实际 token usage 在 session 级估算费用。已有 Pi 上游模型卡的模型选择性继承其价格；Doubao 模型使用从[火山方舟公开价格表](https://www.volcengine.com/docs/82379/1544106)标准化得到的 API 估价。
+
+这个数值用于比较会话资源消耗，并不是 Agent Plan 的实际账单；套餐价格、AFP 消耗和剩余额度仍由火山方舟单独计算。
+
 ## 安全
 
 Pi 标准 `auth.json` 由文件系统权限保护，但不是操作系统 Keychain。请勿提交凭证、将凭证粘贴到 issue，或把凭证写入项目配置。
