@@ -10,6 +10,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — `@juicesharp/rpiv-todo` 的维护 fork，提供持久 Todo overlay，且不会重复展示成功的工具节点。
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
+- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 临时只读 Plan Mode，支持 word-aware revdiff 评审、不可变 revision、中英文 Plan 内容配置、显式批准和可折叠 TUI Steps。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 
 ## Bundle 私有 Search Hub
@@ -34,7 +35,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance 和私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode 和私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -64,6 +65,12 @@ pi install npm:@zhcsyncer/pi-todo
 pi install npm:@zhcsyncer/pi-glance
 ```
 
+仅安装严格 Plan Mode：
+
+```bash
+pi install npm:@zhcsyncer/pi-plan-mode
+```
+
 ## 开发
 
 测试根 bundle：
@@ -79,6 +86,7 @@ pi -e ./packages/pi-recap --list-models nope
 pi --no-extensions -e ./packages/pi-tool-display-intent
 pi --no-extensions -e ./packages/pi-todo --list-models nope
 pi --no-extensions -e ./packages/pi-glance
+pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 ```
 

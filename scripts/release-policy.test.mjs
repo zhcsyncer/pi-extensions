@@ -8,6 +8,7 @@ const RECAP = "@zhcsyncer/pi-recap";
 const INTENT = "@zhcsyncer/pi-tool-display-intent";
 const TODO = "@zhcsyncer/pi-todo";
 const GLANCE = "@zhcsyncer/pi-glance";
+const PLAN_MODE = "@zhcsyncer/pi-plan-mode";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
@@ -52,6 +53,12 @@ test("requires the root package when Glance releases", () => {
 	]);
 });
 
+test("requires the root package when Plan Mode releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([PLAN_MODE, "minor"])), [
+		`${PLAN_MODE} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
 test("allows unchanged sibling packages to remain unreleased", () => {
 	assert.deepEqual(
 		validateReleasePolicy(releases([ROOT, "minor"], [INTENT, "minor"])),
@@ -78,7 +85,7 @@ test("rejects a root bump lower than a child bump", () => {
 test("compares the root against every changed child", () => {
 	assert.deepEqual(
 		validateReleasePolicy(
-			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"], [TODO, "minor"]),
+			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"], [TODO, "minor"], [PLAN_MODE, "patch"]),
 		),
 		[
 			`${ROOT} has a minor release, which is lower than ${INTENT}'s major release.`,

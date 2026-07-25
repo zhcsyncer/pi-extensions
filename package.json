@@ -32,6 +32,7 @@
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
+    "packages/pi-plan-mode/package.json",
     "packages/pi-todo/config.ts",
     "packages/pi-todo/index.ts",
     "packages/pi-todo/todo.ts",
@@ -81,6 +82,7 @@
       "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts",
       "./packages/pi-todo/index.ts",
       "./packages/pi-glance/index.ts",
+      "./packages/pi-plan-mode/extensions/plan-mode.ts",
       "./packages/pi-search-hub/extensions/search-hub.ts"
     ]
   },
