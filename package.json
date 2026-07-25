@@ -71,7 +71,7 @@
     "version-packages": "changeset version",
     "release": "changeset publish",
     "check": "pnpm check:release-policy && pnpm check:smoke && pnpm check:pack",
-    "check:release-policy": "node --test scripts/release-policy.test.mjs && node scripts/check-release-policy.mjs",
+    "check:release-policy": "node --test scripts/release-policy.test.mjs scripts/npm-bootstrap.test.mjs && node scripts/check-release-policy.mjs",
     "check:smoke": "node scripts/check-smoke.mjs",
     "check:pack": "node scripts/check-pack.mjs"
   },

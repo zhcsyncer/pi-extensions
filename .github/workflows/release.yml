@@ -45,10 +45,6 @@ jobs:
       - name: Create version PR or publish packages
         id: changesets
         uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0
-        env:
-          # Temporary fallback for the first publish of a new package; remove it
-          # after @zhcsyncer/pi-glance has a trusted publisher configured.
-          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN || secrets.NPM_TOKEN }}
         with:
           version: pnpm version-packages
           publish: bash scripts/publish-packages.sh

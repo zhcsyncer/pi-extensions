@@ -1,0 +1,60 @@
+name: Bootstrap npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Exact public workspace package name to create on npm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-bootstrap-${{ inputs.package }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-bootstrap
+
+    steps:
+      - name: Require main workflow ref
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Bootstrap npm package must be dispatched from main, not $GITHUB_REF." >&2
+          exit 1
+
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up npm publishing client
+        run: npm install --global npm@11.18.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository packages
+        run: pnpm check
+
+      - name: Bootstrap exact npm package
+        env:
+          BOOTSTRAP_PACKAGE: ${{ inputs.package }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: node scripts/bootstrap-npm-package.mjs "$BOOTSTRAP_PACKAGE"
