@@ -1,5 +1,0 @@
----
-"@zhcsyncer/pi-extensions": minor
----
-
-Turn `/search-setup` into Search Hub's combined status and configuration dashboard, remove the separate `/search-status` command and footer activity, add ordered default-reader fallback, simplify search routing into fallback/targeted/all modes, and remove the unused local search-result cache and cache settings. Backend rows now expose switch, unified resolved-auth readiness, URL, and project-override status up front; unresolved references display as no credential. Detail menus separate credential management from enablement and show global versus effective state, while Codex search resolves its credential through the current Pi model registry. Backends now live on a dedicated second-level page. All setup pages share one in-memory draft, and `Save & apply` validates and atomically writes once; closing with dirty state offers save, discard, or continued editing. Backend disablement remains reversible, and blank required credentials cannot enable a backend.

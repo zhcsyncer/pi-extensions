@@ -1,5 +1,13 @@
 # @zhcsyncer/pi-extensions
 
+## 0.8.0
+
+### Minor Changes
+
+- da42f35: Turn `/search-setup` into Search Hub's combined status and configuration dashboard, remove the separate `/search-status` command and footer activity, add ordered default-reader fallback, simplify search routing into fallback/targeted/all modes, and remove the unused local search-result cache and cache settings. Backend rows now expose switch, unified resolved-auth readiness, URL, and project-override status up front; unresolved references display as no credential. Detail menus separate credential management from enablement and show global versus effective state, while Codex search resolves its credential through the current Pi model registry. Backends now live on a dedicated second-level page. All setup pages share one in-memory draft, and `Save & apply` validates and atomically writes once; closing with dirty state offers save, discard, or continued editing. Backend disablement remains reversible, and blank required credentials cannot enable a backend.
+- da42f35: Add automatic nearest-layer terminal multiplexer naming to recap: Herdr pane labels now take precedence over inherited tmux windows, legacy `tmux` config migrates to `multiplexer`, and ownership-aware restore avoids clobbering later manual renames while handling disable, reload, and shutdown lifecycles.
+- da42f35: Make Todo reliable for multi-stage work: isolate state per SDK session runtime, enforce lifecycle and dependency contracts, add atomic batch mutations, report validation failures as tool errors, and expose hidden successful calls in expanded audit views. Single-step work is now explicitly excluded from Todo guidance.
+
 ## 0.7.0
 
 ### Minor Changes
