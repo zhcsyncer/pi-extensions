@@ -1,7 +1,7 @@
 {
   "name": "@zhcsyncer/pi-recap",
   "version": "0.2.0",
-  "description": "Recent activity recap extension for Pi with optional session title and tmux window sync.",
+  "description": "Recent activity recap extension for Pi with optional session title and Herdr/tmux name sync.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
@@ -16,10 +16,17 @@
     "pi-extension",
     "recap",
     "session-title",
+    "terminal-multiplexer",
+    "herdr",
     "tmux"
   ],
   "license": "MIT",
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
   "files": [
     "extensions",
     "examples",
@@ -40,5 +47,10 @@
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
   }
 }

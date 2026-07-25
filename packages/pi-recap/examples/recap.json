@@ -21,7 +21,7 @@
     "applyPolicy": "if-empty-or-auto",
     "maxLength": 50
   },
-  "tmux": {
+  "multiplexer": {
     "enabled": true,
     "template": "π {session} · {project}",
     "maxLength": 48,

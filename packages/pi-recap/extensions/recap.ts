@@ -3,17 +3,15 @@
  *
  * - Generate a recent activity recap. This is NOT compaction.
  * - Optionally apply the generated title to the Pi session name.
- * - Optionally sync Pi session name to the current tmux window name.
+ * - Optionally sync Pi session name to the nearest terminal multiplexer.
  *
  * Config:
  *   ~/.pi/agent/recap.json
  *   .pi/recap.json          (only read when the project is trusted)
  */
 
-import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
 	CONFIG_DIR_NAME,
@@ -25,8 +23,14 @@ import {
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { CancellableLoader, Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import {
+	migrateMultiplexerConfig,
+	MultiplexerManager,
+	type MultiplexerConfig,
+	type MultiplexerHooks,
+	type MultiplexerNameContext,
+} from "./multiplexer.ts";
 
-const execFileAsync = promisify(execFile);
 const CUSTOM_TYPE = "recap";
 const WIDGET_KEY = "recap";
 const LEGACY_STATUS_KEY = "recap";
@@ -58,12 +62,7 @@ type RecapConfig = {
 		applyPolicy: TitleApplyPolicy;
 		maxLength: number;
 	};
-	tmux: {
-		enabled: boolean;
-		template: string;
-		maxLength: number;
-		restoreOnShutdown: boolean;
-	};
+	multiplexer: MultiplexerConfig;
 };
 
 type RecapEntryData = {
@@ -78,12 +77,6 @@ type RecapEntryData = {
 	generatedAt: number;
 	appliedSessionName: boolean;
 	sessionNamePolicy: TitleApplyPolicy;
-};
-
-type TmuxSnapshot = {
-	windowId: string;
-	originalName?: string;
-	originalAutomaticRename?: string;
 };
 
 const DEFAULT_CONFIG: RecapConfig = {
@@ -109,7 +102,7 @@ const DEFAULT_CONFIG: RecapConfig = {
 		applyPolicy: "if-empty-or-auto",
 		maxLength: 50,
 	},
-	tmux: {
+	multiplexer: {
 		enabled: true,
 		template: "π {session} · {project}",
 		maxLength: 48,
@@ -142,10 +135,14 @@ type ConfigMigration = {
 };
 
 function migrateLegacyConfig(value: unknown): ConfigMigration {
-	if (!isRecord(value) || !isRecord(value.display)) return { value, changed: false };
+	const multiplexerMigration = migrateMultiplexerConfig(value);
+	const migrated = multiplexerMigration.value;
+	if (!isRecord(migrated) || !isRecord(migrated.display)) {
+		return multiplexerMigration;
+	}
 
-	const display = { ...value.display };
-	let changed = false;
+	const display = { ...migrated.display };
+	let changed = multiplexerMigration.changed;
 	for (const key of ["notify", "mode", "widget", "clearWidgetOnNextAgentStart"]) {
 		if (key in display) {
 			delete display[key];
@@ -154,7 +151,7 @@ function migrateLegacyConfig(value: unknown): ConfigMigration {
 	}
 
 	return {
-		value: changed ? { ...value, display } : value,
+		value: changed ? { ...migrated, display } : migrated,
 		changed,
 	};
 }
@@ -231,10 +228,10 @@ function normalizeConfig(config: RecapConfig): RecapConfig {
 			applyPolicy: normalizeTitlePolicy(config.title?.applyPolicy),
 			maxLength: positiveNumber(config.title?.maxLength, DEFAULT_CONFIG.title.maxLength),
 		},
-		tmux: {
-			...DEFAULT_CONFIG.tmux,
-			...config.tmux,
-			maxLength: positiveNumber(config.tmux?.maxLength, DEFAULT_CONFIG.tmux.maxLength),
+		multiplexer: {
+			...DEFAULT_CONFIG.multiplexer,
+			...config.multiplexer,
+			maxLength: positiveNumber(config.multiplexer?.maxLength, DEFAULT_CONFIG.multiplexer.maxLength),
 		},
 	};
 
@@ -715,17 +712,17 @@ function settingItems(config: RecapConfig): SettingItem[] {
 			values: ["aboveEditor", "belowEditor"],
 		},
 		{
-			id: "tmux.enabled",
-			label: "Sync tmux window",
-			description: "Rename current tmux window when Pi session name changes.",
-			currentValue: boolValue(config.tmux.enabled),
+			id: "multiplexer.enabled",
+			label: "Sync multiplexer name",
+			description: "Rename the nearest Herdr pane or tmux window when Pi session name changes.",
+			currentValue: boolValue(config.multiplexer.enabled),
 			values: ["on", "off"],
 		},
 		{
-			id: "tmux.restoreOnShutdown",
-			label: "Restore tmux on shutdown",
-			description: "Restore previous tmux window name when Pi exits.",
-			currentValue: boolValue(config.tmux.restoreOnShutdown),
+			id: "multiplexer.restoreOnShutdown",
+			label: "Restore multiplexer on shutdown",
+			description: "Restore the previous pane or window name when Pi exits.",
+			currentValue: boolValue(config.multiplexer.restoreOnShutdown),
 			values: ["on", "off"],
 		},
 	];
@@ -751,11 +748,11 @@ function applyConfigSetting(config: RecapConfig, id: string, value: string): Rec
 		case "display.widgetPlacement":
 			next.display.widgetPlacement = value === "belowEditor" ? "belowEditor" : "aboveEditor";
 			break;
-		case "tmux.enabled":
-			next.tmux.enabled = on;
+		case "multiplexer.enabled":
+			next.multiplexer.enabled = on;
 			break;
-		case "tmux.restoreOnShutdown":
-			next.tmux.restoreOnShutdown = on;
+		case "multiplexer.restoreOnShutdown":
+			next.multiplexer.restoreOnShutdown = on;
 			break;
 	}
 
@@ -778,7 +775,7 @@ async function editConfigJson(pi: ExtensionAPI, ctx: ExtensionContext, state: Re
 		if (!next.recap.enabled || !next.recap.auto) stopAutomaticRecap(ctx, state);
 		refreshRecapDisplay(ctx, state);
 		await saveGlobalConfig(next);
-		await updateTmuxWindow(pi, ctx, next, state);
+		await syncMultiplexer(pi, ctx, state);
 		ctx.ui.notify(`Saved recap config: ${getGlobalConfigPath()}`, "info");
 	} catch (error) {
 		ctx.ui.notify(`Invalid recap config JSON: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -811,7 +808,7 @@ async function openConfigUi(pi: ExtensionAPI, ctx: ExtensionContext, state: Reca
 				refreshRecapDisplay(ctx, state);
 				void saveGlobalConfig(next)
 					.then(async () => {
-						await updateTmuxWindow(pi, ctx, next, state);
+						await syncMultiplexer(pi, ctx, state);
 					})
 					.catch((error) => {
 						ctx.ui.notify(`Failed to save recap config: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -837,75 +834,26 @@ async function openConfigUi(pi: ExtensionAPI, ctx: ExtensionContext, state: Reca
 	});
 }
 
-async function tmux(args: string[]): Promise<string | undefined> {
-	if (!process.env.TMUX) return undefined;
-	try {
-		const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8", timeout: 1000 });
-		return String(stdout).trim();
-	} catch {
-		return undefined;
-	}
-}
-
-async function ensureTmuxSnapshot(state: RecapState): Promise<TmuxSnapshot | undefined> {
-	if (state.tmuxSnapshot) return state.tmuxSnapshot;
-
-	const windowId = await tmux(["display-message", "-p", "#{window_id}"]);
-	if (!windowId) return undefined;
-
-	state.tmuxSnapshot = {
-		windowId,
-		originalName: await tmux(["display-message", "-p", "-t", windowId, "#{window_name}"]),
-		originalAutomaticRename: await tmux(["show-window-options", "-qv", "-t", windowId, "automatic-rename"]),
+function multiplexerHooks(ctx: ExtensionContext): MultiplexerHooks {
+	return {
+		setTitle: (name) => ctx.ui.setTitle(name),
+		warn: (message) => ctx.ui.notify(message, "warning"),
 	};
-
-	await tmux(["set-window-option", "-q", "-t", windowId, "automatic-rename", "off"]);
-	return state.tmuxSnapshot;
 }
 
-function cleanTmuxName(name: string, maxLength: number): string {
-	const cleaned = name
-		.replace(/[\x00-\x1f\x7f]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-	if (cleaned.length <= maxLength) return cleaned;
-	return `${cleaned.slice(0, Math.max(1, maxLength - 1))}…`;
+function multiplexerNameContext(pi: ExtensionAPI, ctx: ExtensionContext): MultiplexerNameContext {
+	return {
+		sessionName: currentSessionName(pi, ctx),
+		cwd: ctx.cwd,
+		sessionId: ctx.sessionManager.getSessionId(),
+	};
 }
 
-function buildTmuxWindowName(pi: ExtensionAPI, ctx: ExtensionContext, config: RecapConfig): string {
-	const project = path.basename(ctx.cwd) || "project";
-	const session = currentSessionName(pi, ctx) ?? ctx.sessionManager.getSessionId().slice(0, 8) ?? "session";
-	const raw = config.tmux.template
-		.replaceAll("{session}", session)
-		.replaceAll("{project}", project)
-		.replaceAll("{cwd}", ctx.cwd)
-		.replaceAll("{id}", ctx.sessionManager.getSessionId());
-	return cleanTmuxName(raw, config.tmux.maxLength);
-}
-
-async function updateTmuxWindow(pi: ExtensionAPI, ctx: ExtensionContext, config: RecapConfig, state: RecapState) {
-	if (!config.tmux.enabled) return;
-	if (ctx.mode !== "tui") return;
-	if (!process.env.TMUX) return;
-
-	const snapshot = await ensureTmuxSnapshot(state);
-	if (!snapshot) return;
-
-	const name = buildTmuxWindowName(pi, ctx, config);
-	await tmux(["rename-window", "-t", snapshot.windowId, name]);
-	ctx.ui.setTitle(name);
-}
-
-async function restoreTmuxWindow(state: RecapState) {
-	const snapshot = state.tmuxSnapshot;
-	if (!snapshot) return;
-
-	if (snapshot.originalName) {
-		await tmux(["rename-window", "-t", snapshot.windowId, snapshot.originalName]);
-	}
-	if (snapshot.originalAutomaticRename) {
-		await tmux(["set-window-option", "-q", "-t", snapshot.windowId, "automatic-rename", snapshot.originalAutomaticRename]);
-	}
+async function syncMultiplexer(pi: ExtensionAPI, ctx: ExtensionContext, state: RecapState) {
+	const config = ctx.mode === "tui"
+		? state.config.multiplexer
+		: { ...state.config.multiplexer, enabled: false };
+	await state.multiplexer.sync(config, multiplexerNameContext(pi, ctx), multiplexerHooks(ctx));
 }
 
 type ActiveRecapRun = {
@@ -927,7 +875,7 @@ type RecapState = {
 	lastAppliedSessionName: boolean;
 	lastAppliedTitle?: string;
 	autoTimer?: ReturnType<typeof setTimeout>;
-	tmuxSnapshot?: TmuxSnapshot;
+	multiplexer: MultiplexerManager;
 };
 
 function clearAutoTimer(state: RecapState) {
@@ -995,6 +943,7 @@ export default function (pi: ExtensionAPI) {
 		nextRunId: 0,
 		applyingSessionName: false,
 		lastAppliedSessionName: false,
+		multiplexer: new MultiplexerManager(),
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -1007,7 +956,7 @@ export default function (pi: ExtensionAPI) {
 
 		await refreshStateFromSession(ctx, state);
 		refreshRecapDisplay(ctx, state);
-		await updateTmuxWindow(pi, ctx, state.config, state);
+		await syncMultiplexer(pi, ctx, state);
 	});
 
 	pi.on("session_info_changed", async (event, ctx) => {
@@ -1015,7 +964,7 @@ export default function (pi: ExtensionAPI) {
 			state.lastAppliedSessionName = false;
 			state.lastAppliedTitle = undefined;
 		}
-		await updateTmuxWindow(pi, ctx, state.config, state);
+		await syncMultiplexer(pi, ctx, state);
 	});
 
 	pi.on("input", async (_event, ctx) => {
@@ -1032,9 +981,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (event, ctx) => {
 		stopAutomaticRecap(ctx, state);
-		if (state.config.tmux.restoreOnShutdown && event.reason !== "reload") {
-			await restoreTmuxWindow(state);
-		}
+		await state.multiplexer.shutdown(state.config.multiplexer, event.reason, multiplexerHooks(ctx));
 	});
 
 	pi.registerCommand("recap", {

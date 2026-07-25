@@ -12,7 +12,7 @@ Features:
 - Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications.
 - Generate a short title as a recap side effect.
 - Optionally apply the title to the Pi session name.
-- Optionally sync Pi session name changes to the current tmux window name.
+- Optionally sync Pi session name changes to the nearest terminal multiplexer: a Herdr pane label or tmux window name.
 - Configure common options with `/recap-config`.
 - Edit full JSON config with `/recap-config json`.
 
@@ -56,7 +56,7 @@ Generate a recent activity recap. It will:
 4. persist state with `pi.appendEntry("recap", ...)`;
 5. display the recap in an editor widget;
 6. optionally apply the title to the Pi session name;
-7. optionally sync the session name to the current tmux window.
+7. optionally sync the session name to the nearest Herdr pane or tmux window.
 
 ```text
 /recap-config
@@ -121,7 +121,7 @@ Default config:
     "applyPolicy": "if-empty-or-auto",
     "maxLength": 50
   },
-  "tmux": {
+  "multiplexer": {
     "enabled": true,
     "template": "π {session} · {project}",
     "maxLength": 48,
@@ -176,13 +176,13 @@ Choose widget placement:
 
 Recap display always uses an editor widget; the display surface is not configurable. Automatic recap progress is replaced by the result in that widget. Manual `/recap` uses a cancellable loader while generating, then shows the result in the widget. The widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
 
-When an older config is loaded, obsolete `display.notify`, `display.mode`, `display.widget`, and `display.clearWidgetOnNextAgentStart` fields are removed and the source config file is updated. `display.widgetPlacement` is preserved.
+When an older config is loaded, obsolete `display.notify`, `display.mode`, `display.widget`, and `display.clearWidgetOnNextAgentStart` fields are removed and the source config file is updated. `display.widgetPlacement` is preserved. Legacy `tmux` settings are migrated to `multiplexer`; when both exist, explicitly configured `multiplexer` fields take precedence.
 
-Customize tmux window name:
+Customize the Herdr pane label or tmux window name:
 
 ```json
 {
-  "tmux": {
+  "multiplexer": {
     "template": "π {project} · {session}",
     "maxLength": 60
   }
@@ -232,16 +232,19 @@ or:
 
 Note: Pi currently does not expose a user language or locale field to extensions. This is an extension-level setting.
 
-### tmux behavior
+### Terminal multiplexer behavior
 
-When `tmux.enabled` is true:
+When `multiplexer.enabled` is true, recap automatically selects the directly hosting layer:
 
-- It only runs when `process.env.TMUX` exists.
-- It disables `automatic-rename` for the current tmux window to avoid shell-command overwrites.
-- It renames the current tmux window when Pi session name changes.
-- If `restoreOnShutdown` is true, it restores the previous window name and `automatic-rename` setting when Pi exits.
+1. `HERDR_ENV=1` with a non-empty `HERDR_PANE_ID` selects the current Herdr pane label. The `herdr` CLI must be available; Herdr may provide its absolute path through `HERDR_BIN_PATH`.
+2. If Herdr is not detected and `TMUX` exists, recap selects the current tmux window name.
+3. Otherwise, naming is a no-op.
 
-All of these trigger tmux sync:
+In nested Herdr-inside-tmux sessions, recap only updates the Herdr pane. If Herdr is detected but its pane identity is incomplete or its CLI is unavailable, recap warns once and does not fall back to the inherited tmux layer.
+
+For tmux, recap keeps the original behavior of disabling `automatic-rename` while it owns the window name. The original pane/window name is restored only if the current name still equals recap's last successful write, so a later manual rename is preserved. Disabling sync or reloading the extension releases ownership immediately; reload always restores before the new extension instance reapplies the name. On ordinary Pi exit, `restoreOnShutdown` controls restoration. tmux's captured `automatic-rename` setting is restored whenever owned sync is restored or disabled.
+
+All of these trigger multiplexer sync:
 
 ```bash
 pi --name "auth refresh"
@@ -251,7 +254,7 @@ pi --name "auth refresh"
 /name auth refresh
 ```
 
-and recap calling `pi.setSessionName(title)` when enabled by config.
+and recap calling `pi.setSessionName(title)` when enabled by config. Recap does not modify Herdr's Pi agent-state integration.
 
 ### Privacy and cost
 

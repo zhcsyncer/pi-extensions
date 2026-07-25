@@ -12,7 +12,7 @@
 - 使用 editor widget 展示自动 recap 的进度以及 recap 结果和错误，成功结果不会再重复显示为聊天区通知；
 - recap 时顺便生成短 title；
 - 是否用 title 更新 Pi session name 由配置控制；
-- session name 变化时可选同步 tmux window name；
+- session name 变化时可选同步最近一层终端复用器：Herdr pane label 或 tmux window name；
 - `/recap-config` 提供 TUI 常用配置；
 - `/recap-config json` 编辑完整 JSON 配置。
 
@@ -56,7 +56,7 @@ pi -e ./packages/pi-recap
 4. 使用 `pi.appendEntry("recap", ...)` 保存状态；
 5. 在 editor widget 中展示 recap；
 6. 如果配置允许，用 title 更新 Pi session name；
-7. 如果启用 tmux 同步，session name 变化会同步到当前 tmux window。
+7. 如果启用终端复用器同步，session name 变化会同步到最近一层 Herdr pane 或 tmux window。
 
 ```text
 /recap-config
@@ -121,7 +121,7 @@ examples/recap.json
     "applyPolicy": "if-empty-or-auto",
     "maxLength": 50
   },
-  "tmux": {
+  "multiplexer": {
     "enabled": true,
     "template": "π {session} · {project}",
     "maxLength": 48,
@@ -176,13 +176,13 @@ examples/recap.json
 
 recap 始终使用 editor widget，展示区域不再支持配置。自动 recap 的生成进度会在同一个 widget 中被最终结果替换；手动 `/recap` 生成时使用可取消 Loader，完成后在 widget 中显示结果。下一条消息开始时会清除 widget；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
 
-读取旧配置时，插件会移除已废弃的 `display.notify`、`display.mode`、`display.widget` 和 `display.clearWidgetOnNextAgentStart`，并更新原配置文件；`display.widgetPlacement` 会保留。
+读取旧配置时，插件会移除已废弃的 `display.notify`、`display.mode`、`display.widget` 和 `display.clearWidgetOnNextAgentStart`，并更新原配置文件；`display.widgetPlacement` 会保留。旧的 `tmux` 配置会自动迁移到 `multiplexer`；两者同时存在时，显式设置的 `multiplexer` 字段优先。
 
-自定义 tmux window 名称：
+自定义 Herdr pane label 或 tmux window 名称：
 
 ```json
 {
-  "tmux": {
+  "multiplexer": {
     "template": "π {project} · {session}",
     "maxLength": 60
   }
@@ -232,16 +232,19 @@ recap 始终使用 editor widget，展示区域不再支持配置。自动 recap
 
 注意：Pi 当前不会向 extension 提供用户语言/locale 字段；这是插件自己的配置。
 
-### tmux 行为
+### 终端复用器行为
 
-启用 `tmux.enabled` 后：
+启用 `multiplexer.enabled` 后，recap 会自动选择直接承载当前 Pi 的最近一层：
 
-- 仅在检测到 `process.env.TMUX` 时生效；
-- 会关闭当前 tmux window 的 `automatic-rename`，避免被 shell 命令覆盖；
-- session name 变化时重命名当前 tmux window；
-- `restoreOnShutdown` 为 `true` 时，Pi 退出会恢复原 window name 和 `automatic-rename` 设置。
+1. `HERDR_ENV=1` 且 `HERDR_PANE_ID` 非空时，选择当前 Herdr pane label。系统需要能执行 `herdr` CLI；Herdr 也可以通过 `HERDR_BIN_PATH` 提供绝对路径。
+2. 未检测到 Herdr、但存在 `TMUX` 时，选择当前 tmux window name。
+3. 两者都没有时，不执行任何命名操作。
 
-这些都会触发 tmux 同步：
+Herdr 嵌套在 tmux 中时，recap 只更新 Herdr pane。如果检测到了 Herdr，但 pane 身份不完整或 CLI 不可用，recap 只警告一次，不会回退修改继承的外层 tmux。
+
+对于 tmux，recap 延续原行为：持有 window name 期间关闭 `automatic-rename`。仅当当前名称仍等于 recap 最近一次成功写入的值时，才恢复原 pane/window 名称，因此后续手动改名不会被覆盖。运行时关闭同步或 reload 会立即释放持有状态；reload 会先恢复，再由新 extension 实例重新应用。普通 Pi 退出时是否恢复由 `restoreOnShutdown` 控制。同步被恢复或关闭时，tmux 捕获到的 `automatic-rename` 设置会一并恢复。
+
+以下操作都会触发复用器同步：
 
 ```bash
 pi --name "auth refresh"
@@ -251,7 +254,7 @@ pi --name "auth refresh"
 /name auth refresh
 ```
 
-以及 recap 根据配置调用 `pi.setSessionName(title)`。
+以及 recap 根据配置调用 `pi.setSessionName(title)`。recap 不会修改 Herdr 官方的 Pi agent-state integration。
 
 ### 隐私与费用
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added automatic Herdr pane-label synchronization through Herdr's CLI, with Herdr taking precedence over inherited tmux sessions.
+- Added ownership-aware restoration, serialized naming updates, failure warnings, and fake-runner contract tests for both supported multiplexers.
+
+### Changed
+
+- Replaced the public `tmux` config group with the shared `multiplexer` group; legacy config migrates automatically and explicit new fields take precedence.
+- Restore owned multiplexer names on extension reload and preserve later manual renames during shutdown or runtime disablement.
+
 ## 0.2.0
 
 ## 0.1.4
