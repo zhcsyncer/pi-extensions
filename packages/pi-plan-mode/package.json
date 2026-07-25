@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-plan-mode",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Temporary read-only Plan Mode for Pi with revdiff review and immutable revisions.",
   "keywords": [
     "pi-package",

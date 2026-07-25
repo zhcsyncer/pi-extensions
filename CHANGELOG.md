@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.7.0
+
+### Minor Changes
+
+- f3d7b88: Add a temporary read-only Plan Mode with `/plan on|off`, the `--plan` startup flag, keyboard shortcuts, fail-closed tools, revdiff review with word-level revision comparisons, immutable Plan revisions, configurable English or Simplified Chinese Plan content, compact custom-message approval handoff, immediate normal-tool restoration, and collapsible display-only Steps widgets.
+
 ## 0.6.0
 
 ### Minor Changes
