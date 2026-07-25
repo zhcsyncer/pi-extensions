@@ -8,6 +8,7 @@ import {
 	type Credential,
 	type Model,
 } from "@earendil-works/pi-ai";
+import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER_ID = "volcengine-agent-plan";
@@ -16,13 +17,6 @@ const TIER_ENV = "ARK_AGENT_PLAN_TIER";
 const KEY_ENV_NAMES = ["ARK_AGENT_PLAN_API_KEY", "VOLCENGINE_ARK_PLAN_API_KEY"] as const;
 const KEY_VALIDATION_URL = `${BASE_URL}/responses`;
 const KEY_VALIDATION_TIMEOUT_MS = 12_000;
-
-const ZERO_COST = {
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-};
 
 const RESPONSES_COMPAT = {
 	supportsDeveloperRole: true,
@@ -46,6 +40,57 @@ type CatalogEntry = Omit<Model<ArkApi>, "provider" | "baseUrl"> & {
 	minimumTier: PlanTier;
 };
 
+type EstimatedApiCost = Model<ArkApi>["cost"];
+
+type InheritedModelCapabilities = Pick<
+	Model<ArkApi>,
+	"name" | "reasoning" | "thinkingLevelMap" | "input" | "cost" | "contextWindow" | "maxTokens"
+>;
+
+type RouteCapabilityLimits = Pick<Model<ArkApi>, "input" | "contextWindow" | "maxTokens">;
+
+function copyEstimatedApiCost(cost: EstimatedApiCost): EstimatedApiCost {
+	return {
+		...cost,
+		...(cost.tiers ? { tiers: cost.tiers.map((tier) => ({ ...tier })) } : {}),
+	};
+}
+
+function inheritModelCapabilities(
+	upstream: InheritedModelCapabilities,
+	routeLimits: RouteCapabilityLimits,
+): InheritedModelCapabilities {
+	return {
+		name: upstream.name,
+		reasoning: upstream.reasoning,
+		...(upstream.thinkingLevelMap
+			? { thinkingLevelMap: { ...upstream.thinkingLevelMap } }
+			: {}),
+		input: upstream.input.filter((modality) => routeLimits.input.includes(modality)),
+		cost: copyEstimatedApiCost(upstream.cost),
+		contextWindow: Math.min(upstream.contextWindow, routeLimits.contextWindow),
+		maxTokens: Math.min(upstream.maxTokens, routeLimits.maxTokens),
+	};
+}
+
+// Pi has no native Doubao Seed 2.0 catalog yet. These USD-per-million-token
+// estimates follow public API listings normalized from Volcengine's price table.
+const DOUBAO_API_COSTS = {
+	"doubao-seed-2.0-mini": { input: 0.03, output: 0.28, cacheRead: 0.01, cacheWrite: 0.0024 },
+	"doubao-seed-2.0-lite": { input: 0.09, output: 0.51, cacheRead: 0.02, cacheWrite: 0.0024 },
+	"doubao-seed-evolving": { input: 0.9, output: 4.5, cacheRead: 0.18, cacheWrite: 0 },
+	"doubao-seed-2.0-code": { input: 0.9, output: 4.48, cacheRead: 0, cacheWrite: 0 },
+	"doubao-seed-2.0-pro": { input: 0.45, output: 2.24, cacheRead: 0.09, cacheWrite: 0.0024 },
+} satisfies Record<string, EstimatedApiCost>;
+
+// Only model capabilities and reference API pricing are inherited. Agent Plan
+// continues to own protocol, endpoint, compatibility, tier gating, and route limits.
+const KIMI_K3_CAPABILITIES = inheritModelCapabilities(getBuiltinModel("moonshotai", "kimi-k3"), {
+	input: ["text"],
+	contextWindow: 1_024_000,
+	maxTokens: 128_000,
+});
+
 const TIER_RANK: Record<PlanTier, number> = {
 	small: 0,
 	medium: 1,
@@ -63,7 +108,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-mini"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -75,7 +120,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-lite"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -87,7 +132,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_024_000,
 		maxTokens: 384_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-flash").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -99,7 +144,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_024_000,
 		maxTokens: 256_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-evolving"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -111,7 +156,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-code"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -123,7 +168,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-pro"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -136,7 +181,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 200_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("minimax", "MiniMax-M2.7").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -148,7 +193,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 512_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("minimax", "MiniMax-M3").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -160,7 +205,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_024_000,
 		maxTokens: 128_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("opencode-go", "glm-5.2").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -173,7 +218,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 32_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("moonshotai", "kimi-k2.6").cost),
 		compat: KIMI_CHAT_COMPAT,
 	},
 	{
@@ -186,7 +231,7 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 256_000,
 		maxTokens: 32_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("moonshotai", "kimi-k2.7-code").cost),
 		compat: KIMI_CHAT_COMPAT,
 	},
 	{
@@ -198,19 +243,14 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_024_000,
 		maxTokens: 384_000,
-		cost: ZERO_COST,
+		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-pro").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
 		id: "kimi-k3",
-		name: "Kimi K3",
+		...KIMI_K3_CAPABILITIES,
 		api: "openai-responses",
 		minimumTier: "medium",
-		reasoning: true,
-		input: ["text"],
-		contextWindow: 1_024_000,
-		maxTokens: 128_000,
-		cost: ZERO_COST,
 		compat: RESPONSES_COMPAT,
 	},
 ];
