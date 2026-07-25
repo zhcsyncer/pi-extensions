@@ -5,7 +5,6 @@
  * - Selection strategies
  * - RRF combiner
  * - Credential resolution
- * - SearchCache
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,7 +14,7 @@ import { reciprocalRankFusion, runTargetedCombine, selectBackendsForFallback } f
 import { recordBackendSuccess, recordBackendFailure } from "../extensions/scoring.js";
 import { resolveConfigValue, clearCredentialCache, FALLBACK_ENV_MAP } from "../extensions/credentials.js";
 import { loadConfig } from "../extensions/config.js";
-import { SearchCache } from "../extensions/utils.js";
+
 
 // ---------------------------------------------------------------------------
 // Tool display integration
@@ -473,18 +472,28 @@ describe("resolveConfigValue", () => {
 		expect(resolveConfigValue(undefined)).toBeUndefined();
 	});
 
-	it("returns undefined for empty string", () => {
+	it("returns undefined for empty or whitespace-only strings", () => {
 		expect(resolveConfigValue("")).toBeUndefined();
+		expect(resolveConfigValue("   ")).toBeUndefined();
 	});
 
 	it("returns literal key for non-ALL_CAPS strings", () => {
 		expect(resolveConfigValue("sk-abc123")).toBe("sk-abc123");
 	});
 
-	it("resolves ALL_CAPS from env var", () => {
-		process.env.TEST_SEARCH_KEY_123 = "secret-value";
+	it("resolves and trims ALL_CAPS values from env vars", () => {
+		process.env.TEST_SEARCH_KEY_123 = "  secret-value  ";
 		try {
 			expect(resolveConfigValue("TEST_SEARCH_KEY_123")).toBe("secret-value");
+		} finally {
+			delete process.env.TEST_SEARCH_KEY_123;
+		}
+	});
+
+	it("returns undefined for whitespace-only env var values", () => {
+		process.env.TEST_SEARCH_KEY_123 = "   ";
+		try {
+			expect(resolveConfigValue("TEST_SEARCH_KEY_123")).toBeUndefined();
 		} finally {
 			delete process.env.TEST_SEARCH_KEY_123;
 		}
@@ -612,67 +621,5 @@ describe("fetchSofya", () => {
 		await fetchSofya("https://example.com", "valid-key", undefined, { includeRawHtml: true });
 		const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
 		expect(body.include_raw_html).toBe(true);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// SearchCache tests
-// ---------------------------------------------------------------------------
-
-describe("SearchCache", () => {
-	it("stores and retrieves values", () => {
-		const cache = new SearchCache<string>(60_000, 10);
-		cache.set("key1", "value1");
-		expect(cache.get("key1")).toBe("value1");
-	});
-
-	it("returns undefined for missing keys", () => {
-		const cache = new SearchCache<string>(60_000, 10);
-		expect(cache.get("missing")).toBeUndefined();
-	});
-
-	it("evicts entries after TTL", async () => {
-		const cache = new SearchCache<string>(20, 10); // 20ms TTL
-		cache.set("key1", "value1");
-		// Verify entry exists just before TTL expires
-		await new Promise((r) => setTimeout(r, 15));
-		expect(cache.get("key1")).toBe("value1"); // still valid at 15ms < 20ms TTL
-		// Verify entry is evicted after TTL
-		await new Promise((r) => setTimeout(r, 10)); // now at 25ms > 20ms TTL
-		expect(cache.get("key1")).toBeUndefined();
-	});
-
-	it("evicts oldest when at max capacity", () => {
-		const cache = new SearchCache<string>(60_000, 3);
-		cache.set("key1", "value1");
-		cache.set("key2", "value2");
-		cache.set("key3", "value3");
-		cache.set("key4", "value4"); // should evict key1
-
-		expect(cache.get("key1")).toBeUndefined();
-		expect(cache.get("key4")).toBe("value4");
-		expect(cache.size).toBe(3);
-	});
-
-	it("clear resets the cache", () => {
-		const cache = new SearchCache<string>(60_000, 10);
-		cache.set("key1", "value1");
-		cache.clear();
-		expect(cache.get("key1")).toBeUndefined();
-		expect(cache.size).toBe(0);
-	});
-
-	it("LRU: accessing an entry moves it to end", () => {
-		const cache = new SearchCache<string>(60_000, 2);
-		cache.set("key1", "value1");
-		cache.set("key2", "value2");
-
-		// Access key1 to move it to end (most recently used)
-		cache.get("key1");
-
-		// Adding key3 should evict key2 (oldest), not key1
-		cache.set("key3", "value3");
-		expect(cache.get("key1")).toBe("value1");
-		expect(cache.get("key2")).toBeUndefined();
 	});
 });

@@ -1,4 +1,3 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import {
 	getModel,
 	streamOpenAICodexResponses,
@@ -41,14 +40,16 @@ const SUBMIT_SEARCH_RESULTS_TOOL = {
 export async function searchOpenAICodex(
 	query: string,
 	numResults: number,
+	apiKey: string | undefined,
 	signal?: AbortSignal,
 	backendConfig?: BackendConfig,
 ): Promise<{ results: SearchResult[] }> {
 	if (signal?.aborted) {
 		throw new Error("OpenAI Codex search cancelled");
 	}
-
-	const apiKey = await resolveOpenAICodexAccessToken();
+	if (!apiKey) {
+		throw new Error("OpenAI Codex authentication not found. Run /login openai-codex.");
+	}
 	const modelId = backendConfig?.model?.trim() || DEFAULT_MODEL_ID;
 	const lookupModel = getModel as unknown as (
 		provider: string,
@@ -100,19 +101,6 @@ export async function searchOpenAICodex(
 	}
 
 	return { results };
-}
-
-async function resolveOpenAICodexAccessToken(): Promise<string> {
-	const authStorage = AuthStorage.create();
-	const apiKey = await authStorage.getApiKey("openai-codex", {
-		includeFallback: false,
-	});
-
-	if (!apiKey) {
-		throw new Error("OpenAI Codex authentication not found. Run /login and select OpenAI Codex.");
-	}
-
-	return apiKey;
 }
 
 function buildSystemPrompt(numResults: number): string {

@@ -10,7 +10,7 @@
 
 ### `web_search`
 
-通过明确指定的 backend 搜索，或使用自动 fallback。`combine=true` 会并行查询多个已启用 backend，并合并、去重结果；在 `search.json` 中设置 `combineMode: "targeted"` 可以限制 fan-out，同时仍收集多个可用结果集。
+通过明确指定的 backend 搜索，或使用自动路由。Fallback 模式会按顺序尝试已启用 backend，并在首个成功结果处停止。`combine=true` 会查询多个已启用 backend，并合并、去重结果：`combineMode: "targeted"` 最多收集三个可用 backend 的结果集，`combineMode: "all"` 则查询全部已启用 backend。调用明确指定单个 backend 时会忽略 combine。
 
 主要调用参数：
 
@@ -24,7 +24,7 @@
 
 ### `web_read`
 
-读取 URL 并返回提取后的 Markdown。默认 Jina reader 支持绕过缓存、keywords、`rush`/`smart` 模式和定向提取，也可以使用 Sofya、Firecrawl、Exa 与 Exa MCP reader。
+读取 URL 并返回提取后的 Markdown。配置中的 `reader` 是 default reader，与默认搜索 backend 相互独立。调用未传 `reader` 时，Search Hub 会依次尝试 default reader 和 `readerFallback`；显式传入 `reader` 时只使用该 reader。Reader 只做顺序 fallback，不会并行查询或合并多份内容。默认 Jina reader 支持绕过远端缓存、keywords、`rush`/`smart` 模式和定向提取，也可以使用 Sofya、Firecrawl、Exa 与 Exa MCP reader。
 
 主要调用参数：
 
@@ -32,7 +32,7 @@
 - `fresh` — 在 reader 支持时绕过缓存；
 - `keywords` — 聚焦长页面提取的关键词；
 - `mode` — `rush` 优先速度，`smart` 提高筛选质量；
-- `reader` — 覆盖配置的 reader；
+- `reader` — 仅使用指定 reader，并跳过配置的 reader fallback；
 - `objective` — Jina CSS target selector。
 
 > `web_read.objective` 是通过 `x-target-selector` 传给 Jina 的 CSS selector，不是自然语言问题或提取指令。应使用 `main`、`article`、`#pricing` 等值；语义聚焦请使用 `keywords`。
@@ -53,7 +53,7 @@
 | `web_search` | 搜索词 | 请求的 backend、combine 模式、结果上限、compact 模式 |
 | `web_read` | 缩短后的 URL | reader、rush/smart 模式、keyword 数量、fresh 模式、是否使用 selector |
 
-语义化结果状态包括：
+搜索与读取进度通过当前 tool call 展示，不再写入常驻 footer 状态。语义化结果状态包括：
 
 | 工具 | 状态 |
 |---|---|
@@ -71,15 +71,27 @@ Search Hub 从以下位置读取配置：
 1. `$PI_CODING_AGENT_DIR/extensions/search.json`：全局设置；
 2. 当前项目的 `.pi/search.json`。
 
-项目设置优先。backend map 会按单个 backend 合并，因此项目可以只覆盖一个 backend，无需重复全部全局条目。配置会在使用过程中刷新，并带有较短的进程内缓存。
+项目设置优先。backend map 会按单个 backend 合并，因此项目可以只覆盖一个 backend，无需重复全部全局条目。配置会在使用过程中刷新；交互式修改会暂存在草稿中，直到选择 `Save & apply`。
+
+### 交互式配置
+
+运行 `/search-setup` 可在同一入口查看 Search Hub 的有效状态并编辑全局配置。一级页面只汇总搜索路由、网页读取、backend/credential 数量和输出设置，再进入独立的 `Search routing`、`Web reading`、`Backends` 与 `Output` 页面。较长的 backend 列表只出现在 Backends 二级页；不再提供独立的 `/search-status` 命令。
+
+每个简洁 backend 行都以前置 `[ON]`、`[OFF]` 或 `[AUTO]` 开头，并对 API key 与 Pi credential 统一使用 `auth` 口径：`auth ✓ saved key`、`auth ✓ env <名称>`、`auth ✓ Pi /login`、`auth ✗ missing`、`auth — optional` 或 `auth — not required`。无法解析的引用按“当前没有 credential”展示。Shell command credential 会标成 `auth ? shell command`，因为 setup 不会仅为渲染状态而执行它。选择 backend 后会对比全局草稿与经过项目覆盖后的有效配置，并分别提供开关、credential、URL 和 Pi auth 操作。禁用会保留 credential；只要保留的 credential 仍可解析，重新启用时无需再次输入。批量操作只启用可直接使用的 keyless hosted backend，SearXNG 会保持关闭直到配置实例 URL。
+
+所有页面共同编辑一份内存中的全局草稿。`Back` 不会写盘，一级页面会标记未保存修改。`Save & apply` 会归一化草稿、清理废弃字段、以 `0600` 权限原子写入全局文件，只刷新一次运行时配置，并只发一条结果通知。带未保存修改关闭时，可选择 `Save & apply`、`Discard changes` 或 `Continue editing`。保存成功后无需 `/reload` 或新建会话。
+
+`/search-setup` 只修改全局文件。项目 `.pi/search.json` 可以在当前项目中覆盖这次修改，Search Hub 会在保存后提示。禁用 backend 不会删除已保存的 credential；如果还需要从磁盘移除，请在该 backend 的详情菜单选择 `Remove saved API key or reference`。Search Hub 不在本地缓存搜索结果；`web_read.fresh` 只要求支持它的远端 reader 绕过自身缓存。
 
 最小示例：
 
 ```json
 {
-  "defaultBackend": "auto",
+  "defaultBackend": "duckduckgo",
+  "combine": false,
   "combineMode": "targeted",
   "reader": "jina",
+  "readerFallback": ["firecrawl", "exa_mcp"],
   "backends": {
     "duckduckgo": { "enabled": true },
     "serper": { "enabled": true, "apiKey": "SERPER_API_KEY" }
@@ -87,7 +99,7 @@ Search Hub 从以下位置读取配置：
 }
 ```
 
-可以复制 [`search.json.example`](./search.json.example) 获取更完整的 backend 配置矩阵。Credential 可以是 `SERPER_API_KEY` 这样的环境变量名、以 `!` 开头的 shell command，或 literal key。优先使用环境变量或 secret manager，绝不要提交凭据。
+可以复制 [`search.json.example`](./search.json.example) 获取更完整的 backend 配置矩阵。搜索服务 credential（包括 Jina 的可选 key）可以是 `JINA_API_KEY` 这样的环境变量名、以 `!` 开头的 shell command，或直接保存在配置中的 key 值。优先使用环境变量或 secret manager，绝不要提交凭据。OpenAI Codex 是例外：它从当前 Pi model registry 解析已有的 `openai-codex` provider credential，因此 `/login openai-codex` 是唯一凭据来源。其他搜索服务不是 Pi model provider，而 Pi 目前没有公开通用的 extension secret store，所以 Search Hub 不会为了把 key 放进 `auth.json` 而注册伪 provider。
 
 上游 backend 专属参考见 [`UPSTREAM_README.md`](./UPSTREAM_README.md)。对于 bundle fork，本 README 描述的本地行为优先。
 

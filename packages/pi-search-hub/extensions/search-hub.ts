@@ -19,8 +19,6 @@
  * Config: ~/.pi/agent/extensions/search.json + .pi/search.json (project wins)
  * Credentials: env var refs (ALL_CAPS), shell commands (!command), or literal keys
  *
- * Statusline activity: Shows "search" status during search operations
- *
  * Example .pi/search.json:
  *   {
  *     "defaultBackend": "auto",
@@ -39,7 +37,7 @@
  *   }
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -49,9 +47,9 @@ import {
 	withDisplaySummary,
 } from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
-import type { BackendConfig, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
+import type { BackendConfig, ReaderName, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
 import { getAgentDir, timeoutSignal, sanitizeError, clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
-import { resolveBackendKey, getKeySource } from "./credentials.js";
+import { resolveBackendKey, getKeySource, FALLBACK_ENV_MAP } from "./credentials.js";
 import { fetchSofya } from "./backends/sofya.js";
 import { fetchFirecrawl } from "./backends/firecrawl.js";
 import { fetchExaContents } from "./backends/exa.js";
@@ -70,6 +68,26 @@ import {
 
 /** Cap on a single web_read response body, in bytes, to bound memory use on heavy pages. */
 const READ_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const READER_NAMES = ["jina", "sofya", "firecrawl", "exa", "exa_mcp"] as const;
+const READER_LABELS: Record<ReaderName, string> = {
+	jina: "Jina",
+	sofya: "Sofya",
+	firecrawl: "Firecrawl",
+	exa: "Exa",
+	exa_mcp: "Exa MCP",
+};
+
+function configuredReaderOrder(searchConfig: SearchConfig): ReaderName[] {
+	const configuredDefault = READER_NAMES.includes(searchConfig.reader as ReaderName)
+		? searchConfig.reader as ReaderName
+		: "jina";
+	const configuredFallback = Array.isArray(searchConfig.readerFallback)
+		? searchConfig.readerFallback
+		: [];
+	return Array.from(new Set([configuredDefault, ...configuredFallback].filter(
+		(reader): reader is ReaderName => READER_NAMES.includes(reader as ReaderName),
+	)));
+}
 
 // ---------------------------------------------------------------------------
 // Extension
@@ -173,25 +191,34 @@ export default function (pi: ExtensionAPI) {
 			const forceCombine = config.combine === true;
 			const effectiveCombine = forceCombine || combine;
 
-			// Helper to update statusline
-			const setStatus = (status: string) => {
-				ctx.ui.setStatus("search", status);
-				onUpdate?.({ content: [{ type: "text", text: `*${status}*` }], details: undefined });
+			const updateActivity = (status: string) => {
+				onUpdate?.({
+					content: [{ type: "text", text: `*${status}*` }],
+					details: { activity: status },
+				});
 			};
+			const runSearchBackend = (
+				backend: string,
+				query: string,
+				limit: number,
+				backendSignal?: AbortSignal,
+			) => runBackend(backend, query, limit, backendSignal, {
+				getProviderApiKey: (provider) => ctx.modelRegistry.getApiKeyForProvider(provider),
+			});
 
 			if (requestedBackend !== "auto") {
 				// Specific backend requested — try it directly
 				const backendLabel = BACKEND_DEFS[requestedBackend]?.label || requestedBackend;
-				setStatus(`🔍 ${backendLabel}: searching...`);
+				updateActivity(`🔍 ${backendLabel}: searching...`);
 				try {
-					const results = await runBackend(requestedBackend, params.query, numResults, signal);
-					setStatus(`🔍 ${backendLabel}: ${results.length} results`);
+					const results = await runSearchBackend(requestedBackend, params.query, numResults, signal);
+					updateActivity(`🔍 ${backendLabel}: ${results.length} results`);
 					return {
 						content: [{ type: "text", text: compact ? formatResultsCompact(results) : formatResults(params.query, requestedBackend, results) }],
 						details: { backend: requestedBackend, resultCount: results.length },
 					};
 				} catch (err) {
-					setStatus(`❌ ${backendLabel}: failed`);
+					updateActivity(`❌ ${backendLabel}: failed`);
 					throw err;
 				}
 			}
@@ -205,7 +232,7 @@ export default function (pi: ExtensionAPI) {
 						config.selectionStrategy ?? "sequential",
 						activeBackends,
 					);
-					setStatus(`🔍 targeted combine: up to 3 of ${activeBackends.length} backends...`);
+					updateActivity(`🔍 targeted combine: up to 3 of ${activeBackends.length} backends...`);
 					const {
 						results: combined,
 						backendStats,
@@ -215,11 +242,11 @@ export default function (pi: ExtensionAPI) {
 						query: params.query,
 						numResults,
 						signal,
-						runBackend,
+						runBackend: runSearchBackend,
 					});
 
 					if (usableBackendCount === 0) {
-						setStatus(`❌ targeted combine: no usable backends`);
+						updateActivity(`❌ targeted combine: no usable backends`);
 						const errors = Array.from(backendStats.entries()).map(([backend, stats]) => (
 							stats.success
 								? `${backend}: 0 results`
@@ -230,7 +257,7 @@ export default function (pi: ExtensionAPI) {
 
 					const attemptedCount = backendStats.size;
 					const incomplete = usableBackendCount < 3 ? `, exhausted after ${usableBackendCount} usable` : "";
-					setStatus(`🔍 targeted combined: ${combined.length} results (${usableBackendCount}/${attemptedCount} usable${incomplete})`);
+					updateActivity(`🔍 targeted combined: ${combined.length} results (${usableBackendCount}/${attemptedCount} usable${incomplete})`);
 
 					return {
 						content: [
@@ -251,11 +278,11 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Combine mode: query all enabled backends in parallel
-				setStatus(`🔍 combine: ${activeBackends.length} backends...`);
+				updateActivity(`🔍 combine: ${activeBackends.length} backends...`);
 				const resultsPerBackend = await Promise.all(
 					activeBackends.map(async (backend) => {
 						try {
-							const results = await runBackend(
+							const results = await runSearchBackend(
 								backend,
 								params.query,
 								Math.ceil(numResults / activeBackends.length),
@@ -302,7 +329,7 @@ export default function (pi: ExtensionAPI) {
 
 				const successCount = successfulBackends.length;
 				const failCount = activeBackends.length - successCount;
-				setStatus(`🔍 combined: ${combined.length} results (${successCount} ok${failCount > 0 ? `, ${failCount} failed` : ""})`);
+				updateActivity(`🔍 combined: ${combined.length} results (${successCount} ok${failCount > 0 ? `, ${failCount} failed` : ""})`);
 
 				return {
 					content: [
@@ -329,11 +356,11 @@ export default function (pi: ExtensionAPI) {
 				for (const backend of orderedBackends) {
 					const backendLabel = BACKEND_DEFS[backend]?.label || backend;
 					const t0 = Date.now();
-					setStatus(`🔍 ${backendLabel}: searching...`);
+					updateActivity(`🔍 ${backendLabel}: searching...`);
 					try {
-						const results = await runBackend(backend, params.query, numResults, signal);
+						const results = await runSearchBackend(backend, params.query, numResults, signal);
 						recordLatency(backend, Date.now() - t0);
-						setStatus(`🔍 ${backendLabel}: ${results.length} results`);
+						updateActivity(`🔍 ${backendLabel}: ${results.length} results`);
 						return {
 							content: [
 								{
@@ -351,11 +378,11 @@ export default function (pi: ExtensionAPI) {
 						};
 					} catch (err) {
 						errors.push(`${backend}: ${(err as Error).message}`);
-						setStatus(`❌ ${backendLabel}: failed, trying next...`);
+						updateActivity(`❌ ${backendLabel}: failed, trying next...`);
 					}
 				}
 
-				setStatus(`❌ all backends failed`);
+				updateActivity(`❌ all backends failed`);
 				throw new Error(`All backends failed: ${errors.join("; ")}`);
 			}
 		},
@@ -373,8 +400,8 @@ export default function (pi: ExtensionAPI) {
 		label: "Read Web Page",
 		description:
 			"Fetch a URL as markdown. Use keywords for long pages and objective only for a Jina CSS target selector, " +
-			"rush for speed, smart for better narrowing. Use reader param to switch between " +
-			"Jina (default, free) and Sofya (250+ site parsers, needs API key).",
+			"rush for speed, smart for better narrowing. When reader is omitted, Search Hub tries the configured " +
+			"default reader and ordered fallbacks. An explicit reader disables fallback for that call.",
 		promptSnippet: "Read content from a web page (supports markdown extraction)",
 		promptGuidelines: [
 			"Use web_read when you need to read the content of a specific URL",
@@ -408,32 +435,29 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 			reader: Type.Optional(
-				StringEnum(["jina", "sofya", "firecrawl", "exa", "exa_mcp"] as const, {
+				StringEnum(READER_NAMES, {
 					description:
 						"Reader backend: 'jina' (default, free, supports keywords/mode/objective), " +
 						"'sofya' (250+ site-specific parsers, needs API key), " +
 						"'firecrawl' (keyless, 1000 credits/mo), " +
 						"'exa' (needs API key, 1000 req/mo), or " +
-						"'exa_mcp' (zero-config, rate-limited). Overrides the configured default.",
+						"'exa_mcp' (zero-config, rate-limited). Explicit selection skips configured fallback readers.",
 				}),
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			refreshConfig(ctx.cwd);
 
-			// Helper to update statusline for web_read
-			const setStatus = (status: string) => {
-				ctx.ui.setStatus("read", status);
-				onUpdate?.({ content: [{ type: "text", text: `*${status}*` }], details: undefined });
+			const updateActivity = (status: string, reader: ReaderName) => {
+				onUpdate?.({
+					content: [{ type: "text", text: `*${status}*` }],
+					details: { activity: status, reader },
+				});
 			};
 
 			const url = params.url.startsWith("https://") || params.url.startsWith("http://")
 				? params.url
 				: `https://${params.url}`;
-
-			const reader = params.reader ?? config.reader ?? "jina";
-			const readerLabel = reader === "sofya" ? "Sofya" : reader === "firecrawl" ? "Firecrawl" : reader === "exa" ? "Exa" : reader === "exa_mcp" ? "Exa MCP" : "Jina";
-			setStatus(`📄 ${readerLabel}: fetching...`);
 
 			// SSRF guard — block private/internal addresses regardless of reader.
 			const ssrfError = validateUrl(url);
@@ -441,83 +465,86 @@ export default function (pi: ExtensionAPI) {
 				throw new Error(ssrfError);
 			}
 
-			let content: string;
-			if (reader === "sofya") {
-				// Sofya Fetch: clean markdown via 250+ site-specific parsers.
-				const sofyaKey = resolveBackendKey("sofya", config);
-				if (!sofyaKey) {
-					throw new Error(`Sofya reader selected but no API key configured. ${MISSING_KEY_HELP}`);
+			const explicitReader = params.reader as ReaderName | undefined;
+			const readers = explicitReader ? [explicitReader] : configuredReaderOrder(config);
+
+			const fetchWithReader = async (reader: ReaderName): Promise<string> => {
+				if (reader === "sofya") {
+					const sofyaKey = resolveBackendKey("sofya", config);
+					if (!sofyaKey) {
+						throw new Error(`Sofya reader selected but no API key configured. ${MISSING_KEY_HELP}`);
+					}
+					return (await fetchSofya(url, sofyaKey, signal)).content;
 				}
-				const result = await fetchSofya(url, sofyaKey, signal);
-				content = result.content;
-			} else if (reader === "firecrawl") {
-				// Firecrawl Scrape: keyless mode (1000 free credits/mo).
-				const firecrawlKey = resolveBackendKey("firecrawl", config);
-				const result = await fetchFirecrawl(url, firecrawlKey, signal);
-				content = result.content;
-			} else if (reader === "exa") {
-				// Exa Contents API: needs API key (1000 req/mo, shared with search).
-				const exaKey = resolveBackendKey("exa", config);
-				if (!exaKey) {
-					throw new Error(`Exa reader selected but no API key configured. ${MISSING_KEY_HELP}`);
+				if (reader === "firecrawl") {
+					const firecrawlKey = resolveBackendKey("firecrawl", config);
+					return (await fetchFirecrawl(url, firecrawlKey, signal)).content;
 				}
-				const result = await fetchExaContents(url, exaKey, signal);
-				if (result.warning) {
-					ctx.ui.notify(result.warning, "warning");
+				if (reader === "exa") {
+					const exaKey = resolveBackendKey("exa", config);
+					if (!exaKey) {
+						throw new Error(`Exa reader selected but no API key configured. ${MISSING_KEY_HELP}`);
+					}
+					const result = await fetchExaContents(url, exaKey, signal);
+					if (result.warning) ctx.ui.notify(result.warning, "warning");
+					return result.content;
 				}
-				content = result.content;
-			} else if (reader === "exa_mcp") {
-				// Exa MCP web_fetch: zero-config, no API key needed.
-				const result = await fetchExaMCP(url, signal);
-				content = result.content;
-			} else {
-				// Jina Reader: free, supports keywords / mode / objective hints.
+				if (reader === "exa_mcp") {
+					return (await fetchExaMCP(url, signal)).content;
+				}
+
 				const readerUrl = new URL("https://r.jina.ai/" + url);
-
-				const headers: Record<string, string> = {
-					"Accept": "text/plain",
-				};
-
-				// Optional Jina API key for higher rate limits (fallback to no-auth)
+				const headers: Record<string, string> = { "Accept": "text/plain" };
 				const jinaKey = resolveBackendKey("jina", config);
-				if (jinaKey) {
-					headers["Authorization"] = `Bearer ${jinaKey}`;
-				}
-
-				if (params.fresh) {
-					headers["x-no-cache"] = "true";
-				}
+				if (jinaKey) headers["Authorization"] = `Bearer ${jinaKey}`;
+				if (params.fresh) headers["x-no-cache"] = "true";
 				if (params.keywords && params.keywords.length > 0) {
 					headers["x-keywords"] = params.keywords.join(", ");
 				}
-				if (params.mode) {
-					headers["x-respond-with"] = params.mode === "rush" ? "text" : "markdown";
-				}
-				if (params.objective) {
-					headers["x-target-selector"] = params.objective;
-				}
+				if (params.mode) headers["x-respond-with"] = params.mode === "rush" ? "text" : "markdown";
+				if (params.objective) headers["x-target-selector"] = params.objective;
 
 				const response = await fetch(readerUrl.toString(), {
 					signal: timeoutSignal(signal),
 					headers,
 				});
-
 				if (!response.ok) {
 					const text = await response.text().catch(() => "");
 					throw new Error(`Failed to read ${url}: ${sanitizeError(response.status, text)}`);
 				}
 
-				// Size guard — refuse oversized payloads before buffering into memory.
 				const contentLength = parseInt(response.headers.get("content-length") ?? "", 10);
 				if (Number.isFinite(contentLength) && contentLength > READ_MAX_BYTES) {
 					throw new Error(`Failed to read ${url}: response too large (${contentLength} bytes, limit ${READ_MAX_BYTES})`);
 				}
+				return response.text();
+			};
 
-				content = await response.text();
+			const errors: string[] = [];
+			let content: string | undefined;
+			let reader: ReaderName | undefined;
+			for (const [index, candidate] of readers.entries()) {
+				const label = READER_LABELS[candidate];
+				updateActivity(`📄 ${label}: fetching...`, candidate);
+				try {
+					content = await fetchWithReader(candidate);
+					reader = candidate;
+					break;
+				} catch (error) {
+					if (signal?.aborted || explicitReader) throw error;
+					errors.push(`${candidate}: ${(error as Error).message}`);
+					const next = readers[index + 1];
+					if (next) {
+						updateActivity(`❌ ${label}: failed; trying ${READER_LABELS[next]}...`, candidate);
+					}
+				}
 			}
 
-			setStatus(`📄 ${readerLabel}: ${content.length} chars`);
+			if (content === undefined || reader === undefined) {
+				throw new Error(`All configured readers failed: ${errors.join("; ")}`);
+			}
 
+			updateActivity(`📄 ${READER_LABELS[reader]}: ${content.length} chars`, reader);
 			const truncated = content.length > WEB_READ_RESULT_MAX_CHARS
 				? content.slice(0, WEB_READ_RESULT_MAX_CHARS) + `\n\n[... truncated, full length: ${content.length} chars]`
 				: content;
@@ -529,11 +556,12 @@ export default function (pi: ExtensionAPI) {
 					reader,
 					length: content.length,
 					truncated: content.length > WEB_READ_RESULT_MAX_CHARS,
+					fallbackErrors: errors.length > 0 ? errors : undefined,
 				},
 			};
 		},
 	}), {
-		getCallPresentation: (args) => getWebReadCallPresentation(args, config.reader ?? "jina"),
+		getCallPresentation: (args) => getWebReadCallPresentation(args, configuredReaderOrder(config)[0]),
 		getResultPresentation: getWebReadResultPresentation,
 	}));
 
@@ -541,423 +569,608 @@ export default function (pi: ExtensionAPI) {
 	// Commands
 	// -----------------------------------------------------------------------
 
+	const getGlobalConfigPath = () => join(getAgentDir(), "extensions", "search.json");
+
+	function readGlobalConfig(): SearchConfig {
+		const configPath = getGlobalConfigPath();
+		if (!existsSync(configPath)) return {};
+		try {
+			return JSON.parse(readFileSync(configPath, "utf-8")) as SearchConfig;
+		} catch {
+			return {};
+		}
+	}
+
+	function writeGlobalConfig(nextConfig: SearchConfig): void {
+		const configPath = getGlobalConfigPath();
+		const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+		const serialized = { ...nextConfig } as SearchConfig & Record<string, unknown>;
+		delete serialized.showStatus;
+		delete serialized.cacheTtl;
+		delete serialized.cacheMax;
+		mkdirSync(join(getAgentDir(), "extensions"), { recursive: true });
+		try {
+			writeFileSync(tempPath, JSON.stringify(serialized, null, 2) + "\n", { mode: 0o600 });
+			renameSync(tempPath, configPath);
+		} catch (error) {
+			rmSync(tempPath, { force: true });
+			throw error;
+		}
+	}
+
+	function cloneConfig(value: SearchConfig): SearchConfig {
+		return JSON.parse(JSON.stringify(value)) as SearchConfig;
+	}
+
+	function readProjectConfig(cwd: string): SearchConfig {
+		const projectPath = join(cwd, ".pi", "search.json");
+		if (!existsSync(projectPath)) return {};
+		try {
+			return JSON.parse(readFileSync(projectPath, "utf-8")) as SearchConfig;
+		} catch {
+			return {};
+		}
+	}
+
+	function effectiveDraftConfig(globalDraft: SearchConfig, cwd: string): SearchConfig {
+		const project = readProjectConfig(cwd);
+		const globalBackends = { ...(globalDraft.backends ?? {}) } as Record<string, BackendConfig | undefined>;
+		const projectBackends = project.backends && typeof project.backends === "object"
+			? project.backends as Record<string, BackendConfig | undefined>
+			: undefined;
+		const merged: SearchConfig = {
+			defaultBackend: "duckduckgo",
+			backends: globalBackends,
+			...cloneConfig(globalDraft),
+			...cloneConfig(project),
+		};
+		if (projectBackends) {
+			const backends = { ...globalBackends };
+			for (const [backend, projectBackend] of Object.entries(projectBackends)) {
+				backends[backend] = projectBackend
+					? { ...(globalBackends[backend] ?? {}), ...projectBackend }
+					: projectBackend;
+			}
+			merged.backends = backends;
+		} else {
+			merged.backends = globalBackends;
+		}
+		for (const [backend, envName] of Object.entries(FALLBACK_ENV_MAP)) {
+			if (!process.env[envName]?.trim()) continue;
+			const current = (merged.backends as Record<string, BackendConfig | undefined>)[backend];
+			if (!current || current.enabled === undefined) {
+				(merged.backends as Record<string, BackendConfig | undefined>)[backend] = {
+					...current,
+					enabled: true,
+				};
+			}
+		}
+		return merged;
+	}
+
+	function activeBackendsFor(stateConfig: SearchConfig): string[] {
+		const enabled = Object.entries(stateConfig.backends ?? {})
+			.filter(([, backendConfig]) => backendConfig?.enabled)
+			.map(([backend]) => backend);
+		const active = enabled.length > 0 ? enabled : ["duckduckgo"];
+		return stateConfig.defaultBackend && active.includes(stateConfig.defaultBackend)
+			? [stateConfig.defaultBackend, ...active.filter((backend) => backend !== stateConfig.defaultBackend)]
+			: active;
+	}
+
+	type SetupDraftState = {
+		original: SearchConfig;
+		draft: SearchConfig;
+	};
+
+	function refreshRuntimeConfig(ctx: ExtensionContext): void {
+		refreshConfig(ctx.cwd, true);
+	}
+
+	function authSourceLabel(source: string): string {
+		if (source.startsWith("env:")) return `env ${source.slice(4)}`;
+		if (source.startsWith("shell:")) return "shell command";
+		if (source === "literal") return "saved key";
+		return source || "configured";
+	}
+
+	function configuredAuthDetail(source: string, optional = false): string {
+		const suffix = optional ? " (optional)" : "";
+		return source.startsWith("shell:")
+			? `auth ? shell command${suffix}`
+			: `auth ✓ ${authSourceLabel(source)}${suffix}`;
+	}
+
+	function piAuthDetail(ctx: ExtensionContext): string {
+		try {
+			const auth = ctx.modelRegistry.getProviderAuthStatus("openai-codex");
+			if (!auth.configured) return "auth ✗ run /login openai-codex";
+			if (auth.source === "stored") return "auth ✓ Pi /login";
+			if (auth.source === "environment") return "auth ✓ Pi environment";
+			if (auth.source === "runtime") return "auth ✓ Pi runtime";
+			return "auth ✓ Pi credential";
+		} catch {
+			return "auth ? Pi status unavailable";
+		}
+	}
+
+	function backendStateSummary(
+		backend: string,
+		stateConfig: SearchConfig,
+		activeBackends: readonly string[],
+		codexAuth: string,
+	): { marker: "ON" | "OFF" | "AUTO"; details: string } {
+		const def = BACKEND_DEFS[backend];
+		const bc = (stateConfig.backends as Record<string, BackendConfig> | undefined)?.[backend];
+		const { configured, source } = getKeySource(backend, stateConfig);
+		const marker = bc?.enabled
+			? "ON"
+			: backend === "duckduckgo" && activeBackends.includes(backend)
+				? "AUTO"
+				: "OFF";
+		const details: string[] = [];
+
+		if (backend === "openai-codex") {
+			details.push(codexAuth);
+		} else if (def.needsKey) {
+			details.push(configured
+				? configuredAuthDetail(source)
+				: marker === "ON" ? "auth ✗ missing" : "auth — not configured");
+		} else if (def.optionalKey) {
+			details.push(configured ? configuredAuthDetail(source, true) : "auth — optional");
+		} else {
+			details.push("auth — not required");
+		}
+		if (def.needsInstanceUrl) {
+			details.push(bc?.instanceUrl?.trim() ? "URL ✓" : "URL ✗ missing");
+		}
+		return { marker, details: details.join(" · ") };
+	}
+
+	function searchMode(searchConfig: SearchConfig): "fallback" | "targeted" | "all" {
+		if (!searchConfig.combine) return "fallback";
+		return searchConfig.combineMode === "targeted" ? "targeted" : "all";
+	}
+
+	function searchModeLabel(mode: ReturnType<typeof searchMode>): string {
+		if (mode === "targeted") return "Targeted combine";
+		if (mode === "all") return "All-backend combine";
+		return "Fallback";
+	}
+
+	function averageLatency(backend: string): string | undefined {
+		const samples = latencyMap.get(backend) ?? [];
+		if (samples.length === 0) return undefined;
+		return `${Math.round(samples.reduce((sum, sample) => sum + sample.ms, 0) / samples.length)}ms avg`;
+	}
+
+	function valuesEqual(left: unknown, right: unknown): boolean {
+		return JSON.stringify(left) === JSON.stringify(right);
+	}
+
+	function draftIsDirty(state: SetupDraftState): boolean {
+		return !valuesEqual(state.original, state.draft);
+	}
+
+	function updateDraftBackend(state: SetupDraftState, backend: string, patch: BackendConfig): void {
+		const current = (state.draft.backends as Record<string, BackendConfig> | undefined)?.[backend] ?? {};
+		state.draft = {
+			...state.draft,
+			backends: {
+				...state.draft.backends,
+				[backend]: { ...current, ...patch },
+			},
+		};
+	}
+
+	function configuredCredentialCount(ctx: ExtensionContext, stateConfig: SearchConfig): number {
+		return Object.keys(BACKEND_DEFS).filter((backend) => {
+			if (backend === "openai-codex") return piAuthDetail(ctx).startsWith("auth ✓");
+			return getKeySource(backend, stateConfig).configured;
+		}).length;
+	}
+
+	function setupHomeTitle(ctx: ExtensionContext, state: SetupDraftState): string {
+		const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+		const active = activeBackendsFor(effective);
+		const defaultBackend = effective.defaultBackend && active.includes(effective.defaultBackend)
+			? effective.defaultBackend
+			: active[0] ?? "none";
+		const readers = configuredReaderOrder(effective).map((reader) => READER_LABELS[reader]);
+		return [
+			"Search Hub setup",
+			draftIsDirty(state) ? "● Unsaved changes" : "No unsaved changes",
+			`Search: ${searchModeLabel(searchMode(effective))} · default ${defaultBackend}`,
+			`Reading: ${readers.join(" → ")}`,
+			`Backends: ${active.length} active · ${configuredCredentialCount(ctx, effective)} credentials configured`,
+			`Output: compact ${effective.compact ? "on" : "off"}`,
+		].join("\n");
+	}
+
+	function normalizeDraft(draft: SearchConfig): SearchConfig {
+		const normalized = cloneConfig(draft) as SearchConfig & Record<string, unknown>;
+		delete normalized.showStatus;
+		delete normalized.cacheTtl;
+		delete normalized.cacheMax;
+
+		if (normalized.reader && !READER_NAMES.includes(normalized.reader)) delete normalized.reader;
+		const defaultReader = normalized.reader ?? "jina";
+		normalized.readerFallback = Array.from(new Set(normalized.readerFallback ?? []))
+			.filter((reader): reader is ReaderName => READER_NAMES.includes(reader) && reader !== defaultReader);
+
+		const normalizedBackends: Record<string, BackendConfig> = {};
+		for (const [backend, backendConfig] of Object.entries(normalized.backends ?? {})) {
+			if (!backendConfig) continue;
+			const cleaned = { ...backendConfig };
+			if (typeof cleaned.apiKey === "string") {
+				cleaned.apiKey = cleaned.apiKey.trim();
+				if (!cleaned.apiKey) delete cleaned.apiKey;
+			}
+			if (typeof cleaned.instanceUrl === "string") {
+				cleaned.instanceUrl = cleaned.instanceUrl.trim();
+				if (!cleaned.instanceUrl) delete cleaned.instanceUrl;
+			}
+			normalizedBackends[backend] = cleaned;
+		}
+		normalized.backends = normalizedBackends;
+
+		const active = activeBackendsFor(normalized);
+		if (!normalized.defaultBackend || !active.includes(normalized.defaultBackend)) {
+			normalized.defaultBackend = active[0];
+		}
+		return normalized;
+	}
+
+	function saveDraft(ctx: ExtensionContext, state: SetupDraftState): boolean {
+		try {
+			const saved = normalizeDraft(state.draft);
+			writeGlobalConfig(saved);
+			state.original = cloneConfig(saved);
+			state.draft = cloneConfig(saved);
+			refreshRuntimeConfig(ctx);
+			const hasProjectOverrides = Object.keys(readProjectConfig(ctx.cwd)).length > 0;
+			ctx.ui.notify(
+				hasProjectOverrides
+					? "Search Hub configuration saved and applied. Current project overrides remain effective."
+					: "Search Hub configuration saved and applied.",
+				"info",
+			);
+			return true;
+		} catch (error) {
+			ctx.ui.notify(`Failed to save Search Hub configuration: ${(error as Error).message}`, "error");
+			return false;
+		}
+	}
+
+	async function confirmSetupClose(ctx: ExtensionContext, state: SetupDraftState): Promise<boolean> {
+		if (!draftIsDirty(state)) return true;
+		const choice = await ctx.ui.select("Unsaved Search Hub changes", [
+			"Save & apply",
+			"Discard changes",
+			"Continue editing",
+		]);
+		if (choice === "Save & apply") return saveDraft(ctx, state);
+		return choice === "Discard changes";
+	}
+
+	async function configureBackend(ctx: ExtensionContext, backend: string, state: SetupDraftState): Promise<void> {
+		const def = BACKEND_DEFS[backend];
+		const globalBackend = (state.draft.backends as Record<string, BackendConfig> | undefined)?.[backend];
+		const globalEnabled = globalBackend?.enabled === true;
+		const codexAuth = piAuthDetail(ctx);
+		const globalState = backendStateSummary(backend, state.draft, activeBackendsFor(state.draft), codexAuth);
+		const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+		const effectiveState = backendStateSummary(backend, effective, activeBackendsFor(effective), codexAuth);
+		const title = [
+			def.label,
+			`Global draft:         [${globalState.marker}] ${globalState.details}`,
+			`Effective after save: [${effectiveState.marker}] ${effectiveState.details}`,
+		].join("\n");
+		const actions = [
+			globalEnabled ? "Disable globally (keep credentials)" : "Enable in global configuration",
+		];
+		if (def.needsInstanceUrl) actions.push("Update instance URL");
+		if (def.needsKey || def.optionalKey) {
+			actions.push(globalBackend?.apiKey ? "Update API key or reference" : "Set API key or reference");
+			if (globalBackend?.apiKey) actions.push("Remove saved API key or reference");
+		}
+		if (backend === "openai-codex") actions.push("Configure Pi auth with /login");
+		actions.push("↩ Back");
+
+		const action = await ctx.ui.select(title, actions);
+		if (!action || action === "↩ Back") return;
+		if (action === "Disable globally (keep credentials)") {
+			updateDraftBackend(state, backend, { enabled: false });
+			return;
+		}
+		if (action === "Configure Pi auth with /login") {
+			ctx.ui.notify("Run /login openai-codex to configure Pi authentication.", "info");
+			return;
+		}
+		if (action === "Remove saved API key or reference") {
+			updateDraftBackend(state, backend, { apiKey: undefined });
+			return;
+		}
+		if (action === "Update instance URL") {
+			const instanceUrl = await ctx.ui.input(
+				"Enter your instance URL (e.g. http://localhost:8888):",
+				globalBackend?.instanceUrl ?? "http://localhost:8888",
+			);
+			const trimmedUrl = instanceUrl?.trim() ?? "";
+			if (!trimmedUrl) {
+				ctx.ui.notify("An instance URL is required. Draft unchanged.", "warning");
+				return;
+			}
+			updateDraftBackend(state, backend, { instanceUrl: trimmedUrl });
+			return;
+		}
+		if (action === "Set API key or reference" || action === "Update API key or reference") {
+			const key = await ctx.ui.input(
+				`Enter your ${def.label} key, ENV_VAR reference, or !command:`,
+				"sk-...",
+			);
+			const trimmedKey = key?.trim() ?? "";
+			if (!trimmedKey) {
+				ctx.ui.notify("Draft unchanged.", "warning");
+				return;
+			}
+			updateDraftBackend(state, backend, { apiKey: trimmedKey });
+			return;
+		}
+
+		const patch: BackendConfig = { enabled: true };
+		if (def.needsInstanceUrl && !globalBackend?.instanceUrl?.trim()) {
+			const instanceUrl = await ctx.ui.input(
+				"Enter your instance URL (e.g. http://localhost:8888):",
+				"http://localhost:8888",
+			);
+			const trimmedUrl = instanceUrl?.trim() ?? "";
+			if (!trimmedUrl) {
+				ctx.ui.notify("An instance URL is required. Draft unchanged.", "warning");
+				return;
+			}
+			patch.instanceUrl = trimmedUrl;
+		}
+		if (def.needsKey && !getKeySource(backend, state.draft).configured) {
+			const key = await ctx.ui.input(
+				`Enter your ${def.label} key, ENV_VAR reference, or !command:`,
+				"sk-...",
+			);
+			const trimmedKey = key?.trim() ?? "";
+			if (!trimmedKey) {
+				ctx.ui.notify("An API key or credential reference is required. Draft unchanged.", "warning");
+				return;
+			}
+			patch.apiKey = trimmedKey;
+		}
+		updateDraftBackend(state, backend, patch);
+	}
+
+	function enableReadyKeylessBackends(state: SetupDraftState): void {
+		for (const backend of ["duckduckgo", "jina", "marginalia", "exa_mcp"]) {
+			updateDraftBackend(state, backend, { enabled: true });
+		}
+	}
+
+	async function configureReaderFallback(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
+		const current = configuredReaderOrder(state.draft).slice(1);
+		const action = await ctx.ui.select(
+			`Reader fallback order: ${current.length > 0 ? current.join(" → ") : "none"}`,
+			["Edit ordered fallback list", "Clear fallback list", "↩ Back"],
+		);
+		if (!action || action === "↩ Back") return;
+		if (action === "Clear fallback list") {
+			state.draft = { ...state.draft, readerFallback: [] };
+			return;
+		}
+
+		const input = await ctx.ui.input(
+			"Comma-separated readers (jina, sofya, firecrawl, exa, exa_mcp):",
+			current.join(", "),
+		);
+		if (!input?.trim()) {
+			ctx.ui.notify("Draft unchanged. Use Clear fallback list to remove all fallbacks.", "info");
+			return;
+		}
+		const requested = Array.from(new Set(input.split(",").map((reader) => reader.trim()).filter(Boolean)));
+		const invalid = requested.filter((reader) => !READER_NAMES.includes(reader as ReaderName));
+		if (invalid.length > 0) {
+			ctx.ui.notify(`Unknown readers: ${invalid.join(", ")}`, "error");
+			return;
+		}
+		const defaultReader = configuredReaderOrder(state.draft)[0];
+		const fallback = requested.filter((reader): reader is ReaderName => reader !== defaultReader) as ReaderName[];
+		state.draft = { ...state.draft, readerFallback: fallback };
+	}
+
+	async function configureSearchRouting(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
+		while (true) {
+			const active = activeBackendsFor(state.draft);
+			const settings = [
+				`Default search backend: ${state.draft.defaultBackend ?? active[0] ?? "none"}`,
+				`Search mode: ${searchModeLabel(searchMode(state.draft))}`,
+				`Selection strategy: ${state.draft.selectionStrategy ?? "sequential"}`,
+				"↩ Back",
+			];
+			const selected = await ctx.ui.select(
+				`Search routing${draftIsDirty(state) ? " · unsaved" : ""}`,
+				settings,
+			);
+			if (!selected || selected === "↩ Back") return;
+
+			if (selected.startsWith("Default search backend:")) {
+				const choice = await ctx.ui.select("Default search backend:", [...active, "↩ Back"]);
+				if (!choice || choice === "↩ Back") continue;
+				state.draft = { ...state.draft, defaultBackend: choice };
+				continue;
+			}
+			if (selected.startsWith("Search mode:")) {
+				const choice = await ctx.ui.select(
+					"Search mode:",
+					["Fallback", "Targeted combine", "All-backend combine", "↩ Back"],
+				);
+				if (!choice || choice === "↩ Back") continue;
+				const mode = choice === "Targeted combine" ? "targeted" : choice === "All-backend combine" ? "all" : "fallback";
+				if (mode === "fallback") {
+					const next = { ...state.draft, combine: false };
+					delete next.combineMode;
+					state.draft = next;
+				} else {
+					state.draft = { ...state.draft, combine: true, combineMode: mode };
+				}
+				continue;
+			}
+			if (selected.startsWith("Selection strategy:")) {
+				const choice = await ctx.ui.select(
+					"Selection strategy:",
+					["sequential", "random", "round-robin", "best-latency", "↩ Back"],
+				);
+				if (!choice || choice === "↩ Back") continue;
+				state.draft = { ...state.draft, selectionStrategy: choice as SearchConfig["selectionStrategy"] };
+			}
+		}
+	}
+
+	async function configureWebReading(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
+		while (true) {
+			const readerOrder = configuredReaderOrder(state.draft);
+			const fallback = readerOrder.slice(1);
+			const settings = [
+				`Default reader: ${READER_LABELS[readerOrder[0]]}`,
+				`Reader fallback order: ${fallback.length > 0 ? fallback.join(" → ") : "none"}`,
+				"↩ Back",
+			];
+			const selected = await ctx.ui.select(
+				`Web reading${draftIsDirty(state) ? " · unsaved" : ""}`,
+				settings,
+			);
+			if (!selected || selected === "↩ Back") return;
+
+			if (selected.startsWith("Default reader:")) {
+				const options = READER_NAMES.map((reader) => `${READER_LABELS[reader]} (${reader})`);
+				const choice = await ctx.ui.select("Default reader:", [...options, "↩ Back"]);
+				if (!choice || choice === "↩ Back") continue;
+				const reader = READER_NAMES.find((name) => choice.endsWith(`(${name})`));
+				if (!reader) continue;
+				const readerFallback = configuredReaderOrder(state.draft).filter((candidate) => candidate !== reader);
+				state.draft = { ...state.draft, reader, readerFallback };
+				continue;
+			}
+			if (selected.startsWith("Reader fallback order:")) {
+				await configureReaderFallback(ctx, state);
+			}
+		}
+	}
+
+	async function configureOutput(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
+		while (true) {
+			const selected = await ctx.ui.select(
+				`Output${draftIsDirty(state) ? " · unsaved" : ""}`,
+				[`Compact output: ${state.draft.compact ? "On" : "Off"}`, "↩ Back"],
+			);
+			if (!selected || selected === "↩ Back") return;
+			const choice = await ctx.ui.select("Compact output:", ["On", "Off", "↩ Back"]);
+			if (!choice || choice === "↩ Back") continue;
+			state.draft = { ...state.draft, compact: choice === "On" };
+		}
+	}
+
+	async function configureBackends(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
+		while (true) {
+			const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+			const active = activeBackendsFor(effective);
+			const codexAuth = piAuthDetail(ctx);
+			const backendEntries = Object.keys(BACKEND_DEFS).map((backend) => {
+				const backendState = backendStateSummary(backend, effective, active, codexAuth);
+				const globalEnabled = (state.draft.backends as Record<string, BackendConfig> | undefined)?.[backend]?.enabled === true;
+				const effectiveEnabled = (effective.backends as Record<string, BackendConfig> | undefined)?.[backend]?.enabled === true;
+				const override = globalEnabled === effectiveEnabled
+					? ""
+					: ` · global ${globalEnabled ? "ON" : "OFF"} → effective ${effectiveEnabled ? "ON" : "OFF"}`;
+				const latency = averageLatency(backend);
+				const option = `[${backendState.marker}] ${BACKEND_DEFS[backend].label} · ${backendState.details}${override}${latency ? ` · ${latency}` : ""}`;
+				return { backend, option };
+			});
+			const backendByOption = Object.fromEntries(backendEntries.map(({ backend, option }) => [option, backend]));
+			const title = [
+				"Search backends",
+				draftIsDirty(state) ? "● Unsaved changes" : "No unsaved changes",
+				`${active.length} active · ${configuredCredentialCount(ctx, effective)} credentials configured`,
+			].join("\n");
+			const option = await ctx.ui.select(title, [
+				...backendEntries.map(({ option }) => option),
+				"⚡ Enable ready keyless backends",
+				"↩ Back",
+			]);
+			if (!option || option === "↩ Back") return;
+			if (option === "⚡ Enable ready keyless backends") {
+				enableReadyKeylessBackends(state);
+				continue;
+			}
+			const backend = backendByOption[option];
+			if (backend) await configureBackend(ctx, backend, state);
+		}
+	}
+
 	pi.registerCommand("search-setup", {
-		description: "Configure search backends interactively",
+		description: "View status and configure Search Hub",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui.notify("/search-setup requires interactive mode", "error");
 				return;
 			}
 
-			// Build backend list with rate limits for free backends
-			const backendList = Object.entries(BACKEND_DEFS)
-				.filter(([_, d]) => d.setupLabel !== null)
-				.map(([k, d]) => {
-					let label = d.setupLabel!;
-					// Add rate limit hints for free backends
-					if (k === "duckduckgo") label += " (rate-limited)";
-					if (k === "marginalia") label += " (rate-limited)";
-					if (k === "jina") label += " (1000/mo free)";
-					if (k === "exa_mcp") label += " (rate-limited)";
-					if (k === "searxng") label += " (self-hosted)";
-				return label;
-			});
-
-			const option = await ctx.ui.select("Which backend do you want to configure?", [
-				...backendList,
-				"⚡ Enable all free backends",
-				"⚙️ Global settings",
-				"✅ Done — save and exit",
-			]);
-
-			const backendKey: Record<string, string> = Object.fromEntries(
-				Object.entries(BACKEND_DEFS)
-					.filter(([_, d]) => d.setupLabel !== null)
-					.map(([k, d]) => {
-						let label = d.setupLabel!;
-						if (k === "duckduckgo") label += " (rate-limited)";
-						if (k === "marginalia") label += " (rate-limited)";
-						if (k === "jina") label += " (1000/mo free)";
-						if (k === "exa_mcp") label += " (rate-limited)";
-						if (k === "searxng") label += " (self-hosted)";
-					return [label, k];
-				})
-			);
-
-			if (!option || option.startsWith("✅ Done")) {
-				ctx.ui.notify("Search setup complete.", "info");
-				return;
-			}
-
-			if (option === "⚙️ Global settings") {
-				await configureGlobalSettings(ctx);
-				return;
-			}
-
-			if (option === "⚡ Enable all free backends") {
-				await enableAllFreeBackends(ctx);
-				return;
-			}
-
-			const backend = backendKey[option!];
-			const def = BACKEND_DEFS[backend];
-			const label = option;
-
-			// Free backends (needsKey: false) can be enabled without API key
-			if (!def.needsKey) {
-				// Auto-enable free backends directly
-				const configDir = join(getAgentDir(), "extensions");
-				const configPath = join(configDir, "search.json");
-				mkdirSync(configDir, { recursive: true });
-
-				let existing: SearchConfig = {};
-				if (existsSync(configPath)) {
-					try {
-						existing = JSON.parse(readFileSync(configPath, "utf-8"));
-					} catch {
-						// ignore
-					}
-				}
-
-				// Handle backends needing instance URL (e.g. SearXNG)
-				let backendConfig: BackendConfig = { enabled: true };
-				if (def.needsInstanceUrl) {
-					const instanceUrl = await ctx.ui.input(
-						"Enter your instance URL (e.g. http://localhost:8888):",
-						"http://localhost:8888",
-					);
-					if (!instanceUrl) {
-						ctx.ui.notify("Setup cancelled.", "info");
-						return;
-					}
-					backendConfig.instanceUrl = instanceUrl.trim();
-					// Optionally ask for API key (some instances require auth)
-					const optKey = await ctx.ui.input("Optional API key (press Enter to skip):", "sk-... (optional)");
-					if (optKey && optKey.trim()) {
-						backendConfig.apiKey = optKey.trim();
-					}
-				} else if (def.optionalKey) {
-					// Optionally ask for API key if optional
-					const optKey = await ctx.ui.input("Optional API key (press Enter to skip):", "sk-... (optional)");
-					if (optKey && optKey.trim()) {
-						backendConfig.apiKey = optKey.trim();
-					}
-				}
-
-				const updated: SearchConfig = {
-					...existing,
-					backends: {
-						...existing.backends,
-						[backend]: backendConfig,
-					},
-				};
-
-				writeFileSync(configPath, JSON.stringify(updated, null, 2) + "\n", { mode: 0o600 });
-				ctx.ui.notify(`${label} enabled. Run /reload to activate.`, "info");
-				return;
-			}
-
-			const key = await ctx.ui.input(`Enter your ${label} API key:`, "sk-...");
-
-			if (!key) {
-				ctx.ui.notify("Setup cancelled.", "info");
-				return;
-			}
-
-			const configDir = join(getAgentDir(), "extensions");
-			const configPath = join(configDir, "search.json");
-
-			mkdirSync(configDir, { recursive: true });
-
-			let existing: SearchConfig = {};
-			if (existsSync(configPath)) {
-				try {
-					existing = JSON.parse(readFileSync(configPath, "utf-8"));
-				} catch {
-					// ignore
-				}
-			}
-
-			// SearXNG setup needs both instance URL and optional API key
-			let backendConfig: BackendConfig = { enabled: true };
-			if (backend === "searxng") {
-				const url = await ctx.ui.input(
-					"Enter your SearXNG instance URL (e.g. http://localhost:8888):",
-					"http://localhost:8888",
-				);
-				if (!url) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				backendConfig.instanceUrl = url.trim();
-				// Optionally ask for API key (some instances require auth)
-				const optionalKey = await ctx.ui.input("Optional API key (leave empty if none):", "sk-... (optional)");
-				if (optionalKey && optionalKey.trim()) {
-					backendConfig.apiKey = optionalKey.trim();
-				}
-			} else {
-				backendConfig.apiKey = key?.trim() || "";
-			}
-
-			const updated: SearchConfig = {
-				...existing,
-				backends: {
-					...existing.backends,
-					[backend]: backendConfig,
-				},
+			refreshRuntimeConfig(ctx);
+			const original = readGlobalConfig();
+			const state: SetupDraftState = {
+				original: cloneConfig(original),
+				draft: cloneConfig(original),
 			};
+			while (true) {
+				const options = [
+					"🔀 Search routing",
+					"📖 Web reading",
+					"🔌 Backends",
+					"🖥 Output",
+					"💾 Save & apply",
+				];
+				if (draftIsDirty(state)) options.push("↩ Discard changes");
+				options.push("✅ Close");
+				const option = await ctx.ui.select(setupHomeTitle(ctx, state), options);
 
-			writeFileSync(configPath, JSON.stringify(updated, null, 2) + "\n", { mode: 0o600 });
-
-			ctx.ui.notify(
-				`${label} API key saved to ${configPath}. Run /reload to activate.`,
-				"info",
-			);
+				if (!option || option === "✅ Close") {
+					if (!(await confirmSetupClose(ctx, state))) continue;
+					ctx.ui.notify("Search setup complete.", "info");
+					return;
+				}
+				if (option === "🔀 Search routing") {
+					await configureSearchRouting(ctx, state);
+					continue;
+				}
+				if (option === "📖 Web reading") {
+					await configureWebReading(ctx, state);
+					continue;
+				}
+				if (option === "🔌 Backends") {
+					await configureBackends(ctx, state);
+					continue;
+				}
+				if (option === "🖥 Output") {
+					await configureOutput(ctx, state);
+					continue;
+				}
+				if (option === "💾 Save & apply") {
+					if (draftIsDirty(state)) saveDraft(ctx, state);
+					else ctx.ui.notify("No unsaved Search Hub changes.", "info");
+					continue;
+				}
+				if (option === "↩ Discard changes") {
+					state.draft = cloneConfig(state.original);
+					ctx.ui.notify("Unsaved Search Hub changes discarded.", "info");
+				}
+			}
 		},
 	});
-
-	// -------------------------------------------------------------------------
-	// Enable all free backends
-	// -------------------------------------------------------------------------
-
-	async function enableAllFreeBackends(ctx: ExtensionContext) {
-		const configDir = join(getAgentDir(), "extensions");
-		const configPath = join(configDir, "search.json");
-		mkdirSync(configDir, { recursive: true });
-
-		let existing: SearchConfig = {};
-		if (existsSync(configPath)) {
-			try {
-				existing = JSON.parse(readFileSync(configPath, "utf-8"));
-			} catch {
-				// ignore
-			}
-		}
-
-		// List of free backends to enable
-		const freeBackends = [
-			"duckduckgo",
-			"jina",
-			"marginalia",
-			"exa_mcp",
-			"searxng",
-		];
-
-		const updated: SearchConfig = {
-			...existing,
-			backends: {
-				...existing.backends,
-				...Object.fromEntries(
-					freeBackends.map(name => [name, { enabled: true }])
-				),
-			},
-		};
-
-		writeFileSync(configPath, JSON.stringify(updated, null, 2) + "\n", { mode: 0o600 });
-		ctx.ui.notify(
-			`Enabled: DuckDuckGo, Jina, Marginalia, Exa MCP, SearXNG. Run /reload to activate.`,
-			"info",
-		);
-	}
-
-	// -------------------------------------------------------------------------
-	// Global settings configuration
-	// -------------------------------------------------------------------------
-
-	async function configureGlobalSettings(ctx: ExtensionContext) {
-		const configDir = join(getAgentDir(), "extensions");
-		const configPath = join(configDir, "search.json");
-		mkdirSync(configDir, { recursive: true });
-
-		let existing: SearchConfig = {};
-		if (existsSync(configPath)) {
-			try {
-				existing = JSON.parse(readFileSync(configPath, "utf-8"));
-			} catch {
-				// ignore
-			}
-		}
-
-		const settings = [
-			["compact", "Compact output", existing.compact ? "On" : "Off"],
-			["showStatus", "Show status line", existing.showStatus !== false ? "On" : "Off"],
-			["combine", "Combine mode (parallel search)", existing.combine ? "On" : "Off"],
-			["combineMode", "Combine strategy", existing.combineMode ?? "all"],
-			["cacheTtl", "Cache TTL (ms)", String(existing.cacheTtl ?? 300000)],
-			["cacheMax", "Max cached queries", String(existing.cacheMax ?? 100)],
-			["reader", "Web reader", existing.reader ?? "jina"],
-			["selectionStrategy", "Selection strategy", existing.selectionStrategy ?? "sequential"],
-		];
-
-		const labels = settings.map(([key, label, current]) => `${label}: ${current}`);
-		labels.push("✅ Done — save and exit");
-
-		const selected = await ctx.ui.select("Configure global settings:", labels);
-		if (!selected || selected === "✅ Done — save and exit") {
-			ctx.ui.notify("Global settings saved.", "info");
-			return;
-		}
-
-		// Find which setting was selected
-		const idx = labels.indexOf(selected);
-		if (idx < 0 || idx >= settings.length) {
-			ctx.ui.notify("Setup cancelled.", "info");
-			return;
-		}
-
-		const [key, label] = settings[idx];
-		let value: unknown;
-
-		switch (key) {
-			case "compact":
-			case "showStatus":
-			case "combine": {
-				const toggle = await ctx.ui.select(`${label} — current: ${selected.split(": ")[1]}`, ["On", "Off", "Cancel"]);
-				if (toggle === "Cancel" || !toggle) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				value = toggle === "On";
-				break;
-			}
-			case "combineMode": {
-				const choice = await ctx.ui.select(`${label} — current: ${selected.split(": ")[1]}`, ["all", "targeted", "Cancel"]);
-				if (choice === "Cancel" || !choice) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				value = choice;
-				break;
-			}
-			case "cacheTtl":
-			case "cacheMax": {
-				const input = await ctx.ui.input(
-					`${label} — current: ${selected.split(": ")[1]}`,
-					selected.split(": ")[1],
-				);
-				if (!input) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				if (!/^\d+$/.test(input.trim())) {
-					ctx.ui.notify("Must be a number.", "error");
-					return;
-				}
-				value = parseInt(input, 10);
-				break;
-			}
-			case "reader": {
-				const choice = await ctx.ui.select(`${label} — current: ${selected.split(": ")[1]}`, [
-					"jina (free)", "sofya (needs key)", "firecrawl (keyless)", "exa (needs key)", "exa_mcp (free)", "Cancel"
-				]);
-				if (choice === "Cancel" || !choice) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				value = choice.startsWith("jina") ? "jina" : choice.startsWith("firecrawl") ? "firecrawl" : choice.startsWith("exa_mcp") ? "exa_mcp" : choice.startsWith("exa") ? "exa" : "sofya";
-				break;
-			}
-			case "selectionStrategy": {
-				const choice = await ctx.ui.select(`${label} — current: ${selected.split(": ")[1]}`, [
-					"sequential", "random", "round-robin", "best-latency", "Cancel",
-				]);
-				if (choice === "Cancel" || !choice) {
-					ctx.ui.notify("Setup cancelled.", "info");
-					return;
-				}
-				value = choice;
-				break;
-			}
-			default:
-				ctx.ui.notify("Unknown setting.", "error");
-				return;
-		}
-
-		const updated: SearchConfig = { ...existing, [key]: value };
-		writeFileSync(configPath, JSON.stringify(updated, null, 2) + "\n", { mode: 0o600 });
-		ctx.ui.notify(`${label} set. Run /reload to apply.`, "info");
-
-		// Allow configuring another setting
-		await configureGlobalSettings(ctx);
-	}
-
-	pi.registerCommand("search-status", {
-		description: "Show which search backends are configured and active",
-		handler: async (_args, ctx) => {
-			refreshConfig(ctx.cwd);
-
-			const backendLabels: Record<string, string> = Object.fromEntries(
-				Object.entries(BACKEND_DEFS).map(([k, v]) => [k, `${v.label}${k === "duckduckgo" ? " (free, no key)" : ""}`])
-			);
-
-			// Collect table rows first to compute aligned column widths
-			type Row = [string, string, string];
-			const rows: Row[] = [];
-
-			for (const [name, label] of Object.entries(backendLabels)) {
-				const { configured, source } = getKeySource(name, config);
-				const bc = config.backends?.[name as keyof typeof config.backends];
-				const samples = latencyMap.get(name) ?? [];
-				const avgLatency = samples.length > 0
-					? `${Math.round(samples.reduce((sum, s) => sum + s.ms, 0) / samples.length)}ms`
-					: "\u2014";
-
-				if (name === "duckduckgo") {
-					rows.push([label, "\u2713 enabled, key: \u2014 (free)", avgLatency]);
-				} else if (name === "marginalia" && bc?.enabled) {
-					rows.push([label, "\u2713 enabled, key: optional (public)", avgLatency]);
-				} else if (name === "searxng" && bc?.enabled) {
-					const urlInfo = bc.instanceUrl ? `url: ${bc.instanceUrl}` : "no URL set";
-					rows.push([label, `\u2713 enabled, ${urlInfo}${configured ? `, key: \u2713 (${source})` : ", key: \u2014"}`, avgLatency]);
-				} else if (bc?.enabled) {
-					const keyStatus = configured
-						? `\u2713${source ? ` (${source})` : ""}`
-						: "\u2014 (Pi auth)";
-					rows.push([label, `\u2713 enabled, key: ${keyStatus}`, avgLatency]);
-				} else {
-					rows.push([label, `\u2014 disabled${configured ? `, key: \u2713 (${source})` : ""}`, avgLatency]);
-				}
-			}
-
-			// Compute column widths from headers + data
-			const col1Header = "Backend";
-			const col2Header = "Status";
-			const col3Header = "Avg Latency";
-			const w1 = rows.reduce((max, [c]) => Math.max(max, c.length), col1Header.length);
-			const w2 = rows.reduce((max, [, s]) => Math.max(max, s.length), col2Header.length);
-			const w3 = rows.reduce((max, [, , s]) => Math.max(max, s.length), col3Header.length);
-
-			const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
-
-			const tableLines = [
-				`| ${pad(col1Header, w1)} | ${pad(col2Header, w2)} | ${pad(col3Header, w3)} |`,
-				`| ${"-".repeat(w1)} | ${"-".repeat(w2)} | ${"-".repeat(w3)} |`,
-				...rows.map(([c1, c2, c3]) => `| ${pad(c1, w1)} | ${pad(c2, w2)} | ${pad(c3, w3)} |`),
-			];
-
-			const activeBackends = getActiveBackends();
-			const resolvedDefault = activeBackends[0] || "none";
-			const lines: string[] = [
-				"## Search Backend Status",
-				`Configured default: ${config.defaultBackend || "none"}`,
-				`Resolved default: ${resolvedDefault}`,
-				`Combine mode: ${config.combine ? (config.combineMode || "all") : "off"}`,
-				`Strategy: ${config.selectionStrategy || "sequential"}`,
-				`Active: ${activeBackends.join(", ") || "none"}`,
-				"",
-				...tableLines,
-			];
-
-			if (activeBackends.length === 1 && activeBackends[0] === "duckduckgo") {
-				lines.push("");
-				lines.push("Only DuckDuckGo is active (no API key needed).");
-				lines.push("Add a search backend with /search-setup to get more results.");
-			}
-
-			ctx.ui.notify(lines.join("\n"), "info");
-		},
-	});
-
 
 	// -----------------------------------------------------------------------
 	// Session start
@@ -965,10 +1178,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		clearCooldowns();
-		refreshConfig(ctx.cwd);
-		if (config.showStatus !== false) {
-			const status = getActiveBackends().join(", ");
-			ctx.ui.setStatus("search", `search: ${status}`);
-		}
+		refreshRuntimeConfig(ctx);
 	});
 }
