@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Added the initial public fork of `@juicesharp/rpiv-todo` 1.20.0 with a persistent task overlay and branch-aware state snapshots.
-- Kept successful Todo tool nodes visually hidden while preserving model-facing content and structured session details; reducer and execution errors remain visible.
-- Kept test fixtures package-local so the published extension has no private workspace dependency.
+- Added atomic `batch` create/update/delete operations and expandable transcript audit summaries.
+
+### Changed
+
+- Restricted Todo guidance to meaningful multi-stage work instead of single-step actions.
+- Enforced one in-progress task, required `activeForm`, dependency readiness, and the documented pending → in-progress → completed lifecycle.
+- Reported reducer validation failures as real Pi tool errors.
+
+### Fixed
+
+- Isolated live Todo state per extension runtime so concurrent SDK AgentSessions in one process cannot overwrite each other.
+- Versioned and structurally validated replay snapshots while retaining compatibility with legacy snapshots.

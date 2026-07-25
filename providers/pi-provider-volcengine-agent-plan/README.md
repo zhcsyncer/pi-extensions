@@ -78,6 +78,14 @@ Kimi K2.6 and Kimi K2.7 Code use Chat Completions because their Agent Plan Respo
 
 Kimi K2.7 Code does not support disabling thinking through the current gateway. Selecting Pi's `off` level therefore avoids sending an unsupported disable control but cannot guarantee that the model stops internal reasoning.
 
+Kimi K3 inherits only model-intrinsic capabilities from Pi's Moonshot catalog. Agent Plan continues to own its protocol, limits, compatibility settings, and plan rules. Its available Pi thinking levels are `low`, `high`, and `max`.
+
+## Cost reporting
+
+The catalog retains public pay-as-you-go API reference rates in USD per million tokens, allowing Pi to estimate session cost from actual token usage. Models with an existing Pi upstream card selectively inherit its rates; the Doubao models use API estimates normalized from [Volcengine's public price table](https://www.volcengine.com/docs/82379/1544106).
+
+This value compares session resource usage; it is not the Agent Plan bill. Volcengine still calculates the subscription price, AFP usage, and remaining quota separately.
+
 ## Security
 
 Pi's standard `auth.json` is protected by filesystem permissions but is not an operating-system keychain. Do not commit credentials, paste them into issue reports, or place them in project configuration.

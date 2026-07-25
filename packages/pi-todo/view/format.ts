@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { Task, TaskDetails, TaskStatus } from "../tool/types.js";
+import type { Task, TaskAction, TaskDetails, TaskMutationParams, TaskStatus } from "../tool/types.js";
 
 // Re-export so legacy import paths continue to resolve; the canonical
 // definition lives in the i18n bridge.
@@ -63,11 +63,44 @@ export function formatCommandTaskLine(t: Task, glyph: string): string {
 
 /**
  * Successful Todo calls are represented by the persistent widget, so their
- * transcript node intentionally renders no lines. `renderShell: "self"` on
- * the tool definition lets Pi collapse the surrounding tool shell as well.
+ * transcript node renders no lines by default. Expanded mode uses the audit
+ * renderers below. `renderShell: "self"` removes the surrounding tool shell.
  */
 export function renderHiddenTodoNode(): Text {
 	return new Text("", 0, 0);
+}
+
+type TodoCallArgs = TaskMutationParams & { action?: TaskAction };
+
+function formatTodoCallSummary(args: TodoCallArgs): string {
+	switch (args.action) {
+		case "create":
+			return `create${args.subject ? ` “${args.subject}”` : ""}`;
+		case "update":
+			return `update${args.id !== undefined ? ` #${args.id}` : ""}${args.status ? ` → ${args.status}` : ""}`;
+		case "delete":
+			return `delete${args.id !== undefined ? ` #${args.id}` : ""}`;
+		case "get":
+			return `get${args.id !== undefined ? ` #${args.id}` : ""}`;
+		case "list":
+			return `list${args.status ? ` ${args.status}` : ""}`;
+		case "clear":
+			return "clear";
+		case "batch":
+			return `batch (${args.operations?.length ?? 0} operations)`;
+		default:
+			return "todo";
+	}
+}
+
+/** Successful calls stay hidden by default but become auditable in expanded mode. */
+export function renderTodoCall(args: TodoCallArgs, theme: Theme, expanded = false): Text {
+	if (!expanded) return renderHiddenTodoNode();
+	return new Text(
+		theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", formatTodoCallSummary(args)),
+		0,
+		0,
+	);
 }
 
 type TodoRenderResult = {
@@ -76,18 +109,20 @@ type TodoRenderResult = {
 };
 
 /**
- * Keep successful results invisible while surfacing both reducer-level errors
- * (`details.error`) and failures reported by Pi (`isError`). The structured
- * result remains in the session even when this component renders zero lines.
+ * Keep successful results hidden by default, reveal them in expanded mode,
+ * and surface both legacy reducer errors (`details.error`) and Pi execution
+ * failures (`isError`). Structured results remain in the session either way.
  */
-export function renderTodoResult(result: TodoRenderResult, theme: Theme, isError = false): Text {
+export function renderTodoResult(
+	result: TodoRenderResult,
+	theme: Theme,
+	isError = false,
+	expanded = false,
+): Text {
 	const details = result.details as TaskDetails | undefined;
-	const failureText = details?.error ?? (
-		isError
-			? result.content?.find((item) => item.type === "text" && item.text)?.text ?? "Todo failed"
-			: undefined
-	);
-	return failureText
-		? new Text(theme.fg("error", `✗ ${failureText}`), 0, 0)
-		: renderHiddenTodoNode();
+	const resultText = result.content?.find((item) => item.type === "text" && item.text)?.text;
+	const failureText = details?.error ?? (isError ? resultText ?? "Todo failed" : undefined);
+	if (failureText) return new Text(theme.fg("error", `✗ ${failureText}`), 0, 0);
+	if (expanded && resultText) return new Text(theme.fg("muted", resultText), 0, 0);
+	return renderHiddenTodoNode();
 }

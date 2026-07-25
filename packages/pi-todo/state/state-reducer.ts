@@ -12,13 +12,17 @@ import { detectCycle } from "./task-graph.js";
  * `error` carries the message in-band so callers can pattern-match on
  * `op.kind === "error"` without a side-channel boolean.
  */
-export type Op =
+export type BatchItemOp =
 	| { kind: "create"; taskId: number }
 	| { kind: "update"; id: number; fromStatus: TaskStatus; toStatus: TaskStatus }
-	| { kind: "delete"; id: number; subject: string }
+	| { kind: "delete"; id: number; subject: string };
+
+export type Op =
+	| BatchItemOp
 	| { kind: "list"; statusFilter?: TaskStatus; includeDeleted: boolean }
 	| { kind: "get"; task: Task }
 	| { kind: "clear"; count: number }
+	| { kind: "batch"; operations: BatchItemOp[] }
 	| { kind: "error"; message: string };
 
 export interface ApplyResult {
@@ -28,6 +32,14 @@ export interface ApplyResult {
 
 function errorResult(state: TaskState, message: string): ApplyResult {
 	return { state, op: { kind: "error", message } };
+}
+
+function firstIncompleteDependencyId(tasks: readonly Task[], blockedBy: readonly number[]): number | undefined {
+	return blockedBy.find((id) => tasks.find((task) => task.id === id)?.status !== "completed");
+}
+
+function otherInProgressTask(tasks: readonly Task[], currentId: number): Task | undefined {
+	return tasks.find((task) => task.id !== currentId && task.status === "in_progress");
 }
 
 /**
@@ -47,6 +59,9 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			if (!params.subject?.trim()) {
 				return errorResult(state, "subject required for create");
 			}
+			if (params.activeForm !== undefined) {
+				return errorResult(state, "activeForm is only valid when status is in_progress");
+			}
 			if (params.blockedBy?.length) {
 				for (const dep of params.blockedBy) {
 					const depTask = state.tasks.find((t) => t.id === dep);
@@ -60,8 +75,7 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				status: "pending",
 			};
 			if (params.description) newTask.description = params.description;
-			if (params.activeForm) newTask.activeForm = params.activeForm;
-			if (params.blockedBy?.length) newTask.blockedBy = [...params.blockedBy];
+			if (params.blockedBy?.length) newTask.blockedBy = [...new Set(params.blockedBy)];
 			if (params.owner) newTask.owner = params.owner;
 			if (params.metadata) newTask.metadata = { ...params.metadata };
 
@@ -88,6 +102,9 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				(params.addBlockedBy && params.addBlockedBy.length > 0) ||
 				(params.removeBlockedBy && params.removeBlockedBy.length > 0);
 			if (!hasMutation) return errorResult(state, "update requires at least one mutable field");
+			if (params.subject !== undefined && !params.subject.trim()) {
+				return errorResult(state, "subject must not be empty");
+			}
 
 			let newStatus = current.status;
 			if (params.status !== undefined) {
@@ -115,6 +132,24 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				}
 			}
 
+			let newActiveForm = params.activeForm !== undefined ? params.activeForm.trim() || undefined : current.activeForm;
+			if (newStatus === "in_progress") {
+				if (!newActiveForm) return errorResult(state, "activeForm required when status is in_progress");
+				const active = otherInProgressTask(state.tasks, current.id);
+				if (active) return errorResult(state, `another task is already in_progress: #${active.id}`);
+				const blockerId = firstIncompleteDependencyId(state.tasks, newBlockedBy);
+				if (blockerId) return errorResult(state, `#${current.id} is blocked by incomplete task #${blockerId}`);
+			} else {
+				if (params.activeForm !== undefined && params.activeForm.trim()) {
+					return errorResult(state, "activeForm is only valid when status is in_progress");
+				}
+				newActiveForm = undefined;
+			}
+			if (newStatus === "completed") {
+				const blockerId = firstIncompleteDependencyId(state.tasks, newBlockedBy);
+				if (blockerId) return errorResult(state, `#${current.id} is blocked by incomplete task #${blockerId}`);
+			}
+
 			let newMetadata = current.metadata;
 			if (params.metadata !== undefined) {
 				const merged: Record<string, unknown> = { ...(current.metadata ?? {}) };
@@ -128,7 +163,8 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			const updated: Task = { ...current, status: newStatus };
 			if (params.subject !== undefined) updated.subject = params.subject;
 			if (params.description !== undefined) updated.description = params.description;
-			if (params.activeForm !== undefined) updated.activeForm = params.activeForm;
+			if (newActiveForm === undefined) delete updated.activeForm;
+			else updated.activeForm = newActiveForm;
 			if (params.owner !== undefined) updated.owner = params.owner;
 			if (newBlockedBy.length) updated.blockedBy = newBlockedBy;
 			else delete updated.blockedBy;
@@ -141,6 +177,31 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				state: { tasks: newTasks, nextId: state.nextId },
 				op: { kind: "update", id: updated.id, fromStatus: current.status, toStatus: newStatus },
 			};
+		}
+
+		case "batch": {
+			if (!params.operations?.length) return errorResult(state, "operations required for batch");
+			if (params.operations.length > 50) return errorResult(state, "batch supports at most 50 operations");
+
+			let nextState = state;
+			const operations: BatchItemOp[] = [];
+			for (const [index, operation] of params.operations.entries()) {
+				const result = applyTaskMutation(nextState, operation.action, operation);
+				if (result.op.kind === "error") {
+					return errorResult(state, `batch operation ${index + 1}: ${result.op.message}`);
+				}
+				switch (result.op.kind) {
+					case "create":
+					case "update":
+					case "delete":
+						operations.push(result.op);
+						break;
+					default:
+						return errorResult(state, `batch operation ${index + 1}: unsupported action ${operation.action}`);
+				}
+				nextState = result.state;
+			}
+			return { state: nextState, op: { kind: "batch", operations } };
 		}
 
 		case "list": {
@@ -168,6 +229,7 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			const current = state.tasks[idx];
 			if (current.status === "deleted") return errorResult(state, `#${current.id} is already deleted`);
 			const updated: Task = { ...current, status: "deleted" };
+			delete updated.activeForm;
 			const newTasks = [...state.tasks];
 			newTasks[idx] = updated;
 			return {

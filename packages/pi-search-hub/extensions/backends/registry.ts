@@ -3,7 +3,7 @@
  */
 
 import type { BackendRunner, BackendConfig, SearchResult } from "../types.js";
-import { MISSING_KEY_HELP, waitForCooldown, markCooldown, searchCache, cacheKey } from "../utils.js";
+import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKey } from "../credentials.js";
 import { config } from "../config.js";
 import { recordBackendSuccess, recordBackendFailure } from "../scoring.js";
@@ -123,14 +123,15 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		},
 	},
 	"openai-codex": {
+		providerAuth: "openai-codex",
 		needsKey: false,
 		needsKeyFromConfig: false,
 		optionalKey: false,
 		needsInstanceUrl: false,
 		label: "OpenAI Codex",
 		setupLabel: "OpenAI Codex (draws from subscription)",
-		search: async (query, numResults, { signal, backendConfig }) => {
-			const result = await searchOpenAICodex(query, numResults, signal, backendConfig);
+		search: async (query, numResults, { key, signal, backendConfig }) => {
+			const result = await searchOpenAICodex(query, numResults, key, signal, backendConfig);
 			return { results: result.results };
 		},
 	},
@@ -279,25 +280,28 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 // Backend dispatcher
 // ---------------------------------------------------------------------------
 
+export interface BackendRuntime {
+	getProviderApiKey(provider: string): Promise<string | undefined>;
+}
+
 export async function runBackend(
 	backend: string,
 	query: string,
 	numResults: number,
 	signal?: AbortSignal,
-	options?: { skipCache?: boolean },
+	runtime?: BackendRuntime,
 ): Promise<SearchResult[]> {
-	// Check cache first (inline — no persistent key var needed here)
-	if (!options?.skipCache) {
-		const cached = searchCache.get(cacheKey(query, backend, numResults));
-		if (cached) return cached;
-	}
-
 	await waitForCooldown(backend);
 	const def = BACKEND_DEFS[backend];
 	if (!def) throw new Error(`Unknown backend: ${backend}`);
 
 	let key: string | undefined;
-	if (def.needsKeyFromConfig) {
+	if (def.providerAuth) {
+		key = await runtime?.getProviderApiKey(def.providerAuth);
+		if (!key) {
+			throw new Error(`${def.label} authentication not found. Run /login ${def.providerAuth}.`);
+		}
+	} else if (def.needsKeyFromConfig) {
 		const bc = (config.backends as Record<string, BackendConfig> | undefined)?.[backend];
 		key = bc?.apiKey;
 	} else if (def.needsKey) {
@@ -325,8 +329,6 @@ export async function runBackend(
 	try {
 		const result = await def.search(query, numResults, { key, instanceUrl, signal, backendConfig: bc });
 		const latencyMs = Date.now() - startTime;
-		// Cache the result
-		searchCache.set(cacheKey(query, backend, numResults), result.results);
 		recordBackendSuccess(backend, latencyMs, result.results.length, numResults);
 		return result.results;
 	} catch (err) {

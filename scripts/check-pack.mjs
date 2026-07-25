@@ -20,6 +20,7 @@ const requiredPackFiles = new Map([
 	[".", [
 		"README.md",
 		"README.zh-CN.md",
+		"packages/pi-recap/extensions/multiplexer.ts",
 		"packages/pi-glance/index.ts",
 		"packages/pi-glance/footer.ts",
 		"packages/pi-glance/README.md",
@@ -33,6 +34,13 @@ const requiredPackFiles = new Map([
 		"packages/pi-plan-mode/README.zh-CN.md",
 		"packages/pi-search-hub/README.md",
 		"packages/pi-search-hub/README.zh-CN.md",
+	]],
+	["./packages/pi-recap", [
+		"extensions/recap.ts",
+		"extensions/multiplexer.ts",
+		"examples/recap.json",
+		"README.md",
+		"README.zh-CN.md",
 	]],
 	["./packages/pi-glance", [
 		"index.ts",

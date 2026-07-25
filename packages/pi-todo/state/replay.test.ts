@@ -33,9 +33,19 @@ describe("isTaskDetails — defensive type guard", () => {
 		expect(isTaskDetails({ tasks: [], nextId: "1" })).toBe(false);
 	});
 
-	it("accepts well-formed snapshot envelopes", () => {
+	it("accepts legacy and versioned well-formed snapshot envelopes", () => {
 		expect(isTaskDetails({ tasks: [], nextId: 1 })).toBe(true);
-		expect(isTaskDetails({ action: "create", params: {}, tasks: [], nextId: 1 })).toBe(true);
+		expect(isTaskDetails({ schemaVersion: 1, action: "create", params: {}, tasks: [], nextId: 1 })).toBe(true);
+	});
+
+	it("rejects unknown snapshot versions and malformed task rows", () => {
+		expect(isTaskDetails({ schemaVersion: 2, tasks: [], nextId: 1 })).toBe(false);
+		expect(isTaskDetails({ schemaVersion: 1, tasks: [{ id: 1, subject: "x", status: "unknown" }], nextId: 2 })).toBe(
+			false,
+		);
+		expect(isTaskDetails({ schemaVersion: 1, tasks: [{ id: "1", subject: "x", status: "pending" }], nextId: 2 })).toBe(
+			false,
+		);
 	});
 });
 

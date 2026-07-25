@@ -6,9 +6,9 @@ A collection of Pi extensions by zhcsyncer.
 
 ## Packages
 
-- [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and tmux window sync.
+- [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and nearest-layer Herdr pane or tmux window naming.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, adaptive diffs, and bounded Bash call previews.
-- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — maintained fork of `@juicesharp/rpiv-todo` with a persistent task overlay and no duplicate successful tool nodes.
+- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — branch-aware task overlay with strict lifecycle rules, atomic batches, isolated SDK session state, and expandable audit summaries.
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable extension statuses, bottom-right context progress, and a highlighted auto-compaction marker.
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — temporary read-only Plan Mode with word-aware revdiff review, immutable revisions, configurable English/Chinese Plan content, explicit approval, and collapsible TUI Steps.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.

@@ -62,62 +62,6 @@ export function timeoutSignal(signal?: AbortSignal, timeoutMs?: number): AbortSi
 }
 
 // ---------------------------------------------------------------------------
-// Search result cache (LRU with TTL)
-// ---------------------------------------------------------------------------
-
-export interface CacheEntry<T> {
-	value: T;
-	timestamp: number;
-}
-
-const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const DEFAULT_CACHE_MAX = 100;
-
-export class SearchCache<T> {
-	private cache = new Map<string, CacheEntry<T>>();
-	private readonly ttlMs: number;
-	private readonly maxSize: number;
-
-	constructor(ttlMs = DEFAULT_CACHE_TTL_MS, maxSize = DEFAULT_CACHE_MAX) {
-		this.ttlMs = ttlMs;
-		this.maxSize = maxSize;
-	}
-
-	get(key: string): T | undefined {
-		const entry = this.cache.get(key);
-		if (!entry) return undefined;
-		if (Date.now() - entry.timestamp > this.ttlMs) {
-			this.cache.delete(key);
-			return undefined;
-		}
-		// LRU: move to end (most recently used)
-		this.cache.delete(key);
-		this.cache.set(key, entry);
-		return entry.value;
-	}
-
-	set(key: string, value: T): void {
-		// Evict oldest if at capacity
-		if (this.cache.size >= this.maxSize) {
-			const oldest = this.cache.keys().next().value;
-			if (oldest !== undefined) this.cache.delete(oldest);
-		}
-		this.cache.set(key, { value, timestamp: Date.now() });
-	}
-
-	clear(): void {
-		this.cache.clear();
-	}
-
-	get size(): number {
-		return this.cache.size;
-	}
-}
-
-// Global search result cache instance
-export const searchCache = new SearchCache<Array<{ title: string; url: string; snippet?: string; content?: string }>>();
-
-// ---------------------------------------------------------------------------
 // Exa usage tracking (monthly quota)
 // ---------------------------------------------------------------------------
 
@@ -197,11 +141,6 @@ export function incrementExaUsage(): string | null {
 		}
 	}
 	return null;
-}
-
-/** Build a cache key from query + backend + numResults. */
-export function cacheKey(query: string, backend: string, numResults: number): string {
-	return `${backend}:${numResults}:${query}`;
 }
 
 // ---------------------------------------------------------------------------

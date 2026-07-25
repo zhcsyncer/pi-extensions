@@ -33,40 +33,44 @@ export function clearCredentialCache(): void {
  *   • otherwise     → return as literal string (actual key)
  */
 export function resolveConfigValue(reference: string | undefined): string | undefined {
-	if (!reference) return undefined;
+	if (!reference || reference.trim().length === 0) return undefined;
+	const normalizedReference = reference.trim();
 
 	// !command — execute shell command, cache result
-	if (reference.startsWith("!")) {
-		const cached = commandValueCache.get(reference);
+	if (normalizedReference.startsWith("!")) {
+		const cached = commandValueCache.get(normalizedReference);
 		if (cached) {
 			if (cached.errorMessage) throw new Error(cached.errorMessage);
 			return cached.value;
 		}
 		try {
-			const output = execSync(reference.slice(1), {
+			const output = execSync(normalizedReference.slice(1), {
 				encoding: "utf-8",
 				stdio: ["ignore", "pipe", "pipe"],
 				timeout: COMMAND_TIMEOUT_MS,
 			})
 				.trim();
 			const value = output.length > 0 ? output : undefined;
-			commandValueCache.set(reference, { value });
+			commandValueCache.set(normalizedReference, { value });
 			return value;
 		} catch (error) {
 			const errorMessage = (error as Error).message;
-			commandValueCache.set(reference, { errorMessage });
+			commandValueCache.set(normalizedReference, { errorMessage });
 			throw error;
 		}
 	}
 
 	// ALL_CAPS → env var lookup
-	const envValue = process.env[reference];
-	if (envValue !== undefined) return envValue;
-	if (/^[A-Z][A-Z0-9_]*$/.test(reference)) {
+	const envValue = process.env[normalizedReference];
+	if (envValue !== undefined) {
+		const normalizedEnvValue = envValue.trim();
+		return normalizedEnvValue.length > 0 ? normalizedEnvValue : undefined;
+	}
+	if (/^[A-Z][A-Z0-9_]*$/.test(normalizedReference)) {
 		// Warn: value looks like an env var reference but the env var is unset.
 		// If this was intended as a literal key, rename it or set the env var.
-		console.warn(`[pi-search] Credential reference "${reference}" matches ALL_CAPS env-var pattern ` +
-			`but process.env.${reference} is not set. If this is a literal key, ` +
+		console.warn(`[pi-search] Credential reference "${normalizedReference}" matches ALL_CAPS env-var pattern ` +
+			`but process.env.${normalizedReference} is not set. If this is a literal key, ` +
 			`use a different name to avoid confusion.`);
 		return undefined;
 	}
@@ -74,10 +78,10 @@ export function resolveConfigValue(reference: string | undefined): string | unde
 	// Otherwise → literal string (actual key in config)
 	// Reject common accidental non-key literals that would otherwise leak into
 	// Authorization headers as "Bearer null" / "Bearer undefined".
-	if (reference === "null" || reference === "undefined" || reference === "none") {
+	if (normalizedReference === "null" || normalizedReference === "undefined" || normalizedReference === "none") {
 		return undefined;
 	}
-	return reference;
+	return normalizedReference;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,22 +121,25 @@ export function resolveBackendKey(backend: string, config: SearchConfig): string
 	return undefined;
 }
 
-/** Describe where a backend's key comes from (for search-status display). */
+/** Describe where a backend's key comes from for setup and readiness display. */
 export function getKeySource(backend: string, config: SearchConfig): { configured: boolean; source: string } {
 	const bc = config.backends?.[backend as keyof typeof config.backends];
-	if (!bc?.apiKey) {
+	const ref = bc?.apiKey?.trim();
+	if (!ref) {
 		const fallbackEnv = FALLBACK_ENV_MAP[backend];
-		if (fallbackEnv && process.env[fallbackEnv]) {
+		if (fallbackEnv && process.env[fallbackEnv]?.trim()) {
 			return { configured: true, source: `env:${fallbackEnv}` };
 		}
 		return { configured: false, source: "" };
 	}
-	const ref = bc.apiKey;
 	if (ref.startsWith("!")) {
 		return { configured: true, source: `shell:${ref.slice(0, 40)}...` };
 	}
+	if (ref === "null" || ref === "undefined" || ref === "none") {
+		return { configured: false, source: "" };
+	}
 	if (/^[A-Z][A-Z0-9_]*$/.test(ref)) {
-		const envValue = process.env[ref];
+		const envValue = process.env[ref]?.trim();
 		if (envValue) return { configured: true, source: `env:${ref}` };
 		return { configured: false, source: `env:${ref} (unset)` };
 	}

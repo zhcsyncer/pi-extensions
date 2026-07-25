@@ -6,9 +6,9 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 包列表
 
-- [`@zhcsyncer/pi-recap`](./packages/pi-recap) — 最近活动回顾扩展，可选同步 Session 标题和 tmux 窗口名。
+- [`@zhcsyncer/pi-recap`](./packages/pi-recap) — 最近活动回顾扩展，可选同步 Session 标题，并自动命名最近一层 Herdr pane 或 tmux window。
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
-- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — `@juicesharp/rpiv-todo` 的维护 fork，提供持久 Todo overlay，且不会重复展示成功的工具节点。
+- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — 分支感知的 Todo overlay，提供严格生命周期、原子批量操作、SDK Session 状态隔离和可展开审计摘要。
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 临时只读 Plan Mode，支持 word-aware revdiff 评审、不可变 revision、中英文 Plan 内容配置、显式批准和可折叠 TUI Steps。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。

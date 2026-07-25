@@ -1,7 +1,7 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createMockPi, createMockUI } from "./test-fixtures.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetState, registerTodoTool } from "./todo.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createTodoStore, registerTodoTool } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
 
 const WIDGET_KEY = "rpiv-todos";
@@ -13,8 +13,8 @@ const identityTheme = {
 	strikethrough: (s: string) => s,
 };
 
-// Register the todo tool and seed module state via its real execute() — this
-// exercises the same mutation path production uses.
+// Register the todo tool and seed its isolated store via real execute();
+// this exercises the same mutation path production uses.
 async function seed(captured: ReturnType<typeof createMockPi>["captured"], actions: unknown[]) {
 	const tool = captured.tools.get("todo");
 	if (!tool) throw new Error("todo tool not registered");
@@ -30,26 +30,25 @@ function makeCtx() {
 
 function registerTool() {
 	const { pi, captured } = createMockPi();
-	registerTodoTool(pi);
-	return { captured };
+	const store = createTodoStore();
+	registerTodoTool(pi, store);
+	return { captured, store };
 }
 
-beforeEach(() => {
-	__resetState();
-});
 afterEach(() => {
-	__resetState();
 	vi.restoreAllMocks();
 });
 
 describe("TodoOverlay — lifecycle", () => {
 	it("update() with no UI ctx bound is a no-op", () => {
-		const overlay = new TodoOverlay();
+		const store = createTodoStore();
+		const overlay = new TodoOverlay(store);
 		expect(() => overlay.update()).not.toThrow();
 	});
 
 	it("update() with empty todos does not register a widget", () => {
-		const overlay = new TodoOverlay();
+		const store = createTodoStore();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -57,9 +56,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("first update() with non-empty todos registers the widget exactly once", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -71,9 +70,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("second update() after registration calls tui.requestRender instead of re-registering", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -91,9 +90,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("transition non-empty → empty unregisters the widget", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -106,9 +105,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("empty → non-empty after empty transition re-registers", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -129,9 +128,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("setUICtx(same ctx) is idempotent", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -142,9 +141,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("setUICtx(different ctx) resets cached registration; next update re-registers under the new ctx", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui1 = makeCtx();
 		overlay.setUICtx(ui1);
 		overlay.update();
@@ -156,9 +155,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("dispose() unregisters the widget and clears ctx; later update() without setUICtx is a no-op", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -172,9 +171,9 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("factory invalidate() forces re-registration on next update()", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [{ action: "create", subject: "a" }]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -191,12 +190,13 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("resetCompletedDisplayState() lets replayed completed tasks be shown once again", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		await seed(captured, [
 			{ action: "create", subject: "done" },
+			{ action: "update", id: 1, status: "in_progress", activeForm: "Finishing" },
 			{ action: "update", id: 1, status: "completed" },
 		]);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
@@ -214,12 +214,13 @@ describe("TodoOverlay — lifecycle", () => {
 	});
 
 	it("hideCompletedTasksFromPreviousTurn() is a no-op when nothing is pending hide", () => {
-		const overlay = new TodoOverlay();
+		const store = createTodoStore();
+		const overlay = new TodoOverlay(store);
 		expect(() => overlay.hideCompletedTasksFromPreviousTurn()).not.toThrow();
 	});
 
 	it("all-deleted todos count as empty (no widget)", async () => {
-		const { captured } = registerTool();
+		const { captured, store } = registerTool();
 		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
 		await tool.execute?.(
 			"tc",
@@ -228,7 +229,7 @@ describe("TodoOverlay — lifecycle", () => {
 			undefined as never,
 			{} as never,
 		);
-		const overlay = new TodoOverlay();
+		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
