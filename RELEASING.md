@@ -28,13 +28,20 @@ The release workflow uses OIDC and does not normally require an `NPM_TOKEN`. npm
 
 ### Bootstrap a new npm package
 
-npm trusted publishing can only be configured after a package exists. A new package must still be published through the Changesets version-PR flow:
+npm trusted publishing can only be configured after a package exists. Normal releases never receive an npm token: before publishing, `scripts/check-unbootstrapped-packages.mjs` stops the release if any public workspace package does not yet exist on npm. This happens before `changeset publish`, preventing a partial release.
 
-1. Create a short-lived granular npm token that can create the new package and publish its first version. An unscoped, not-yet-created package may require temporary read/write access to all packages owned by the account because it cannot yet be selected by name.
-2. Store the token as the repository secret `NPM_BOOTSTRAP_TOKEN`. Do not expose it to pull-request workflows.
-3. Review and merge the generated `chore: version packages` PR. `scripts/publish-packages.sh` detects the bootstrap secret, disables OIDC for that publish command, and lets `changeset publish` perform the first publish. Do not run `npm publish` manually.
-4. Configure the new package's trusted publisher immediately after the first publish, using `release.yml` and the `npm publish` allowed action.
-5. Delete the `NPM_BOOTSTRAP_TOKEN` repository secret and revoke the npm token. With no bootstrap secret, the same script uses trusted publishing (OIDC) for normal releases.
+Create a protected GitHub Environment named `npm-bootstrap`, require reviewer approval, and store a short-lived granular token there as `NPM_BOOTSTRAP_TOKEN`. Only `.github/workflows/bootstrap-npm-package.yml` can use it.
+
+A new package must still pass through the Changesets version-PR flow:
+
+1. Merge the package and its changeset into `main`, then review and merge the generated `chore: version packages` PR.
+2. The normal release job stops safely because the package does not exist on npm.
+3. Run **Bootstrap npm package** from `main` and enter the exact workspace package name. The workflow verifies a clean `main` checkout, a public workspace manifest, a non-`0.0.0` version with a matching changelog entry, and that the package name is still absent from npm. It publishes only that exact package.
+4. Configure the new package's npm Trusted Publisher immediately, using `release.yml` and the `npm publish` allowed action.
+5. Re-run the previously failed normal release job. Changesets skips the already-published bootstrap version, publishes any remaining versions through OIDC, and release reconciliation creates the package tag and GitHub Release.
+6. Revoke the short-lived token and clear the `NPM_BOOTSTRAP_TOKEN` Environment secret until another new package needs its first publish.
+
+Do not run `npm publish` locally and do not expose the bootstrap token to the normal release or pull-request workflows.
 
 ### Allow Actions to create pull requests
 
@@ -67,7 +74,8 @@ Do not push the release-bearing change to `main`, merge the generated version PR
 1. Changes with one or more changesets land on `main`.
 2. `.github/workflows/release.yml` creates or updates `chore: version packages`.
 3. Review and merge that version PR when ready to release.
-4. The workflow validates and publishes every planned package version not already present on npm.
-5. The workflow reconciles package tags and creates GitHub Releases for the packages published in that plan.
+4. The workflow validates that every public workspace package already exists on npm, then publishes every planned package version through OIDC.
+5. For a new package, follow the protected bootstrap flow above and re-run the stopped release job.
+6. The workflow reconciles package tags and creates GitHub Releases for the packages published in that plan.
 
 Publishing and release reconciliation are idempotent. If npm publishing partially succeeds or GitHub Release creation fails, rerun the failed workflow job.
