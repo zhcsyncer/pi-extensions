@@ -10,6 +10,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, adaptive diffs, and bounded Bash call previews.
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — maintained fork of `@juicesharp/rpiv-todo` with a persistent task overlay and no duplicate successful tool nodes.
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable extension statuses, bottom-right context progress, and a highlighted auto-compaction marker.
+- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — temporary read-only Plan Mode with word-aware revdiff review, immutable revisions, configurable English/Chinese Plan content, explicit approval, and collapsible TUI Steps.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 
 ## Bundle-private Search Hub
@@ -34,7 +35,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -64,6 +65,12 @@ Install only Glance:
 pi install npm:@zhcsyncer/pi-glance
 ```
 
+Install only strict Plan Mode:
+
+```bash
+pi install npm:@zhcsyncer/pi-plan-mode
+```
+
 ## Development
 
 Test the root bundle:
@@ -79,6 +86,7 @@ pi -e ./packages/pi-recap --list-models nope
 pi --no-extensions -e ./packages/pi-tool-display-intent
 pi --no-extensions -e ./packages/pi-todo --list-models nope
 pi --no-extensions -e ./packages/pi-glance
+pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 ```
 

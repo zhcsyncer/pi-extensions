@@ -10,6 +10,7 @@ const packagePaths = [
 	"./packages/pi-tool-display-intent",
 	"./packages/pi-todo",
 	"./packages/pi-glance",
+	"./packages/pi-plan-mode",
 	"./packages/pi-search-hub",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
