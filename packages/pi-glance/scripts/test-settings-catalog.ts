@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import {
+	COLOR_SOURCE_VALUES,
 	CONTEXT_DISPLAY_MODE_VALUES,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
@@ -194,19 +195,33 @@ const generalRows = assertRows(config, "general", [
 		kind: "toggle",
 	},
 	{
+		id: "general.startupHeader",
+		label: "Startup header",
+		value: "on",
+		hint: "Show the Pi logo and one startup tip unless Pi starts quietly.",
+		kind: "toggle",
+	},
+	{
+		id: "general.colorSource",
+		label: "Color source",
+		value: "Follow Pi",
+		hint: "Follow Pi theme tokens or use Glance palettes.",
+		kind: "cycle",
+	},
+	{
 		id: "general.theme.light",
-		label: "Light theme",
+		label: "Light palette",
 		value: "Light",
-		hint: "Palette used for light or unknown Pi theme tone.",
+		hint: "Used by Glance palette and as the light or unknown Pi fallback.",
 		kind: "cycle",
 		opensSubview: "themeBrowser",
 		themeSlot: "light",
 	},
 	{
 		id: "general.theme.dark",
-		label: "Dark theme",
+		label: "Dark palette",
 		value: "Dark",
-		hint: "Palette used for dark Pi theme tone.",
+		hint: "Used by Glance palette and as the dark Pi fallback.",
 		kind: "cycle",
 		opensSubview: "themeBrowser",
 		themeSlot: "dark",
@@ -417,6 +432,8 @@ const throughputRows = assertRows(config, "throughput", [
 ]);
 
 assert.equal(rowById(generalRows, "general.enabled").apply!(config).enabled, false, "general enabled should toggle off");
+assert.equal(rowById(generalRows, "general.startupHeader").apply!(config).startupHeader, false, "startup header should toggle off");
+assert.equal(rowById(generalRows, "general.colorSource").apply!(config).colorSource, "glance", "color source should cycle Follow Pi -> Glance palette");
 assert.equal(rowById(generalRows, "general.theme.light").opensSubview, "themeBrowser", "light theme row should declare the theme browser subview as its activation target");
 assert.equal(rowById(generalRows, "general.theme.light").themeSlot, "light", "light theme row should declare its edited slot");
 assert.equal(rowById(generalRows, "general.theme.dark").opensSubview, "themeBrowser", "dark theme row should declare the theme browser subview as its activation target");
@@ -480,6 +497,17 @@ assert.equal(rowById(throughputRows, "throughput.enabled").apply!(config).segmen
 assert.equal((rowById(throughputRows, "throughput.precision").apply!(config) as unknown as { throughput: { precision: unknown } }).throughput.precision, 1, "throughput precision should cycle auto -> 1 digit");
 assert.equal(rowById(throughputRows, "throughput.precision").kind, "cycle", "throughput precision should be an editable cycle row");
 
+assertCycleUsesValues(
+	config,
+	COLOR_SOURCE_VALUES,
+	"general",
+	"general.colorSource",
+	"General Color source",
+	(base, colorSource) => withTestConfig(base, (next) => {
+		next.colorSource = colorSource;
+	}),
+	(after) => after.colorSource,
+);
 assertCycleUsesValues(
 	config,
 	ICON_MODE_VALUES,

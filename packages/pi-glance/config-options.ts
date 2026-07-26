@@ -4,6 +4,7 @@ import type {
 	ContextProgressStyle,
 	ContextProgressWidth,
 	ContextUnknownMode,
+	ColorSource,
 	GitShaMode,
 	EditorTopMarginRows,
 	GlanceConfig,
@@ -15,6 +16,7 @@ import type {
 	WorkspaceLabelMode,
 } from "./types.js";
 
+export const COLOR_SOURCE_VALUES: ReadonlyArray<ColorSource> = ["pi", "glance"];
 export const ICON_MODE_VALUES: ReadonlyArray<IconMode> = ["plain", "nerd"];
 export const PROVIDER_DISPLAY_MODE_VALUES: ReadonlyArray<GlanceConfig["display"]["showProvider"]> = ["auto", "always", "never"];
 export const WORKSPACE_LABEL_MODE_VALUES: ReadonlyArray<WorkspaceLabelMode> = ["name", "smart", "path"];

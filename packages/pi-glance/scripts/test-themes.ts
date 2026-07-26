@@ -2391,22 +2391,23 @@ assert.equal(isGlanceThemeName("everforest-light"), true, "new counterpart Everf
 assert.equal(isGlanceThemeName("dracula"), false, "unknown theme should not validate");
 
 const selectedThemePair = { light: "one-light", dark: "tokyo-night" } as const;
+const selectedGlanceStyles = { theme: selectedThemePair, colorSource: "glance" } as const;
 assert.equal(selectGlanceTheme(selectedThemePair, "light"), "one-light", "theme selection should return the light slot for light ambient tone");
 assert.equal(selectGlanceTheme(selectedThemePair, "dark"), "tokyo-night", "theme selection should return the dark slot for dark ambient tone");
 assert.equal(selectGlanceTheme(selectedThemePair, "unknown"), "one-light", "theme selection should fall back to the light slot for unknown ambient tone");
-assert.equal(resolveGlanceRenderStyles(selectedThemePair, { ambientTone: "light" }).themeId, "one-light", "render style resolver should use the light slot for ambient light");
-assert.equal(resolveGlanceRenderStyles(selectedThemePair, { ambientTone: "dark" }).themeId, "tokyo-night", "render style resolver should use the dark slot for ambient dark");
-assert.equal(resolveGlanceRenderStyles(selectedThemePair, { ambientTone: "unknown" }).themeId, "one-light", "render style resolver should use the light slot for ambient unknown");
-assert.equal(resolveGlanceRenderStyles(selectedThemePair).themeId, "one-light", "render style resolver should default missing ambient tone to the light slot");
-assert.equal(resolveGlanceRenderStyles(selectedThemePair, { getAmbientTone: () => "dark" }).themeId, "tokyo-night", "render style resolver should use lazy getAmbientTone when no static tone is provided");
+assert.equal(resolveGlanceRenderStyles(selectedGlanceStyles, { ambientTone: "light" }).themeId, "one-light", "render style resolver should use the light slot for ambient light");
+assert.equal(resolveGlanceRenderStyles(selectedGlanceStyles, { ambientTone: "dark" }).themeId, "tokyo-night", "render style resolver should use the dark slot for ambient dark");
+assert.equal(resolveGlanceRenderStyles(selectedGlanceStyles, { ambientTone: "unknown" }).themeId, "one-light", "render style resolver should use the light slot for ambient unknown");
+assert.equal(resolveGlanceRenderStyles(selectedGlanceStyles).themeId, "one-light", "render style resolver should default missing ambient tone to the light slot");
+assert.equal(resolveGlanceRenderStyles(selectedGlanceStyles, { getAmbientTone: () => "dark" }).themeId, "tokyo-night", "render style resolver should use lazy getAmbientTone when no static tone is provided");
 assert.equal(
-	resolveGlanceRenderStyles(selectedThemePair, { ambientTone: "light", getAmbientTone: () => "dark" }).themeId,
+	resolveGlanceRenderStyles(selectedGlanceStyles, { ambientTone: "light", getAmbientTone: () => "dark" }).themeId,
 	"one-light",
 	"render style resolver should prefer static ambientTone over getAmbientTone",
 );
 const explicitStyleOverride = resolveBuiltInGlanceStyles("dark");
 assert.equal(
-	resolveGlanceRenderStyles(selectedThemePair, { styles: explicitStyleOverride, ambientTone: "light", getAmbientTone: () => "dark" }),
+	resolveGlanceRenderStyles(selectedGlanceStyles, { styles: explicitStyleOverride, ambientTone: "light", getAmbientTone: () => "dark" }),
 	explicitStyleOverride,
 	"render style resolver should return an explicit styles override without applying ambient tone selection",
 );
@@ -2534,10 +2535,15 @@ function fakePiTheme(colors: Partial<Record<PiThemeColorToken, Rgb>>, name = "fa
 	const directContext = createPiRenderStyleContext(piTheme);
 	assert.equal(directContext?.styles?.source, "pi", "Pi render style context helper should convert a current Pi theme into injectable styles");
 	assert.equal(directContext?.styles?.cacheKey, styles.cacheKey, "Pi render style context helper should reuse adapter cache identity");
-	assert.equal(resolveRuntimeRenderStyleContext(defaultConfig(), { piTheme }), undefined, "runtime render style context should remain inactive for current configs without a future explicit enable condition");
-	const futureContext = resolveRuntimeRenderStyleContext(defaultConfig(), { piTheme, enablePiThemeStyles: true });
-	assert.equal(futureContext?.styles?.source, "pi", "runtime render style context has a future explicit enable seam for Pi theme styles");
-	assert.equal(futureContext?.styles?.text("txt"), fg(PI_TOKEN_COLORS.text, "txt"), "future enabled runtime context should carry Pi token styling when explicitly requested");
+	const runtimeContext = resolveRuntimeRenderStyleContext(defaultConfig(), { piTheme });
+	assert.equal(runtimeContext?.styles, undefined, "runtime Pi styles should stay lazy instead of freezing current ANSI");
+	const runtimePiStyles = runtimeContext?.getPiStyles?.();
+	assert.ok(runtimePiStyles, "runtime render style context should resolve current Pi styles lazily");
+	assert.equal(runtimePiStyles.source, "pi", "runtime render style context should expose Pi styles through a lazy provider");
+	assert.equal(runtimePiStyles.text("txt"), fg(PI_TOKEN_COLORS.text, "txt"), "lazy runtime context should carry Pi token styling");
+	assert.equal(resolveGlanceRenderStyles(defaultConfig(), runtimeContext).source, "pi", "new default config should activate lazy Pi styles");
+	const legacyPaletteConfig = { ...defaultConfig(), colorSource: "glance" as const };
+	assert.equal(resolveGlanceRenderStyles(legacyPaletteConfig, runtimeContext).source, "glance", "Glance color source should ignore the available Pi style provider");
 }
 
 {

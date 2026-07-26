@@ -78,6 +78,9 @@ function createContext(): TestContext {
 		},
 		ui: {
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
+			setHeader: (factory: unknown) => {
+				if (factory) (factory as (tui: unknown, theme: unknown) => unknown)(fakeTui, fakeTheme);
+			},
 			setFooter: (factory: unknown) => {
 				if (factory) (factory as (tui: unknown, theme: unknown) => unknown)(fakeTui, fakeTheme);
 			},

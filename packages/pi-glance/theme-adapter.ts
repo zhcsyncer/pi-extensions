@@ -1,7 +1,7 @@
 import { PALETTES, fg } from "./palette.js";
 import { selectGlanceTheme, type GlanceAmbientTone } from "./theme-selection.js";
 import { themeLabel, type GlanceThemeName } from "./themes.js";
-import type { GlanceThemePair, Rgb, SegmentId } from "./types.js";
+import type { ColorSource, GlanceThemePair, Rgb, SegmentId } from "./types.js";
 
 export type TextStyler = (text: string) => string;
 
@@ -25,8 +25,14 @@ export interface ResolvedGlanceStyles {
 	readonly segments: Record<SegmentId, ResolvedGlanceSegmentStyles>;
 }
 
+export interface GlanceStyleSelection {
+	readonly theme: GlanceThemePair;
+	readonly colorSource: ColorSource;
+}
+
 export interface GlanceRenderStyleContext {
 	readonly styles?: ResolvedGlanceStyles;
+	readonly getPiStyles?: () => ResolvedGlanceStyles | undefined;
 	readonly ambientTone?: GlanceAmbientTone;
 	readonly getAmbientTone?: () => GlanceAmbientTone;
 }
@@ -135,8 +141,12 @@ export function resolvePiThemeStyles(theme: PiThemeLike, options: PiThemeStyleOp
 	};
 }
 
-export function resolveGlanceRenderStyles(theme: GlanceThemePair, context: GlanceRenderStyleContext = {}): ResolvedGlanceStyles {
+export function resolveGlanceRenderStyles(selection: GlanceStyleSelection, context: GlanceRenderStyleContext = {}): ResolvedGlanceStyles {
 	if (context.styles) return context.styles;
+	if (selection.colorSource === "pi") {
+		const piStyles = context.getPiStyles?.();
+		if (piStyles) return piStyles;
+	}
 	const ambientTone = context.ambientTone ?? context.getAmbientTone?.() ?? "unknown";
-	return resolveBuiltInGlanceStyles(selectGlanceTheme(theme, ambientTone));
+	return resolveBuiltInGlanceStyles(selectGlanceTheme(selection.theme, ambientTone));
 }

@@ -38,6 +38,14 @@ function press(component: Component, data: string): void {
 	component.handleInput?.(data);
 }
 
+function openPaletteBrowser(component: Component, slot: "light" | "dark"): void {
+	press(component, "\x1b[C");
+	const settingIndex = slot === "light" ? 3 : 4;
+	for (let index = 0; index < settingIndex; index++) press(component, "\x1b[B");
+	press(component, "\x1b[C");
+	press(component, "\r");
+}
+
 function makeState(): GlanceState {
 	return testState({
 		git: {
@@ -188,8 +196,8 @@ assertContains(initial, "✓ Saved", "initial pane should be clean");
 assertContains(initial, "Ask pi to improve the input surface...", "preview should render");
 assertNotContains(initial, "PREVIEW", "preview label should stay removed");
 assertContains(initial, "Enabled", "settings section should render");
-assertThemeRow(initial, "Light", "Light theme");
-assertThemeRow(initial, "Dark", "Dark theme");
+assertThemeRow(initial, "Light", "Light palette");
+assertThemeRow(initial, "Dark", "Dark palette");
 assertNotContains(initial, "Adaptive width", "adaptive width should be always-on rather than a /glance setting");
 assertContains(initial, "» General", "general category should be selected initially");
 assertContains(initial, "Git", "git category should render");
@@ -214,21 +222,14 @@ const injectedStaticPreviewPane = await makePane(defaultConfig(), null, { render
 assertContains(rawText(injectedStaticPreviewPane.component, 120), "\x1b[95mAsk pi to improve the input surface...\x1b[0m", "pane static preview should honor injected render style context");
 
 const lightSlotPreviewPane = await makePane(defaultConfig(), makeState(), { renderStyleContext: { getAmbientTone: () => "dark" } });
-press(lightSlotPreviewPane.component, "\x1b[C");
-press(lightSlotPreviewPane.component, "\x1b[B");
-press(lightSlotPreviewPane.component, "\x1b[C");
-press(lightSlotPreviewPane.component, "\r");
+openPaletteBrowser(lightSlotPreviewPane.component, "light");
 const lightSlotPreviewRaw = rawText(lightSlotPreviewPane.component, 120);
-assertContains(lightSlotPreviewRaw, fg(PALETTES.light.border, "╭"), "active Light theme browser preview should force ambientTone=light over runtime dark tone");
+assertContains(lightSlotPreviewRaw, fg(PALETTES.light.border, "╭"), "active Light palette browser preview should force ambientTone=light over runtime dark tone");
 
 const darkSlotPreviewPane = await makePane(defaultConfig(), makeState(), { renderStyleContext: { getAmbientTone: () => "light" } });
-press(darkSlotPreviewPane.component, "\x1b[C");
-press(darkSlotPreviewPane.component, "\x1b[B");
-press(darkSlotPreviewPane.component, "\x1b[B");
-press(darkSlotPreviewPane.component, "\x1b[C");
-press(darkSlotPreviewPane.component, "\r");
+openPaletteBrowser(darkSlotPreviewPane.component, "dark");
 const darkSlotPreviewRaw = rawText(darkSlotPreviewPane.component, 120);
-assertContains(darkSlotPreviewRaw, fg(PALETTES.dark.border, "╭"), "active Dark theme browser preview should force ambientTone=dark over runtime light tone");
+assertContains(darkSlotPreviewRaw, fg(PALETTES.dark.border, "╭"), "active Dark palette browser preview should force ambientTone=dark over runtime light tone");
 
 const replySpeedPreviewConfig = defaultConfig();
 replySpeedPreviewConfig.segments = replySpeedPreviewConfig.segments.map((segment) =>
@@ -266,12 +267,9 @@ assertContains(
 );
 
 const themePane = await makePane();
-press(themePane.component, "\x1b[C");
-press(themePane.component, "\x1b[B");
-press(themePane.component, "\x1b[C");
-press(themePane.component, "\r");
+openPaletteBrowser(themePane.component, "light");
 const themeBrowserText = plainText(themePane.component, 160);
-assertContains(themeBrowserText, "Light theme · preview Light", "enter on Light theme value should open the calm light-slot browser");
+assertContains(themeBrowserText, "Light palette · preview Light", "enter on Light palette value should open the calm light-slot browser");
 assertContains(themeBrowserText, "saved Light", "theme browser should show concise saved copy");
 assertContains(themeBrowserText, "1/22", "theme browser should show position/count");
 assertContains(themeBrowserText, "[↑↓] preview  ·  [Enter] accept  ·  [Esc/Left] restore  ·  [S] save", "theme browser footer help should describe preview, accept, restore, and save");
@@ -292,13 +290,9 @@ assertThemeMarkerColumns(themeBrowserText, "initial theme browser");
 assertNoRawThemeIds(themeBrowserText, "Theme browser");
 
 const darkThemePane = await makePane();
-press(darkThemePane.component, "\x1b[C");
-press(darkThemePane.component, "\x1b[B");
-press(darkThemePane.component, "\x1b[B");
-press(darkThemePane.component, "\x1b[C");
-press(darkThemePane.component, "\r");
+openPaletteBrowser(darkThemePane.component, "dark");
 const darkThemeBrowserText = plainText(darkThemePane.component, 160);
-assertContains(darkThemeBrowserText, "Dark theme · preview Dark", "enter on Dark theme value should open the dark-slot browser");
+assertContains(darkThemeBrowserText, "Dark palette · preview Dark", "enter on Dark palette value should open the dark-slot browser");
 assertLineContainsAll(darkThemeBrowserText, ["»", "●", "✓", "Dark"], "initial dark browser row should mark the focused saved preview theme");
 assert.deepEqual(themeListLabels(darkThemeBrowserText), getThemeCatalogForSlot("dark").map((theme) => theme.label), "dark theme browser list should preserve dark-tone-first catalog order");
 assert.equal(themeListRows(darkThemeBrowserText).length, GLANCE_THEMES.length, "dark theme browser should render all theme labels in slot-aware order");
@@ -306,11 +300,11 @@ press(darkThemePane.component, "\x1b[B");
 const previewedDarkSlotText = plainText(darkThemePane.component, 160);
 assertLineContainsAll(previewedDarkSlotText, ["»", "●", "Catppuccin Mocha"], "moving dark-slot highlight should preview Catppuccin Mocha");
 assertLineContainsAll(previewedDarkSlotText, ["✓", "Dark"], "pre-browser saved marker should remain on Dark while previewing another dark slot theme");
-assertContains(previewedDarkSlotText, "Dark theme · preview Catppuccin Mocha", "dark slot preview movement should show the friendly preview label");
+assertContains(previewedDarkSlotText, "Dark palette · preview Catppuccin Mocha", "dark slot preview movement should show the friendly preview label");
 press(darkThemePane.component, "\r");
 const acceptedDarkSlotText = plainText(darkThemePane.component, 160);
-assertContains(acceptedDarkSlotText, "Dark theme → Catppuccin Mocha. Press S to save.", "enter in the dark browser should accept the highlighted dark slot theme");
-assertThemeRow(acceptedDarkSlotText, "Catppuccin", "Dark theme");
+assertContains(acceptedDarkSlotText, "Dark palette → Catppuccin Mocha. Press S to save.", "enter in the dark browser should accept the highlighted dark slot theme");
+assertThemeRow(acceptedDarkSlotText, "Catppuccin", "Dark palette");
 press(darkThemePane.component, "s");
 const darkThemeSaveResult = darkThemePane.done();
 assert.deepEqual((darkThemeSaveResult as { action?: string; config?: GlanceConfig }).action, "save", "S should save accepted dark browser theme through existing path");
@@ -322,18 +316,15 @@ const previewedThemeBrowserText = plainText(themePane.component, 160);
 assertLineContainsAll(previewedThemeBrowserText, ["»", "●", "Catppuccin Latte"], "moving highlight should preview and focus Catppuccin Latte in light-slot order");
 assertLineContainsAll(previewedThemeBrowserText, ["✓", "Light"], "pre-browser saved marker should remain on Light while previewing another light slot theme");
 assertContains(previewedThemeBrowserText, "● Unsaved changes", "previewing a different theme should dirty the pane");
-assertContains(previewedThemeBrowserText, "Light theme · preview Catppuccin Latte", "preview movement should show the friendly light-slot preview label");
+assertContains(previewedThemeBrowserText, "Light palette · preview Catppuccin Latte", "preview movement should show the friendly light-slot preview label");
 assertContains(previewedThemeBrowserText, "Selected · Catppuccin · pastel · warm · gentle", "selected detail should update with catalog-sourced raw id suppression");
 assertContains(previewedThemeBrowserText, "Soft Catppuccin palette with warm bright tones.", "selected detail should update with catalog-sourced friendly description copy");
-assertNotContains(previewedThemeBrowserText, "Light theme → Catppuccin Latte. Press S to save.", "preview movement should not accept the theme yet");
+assertNotContains(previewedThemeBrowserText, "Light palette → Catppuccin Latte. Press S to save.", "preview movement should not accept the theme yet");
 assertNotContains(previewedThemeBrowserText, "○", "previewed browser should not render hollow markers");
 assertNoRawThemeIds(previewedThemeBrowserText, "Previewed theme browser");
 
 const lowerWindowPane = await makePane();
-press(lowerWindowPane.component, "\x1b[C");
-press(lowerWindowPane.component, "\x1b[B");
-press(lowerWindowPane.component, "\x1b[C");
-press(lowerWindowPane.component, "\r");
+openPaletteBrowser(lowerWindowPane.component, "light");
 for (let i = 0; i < 20; i++) press(lowerWindowPane.component, "\x1b[B");
 const lowerWindowText = plainText(lowerWindowPane.component, 160);
 assertContains(lowerWindowText, "21/22", "moving near lower themes should update position/count");
@@ -348,10 +339,7 @@ assertThemeMarkerColumns(lowerWindowText, "lower theme browser");
 assertNoRawThemeIds(lowerWindowText, "Lower theme browser");
 
 const activeBrowserSavePane = await makePane();
-press(activeBrowserSavePane.component, "\x1b[C");
-press(activeBrowserSavePane.component, "\x1b[B");
-press(activeBrowserSavePane.component, "\x1b[C");
-press(activeBrowserSavePane.component, "\r");
+openPaletteBrowser(activeBrowserSavePane.component, "light");
 press(activeBrowserSavePane.component, "\x1b[B");
 press(activeBrowserSavePane.component, "s");
 const activeBrowserSaveResult = activeBrowserSavePane.done();
@@ -359,24 +347,18 @@ assert.deepEqual((activeBrowserSaveResult as { action?: string; config?: GlanceC
 assert.equal((activeBrowserSaveResult as { config: GlanceConfig }).config.theme.light, "catppuccin-latte", "active browser save should include the previewed light slot draft theme");
 
 const activeBrowserCancelPane = await makePane();
-press(activeBrowserCancelPane.component, "\x1b[C");
-press(activeBrowserCancelPane.component, "\x1b[B");
-press(activeBrowserCancelPane.component, "\x1b[C");
-press(activeBrowserCancelPane.component, "\r");
+openPaletteBrowser(activeBrowserCancelPane.component, "light");
 press(activeBrowserCancelPane.component, "\x1b[B");
 press(activeBrowserCancelPane.component, "\x03");
 assert.deepEqual((activeBrowserCancelPane.done() as { action?: string }).action, "cancel", "Ctrl-C should cancel from an active theme browser preview");
 
 const dirtyBeforeBrowserPane = await makePane();
-press(dirtyBeforeBrowserPane.component, "\x1b[C");
-press(dirtyBeforeBrowserPane.component, "\x1b[B");
-press(dirtyBeforeBrowserPane.component, "\x1b[C");
-press(dirtyBeforeBrowserPane.component, "\r");
+openPaletteBrowser(dirtyBeforeBrowserPane.component, "light");
 press(dirtyBeforeBrowserPane.component, "\x1b[B");
 press(dirtyBeforeBrowserPane.component, "\r");
 press(dirtyBeforeBrowserPane.component, "\r");
 const dirtyBeforeBrowserText = plainText(dirtyBeforeBrowserPane.component, 160);
-assertContains(dirtyBeforeBrowserText, "Light theme · preview Catppuccin Latte", "dirty draft Light theme row should reopen the browser");
+assertContains(dirtyBeforeBrowserText, "Light palette · preview Catppuccin Latte", "dirty draft Light palette row should reopen the browser");
 assertContains(dirtyBeforeBrowserText, "saved Light", "browser saved copy should name the actual initial theme");
 assertContains(dirtyBeforeBrowserText, "Esc returns Catppuccin Latte", "browser restore copy should name the pre-browser draft theme separately");
 assertNotContains(dirtyBeforeBrowserText, "saved Catppuccin Latte", "browser should not label the pre-browser draft theme as saved");
@@ -393,51 +375,42 @@ assertNotContains(dirtyBeforeBrowserPreviewText, "saved Catppuccin Latte", "prev
 assertNotContains(dirtyBeforeBrowserPreviewText, "○", "dirty preview browser should not render hollow markers");
 press(dirtyBeforeBrowserPane.component, "\x1b[D");
 const dirtyBeforeBrowserRestoredText = plainText(dirtyBeforeBrowserPane.component, 160);
-assertThemeRow(dirtyBeforeBrowserRestoredText, "Catppuccin", "Light theme");
+assertThemeRow(dirtyBeforeBrowserRestoredText, "Catppuccin", "Light palette");
 assertContains(dirtyBeforeBrowserRestoredText, "● Unsaved changes", "Left restore should return to the dirty pre-browser draft, not the saved theme");
 
 press(themePane.component, "\r");
 const acceptedThemeText = plainText(themePane.component, 160);
-assertContains(acceptedThemeText, "Light theme → Catppuccin Latte. Press S to save.", "enter in the browser should accept the highlighted light slot theme");
+assertContains(acceptedThemeText, "Light palette → Catppuccin Latte. Press S to save.", "enter in the browser should accept the highlighted light slot theme");
 assertNotContains(acceptedThemeText, "Choose a palette", "accepted browser should return to normal settings");
-assertThemeRow(acceptedThemeText, "Catppuccin", "Light theme");
+assertThemeRow(acceptedThemeText, "Catppuccin", "Light palette");
 press(themePane.component, "s");
 const themeSaveResult = themePane.done();
 assert.deepEqual((themeSaveResult as { action?: string; config?: GlanceConfig }).action, "save", "S should save accepted browser theme through existing path");
 assert.equal((themeSaveResult as { config: GlanceConfig }).config.theme.light, "catppuccin-latte", "saved browser config should include the accepted light slot theme");
 
 const restoreBrowserPane = await makePane();
-press(restoreBrowserPane.component, "\x1b[C");
-press(restoreBrowserPane.component, "\x1b[B");
-press(restoreBrowserPane.component, "\x1b[C");
-press(restoreBrowserPane.component, "\r");
+openPaletteBrowser(restoreBrowserPane.component, "light");
 press(restoreBrowserPane.component, "\x1b[B");
 press(restoreBrowserPane.component, "\x1b[D");
 const leftRestoredText = plainText(restoreBrowserPane.component, 160);
 assertContains(leftRestoredText, "Theme preview discarded.", "left in the browser should restore and return");
 assertNotContains(leftRestoredText, "Choose a palette", "left restore should return to normal settings");
 assertContains(leftRestoredText, "✓ Saved", "left restore should clear preview-only dirty state");
-assertThemeRow(leftRestoredText, "Light", "Light theme");
+assertThemeRow(leftRestoredText, "Light", "Light palette");
 
 const escRestoreBrowserPane = await makePane();
-press(escRestoreBrowserPane.component, "\x1b[C");
-press(escRestoreBrowserPane.component, "\x1b[B");
-press(escRestoreBrowserPane.component, "\x1b[C");
-press(escRestoreBrowserPane.component, "\r");
+openPaletteBrowser(escRestoreBrowserPane.component, "light");
 press(escRestoreBrowserPane.component, "\x1b[B");
 press(escRestoreBrowserPane.component, "\x1b");
 const escRestoredText = plainText(escRestoreBrowserPane.component, 160);
 assertContains(escRestoredText, "Theme preview discarded.", "Esc in the browser should restore and return");
-assertThemeRow(escRestoredText, "Light", "Light theme");
+assertThemeRow(escRestoredText, "Light", "Light palette");
 
 for (const width of [56, 64, 80, 120, 160]) {
 	const widthThemePane = await makePane();
-	press(widthThemePane.component, "\x1b[C");
-	press(widthThemePane.component, "\x1b[B");
-	press(widthThemePane.component, "\x1b[C");
-	press(widthThemePane.component, "\r");
+	openPaletteBrowser(widthThemePane.component, "light");
 	const widthLines = plainRender(widthThemePane.component, width);
-	assertContains(widthLines.join("\n"), "Light theme · preview", `theme browser should render at width ${width}`);
+	assertContains(widthLines.join("\n"), "Light palette · preview", `theme browser should render at width ${width}`);
 	assertContains(widthLines.join("\n"), "Light", `theme browser should keep labels at width ${width}`);
 	assertContains(widthLines.join("\n"), "Selected", `theme browser should keep selected detail at width ${width}`);
 	assertNotContains(widthLines.join("\n"), "○", `theme browser should not render hollow markers at width ${width}`);
@@ -461,11 +434,13 @@ press(gridSettingPane.component, "\x1b[C");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
+press(gridSettingPane.component, "\x1b[B");
+press(gridSettingPane.component, "\x1b[B");
 const iconsSelectedText = plainText(gridSettingPane.component);
 assertContains(iconsSelectedText, "» Icons", "down arrow should move within the setting column");
 assertContains(iconsSelectedText, "Plain text or Nerd Font icons with fallback.", "Icons row hint should mention plain and Nerd Font fallback guidance");
 press(gridSettingPane.component, "\x1b[D");
-assertContains(plainText(gridSettingPane.component), "» Reply speed", "left arrow should move to the category on the same visual row");
+assertContains(plainText(gridSettingPane.component), "» Tokens", "left arrow should move to the category on the same visual row");
 
 const reorderPane = await makePane();
 press(reorderPane.component, "\x1b[B");
@@ -611,9 +586,13 @@ const generalHintPane = await makePane();
 press(generalHintPane.component, "\x1b[C");
 assertContains(plainText(generalHintPane.component), "Temporarily disable pi-glance.", "general enabled hint should render");
 press(generalHintPane.component, "\x1b[B");
-assertContains(plainText(generalHintPane.component), "Palette used for light or unknown", "general light theme hint should render");
+assertContains(plainText(generalHintPane.component), "Show the Pi logo and one startup tip", "startup header hint should render");
 press(generalHintPane.component, "\x1b[B");
-assertContains(plainText(generalHintPane.component), "Palette used for dark Pi theme", "general dark theme hint should render");
+assertContains(plainText(generalHintPane.component), "Follow Pi theme tokens or use Glance palettes.", "color source hint should render");
+press(generalHintPane.component, "\x1b[B");
+assertContains(plainText(generalHintPane.component), "Used by Glance palette and as the light", "general light palette hint should render");
+press(generalHintPane.component, "\x1b[B");
+assertContains(plainText(generalHintPane.component), "Used by Glance palette and as the dark", "general dark palette hint should render");
 press(generalHintPane.component, "\x1b[B");
 press(generalHintPane.component, "\x1b[B");
 press(generalHintPane.component, "\x1b[B");

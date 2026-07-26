@@ -68,18 +68,22 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 | | | |
 |---|---|---|
-| 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserves all pi defaults |
+| ◌ | **Startup header** | Responsive Pi logo plus one randomly selected tip; Pi's own resource summary stays below it |
+| 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserving Pi autocomplete, paste, and scrolling |
 | 🏷️ | **Project title** | Current folder name, or a safe `~/...` path when enabled |
 | 📊 | **Inline status** | Git · cost · Reply speed · context · optional tokens · model — top-right |
 | ⚙️ | **`/glance` pane** | General settings, segment order, and per-segment detail settings in a calm grid |
 | 💤 | **Dim unfocused** | Surface quiets down when you scroll the chat |
-| 🎨 | **Themes** | 22 built-in palettes, from Light/Dark to Catppuccin, Solarized, Gruvbox, Rosé Pine, One, Kanagawa, Everforest, and High Contrast |
+| 🎨 | **Themes** | Follows Pi theme tokens by default, with 22 built-in Glance palettes available as an alternative/fallback |
 
 ## Notes
 
-- To switch themes, open `/glance` → **General** → `Light theme` or `Dark theme`, press Enter, preview palettes in the browser, then press Enter to accept or Esc/Left to return. Both rows can choose from all 22 built-in Glance palettes: the Light theme browser lists light-toned palettes first and the Dark theme browser lists dark-toned palettes first, but neither browser filters the catalog. Built-ins: Light, Dark, Catppuccin Latte/Mocha/Frappé/Macchiato, Nord, Tokyo Night, Gruvbox Light/Dark, Solarized Light/Dark, Rosé Pine/Dawn, One Light/Dark, Kanagawa Wave/Lotus, Everforest Light/Dark, and High Contrast Light/Dark.
+- New installs use `/glance` → **General** → `Color source` → `Follow Pi`. Choose `Glance palette` to use the built-in palettes directly. `Light palette` and `Dark palette` also remain the safe fallback when the current Pi theme is unavailable. Both browsers contain all 22 palettes, with the matching tone listed first.
 - Icons default to `plain` so pi-glance works with normal terminal fonts.
+- The optional Startup Header is enabled on new installs and shows a static, Pi-themed responsive logo plus one tip per session. Existing schema-10 configs keep Pi's built-in Header until `Startup header` is enabled. Pi quiet startup always wins.
 - Editor top spacing is configurable: open `/glance` → **General** → `Top spacing` and choose `none`, `1 row`, or `2 rows`.
+- The focused frame uses Pi's active editor border color, so thinking-level and Bash colors stay consistent. `!` shows `Bash`; `!!` shows `Bash · no context`.
+- Long input height, internal scrolling, `↑/↓ N more`, autocomplete, and large-paste markers remain Pi-native behavior.
 - `nerd` icons are opt-in: open `/glance` → **General** → `Icons` and choose `nerd` for richer symbols.
 - Nerd icons need a Nerd Font or Symbols Nerd Font fallback. If icons look like boxes, choose `plain`.
 - pi-glance does not auto-detect, install, or bundle terminal fonts.
@@ -90,12 +94,14 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 ## Themes and config
 
-pi-glance uses its own curated 22 built-in Glance palettes. It is not a Pi theme manager: it does not enumerate, switch, or install Pi UI themes, and it does not render with Pi theme token colors.
+pi-glance is not a Pi theme manager: it never enumerates, switches, or installs Pi themes. It only reads the current public Pi theme when `colorSource` is `pi`.
 
-The supported config model is `theme: { light: GlanceThemeName, dark: GlanceThemeName }`. New installs default to:
+New installs default to:
 
 ```json
 {
+  "colorSource": "pi",
+  "startupHeader": true,
   "theme": {
     "light": "light",
     "dark": "dark"
@@ -103,13 +109,11 @@ The supported config model is `theme: { light: GlanceThemeName, dark: GlanceThem
 }
 ```
 
-When pi-glance loads an older config, migration is conservative: an old string such as `{ "theme": "x" }` is preserved as `{ "theme": { "light": "x", "dark": "x" } }` when `x` is one of the built-in Glance theme names.
+`Follow Pi` maps Glance text, status, warning, error, title, and detail roles to Pi semantic theme tokens and updates during runtime theme switches. The focused editor border still comes from Pi's active native `borderColor`, including thinking-level and Bash mode changes.
 
-At render time, pi-glance reads only Pi's public UI theme name to choose a slot:
+`Glance palette` uses the selected light/dark built-in pair. The same pair is the fallback if no current Pi theme is available. The 22 built-ins include Light/Dark, Catppuccin, Nord, Tokyo Night, Gruvbox, Solarized, Rosé Pine, One, Kanagawa, Everforest, and High Contrast variants.
 
-- exact `light` selects `theme.light`
-- exact `dark` selects `theme.dark`
-- unknown or custom Pi theme names fall back to `theme.light`
+Migration is conservative: schema 10 and older configs without the new fields use `colorSource: "glance"` and `startupHeader: false`, preserving their previous appearance and Pi's built-in Header. Explicit values are retained. Old string themes still migrate to matching light/dark slots.
 
 ## Segment details
 
@@ -186,7 +190,8 @@ pnpm debug:git
 
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
-- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 10; older configs migrate automatically and obsolete footer/detail switches are dropped)
+- The custom Header replaces only Pi's Header component; Pi's separate Context/Skills/Prompts/Extensions summary keeps its native compact/expanded hierarchy and package-source display
+- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 11; older configs preserve Glance palette behavior and Pi's built-in Header unless explicitly opted in)
 
 ## License and attribution
 

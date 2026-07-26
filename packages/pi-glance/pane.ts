@@ -13,7 +13,7 @@ import {
 	type ThemeBrowserThemeViewModel,
 } from "./pane-model.js";
 import { renderInputSurface, renderInputSurfacePreview } from "./renderer.js";
-import type { GlanceRenderStyleContext } from "./theme-adapter.js";
+import { resolveBuiltInGlanceStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
 import type { GlanceConfig, GlanceState } from "./types.js";
 
 type PaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
@@ -191,11 +191,17 @@ class GlanceConfigPane implements Component {
 	}
 
 	private renderPreview(lines: string[], layout: PaneLayout): void {
+		const browser = this.model.themeBrowser;
 		const previewOptions = {
 			contentLines: ["Ask pi to improve the input surface..."],
 			focused: true,
 			...(this.options.renderStyleContext ?? {}),
-			...(this.model.themeBrowser ? { ambientTone: this.model.themeBrowser.slot } : {}),
+			...(browser
+				? {
+					ambientTone: browser.slot,
+					styles: resolveBuiltInGlanceStyles(this.model.draft.theme[browser.slot]),
+				}
+				: {}),
 		};
 		const preview = this.previewState
 			? renderInputSurface(this.previewState, this.model.draft, layout.width, previewOptions)

@@ -48,6 +48,7 @@ function createContext(calls: string[], mode: "tui" | "rpc" | "json" | "print" =
 			getBranch: () => [],
 		},
 		ui: {
+			setHeader: (factory: unknown) => calls.push(factory ? "setHeader:install" : "setHeader:clear"),
 			setFooter: (factory: unknown) => calls.push(factory ? "setFooter:install" : "setFooter:clear"),
 			setEditorComponent: (factory: unknown) => calls.push(factory ? "setEditorComponent:install" : "setEditorComponent:clear"),
 		},
@@ -74,8 +75,9 @@ async function main(): Promise<void> {
 		const enabledResult = getHandler(enabledPi, "session_start")({ type: "session_start" }, enabledContext);
 
 		assert.equal(isPromiseLike(enabledResult), false, "session_start should be synchronous for default enabled config");
-		assert.equal(enabledCalls[0], "setFooter:install", "default enabled TUI config should synchronously claim the footer before handler returns");
-		assert.equal(enabledCalls[1], "setEditorComponent:install", "default enabled TUI config should synchronously claim the editor before handler returns");
+		assert.equal(enabledCalls[0], "setHeader:install", "default new TUI config should synchronously install the startup header before handler returns");
+		assert.equal(enabledCalls[1], "setFooter:install", "default enabled TUI config should synchronously claim the footer before handler returns");
+		assert.equal(enabledCalls[2], "setEditorComponent:install", "default enabled TUI config should synchronously claim the editor before handler returns");
 
 		await getHandler(enabledPi, "session_shutdown")({ type: "session_shutdown" }, enabledContext);
 

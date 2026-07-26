@@ -40,31 +40,37 @@ pi --no-extensions -e ./packages/pi-glance
 
 ## 你会看到什么
 
-- **圆角编辑器**：可配置最小 2 / 3 / 4 行和顶部 0 / 1 / 2 行间距，并保留 Pi 默认编辑器能力。
+- **Startup Header**：响应式 Pi Logo 和每次会话随机选择的一条 Tip；Pi 原生资源摘要继续显示在其下方。
+- **圆角编辑器**：可配置最小 2 / 3 / 4 行和顶部 0 / 1 / 2 行间距，并保留 Pi 原生自动补全、粘贴和滚动能力。
 - **工作区标题**：展示目录名，或安全缩短后的 `~/...` 路径。
 - **顶部状态**：Git、费用、Reply speed、context、可选 tokens 和模型。
 - **可组合 Footer**：只渲染其他扩展通过 `ctx.ui.setStatus()` 发布的状态，不再将其全部隐藏。
 - **固定省略 Pi 状态行**：不再重建被 Glance 输入界面替代的两行 workspace/usage/context/model 信息，也不提供启用开关。
 - **右下角详情**：固定启用，仅展示可选的 context 进度条和高亮自动压缩标记。
 - **Git 增强**：dirty、冲突、ahead/behind 和可选 SHA。
-- **主题**：22 套 Glance 内置配色；不会切换或安装 Pi 主题。
+- **主题**：新安装默认跟随 Pi theme tokens，也可选择 22 套 Glance 内置配色；不会切换或安装 Pi 主题。
 
 ## 说明
 
 - 普通终端字体默认使用 `plain` 图标；`nerd` 图标需要 Nerd Font 或 Symbols Nerd Font fallback。
 - 其他扩展的 `ctx.ui.setStatus()` 状态默认保留在输入框下方。
+- 新安装默认启用静态响应式 Pi Logo Header；schema 10 旧配置继续显示 Pi 内置 Header，直到在 **General** 中开启 `Startup header`。Pi quiet startup 始终优先。
+- 聚焦输入框使用 Pi 当前原生 `borderColor`，会跟随 thinking level 和 Bash 模式；`!` 显示 `Bash`，`!!` 显示 `Bash · no context`。
+- 长输入最大高度、内部滚动、`↑/↓ N more`、自动补全和大段粘贴 marker 都继续使用 Pi 原生行为。
 - Reply speed 默认启用：`? tok/s` 表示未知，`~42 tok/s` 表示当前 agent run 的临时值，`42 tok/s` 表示 `agent_end` 后的最终值。
 - Reply speed 使用 output tokens / wall time；wall time 包含 thinking、网络等待、工具执行和 provider 排队，因此不是纯模型解码 benchmark。
 - 扩展不会从流式文本估算 token，也不会运行刷新 ticker。
 
 ## 主题与配置
 
-Glance 使用自己的 22 套内置配色，不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题，也不会直接使用 Pi theme token 颜色。
+Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题。`colorSource` 为 `pi` 时，它只读取当前公开 Pi theme 并使用语义 token。
 
-新配置使用两个主题槽：
+新安装默认配置：
 
 ```json
 {
+  "colorSource": "pi",
+  "startupHeader": true,
   "theme": {
     "light": "light",
     "dark": "dark"
@@ -72,7 +78,11 @@ Glance 使用自己的 22 套内置配色，不是 Pi 主题管理器：不会�
 }
 ```
 
-Pi 当前主题名精确为 `light` 时使用 `theme.light`，精确为 `dark` 时使用 `theme.dark`；未知或自定义主题名回退到 `theme.light`。旧字符串主题会保守迁移到两个槽。
+`Follow Pi` 会把 Glance 的文本、状态、warning、error、标题和详情映射到 Pi semantic theme tokens，并响应运行时主题切换。聚焦边框独立使用 Pi 活动 Editor 的原生 `borderColor`，因此 thinking level 与 Bash 模式保持一致。
+
+选择 `Glance palette` 时使用 light/dark 内置配色对；当前 Pi theme 不可用时也以它作为 fallback。22 套配色包括 Light/Dark、Catppuccin、Nord、Tokyo Night、Gruvbox、Solarized、Rosé Pine、One、Kanagawa、Everforest 和 High Contrast 变体。
+
+迁移保持保守：schema 10 及更早配置若缺少新字段，会使用 `colorSource: "glance"` 和 `startupHeader: false`，保留原有视觉与 Pi 内置 Header；显式配置的新字段会保留。旧字符串主题仍会迁移到相同的 light/dark 槽。
 
 ## Segment 详情
 
@@ -115,7 +125,7 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 }
 ```
 
-配置保存在 `~/.pi/agent/pi-glance/config.json`。当前 schema 为版本 10；旧配置会自动迁移并丢弃已废弃的 Footer 和详情开关。
+配置保存在 `~/.pi/agent/pi-glance/config.json`。当前 schema 为版本 11；旧配置会自动迁移、保留原 Glance palette/Pi Header 行为，并丢弃已废弃的 Footer 和详情开关。
 
 ## 工作区标题
 
@@ -142,7 +152,8 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash
 - 仅使用 Pi 公共扩展 API，不修改 Pi core。
 - `StatusOnlyFooter` 使用公开的 `footerData.getExtensionStatuses()` 保留扩展状态。
 - Git 在后台异步缓存；Pi settings 只在生命周期刷新时读取，不在渲染阶段读取。
-- 自定义编辑器继承 `CustomEditor`，保留 Pi 快捷键和默认编辑行为。
+- 自定义编辑器继承 `CustomEditor`，保留 Pi 快捷键、自动补全、粘贴、最大高度和滚动行为。
+- Startup Header 只替换 Pi Header；Context、Skills、Prompts、Extensions 仍由 Pi 的独立资源区负责概要、层级和展开。
 
 ## 许可证与上游归属
 

@@ -2,8 +2,9 @@ import { getAgentDir, SettingsManager, type ExtensionCommandContext, type Extens
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
-import { resolveRuntimeRenderStyleContext } from "./render-style-context.js";
+import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
+import { GlanceStartupHeader, selectStartupTip } from "./startup-header.js";
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
@@ -28,12 +29,14 @@ export interface RuntimeShowPaneOptions {
 export interface GlanceRuntimeAdapters {
 	getThinkingLevel(): string;
 	getAutoCompactionEnabled?(ctx: ExtensionContext): boolean;
+	getQuietStartupEnabled?(ctx: ExtensionContext): boolean;
 	loadConfigSync(): GlanceConfig;
 	loadConfig(): Promise<GlanceConfig>;
 	saveConfig(config: GlanceConfig): Promise<void>;
 	showPane(initial: GlanceConfig, ctx: ExtensionCommandContext, previewState?: GlanceState, options?: RuntimeShowPaneOptions): Promise<GlancePaneResult>;
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	nowMs?: () => number;
+	random?: () => number;
 }
 
 interface MessageEndLikeEvent {
@@ -85,13 +88,25 @@ function readAutoCompactionEnabled(ctx: ExtensionContext): boolean {
 	}
 }
 
+function readQuietStartupEnabled(ctx: ExtensionContext): boolean {
+	try {
+		const cwd = ctx.sessionManager.getCwd() || ctx.cwd;
+		return SettingsManager.create(cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() }).getQuietStartup();
+	} catch {
+		return false;
+	}
+}
+
 export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRuntime {
 	let config: GlanceConfig | undefined;
 	let footer: StatusOnlyFooter | undefined;
 	let gitRefresher: RuntimeGitRefresher | undefined;
 	let requestRender: (() => void) | undefined;
 	let uiGeneration = 0;
+	let ownsHeader = false;
+	let startupTip: string | undefined;
 	const nowMs = adapters.nowMs ?? Date.now;
+	const random = adapters.random ?? Math.random;
 
 	async function ensureConfig(): Promise<GlanceConfig> {
 		config ??= await adapters.loadConfig();
@@ -161,10 +176,30 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		gitRefresher = undefined;
 	}
 
+	function clearHeader(ctx: ExtensionContext): void {
+		if (!isTuiMode(ctx) || !ownsHeader) return;
+		ctx.ui.setHeader(undefined);
+		ownsHeader = false;
+	}
+
+	function installHeader(ctx: ExtensionContext): void {
+		const activeConfig = getConfig();
+		const quiet = (adapters.getQuietStartupEnabled ?? readQuietStartupEnabled)(ctx);
+		if (!activeConfig.startupHeader || quiet) {
+			clearHeader(ctx);
+			return;
+		}
+		const tip = startupTip ?? selectStartupTip(random);
+		startupTip = tip;
+		ctx.ui.setHeader((_tui, theme) => new GlanceStartupHeader(theme, tip));
+		ownsHeader = true;
+	}
+
 	function clearUI(ctx: ExtensionContext): void {
 		if (!isTuiMode(ctx)) return;
 		invalidateUiOwnership();
 		clearGitRefresher();
+		clearHeader(ctx);
 		ctx.ui.setEditorComponent(undefined);
 		ctx.ui.setFooter(undefined);
 	}
@@ -178,7 +213,10 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			return;
 		}
 
+		installHeader(ctx);
+
 		const renderStyleContext = resolveRuntimeRenderStyleContext(activeConfig, {
+			getPiTheme: () => readPiUiTheme(ctx.ui),
 			getAmbientTone: () => readPiAmbientTone(ctx.ui),
 		});
 		const generation = invalidateUiOwnership();
@@ -219,6 +257,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				const current = await ensureConfig();
 				refreshSession.ensureState(ctx);
 				const renderStyleContext = resolveRuntimeRenderStyleContext(current, {
+					getPiTheme: () => readPiUiTheme(ctx.ui),
 					getAmbientTone: () => readPiAmbientTone(ctx.ui),
 				});
 				const result = await adapters.showPane(current, ctx, refreshSession.getState(), renderStyleContext ? { renderStyleContext } : undefined);
@@ -243,6 +282,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		events: {
 			sessionStart: (_event, ctx) => {
 				config = adapters.loadConfigSync();
+				startupTip = selectStartupTip(random);
 				refreshSession.sessionStart(ctx);
 				installInputSurface(ctx);
 			},
