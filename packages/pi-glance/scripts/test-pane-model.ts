@@ -147,11 +147,11 @@ function withFocus(model: PaneModelState, focus: PaneFocus, categoryIndex = mode
 }
 
 function activateThemeRow(model: PaneModelState): ReturnType<typeof updatePaneModel> {
-	return updatePaneModel(withFocus(model, "values", 0, 1), { type: "activate" });
+	return updatePaneModel(withFocus(model, "values", 0, 2), { type: "activate" });
 }
 
 function activateDarkThemeRow(model: PaneModelState): ReturnType<typeof updatePaneModel> {
-	return updatePaneModel(withFocus(model, "values", 0, 2), { type: "activate" });
+	return updatePaneModel(withFocus(model, "values", 0, 3), { type: "activate" });
 }
 
 function segmentOrder(config: GlanceConfig): SegmentId[] {
@@ -344,15 +344,15 @@ const rightBoundary = move(withFocus(model, "values"), "right");
 assert.equal(rightBoundary.requestRender, true, "right boundary should still request render to match pane behavior");
 assert.equal(rightBoundary.model.focus, "values", "right boundary should remain on values");
 
-const themeValueView = view(withFocus(model, "values", 0, 1));
-assert.equal(selectedSetting(themeValueView).id, "general.theme.light", "Light theme row should occupy the first theme slot row");
-assert.equal(selectedSetting(themeValueView).opensSubview, "themeBrowser", "Light theme row view should declare it opens the theme browser subview");
-const darkThemeValueView = view(withFocus(model, "values", 0, 2));
-assert.equal(selectedSetting(darkThemeValueView).id, "general.theme.dark", "Dark theme row should occupy the second theme slot row");
-assert.equal(selectedSetting(darkThemeValueView).opensSubview, "themeBrowser", "Dark theme row view should declare it opens the theme browser subview");
+const themeValueView = view(withFocus(model, "values", 0, 2));
+assert.equal(selectedSetting(themeValueView).id, "general.theme.light", "Light palette row should occupy the first palette slot row");
+assert.equal(selectedSetting(themeValueView).opensSubview, "themeBrowser", "Light palette row view should declare it opens the theme browser subview");
+const darkThemeValueView = view(withFocus(model, "values", 0, 3));
+assert.equal(selectedSetting(darkThemeValueView).id, "general.theme.dark", "Dark palette row should occupy the second palette slot row");
+assert.equal(selectedSetting(darkThemeValueView).opensSubview, "themeBrowser", "Dark palette row view should declare it opens the theme browser subview");
 
 const openedThemeBrowser = activateThemeRow(model);
-assert.equal(openedThemeBrowser.requestRender, true, "activating Light theme row should request render");
+assert.equal(openedThemeBrowser.requestRender, true, "activating Light palette row should request render");
 assert.equal(openedThemeBrowser.completion, undefined, "opening theme browser should not complete the pane");
 assert.equal(openedThemeBrowser.model.subview, "themeBrowser", "Theme row action should open the theme browser subview");
 assert.deepEqual(openedThemeBrowser.model.themeBrowser, {
@@ -361,13 +361,13 @@ assert.deepEqual(openedThemeBrowser.model.themeBrowser, {
 	restoreTheme: "light",
 	returnFocus: "values",
 	returnCategoryIndex: 0,
-	returnSettingIndex: 1,
+	returnSettingIndex: 2,
 });
 assert.equal(lightTheme(openedThemeBrowser.model.draft), "light", "opening should keep the current draft theme previewed");
 const openedBrowserView = view(openedThemeBrowser.model);
 assert.equal(openedBrowserView.subview, "themeBrowser", "theme browser view should expose the active browser subview");
 assert.equal(openedBrowserView.themeBrowser?.slot, "light", "theme browser view should expose the edited light slot");
-assert.equal(openedBrowserView.themeBrowser?.slotLabel, "Light theme", "theme browser view should expose a friendly slot label");
+assert.equal(openedBrowserView.themeBrowser?.slotLabel, "Light palette", "theme browser view should expose a friendly palette slot label");
 assert.equal(openedBrowserView.themeBrowser?.highlightedThemeIndex, 0, "theme browser view should highlight the draft theme");
 assert.equal(openedBrowserView.themeBrowser?.savedTheme, "light", "theme browser view should keep the initial saved theme");
 assert.equal(openedBrowserView.themeBrowser?.savedLabel, themeLabel("light"), "theme browser view should use friendly saved labels");
@@ -412,11 +412,11 @@ assert.equal(acceptedLightSlotTheme.model.subview, "settings", "accepting a brow
 assert.equal(acceptedLightSlotTheme.model.themeBrowser, undefined, "accepting should clear theme browser state");
 assert.equal(lightTheme(acceptedLightSlotTheme.model.draft), "catppuccin-latte", "accepting should keep the previewed light slot theme in the draft config");
 assert.equal(darkTheme(acceptedLightSlotTheme.model.draft), "dark", "accepting a light slot theme should preserve the dark slot");
-assert.equal(acceptedLightSlotTheme.model.focus, "values", "accepting should restore the Light theme row value focus");
+assert.equal(acceptedLightSlotTheme.model.focus, "values", "accepting should restore the Light palette row value focus");
 assert.equal(acceptedLightSlotTheme.model.categoryIndex, 0, "accepting should restore the General category");
-assert.equal(acceptedLightSlotTheme.model.settingIndex, 1, "accepting should restore the Light theme row");
-assert.equal(acceptedLightSlotTheme.model.status, "Light theme → Catppuccin Latte. Press S to save.", "accepting should describe the accepted friendly light slot label");
-assert.equal(selectedSetting(view(acceptedLightSlotTheme.model)).value, "Catppuccin Latte", "Light theme row should show the accepted friendly label");
+assert.equal(acceptedLightSlotTheme.model.settingIndex, 2, "accepting should restore the Light palette row");
+assert.equal(acceptedLightSlotTheme.model.status, "Light palette → Catppuccin Latte. Press S to save.", "accepting should describe the accepted friendly light palette label");
+assert.equal(selectedSetting(view(acceptedLightSlotTheme.model)).value, "Catppuccin Latte", "Light palette row should show the accepted friendly label");
 assert.equal(paneIsDirty(acceptedLightSlotTheme.model), true, "accepting a different initial theme should leave the pane dirty");
 const saveAcceptedLightSlotTheme = updatePaneModel(acceptedLightSlotTheme.model, { type: "save" });
 assert.equal(saveAcceptedLightSlotTheme.completion?.action, "save", "saving after browser accept should use the existing save path");
@@ -430,20 +430,20 @@ if (savePreviewedLightSlotTheme.completion?.action !== "save") throw new Error("
 assert.equal(lightTheme(savePreviewedLightSlotTheme.completion.config), "catppuccin-latte", "saving while browser previews should include the previewed light slot theme");
 
 const openedDarkThemeBrowser = activateDarkThemeRow(model);
-assert.equal(openedDarkThemeBrowser.requestRender, true, "activating Dark theme row should request render");
+assert.equal(openedDarkThemeBrowser.requestRender, true, "activating Dark palette row should request render");
 assert.deepEqual(openedDarkThemeBrowser.model.themeBrowser, {
 	slot: "dark",
 	highlightedThemeIndex: 0,
 	restoreTheme: "dark",
 	returnFocus: "values",
 	returnCategoryIndex: 0,
-	returnSettingIndex: 2,
+	returnSettingIndex: 3,
 });
 assert.equal(lightTheme(openedDarkThemeBrowser.model.draft), "light", "opening dark slot browser should preserve the light slot");
 assert.equal(darkTheme(openedDarkThemeBrowser.model.draft), "dark", "opening dark slot browser should preview the dark slot");
 const openedDarkBrowserView = view(openedDarkThemeBrowser.model);
 assert.equal(openedDarkBrowserView.themeBrowser?.slot, "dark", "dark browser view should expose the edited dark slot");
-assert.equal(openedDarkBrowserView.themeBrowser?.slotLabel, "Dark theme", "dark browser view should expose a friendly slot label");
+assert.equal(openedDarkBrowserView.themeBrowser?.slotLabel, "Dark palette", "dark browser view should expose a friendly palette slot label");
 assert.deepEqual(
 	openedDarkBrowserView.themeBrowser?.themes.map((theme) => ({ id: theme.id, selected: theme.selected, previewed: theme.previewed, restored: theme.restored, saved: theme.saved })),
 	getThemeCatalogForSlot("dark").map((theme, index) => ({ id: theme.id, selected: index === 0, previewed: index === 0, restored: index === 0, saved: index === 0 })),
@@ -454,10 +454,10 @@ assert.equal(darkTheme(previewedDarkSlotTheme.model.draft), "catppuccin-mocha", 
 assert.equal(lightTheme(previewedDarkSlotTheme.model.draft), "light", "dark slot preview should preserve the light slot");
 assert.equal(view(previewedDarkSlotTheme.model).themeBrowser?.previewLabel, themeLabel("catppuccin-mocha"), "dark slot preview should expose the highlighted friendly label");
 const acceptedDarkSlotTheme = updatePaneModel(previewedDarkSlotTheme.model, { type: "activate" });
-assert.equal(acceptedDarkSlotTheme.model.status, "Dark theme → Catppuccin Mocha. Press S to save.", "accepting dark slot should describe the accepted friendly dark slot label");
+assert.equal(acceptedDarkSlotTheme.model.status, "Dark palette → Catppuccin Mocha. Press S to save.", "accepting dark slot should describe the accepted friendly dark palette label");
 assert.equal(darkTheme(acceptedDarkSlotTheme.model.draft), "catppuccin-mocha", "accepting dark slot should keep the previewed dark theme");
 assert.equal(lightTheme(acceptedDarkSlotTheme.model.draft), "light", "accepting dark slot should preserve the light slot");
-assert.equal(acceptedDarkSlotTheme.model.settingIndex, 2, "accepting dark slot should restore the Dark theme row");
+assert.equal(acceptedDarkSlotTheme.model.settingIndex, 3, "accepting dark slot should restore the Dark palette row");
 const restoredDarkSlotTheme = updatePaneModel(previewedDarkSlotTheme.model, { type: "back" });
 assert.equal(darkTheme(restoredDarkSlotTheme.model.draft), "dark", "restoring dark slot should restore only that slot");
 assert.equal(lightTheme(restoredDarkSlotTheme.model.draft), "light", "restoring dark slot should preserve the light slot");
@@ -476,9 +476,9 @@ assert.equal(restoredFromBack.completion, undefined, "Esc/back in theme browser 
 assert.equal(restoredFromBack.model.subview, "settings", "Esc/back should return to normal settings");
 assert.equal(restoredFromBack.model.themeBrowser, undefined, "Esc/back should clear theme browser state");
 assert.equal(lightTheme(restoredFromBack.model.draft), "light", "Esc/back should restore the pre-browser draft theme");
-assert.equal(restoredFromBack.model.focus, "values", "Esc/back should restore Light theme row value focus");
+assert.equal(restoredFromBack.model.focus, "values", "Esc/back should restore Light palette row value focus");
 assert.equal(restoredFromBack.model.categoryIndex, 0, "Esc/back should restore the General category");
-assert.equal(restoredFromBack.model.settingIndex, 1, "Esc/back should restore the Light theme row");
+assert.equal(restoredFromBack.model.settingIndex, 2, "Esc/back should restore the Light palette row");
 assert.equal(paneIsDirty(restoredFromBack.model), false, "restoring the initial theme should clear preview-only dirty state");
 
 const restoredFromLeft = move(previewedLightSlotTheme.model, "left");
@@ -491,7 +491,11 @@ const dirtyBeforeBrowser = cloneConfig(config);
 setLightTheme(dirtyBeforeBrowser, "tokyo-night");
 const dirtyBrowserModel = createPaneModel(dirtyBeforeBrowser);
 const dirtyBrowserOpened = activateThemeRow(dirtyBrowserModel);
+assert.equal(dirtyBrowserOpened.model.themeBrowser?.slot, "light", "dirty draft browser should open the Light palette slot");
+assert.equal(dirtyBrowserOpened.model.themeBrowser?.restoreTheme, "tokyo-night", "dirty draft browser should remember the active Light palette");
 const dirtyBrowserPreview = move(dirtyBrowserOpened.model, "down");
+assert.equal(dirtyBrowserPreview.model.themeBrowser?.slot, "light", "dirty draft preview should stay in the Light palette slot");
+assert.equal(dirtyBrowserPreview.model.themeBrowser?.restoreTheme, "tokyo-night", "dirty draft preview should preserve the Light restore value");
 const dirtyBrowserRestored = updatePaneModel(dirtyBrowserPreview.model, { type: "back" });
 assert.equal(lightTheme(dirtyBrowserRestored.model.draft), "tokyo-night", "restore should use the dirty draft theme active when browser opened");
 assert.equal(paneIsDirty(dirtyBrowserRestored.model), false, "restoring to a non-default initial draft should preserve existing dirty comparison semantics");
@@ -501,7 +505,7 @@ assert.equal(dirtyBrowserBackToCategories.completion, undefined, "values-column 
 assert.equal(dirtyBrowserBackToCategories.model.focus, "categories", "values-column back after browser restore should return to categories");
 assertCancel(updatePaneModel(dirtyBrowserBackToCategories.model, { type: "back" }), "Esc/q from categories after returning from theme browser");
 
-let preDirtyThemeModel = withFocus(createPaneModel(config), "values", 0, 1);
+let preDirtyThemeModel = withFocus(createPaneModel(config), "values", 0, 2);
 const preDirtyThemeDraft = cloneConfig(preDirtyThemeModel.draft);
 setLightTheme(preDirtyThemeDraft, "tokyo-night");
 preDirtyThemeModel = { ...preDirtyThemeModel, draft: preDirtyThemeDraft };

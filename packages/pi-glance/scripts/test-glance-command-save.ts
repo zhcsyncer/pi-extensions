@@ -134,7 +134,7 @@ async function main(): Promise<void> {
 		piGlance(pi.api);
 		const test = createContext([]);
 		getHandler(pi, "session_start")({ type: "session_start" }, test.ctx);
-		assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "enabled session_start should install the input surface");
+		assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "enabled session_start should install the input surface without replacing Pi's Header");
 
 		const command = getCommand(pi, "glance");
 		await rm(configDir, { recursive: true, force: true });
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
 		assert.deepEqual(
 			test.surfaceCalls.slice(successBaseline),
 			["setEditorComponent:clear", "setFooter:clear"],
-			"successful save of disabled config should clear the custom input surface after disk write succeeds",
+			"successful save of disabled config should clear only the owned input surface after disk write succeeds",
 		);
 
 		await rm(configDir, { recursive: true, force: true });

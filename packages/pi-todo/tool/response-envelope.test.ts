@@ -12,9 +12,11 @@ const stateWith = (...tasks: Task[]): TaskState => ({
 const t = (over: Partial<Task> & { id: number; subject: string }): Task => ({ status: "pending", ...over });
 
 describe("formatContent", () => {
-	it("create — 'Created #id: subject (pending)'", () => {
-		const state = stateWith(t({ id: 1, subject: "alpha" }));
-		expect(formatContent({ kind: "create", taskId: 1 }, state)).toBe("Created #1: alpha (pending)");
+	it("create — reports the initial status captured by the operation", () => {
+		const state = stateWith(t({ id: 1, subject: "alpha", status: "in_progress" }));
+		expect(formatContent({ kind: "create", taskId: 1, status: "in_progress" }, state)).toBe(
+			"Created #1: alpha (in_progress)",
+		);
 	});
 
 	it("update — emits transition tuple when statuses differ", () => {
@@ -46,10 +48,10 @@ describe("formatContent", () => {
 	it("list — joins per-task '[status] #id subject' lines", () => {
 		const state = stateWith(
 			t({ id: 1, subject: "a" }),
-			t({ id: 2, subject: "b", status: "in_progress", activeForm: "Building" }),
+			t({ id: 2, subject: "b", status: "in_progress" }),
 		);
 		expect(formatContent({ kind: "list", includeDeleted: false }, state)).toBe(
-			"[pending] #1 a\n[in_progress] #2 b (Building)",
+			"[pending] #1 a\n[in_progress] #2 b",
 		);
 	});
 
@@ -76,20 +78,20 @@ describe("formatContent", () => {
 		expect(formatContent(op, state)).toBe("#2 [pending] test\n  blocks: #1");
 	});
 
-	it("get — emits activeForm line for in_progress task", () => {
-		const state = stateWith(t({ id: 1, subject: "build", status: "in_progress", activeForm: "Building" }));
+	it("get — status and subject are sufficient for an in_progress task", () => {
+		const state = stateWith(t({ id: 1, subject: "build", status: "in_progress" }));
 		const op: Op = { kind: "get", task: state.tasks[0]! };
-		expect(formatContent(op, state)).toBe("#1 [in_progress] build\n  activeForm: Building");
+		expect(formatContent(op, state)).toBe("#1 [in_progress] build");
 	});
 
 	it("list — statusFilter narrows to a single status", () => {
 		const state = stateWith(
 			t({ id: 1, subject: "a", status: "pending" }),
-			t({ id: 2, subject: "b", status: "in_progress", activeForm: "Working" }),
+			t({ id: 2, subject: "b", status: "in_progress" }),
 			t({ id: 3, subject: "c", status: "completed" }),
 		);
 		expect(formatContent({ kind: "list", includeDeleted: false, statusFilter: "in_progress" }, state)).toBe(
-			"[in_progress] #2 b (Working)",
+			"[in_progress] #2 b",
 		);
 	});
 
@@ -107,7 +109,9 @@ describe("formatContent", () => {
 
 	it("create — defensive fallback when op.taskId is unknown to state", () => {
 		// Defensive branch — exercises the early-return when find() returns undefined.
-		expect(formatContent({ kind: "create", taskId: 999 }, stateWith())).toBe("Created #999");
+		expect(formatContent({ kind: "create", taskId: 999, status: "pending" }, stateWith())).toBe(
+			"Created #999 (pending)",
+		);
 	});
 
 	it("batch — summarizes each committed operation", () => {
@@ -117,7 +121,7 @@ describe("formatContent", () => {
 				{
 					kind: "batch",
 					operations: [
-						{ kind: "create", taskId: 1 },
+						{ kind: "create", taskId: 1, status: "pending" },
 						{ kind: "delete", id: 2, subject: "beta" },
 					],
 				},
@@ -136,7 +140,11 @@ describe("formatContent", () => {
 describe("buildToolResult", () => {
 	it("envelope.details mirrors the canonical TaskDetails shape on success", () => {
 		const state = stateWith(t({ id: 1, subject: "alpha" }));
-		const env = buildToolResult("create", { subject: "alpha" }, state, { kind: "create", taskId: 1 });
+		const env = buildToolResult("create", { subject: "alpha" }, state, {
+			kind: "create",
+			taskId: 1,
+			status: "pending",
+		});
 		expect(env).toEqual({
 			content: [{ type: "text", text: "Created #1: alpha (pending)" }],
 			details: {

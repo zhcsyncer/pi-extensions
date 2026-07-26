@@ -32,7 +32,6 @@ export interface Task {
 	id: number;
 	subject: string;
 	description?: string;
-	activeForm?: string;
 	status: TaskStatus;
 	blockedBy?: number[];
 	owner?: string;
@@ -68,7 +67,6 @@ export interface TaskMutationParams {
 	[key: string]: unknown;
 	subject?: string;
 	description?: string;
-	activeForm?: string;
 	status?: TaskStatus;
 	blockedBy?: number[];
 	addBlockedBy?: number[];
@@ -82,16 +80,19 @@ export interface TaskMutationParams {
 
 // ---------------------------------------------------------------------------
 // TypeBox parameter schema — every `description` doubles as LLM-facing prompt
-// copy. Field order and wording are pinned by registration tests and the
-// pre-refactor schema at `packages/rpiv-todo/todo.ts:512-573`.
+// copy. Keep action-specific constraints explicit because the Google-compatible
+// flat schema cannot express them with Type.Union/Type.Literal discriminators.
 // ---------------------------------------------------------------------------
 
 const TodoBatchOperationSchema = Type.Object({
 	action: StringEnum(["create", "update", "delete"] as const),
 	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
-	activeForm: Type.Optional(Type.String({ description: "Required when transitioning to in_progress" })),
-	status: Type.Optional(StringEnum(["pending", "in_progress", "completed", "deleted"] as const)),
+	status: Type.Optional(
+		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
+			description: "Initial create status (pending default) or update target",
+		}),
+	),
 	blockedBy: Type.Optional(Type.Array(Type.Number())),
 	addBlockedBy: Type.Optional(Type.Array(Type.Number())),
 	removeBlockedBy: Type.Optional(Type.Array(Type.Number())),
@@ -104,14 +105,9 @@ export const TodoParamsSchema = Type.Object({
 	action: StringEnum(["create", "update", "list", "get", "delete", "clear", "batch"] as const),
 	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
-	activeForm: Type.Optional(
-		Type.String({
-			description: "Present-continuous spinner label shown while status is in_progress (e.g. 'writing tests')",
-		}),
-	),
 	status: Type.Optional(
 		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
-			description: "Target status (update) or list filter (list)",
+			description: "Initial status for create (pending default), target status for update, or list filter",
 		}),
 	),
 	blockedBy: Type.Optional(
@@ -149,7 +145,8 @@ export const TodoParamsSchema = Type.Object({
 		Type.Array(TodoBatchOperationSchema, {
 			minItems: 1,
 			maxItems: 50,
-			description: "Atomic create/update/delete operations for batch; all roll back if one fails",
+			description:
+				"Ordered atomic create/update/delete operations; each sees prior results and all roll back if one fails. Complete or re-queue the active task before starting another.",
 		}),
 	),
 });

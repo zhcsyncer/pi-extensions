@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
+	COLOR_SOURCE_VALUES,
 	CONTEXT_DISPLAY_MODE_VALUES,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
@@ -23,6 +24,7 @@ import type {
 	ContextProgressStyle,
 	ContextProgressWidth,
 	ContextUnknownMode,
+	ColorSource,
 	EditorTopMarginRows,
 	GitShaMode,
 	GlanceConfig,
@@ -38,8 +40,9 @@ import type {
 
 const CONFIG_PATH = join(getAgentDir(), "pi-glance", "config.json");
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 10 as const;
+const CONFIG_VERSION = 11 as const;
 
+const COLOR_SOURCES = new Set<ColorSource>(COLOR_SOURCE_VALUES);
 const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
 const PROVIDER_MODES = new Set<GlanceConfig["display"]["showProvider"]>(PROVIDER_DISPLAY_MODE_VALUES);
 const WORKSPACE_LABEL_MODES = new Set<WorkspaceLabelMode>(WORKSPACE_LABEL_MODE_VALUES);
@@ -56,6 +59,7 @@ export function defaultConfig(): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: true,
+		colorSource: "pi",
 		theme: { light: "light", dark: "dark" },
 		icons: "plain",
 		editor: {
@@ -202,6 +206,8 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	const defaults = defaultConfig();
 	if (!raw || typeof raw !== "object") return defaults;
 	const record = raw as Record<string, unknown>;
+	const rawVersion = typeof record.version === "number" && Number.isFinite(record.version) ? Math.floor(record.version) : undefined;
+	const isLegacyConfig = rawVersion !== undefined && rawVersion < CONFIG_VERSION;
 	const editor = record.editor && typeof record.editor === "object" ? (record.editor as Record<string, unknown>) : {};
 	const display = record.display && typeof record.display === "object" ? (record.display as Record<string, unknown>) : {};
 	const model = record.model && typeof record.model === "object" ? (record.model as Record<string, unknown>) : {};
@@ -215,6 +221,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: parseBool(record.enabled, defaults.enabled),
+		colorSource: parseStringEnum(record.colorSource, COLOR_SOURCES, isLegacyConfig ? "glance" : defaults.colorSource),
 		theme: parseThemePair(record.theme, defaults.theme),
 		icons: parseStringEnum(record.icons, ICON_MODES, defaults.icons),
 		editor: {

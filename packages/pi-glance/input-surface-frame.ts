@@ -14,7 +14,7 @@ import {
 	SURFACE_AUTOCOMPLETE_INDENT,
 	SURFACE_CONTENT_PADDING_X,
 } from "./surface-layout.js";
-import type { ResolvedGlanceStyles } from "./theme-adapter.js";
+import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
 import type { GlanceConfig, GlanceState } from "./types.js";
 
 export type InputSurfaceChromeFocus = "focused" | "unfocused";
@@ -33,6 +33,8 @@ export type InputSurfaceFrameBody =
 export interface InputSurfaceFrameChrome {
 	focus?: InputSurfaceChromeFocus;
 	showTitle?: boolean;
+	border?: TextStyler;
+	modeLabel?: string;
 	topScrollIndicator?: string;
 	bottomScrollIndicator?: string;
 }
@@ -78,11 +80,18 @@ function resolveStatus(input: InputSurfaceFrameInput, budget: number): string {
 	return input.styles.dim(stripControlsPreservingSpaces(status));
 }
 
+function activeBorder(input: InputSurfaceFrameInput): TextStyler {
+	return shouldDimChrome(input) ? input.styles.dim : input.chrome?.border ?? input.styles.border;
+}
+
 function topLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">) {
 	const scrollIndicator = input.chrome?.topScrollIndicator;
-	if (scrollIndicator) {
-		const chunks = [{ role: "border" as const, text: scrollIndicator }];
-		return { chunks, width: visibleWidth(scrollIndicator) };
+	const modeLabel = input.chrome?.modeLabel?.trim();
+	if (scrollIndicator || modeLabel) {
+		const mode = modeLabel ? `─ ${modeLabel} ` : "";
+		const text = truncateToWidth(`${mode}${scrollIndicator ?? "─"}`, Math.max(1, metrics.innerWidth), "");
+		const chunks = [{ role: "border" as const, text }];
+		return { chunks, width: visibleWidth(text) };
 	}
 
 	return planWorkspaceTitle({
@@ -97,7 +106,7 @@ function topLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFr
 
 function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">): string {
 	const dimChrome = shouldDimChrome(input);
-	const border = dimChrome ? input.styles.dim : input.styles.border;
+	const border = activeBorder(input);
 	const title = dimChrome ? input.styles.dim : input.styles.title;
 	const left = topLeftPlan(input, metrics);
 	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, left.width);
@@ -132,7 +141,7 @@ function renderPreviewRow(input: InputSurfaceFrameInput, text: string, index: nu
 }
 
 function renderEditorRow(input: InputSurfaceFrameInput, text: string, width: number): string {
-	const border = shouldDimChrome(input) ? input.styles.dim : input.styles.border;
+	const border = activeBorder(input);
 	return renderSurfaceChunks(
 		planSurfaceRow({
 			width,
@@ -162,7 +171,7 @@ function renderBodyRow(input: InputSurfaceFrameInput, text: string, index: numbe
 
 function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string {
 	const dimmed = shouldDimChrome(input);
-	const border = dimmed ? input.styles.dim : input.styles.border;
+	const border = activeBorder(input);
 	const innerWidth = surfaceMetrics(width).innerWidth;
 	const scrollIndicator = input.chrome?.bottomScrollIndicator;
 	const indicatorWidth = Math.min(innerWidth, visibleWidth(scrollIndicator ?? ""));

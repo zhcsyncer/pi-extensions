@@ -4,26 +4,23 @@ import { deriveBlocks } from "../state/task-graph.js";
 import type { Task, TaskAction, TaskDetails, TaskMutationParams } from "./types.js";
 
 /**
- * Format a single task as a `[status] #id subject [(activeForm)] [⛓ #dep,…]`
- * line. Used by the `list` content branch only — the overlay and `/todos`
+ * Format a single task as a `[status] #id subject [⛓ #dep,…]` line.
+ * Used by the `list` content branch only — the overlay and `/todos`
  * formatting paths use `view/format.ts` for richer presentations.
  */
 function formatListLine(t: Task): string {
 	const block = t.blockedBy?.length ? ` ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
-	const form = t.status === "in_progress" && t.activeForm ? ` (${t.activeForm})` : "";
-	return `[${t.status}] #${t.id} ${t.subject}${form}${block}`;
+	return `[${t.status}] #${t.id} ${t.subject}${block}`;
 }
 
 /**
- * Multi-line presentation for the `get` action. Order of rows is pinned by
- * pre-refactor `todo.ts:354-376` — description, activeForm, blockedBy, blocks,
- * owner — so envelope-level snapshot tests stay byte-equivalent.
+ * Multi-line presentation for the `get` action: description, blockedBy,
+ * reverse blocks, then owner.
  */
 function formatGetLines(task: Task, state: TaskState): string {
 	const blocks = deriveBlocks(state.tasks).get(task.id) ?? [];
 	const lines = [`#${task.id} [${task.status}] ${task.subject}`];
 	if (task.description) lines.push(`  description: ${task.description}`);
-	if (task.activeForm) lines.push(`  activeForm: ${task.activeForm}`);
 	if (task.blockedBy?.length) {
 		lines.push(`  blockedBy: ${task.blockedBy.map((id) => `#${id}`).join(", ")}`);
 	}
@@ -37,16 +34,16 @@ function formatGetLines(task: Task, state: TaskState): string {
 /**
  * Pure formatter: `(op, state) → string`. Closed switch on `op.kind` —
  * adding a new `Op` variant fails to compile here until a branch is added.
- * The strings on each branch are byte-equivalent to pre-refactor `todo.ts`
- * reducer output.
+ * Create summaries use the status captured by the operation so a later update
+ * in the same batch cannot rewrite the audited initial state.
  */
 export function formatContent(op: Op, state: TaskState): string {
 	switch (op.kind) {
 		case "create": {
 			const t = state.tasks.find((x) => x.id === op.taskId);
 			// Defensive — `op.taskId` always resolves on success path.
-			if (!t) return `Created #${op.taskId}`;
-			return `Created #${t.id}: ${t.subject} (pending)`;
+			if (!t) return `Created #${op.taskId} (${op.status})`;
+			return `Created #${t.id}: ${t.subject} (${op.status})`;
 		}
 		case "update": {
 			const transition = op.fromStatus !== op.toStatus ? ` (${op.fromStatus} → ${op.toStatus})` : "";

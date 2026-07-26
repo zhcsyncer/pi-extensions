@@ -74,6 +74,19 @@ describe("replayFromBranch", () => {
 		expect(state.nextId).toBe(3);
 	});
 
+	it("accepts legacy activeForm snapshots but strips the removed field", () => {
+		const legacy = {
+			action: "create",
+			params: { activeForm: "Working" },
+			tasks: [{ id: 1, subject: "legacy", status: "in_progress", activeForm: "Working" }],
+			nextId: 2,
+		} as unknown as TaskDetails;
+		const ctx = createMockCtx({ branch: buildBranch([legacy]) });
+		const state = replayFromBranch(ctx);
+		expect(state.tasks).toEqual([{ id: 1, subject: "legacy", status: "in_progress" }]);
+		expect("activeForm" in state.tasks[0]!).toBe(false);
+	});
+
 	it("clones tasks so mutating the fixture does not mutate replayed state", () => {
 		const fixture: Task = taskFixture(1, "original");
 		const ctx = createMockCtx({

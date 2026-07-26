@@ -8,6 +8,7 @@ export interface GlanceThemePair {
 }
 
 export type SegmentId = "git" | "model" | "context" | "tokens" | "cost" | "throughput";
+export type ColorSource = "pi" | "glance";
 export type IconMode = "nerd" | "plain";
 export type WidthMode = "full" | "compact" | "minimal";
 export type GitStatus = "clean" | "dirty" | "conflict" | "unknown";
@@ -72,8 +73,9 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 10;
+	version: 11;
 	enabled: boolean;
+	colorSource: ColorSource;
 	theme: GlanceThemePair;
 	icons: IconMode;
 	editor: EditorConfig;

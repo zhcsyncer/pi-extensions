@@ -40,6 +40,7 @@ export function createMockPi(): { pi: ExtensionAPI; captured: CapturedPi } {
 }
 
 export interface MockUI {
+	theme: ReturnType<typeof makeTheme>;
 	notify: ReturnType<typeof vi.fn>;
 	confirm: ReturnType<typeof vi.fn>;
 	input: ReturnType<typeof vi.fn>;
@@ -54,6 +55,7 @@ export interface MockUI {
 
 export function createMockUI(): MockUI {
 	return {
+		theme: makeTheme(),
 		notify: vi.fn(),
 		confirm: vi.fn(async () => true),
 		input: vi.fn(async () => ""),

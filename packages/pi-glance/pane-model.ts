@@ -150,7 +150,7 @@ function result(model: PaneModelState, requestRender: boolean, completion?: Pane
 }
 
 function themeSlotLabel(slot: GlanceThemeSlot): string {
-	return slot === "light" ? "Light" : "Dark";
+	return slot === "light" ? "Light palette" : "Dark palette";
 }
 
 function configTheme(config: GlanceConfig, slot: GlanceThemeSlot): GlanceThemeName {
@@ -226,7 +226,7 @@ function closeThemeBrowser(model: PaneModelState, draft: GlanceConfig, status: s
 function acceptThemeBrowser(model: PaneModelState): PaneModelState {
 	if (!model.themeBrowser) return model;
 	const slot = model.themeBrowser.slot;
-	return closeThemeBrowser(model, model.draft, `${themeSlotLabel(slot)} theme → ${getThemeLabel(configTheme(model.draft, slot))}. Press S to save.`);
+	return closeThemeBrowser(model, model.draft, `${themeSlotLabel(slot)} → ${getThemeLabel(configTheme(model.draft, slot))}. Press S to save.`);
 }
 
 function restoreThemeBrowser(model: PaneModelState): PaneModelState {
@@ -409,7 +409,7 @@ function createThemeBrowserViewModel(model: PaneModelState): ThemeBrowserViewMod
 	const previewTheme = configTheme(model.draft, slot);
 	return {
 		slot,
-		slotLabel: `${themeSlotLabel(slot)} theme`,
+		slotLabel: themeSlotLabel(slot),
 		highlightedThemeIndex: model.themeBrowser.highlightedThemeIndex,
 		savedTheme,
 		savedLabel: getThemeLabel(savedTheme),

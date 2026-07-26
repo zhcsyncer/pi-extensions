@@ -48,29 +48,35 @@ assertReadmeIncludes("If icons look like boxes, choose `plain`", "README should 
 assertReadmeIncludes("does not auto-detect, install, or bundle terminal fonts", "README should avoid implying font detection/install/bundling");
 
 assert.equal(GLANCE_THEMES.length, 22, "README theme copy should describe the curated 22-theme collection");
-assertReadmeIncludes("22 built-in palettes", "README should describe the curated 22-theme count");
-assertReadmeIncludes("/glance` → **General** → `Light theme` or `Dark theme`", "README should document the split /glance theme rows");
-assertReadmeIncludes("press Enter, preview palettes in the browser", "README should describe the theme browser flow");
-assertReadmeIncludes("Both rows can choose from all 22 built-in Glance palettes", "README should state both theme slots can choose all built-in palettes");
-assertReadmeIncludes("Light theme browser lists light-toned palettes first", "README should document light-slot preferred ordering");
-assertReadmeIncludes("Dark theme browser lists dark-toned palettes first", "README should document dark-slot preferred ordering");
-assertReadmeIncludes("neither browser filters the catalog", "README should state slot ordering is not filtering");
-assertReadmeIncludes(
-	"Built-ins: Light, Dark, Catppuccin Latte/Mocha/Frappé/Macchiato, Nord, Tokyo Night, Gruvbox Light/Dark, Solarized Light/Dark, Rosé Pine/Dawn, One Light/Dark, Kanagawa Wave/Lotus, Everforest Light/Dark, and High Contrast Light/Dark.",
-	"README should keep the curated built-in theme expression",
-);
-assertReadmeIncludes("pi-glance uses its own curated 22 built-in Glance palettes", "README should clarify themes are pi-glance-owned palettes");
-assertReadmeIncludes("It is not a Pi theme manager", "README should avoid implying Pi theme management");
-assertReadmeIncludes("does not enumerate, switch, or install Pi UI themes", "README should explicitly rule out Pi theme enumeration/switching");
-assertReadmeIncludes("does not render with Pi theme token colors", "README should explicitly rule out Pi token color rendering");
-assertReadmeIncludes("theme: { light: GlanceThemeName, dark: GlanceThemeName }", "README should document the supported theme pair config model");
-assertReadmeIncludes('"theme": {\n    "light": "light",\n    "dark": "dark"\n  }', "README should document the new-install theme pair default");
-assert.deepEqual(defaultConfig().theme, { light: "light", dark: "dark" }, "README default theme copy should stay aligned with defaultConfig");
-assertReadmeIncludes('{ "theme": "x" }', "README should document old string theme migration input");
-assertReadmeIncludes('{ "theme": { "light": "x", "dark": "x" } }', "README should document conservative old string theme migration output");
-assert.deepEqual(normalizeConfig({ theme: "tokyo-night" }).theme, { light: "tokyo-night", dark: "tokyo-night" }, "README migration copy should stay aligned with config normalization");
-assertReadmeIncludes("exact `light` selects `theme.light`", "README should document exact light ambient tone slot selection");
-assertReadmeIncludes("exact `dark` selects `theme.dark`", "README should document exact dark ambient tone slot selection");
-assertReadmeIncludes("unknown or custom Pi theme names fall back to `theme.light`", "README should document unknown/custom ambient tone fallback");
+assertReadmeIncludes("22 built-in Glance palettes", "README should describe the curated 22-theme fallback collection");
+assertReadmeIncludes("`Color source` → `Follow Pi`", "README should document the new-install Follow Pi setting");
+assertReadmeIncludes("`Light palette` and `Dark palette`", "README should document the split fallback palette rows");
+assertReadmeIncludes("Both browsers contain all 22 palettes", "README should state both palette slots can choose all built-ins");
+assertReadmeIncludes("matching tone listed first", "README should document slot-aware preferred ordering without filtering");
+assertReadmeIncludes("pi-glance is not a Pi theme manager", "README should avoid implying Pi theme management");
+assertReadmeIncludes("never enumerates, switches, or installs Pi themes", "README should explicitly rule out Pi theme enumeration/switching");
+assertReadmeIncludes("maps the frame, text, status, warning, error, title, and detail roles to Pi semantic theme tokens", "README should document Follow Pi semantic styling");
+assertReadmeIncludes('"colorSource": "pi"', "README should document the new-install color source default");
+assertReadmeIncludes('"theme": {\n    "light": "light",\n    "dark": "dark"\n  }', "README should document the fallback theme pair default");
+assert.equal(defaultConfig().colorSource, "pi", "README color-source copy should stay aligned with defaultConfig");
+assert.equal("startupHeader" in defaultConfig(), false, "README/config contract should not expose a custom Header setting");
+assert.deepEqual(defaultConfig().theme, { light: "light", dark: "dark" }, "README fallback theme copy should stay aligned with defaultConfig");
+assert.deepEqual(normalizeConfig({ version: 10 }).colorSource, "glance", "README legacy color-source migration should stay aligned with config normalization");
+assert.deepEqual(normalizeConfig({ theme: "tokyo-night" }).theme, { light: "tokyo-night", dark: "tokyo-night" }, "README old string theme migration should stay aligned with config normalization");
+assertReadmeIncludes("pi-glance never replaces Pi's native Header or resource area", "README should document native Header ownership");
+assertReadmeIncludes("focused frame uses the selected Color source border and does not change with thinking level", "README should document stable normal frame coloring");
+assertReadmeIncludes("Bash is the only dynamic exception", "README should document the Bash-only border exception");
+assertReadmeIncludes("Glance palette` uses the selected light/dark built-in pair for the frame, segments, and context progress", "README should document palette-wide styling");
+assertReadmeIncludes("Filled and unused border colors come from the selected Color source", "README should document context progress source consistency");
+assertReadmeIncludes("Long input height, internal scrolling", "README should document inherited Pi editor behavior");
+assertReadmeIncludes("Context/Skills/Prompts/Extensions keep Pi's native compact/expanded hierarchy", "README should document preserved native resource ownership");
+assertReadmeIncludes("grouped by project/user/path", "README should document native Extensions scope grouping");
+assertReadmeIncludes("`npm:`/`git:` package sources and local file paths", "README should document native Extensions installation-source detail");
+assert.ok(readmeZh.includes('"colorSource": "pi"'), "Chinese README should document Follow Pi defaults");
+assert.ok(readmeZh.includes("pi-glance 不替换 Pi 原生 Header 或资源区"), "Chinese README should document native Header ownership");
+assert.ok(readmeZh.includes("不再跟随 thinking level"), "Chinese README should document stable normal frame coloring");
+assert.ok(readmeZh.includes("Context、Skills、Prompts、Extensions"), "Chinese README should document preserved Pi resource summaries");
+assert.ok(readmeZh.includes("project/user/path"), "Chinese README should document native Extensions scope grouping");
+assert.ok(readmeZh.includes("`npm:`/`git:` 包来源和本地文件路径"), "Chinese README should document native Extensions installation sources");
 
 console.log("✓ README copy checks passed");

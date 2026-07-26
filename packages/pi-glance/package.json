@@ -1,16 +1,22 @@
 {
   "name": "@zhcsyncer/pi-glance",
   "version": "0.1.0",
-  "description": "A polished Pi input surface with composable statuses, context progress, and highlighted auto-compaction.",
+  "description": "A polished input surface for the Pi coding agent with composable statuses, context progress, and highlighted auto-compaction.",
   "keywords": [
     "pi-package",
     "pi",
     "pi-coding-agent",
+    "pi-extension",
+    "coding-agent",
     "extension",
     "input-surface",
     "statusline",
+    "status-line",
+    "context-window",
     "terminal",
-    "tui"
+    "terminal-ui",
+    "tui",
+    "theme"
   ],
   "type": "module",
   "license": "MIT",
