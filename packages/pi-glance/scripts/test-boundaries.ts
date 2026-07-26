@@ -285,6 +285,8 @@ function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
 		RENDER_STYLE_CONTEXT_MODULE,
 		GUARD_SCRIPT,
 		join("scripts", "test-themes.ts"),
+		join("scripts", "test-input-surface-frame.ts"),
+		join("scripts", "test-startup-header.ts"),
 		join("scripts", "test-surface-parity.ts"),
 	]);
 	for (const file of files) {
@@ -924,14 +926,18 @@ function assertConfigOptionsPureModule(files: SourceFile[]): void {
 function assertStartupHeaderBoundary(files: SourceFile[]): void {
 	const header = files.find((candidate) => basename(candidate.path) === STARTUP_HEADER_MODULE);
 	assert.ok(header, "startup-header.ts responsive Header component should exist");
-	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./theme-adapter.js"]);
 	for (const specifier of importSpecifiers(header)) {
 		if (!allowedSpecifiers.has(specifier)) fail(`${header.path}: startup Header may only import public Pi/TUI APIs, not ${specifier}`);
 	}
 	if (!header.text.includes("class GlanceStartupHeader")) fail(`${header.path}: startup Header should expose its component`);
 	if (!header.text.includes("selectStartupTip")) fail(`${header.path}: startup Header should expose deterministic session tip selection`);
-	for (const token of ["accent", "error", "success", "warning"] as const) {
-		if (!header.text.includes(`\"${token}\"`)) fail(`${header.path}: Pi logo should use the ${token} semantic theme token`);
+	for (const role of ["title", "error", "success", "warn"] as const) {
+		if (!header.text.includes(`\"${role}\"`)) fail(`${header.path}: Pi logo should use the shared ${role} style role`);
+	}
+	if (!header.text.includes("ResolvedGlanceStyles")) fail(`${header.path}: startup Header should consume the shared Color source styles`);
+	if (/\.fg\s*\(|ctx\.ui|(?:getExtensions|getSkills|getPrompts|getAgentsFiles)\s*\(/.test(header.text)) {
+		fail(`${header.path}: startup Header must not bypass shared styles or duplicate Pi resource discovery`);
 	}
 	if (/setTimeout\s*\(|setInterval\s*\(|NodeJS\.Timeout|\.unref\s*\(/.test(header.text)) {
 		fail(`${header.path}: calm startup Header must remain static and timer-free`);

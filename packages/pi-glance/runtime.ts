@@ -1,11 +1,11 @@
-import { getAgentDir, SettingsManager, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager, VERSION, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
 import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
 import { GlanceStartupHeader, selectStartupTip } from "./startup-header.js";
-import type { GlanceRenderStyleContext } from "./theme-adapter.js";
+import { resolveGlanceRenderStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
 
@@ -182,7 +182,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		ownsHeader = false;
 	}
 
-	function installHeader(ctx: ExtensionContext): void {
+	function installHeader(ctx: ExtensionContext, renderStyleContext: GlanceRenderStyleContext | undefined): void {
 		const activeConfig = getConfig();
 		const quiet = (adapters.getQuietStartupEnabled ?? readQuietStartupEnabled)(ctx);
 		if (!activeConfig.startupHeader || quiet) {
@@ -191,7 +191,26 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		}
 		const tip = startupTip ?? selectStartupTip(random);
 		startupTip = tip;
-		ctx.ui.setHeader((_tui, theme) => new GlanceStartupHeader(theme, tip));
+		ctx.ui.setHeader((_tui, theme) =>
+			new GlanceStartupHeader(theme, {
+				tip,
+				getStyles: () => resolveGlanceRenderStyles(getConfig(), renderStyleContext),
+				getInfo: () => {
+					const state = refreshSession.getState() ?? refreshSession.ensureState(ctx);
+					const model = state.model.id
+						? state.model.provider
+							? `${state.model.provider}/${state.model.id}`
+							: state.model.id
+						: undefined;
+					return {
+						version: VERSION,
+						model,
+						thinking: state.model.thinking,
+						cwd: state.workspace.path,
+					};
+				},
+			}),
+		);
 		ownsHeader = true;
 	}
 
@@ -213,12 +232,11 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			return;
 		}
 
-		installHeader(ctx);
-
 		const renderStyleContext = resolveRuntimeRenderStyleContext(activeConfig, {
 			getPiTheme: () => readPiUiTheme(ctx.ui),
 			getAmbientTone: () => readPiAmbientTone(ctx.ui),
 		});
+		installHeader(ctx, renderStyleContext);
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);

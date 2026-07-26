@@ -21,6 +21,7 @@ export interface ResolvedGlanceStyles {
 	readonly error: TextStyler;
 	readonly separator: TextStyler;
 	readonly border: TextStyler;
+	readonly bashBorder: TextStyler;
 	readonly title: TextStyler;
 	readonly segments: Record<SegmentId, ResolvedGlanceSegmentStyles>;
 }
@@ -42,6 +43,7 @@ export type PiThemeColorToken =
 	| "border"
 	| "borderAccent"
 	| "borderMuted"
+	| "bashMode"
 	| "success"
 	| "error"
 	| "warning"
@@ -118,6 +120,7 @@ export function resolveBuiltInGlanceStyles(theme: GlanceThemeName): ResolvedGlan
 		error: styleFromRgb(palette.error),
 		separator: styleFromRgb(palette.separator),
 		border: styleFromRgb(palette.border),
+		bashBorder: styleFromRgb(palette.warn),
 		title: styleFromRgb(palette.title),
 		segments: resolveBuiltInSegmentStyles(theme),
 	};
@@ -136,6 +139,7 @@ export function resolvePiThemeStyles(theme: PiThemeLike, options: PiThemeStyleOp
 		error: styleFromPiTokens(theme, ["error", "warning", "text"]),
 		separator: styleFromPiTokens(theme, ["muted", "dim", "text"]),
 		border: styleFromPiTokens(theme, ["border", "borderMuted", "muted", "text"]),
+		bashBorder: styleFromPiTokens(theme, ["bashMode", "warning", "accent", "text"]),
 		title: styleFromPiTokens(theme, ["accent", "borderAccent", "text"]),
 		segments: resolvePiSegmentStyles(theme),
 	};

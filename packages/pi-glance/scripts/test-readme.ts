@@ -55,7 +55,7 @@ assertReadmeIncludes("Both browsers contain all 22 palettes", "README should sta
 assertReadmeIncludes("matching tone listed first", "README should document slot-aware preferred ordering without filtering");
 assertReadmeIncludes("pi-glance is not a Pi theme manager", "README should avoid implying Pi theme management");
 assertReadmeIncludes("never enumerates, switches, or installs Pi themes", "README should explicitly rule out Pi theme enumeration/switching");
-assertReadmeIncludes("maps Glance text, status, warning, error, title, and detail roles to Pi semantic theme tokens", "README should document Follow Pi semantic styling");
+assertReadmeIncludes("maps the Header, frame, text, status, warning, error, title, and detail roles to Pi semantic theme tokens", "README should document Follow Pi semantic styling");
 assertReadmeIncludes('"colorSource": "pi"', "README should document the new-install color source default");
 assertReadmeIncludes('"startupHeader": true', "README should document the new-install Header default");
 assertReadmeIncludes('"theme": {\n    "light": "light",\n    "dark": "dark"\n  }', "README should document the fallback theme pair default");
@@ -65,11 +65,22 @@ assert.deepEqual(defaultConfig().theme, { light: "light", dark: "dark" }, "READM
 assert.deepEqual(normalizeConfig({ version: 10 }).colorSource, "glance", "README legacy color-source migration should stay aligned with config normalization");
 assert.equal(normalizeConfig({ version: 10 }).startupHeader, false, "README legacy Header migration should stay aligned with config normalization");
 assert.deepEqual(normalizeConfig({ theme: "tokyo-night" }).theme, { light: "tokyo-night", dark: "tokyo-night" }, "README old string theme migration should stay aligned with config normalization");
-assertReadmeIncludes("focused frame uses Pi's active editor border color", "README should document native thinking/Bash border behavior");
+assertReadmeIncludes("static responsive Claude-style box", "README should document the approved boxed Startup Header style");
+assertReadmeIncludes("current model/thinking/cwd", "README should document Header session facts");
+assertReadmeIncludes("`/glance`, `/model`, `/settings`, `/hotkeys`", "README should document the fixed Header command list");
+assertReadmeIncludes("focused frame uses the selected Color source border and does not change with thinking level", "README should document stable normal frame coloring");
+assertReadmeIncludes("Bash is the only dynamic exception", "README should document the Bash-only border exception");
+assertReadmeIncludes("Glance palette` uses the selected light/dark built-in pair for the Header, frame, segments, and context progress", "README should document palette-wide styling");
+assertReadmeIncludes("Filled and unused border colors come from the selected Color source", "README should document context progress source consistency");
 assertReadmeIncludes("Long input height, internal scrolling", "README should document inherited Pi editor behavior");
 assertReadmeIncludes("Pi's separate Context/Skills/Prompts/Extensions summary", "README should document preserved native resource summary ownership");
+assertReadmeIncludes("grouped by project/user/path", "README should document native Extensions scope grouping");
+assertReadmeIncludes("`npm:`/`git:` package sources and local file paths", "README should document native Extensions installation-source detail");
 assert.ok(readmeZh.includes('"colorSource": "pi"'), "Chinese README should document Follow Pi defaults");
-assert.ok(readmeZh.includes("响应式 Pi Logo"), "Chinese README should document the responsive Startup Header logo");
+assert.ok(readmeZh.includes("Claude 风格响应式圆角盒"), "Chinese README should document the responsive boxed Startup Header");
+assert.ok(readmeZh.includes("不再跟随 thinking level"), "Chinese README should document stable normal frame coloring");
 assert.ok(readmeZh.includes("Context、Skills、Prompts、Extensions"), "Chinese README should document preserved Pi resource summaries");
+assert.ok(readmeZh.includes("project/user/path"), "Chinese README should document native Extensions scope grouping");
+assert.ok(readmeZh.includes("`npm:`/`git:` 包来源和本地文件路径"), "Chinese README should document native Extensions installation sources");
 
 console.log("✓ README copy checks passed");

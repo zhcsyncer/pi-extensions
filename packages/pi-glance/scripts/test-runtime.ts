@@ -269,8 +269,9 @@ for (const matrixCase of [
 }
 
 {
+	let thinking = "off";
 	const test = createContext({ invokeHeaderFactory: false });
-	const harness = createRuntimeHarness({ loadConfigSyncConfig: defaultConfig(), random: () => 0.4, git: createGitHarness() });
+	const harness = createRuntimeHarness({ loadConfigSyncConfig: defaultConfig(), random: () => 0.4, getThinkingLevel: () => thinking, git: createGitHarness() });
 	harness.runtime.events.sessionStart({}, test.ctx);
 	const component = invokeHeaderFactory(test, 0, () => undefined, {
 		fg: (_color: string, text: string) => text,
@@ -278,8 +279,19 @@ for (const matrixCase of [
 	}) as { render(width: number): string[] };
 	const firstRender = component.render(100).join("\n");
 	const secondRender = component.render(100).join("\n");
-	assert.ok(firstRender.includes(STARTUP_TIPS[2]!), "session random source should select the expected startup tip once");
+	assert.ok(firstRender.includes(STARTUP_TIPS[2]!.slice(0, 18)), "session random source should select the expected startup tip once even when the sidebar truncates it");
+	assert.ok(firstRender.includes("test-provider/test-model · off effort"), "runtime Header should expose the current provider/model and thinking effort");
+	assert.ok(firstRender.includes("/repo"), "runtime Header should expose the current workspace path");
 	assert.equal(secondRender, firstRender, "rerendering the Header should not reshuffle its session tip");
+
+	test.setModel({ id: "next-model", provider: "next-provider", contextWindow: 100_000 });
+	test.setCwd("/next-repo");
+	thinking = "high";
+	await harness.runtime.events.sessionTree({}, test.ctx);
+	const updatedRender = component.render(100).join("\n");
+	assert.ok(updatedRender.includes("next-provider/next-model · high effort"), "runtime Header should re-read model and thinking after lifecycle refreshes");
+	assert.ok(updatedRender.includes("/next-repo"), "runtime Header should re-read cwd after workspace refreshes");
+	assert.ok(updatedRender.includes(STARTUP_TIPS[2]!.slice(0, 18)), "runtime info refreshes should preserve the session Tip");
 }
 
 {
@@ -294,19 +306,28 @@ for (const matrixCase of [
 	const editor = invokeEditorFactory(test, 0, () => undefined) as { focused: boolean; setText(text: string): void; render(width: number): string[] };
 	editor.focused = true;
 	editor.setText("ambient provider check");
+	const header = invokeHeaderFactory(test, 0, () => undefined, {
+		bold: (text: string) => text,
+	}) as { render(width: number): string[] };
 	currentPiTheme.name = "dark";
 	const darkEditorFrame = editor.render(100).join("\n");
+	const darkHeaderFrame = header.render(100).join("\n");
 	assert.ok(darkEditorFrame.includes("<<pi-theme:dark:"), "live editor should lazily render status content with current dark Pi theme tokens");
+	assert.ok(darkHeaderFrame.includes("<<pi-theme:dark:╭─── "), "Header should lazily use the same current Pi border token source");
 	currentPiTheme.name = "light";
 	const lightEditorFrame = editor.render(100).join("\n");
+	const lightHeaderFrame = header.render(100).join("\n");
 	assert.ok(lightEditorFrame.includes("<<pi-theme:light:"), "live editor should re-read current Pi theme tokens on later renders");
+	assert.ok(lightHeaderFrame.includes("<<pi-theme:light:╭─── "), "Header should re-read current Pi theme tokens on later renders");
 	assert.equal(lightEditorFrame.includes("<<pi-theme:dark:"), false, "live editor should not reuse stale dark Pi ANSI after a theme switch");
 	currentPiTheme.name = "my-dark-theme";
 	const customEditorFrame = editor.render(100).join("\n");
 	assert.ok(customEditorFrame.includes("<<pi-theme:my-dark-theme:"), "custom Pi themes should be followed directly instead of inferred by name");
 	test.setUiTheme(undefined);
 	const missingEditorFrame = editor.render(100).join("\n");
+	const missingHeaderFrame = header.render(100).join("\n");
 	assert.ok(missingEditorFrame.includes(fg(PALETTES.light.title, " repo ")), "missing Pi UI theme should fall back to the configured Glance palette");
+	assert.ok(missingHeaderFrame.includes(fg(PALETTES.light.border, "╭─── ")), "Header should share the configured Glance fallback palette when Pi theme data is missing");
 	assert.ok(test.getThemeReads() >= 4, "editor render should lazily read the current UI theme on each style resolution");
 
 	test.setUiTheme(currentPiTheme);

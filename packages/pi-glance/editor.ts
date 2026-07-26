@@ -131,6 +131,7 @@ export class GlanceEditor extends CustomEditor {
 		if (lines.length < 2) return lines;
 
 		const isFocused = this.focused;
+		const modeLabel = this.bashModeLabel();
 
 		const topOriginal = lines[0] ?? "";
 		let bottomIndex = -1;
@@ -151,8 +152,7 @@ export class GlanceEditor extends CustomEditor {
 			body: { kind: "editor", lines: contentLines },
 			chrome: {
 				focus: isFocused ? "focused" : "unfocused",
-				border: this.borderColor,
-				modeLabel: this.bashModeLabel(),
+				...(modeLabel ? { border: styles.bashBorder, modeLabel } : {}),
 				topScrollIndicator: this.extractScrollIndicator(topOriginal, metrics.safeWidth),
 				bottomScrollIndicator: this.extractScrollIndicator(bottomOriginal, metrics.safeWidth),
 			},

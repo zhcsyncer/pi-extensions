@@ -200,7 +200,7 @@ function legacyDim(config: GlanceConfig, text: string): string {
 }
 
 function legacyEditorBorder(config: GlanceConfig, focused: boolean, text: string): string {
-	return focused ? text : legacyDim(config, text);
+	return focused ? legacyBorder(config, text) : legacyDim(config, text);
 }
 
 function legacyEditorTitle(config: GlanceConfig, focused: boolean, text: string): string {
@@ -257,7 +257,7 @@ function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: num
 				: risk === "unknown"
 					? styles.dim
 					: styles.segments.context.fg;
-	const progressEmpty = !focused || risk === "unknown" ? styles.dim : nativeBorder ? (text: string) => text : styles.border;
+	const progressEmpty = !focused || risk === "unknown" ? styles.dim : styles.border;
 	return renderSurfaceChunks(planSurfaceBottomFrame({ width, status: details, contextProgress }).chunks, {
 		border: (text) => nativeBorder ? legacyEditorBorder(config, focused, text) : legacyBorder(config, text),
 		status: (text) => text,
@@ -426,8 +426,7 @@ for (const themeId of EDITOR_STYLE_PARITY_THEMES) {
 			const rendered = frame.join("\n");
 			const palette = PALETTES[themeId];
 			if (focused) {
-				assert.ok(rendered.includes("│"), `${themeId} focused live editor should keep visible side borders from native borderColor`);
-				assert.equal(rendered.includes(fg(palette.border, "│")), false, `${themeId} focused live editor should not recolor native borderColor with the Glance palette`);
+				assert.ok(rendered.includes(fg(palette.border, "│")), `${themeId} focused live editor should use the selected Glance palette border`);
 			} else {
 				assert.ok(rendered.includes(fg(palette.dim, "│")), `${themeId} unfocused live editor side border should keep Glance dim bytes`);
 			}
@@ -657,19 +656,51 @@ for (const width of WIDTHS) {
 	const config = defaultConfig();
 	config.editor.topMarginRows = 0;
 	const editor = makeLiveEditor(dirtyState(), config, true);
-	editor.setText("native border");
+	editor.setText("source border");
 	editor.borderColor = (text) => `\x1b[45m${text}\x1b[0m`;
-	const magentaFrame = editor.render(80).join("\n");
-	assert.ok(magentaFrame.includes("\x1b[45m╭\x1b[0m"), "focused top border should use the active Pi editor borderColor");
-	assert.ok(magentaFrame.includes("\x1b[45m│\x1b[0m"), "focused side borders should use the active Pi editor borderColor");
-	assert.ok(magentaFrame.includes("\x1b[45m╰\x1b[0m"), "focused bottom border should use the active Pi editor borderColor");
+	const magentaNativeFrame = editor.render(80).join("\n");
+	assert.ok(magentaNativeFrame.includes(fg(PALETTES.light.border, "╭")), "normal focused top border should use the selected Color source");
+	assert.equal(magentaNativeFrame.includes("\x1b[45m╭\x1b[0m"), false, "thinking-level native borderColor should not recolor the normal Glance frame");
 	editor.borderColor = (text) => `\x1b[46m${text}\x1b[0m`;
-	const cyanFrame = editor.render(80).join("\n");
-	assert.ok(cyanFrame.includes("\x1b[46m╭\x1b[0m"), "a later thinking/Bash borderColor update should appear without reinstalling the editor");
-	assert.equal(cyanFrame.includes("\x1b[45m╭\x1b[0m"), false, "dynamic border updates should not reuse the old native color");
+	const cyanNativeFrame = editor.render(80).join("\n");
+	assert.ok(cyanNativeFrame.includes(fg(PALETTES.light.border, "╭")), "later thinking border updates should leave the source border unchanged");
+	assert.equal(cyanNativeFrame.includes("\x1b[46m╭\x1b[0m"), false, "normal frame should ignore later native borderColor changes");
+	editor.setText("! echo hello");
+	const bashFrame = editor.render(80).join("\n");
+	assert.ok(bashFrame.includes(fg(PALETTES.light.warn, "╭")), "Bash mode should use the selected Glance palette warning color");
+	assert.equal(bashFrame.includes(fg(PALETTES.light.border, "╭")), false, "Bash mode should visibly differ from the normal source border");
 	editor.focused = false;
 	const unfocusedFrame = editor.render(80).join("\n");
-	assert.equal(unfocusedFrame.includes("\x1b[46m╭\x1b[0m"), false, "unfocused frame should keep Glance dim styling instead of the active native border color");
+	assert.equal(unfocusedFrame.includes(fg(PALETTES.light.warn, "╭")), false, "unfocused Bash frame should use Glance dim styling");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	config.colorSource = "pi";
+	const piStyles = resolvePiThemeStyles({
+		name: "editor-border-pi",
+		fg: (token, text) => `<${token}>${text}</${token}>`,
+	});
+	const editor = new GlanceEditor(
+		{ terminal: { rows: 40 }, requestRender: () => undefined } as unknown as TUI,
+		theme,
+		keybindings,
+		() => dirtyState(),
+		() => config,
+		undefined,
+		{ renderStyleContext: { styles: piStyles } },
+	);
+	editor.focused = true;
+	editor.borderColor = (text) => `<thinking>${text}</thinking>`;
+	editor.setText("normal prompt");
+	const normal = editor.render(80).join("\n");
+	assert.ok(normal.includes("<border>╭</border>"), "Follow Pi normal frame should use the Pi border token");
+	assert.equal(normal.includes("<thinking>╭</thinking>"), false, "Follow Pi normal frame should ignore Pi thinking borderColor");
+	editor.setText("! pwd");
+	const bash = editor.render(80).join("\n");
+	assert.ok(bash.includes("<bashMode>╭</bashMode>"), "Follow Pi Bash frame should use the Pi bashMode token");
+	assert.equal(bash.includes("<border>╭</border>"), false, "Follow Pi Bash frame should visibly differ from the normal border token");
 }
 
 {
