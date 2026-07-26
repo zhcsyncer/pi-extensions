@@ -14,7 +14,6 @@ import {
 	hasNotification,
 	invokeEditorFactory,
 	invokeFooterFactory,
-	invokeHeaderFactory,
 	isPromiseLike,
 	nextEnabledConfig,
 	runtimeGitSnapshot as gitSnapshot,
@@ -23,8 +22,6 @@ import {
 	type RuntimeHarnessOptions,
 	type RuntimeTestContext,
 } from "./runtime-harness.js";
-import { STARTUP_PROMPT, type StartupHeaderCommand } from "../startup-header.js";
-
 type TestContext = RuntimeTestContext;
 type RuntimeShowPaneResults = RuntimeHarnessOptions["showPaneResults"];
 
@@ -196,7 +193,7 @@ for (const matrixCase of [
 	const result = harness.runtime.events.sessionStart({}, test.ctx);
 
 	assert.equal(isPromiseLike(result), false, "sessionStart should stay synchronous for enabled config");
-	assert.deepEqual(test.surfaceCalls, ["setHeader:install", "setFooter:install", "setEditorComponent:install"], "enabled TUI sessionStart should synchronously install header, footer, then editor");
+	assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "enabled TUI sessionStart should synchronously install footer then editor without taking Header ownership");
 	assert.deepEqual(git.schedules, [true], "enabled sessionStart should schedule an immediate git refresh through the adapter");
 	assert.equal(harness.getLoadConfigCalls(), 0, "sessionStart should not call the async loadConfig adapter");
 }
@@ -214,103 +211,6 @@ for (const matrixCase of [
 }
 
 {
-	const config = defaultConfig();
-	config.startupHeader = false;
-	const test = createContext();
-	const harness = createRuntimeHarness({ loadConfigSyncConfig: config, git: createGitHarness() });
-	harness.runtime.events.sessionStart({}, test.ctx);
-	assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "startupHeader=false should leave the current Pi/extension header untouched");
-	assert.equal(test.headerFactories.length, 0, "startupHeader=false should not register a Header factory");
-}
-
-{
-	const test = createContext();
-	const harness = createRuntimeHarness({
-		loadConfigSyncConfig: defaultConfig(),
-		getQuietStartupEnabled: () => true,
-		git: createGitHarness(),
-	});
-	harness.runtime.events.sessionStart({}, test.ctx);
-	assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "Pi quiet startup should suppress only the custom Header");
-	assert.equal(test.headerFactories.length, 0, "quiet startup should not construct a Glance Header");
-}
-
-{
-	const initial = defaultConfig();
-	const next = nextEnabledConfig(initial);
-	next.startupHeader = false;
-	const test = createContext();
-	const harness = createRuntimeHarness({ loadConfigSyncConfig: initial, showPaneResults: [{ action: "save", config: next }], git: createGitHarness() });
-	harness.runtime.events.sessionStart({}, test.ctx);
-	const baseline = test.surfaceCalls.length;
-	await harness.runtime.commands.openPane("", test.ctx);
-	assert.deepEqual(
-		test.surfaceCalls.slice(baseline),
-		["setHeader:clear", "setFooter:install", "setEditorComponent:install"],
-		"saving startupHeader=false should restore Pi's built-in Header while reinstalling the enabled input surface",
-	);
-}
-
-{
-	const initial = defaultConfig();
-	initial.startupHeader = false;
-	const next = nextEnabledConfig(initial);
-	next.startupHeader = true;
-	const test = createContext();
-	const harness = createRuntimeHarness({ loadConfigSyncConfig: initial, showPaneResults: [{ action: "save", config: next }], git: createGitHarness() });
-	harness.runtime.events.sessionStart({}, test.ctx);
-	const baseline = test.surfaceCalls.length;
-	await harness.runtime.commands.openPane("", test.ctx);
-	assert.deepEqual(
-		test.surfaceCalls.slice(baseline),
-		["setHeader:install", "setFooter:install", "setEditorComponent:install"],
-		"saving startupHeader=true should install the custom Header without delayed reclaims",
-	);
-}
-
-{
-	const headerCommands: StartupHeaderCommand[] = [
-		{ name: "glance", source: "extension", sourceInfo: { path: "/extensions/pi-glance.ts" } },
-		{ name: "review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md" } },
-		{ name: "commit", source: "prompt", sourceInfo: { path: "/prompts/commit.md" } },
-		{ name: "todo", source: "extension", sourceInfo: { path: "/extensions/pi-todo.ts" } },
-		{ name: "plan", source: "skill", sourceInfo: { path: "/skills/plan/SKILL.md" } },
-	];
-	const test = createContext({
-		invokeHeaderFactory: false,
-		uiTheme: { name: "plain", fg: (_color: string, text: string) => text },
-	});
-	const harness = createRuntimeHarness({
-		loadConfigSyncConfig: defaultConfig(),
-		headerCommands,
-		contextFileCount: 3,
-		random: () => 0.4,
-		git: createGitHarness(),
-	});
-	harness.runtime.events.sessionStart({}, test.ctx);
-	const component = invokeHeaderFactory(test, 0, () => undefined, {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-	}) as { render(width: number): string[] };
-	const firstRender = component.render(100).join("\n");
-	const secondRender = component.render(100).join("\n");
-	assert.ok(firstRender.includes(STARTUP_PROMPT), "runtime Header should keep the Claude-style getting-started prompt");
-	for (const commandTip of ["/glance", "/commit", "/todo", "/review"]) {
-		assert.ok(firstRender.includes(commandTip), `session command picker should keep the stable selected Tip ${commandTip}`);
-	}
-	assert.ok(firstRender.includes("Context 3 · Skills 2 · Prompts 1 · Extensions 2+"), "runtime Header should expose the B1 resource snapshot");
-	assert.equal(firstRender.includes("test-provider/test-model"), false, "runtime Header should not repeat the Editor model and thinking");
-	assert.equal(firstRender.includes("/repo"), false, "runtime Header should not repeat the Editor workspace path");
-	assert.equal(secondRender, firstRender, "rerendering the Header should not reshuffle session command Tips");
-
-	test.setModel({ id: "next-model", provider: "next-provider", contextWindow: 100_000 });
-	test.setCwd("/next-repo");
-	await harness.runtime.events.sessionTree({}, test.ctx);
-	const updatedRender = component.render(100).join("\n");
-	assert.equal(updatedRender, firstRender, "Editor fact refreshes should not add duplicate model, thinking, or cwd content to Header");
-}
-
-{
 	const currentPiTheme = fakePiTheme("light");
 	const git = createGitHarness();
 	const test = createContext({ uiTheme: currentPiTheme });
@@ -322,28 +222,19 @@ for (const matrixCase of [
 	const editor = invokeEditorFactory(test, 0, () => undefined) as { focused: boolean; setText(text: string): void; render(width: number): string[] };
 	editor.focused = true;
 	editor.setText("ambient provider check");
-	const header = invokeHeaderFactory(test, 0, () => undefined, {
-		bold: (text: string) => text,
-	}) as { render(width: number): string[] };
 	currentPiTheme.name = "dark";
 	const darkEditorFrame = editor.render(100).join("\n");
-	const darkHeaderFrame = header.render(100).join("\n");
 	assert.ok(darkEditorFrame.includes("<<pi-theme:dark:"), "live editor should lazily render status content with current dark Pi theme tokens");
-	assert.ok(darkHeaderFrame.includes("<<pi-theme:dark:╭─── "), "Header should lazily use the same current Pi border token source");
 	currentPiTheme.name = "light";
 	const lightEditorFrame = editor.render(100).join("\n");
-	const lightHeaderFrame = header.render(100).join("\n");
 	assert.ok(lightEditorFrame.includes("<<pi-theme:light:"), "live editor should re-read current Pi theme tokens on later renders");
-	assert.ok(lightHeaderFrame.includes("<<pi-theme:light:╭─── "), "Header should re-read current Pi theme tokens on later renders");
 	assert.equal(lightEditorFrame.includes("<<pi-theme:dark:"), false, "live editor should not reuse stale dark Pi ANSI after a theme switch");
 	currentPiTheme.name = "my-dark-theme";
 	const customEditorFrame = editor.render(100).join("\n");
 	assert.ok(customEditorFrame.includes("<<pi-theme:my-dark-theme:"), "custom Pi themes should be followed directly instead of inferred by name");
 	test.setUiTheme(undefined);
 	const missingEditorFrame = editor.render(100).join("\n");
-	const missingHeaderFrame = header.render(100).join("\n");
 	assert.ok(missingEditorFrame.includes(fg(PALETTES.light.title, " repo ")), "missing Pi UI theme should fall back to the configured Glance palette");
-	assert.ok(missingHeaderFrame.includes(fg(PALETTES.light.border, "╭─── ")), "Header should share the configured Glance fallback palette when Pi theme data is missing");
 	assert.ok(test.getThemeReads() >= 4, "editor render should lazily read the current UI theme on each style resolution");
 
 	test.setUiTheme(currentPiTheme);
@@ -880,7 +771,7 @@ for (const matrixCase of [
 	assert.equal(harness.showPaneContexts[0], test.ctx, "showPane should receive the command context passed to /glance");
 	assert.equal(harness.showPanePreviewStates[0]?.workspace.path, "/repo", "showPane should receive the current runtime state for preview rendering");
 	assertAmbientPaneOptions(harness.showPaneOptions[0], "default pane open");
-	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setHeader:install", "setFooter:install", "setEditorComponent:install"], "save success should reinstall the enabled TUI header and input surface");
+	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setFooter:install", "setEditorComponent:install"], "save success should reinstall the enabled TUI input surface without taking Header ownership");
 	assert.ok(git.schedules.length > scheduleBaseline, "enabled->enabled save success should schedule git refreshes only after disk save succeeds");
 	assert.ok(test.getRenderRequests() > renderBaseline, "save success should request a render after reinstalling the surface");
 	assert.deepEqual(git.options?.getConfig(), nextConfig.git, "existing git refresher should read the updated active git config after save success");
@@ -914,7 +805,7 @@ for (const matrixCase of [
 	await harness.runtime.commands.openPane("", test.ctx);
 
 	assert.deepEqual(harness.savedConfigs, [nextConfig], "enabled->disabled success should persist the disabled config");
-	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setHeader:clear", "setEditorComponent:clear", "setFooter:clear"], "enabled->disabled success should clear the owned header and TUI input surface after disk save succeeds");
+	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setEditorComponent:clear", "setFooter:clear"], "enabled->disabled success should clear only the owned TUI input surface after disk save succeeds");
 	assert.equal(git.disposeCount, 1, "enabled->disabled success should dispose the active git refresher");
 	assert.equal(test.getRenderRequests(), renderBaseline, "enabled->disabled success should not render through the cleared surface");
 
@@ -944,7 +835,7 @@ for (const matrixCase of [
 	await harness.runtime.commands.openPane("", test.ctx);
 
 	assert.deepEqual(harness.savedConfigs, [nextConfig], "disabled->enabled success should persist the enabled config");
-	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setHeader:install", "setFooter:install", "setEditorComponent:install"], "disabled->enabled success should install the Header and TUI input surface after disk save succeeds");
+	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setFooter:install", "setEditorComponent:install"], "disabled->enabled success should install the TUI input surface without replacing Pi's Header");
 	assert.equal(git.created, 1, "disabled->enabled success should create the git refresher after disk save succeeds");
 	assert.deepEqual(git.schedules, [true], "disabled->enabled success should schedule one immediate git refresh after installing the surface");
 	assert.deepEqual(git.options?.getConfig(), nextConfig.git, "new git refresher should read the enabled active git config after save success");

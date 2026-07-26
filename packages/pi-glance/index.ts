@@ -6,7 +6,6 @@ import { createGlanceRuntime } from "./runtime.js";
 export default function piGlance(pi: ExtensionAPI): void {
 	const runtime = createGlanceRuntime({
 		getThinkingLevel: () => pi.getThinkingLevel(),
-		getCommands: () => pi.getCommands(),
 		loadConfigSync,
 		loadConfig,
 		saveConfig,

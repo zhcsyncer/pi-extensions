@@ -1,17 +1,10 @@
-import { getAgentDir, loadProjectContextFiles, SettingsManager, VERSION, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
 import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
-import {
-	GlanceStartupHeader,
-	selectStartupCommandTips,
-	summarizeStartupResources,
-	type StartupHeaderCommand,
-	type StartupHeaderResourceSummary,
-} from "./startup-header.js";
-import { resolveGlanceRenderStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
+import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
 
@@ -34,17 +27,13 @@ export interface RuntimeShowPaneOptions {
 
 export interface GlanceRuntimeAdapters {
 	getThinkingLevel(): string;
-	getCommands?(): readonly StartupHeaderCommand[];
-	getContextFileCount?(ctx: ExtensionContext): number;
 	getAutoCompactionEnabled?(ctx: ExtensionContext): boolean;
-	getQuietStartupEnabled?(ctx: ExtensionContext): boolean;
 	loadConfigSync(): GlanceConfig;
 	loadConfig(): Promise<GlanceConfig>;
 	saveConfig(config: GlanceConfig): Promise<void>;
 	showPane(initial: GlanceConfig, ctx: ExtensionCommandContext, previewState?: GlanceState, options?: RuntimeShowPaneOptions): Promise<GlancePaneResult>;
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	nowMs?: () => number;
-	random?: () => number;
 }
 
 interface MessageEndLikeEvent {
@@ -96,35 +85,13 @@ function readAutoCompactionEnabled(ctx: ExtensionContext): boolean {
 	}
 }
 
-function readQuietStartupEnabled(ctx: ExtensionContext): boolean {
-	try {
-		const cwd = ctx.sessionManager.getCwd() || ctx.cwd;
-		return SettingsManager.create(cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() }).getQuietStartup();
-	} catch {
-		return false;
-	}
-}
-
-function readContextFileCount(ctx: ExtensionContext): number {
-	try {
-		const cwd = ctx.sessionManager.getCwd() || ctx.cwd;
-		return loadProjectContextFiles({ cwd, agentDir: getAgentDir() }).length;
-	} catch {
-		return 0;
-	}
-}
-
 export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRuntime {
 	let config: GlanceConfig | undefined;
 	let footer: StatusOnlyFooter | undefined;
 	let gitRefresher: RuntimeGitRefresher | undefined;
 	let requestRender: (() => void) | undefined;
 	let uiGeneration = 0;
-	let ownsHeader = false;
-	let startupCommandTips: string[] | undefined;
-	let startupResources: StartupHeaderResourceSummary | undefined;
 	const nowMs = adapters.nowMs ?? Date.now;
-	const random = adapters.random ?? Math.random;
 
 	async function ensureConfig(): Promise<GlanceConfig> {
 		config ??= await adapters.loadConfig();
@@ -194,55 +161,10 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		gitRefresher = undefined;
 	}
 
-	function clearHeader(ctx: ExtensionContext): void {
-		if (!isTuiMode(ctx) || !ownsHeader) return;
-		ctx.ui.setHeader(undefined);
-		ownsHeader = false;
-	}
-
-	function installHeader(ctx: ExtensionContext, renderStyleContext: GlanceRenderStyleContext | undefined): void {
-		const activeConfig = getConfig();
-		const quiet = (adapters.getQuietStartupEnabled ?? readQuietStartupEnabled)(ctx);
-		if (!activeConfig.startupHeader || quiet) {
-			clearHeader(ctx);
-			return;
-		}
-		if (!startupCommandTips || !startupResources) {
-			let commands: readonly StartupHeaderCommand[] = [];
-			try {
-				commands = adapters.getCommands?.() ?? [];
-			} catch {
-				commands = [];
-			}
-			startupCommandTips = selectStartupCommandTips(
-				commands.map((command) => command.name),
-				random,
-			);
-			let contextFileCount = 0;
-			try {
-				contextFileCount = (adapters.getContextFileCount ?? readContextFileCount)(ctx);
-			} catch {
-				contextFileCount = 0;
-			}
-			startupResources = summarizeStartupResources(contextFileCount, commands);
-		}
-		const commandTips = startupCommandTips;
-		const resources = startupResources;
-		ctx.ui.setHeader((_tui, theme) =>
-			new GlanceStartupHeader(theme, {
-				commandTips,
-				getStyles: () => resolveGlanceRenderStyles(getConfig(), renderStyleContext),
-				getInfo: () => ({ version: VERSION, resources }),
-			}),
-		);
-		ownsHeader = true;
-	}
-
 	function clearUI(ctx: ExtensionContext): void {
 		if (!isTuiMode(ctx)) return;
 		invalidateUiOwnership();
 		clearGitRefresher();
-		clearHeader(ctx);
 		ctx.ui.setEditorComponent(undefined);
 		ctx.ui.setFooter(undefined);
 	}
@@ -260,7 +182,6 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			getPiTheme: () => readPiUiTheme(ctx.ui),
 			getAmbientTone: () => readPiAmbientTone(ctx.ui),
 		});
-		installHeader(ctx, renderStyleContext);
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);
@@ -324,8 +245,6 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		events: {
 			sessionStart: (_event, ctx) => {
 				config = adapters.loadConfigSync();
-				startupCommandTips = undefined;
-				startupResources = undefined;
 				refreshSession.sessionStart(ctx);
 				installInputSurface(ctx);
 			},

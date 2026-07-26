@@ -86,7 +86,6 @@ function createContext(customResults: PaneResult[]): TestContext {
 				assert.ok(result, "expected queued custom pane result");
 				return result as T;
 			},
-			setHeader: (factory: unknown) => surfaceCalls.push(factory ? "setHeader:install" : "setHeader:clear"),
 			setFooter: (factory: unknown) => surfaceCalls.push(factory ? "setFooter:install" : "setFooter:clear"),
 			setEditorComponent: (factory: unknown) => surfaceCalls.push(factory ? "setEditorComponent:install" : "setEditorComponent:clear"),
 		},
@@ -135,7 +134,7 @@ async function main(): Promise<void> {
 		piGlance(pi.api);
 		const test = createContext([]);
 		getHandler(pi, "session_start")({ type: "session_start" }, test.ctx);
-		assert.deepEqual(test.surfaceCalls, ["setHeader:install", "setFooter:install", "setEditorComponent:install"], "enabled session_start should install the Header and input surface");
+		assert.deepEqual(test.surfaceCalls, ["setFooter:install", "setEditorComponent:install"], "enabled session_start should install the input surface without replacing Pi's Header");
 
 		const command = getCommand(pi, "glance");
 		await rm(configDir, { recursive: true, force: true });
@@ -166,8 +165,8 @@ async function main(): Promise<void> {
 		assert.equal(hasNotification(test.notifications, "pi-glance configuration saved", "info"), true, "successful save should notify success");
 		assert.deepEqual(
 			test.surfaceCalls.slice(successBaseline),
-			["setHeader:clear", "setEditorComponent:clear", "setFooter:clear"],
-			"successful save of disabled config should clear the custom Header and input surface after disk write succeeds",
+			["setEditorComponent:clear", "setFooter:clear"],
+			"successful save of disabled config should clear only the owned input surface after disk write succeeds",
 		);
 
 		await rm(configDir, { recursive: true, force: true });

@@ -19,7 +19,7 @@ function precisionOf(config: unknown): ThroughputPrecision | undefined {
 
 const defaults = defaultConfig();
 
-assert.equal(defaults.version, 11, "Follow Pi and startup header should bump CONFIG_VERSION to 11");
+assert.equal(defaults.version, 11, "Follow Pi should keep CONFIG_VERSION at 11");
 assert.equal(normalizeConfig({ version: 0 }).version, 11, "old raw versions should normalize to schema version 11");
 assert.equal(normalizeConfig({ version: 999 }).version, 11, "future raw versions should normalize to current schema version 11");
 assert.equal(defaults.throughput.precision, THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue, "defaultConfig should use descriptor throughput precision default");

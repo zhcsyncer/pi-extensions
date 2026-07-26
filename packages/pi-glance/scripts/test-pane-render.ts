@@ -40,7 +40,7 @@ function press(component: Component, data: string): void {
 
 function openPaletteBrowser(component: Component, slot: "light" | "dark"): void {
 	press(component, "\x1b[C");
-	const settingIndex = slot === "light" ? 3 : 4;
+	const settingIndex = slot === "light" ? 2 : 3;
 	for (let index = 0; index < settingIndex; index++) press(component, "\x1b[B");
 	press(component, "\x1b[C");
 	press(component, "\r");
@@ -435,12 +435,11 @@ press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
-press(gridSettingPane.component, "\x1b[B");
 const iconsSelectedText = plainText(gridSettingPane.component);
 assertContains(iconsSelectedText, "» Icons", "down arrow should move within the setting column");
 assertContains(iconsSelectedText, "Plain text or Nerd Font icons with fallback.", "Icons row hint should mention plain and Nerd Font fallback guidance");
 press(gridSettingPane.component, "\x1b[D");
-assertContains(plainText(gridSettingPane.component), "» Tokens", "left arrow should move to the category on the same visual row");
+assertContains(plainText(gridSettingPane.component), "» Context", "left arrow should move to the category on the same visual row");
 
 const reorderPane = await makePane();
 press(reorderPane.component, "\x1b[B");
@@ -585,8 +584,6 @@ assertContains(thinkingChanged, "Show thinking level.", "model thinking hint sho
 const generalHintPane = await makePane();
 press(generalHintPane.component, "\x1b[C");
 assertContains(plainText(generalHintPane.component), "Temporarily disable pi-glance.", "general enabled hint should render");
-press(generalHintPane.component, "\x1b[B");
-assertContains(plainText(generalHintPane.component), "Show the Pi logo and one startup tip", "startup header hint should render");
 press(generalHintPane.component, "\x1b[B");
 assertContains(plainText(generalHintPane.component), "Follow Pi theme tokens or use Glance palettes.", "color source hint should render");
 press(generalHintPane.component, "\x1b[B");

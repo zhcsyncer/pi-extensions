@@ -3,7 +3,6 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultConfig } from "../config.js";
 import { createGlanceRuntime, type CreateGitRefresherOptions, type GlancePaneResult, type GlanceRuntimeAdapters, type RuntimeGitRefresher, type RuntimeShowPaneOptions } from "../runtime.js";
 import type { StateSessionEntry } from "../runtime-snapshot.js";
-import type { StartupHeaderCommand } from "../startup-header.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "../types.js";
 
 export type RuntimeMode = "tui" | "rpc" | "json" | "print";
@@ -14,7 +13,6 @@ export interface RuntimeNotification {
 }
 
 export type RuntimeCapturedFooterFactory = (tui: { requestRender(): void }, theme: unknown, footerData: unknown) => unknown;
-export type RuntimeCapturedHeaderFactory = (tui: { requestRender(): void }, theme: unknown) => unknown;
 export type RuntimeCapturedEditorFactory = (tui: { terminal: { rows: number }; requestRender(): void }, theme: unknown, keybindings: unknown) => unknown;
 
 export interface RuntimeMutableModelInfo {
@@ -41,9 +39,7 @@ export interface RuntimeTestContextOptions {
 	branch?: StateSessionEntry[];
 	sessionName?: string;
 	usingOAuth?: boolean;
-	quietStartup?: boolean;
 	invokeFooterFactory?: boolean;
-	invokeHeaderFactory?: boolean;
 	uiTheme?: unknown;
 }
 
@@ -52,7 +48,6 @@ export interface RuntimeTestContext {
 	surfaceCalls: string[];
 	notifications: RuntimeNotification[];
 	footerFactories: RuntimeCapturedFooterFactory[];
-	headerFactories: RuntimeCapturedHeaderFactory[];
 	editorFactories: RuntimeCapturedEditorFactory[];
 	getRenderRequests(): number;
 	getThemeReads(): number;
@@ -85,10 +80,6 @@ export interface RuntimeHarnessOptions {
 	git?: RuntimeGitHarness;
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
-	getQuietStartupEnabled?: () => boolean;
-	headerCommands?: readonly StartupHeaderCommand[];
-	contextFileCount?: number;
-	random?: () => number;
 }
 
 export interface RuntimeHarness {
@@ -200,7 +191,6 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	const surfaceCalls: string[] = [];
 	const notifications: RuntimeNotification[] = [];
 	const footerFactories: RuntimeCapturedFooterFactory[] = [];
-	const headerFactories: RuntimeCapturedHeaderFactory[] = [];
 	const editorFactories: RuntimeCapturedEditorFactory[] = [];
 	let renderRequests = 0;
 	let themeReads = 0;
@@ -217,7 +207,6 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	const mode = options.mode ?? "tui";
 	const hasUI = options.hasUI ?? (mode === "tui" || mode === "rpc");
 	const invokeFooterFactory = options.invokeFooterFactory ?? true;
-	const invokeHeaderFactory = options.invokeHeaderFactory ?? true;
 	const fakeTui = { requestRender: () => renderRequests++ };
 	const fakeTheme = {
 		fg: (_color: string, text: string) => text,
@@ -261,13 +250,6 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 				return uiTheme;
 			},
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
-			setHeader: (factory: unknown) => {
-				surfaceCalls.push(factory ? "setHeader:install" : "setHeader:clear");
-				if (factory) {
-					headerFactories.push(factory as RuntimeCapturedHeaderFactory);
-					if (invokeHeaderFactory) (factory as RuntimeCapturedHeaderFactory)(fakeTui, fakeTheme);
-				}
-			},
 			setFooter: (factory: unknown) => {
 				surfaceCalls.push(factory ? "setFooter:install" : "setFooter:clear");
 				if (factory) {
@@ -288,7 +270,6 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 		surfaceCalls,
 		notifications,
 		footerFactories,
-		headerFactories,
 		editorFactories,
 		getRenderRequests: () => renderRequests,
 		getThemeReads: () => themeReads,
@@ -319,12 +300,6 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 			uiTheme = theme;
 		},
 	};
-}
-
-export function invokeHeaderFactory(test: RuntimeTestContext, index: number, requestRender: () => void, theme: unknown): unknown {
-	const factory = test.headerFactories[index];
-	assert.ok(factory, `expected header factory ${index}`);
-	return factory({ requestRender }, theme);
 }
 
 export function invokeFooterFactory(test: RuntimeTestContext, index: number, requestRender: () => void): unknown {
@@ -366,10 +341,7 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 	const showPaneResults = [...(options.showPaneResults ?? [])];
 	const adapters: GlanceRuntimeAdapters = {
 		getThinkingLevel: options.getThinkingLevel ?? (() => "off"),
-		getCommands: () => options.headerCommands ?? [],
-		getContextFileCount: () => options.contextFileCount ?? 0,
 		getAutoCompactionEnabled: options.getAutoCompactionEnabled ?? (() => true),
-		getQuietStartupEnabled: options.getQuietStartupEnabled ?? (() => false),
 		loadConfigSync: () => loadConfigSyncConfig,
 		loadConfig: async () => {
 			loadConfigCalls++;
@@ -390,7 +362,6 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 			return result;
 		},
 		createGitRefresher: options.git?.create,
-		random: options.random,
 	};
 	return {
 		runtime: createGlanceRuntime(adapters),

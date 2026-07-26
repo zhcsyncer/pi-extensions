@@ -59,7 +59,6 @@ export function defaultConfig(): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: true,
-		startupHeader: true,
 		colorSource: "pi",
 		theme: { light: "light", dark: "dark" },
 		icons: "plain",
@@ -222,7 +221,6 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: parseBool(record.enabled, defaults.enabled),
-		startupHeader: parseBool(record.startupHeader, isLegacyConfig ? false : defaults.startupHeader),
 		colorSource: parseStringEnum(record.colorSource, COLOR_SOURCES, isLegacyConfig ? "glance" : defaults.colorSource),
 		theme: parseThemePair(record.theme, defaults.theme),
 		icons: parseStringEnum(record.icons, ICON_MODES, defaults.icons),

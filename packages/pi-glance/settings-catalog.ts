@@ -172,11 +172,6 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 						next.enabled = !next.enabled;
 					}),
 				),
-				toggleRow("general.startupHeader", "Startup header", config.startupHeader, "Show the Pi logo and one startup tip unless Pi starts quietly.", (draft) =>
-					withConfig(draft, (next) => {
-						next.startupHeader = !next.startupHeader;
-					}),
-				),
 				cycleRow("general.colorSource", "Color source", colorSourceLabel(config.colorSource), "Follow Pi theme tokens or use Glance palettes.", (draft) =>
 					withConfig(draft, (next) => {
 						next.colorSource = nextIn(next.colorSource, COLOR_SOURCE_VALUES);

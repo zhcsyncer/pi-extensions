@@ -34,21 +34,17 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 11, "Follow Pi and startup header should bump CONFIG_VERSION to 11");
+assert.equal(defaults.version, 11, "Follow Pi should keep CONFIG_VERSION at 11");
 assert.equal(normalizeConfig({ version: 0 }).version, 11, "old raw version should normalize to current schema version");
 assert.equal(normalizeConfig({ version: 999 }).version, 11, "future raw version should normalize to current schema version");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
-assert.equal(defaults.startupHeader, true, "new installs should show the Glance startup header by default");
 assert.equal(normalizeConfig({ version: 10 }).colorSource, "glance", "v10 configs should preserve Glance palette behavior when colorSource is missing");
-assert.equal(normalizeConfig({ version: 10 }).startupHeader, false, "v10 configs should keep the custom startup header disabled when the field is missing");
-assert.equal(normalizeConfig({ version: 10, colorSource: "pi", startupHeader: true }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
-assert.equal(normalizeConfig({ version: 10, colorSource: "pi", startupHeader: true }).startupHeader, true, "legacy configs should preserve an explicit startup header opt-in");
+assert.equal(normalizeConfig({ version: 10, colorSource: "pi" }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
 assert.equal(normalizeConfig({ colorSource: "glance" }).colorSource, "glance", "current configs should preserve Glance palette color source");
 assert.equal(normalizeConfig({ colorSource: "invalid" }).colorSource, "pi", "invalid current color source should fall back to Follow Pi");
 assert.equal(normalizeConfig({ version: 10, colorSource: "invalid" }).colorSource, "glance", "invalid legacy color source should preserve legacy Glance behavior");
-assert.equal(normalizeConfig({ startupHeader: false }).startupHeader, false, "current configs should preserve a disabled startup Header");
-assert.equal(normalizeConfig({ startupHeader: "yes" }).startupHeader, true, "invalid current Header setting should use the new-install default");
-assert.equal(normalizeConfig({ version: 10, startupHeader: "yes" }).startupHeader, false, "invalid legacy Header setting should preserve the built-in Header");
+assert.equal("startupHeader" in defaults, false, "config should not expose a custom Header switch");
+assert.equal("startupHeader" in normalizeConfig({ startupHeader: true }), false, "normalization should discard the removed Header field");
 assert.deepEqual(defaults.theme, { light: "light", dark: "dark" }, "default theme pair should use light for light tone and dark for dark tone");
 assert.equal(defaults.throughput.precision, THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue, "default config throughput precision should come from descriptor default");
 assert.deepEqual((defaults as unknown as { throughput?: unknown }).throughput, { precision: THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue }, "default config should include throughput.precision=auto");
@@ -199,7 +195,6 @@ assert.deepEqual(
 	{
 		version: 11,
 		enabled: false,
-		startupHeader: false,
 		colorSource: "glance",
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
 		icons: "nerd",

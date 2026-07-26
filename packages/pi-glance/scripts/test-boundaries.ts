@@ -11,8 +11,7 @@ const ALLOWED_PI_IMPORTS = new Set([
 const FOOTER_MODULE = "footer.ts";
 const STATUS_LINE_MODULE = "status-line.ts";
 const INPUT_SURFACE_FRAME_MODULE = "input-surface-frame.ts";
-const STARTUP_HEADER_MODULE = "startup-header.ts";
-const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", INPUT_SURFACE_FRAME_MODULE, STARTUP_HEADER_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
+const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", INPUT_SURFACE_FRAME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
 const INDEX_MODULE = "index.ts";
 const PURE_CONFIG_OPTIONS_MODULE = "config-options.ts";
 const SEGMENT_DISPLAY_PRIMITIVES_MODULE = "segment-display-primitives.ts";
@@ -145,6 +144,14 @@ function assertNoCorePatching(files: SourceFile[]): void {
 	for (const file of files.filter((candidate) => candidate.path !== GUARD_SCRIPT)) {
 		for (const [pattern, label] of patterns) {
 			if (pattern.test(file.text)) fail(`${file.path}: core-patching/dynamic import pattern is not allowed (${label})`);
+		}
+	}
+}
+
+function assertNoHeaderOwnership(files: SourceFile[]): void {
+	for (const file of files.filter((candidate) => !candidate.path.startsWith("scripts/"))) {
+		if (/\bsetHeader\b|\bstartupHeader\b|startup-header|GlanceStartupHeader/.test(file.text)) {
+			fail(`${file.path}: pi-glance must leave Pi's native Header untouched`);
 		}
 	}
 }
@@ -286,7 +293,6 @@ function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
 		GUARD_SCRIPT,
 		join("scripts", "test-themes.ts"),
 		join("scripts", "test-input-surface-frame.ts"),
-		join("scripts", "test-startup-header.ts"),
 		join("scripts", "test-surface-parity.ts"),
 	]);
 	for (const file of files) {
@@ -923,28 +929,6 @@ function assertConfigOptionsPureModule(files: SourceFile[]): void {
 	}
 }
 
-function assertStartupHeaderBoundary(files: SourceFile[]): void {
-	const header = files.find((candidate) => basename(candidate.path) === STARTUP_HEADER_MODULE);
-	assert.ok(header, "startup-header.ts responsive Header component should exist");
-	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./theme-adapter.js"]);
-	for (const specifier of importSpecifiers(header)) {
-		if (!allowedSpecifiers.has(specifier)) fail(`${header.path}: startup Header may only import public Pi/TUI APIs, not ${specifier}`);
-	}
-	if (!header.text.includes("class GlanceStartupHeader")) fail(`${header.path}: startup Header should expose its component`);
-	if (!header.text.includes("selectStartupCommandTips")) fail(`${header.path}: startup Header should expose deterministic real-command Tip selection`);
-	if (!header.text.includes("summarizeStartupResources")) fail(`${header.path}: startup Header should expose its pure B1 resource summarizer`);
-	for (const role of ["title", "error", "success", "warn"] as const) {
-		if (!header.text.includes(`\"${role}\"`)) fail(`${header.path}: Pi logo should use the shared ${role} style role`);
-	}
-	if (!header.text.includes("ResolvedGlanceStyles")) fail(`${header.path}: startup Header should consume the shared Color source styles`);
-	if (/\.fg\s*\(|ctx\.ui|(?:getExtensions|getSkills|getPrompts|getAgentsFiles|loadProjectContextFiles)\s*\(/.test(header.text)) {
-		fail(`${header.path}: startup Header must not bypass shared styles or discover resources during render`);
-	}
-	if (/setTimeout\s*\(|setInterval\s*\(|NodeJS\.Timeout|\.unref\s*\(/.test(header.text)) {
-		fail(`${header.path}: calm startup Header must remain static and timer-free`);
-	}
-}
-
 const sourceFiles = await readSourceFiles();
 const packageFiles: SourceFile[] = [{ path: "package.json", text: await readText("package.json") }];
 
@@ -952,6 +936,7 @@ assertNoLegacyNamespace(sourceFiles);
 assertNoLegacyPiPackages(packageFiles);
 assertPublicPiImports(sourceFiles);
 assertNoCorePatching(sourceFiles);
+assertNoHeaderOwnership(sourceFiles);
 assertSurfaceLayoutSeamImports(sourceFiles);
 assertSettingsCatalogSeamImports(sourceFiles);
 assertPaneModelSeamImports(sourceFiles);
@@ -963,7 +948,6 @@ assertRenderStyleContextSeam(sourceFiles);
 assertThemePairGuardrails(sourceFiles);
 assertPiThemeRuntimeProviderBoundary(sourceFiles);
 assertPanePreviewStyleContextBoundary(sourceFiles);
-assertStartupHeaderBoundary(sourceFiles);
 assertRenderModulesHaveNoIo(sourceFiles);
 assertInputSurfaceFrameSeamImports(sourceFiles);
 assertProductionFrameCompositionSeam(sourceFiles);

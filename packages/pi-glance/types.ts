@@ -75,7 +75,6 @@ interface BottomDetailsConfig {
 export interface GlanceConfig {
 	version: 11;
 	enabled: boolean;
-	startupHeader: boolean;
 	colorSource: ColorSource;
 	theme: GlanceThemePair;
 	icons: IconMode;

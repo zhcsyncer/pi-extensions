@@ -195,13 +195,6 @@ const generalRows = assertRows(config, "general", [
 		kind: "toggle",
 	},
 	{
-		id: "general.startupHeader",
-		label: "Startup header",
-		value: "on",
-		hint: "Show the Pi logo and one startup tip unless Pi starts quietly.",
-		kind: "toggle",
-	},
-	{
 		id: "general.colorSource",
 		label: "Color source",
 		value: "Follow Pi",
@@ -432,7 +425,6 @@ const throughputRows = assertRows(config, "throughput", [
 ]);
 
 assert.equal(rowById(generalRows, "general.enabled").apply!(config).enabled, false, "general enabled should toggle off");
-assert.equal(rowById(generalRows, "general.startupHeader").apply!(config).startupHeader, false, "startup header should toggle off");
 assert.equal(rowById(generalRows, "general.colorSource").apply!(config).colorSource, "glance", "color source should cycle Follow Pi -> Glance palette");
 assert.equal(rowById(generalRows, "general.theme.light").opensSubview, "themeBrowser", "light theme row should declare the theme browser subview as its activation target");
 assert.equal(rowById(generalRows, "general.theme.light").themeSlot, "light", "light theme row should declare its edited slot");
