@@ -1,13 +1,14 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { STATUS_ICON_PRESETS, type StatusIcons } from "./config.js";
 import { createMockCtx, createMockPi } from "./test-fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTodoStore, registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
 
-function setup() {
+function setup(statusIcons: StatusIcons = STATUS_ICON_PRESETS.ascii) {
 	const { pi, captured } = createMockPi();
 	const store = createTodoStore();
 	registerTodoTool(pi, store);
-	registerTodosCommand(pi, store);
+	registerTodosCommand(pi, store, statusIcons);
 	const tool = captured.tools.get(TOOL_NAME);
 	if (!tool) throw new Error("tool not registered");
 	const cmd = captured.commands.get("todos");
@@ -72,43 +73,43 @@ describe("/todos command — grouped output", () => {
 		return text as string;
 	}
 
-	it("renders 'Pending' group with ○ glyph and task id", async () => {
+	it("renders the Pending group with the default ASCII icon", async () => {
 		const { tool, cmd } = setup();
 		await seed(tool, [{ action: "create", subject: "research" }]);
 		const ctx = createMockCtx({ hasUI: true });
 		await cmd.handler("", ctx as never);
 		const out = grabOutput(ctx);
 		expect(out).toContain("── Pending ──");
-		expect(out).toContain("○ #1 research");
+		expect(out).toContain("[ ] #1 research");
 		expect(out).toContain("1 pending");
 	});
 
-	it("renders 'In Progress' group with ◐ glyph and activeForm suffix", async () => {
+	it("renders the In Progress group without a duplicate activity description", async () => {
 		const { tool, cmd } = setup();
 		await seed(tool, [
 			{ action: "create", subject: "build" },
-			{ action: "update", id: 1, status: "in_progress", activeForm: "Building" },
+			{ action: "update", id: 1, status: "in_progress" },
 		]);
 		const ctx = createMockCtx({ hasUI: true });
 		await cmd.handler("", ctx as never);
 		const out = grabOutput(ctx);
 		expect(out).toContain("── In Progress ──");
-		expect(out).toContain("◐ #1 build (Building)");
+		expect(out).toContain("[>] #1 build");
 		expect(out).toContain("1 in progress");
 	});
 
-	it("renders 'Completed' group with ✓ glyph and 'N/M completed' header", async () => {
+	it("renders the Completed group with the default ASCII icon and count", async () => {
 		const { tool, cmd } = setup();
 		await seed(tool, [
 			{ action: "create", subject: "ship" },
-			{ action: "update", id: 1, status: "in_progress", activeForm: "Shipping" },
+			{ action: "update", id: 1, status: "in_progress" },
 			{ action: "update", id: 1, status: "completed" },
 		]);
 		const ctx = createMockCtx({ hasUI: true });
 		await cmd.handler("", ctx as never);
 		const out = grabOutput(ctx);
 		expect(out).toContain("── Completed ──");
-		expect(out).toContain("✓ #1 ship");
+		expect(out).toContain("[x] #1 ship");
 		expect(out).toContain("1/1 completed");
 	});
 
@@ -117,10 +118,10 @@ describe("/todos command — grouped output", () => {
 		await seed(tool, [
 			{ action: "create", subject: "p" },
 			{ action: "create", subject: "done" },
-			{ action: "update", id: 2, status: "in_progress", activeForm: "Finishing" },
+			{ action: "update", id: 2, status: "in_progress" },
 			{ action: "update", id: 2, status: "completed" },
 			{ action: "create", subject: "ip" },
-			{ action: "update", id: 3, status: "in_progress", activeForm: "Working" },
+			{ action: "update", id: 3, status: "in_progress" },
 		]);
 		const ctx = createMockCtx({ hasUI: true });
 		await cmd.handler("", ctx as never);
@@ -132,6 +133,25 @@ describe("/todos command — grouped output", () => {
 		expect(iC).toBeGreaterThanOrEqual(0);
 		expect(iIP).toBeGreaterThan(iC);
 		expect(iP).toBeGreaterThan(iIP);
+	});
+
+	it.each([
+		["unicode", STATUS_ICON_PRESETS.unicode, "○", "◉", "✓"],
+		["nerd-font", STATUS_ICON_PRESETS["nerd-font"], "󰄰", "󰪡", "󰗠"],
+	] as const)("renders the %s preset with a static command icon", async (_name, icons, pending, active, completed) => {
+		const { tool, cmd } = setup(icons);
+		await seed(tool, [
+			{ action: "create", subject: "pending" },
+			{ action: "create", subject: "active", status: "in_progress" },
+			{ action: "create", subject: "finished" },
+			{ action: "update", id: 3, status: "completed" },
+		]);
+		const ctx = createMockCtx({ hasUI: true });
+		await cmd.handler("", ctx as never);
+		const out = grabOutput(ctx);
+		expect(out).toContain(`${pending} #1 pending`);
+		expect(out).toContain(`${active} #2 active`);
+		expect(out).toContain(`${completed} #3 finished`);
 	});
 
 	it("appends '⛓ #deps' suffix for tasks with blockedBy", async () => {

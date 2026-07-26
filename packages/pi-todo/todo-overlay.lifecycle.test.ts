@@ -193,7 +193,7 @@ describe("TodoOverlay — lifecycle", () => {
 		const { captured, store } = registerTool();
 		await seed(captured, [
 			{ action: "create", subject: "done" },
-			{ action: "update", id: 1, status: "in_progress", activeForm: "Finishing" },
+			{ action: "update", id: 1, status: "in_progress" },
 			{ action: "update", id: 1, status: "completed" },
 		]);
 		const overlay = new TodoOverlay(store);

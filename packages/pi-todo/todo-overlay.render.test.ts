@@ -1,4 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { STATUS_ICON_PRESETS, type StatusIcons } from "./config.js";
 import { createMockPi, createMockUI } from "./test-fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTodoStore, registerTodoTool, type TaskAction } from "./todo.js";
@@ -13,12 +14,15 @@ const identityTheme = {
 
 function completeActions(id: number): Array<{ action: TaskAction; [k: string]: unknown }> {
 	return [
-		{ action: "update", id, status: "in_progress", activeForm: `Completing #${id}` },
+		{ action: "update", id, status: "in_progress" },
 		{ action: "update", id, status: "completed" },
 	];
 }
 
-async function setup(actions: Array<{ action: TaskAction; [k: string]: unknown }>) {
+async function setup(
+	actions: Array<{ action: TaskAction; [k: string]: unknown }>,
+	statusIcons: StatusIcons = STATUS_ICON_PRESETS.ascii,
+) {
 	const { pi, captured } = createMockPi();
 	const store = createTodoStore();
 	registerTodoTool(pi, store);
@@ -27,7 +31,7 @@ async function setup(actions: Array<{ action: TaskAction; [k: string]: unknown }
 		await tool.execute?.("tc", p as never, undefined as never, undefined as never, {} as never);
 	}
 	const ui = createMockUI() as unknown as ExtensionUIContext;
-	const overlay = new TodoOverlay(store);
+	const overlay = new TodoOverlay(store, statusIcons);
 	overlay.setUICtx(ui);
 	overlay.update();
 	const setWidget = ui.setWidget as ReturnType<typeof vi.fn>;
@@ -35,8 +39,9 @@ async function setup(actions: Array<{ action: TaskAction; [k: string]: unknown }
 		tui: { requestRender: () => void },
 		theme: typeof identityTheme,
 	) => { render: (w: number) => string[]; invalidate: () => void };
-	const widget = factory({ requestRender: vi.fn() }, identityTheme);
-	return { widget, tool, ui, overlay };
+	const tui = { requestRender: vi.fn() };
+	const widget = factory(tui, identityTheme);
+	return { widget, tool, ui, overlay, tui };
 }
 
 afterEach(() => {
@@ -54,17 +59,24 @@ describe("TodoOverlay — heading", () => {
 		expect(lines[0]).toContain("Todos (1/2)");
 	});
 
-	it("uses filled icon '●' when any task is active (pending/in_progress)", async () => {
-		const { widget } = await setup([{ action: "create", subject: "a" }]);
-		expect(widget.render(200)[0]).toContain("●");
+	it("uses the static ASCII Todo icon regardless of task status", async () => {
+		const pending = await setup([{ action: "create", subject: "pending" }]);
+		expect(pending.widget.render(200)[0]).toContain("[T]");
+		pending.overlay.dispose();
+
+		const active = await setup([{ action: "create", subject: "active", status: "in_progress" }]);
+		expect(active.widget.render(200)[0]).toContain("[T]");
+		expect(active.widget.render(200)[0]).not.toContain("[>]");
+		active.overlay.dispose();
 	});
 
-	it("uses hollow icon '○' when all tasks are completed", async () => {
-		const { widget } = await setup([
-			{ action: "create", subject: "a" },
-			...completeActions(1),
-		]);
-		expect(widget.render(200)[0]).toContain("○");
+	it("uses the configured static Nerd Font Todo icon in the heading", async () => {
+		const { widget, overlay } = await setup(
+			[{ action: "create", subject: "active", status: "in_progress" }],
+			STATUS_ICON_PRESETS["nerd-font"],
+		);
+		expect(widget.render(200)[0]).toContain("󰝖");
+		overlay.dispose();
 	});
 });
 
@@ -96,21 +108,57 @@ describe("TodoOverlay — natural-order rendering (no overflow)", () => {
 });
 
 describe("TodoOverlay — per-task formatting", () => {
-	it("pending task uses '○' glyph", async () => {
+	it("pending task uses the default ASCII icon", async () => {
 		const { widget } = await setup([{ action: "create", subject: "pending-task" }]);
-		expect(widget.render(200)[1]).toContain("○");
+		expect(widget.render(200)[1]).toContain("[ ]");
 		expect(widget.render(200)[1]).toContain("pending-task");
 	});
 
-	it("in_progress task uses '◐' glyph and appends (activeForm)", async () => {
+	it("in_progress task uses the default ASCII icon without duplicate text", async () => {
 		const { widget } = await setup([
 			{ action: "create", subject: "do it" },
-			{ action: "update", id: 1, status: "in_progress", activeForm: "Doing it" },
+			{ action: "update", id: 1, status: "in_progress" },
 		]);
 		const line = widget.render(200)[1];
-		expect(line).toContain("◐");
+		expect(line).toContain("[>]");
 		expect(line).toContain("do it");
-		expect(line).toContain("(Doing it)");
+	});
+
+	it("uses the configured Unicode symbols", async () => {
+		const { widget, overlay } = await setup(
+			[{ action: "create", subject: "unicode", status: "in_progress" }],
+			STATUS_ICON_PRESETS.unicode,
+		);
+		expect(widget.render(200)[1]).toContain("◉");
+		overlay.dispose();
+	});
+
+	it("animates Nerd Font progress frames while a task is in progress", async () => {
+		vi.useFakeTimers();
+		try {
+			const { widget, overlay, tui, tool } = await setup(
+				[{ action: "create", subject: "animated", status: "in_progress" }],
+				STATUS_ICON_PRESETS["nerd-font"],
+			);
+			expect(widget.render(200)[1]).toContain("󰪞");
+			vi.advanceTimersByTime(299);
+			expect(tui.requestRender).not.toHaveBeenCalled();
+			vi.advanceTimersByTime(1);
+			expect(tui.requestRender).toHaveBeenCalled();
+			expect(widget.render(200)[1]).toContain("󰪟");
+			await tool.execute?.(
+				"tc",
+				{ action: "update", id: 1, status: "completed" } as never,
+				undefined as never,
+				undefined as never,
+				{} as never,
+			);
+			overlay.update();
+			expect(vi.getTimerCount()).toBe(0);
+			overlay.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("completed task stays visible until the next agent turn starts", async () => {
@@ -119,7 +167,7 @@ describe("TodoOverlay — per-task formatting", () => {
 			...completeActions(1),
 		]);
 		const firstRender = widget.render(200);
-		expect(firstRender[1]).toContain("✓");
+		expect(firstRender[1]).toContain("[x]");
 		expect(firstRender[1]).toContain("done");
 		expect(widget.render(200)[1]).toContain("done");
 		overlay.hideCompletedTasksFromPreviousTurn();

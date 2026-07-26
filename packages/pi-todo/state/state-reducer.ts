@@ -13,7 +13,7 @@ import { detectCycle } from "./task-graph.js";
  * `op.kind === "error"` without a side-channel boolean.
  */
 export type BatchItemOp =
-	| { kind: "create"; taskId: number }
+	| { kind: "create"; taskId: number; status: TaskStatus }
 	| { kind: "update"; id: number; fromStatus: TaskStatus; toStatus: TaskStatus }
 	| { kind: "delete"; id: number; subject: string };
 
@@ -38,8 +38,19 @@ function firstIncompleteDependencyId(tasks: readonly Task[], blockedBy: readonly
 	return blockedBy.find((id) => tasks.find((task) => task.id === id)?.status !== "completed");
 }
 
-function otherInProgressTask(tasks: readonly Task[], currentId: number): Task | undefined {
+function otherInProgressTask(tasks: readonly Task[], currentId?: number): Task | undefined {
 	return tasks.find((task) => task.id !== currentId && task.status === "in_progress");
+}
+
+function formatBatchOperation(operation: NonNullable<TaskMutationParams["operations"]>[number]): string {
+	switch (operation.action) {
+		case "create":
+			return `create${operation.subject ? ` “${operation.subject}”` : ""}${operation.status ? ` → ${operation.status}` : ""}`;
+		case "update":
+			return `update${operation.id !== undefined ? ` #${operation.id}` : ""}${operation.status ? ` → ${operation.status}` : ""}`;
+		case "delete":
+			return `delete${operation.id !== undefined ? ` #${operation.id}` : ""}`;
+	}
 }
 
 /**
@@ -59,30 +70,45 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			if (!params.subject?.trim()) {
 				return errorResult(state, "subject required for create");
 			}
-			if (params.activeForm !== undefined) {
-				return errorResult(state, "activeForm is only valid when status is in_progress");
+
+			const initialStatus = params.status ?? "pending";
+			if (initialStatus !== "pending" && initialStatus !== "in_progress") {
+				return errorResult(state, `cannot create #${state.nextId} with status ${initialStatus}; use pending or in_progress`);
 			}
-			if (params.blockedBy?.length) {
-				for (const dep of params.blockedBy) {
-					const depTask = state.tasks.find((t) => t.id === dep);
-					if (!depTask) return errorResult(state, `blockedBy: #${dep} not found`);
-					if (depTask.status === "deleted") return errorResult(state, `blockedBy: #${dep} is deleted`);
+
+			const blockedBy = [...new Set(params.blockedBy ?? [])];
+			for (const dep of blockedBy) {
+				const depTask = state.tasks.find((t) => t.id === dep);
+				if (!depTask) return errorResult(state, `blockedBy: #${dep} not found`);
+				if (depTask.status === "deleted") return errorResult(state, `blockedBy: #${dep} is deleted`);
+			}
+
+			if (initialStatus === "in_progress") {
+				const active = otherInProgressTask(state.tasks);
+				if (active) {
+					return errorResult(
+						state,
+						`cannot create #${state.nextId} in_progress: #${active.id} is already in_progress; complete or re-queue #${active.id} first`,
+					);
 				}
+				const blockerId = firstIncompleteDependencyId(state.tasks, blockedBy);
+				if (blockerId) return errorResult(state, `#${state.nextId} is blocked by incomplete task #${blockerId}`);
 			}
+
 			const newTask: Task = {
 				id: state.nextId,
 				subject: params.subject,
-				status: "pending",
+				status: initialStatus,
 			};
 			if (params.description) newTask.description = params.description;
-			if (params.blockedBy?.length) newTask.blockedBy = [...new Set(params.blockedBy)];
+			if (blockedBy.length) newTask.blockedBy = blockedBy;
 			if (params.owner) newTask.owner = params.owner;
 			if (params.metadata) newTask.metadata = { ...params.metadata };
 
 			const newTasks = [...state.tasks, newTask];
 			return {
 				state: { tasks: newTasks, nextId: state.nextId + 1 },
-				op: { kind: "create", taskId: newTask.id },
+				op: { kind: "create", taskId: newTask.id, status: newTask.status },
 			};
 		}
 
@@ -95,7 +121,6 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			const hasMutation =
 				params.subject !== undefined ||
 				params.description !== undefined ||
-				params.activeForm !== undefined ||
 				params.status !== undefined ||
 				params.owner !== undefined ||
 				params.metadata !== undefined ||
@@ -109,7 +134,7 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			let newStatus = current.status;
 			if (params.status !== undefined) {
 				if (!isTransitionValid(current.status, params.status)) {
-					return errorResult(state, `illegal transition ${current.status} → ${params.status}`);
+					return errorResult(state, `cannot update #${current.id}: illegal transition ${current.status} → ${params.status}`);
 				}
 				newStatus = params.status;
 			}
@@ -132,18 +157,16 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				}
 			}
 
-			let newActiveForm = params.activeForm !== undefined ? params.activeForm.trim() || undefined : current.activeForm;
 			if (newStatus === "in_progress") {
-				if (!newActiveForm) return errorResult(state, "activeForm required when status is in_progress");
 				const active = otherInProgressTask(state.tasks, current.id);
-				if (active) return errorResult(state, `another task is already in_progress: #${active.id}`);
+				if (active) {
+					return errorResult(
+						state,
+						`cannot start #${current.id}: #${active.id} is already in_progress; complete or re-queue #${active.id} before starting #${current.id}`,
+					);
+				}
 				const blockerId = firstIncompleteDependencyId(state.tasks, newBlockedBy);
 				if (blockerId) return errorResult(state, `#${current.id} is blocked by incomplete task #${blockerId}`);
-			} else {
-				if (params.activeForm !== undefined && params.activeForm.trim()) {
-					return errorResult(state, "activeForm is only valid when status is in_progress");
-				}
-				newActiveForm = undefined;
 			}
 			if (newStatus === "completed") {
 				const blockerId = firstIncompleteDependencyId(state.tasks, newBlockedBy);
@@ -163,8 +186,6 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			const updated: Task = { ...current, status: newStatus };
 			if (params.subject !== undefined) updated.subject = params.subject;
 			if (params.description !== undefined) updated.description = params.description;
-			if (newActiveForm === undefined) delete updated.activeForm;
-			else updated.activeForm = newActiveForm;
 			if (params.owner !== undefined) updated.owner = params.owner;
 			if (newBlockedBy.length) updated.blockedBy = newBlockedBy;
 			else delete updated.blockedBy;
@@ -188,7 +209,10 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			for (const [index, operation] of params.operations.entries()) {
 				const result = applyTaskMutation(nextState, operation.action, operation);
 				if (result.op.kind === "error") {
-					return errorResult(state, `batch operation ${index + 1}: ${result.op.message}`);
+					return errorResult(
+						state,
+						`batch operation ${index + 1} (${formatBatchOperation(operation)}): ${result.op.message}`,
+					);
 				}
 				switch (result.op.kind) {
 					case "create":
@@ -229,7 +253,6 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			const current = state.tasks[idx];
 			if (current.status === "deleted") return errorResult(state, `#${current.id} is already deleted`);
 			const updated: Task = { ...current, status: "deleted" };
-			delete updated.activeForm;
 			const newTasks = [...state.tasks];
 			newTasks[idx] = updated;
 			return {

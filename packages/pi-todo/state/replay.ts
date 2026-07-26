@@ -8,7 +8,9 @@ import { EMPTY_STATE, type TaskState } from "./state.js";
  */
 const TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(["pending", "in_progress", "completed", "deleted"]);
 
-function isTask(value: unknown): value is Task {
+type LegacyTask = Task & { activeForm?: string };
+
+function isTask(value: unknown): value is LegacyTask {
 	if (!value || typeof value !== "object") return false;
 	const task = value as Record<string, unknown>;
 	if (!Number.isInteger(task.id) || (task.id as number) < 1) return false;
@@ -45,6 +47,11 @@ export function isTaskDetails(value: unknown): value is TaskDetails {
  * Pure of runtime state — `index.ts` writes the returned snapshot into its
  * injected store after this returns. The function does not touch the store cell.
  */
+function stripLegacyFields(task: LegacyTask): Task {
+	const { activeForm: _legacyActiveForm, ...current } = task;
+	return current;
+}
+
 export function replayFromBranch(ctx: { sessionManager: { getBranch(): Iterable<unknown> } }): TaskState {
 	let result: TaskState = { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
 	for (const entry of ctx.sessionManager.getBranch()) {
@@ -54,7 +61,7 @@ export function replayFromBranch(ctx: { sessionManager: { getBranch(): Iterable<
 		if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
 		if (!isTaskDetails(msg.details)) continue;
 		result = {
-			tasks: msg.details.tasks.map((t) => ({ ...t })),
+			tasks: msg.details.tasks.map((task) => stripLegacyFields(task as LegacyTask)),
 			nextId: msg.details.nextId,
 		};
 	}
