@@ -1,5 +1,15 @@
 # @zhcsyncer/pi-extensions
 
+## 0.9.0
+
+### Minor Changes
+
+- 101d68c: Follow Pi theme tokens on new installs, keep normal editor borders aligned with the selected color source while reserving a distinct color for Bash mode, apply the same source consistently to context progress, and improve npm/Pi catalog discovery metadata. Existing configs retain their Glance palette unless Follow Pi is explicitly selected.
+
+### Patch Changes
+
+- 101d68c: Allow Todo batches to create and start their first task in one operation, accept pending-to-completed reconciliation, remove the redundant activeForm field with legacy replay compatibility, add configurable ASCII, Unicode, and animated Nerd Font icons with static Todo headings and status-aware theme styling, and improve npm/Pi catalog discovery metadata.
+
 ## 0.8.0
 
 ### Minor Changes
