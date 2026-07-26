@@ -1,11 +1,21 @@
 {
   "name": "@zhcsyncer/pi-todo",
   "version": "0.3.0",
-  "description": "Persistent task planning and branch-aware Todo overlay for Pi.",
+  "description": "Persistent task management, planning, and branch-aware Todo overlay for the Pi coding agent.",
   "keywords": [
     "pi-package",
+    "pi",
+    "pi-coding-agent",
     "pi-extension",
-    "todo"
+    "coding-agent",
+    "todo",
+    "todo-list",
+    "task-management",
+    "task-planning",
+    "planning",
+    "persistent-tasks",
+    "terminal",
+    "tui"
   ],
   "type": "module",
   "license": "MIT",
