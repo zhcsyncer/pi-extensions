@@ -34,9 +34,17 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 10, "configurable context progress should bump CONFIG_VERSION to 10");
-assert.equal(normalizeConfig({ version: 0 }).version, 10, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 10, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 11, "Follow Pi should keep CONFIG_VERSION at 11");
+assert.equal(normalizeConfig({ version: 0 }).version, 11, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 11, "future raw version should normalize to current schema version");
+assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
+assert.equal(normalizeConfig({ version: 10 }).colorSource, "glance", "v10 configs should preserve Glance palette behavior when colorSource is missing");
+assert.equal(normalizeConfig({ version: 10, colorSource: "pi" }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
+assert.equal(normalizeConfig({ colorSource: "glance" }).colorSource, "glance", "current configs should preserve Glance palette color source");
+assert.equal(normalizeConfig({ colorSource: "invalid" }).colorSource, "pi", "invalid current color source should fall back to Follow Pi");
+assert.equal(normalizeConfig({ version: 10, colorSource: "invalid" }).colorSource, "glance", "invalid legacy color source should preserve legacy Glance behavior");
+assert.equal("startupHeader" in defaults, false, "config should not expose a custom Header switch");
+assert.equal("startupHeader" in normalizeConfig({ startupHeader: true }), false, "normalization should discard the removed Header field");
 assert.deepEqual(defaults.theme, { light: "light", dark: "dark" }, "default theme pair should use light for light tone and dark for dark tone");
 assert.equal(defaults.throughput.precision, THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue, "default config throughput precision should come from descriptor default");
 assert.deepEqual((defaults as unknown as { throughput?: unknown }).throughput, { precision: THROUGHPUT_PRECISION_DESCRIPTOR.defaultValue }, "default config should include throughput.precision=auto");
@@ -185,8 +193,9 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 10,
+		version: 11,
 		enabled: false,
+		colorSource: "glance",
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
 		icons: "nerd",
 		editor: {

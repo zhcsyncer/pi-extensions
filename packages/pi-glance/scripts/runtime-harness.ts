@@ -154,7 +154,9 @@ export function fakePiTheme(name = "runtime-current-pi-theme") {
 	return {
 		name,
 		getColorMode: () => "test-mode",
-		fg: (_color: string, text: string) => `<<pi-theme:${text}>>`,
+		fg(_color: string, text: string) {
+			return `<<pi-theme:${this.name}:${text}>>`;
+		},
 	};
 }
 
@@ -206,7 +208,10 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	const hasUI = options.hasUI ?? (mode === "tui" || mode === "rpc");
 	const invokeFooterFactory = options.invokeFooterFactory ?? true;
 	const fakeTui = { requestRender: () => renderRequests++ };
-	const fakeTheme = {};
+	const fakeTheme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
 	const fakeFooterData = {
 		getGitBranch: () => null,
 		getExtensionStatuses: () => new Map<string, string>(),

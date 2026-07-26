@@ -4,7 +4,7 @@ import { defaultConfig } from "../config.js";
 import { measureInputSurfaceFrame, renderInputSurfaceFrame } from "../input-surface-frame.js";
 import { renderInputSurface } from "../renderer.js";
 import { renderSurfaceTopMargin, surfaceMetrics, SURFACE_AUTOCOMPLETE_INDENT, SURFACE_CONTENT_PADDING_X } from "../surface-layout.js";
-import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
+import { resolveBuiltInGlanceStyles, resolvePiThemeStyles, type ResolvedGlanceStyles } from "../theme-adapter.js";
 import { onlySegments, richInputSurfaceState as richState, stripAnsi } from "./surface-test-harness.js";
 import type { GlanceConfig } from "../types.js";
 
@@ -160,6 +160,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 		progressWidth: GlanceConfig["context"]["progressWidth"],
 		percent: number | null = 23.4,
 		bottomScrollIndicator?: string,
+		activeStyles: ResolvedGlanceStyles = styles,
 	): string {
 		const config = defaultConfig();
 		config.editor.topMarginRows = 0;
@@ -174,7 +175,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 			state,
 			config,
 			width: 80,
-			styles,
+			styles: activeStyles,
 			body: { kind: "preview", lines: [""] },
 			chrome: { bottomScrollIndicator },
 		}).at(-1) ?? "";
@@ -199,6 +200,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	assert.ok(normal.includes(styles.segments.context.fg(`╼${"━".repeat(4)}`)), "border progress below 70 percent should use context color");
 	assert.ok(warning.includes(styles.warn(`╼${"━".repeat(15)}`)), "border progress at 70 percent should use warning color");
 	assert.ok(error.includes(styles.error(`╼${"━".repeat(19)}`)), "border progress at 85 percent should use error color");
+	assert.ok(normal.includes(styles.border("─")), "Glance border progress empty track should use the selected palette border");
 	const unknown = progressBottom("border", "third", null);
 	assert.ok(unknown.includes(styles.dim("─".repeat(25))), "unknown border progress should use a dim light track");
 	assert.equal(stripAnsi(unknown).includes("━"), false, "unknown border progress should not render heavy used cells");
@@ -207,6 +209,27 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	assert.ok(stripAnsi(withScroll).includes("─── ↓ 2 more "), "remaining border progress should preserve the bottom scroll indicator");
 	assert.ok(withScroll.includes(styles.warn(`╼${"━".repeat(40)}`)), "remaining border progress should retain risk styling after reserving scroll-indicator space");
 	assert.equal(visibleWidth(withScroll), 80, "remaining border progress with scroll indicator should preserve exact width");
+
+	const piCodes: Record<string, number> = {
+		accent: 31,
+		warning: 32,
+		error: 33,
+		border: 34,
+		dim: 35,
+		muted: 36,
+		text: 37,
+	};
+	const piStyles = resolvePiThemeStyles({
+		name: "progress-pi",
+		fg: (token, text) => `\x1b[${piCodes[token] ?? 39}m${text}\x1b[0m`,
+	});
+	const piNormal = progressBottom("border", "third", 23.4, undefined, piStyles);
+	const piWarning = progressBottom("border", "third", 70, undefined, piStyles);
+	const piError = progressBottom("border", "third", 85, undefined, piStyles);
+	assert.ok(piNormal.includes("\x1b[31m╼━━━━\x1b[0m"), "Follow Pi normal context progress should use the Pi accent token");
+	assert.ok(piNormal.includes("\x1b[34m─\x1b[0m"), "Follow Pi empty progress track should use the Pi border token");
+	assert.ok(piWarning.includes(`\x1b[32m╼${"━".repeat(15)}\x1b[0m`), "Follow Pi warning context progress should use the Pi warning token");
+	assert.ok(piError.includes(`\x1b[33m╼${"━".repeat(19)}\x1b[0m`), "Follow Pi error context progress should use the Pi error token");
 }
 
 console.log("✓ input surface frame checks passed");

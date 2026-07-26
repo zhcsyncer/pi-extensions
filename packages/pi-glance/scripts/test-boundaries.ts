@@ -148,6 +148,14 @@ function assertNoCorePatching(files: SourceFile[]): void {
 	}
 }
 
+function assertNoHeaderOwnership(files: SourceFile[]): void {
+	for (const file of files.filter((candidate) => !candidate.path.startsWith("scripts/"))) {
+		if (/\bsetHeader\b|\bstartupHeader\b|startup-header|GlanceStartupHeader/.test(file.text)) {
+			fail(`${file.path}: pi-glance must leave Pi's native Header untouched`);
+		}
+	}
+}
+
 function assertSurfaceLayoutSeamImports(files: SourceFile[]): void {
 	const surfaceLayout = files.find((candidate) => basename(candidate.path) === SURFACE_LAYOUT_MODULE);
 	if (!surfaceLayout) return;
@@ -279,7 +287,14 @@ function assertThemeToneSeamImports(files: SourceFile[]): void {
 }
 
 function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
-	const allowed = new Set([THEME_ADAPTER_MODULE, RENDER_STYLE_CONTEXT_MODULE, GUARD_SCRIPT, join("scripts", "test-themes.ts")]);
+	const allowed = new Set([
+		THEME_ADAPTER_MODULE,
+		RENDER_STYLE_CONTEXT_MODULE,
+		GUARD_SCRIPT,
+		join("scripts", "test-themes.ts"),
+		join("scripts", "test-input-surface-frame.ts"),
+		join("scripts", "test-surface-parity.ts"),
+	]);
 	for (const file of files) {
 		if (allowed.has(file.path)) continue;
 		if (/resolvePiThemeStyles|PiThemeLike|PiThemeColorToken/.test(file.text)) {
@@ -290,7 +305,7 @@ function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
 
 function assertRenderStyleContextSeam(files: SourceFile[]): void {
 	const renderStyleContext = files.find((candidate) => basename(candidate.path) === RENDER_STYLE_CONTEXT_MODULE);
-	assert.ok(renderStyleContext, "render-style-context.ts inactive runtime style provider seam should exist");
+	assert.ok(renderStyleContext, "render-style-context.ts lazy runtime style provider seam should exist");
 
 	const allowedSpecifiers = new Set(["./theme-adapter.js", "./theme-selection.js", "./types.js"]);
 	const importPattern = /(?:import|export)\s+(type\s+)?(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/g;
@@ -301,9 +316,10 @@ function assertRenderStyleContextSeam(files: SourceFile[]): void {
 		if (!allowedSpecifiers.has(specifier)) fail(`${renderStyleContext.path}: provider seam must not import ${specifier}`);
 	}
 	if (!renderStyleContext.text.includes("createPiRenderStyleContext")) fail(`${renderStyleContext.path}: provider seam should expose Pi theme to GlanceRenderStyleContext conversion`);
-	if (!renderStyleContext.text.includes("resolveRuntimeRenderStyleContext")) fail(`${renderStyleContext.path}: provider seam should expose inactive runtime context resolver`);
-	if (!renderStyleContext.text.includes("getAmbientTone")) fail(`${renderStyleContext.path}: runtime context resolver should merge ambient tone providers with future style overrides`);
-	if (!renderStyleContext.text.includes("enablePiThemeStyles")) fail(`${renderStyleContext.path}: runtime Pi style activation should require an explicit future enable flag`);
+	if (!renderStyleContext.text.includes("resolveRuntimeRenderStyleContext")) fail(`${renderStyleContext.path}: provider seam should expose the runtime context resolver`);
+	if (!renderStyleContext.text.includes("getPiTheme") || !renderStyleContext.text.includes("getPiStyles")) fail(`${renderStyleContext.path}: runtime context resolver should expose lazy Pi theme styles`);
+	if (!renderStyleContext.text.includes("getAmbientTone")) fail(`${renderStyleContext.path}: runtime context resolver should merge lazy Pi styles with ambient fallback tone`);
+	if (/enablePiThemeStyles/.test(renderStyleContext.text)) fail(`${renderStyleContext.path}: obsolete future-enable flags should be removed after the colorSource product decision`);
 	if (/getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(renderStyleContext.text)) fail(`${renderStyleContext.path}: provider seam must not enumerate, load, or set Pi themes`);
 }
 
@@ -333,32 +349,29 @@ function assertThemePairGuardrails(files: SourceFile[]): void {
 	}
 
 	const renderStyleContext = files.find((candidate) => basename(candidate.path) === RENDER_STYLE_CONTEXT_MODULE);
-	assert.ok(renderStyleContext, "render-style-context.ts inactive runtime style provider seam should exist");
-	if (/enablePiThemeStyles\s*[:=]\s*true|enablePiThemeStyles\s*\?\?\s*true/.test(renderStyleContext.text)) {
-		fail(`${renderStyleContext.path}: Pi theme styles must remain inactive by default`);
-	}
-	if (!/options\.enablePiThemeStyles\s*\?\s*createPiRenderStyleContext\(options\.piTheme\)\s*:\s*undefined/.test(renderStyleContext.text)) {
-		fail(`${renderStyleContext.path}: active Pi theme color styles must remain behind the explicit future enable flag`);
-	}
+	assert.ok(renderStyleContext, "render-style-context.ts lazy runtime style provider seam should exist");
+	if (!renderStyleContext.text.includes("createLazyPiStyleProvider")) fail(`${renderStyleContext.path}: Pi theme access should stay behind a lazy provider`);
+	if (!renderStyleContext.text.includes("resolvePiThemeStyles(theme)")) fail(`${renderStyleContext.path}: lazy provider should adapt the current public Pi theme on demand`);
 }
 
 function assertPiThemeRuntimeProviderBoundary(files: SourceFile[]): void {
 	const runtime = files.find((candidate) => basename(candidate.path) === "runtime.ts");
 	assert.ok(runtime, "runtime.ts should exist");
-	if (!runtime.text.includes("./render-style-context.js")) fail(`${runtime.path}: runtime should import the inactive render style provider seam`);
-	if (!runtime.text.includes("resolveRuntimeRenderStyleContext(activeConfig")) fail(`${runtime.path}: runtime should prepare render style context through the inactive provider seam for editor install`);
-	if (!runtime.text.includes("resolveRuntimeRenderStyleContext(current")) fail(`${runtime.path}: runtime should prepare render style context through the inactive provider seam for pane preview`);
+	if (!runtime.text.includes("./render-style-context.js")) fail(`${runtime.path}: runtime should import the lazy render style provider seam`);
+	if (!runtime.text.includes("resolveRuntimeRenderStyleContext(activeConfig")) fail(`${runtime.path}: runtime should prepare render style context through the provider seam for editor install`);
+	if (!runtime.text.includes("resolveRuntimeRenderStyleContext(current")) fail(`${runtime.path}: runtime should prepare render style context through the provider seam for pane preview`);
 	if (!runtime.text.includes("./theme-tone.js")) fail(`${runtime.path}: runtime should import the public ambient tone reader seam`);
-	if (!runtime.text.includes("getAmbientTone: () => readPiAmbientTone(ctx.ui)")) fail(`${runtime.path}: runtime should provide lazy ambient tone through the theme-tone seam`);
-	if (/enablePiThemeStyles/.test(runtime.text)) fail(`${runtime.path}: runtime must not activate Pi theme styles without a future explicit product decision`);
-	if (/createPiRenderStyleContext|resolvePiThemeStyles|PiThemeLike|PiThemeColorToken|readPiUiTheme|ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(runtime.text)) {
-		fail(`${runtime.path}: runtime must not directly use Pi theme adapters, inactive Pi color reader, or enumerate/set Pi themes`);
+	if (!runtime.text.includes("getPiTheme: () => readPiUiTheme(ctx.ui)")) fail(`${runtime.path}: runtime should lazily read the current public Pi theme through the provider seam`);
+	if (!runtime.text.includes("getAmbientTone: () => readPiAmbientTone(ctx.ui)")) fail(`${runtime.path}: runtime should provide lazy ambient fallback tone through the theme-tone seam`);
+	if (/enablePiThemeStyles/.test(runtime.text)) fail(`${runtime.path}: runtime should use config.colorSource instead of an obsolete enable flag`);
+	if (/createPiRenderStyleContext|resolvePiThemeStyles|PiThemeLike|PiThemeColorToken|ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(runtime.text)) {
+		fail(`${runtime.path}: runtime must not directly adapt, enumerate, or set Pi themes`);
 	}
 
 	for (const file of files) {
-		if (new Set([RENDER_STYLE_CONTEXT_MODULE, GUARD_SCRIPT]).has(file.path)) continue;
-		if (/ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(file.text)) {
-			fail(`${file.path}: Pi UI theme APIs must stay limited to the inactive provider seam in this slice`);
+		if (new Set([RENDER_STYLE_CONTEXT_MODULE, "runtime.ts", GUARD_SCRIPT, join("scripts", "test-themes.ts")]).has(file.path)) continue;
+		if (/readPiUiTheme|ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(file.text)) {
+			fail(`${file.path}: direct Pi UI theme access must stay limited to runtime and its provider seam`);
 		}
 	}
 }
@@ -709,7 +722,7 @@ function assertStatusLineSeamImports(files: SourceFile[]): void {
 		if (forbiddenLocalSpecifiers.has(specifier)) fail(`${statusLine.path}: status-line must not import UI/runtime/state/config module ${specifier}`);
 		if (!allowedSpecifiers.has(specifier)) fail(`${statusLine.path}: status-line must not import ${specifier}`);
 	}
-	if (!statusLine.text.includes("resolveGlanceRenderStyles(config.theme, styleContext)")) fail(`${statusLine.path}: status-line styling should resolve config.theme pair through the shared adapter context`);
+	if (!statusLine.text.includes("resolveGlanceRenderStyles(config, styleContext)")) fail(`${statusLine.path}: status-line styling should resolve config.theme pair through the shared adapter context`);
 	if (/selectGlanceTheme\(config\.theme,\s*["']light["']\)/.test(statusLine.text)) fail(`${statusLine.path}: status-line must not hardcode the light theme slot bridge`);
 	if (/\bPALETTES\b|(^|[^.\w$])fg\s*\(/.test(statusLine.text)) fail(`${statusLine.path}: status-line must not style through direct palette/fg access after adapter wiring`);
 }
@@ -742,7 +755,7 @@ function assertRendererSeamImports(files: SourceFile[]): void {
 		if (forbiddenLocalSpecifiers.has(specifier)) fail(`${renderer.path}: renderer must not import UI/runtime/state/config/palette module ${specifier}`);
 		if (!allowedSpecifiers.has(specifier)) fail(`${renderer.path}: renderer must not import ${specifier}`);
 	}
-	if (!renderer.text.includes("resolveGlanceRenderStyles(config.theme, options)")) fail(`${renderer.path}: renderer styling should resolve config.theme pair through the shared adapter context`);
+	if (!renderer.text.includes("resolveGlanceRenderStyles(config, options)")) fail(`${renderer.path}: renderer styling should resolve config.theme pair through the shared adapter context`);
 	if (/selectGlanceTheme\(config\.theme,\s*["']light["']\)/.test(renderer.text)) fail(`${renderer.path}: renderer must not hardcode the light theme slot bridge`);
 	if (!renderer.text.includes("renderInputSurfaceFrame")) fail(`${renderer.path}: renderer preview path should delegate frame assembly to input-surface-frame`);
 	assertNoLowLevelFrameCompositionTokens(renderer, "renderer preview path");
@@ -776,7 +789,7 @@ function assertEditorSeamImports(files: SourceFile[]): void {
 		if (forbiddenLocalSpecifiers.has(specifier)) fail(`${editor.path}: editor must not import UI/runtime/state/config/palette module ${specifier}`);
 		if (!allowedSpecifiers.has(specifier)) fail(`${editor.path}: editor must not import ${specifier}`);
 	}
-	if (!editor.text.includes("resolveGlanceRenderStyles(config.theme, this.glanceOptions?.renderStyleContext)")) fail(`${editor.path}: editor styling should resolve config.theme pair through the shared adapter context`);
+	if (!editor.text.includes("resolveGlanceRenderStyles(config, this.glanceOptions?.renderStyleContext)")) fail(`${editor.path}: editor styling should resolve config.theme pair through the shared adapter context`);
 	if (/selectGlanceTheme\(config\.theme,\s*["']light["']\)/.test(editor.text)) fail(`${editor.path}: editor must not hardcode the light theme slot bridge`);
 	if (!editor.text.includes("measureInputSurfaceFrame") || !editor.text.includes("renderInputSurfaceFrame")) fail(`${editor.path}: editor live frame path should delegate frame metrics/assembly to input-surface-frame`);
 	if (!/renderGlanceLine\([\s\S]*?\{ styles \}/.test(editor.text)) fail(`${editor.path}: editor cached status callback should pass its render-pass styles into status-line rendering`);
@@ -923,6 +936,7 @@ assertNoLegacyNamespace(sourceFiles);
 assertNoLegacyPiPackages(packageFiles);
 assertPublicPiImports(sourceFiles);
 assertNoCorePatching(sourceFiles);
+assertNoHeaderOwnership(sourceFiles);
 assertSurfaceLayoutSeamImports(sourceFiles);
 assertSettingsCatalogSeamImports(sourceFiles);
 assertPaneModelSeamImports(sourceFiles);

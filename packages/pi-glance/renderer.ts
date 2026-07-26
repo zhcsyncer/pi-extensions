@@ -46,7 +46,7 @@ export function renderInputSurface(
 	width: number,
 	options: InputSurfaceRenderOptions = {},
 ): string[] {
-	const styles = resolveGlanceRenderStyles(config.theme, options);
+	const styles = resolveGlanceRenderStyles(config, options);
 	return renderInputSurfaceFrame({
 		state,
 		config,

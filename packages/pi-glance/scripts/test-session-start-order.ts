@@ -76,6 +76,7 @@ async function main(): Promise<void> {
 		assert.equal(isPromiseLike(enabledResult), false, "session_start should be synchronous for default enabled config");
 		assert.equal(enabledCalls[0], "setFooter:install", "default enabled TUI config should synchronously claim the footer before handler returns");
 		assert.equal(enabledCalls[1], "setEditorComponent:install", "default enabled TUI config should synchronously claim the editor before handler returns");
+		assert.equal(enabledCalls.some((call) => call.startsWith("setHeader:")), false, "pi-glance should leave Pi's Header untouched");
 
 		await getHandler(enabledPi, "session_shutdown")({ type: "session_shutdown" }, enabledContext);
 

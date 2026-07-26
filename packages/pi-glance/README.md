@@ -68,18 +68,20 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 | | | |
 |---|---|---|
-| 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserves all pi defaults |
+| 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserving Pi autocomplete, paste, and scrolling |
 | 🏷️ | **Project title** | Current folder name, or a safe `~/...` path when enabled |
 | 📊 | **Inline status** | Git · cost · Reply speed · context · optional tokens · model — top-right |
 | ⚙️ | **`/glance` pane** | General settings, segment order, and per-segment detail settings in a calm grid |
 | 💤 | **Dim unfocused** | Surface quiets down when you scroll the chat |
-| 🎨 | **Themes** | 22 built-in palettes, from Light/Dark to Catppuccin, Solarized, Gruvbox, Rosé Pine, One, Kanagawa, Everforest, and High Contrast |
+| 🎨 | **Themes** | Follows Pi theme tokens by default, with 22 built-in Glance palettes available as an alternative/fallback |
 
 ## Notes
 
-- To switch themes, open `/glance` → **General** → `Light theme` or `Dark theme`, press Enter, preview palettes in the browser, then press Enter to accept or Esc/Left to return. Both rows can choose from all 22 built-in Glance palettes: the Light theme browser lists light-toned palettes first and the Dark theme browser lists dark-toned palettes first, but neither browser filters the catalog. Built-ins: Light, Dark, Catppuccin Latte/Mocha/Frappé/Macchiato, Nord, Tokyo Night, Gruvbox Light/Dark, Solarized Light/Dark, Rosé Pine/Dawn, One Light/Dark, Kanagawa Wave/Lotus, Everforest Light/Dark, and High Contrast Light/Dark.
+- New installs use `/glance` → **General** → `Color source` → `Follow Pi`. Choose `Glance palette` to use the built-in palettes directly. `Light palette` and `Dark palette` also remain the safe fallback when the current Pi theme is unavailable. Both browsers contain all 22 palettes, with the matching tone listed first.
 - Icons default to `plain` so pi-glance works with normal terminal fonts.
 - Editor top spacing is configurable: open `/glance` → **General** → `Top spacing` and choose `none`, `1 row`, or `2 rows`.
+- The focused frame uses the selected Color source border and does not change with thinking level. Bash is the only dynamic exception: `!` uses the source-aware Bash color and shows `Bash`; `!!` shows `Bash · no context`.
+- Long input height, internal scrolling, `↑/↓ N more`, autocomplete, and large-paste markers remain Pi-native behavior.
 - `nerd` icons are opt-in: open `/glance` → **General** → `Icons` and choose `nerd` for richer symbols.
 - Nerd icons need a Nerd Font or Symbols Nerd Font fallback. If icons look like boxes, choose `plain`.
 - pi-glance does not auto-detect, install, or bundle terminal fonts.
@@ -90,12 +92,13 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 ## Themes and config
 
-pi-glance uses its own curated 22 built-in Glance palettes. It is not a Pi theme manager: it does not enumerate, switch, or install Pi UI themes, and it does not render with Pi theme token colors.
+pi-glance is not a Pi theme manager: it never enumerates, switches, or installs Pi themes. It only reads the current public Pi theme when `colorSource` is `pi`.
 
-The supported config model is `theme: { light: GlanceThemeName, dark: GlanceThemeName }`. New installs default to:
+New installs default to:
 
 ```json
 {
+  "colorSource": "pi",
   "theme": {
     "light": "light",
     "dark": "dark"
@@ -103,13 +106,11 @@ The supported config model is `theme: { light: GlanceThemeName, dark: GlanceThem
 }
 ```
 
-When pi-glance loads an older config, migration is conservative: an old string such as `{ "theme": "x" }` is preserved as `{ "theme": { "light": "x", "dark": "x" } }` when `x` is one of the built-in Glance theme names.
+`Follow Pi` maps the frame, text, status, warning, error, title, and detail roles to Pi semantic theme tokens and updates during runtime theme switches. The normal frame uses Pi's border token rather than the thinking-level border; Bash alone uses Pi's `bashMode` token.
 
-At render time, pi-glance reads only Pi's public UI theme name to choose a slot:
+`Glance palette` uses the selected light/dark built-in pair for the frame, segments, and context progress. Bash uses that palette's warning color. The same pair is the fallback if no current Pi theme is available. The 22 built-ins include Light/Dark, Catppuccin, Nord, Tokyo Night, Gruvbox, Solarized, Rosé Pine, One, Kanagawa, Everforest, and High Contrast variants.
 
-- exact `light` selects `theme.light`
-- exact `dark` selects `theme.dark`
-- unknown or custom Pi theme names fall back to `theme.light`
+Migration is conservative: schema 10 and older configs without `colorSource` use `colorSource: "glance"`, preserving their previous appearance. Explicit values are retained. Old string themes still migrate to matching light/dark slots.
 
 ## Segment details
 
@@ -129,7 +130,7 @@ The custom footer always renders only statuses published by extensions, sorted b
 The input box's bottom-right detail area is always active and has no master switch. It contains only:
 
 - **Context progress** — choose `/glance` → **Context** → `Display` → `progress bar`. `Progress style: track` preserves the standalone `╶───────────╴ 23%` renderer. `Progress style: border` uses the input border itself: unused cells stay light `─`, used cells become heavy `━`, and `╼` joins them. `Progress width` chooses whether progress plus labels use `one third` of the inner width or all `remaining` bottom-border space. The percentage keeps normal text color and bottom progress omits the context icon; Nerd Font text modes still use `󰍛`.
-- **Context risk** — below 70% the used section has the context color, from 70% to below 85% it uses warning, and at 85% or higher it uses error. The same fixed thresholds style top-line context text and both bottom progress styles. Unknown progress is dim.
+- **Context risk** — below 70% the used section has the context color, from 70% to below 85% it uses warning, and at 85% or higher it uses error. The same fixed thresholds style top-line context text and both bottom progress styles. Filled and unused border colors come from the selected Color source; unknown progress is dim.
 - **Auto compact** — appears only while Pi auto-compaction is enabled. Plain mode shows highlighted `auto`; Nerd Font mode shows the highlighted `󰁄 auto` marker. It reflects Pi's merged global/project setting, reading project settings only for trusted projects.
 
 On narrow terminals the progress visualization shrinks first; context takes priority over the auto-compaction marker at the smallest widths. The relevant config is:
@@ -186,7 +187,8 @@ pnpm debug:git
 
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
-- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 10; older configs migrate automatically and obsolete footer/detail switches are dropped)
+- pi-glance never replaces Pi's native Header or resource area. Context/Skills/Prompts/Extensions keep Pi's native compact/expanded hierarchy; expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
+- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 11; older configs preserve Glance palette behavior unless `colorSource` was explicitly set)
 
 ## License and attribution
 

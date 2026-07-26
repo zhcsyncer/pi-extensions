@@ -1,7 +1,7 @@
 import { PALETTES, fg } from "./palette.js";
 import { selectGlanceTheme, type GlanceAmbientTone } from "./theme-selection.js";
 import { themeLabel, type GlanceThemeName } from "./themes.js";
-import type { GlanceThemePair, Rgb, SegmentId } from "./types.js";
+import type { ColorSource, GlanceThemePair, Rgb, SegmentId } from "./types.js";
 
 export type TextStyler = (text: string) => string;
 
@@ -21,12 +21,19 @@ export interface ResolvedGlanceStyles {
 	readonly error: TextStyler;
 	readonly separator: TextStyler;
 	readonly border: TextStyler;
+	readonly bashBorder: TextStyler;
 	readonly title: TextStyler;
 	readonly segments: Record<SegmentId, ResolvedGlanceSegmentStyles>;
 }
 
+export interface GlanceStyleSelection {
+	readonly theme: GlanceThemePair;
+	readonly colorSource: ColorSource;
+}
+
 export interface GlanceRenderStyleContext {
 	readonly styles?: ResolvedGlanceStyles;
+	readonly getPiStyles?: () => ResolvedGlanceStyles | undefined;
 	readonly ambientTone?: GlanceAmbientTone;
 	readonly getAmbientTone?: () => GlanceAmbientTone;
 }
@@ -36,6 +43,7 @@ export type PiThemeColorToken =
 	| "border"
 	| "borderAccent"
 	| "borderMuted"
+	| "bashMode"
 	| "success"
 	| "error"
 	| "warning"
@@ -112,6 +120,7 @@ export function resolveBuiltInGlanceStyles(theme: GlanceThemeName): ResolvedGlan
 		error: styleFromRgb(palette.error),
 		separator: styleFromRgb(palette.separator),
 		border: styleFromRgb(palette.border),
+		bashBorder: styleFromRgb(palette.warn),
 		title: styleFromRgb(palette.title),
 		segments: resolveBuiltInSegmentStyles(theme),
 	};
@@ -130,13 +139,18 @@ export function resolvePiThemeStyles(theme: PiThemeLike, options: PiThemeStyleOp
 		error: styleFromPiTokens(theme, ["error", "warning", "text"]),
 		separator: styleFromPiTokens(theme, ["muted", "dim", "text"]),
 		border: styleFromPiTokens(theme, ["border", "borderMuted", "muted", "text"]),
+		bashBorder: styleFromPiTokens(theme, ["bashMode", "warning", "accent", "text"]),
 		title: styleFromPiTokens(theme, ["accent", "borderAccent", "text"]),
 		segments: resolvePiSegmentStyles(theme),
 	};
 }
 
-export function resolveGlanceRenderStyles(theme: GlanceThemePair, context: GlanceRenderStyleContext = {}): ResolvedGlanceStyles {
+export function resolveGlanceRenderStyles(selection: GlanceStyleSelection, context: GlanceRenderStyleContext = {}): ResolvedGlanceStyles {
 	if (context.styles) return context.styles;
+	if (selection.colorSource === "pi") {
+		const piStyles = context.getPiStyles?.();
+		if (piStyles) return piStyles;
+	}
 	const ambientTone = context.ambientTone ?? context.getAmbientTone?.() ?? "unknown";
-	return resolveBuiltInGlanceStyles(selectGlanceTheme(theme, ambientTone));
+	return resolveBuiltInGlanceStyles(selectGlanceTheme(selection.theme, ambientTone));
 }

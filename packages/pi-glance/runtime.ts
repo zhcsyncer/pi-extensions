@@ -2,7 +2,7 @@ import { getAgentDir, SettingsManager, type ExtensionCommandContext, type Extens
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
-import { resolveRuntimeRenderStyleContext } from "./render-style-context.js";
+import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
@@ -179,6 +179,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		}
 
 		const renderStyleContext = resolveRuntimeRenderStyleContext(activeConfig, {
+			getPiTheme: () => readPiUiTheme(ctx.ui),
 			getAmbientTone: () => readPiAmbientTone(ctx.ui),
 		});
 		const generation = invalidateUiOwnership();
@@ -219,6 +220,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				const current = await ensureConfig();
 				refreshSession.ensureState(ctx);
 				const renderStyleContext = resolveRuntimeRenderStyleContext(current, {
+					getPiTheme: () => readPiUiTheme(ctx.ui),
 					getAmbientTone: () => readPiAmbientTone(ctx.ui),
 				});
 				const result = await adapters.showPane(current, ctx, refreshSession.getState(), renderStyleContext ? { renderStyleContext } : undefined);

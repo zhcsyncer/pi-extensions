@@ -1,5 +1,6 @@
 import { cloneConfig, toggleSegment } from "./config.js";
 import {
+	COLOR_SOURCE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	ICON_MODE_VALUES,
 	WORKSPACE_LABEL_MODE_VALUES,
@@ -67,6 +68,10 @@ function onOff(value: boolean): string {
 
 function topMarginRowsLabel(value: EditorTopMarginRows): string {
 	return value === 0 ? "none" : value === 1 ? "1 row" : "2 rows";
+}
+
+function colorSourceLabel(value: GlanceConfig["colorSource"]): string {
+	return value === "pi" ? "Follow Pi" : "Glance palette";
 }
 
 function toggleRow(id: string, label: string, value: boolean, hint: string, apply: (config: GlanceConfig) => GlanceConfig): SettingsRow {
@@ -167,11 +172,16 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 						next.enabled = !next.enabled;
 					}),
 				),
+				cycleRow("general.colorSource", "Color source", colorSourceLabel(config.colorSource), "Follow Pi theme tokens or use Glance palettes.", (draft) =>
+					withConfig(draft, (next) => {
+						next.colorSource = nextIn(next.colorSource, COLOR_SOURCE_VALUES);
+					}),
+				),
 				cycleRow(
 					"general.theme.light",
-					"Light theme",
+					"Light palette",
 					getThemeLabel(config.theme.light),
-					"Palette used for light or unknown Pi theme tone.",
+					"Used by Glance palette and as the light or unknown Pi fallback.",
 					(draft) =>
 						withConfig(draft, (next) => {
 							next.theme.light = nextIn(next.theme.light, themeIdsForSlot("light"));
@@ -180,9 +190,9 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 				),
 				cycleRow(
 					"general.theme.dark",
-					"Dark theme",
+					"Dark palette",
 					getThemeLabel(config.theme.dark),
-					"Palette used for dark Pi theme tone.",
+					"Used by Glance palette and as the dark Pi fallback.",
 					(draft) =>
 						withConfig(draft, (next) => {
 							next.theme.dark = nextIn(next.theme.dark, themeIdsForSlot("dark"));

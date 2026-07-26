@@ -72,8 +72,25 @@ export class GlanceEditor extends CustomEditor {
 		if (isThinkingCycle) this.onThinkingLevelMaybeChanged?.();
 	}
 
+	invalidate(): void {
+		super.invalidate();
+		this.cachedVersion = -1;
+		this.cachedConfig = undefined;
+		this.cachedWidth = -1;
+		this.cachedProviderCount = -1;
+		this.cachedStatusStyleKey = "";
+		this.cachedStatus = "";
+	}
+
+	private bashModeLabel(): string | undefined {
+		const text = this.getText().trimStart();
+		if (text.startsWith("!!")) return "Bash · no context";
+		if (text.startsWith("!")) return "Bash";
+		return undefined;
+	}
+
 	private currentStyles(config: GlanceConfig = this.getConfig()): ResolvedGlanceStyles {
-		return resolveGlanceRenderStyles(config.theme, this.glanceOptions?.renderStyleContext);
+		return resolveGlanceRenderStyles(config, this.glanceOptions?.renderStyleContext);
 	}
 
 	private renderStatus(width: number, styles: ResolvedGlanceStyles): string {
@@ -114,6 +131,7 @@ export class GlanceEditor extends CustomEditor {
 		if (lines.length < 2) return lines;
 
 		const isFocused = this.focused;
+		const modeLabel = this.bashModeLabel();
 
 		const topOriginal = lines[0] ?? "";
 		let bottomIndex = -1;
@@ -134,6 +152,7 @@ export class GlanceEditor extends CustomEditor {
 			body: { kind: "editor", lines: contentLines },
 			chrome: {
 				focus: isFocused ? "focused" : "unfocused",
+				...(modeLabel ? { border: styles.bashBorder, modeLabel } : {}),
 				topScrollIndicator: this.extractScrollIndicator(topOriginal, metrics.safeWidth),
 				bottomScrollIndicator: this.extractScrollIndicator(bottomOriginal, metrics.safeWidth),
 			},

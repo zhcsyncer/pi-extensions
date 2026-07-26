@@ -8,7 +8,7 @@ import { createPiRenderStyleContext } from "../render-style-context.js";
 import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "../bottom-details.js";
 import { contextRiskLevel } from "../context-risk.js";
 import { renderInputSurface } from "../renderer.js";
-import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
+import { resolveBuiltInGlanceStyles, resolvePiThemeStyles } from "../theme-adapter.js";
 import { renderGlanceLine } from "../status-line.js";
 import {
 	planSurfaceBottomFrame,
@@ -232,7 +232,7 @@ function renderLegacyStyledEditorTop(state: GlanceState, config: GlanceConfig, w
 	});
 }
 
-function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: number, focused = true): string {
+function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: number, focused = true, nativeBorder = false): string {
 	const innerWidth = surfaceMetrics(width).innerWidth;
 	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, 0);
 	const detailsBudget = config.context.progressWidth === "remaining"
@@ -259,7 +259,7 @@ function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: num
 					: styles.segments.context.fg;
 	const progressEmpty = !focused || risk === "unknown" ? styles.dim : styles.border;
 	return renderSurfaceChunks(planSurfaceBottomFrame({ width, status: details, contextProgress }).chunks, {
-		border: (text) => legacyEditorBorder(config, focused, text),
+		border: (text) => nativeBorder ? legacyEditorBorder(config, focused, text) : legacyBorder(config, text),
 		status: (text) => text,
 		contextProgressFilled: progressFilled,
 		contextProgressEmpty: progressEmpty,
@@ -267,7 +267,7 @@ function renderLegacyBottom(state: GlanceState, config: GlanceConfig, width: num
 }
 
 function renderLegacyStyledEditorBottom(state: GlanceState, config: GlanceConfig, width: number, focused: boolean): string {
-	return renderLegacyBottom(state, config, width, focused);
+	return renderLegacyBottom(state, config, width, focused, true);
 }
 
 function renderLegacyStyledInputSurface(state: GlanceState, config: GlanceConfig, width: number, options: LegacySurfaceOptions = {}): string[] {
@@ -425,7 +425,11 @@ for (const themeId of EDITOR_STYLE_PARITY_THEMES) {
 			);
 			const rendered = frame.join("\n");
 			const palette = PALETTES[themeId];
-			assert.ok(rendered.includes(fg(focused ? palette.border : palette.dim, "│")), `${themeId} live editor side border should keep legacy ${focused ? "border" : "dim"} bytes`);
+			if (focused) {
+				assert.ok(rendered.includes(fg(palette.border, "│")), `${themeId} focused live editor should use the selected Glance palette border`);
+			} else {
+				assert.ok(rendered.includes(fg(palette.dim, "│")), `${themeId} unfocused live editor side border should keep Glance dim bytes`);
+			}
 			if (focused) {
 				assert.ok(top.includes(fg(palette.title, " 07_pi-glance ")), `${themeId} focused title should keep legacy title bytes`);
 				assert.ok(top.includes(fg(palette.segments.model.fg, "ai GPT 5.5")), `${themeId} focused status should keep legacy model segment bytes`);
@@ -646,6 +650,112 @@ for (const width of WIDTHS) {
 	assert.deepEqual(editorKeyEditor.getCursor(), { line: 0, col: 2 }, "left-arrow editor keybinding should move the inherited Pi editor cursor");
 	editorKeyEditor.handleInput("\u007f");
 	assert.equal(editorKeyEditor.getText(), "ac", "backspace editor keybinding should delete through inherited Pi editor behavior");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	const editor = makeLiveEditor(dirtyState(), config, true);
+	editor.setText("source border");
+	editor.borderColor = (text) => `\x1b[45m${text}\x1b[0m`;
+	const magentaNativeFrame = editor.render(80).join("\n");
+	assert.ok(magentaNativeFrame.includes(fg(PALETTES.light.border, "╭")), "normal focused top border should use the selected Color source");
+	assert.equal(magentaNativeFrame.includes("\x1b[45m╭\x1b[0m"), false, "thinking-level native borderColor should not recolor the normal Glance frame");
+	editor.borderColor = (text) => `\x1b[46m${text}\x1b[0m`;
+	const cyanNativeFrame = editor.render(80).join("\n");
+	assert.ok(cyanNativeFrame.includes(fg(PALETTES.light.border, "╭")), "later thinking border updates should leave the source border unchanged");
+	assert.equal(cyanNativeFrame.includes("\x1b[46m╭\x1b[0m"), false, "normal frame should ignore later native borderColor changes");
+	editor.setText("! echo hello");
+	const bashFrame = editor.render(80).join("\n");
+	assert.ok(bashFrame.includes(fg(PALETTES.light.warn, "╭")), "Bash mode should use the selected Glance palette warning color");
+	assert.equal(bashFrame.includes(fg(PALETTES.light.border, "╭")), false, "Bash mode should visibly differ from the normal source border");
+	editor.focused = false;
+	const unfocusedFrame = editor.render(80).join("\n");
+	assert.equal(unfocusedFrame.includes(fg(PALETTES.light.warn, "╭")), false, "unfocused Bash frame should use Glance dim styling");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	config.colorSource = "pi";
+	const piStyles = resolvePiThemeStyles({
+		name: "editor-border-pi",
+		fg: (token, text) => `<${token}>${text}</${token}>`,
+	});
+	const editor = new GlanceEditor(
+		{ terminal: { rows: 40 }, requestRender: () => undefined } as unknown as TUI,
+		theme,
+		keybindings,
+		() => dirtyState(),
+		() => config,
+		undefined,
+		{ renderStyleContext: { styles: piStyles } },
+	);
+	editor.focused = true;
+	editor.borderColor = (text) => `<thinking>${text}</thinking>`;
+	editor.setText("normal prompt");
+	const normal = editor.render(80).join("\n");
+	assert.ok(normal.includes("<border>╭</border>"), "Follow Pi normal frame should use the Pi border token");
+	assert.equal(normal.includes("<thinking>╭</thinking>"), false, "Follow Pi normal frame should ignore Pi thinking borderColor");
+	editor.setText("! pwd");
+	const bash = editor.render(80).join("\n");
+	assert.ok(bash.includes("<bashMode>╭</bashMode>"), "Follow Pi Bash frame should use the Pi bashMode token");
+	assert.equal(bash.includes("<border>╭</border>"), false, "Follow Pi Bash frame should visibly differ from the normal border token");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	const editor = makeLiveEditor(dirtyState(), config, true, 20);
+	editor.setText("! echo hello");
+	assert.ok(findTopBorder(editor.render(80).map(stripAnsi)).includes("Bash"), "single-bang input should show an explicit Bash label");
+	editor.setText("!! env");
+	assert.ok(findTopBorder(editor.render(80).map(stripAnsi)).includes("Bash · no context"), "double-bang input should explain that Bash output is excluded from context");
+	editor.setText("normal prompt");
+	assert.equal(findTopBorder(editor.render(80).map(stripAnsi)).includes("Bash"), false, "normal prompts should not show a Bash label");
+	editor.setText(["! echo start", ...Array.from({ length: 12 }, (_, index) => `line ${index + 1}`)].join("\n"));
+	const scrolledTop = findTopBorder(editor.render(80).map(stripAnsi));
+	assert.ok(scrolledTop.includes("Bash"), "Bash label should remain visible while the native editor is scrolled");
+	assert.ok(scrolledTop.includes("↑") && scrolledTop.includes("more"), "Bash top frame should preserve the native upward scroll indicator");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	let ansiCode = 31;
+	const piTheme = {
+		name: "same-name-theme",
+		getColorMode: () => "truecolor",
+		fg: (_color: string, text: string) => `\x1b[${ansiCode}m${text}\x1b[0m`,
+	};
+	const editor = new GlanceEditor(
+		{ terminal: { rows: 40 }, requestRender: () => undefined } as unknown as TUI,
+		theme,
+		keybindings,
+		() => editorStyleState,
+		() => config,
+		undefined,
+		{ renderStyleContext: { getPiStyles: () => resolvePiThemeStyles(piTheme) } },
+	);
+	editor.focused = true;
+	editor.setText("theme reload");
+	const beforeReload = rawTopBorder(editor.render(120));
+	assert.ok(beforeReload.includes("\x1b[31mai GPT 5.5\x1b[0m"), "initial same-name Pi theme should style the cached status");
+	ansiCode = 32;
+	editor.invalidate();
+	const afterReload = rawTopBorder(editor.render(120));
+	assert.ok(afterReload.includes("\x1b[32mai GPT 5.5\x1b[0m"), "invalidate should refresh status ANSI after a same-name Pi theme reload");
+	assert.equal(afterReload.includes("\x1b[31mai GPT 5.5\x1b[0m"), false, "same-name theme reload should not retain stale cached status ANSI");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	const editor = makeLiveEditor(dirtyState(), config, true);
+	const pasted = Array.from({ length: 12 }, (_, index) => `pasted line ${index + 1}`).join("\n");
+	editor.handleInput(`\x1b[200~${pasted}\x1b[201~`);
+	assert.match(editor.getText(), /^\[paste #1 \+12 lines\]$/, "large bracketed paste should keep Pi's native collapsed marker");
+	assert.equal(editor.getExpandedText(), pasted, "GlanceEditor should preserve Pi's native expanded paste content exactly");
 }
 
 {

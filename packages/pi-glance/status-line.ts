@@ -39,7 +39,7 @@ function renderEnabledSegments(
 	styleContext: GlanceRenderStyleContext = {},
 ): { styles: ResolvedGlanceStyles; segments: SegmentRenderResult[] } {
 	const widthMode = widthModeFor(width);
-	const styles = resolveGlanceRenderStyles(config.theme, styleContext);
+	const styles = resolveGlanceRenderStyles(config, styleContext);
 	const icons = ICONS[config.icons];
 	const ctx: SegmentRenderContext = {
 		state,

@@ -8,7 +8,7 @@ export interface PiThemeHost {
 
 export interface RuntimeRenderStyleContextOptions {
 	readonly piTheme?: PiThemeLike;
-	readonly enablePiThemeStyles?: boolean;
+	readonly getPiTheme?: () => PiThemeLike | undefined;
 	readonly getAmbientTone?: () => GlanceAmbientTone;
 }
 
@@ -21,18 +21,31 @@ export function createPiRenderStyleContext(theme: PiThemeLike | undefined): Glan
 	return { styles: resolvePiThemeStyles(theme) };
 }
 
+function createLazyPiStyleProvider(options: RuntimeRenderStyleContextOptions): GlanceRenderStyleContext["getPiStyles"] {
+	if (options.getPiTheme) {
+		return () => {
+			const theme = options.getPiTheme?.();
+			return theme ? resolvePiThemeStyles(theme) : undefined;
+		};
+	}
+	if (options.piTheme) {
+		return () => resolvePiThemeStyles(options.piTheme!);
+	}
+	return undefined;
+}
+
 /**
- * Inactive by default: current pi-glance configs have no Pi-theme opt-in, so runtime
- * callers must pass a future explicit enable flag before Pi UI theme styles are used.
+ * Runtime style providers stay lazy so a config-pane draft can switch color
+ * source and Pi theme changes are observed without reinstalling the surface.
  */
 export function resolveRuntimeRenderStyleContext(
 	_config: GlanceConfig,
 	options: RuntimeRenderStyleContextOptions = {},
 ): GlanceRenderStyleContext | undefined {
-	const piStyleContext = options.enablePiThemeStyles ? createPiRenderStyleContext(options.piTheme) : undefined;
-	if (!piStyleContext && !options.getAmbientTone) return undefined;
+	const getPiStyles = createLazyPiStyleProvider(options);
+	if (!getPiStyles && !options.getAmbientTone) return undefined;
 	return {
-		...piStyleContext,
+		...(getPiStyles ? { getPiStyles } : {}),
 		...(options.getAmbientTone ? { getAmbientTone: options.getAmbientTone } : {}),
 	};
 }
