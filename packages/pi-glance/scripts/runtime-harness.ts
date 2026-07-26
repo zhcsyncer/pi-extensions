@@ -3,6 +3,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultConfig } from "../config.js";
 import { createGlanceRuntime, type CreateGitRefresherOptions, type GlancePaneResult, type GlanceRuntimeAdapters, type RuntimeGitRefresher, type RuntimeShowPaneOptions } from "../runtime.js";
 import type { StateSessionEntry } from "../runtime-snapshot.js";
+import type { StartupHeaderCommand } from "../startup-header.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "../types.js";
 
 export type RuntimeMode = "tui" | "rpc" | "json" | "print";
@@ -85,6 +86,8 @@ export interface RuntimeHarnessOptions {
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
 	getQuietStartupEnabled?: () => boolean;
+	headerCommands?: readonly StartupHeaderCommand[];
+	contextFileCount?: number;
 	random?: () => number;
 }
 
@@ -363,6 +366,8 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 	const showPaneResults = [...(options.showPaneResults ?? [])];
 	const adapters: GlanceRuntimeAdapters = {
 		getThinkingLevel: options.getThinkingLevel ?? (() => "off"),
+		getCommands: () => options.headerCommands ?? [],
+		getContextFileCount: () => options.contextFileCount ?? 0,
 		getAutoCompactionEnabled: options.getAutoCompactionEnabled ?? (() => true),
 		getQuietStartupEnabled: options.getQuietStartupEnabled ?? (() => false),
 		loadConfigSync: () => loadConfigSyncConfig,

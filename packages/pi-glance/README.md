@@ -68,7 +68,7 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 | | | |
 |---|---|---|
-| ◌ | **Startup header** | Responsive Pi logo plus one randomly selected tip; Pi's own resource summary stays below it |
+| ◌ | **Startup header** | Claude-style Pi card with real command Tips and a compact resource snapshot; Pi's authoritative resource details stay below it |
 | 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserving Pi autocomplete, paste, and scrolling |
 | 🏷️ | **Project title** | Current folder name, or a safe `~/...` path when enabled |
 | 📊 | **Inline status** | Git · cost · Reply speed · context · optional tokens · model — top-right |
@@ -80,7 +80,8 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 - New installs use `/glance` → **General** → `Color source` → `Follow Pi`. Choose `Glance palette` to use the built-in palettes directly. `Light palette` and `Dark palette` also remain the safe fallback when the current Pi theme is unavailable. Both browsers contain all 22 palettes, with the matching tone listed first.
 - Icons default to `plain` so pi-glance works with normal terminal fonts.
-- The optional Startup Header is enabled on new installs and uses a static responsive Claude-style box: Pi version, block logo, `Pi · Glance`, current model/thinking/cwd, one session-stable Tip, and `/glance`, `/model`, `/settings`, `/hotkeys`. Existing schema-10 configs keep Pi's built-in Header until `Startup header` is enabled. Pi quiet startup always wins.
+- The optional Startup Header is enabled on new installs and uses a static responsive Claude-style box: Pi version, block logo, `Pi · Glance`, `Let's build something great`, `Ask Pi to build it`, pinned `/glance`, and up to three real commands selected from the current Pi session. The command Tips stay fixed for that session. Model, thinking, and cwd remain only in the Editor instead of being repeated in the Header. Existing schema-10 configs keep Pi's built-in Header until `Startup header` is enabled. Pi quiet startup always wins.
+- The Header's B1 `Resources` row is a compact startup snapshot: Context file count plus distinct Skill, Prompt, and command-contributing Extension source paths. An Extension count ending in `+` is a lower bound because extensions without commands are not exposed by Pi's public command catalog. Pi's native resource area remains directly below the box as the authoritative expandable view.
 - Editor top spacing is configurable: open `/glance` → **General** → `Top spacing` and choose `none`, `1 row`, or `2 rows`.
 - The focused frame uses the selected Color source border and does not change with thinking level. Bash is the only dynamic exception: `!` uses the source-aware Bash color and shows `Bash`; `!!` shows `Bash · no context`.
 - Long input height, internal scrolling, `↑/↓ N more`, autocomplete, and large-paste markers remain Pi-native behavior.
@@ -190,7 +191,7 @@ pnpm debug:git
 
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
-- The custom Header replaces only Pi's Header component; Pi's separate Context/Skills/Prompts/Extensions summary keeps its native compact/expanded hierarchy. Expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
+- The custom Header replaces only Pi's Header component and receives a lifecycle-cached B1 resource snapshot; it performs no discovery during render. Pi's separate Context/Skills/Prompts/Extensions area remains authoritative and keeps its native compact/expanded hierarchy. Expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
 - Global config at `~/.pi/agent/pi-glance/config.json` (schema version 11; older configs preserve Glance palette behavior and Pi's built-in Header unless explicitly opted in)
 
 ## License and attribution

@@ -23,7 +23,7 @@ import {
 	type RuntimeHarnessOptions,
 	type RuntimeTestContext,
 } from "./runtime-harness.js";
-import { STARTUP_TIPS } from "../startup-header.js";
+import { STARTUP_PROMPT, type StartupHeaderCommand } from "../startup-header.js";
 
 type TestContext = RuntimeTestContext;
 type RuntimeShowPaneResults = RuntimeHarnessOptions["showPaneResults"];
@@ -269,9 +269,24 @@ for (const matrixCase of [
 }
 
 {
-	let thinking = "off";
-	const test = createContext({ invokeHeaderFactory: false });
-	const harness = createRuntimeHarness({ loadConfigSyncConfig: defaultConfig(), random: () => 0.4, getThinkingLevel: () => thinking, git: createGitHarness() });
+	const headerCommands: StartupHeaderCommand[] = [
+		{ name: "glance", source: "extension", sourceInfo: { path: "/extensions/pi-glance.ts" } },
+		{ name: "review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md" } },
+		{ name: "commit", source: "prompt", sourceInfo: { path: "/prompts/commit.md" } },
+		{ name: "todo", source: "extension", sourceInfo: { path: "/extensions/pi-todo.ts" } },
+		{ name: "plan", source: "skill", sourceInfo: { path: "/skills/plan/SKILL.md" } },
+	];
+	const test = createContext({
+		invokeHeaderFactory: false,
+		uiTheme: { name: "plain", fg: (_color: string, text: string) => text },
+	});
+	const harness = createRuntimeHarness({
+		loadConfigSyncConfig: defaultConfig(),
+		headerCommands,
+		contextFileCount: 3,
+		random: () => 0.4,
+		git: createGitHarness(),
+	});
 	harness.runtime.events.sessionStart({}, test.ctx);
 	const component = invokeHeaderFactory(test, 0, () => undefined, {
 		fg: (_color: string, text: string) => text,
@@ -279,19 +294,20 @@ for (const matrixCase of [
 	}) as { render(width: number): string[] };
 	const firstRender = component.render(100).join("\n");
 	const secondRender = component.render(100).join("\n");
-	assert.ok(firstRender.includes(STARTUP_TIPS[2]!.slice(0, 18)), "session random source should select the expected startup tip once even when the sidebar truncates it");
-	assert.ok(firstRender.includes("test-provider/test-model · off effort"), "runtime Header should expose the current provider/model and thinking effort");
-	assert.ok(firstRender.includes("/repo"), "runtime Header should expose the current workspace path");
-	assert.equal(secondRender, firstRender, "rerendering the Header should not reshuffle its session tip");
+	assert.ok(firstRender.includes(STARTUP_PROMPT), "runtime Header should keep the Claude-style getting-started prompt");
+	for (const commandTip of ["/glance", "/commit", "/todo", "/review"]) {
+		assert.ok(firstRender.includes(commandTip), `session command picker should keep the stable selected Tip ${commandTip}`);
+	}
+	assert.ok(firstRender.includes("Context 3 · Skills 2 · Prompts 1 · Extensions 2+"), "runtime Header should expose the B1 resource snapshot");
+	assert.equal(firstRender.includes("test-provider/test-model"), false, "runtime Header should not repeat the Editor model and thinking");
+	assert.equal(firstRender.includes("/repo"), false, "runtime Header should not repeat the Editor workspace path");
+	assert.equal(secondRender, firstRender, "rerendering the Header should not reshuffle session command Tips");
 
 	test.setModel({ id: "next-model", provider: "next-provider", contextWindow: 100_000 });
 	test.setCwd("/next-repo");
-	thinking = "high";
 	await harness.runtime.events.sessionTree({}, test.ctx);
 	const updatedRender = component.render(100).join("\n");
-	assert.ok(updatedRender.includes("next-provider/next-model · high effort"), "runtime Header should re-read model and thinking after lifecycle refreshes");
-	assert.ok(updatedRender.includes("/next-repo"), "runtime Header should re-read cwd after workspace refreshes");
-	assert.ok(updatedRender.includes(STARTUP_TIPS[2]!.slice(0, 18)), "runtime info refreshes should preserve the session Tip");
+	assert.equal(updatedRender, firstRender, "Editor fact refreshes should not add duplicate model, thinking, or cwd content to Header");
 }
 
 {

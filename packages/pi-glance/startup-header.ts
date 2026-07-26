@@ -2,30 +2,39 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ResolvedGlanceStyles } from "./theme-adapter.js";
 
-export const STARTUP_TIPS = [
-	"Type / to browse commands.",
-	"Prefix ! to run Bash; !! keeps output out of context.",
-	"Use /glance to tune the input surface.",
-	"Drop files into the terminal to add context.",
-	"Ask Pi to explain its own features or look up its docs.",
-] as const;
+export const STARTUP_TAGLINE = "Let's build something great";
+export const STARTUP_PROMPT = "Ask Pi to build it";
+export const PINNED_STARTUP_COMMAND = "/glance";
 
-export const STARTUP_COMMANDS = ["/glance", "/model", "/settings", "/hotkeys"] as const;
+export interface StartupHeaderCommand {
+	name: string;
+	source: "extension" | "prompt" | "skill";
+	sourceInfo: {
+		path: string;
+	};
+}
+
+export interface StartupHeaderResourceSummary {
+	context: number;
+	skills: number;
+	prompts: number;
+	extensions: number;
+	extensionsAreLowerBound?: boolean;
+}
 
 export interface StartupHeaderInfo {
 	version: string;
-	model?: string;
-	thinking?: string;
-	cwd?: string;
+	resources: StartupHeaderResourceSummary;
 }
 
 export interface GlanceStartupHeaderOptions {
-	tip: string;
+	commandTips: readonly string[];
 	getStyles: () => ResolvedGlanceStyles;
 	getInfo: () => StartupHeaderInfo;
 }
 
 type LogoRole = "title" | "error" | "success" | "warn";
+type ResourceKey = keyof Pick<StartupHeaderResourceSummary, "context" | "skills" | "prompts" | "extensions">;
 
 const LOGO_CELL = "██";
 const LOGO_GRID: ReadonlyArray<ReadonlyArray<LogoRole | undefined>> = [
@@ -36,20 +45,67 @@ const LOGO_GRID: ReadonlyArray<ReadonlyArray<LogoRole | undefined>> = [
 	["warn", "warn", "warn", "warn", "warn"],
 ];
 
+const RESOURCE_LABELS: ReadonlyArray<readonly [ResourceKey, string, string]> = [
+	["context", "Context", "C"],
+	["skills", "Skills", "S"],
+	["prompts", "Prompts", "P"],
+	["extensions", "Extensions", "E"],
+];
+
 const MIN_LEFT_WIDTH = 28;
 const MIN_RIGHT_WIDTH = 16;
 const MAX_RIGHT_WIDTH = 28;
 const COLUMN_GAP = 3;
 const MIN_BOX_WIDTH = 24;
+const STARTUP_COMMAND_COUNT = 4;
 
 function finiteRandom(value: number): number {
 	if (!Number.isFinite(value)) return 0;
 	return Math.max(0, Math.min(0.999999999999, value));
 }
 
-export function selectStartupTip(random: () => number = Math.random): string {
-	const index = Math.floor(finiteRandom(random()) * STARTUP_TIPS.length);
-	return STARTUP_TIPS[index] ?? STARTUP_TIPS[0];
+function normalizeCommandName(name: string): string | undefined {
+	const trimmed = name.trim().replace(/^\/+/, "");
+	return trimmed ? `/${trimmed}` : undefined;
+}
+
+export function selectStartupCommandTips(
+	commandNames: readonly string[],
+	random: () => number = Math.random,
+	count = STARTUP_COMMAND_COUNT,
+): string[] {
+	const targetCount = Math.max(1, Math.floor(Number.isFinite(count) ? count : STARTUP_COMMAND_COUNT));
+	const unique = new Set<string>();
+	for (const name of commandNames) {
+		const normalized = normalizeCommandName(name);
+		if (normalized && normalized !== PINNED_STARTUP_COMMAND) unique.add(normalized);
+	}
+	const pool = [...unique];
+	const selected = [PINNED_STARTUP_COMMAND];
+	while (selected.length < targetCount && pool.length > 0) {
+		const index = Math.floor(finiteRandom(random()) * pool.length);
+		selected.push(pool.splice(index, 1)[0]!);
+	}
+	return selected;
+}
+
+function distinctSourcePathCount(commands: readonly StartupHeaderCommand[], source: StartupHeaderCommand["source"]): number {
+	return new Set(
+		commands
+			.filter((command) => command.source === source)
+			.map((command) => command.sourceInfo.path.trim())
+			.filter(Boolean),
+	).size;
+}
+
+export function summarizeStartupResources(contextFileCount: number, commands: readonly StartupHeaderCommand[]): StartupHeaderResourceSummary {
+	return {
+		context: Math.max(0, Math.floor(Number.isFinite(contextFileCount) ? contextFileCount : 0)),
+		skills: distinctSourcePathCount(commands, "skill"),
+		prompts: distinctSourcePathCount(commands, "prompt"),
+		extensions: distinctSourcePathCount(commands, "extension"),
+		extensionsAreLowerBound: true,
+	};
 }
 
 function fitLine(text: string, width: number, ellipsis = ""): string {
@@ -66,18 +122,6 @@ function center(text: string, width: number): string {
 	const remaining = Math.max(0, width - visibleWidth(clipped));
 	const left = Math.floor(remaining / 2);
 	return `${" ".repeat(left)}${clipped}${" ".repeat(remaining - left)}`;
-}
-
-function formatCwd(cwd: string | undefined, home = process.env.HOME): string {
-	if (!cwd) return "";
-	if (home && (cwd === home || cwd.startsWith(`${home}/`))) return `~${cwd.slice(home.length)}`;
-	return cwd;
-}
-
-function formatModelLine(info: StartupHeaderInfo): string {
-	const model = info.model?.trim() || "Default model";
-	const thinking = info.thinking?.trim() || "off";
-	return `${model} · ${thinking} effort`;
 }
 
 function renderLogo(styles: ResolvedGlanceStyles): string[] {
@@ -116,6 +160,14 @@ function topBorder(width: number, label: string, styles: ResolvedGlanceStyles): 
 	);
 }
 
+function sectionBorder(width: number, label: string, styles: ResolvedGlanceStyles): string {
+	if (width <= 2) return fitLine(styles.border("─".repeat(width)), width);
+	const plainLabel = ` ${label} `;
+	if (width < visibleWidth(plainLabel) + 4) return styles.border(`├${"─".repeat(width - 2)}┤`);
+	const fill = Math.max(0, width - visibleWidth(label) - 5);
+	return `${styles.border("├─ ")}${styles.title(label)}${styles.border(` ${"─".repeat(fill)}┤`)}`;
+}
+
 function bottomBorder(width: number, styles: ResolvedGlanceStyles): string {
 	if (width <= 1) return fitLine(styles.border("─"), width);
 	return styles.border(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
@@ -128,6 +180,27 @@ function boxedLine(content: string, width: number, styles: ResolvedGlanceStyles)
 
 function twoColumn(left: string, right: string, leftWidth: number, rightWidth: number, styles: ResolvedGlanceStyles): string {
 	return `${padRight(left, leftWidth)} ${styles.border("│")} ${padRight(right, rightWidth, "…")}`;
+}
+
+function resourceCount(resources: StartupHeaderResourceSummary, key: ResourceKey): string {
+	const count = String(resources[key]);
+	return key === "extensions" && resources.extensionsAreLowerBound ? `${count}+` : count;
+}
+
+function renderResourceSummary(resources: StartupHeaderResourceSummary, width: number, styles: ResolvedGlanceStyles): string {
+	const fullPlain = RESOURCE_LABELS.map(([key, label]) => `${label} ${resourceCount(resources, key)}`).join(" · ");
+	const useShort = visibleWidth(fullPlain) > width;
+	return RESOURCE_LABELS.map(([key, label, short]) => {
+		const name = useShort ? short : label;
+		const separator = useShort ? "" : " ";
+		return `${styles.dim(name)}${separator}${styles.text(resourceCount(resources, key))}`;
+	}).join(styles.dim(" · "));
+}
+
+function commandRows(commandTips: readonly string[]): string[] {
+	if (commandTips.length <= 2) return [commandTips.join(" · ")];
+	const split = Math.ceil(commandTips.length / 2);
+	return [commandTips.slice(0, split).join(" · "), commandTips.slice(split).join(" · ")];
 }
 
 export class GlanceStartupHeader implements Component {
@@ -143,17 +216,17 @@ export class GlanceStartupHeader implements Component {
 		const styles = this.options.getStyles();
 		const info = this.options.getInfo();
 		const brand = this.theme.bold(styles.title("Pi · Glance"));
+		const tagline = styles.dim(STARTUP_TAGLINE);
 		const tipTitle = this.theme.bold(styles.title("Getting started"));
 		const commandsTitle = this.theme.bold(styles.title("Commands"));
-		const model = styles.dim(formatModelLine(info));
-		const cwd = styles.dim(formatCwd(info.cwd));
-		const tip = styles.dim(this.options.tip);
+		const prompt = styles.dim(STARTUP_PROMPT);
 		const versionLabel = `${styles.title("Pi")} ${styles.text(`v${info.version}`)}`;
 
 		if (safeWidth < MIN_BOX_WIDTH) {
 			const compactBrand = this.theme.bold(styles.title("◌ Pi · Glance"));
 			const lines = [fitLine(compactBrand, safeWidth, safeWidth > 1 ? "…" : "")];
-			if (safeWidth >= 12) lines.push(fitLine(`${styles.title("Tip")}  ${tip}`, safeWidth, "…"));
+			if (safeWidth >= 12) lines.push(fitLine(styles.dim(this.options.commandTips.join(" · ")), safeWidth, "…"));
+			if (safeWidth >= 16) lines.push(fitLine(renderResourceSummary(info.resources, safeWidth, styles), safeWidth, "…"));
 			return lines;
 		}
 
@@ -166,18 +239,18 @@ export class GlanceStartupHeader implements Component {
 			const leftLines = [
 				...logo.map((line) => center(line, widths.leftWidth)),
 				center(brand, widths.leftWidth),
-				center(model, widths.leftWidth),
-				center(cwd, widths.leftWidth),
+				center(tagline, widths.leftWidth),
+				"",
 				"",
 			];
 			const divider = styles.border("─".repeat(Math.max(8, Math.min(widths.rightWidth, 22))));
 			const rightLines = [
 				"",
 				tipTitle,
-				tip,
+				prompt,
 				divider,
 				commandsTitle,
-				...STARTUP_COMMANDS.map((command) => styles.dim(command)),
+				...this.options.commandTips.map((command) => styles.dim(command)),
 			];
 			for (let index = 0; index < Math.max(leftLines.length, rightLines.length); index++) {
 				lines.push(
@@ -189,18 +262,21 @@ export class GlanceStartupHeader implements Component {
 				);
 			}
 		} else {
-			const commandLine = `${commandsTitle}  ${styles.dim(STARTUP_COMMANDS.join(" · "))}`;
 			const body = [
 				...logo.map((line) => center(line, innerWidth)),
 				center(brand, innerWidth),
-				center(model, innerWidth),
-				center(cwd, innerWidth),
-				fitLine(`${tipTitle}  ${tip}`, innerWidth, "…"),
-				fitLine(commandLine, innerWidth, "…"),
+				center(tagline, innerWidth),
+				tipTitle,
+				prompt,
+				styles.border("─".repeat(Math.max(8, Math.min(innerWidth, 22)))),
+				commandsTitle,
+				...commandRows(this.options.commandTips).map((line) => styles.dim(line)),
 			];
-			for (const line of body) lines.push(boxedLine(line, safeWidth, styles));
+			for (const line of body) lines.push(boxedLine(fitLine(line, innerWidth, "…"), safeWidth, styles));
 		}
 
+		lines.push(sectionBorder(safeWidth, "Resources", styles));
+		lines.push(boxedLine(fitLine(renderResourceSummary(info.resources, innerWidth, styles), innerWidth, "…"), safeWidth, styles));
 		lines.push(bottomBorder(safeWidth, styles));
 		return lines.map((line) => fitLine(line, safeWidth));
 	}

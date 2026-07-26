@@ -1,10 +1,16 @@
-import { getAgentDir, SettingsManager, VERSION, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadProjectContextFiles, SettingsManager, VERSION, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
 import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
-import { GlanceStartupHeader, selectStartupTip } from "./startup-header.js";
+import {
+	GlanceStartupHeader,
+	selectStartupCommandTips,
+	summarizeStartupResources,
+	type StartupHeaderCommand,
+	type StartupHeaderResourceSummary,
+} from "./startup-header.js";
 import { resolveGlanceRenderStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
@@ -28,6 +34,8 @@ export interface RuntimeShowPaneOptions {
 
 export interface GlanceRuntimeAdapters {
 	getThinkingLevel(): string;
+	getCommands?(): readonly StartupHeaderCommand[];
+	getContextFileCount?(ctx: ExtensionContext): number;
 	getAutoCompactionEnabled?(ctx: ExtensionContext): boolean;
 	getQuietStartupEnabled?(ctx: ExtensionContext): boolean;
 	loadConfigSync(): GlanceConfig;
@@ -97,6 +105,15 @@ function readQuietStartupEnabled(ctx: ExtensionContext): boolean {
 	}
 }
 
+function readContextFileCount(ctx: ExtensionContext): number {
+	try {
+		const cwd = ctx.sessionManager.getCwd() || ctx.cwd;
+		return loadProjectContextFiles({ cwd, agentDir: getAgentDir() }).length;
+	} catch {
+		return 0;
+	}
+}
+
 export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRuntime {
 	let config: GlanceConfig | undefined;
 	let footer: StatusOnlyFooter | undefined;
@@ -104,7 +121,8 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 	let requestRender: (() => void) | undefined;
 	let uiGeneration = 0;
 	let ownsHeader = false;
-	let startupTip: string | undefined;
+	let startupCommandTips: string[] | undefined;
+	let startupResources: StartupHeaderResourceSummary | undefined;
 	const nowMs = adapters.nowMs ?? Date.now;
 	const random = adapters.random ?? Math.random;
 
@@ -189,26 +207,32 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			clearHeader(ctx);
 			return;
 		}
-		const tip = startupTip ?? selectStartupTip(random);
-		startupTip = tip;
+		if (!startupCommandTips || !startupResources) {
+			let commands: readonly StartupHeaderCommand[] = [];
+			try {
+				commands = adapters.getCommands?.() ?? [];
+			} catch {
+				commands = [];
+			}
+			startupCommandTips = selectStartupCommandTips(
+				commands.map((command) => command.name),
+				random,
+			);
+			let contextFileCount = 0;
+			try {
+				contextFileCount = (adapters.getContextFileCount ?? readContextFileCount)(ctx);
+			} catch {
+				contextFileCount = 0;
+			}
+			startupResources = summarizeStartupResources(contextFileCount, commands);
+		}
+		const commandTips = startupCommandTips;
+		const resources = startupResources;
 		ctx.ui.setHeader((_tui, theme) =>
 			new GlanceStartupHeader(theme, {
-				tip,
+				commandTips,
 				getStyles: () => resolveGlanceRenderStyles(getConfig(), renderStyleContext),
-				getInfo: () => {
-					const state = refreshSession.getState() ?? refreshSession.ensureState(ctx);
-					const model = state.model.id
-						? state.model.provider
-							? `${state.model.provider}/${state.model.id}`
-							: state.model.id
-						: undefined;
-					return {
-						version: VERSION,
-						model,
-						thinking: state.model.thinking,
-						cwd: state.workspace.path,
-					};
-				},
+				getInfo: () => ({ version: VERSION, resources }),
 			}),
 		);
 		ownsHeader = true;
@@ -300,7 +324,8 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		events: {
 			sessionStart: (_event, ctx) => {
 				config = adapters.loadConfigSync();
-				startupTip = selectStartupTip(random);
+				startupCommandTips = undefined;
+				startupResources = undefined;
 				refreshSession.sessionStart(ctx);
 				installInputSurface(ctx);
 			},

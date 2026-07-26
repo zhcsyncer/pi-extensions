@@ -40,7 +40,7 @@ pi --no-extensions -e ./packages/pi-glance
 
 ## 你会看到什么
 
-- **Startup Header**：Claude 风格响应式圆角盒，展示 Pi 版本、静态 block Logo、`Pi · Glance`、当前模型/Thinking/cwd、每会话固定的一条 Tip，以及 `/glance`、`/model`、`/settings`、`/hotkeys`；Pi 原生资源摘要继续显示在其下方。
+- **Startup Header**：Claude 风格响应式圆角盒，展示 Pi 版本、静态 block Logo、`Pi · Glance`、`Let's build something great`、`Ask Pi to build it`、固定 `/glance`，以及从当前 Pi 会话真实命令中抽取的最多 3 条 Tips。命令 Tips 在该会话内保持不变；模型、Thinking、cwd 只留在 Editor，不再在 Header 重复。
 - **圆角编辑器**：可配置最小 2 / 3 / 4 行和顶部 0 / 1 / 2 行间距，并保留 Pi 原生自动补全、粘贴和滚动能力。
 - **工作区标题**：展示目录名，或安全缩短后的 `~/...` 路径。
 - **顶部状态**：Git、费用、Reply speed、context、可选 tokens 和模型。
@@ -55,6 +55,7 @@ pi --no-extensions -e ./packages/pi-glance
 - 普通终端字体默认使用 `plain` 图标；`nerd` 图标需要 Nerd Font 或 Symbols Nerd Font fallback。
 - 其他扩展的 `ctx.ui.setStatus()` 状态默认保留在输入框下方。
 - 新安装默认启用静态响应式 Pi Logo Header；schema 10 旧配置继续显示 Pi 内置 Header，直到在 **General** 中开启 `Startup header`。Pi quiet startup 始终优先。
+- Header 的 B1 `Resources` 行是启动时紧凑快照：Context 文件数，以及按来源路径去重的 Skills、Prompts 和提供命令的 Extensions。Extensions 数量后的 `+` 表示下限，因为 Pi 公共命令目录不会暴露没有命令的扩展。盒子下方的 Pi 原生资源区仍是准确、可展开的权威详情。
 - 聚焦输入框的普通边框使用所选 Color source，不再跟随 thinking level。Bash 是唯一动态例外：`!` 使用该颜色来源的 Bash 色并显示 `Bash`，`!!` 显示 `Bash · no context`。
 - 长输入最大高度、内部滚动、`↑/↓ N more`、自动补全和大段粘贴 marker 都继续使用 Pi 原生行为。
 - Reply speed 默认启用：`? tok/s` 表示未知，`~42 tok/s` 表示当前 agent run 的临时值，`42 tok/s` 表示 `agent_end` 后的最终值。
@@ -153,7 +154,7 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash
 - `StatusOnlyFooter` 使用公开的 `footerData.getExtensionStatuses()` 保留扩展状态。
 - Git 在后台异步缓存；Pi settings 只在生命周期刷新时读取，不在渲染阶段读取。
 - 自定义编辑器继承 `CustomEditor`，保留 Pi 快捷键、自动补全、粘贴、最大高度和滚动行为。
-- Startup Header 只替换 Pi Header；Context、Skills、Prompts、Extensions 仍由 Pi 的独立资源区负责概要、层级和展开。Extensions 展开后继续按 project/user/path 分组，并由 Pi 显示 `npm:`/`git:` 包来源和本地文件路径。
+- Startup Header 只替换 Pi Header，并消费生命周期阶段缓存的 B1 资源快照，渲染时不发现资源；Context、Skills、Prompts、Extensions 的准确详情仍由 Pi 独立资源区负责概要、层级和展开。Extensions 展开后继续按 project/user/path 分组，并由 Pi 显示 `npm:`/`git:` 包来源和本地文件路径。
 
 ## 许可证与上游归属
 

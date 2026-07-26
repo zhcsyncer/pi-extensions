@@ -931,13 +931,14 @@ function assertStartupHeaderBoundary(files: SourceFile[]): void {
 		if (!allowedSpecifiers.has(specifier)) fail(`${header.path}: startup Header may only import public Pi/TUI APIs, not ${specifier}`);
 	}
 	if (!header.text.includes("class GlanceStartupHeader")) fail(`${header.path}: startup Header should expose its component`);
-	if (!header.text.includes("selectStartupTip")) fail(`${header.path}: startup Header should expose deterministic session tip selection`);
+	if (!header.text.includes("selectStartupCommandTips")) fail(`${header.path}: startup Header should expose deterministic real-command Tip selection`);
+	if (!header.text.includes("summarizeStartupResources")) fail(`${header.path}: startup Header should expose its pure B1 resource summarizer`);
 	for (const role of ["title", "error", "success", "warn"] as const) {
 		if (!header.text.includes(`\"${role}\"`)) fail(`${header.path}: Pi logo should use the shared ${role} style role`);
 	}
 	if (!header.text.includes("ResolvedGlanceStyles")) fail(`${header.path}: startup Header should consume the shared Color source styles`);
-	if (/\.fg\s*\(|ctx\.ui|(?:getExtensions|getSkills|getPrompts|getAgentsFiles)\s*\(/.test(header.text)) {
-		fail(`${header.path}: startup Header must not bypass shared styles or duplicate Pi resource discovery`);
+	if (/\.fg\s*\(|ctx\.ui|(?:getExtensions|getSkills|getPrompts|getAgentsFiles|loadProjectContextFiles)\s*\(/.test(header.text)) {
+		fail(`${header.path}: startup Header must not bypass shared styles or discover resources during render`);
 	}
 	if (/setTimeout\s*\(|setInterval\s*\(|NodeJS\.Timeout|\.unref\s*\(/.test(header.text)) {
 		fail(`${header.path}: calm startup Header must remain static and timer-free`);
