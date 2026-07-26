@@ -98,7 +98,7 @@ export function selectOverlayLayout(state: TaskState, budget: number): OverlayLa
 
 /**
  * Helper: whether any visible task is `pending` or `in_progress`. The overlay
- * uses this to pick the heading icon (`accent`+`●` vs `dim`+`○`).
+ * uses this to pick the heading emphasis from the active icon preset.
  */
 export function selectHasActive(state: TaskState): boolean {
 	return selectVisibleTasks(state).some((t) => t.status === "in_progress" || t.status === "pending");

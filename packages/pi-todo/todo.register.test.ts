@@ -30,12 +30,15 @@ describe("registerTodoTool — registration shape", () => {
 		expect((tool.promptGuidelines as string[]).length).toBeGreaterThan(0);
 	});
 
-	it("exposes a typebox parameters schema declaring all actions", () => {
+	it("exposes a typebox parameters schema declaring all actions and ordered batch semantics", () => {
 		const { tool } = setup();
 		const raw = JSON.stringify(tool.parameters);
 		for (const action of ["create", "update", "list", "get", "delete", "clear", "batch"]) {
 			expect(raw).toContain(action);
 		}
+		expect(raw).toContain("Initial status for create");
+		expect(raw).toContain("Ordered atomic");
+		expect(raw).not.toContain("activeForm");
 	});
 });
 
@@ -58,18 +61,23 @@ describe("registerTodoTool — execute mutates its injected store", () => {
 		expect(d.nextId).toBe(1);
 	});
 
-	it("batch creates multiple tasks in one tool result", async () => {
+	it("batch creates and starts the first task in one tool result", async () => {
 		const { tool } = setup();
 		const result = await call(tool, {
 			action: "batch",
 			operations: [
-				{ action: "create", subject: "first" },
+				{ action: "create", subject: "first", status: "in_progress" },
 				{ action: "create", subject: "second", blockedBy: [1] },
 			],
 		});
 		const details = result?.details as TaskDetails;
-		expect(details.tasks.map((task) => task.subject)).toEqual(["first", "second"]);
-		expect(result?.content[0]).toMatchObject({ text: expect.stringContaining("Applied 2 todo operations") });
+		expect(details.tasks.map(({ subject, status }) => ({ subject, status }))).toEqual([
+			{ subject: "first", status: "in_progress" },
+			{ subject: "second", status: "pending" },
+		]);
+		expect(result?.content[0]).toMatchObject({
+			text: expect.stringContaining("Created #1: first (in_progress)"),
+		});
 	});
 });
 
@@ -97,7 +105,7 @@ describe("registerTodoTool — transcript rendering", () => {
 			await call(tool, { action: "create", subject: "a" }),
 			await call(tool, { action: "list" }),
 			await call(tool, { action: "get", id: 1 }),
-			await call(tool, { action: "update", id: 1, status: "in_progress", activeForm: "Working" }),
+			await call(tool, { action: "update", id: 1, status: "in_progress" }),
 			await call(tool, { action: "delete", id: 1 }),
 			await call(tool, { action: "clear" }),
 			await call(tool, { action: "batch", operations: [{ action: "create", subject: "batched" }] }),
@@ -112,6 +120,27 @@ describe("registerTodoTool — transcript rendering", () => {
 	it("reports reducer validation failures as real tool errors", async () => {
 		const { tool } = setup();
 		await expect(call(tool, { action: "create" })).rejects.toThrow("subject required for create");
+	});
+
+	it("reveals every ordered batch operation in expanded mode", () => {
+		const { tool } = setup();
+		const callNode = tool.renderCall?.(
+			{
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "first", status: "in_progress" },
+					{ action: "update", id: 1, status: "completed" },
+					{ action: "delete", id: 2 },
+				],
+			} as never,
+			theme,
+			{ expanded: true } as never,
+		) as unknown as Text;
+		const rendered = callNode.render(120).join("\n");
+		expect(rendered).toContain("batch (3 operations)");
+		expect(rendered).toContain("1. create “first” → in_progress");
+		expect(rendered).toContain("2. update #1 → completed");
+		expect(rendered).toContain("3. delete #2");
 	});
 
 	it("reveals successful call and result summaries in expanded mode", async () => {

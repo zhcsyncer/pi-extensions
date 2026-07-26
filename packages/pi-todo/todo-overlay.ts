@@ -12,15 +12,17 @@
 
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import { loadConfig, resolveStatusIcons, type StatusIcons } from "./config.js";
 import { formatStatusLabel, t } from "./state/i18n-bridge.js";
 import { selectHasActive, selectOverlayLayout, selectShowTaskIds, selectTodoCounts } from "./state/selectors.js";
 import type { TodoStore } from "./state/store.js";
-import { formatOverlayTaskLine } from "./view/format.js";
+import { formatOverlayTaskLine, statusIcon } from "./view/format.js";
 
 const WIDGET_KEY = "rpiv-todos";
 // Budget for content rows (heading + tasks/summary). The rendered widget is
 // one line taller — withTrailingSpacer() appends a blank row below the panel.
 const MAX_WIDGET_LINES = 12;
+const NERD_FONT_ANIMATION_INTERVAL_MS = 300;
 
 // English fallbacks for localized overlay chrome strings.
 const OVERLAY_HEADING = "Todos";
@@ -33,13 +35,22 @@ export class TodoOverlay {
 	private completedTaskIdsPendingHide = new Set<number>();
 	private hiddenCompletedTaskIds = new Set<number>();
 	private lastNextId: number | undefined;
+	private animationTimer: ReturnType<typeof setInterval> | undefined;
+	private inProgressFrameIndex = 0;
+	private readonly statusIcons: StatusIcons;
 
-	constructor(private readonly store: TodoStore) {}
+	constructor(
+		private readonly store: TodoStore,
+		statusIcons = resolveStatusIcons(loadConfig().statusIcons),
+	) {
+		this.statusIcons = statusIcons;
+	}
 
 	setUICtx(ctx: ExtensionUIContext): void {
 		// Identity-compare so repeat session_start handlers are idempotent;
 		// on identity change (/reload) invalidate so update() re-registers.
 		if (ctx !== this.uiCtx) {
+			this.stopAnimation();
 			this.uiCtx = ctx;
 			this.widgetRegistered = false;
 			this.tui = undefined;
@@ -52,6 +63,7 @@ export class TodoOverlay {
 		const visible = this.selectOverlayTasks(snapshot);
 
 		if (visible.length === 0) {
+			this.stopAnimation();
 			if (this.widgetRegistered) {
 				this.uiCtx.setWidget(WIDGET_KEY, undefined);
 				this.widgetRegistered = false;
@@ -59,6 +71,8 @@ export class TodoOverlay {
 			}
 			return;
 		}
+
+		this.syncAnimation(visible.some((task) => task.status === "in_progress"));
 
 		if (!this.widgetRegistered) {
 			this.uiCtx.setWidget(
@@ -68,6 +82,7 @@ export class TodoOverlay {
 					return {
 						render: (width: number) => this.renderWidget(theme, width),
 						invalidate: () => {
+							this.stopAnimation();
 							this.widgetRegistered = false;
 							this.tui = undefined;
 						},
@@ -125,8 +140,14 @@ export class TodoOverlay {
 	private renderWidget(theme: Theme, width: number): string[] {
 		const snapshot = this.getSnapshot();
 		const overlayTasks = this.selectOverlayTasks(snapshot);
-		if (overlayTasks.length === 0) return [];
+		if (overlayTasks.length === 0) {
+			this.stopAnimation();
+			return [];
+		}
 
+		const hasInProgress = overlayTasks.some((task) => task.status === "in_progress");
+		this.syncAnimation(hasInProgress);
+		const inProgressFrame = this.currentInProgressFrame();
 		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
 		const truncate = (line: string): string => truncateToWidth(line, width, "…");
 		const counts = selectTodoCounts(overlayState);
@@ -134,14 +155,18 @@ export class TodoOverlay {
 		const showIds = selectShowTaskIds(overlayState);
 
 		const headingColor = hasActive ? "accent" : "dim";
-		const headingIcon = hasActive ? "●" : "○";
+		const headingIcon = theme.fg(headingColor, this.statusIcons.heading);
 		const headingText = `${t("overlay.heading", OVERLAY_HEADING)} (${counts.completed}/${counts.total})`;
-		const heading = truncate(`${theme.fg(headingColor, headingIcon)} ${theme.fg(headingColor, headingText)}`);
+		const heading = truncate(`${headingIcon} ${theme.fg(headingColor, headingText)}`);
 
 		const lines: string[] = [heading];
 		const layout = selectOverlayLayout(overlayState, MAX_WIDGET_LINES - 1);
 		for (const task of layout.visible) {
-			lines.push(truncate(`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, showIds)}`));
+			lines.push(
+				truncate(
+					`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, showIds, this.statusIcons, inProgressFrame)}`,
+				),
+			);
 		}
 
 		const newlyDisplayedCompletedTaskIds = overlayTasks
@@ -186,7 +211,31 @@ export class TodoOverlay {
 		return lines;
 	}
 
+	private currentInProgressFrame(): string {
+		return this.statusIcons.inProgressFrames[this.inProgressFrameIndex % this.statusIcons.inProgressFrames.length]!;
+	}
+
+	private syncAnimation(hasInProgress: boolean): void {
+		if (!this.tui || !hasInProgress || this.statusIcons.inProgressFrames.length < 2) {
+			this.stopAnimation();
+			return;
+		}
+		if (this.animationTimer) return;
+		this.animationTimer = setInterval(() => {
+			this.inProgressFrameIndex = (this.inProgressFrameIndex + 1) % this.statusIcons.inProgressFrames.length;
+			this.tui?.requestRender();
+		}, NERD_FONT_ANIMATION_INTERVAL_MS);
+		this.animationTimer.unref?.();
+	}
+
+	private stopAnimation(): void {
+		if (this.animationTimer) clearInterval(this.animationTimer);
+		this.animationTimer = undefined;
+		this.inProgressFrameIndex = 0;
+	}
+
 	dispose(): void {
+		this.stopAnimation();
 		if (this.uiCtx) this.uiCtx.setWidget(WIDGET_KEY, undefined);
 		this.widgetRegistered = false;
 		this.tui = undefined;
