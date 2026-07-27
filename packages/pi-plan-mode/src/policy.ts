@@ -1,4 +1,5 @@
 export const SUBMIT_PLAN_TOOL = "submit_plan";
+export const COMPLETE_PLAN_TOOL = "complete_plan";
 
 const READ_ONLY_PLANNING_TOOLS = new Set([
 	"read",
@@ -13,7 +14,7 @@ const READ_ONLY_PLANNING_TOOLS = new Set([
 	"questionnaire",
 ]);
 
-const MANAGED_TOOLS = new Set([SUBMIT_PLAN_TOOL]);
+const MANAGED_TOOLS = new Set([SUBMIT_PLAN_TOOL, COMPLETE_PLAN_TOOL]);
 
 export function withoutManagedTools(toolNames: string[]): string[] {
 	return [...new Set(toolNames.filter((name) => !MANAGED_TOOLS.has(name)))];
@@ -24,6 +25,15 @@ export function getPlanningTools(previouslyActive: string[]): string[] {
 		...new Set([
 			...previouslyActive.filter((name) => READ_ONLY_PLANNING_TOOLS.has(name)),
 			SUBMIT_PLAN_TOOL,
+		]),
+	];
+}
+
+export function getNormalTools(previouslyActive: string[], canCompletePlan: boolean): string[] {
+	return [
+		...new Set([
+			...withoutManagedTools(previouslyActive),
+			...(canCompletePlan ? [COMPLETE_PLAN_TOOL] : []),
 		]),
 	];
 }

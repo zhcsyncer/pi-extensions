@@ -5,6 +5,7 @@ import {
 	compactPlanPath,
 	renderModeWidget,
 	renderPlanApprovedEvent,
+	renderPlanLifecycleEvent,
 	renderPlanWidget,
 } from "../src/widgets.ts";
 
@@ -62,6 +63,45 @@ describe("Plan Mode widgets", () => {
 		expect(rendered).toContain("Ctrl+Alt+O collapse");
 	});
 
+	it("renders implementing and completed work independently from document approval", () => {
+		const implementing = plain(renderPlanWidget({
+			...plan,
+			workStatus: "implementing",
+			approvedHash: `sha256:${"a".repeat(64)}`,
+			expanded: false,
+		}, 100, theme).join("\n"));
+		expect(implementing).toContain("IMPLEMENTING · r2");
+		const completed = plain(renderPlanWidget({
+			...plan,
+			workStatus: "completed",
+			approvedHash: `sha256:${"a".repeat(64)}`,
+			expanded: true,
+		}, 100, theme).join("\n"));
+		expect(completed).toContain("COMPLETED · r2");
+		expect(completed).toContain("Document: APPROVED");
+		expect(completed).toContain("Approved hash: sha256:");
+	});
+
+	it("renders compact and expandable lifecycle events", () => {
+		const data = {
+			kind: "completed" as const,
+			title: plan.title,
+			planId: "plan-1",
+			revision: 2,
+			planPath: plan.planPath,
+			approvedHash: `sha256:${"a".repeat(64)}`,
+			source: "agent" as const,
+			summary: "Implemented OAuth",
+			verification: ["pnpm test"],
+		};
+		expect(plain(renderPlanLifecycleEvent(data, 100, theme, false).join("\n")))
+			.toBe("✓ PLAN COMPLETED · OAuth migration · r2");
+		const expanded = plain(renderPlanLifecycleEvent(data, 100, theme, true).join("\n"));
+		expect(expanded).toContain("Summary: Implemented OAuth");
+		expect(expanded).toContain("Verified: pnpm test");
+		expect(expanded).toContain("Plan ID: plan-1");
+	});
+
 	it("renders a compact width-safe approval event", () => {
 		const wide = plain(renderPlanApprovedEvent({ title: plan.title, revision: 2, stepCount: 5 }, 100, theme).join("\n"));
 		expect(wide).toBe("✓ PLAN APPROVED · OAuth migration · r2 · 5 steps");
@@ -77,6 +117,9 @@ describe("Plan Mode widgets", () => {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			}
 			for (const line of renderPlanApprovedEvent({ title: plan.title, revision: 2, stepCount: 5 }, width, theme)) {
+				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			}
+			for (const line of renderPlanLifecycleEvent({ kind: "abandoned", title: plan.title, revision: 2 }, width, theme, true)) {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			}
 		}

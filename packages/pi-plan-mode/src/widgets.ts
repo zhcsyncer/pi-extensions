@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { PlanStatus } from "./types.ts";
+import type { PlanStatus, PlanWorkStatus } from "./types.ts";
 
 const PLAN_PREFIX = "▌ PLAN  ";
 const MODE_LABEL = "⏸ PLAN MODE · READ-ONLY";
@@ -12,6 +12,8 @@ const STEPS_HINT = "Ctrl+Alt+O";
 export interface PlanWidgetData {
 	title: string;
 	status: PlanStatus;
+	workStatus?: PlanWorkStatus;
+	approvedHash?: string;
 	revision: number;
 	planPath: string;
 	steps: string[];
@@ -25,17 +27,31 @@ export interface PlanApprovedEventData {
 	stepCount?: number;
 }
 
+export interface PlanLifecycleEventData {
+	kind?: "completed" | "abandoned";
+	title?: string;
+	planId?: string;
+	revision?: number;
+	planPath?: string;
+	approvedHash?: string;
+	source?: "agent" | "user" | "migration";
+	summary?: string;
+	verification?: string[];
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
 	return Math.min(maximum, Math.max(minimum, value));
 }
 
-function statusLabel(status: PlanStatus): string {
-	return status === "changes_requested" ? "CHANGES REQUESTED" : status.toUpperCase();
+function statusLabel(status: PlanStatus | PlanWorkStatus): string {
+	if (status === "changes_requested") return "CHANGES REQUESTED";
+	if (status === "unknown") return "APPROVED";
+	return status.toUpperCase();
 }
 
-function statusColor(status: PlanStatus): "success" | "warning" | "accent" {
-	if (status === "approved") return "success";
-	if (status === "changes_requested") return "warning";
+function statusColor(status: PlanStatus | PlanWorkStatus): "success" | "warning" | "accent" | "error" {
+	if (status === "approved" || status === "completed") return "success";
+	if (status === "changes_requested" || status === "abandoned" || status === "unknown") return "warning";
 	return "accent";
 }
 
@@ -72,7 +88,8 @@ export function compactPlanPath(planPath: string, home = homedir()): string {
 export function renderPlanWidget(data: PlanWidgetData, width: number, theme: Theme): string[] {
 	if (width <= 0) return [];
 	const title = `${theme.fg("accent", PLAN_PREFIX)}${theme.bold(data.title)}`;
-	const state = theme.fg(statusColor(data.status), `${statusLabel(data.status)} · r${data.revision}`);
+	const displayedStatus = data.workStatus ?? data.status;
+	const state = theme.fg(statusColor(displayedStatus), `${statusLabel(displayedStatus)} · r${data.revision}`);
 	const lines = [alignRight(title, state, width)];
 
 	if (!data.expanded) {
@@ -84,6 +101,10 @@ export function renderPlanWidget(data: PlanWidgetData, width: number, theme: The
 
 	const planPath = theme.fg("dim", compactPlanPath(data.planPath));
 	lines.push(truncateToWidth(planPath, width));
+	if (data.workStatus && data.workStatus !== "unknown") {
+		lines.push(truncateToWidth(theme.fg("muted", `Document: ${statusLabel(data.status)}`), width));
+		if (data.approvedHash) lines.push(truncateToWidth(theme.fg("dim", `Approved hash: ${data.approvedHash}`), width));
+	}
 	if (data.steps.length === 0) {
 		lines.push(truncateToWidth(theme.fg("muted", "  No execution steps"), width));
 	} else {
@@ -114,6 +135,38 @@ export function renderPlanApprovedEvent(data: PlanApprovedEventData, width: numb
 	if (width - statusWidth < 3) return [truncateToWidth(status, width)];
 	const suffix = theme.fg("dim", ` · ${metadata.join(" · ")}`);
 	return [`${status}${truncateToWidth(suffix, width - statusWidth)}`];
+}
+
+export function renderPlanLifecycleEvent(
+	data: PlanLifecycleEventData,
+	width: number,
+	theme: Theme,
+	expanded = false,
+): string[] {
+	if (width <= 0) return [];
+	const completed = data.kind === "completed";
+	const abandoned = data.kind === "abandoned";
+	const label = completed ? "✓ PLAN COMPLETED" : abandoned ? "! PLAN ABANDONED" : "! PLAN LIFECYCLE";
+	const status = theme.fg(completed ? "success" : "warning", label);
+	const metadata: string[] = [];
+	if (data.title?.trim()) metadata.push(data.title.trim());
+	if (Number.isInteger(data.revision) && data.revision! > 0) metadata.push(`r${data.revision}`);
+	const statusWidth = visibleWidth(status);
+	const first = metadata.length > 0 && width - statusWidth >= 3
+		? `${status}${truncateToWidth(theme.fg("dim", ` · ${metadata.join(" · ")}`), width - statusWidth)}`
+		: truncateToWidth(status, width);
+	if (!expanded) return [first];
+
+	const lines = [first];
+	if (data.summary?.trim()) lines.push(truncateToWidth(theme.fg("muted", `  Summary: ${data.summary.trim()}`), width));
+	for (const item of data.verification ?? []) {
+		lines.push(truncateToWidth(theme.fg("dim", `  Verified: ${item}`), width));
+	}
+	if (data.planId) lines.push(truncateToWidth(theme.fg("dim", `  Plan ID: ${data.planId}`), width));
+	if (data.planPath) lines.push(truncateToWidth(theme.fg("dim", `  Plan: ${compactPlanPath(data.planPath)}`), width));
+	if (data.approvedHash) lines.push(truncateToWidth(theme.fg("dim", `  Approved hash: ${data.approvedHash}`), width));
+	if (data.source) lines.push(truncateToWidth(theme.fg("dim", `  Source: ${data.source}`), width));
+	return lines;
 }
 
 export function renderModeWidget(width: number, theme: Theme): string[] {

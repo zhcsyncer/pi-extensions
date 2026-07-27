@@ -5,11 +5,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { afterEach, describe, expect, it, vi } from "vitest";
 import planModeExtension, {
 	APPROVED_PLAN_MESSAGE_TYPE,
+	PLAN_LIFECYCLE_ENTRY_TYPE,
 	PLAN_MODE_SHORTCUT,
 	PLAN_STEPS_SHORTCUT,
+	REVISE_WORK_CHOICE,
 	isPersistentSession,
 } from "../extensions/plan-mode.ts";
-import { SUBMIT_PLAN_TOOL } from "../src/policy.ts";
+import { COMPLETE_PLAN_TOOL, SUBMIT_PLAN_TOOL } from "../src/policy.ts";
 
 interface CustomEntry {
 	type: "custom";
@@ -30,7 +32,12 @@ class FakePi {
 	readonly sentUserMessages: Array<{ content: string; options?: unknown }> = [];
 	readonly sentMessages: Array<{ message: any; options?: unknown; activeTools: string[] }> = [];
 	readonly messageRenderers = new Map<string, any>();
+	readonly entryRenderers = new Map<string, any>();
 	readonly flags = new Map<string, unknown>();
+	readonly emittedEvents: Array<{ event: string; data: unknown }> = [];
+	readonly events = {
+		emit: (event: string, data: unknown) => this.emittedEvents.push({ event, data }),
+	};
 	onSendMessage?: () => void;
 
 	constructor(entries: CustomEntry[] = []) {
@@ -66,6 +73,10 @@ class FakePi {
 
 	registerMessageRenderer(customType: string, renderer: unknown): void {
 		this.messageRenderers.set(customType, renderer);
+	}
+
+	registerEntryRenderer(customType: string, renderer: unknown): void {
+		this.entryRenderers.set(customType, renderer);
 	}
 
 	registerShortcut(shortcut: string, definition: unknown): void {
@@ -151,6 +162,7 @@ function fakeContext(options: FakeContextOptions = {}): FakeContextHarness {
 				else widgets.set(key, { content, placement: widgetOptions?.placement });
 			},
 			select: async () => choices.shift(),
+			confirm: async () => choices.shift() === "confirm",
 			custom: async (factory: any) => {
 				let completed = false;
 				let value: unknown;
@@ -293,6 +305,12 @@ describe("Plan Mode extension lifecycle", () => {
 		await pi.emit("session_start", { reason: "startup" }, harness.ctx);
 
 		expect(pi.activeTools).toEqual(["read", "grep", "find", "ls", SUBMIT_PLAN_TOOL]);
+		for (const toolName of [SUBMIT_PLAN_TOOL, COMPLETE_PLAN_TOOL]) {
+			const tool = pi.tools.get(toolName);
+			expect(tool).toMatchObject({ renderShell: "self" });
+			expect(tool.renderCall).toBeTypeOf("function");
+			expect(tool.renderResult).toBeTypeOf("function");
+		}
 		const belowEntry = [...harness.widgets.entries()].find(([, widget]) => widget.placement === "belowEditor");
 		expect(belowEntry).toBeDefined();
 		expect(harness.renderWidget(belowEntry![0])?.join("\n")).toContain("⏸ PLAN MODE · READ-ONLY");
@@ -339,7 +357,13 @@ describe("Plan Mode extension lifecycle", () => {
 		await pi.emit("session_start", { reason: "startup" }, ctx);
 		const command = pi.commands.get("plan") as any;
 
-		expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["on", "off"]);
+		expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual([
+			"on",
+			"off",
+			"revise",
+			"complete",
+			"abandon",
+		]);
 		expect(command.getArgumentCompletions("o").map((item: any) => item.value)).toEqual(["on", "off"]);
 		await command.handler("", ctx);
 		expect(notifications.at(-1)?.message).toContain("Plan Mode: off");
@@ -363,37 +387,43 @@ describe("Plan Mode extension lifecycle", () => {
 		expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 		expect([...harness.widgets.values()].some((widget) => widget.placement === "belowEditor")).toBe(false);
 		await command.handler("bad", ctx);
-		expect(notifications.at(-1)?.message).toBe("Usage: /plan on|off");
+		expect(notifications.at(-1)?.message).toBe("Usage: /plan on|off|revise|complete|abandon");
 	});
 
-	it("uses temporary revision storage, exits Plan Mode on approval, and cleans up", async () => {
+	it("uses temporary revision storage, enters implementation, and explicitly reattaches for revision", async () => {
 		await fakeRevdiff();
 		const pi = new FakePi();
 		planModeExtension(pi.api());
-		const harness = fakeContext({ entries: pi.entries, choices: ["Approve Plan"] });
+		const harness = fakeContext({ entries: pi.entries, choices: ["Approve Plan", REVISE_WORK_CHOICE] });
 		await pi.emit("session_start", { reason: "startup" }, harness.ctx);
 		await turnPlanOn(pi, harness.ctx);
 		expect(isPersistentSession(harness.ctx)).toBe(false);
 		expect(pi.entries).toHaveLength(0);
 		pi.onSendMessage = () => {
-			expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+			expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls", COMPLETE_PLAN_TOOL]);
 			expect([...harness.widgets.values()].some((widget) => widget.placement === "belowEditor")).toBe(false);
 		};
 
 		const result = await submitPlan(pi, harness.ctx) as { details: { planId: string; planPath: string; approvedHash: string; revision: number } };
+		expect(pi.emittedEvents).toEqual([
+			{ event: "herdr:blocked", data: { active: true, label: "plan review" } },
+			{ event: "herdr:blocked", data: { active: false } },
+			{ event: "herdr:blocked", data: { active: true, label: "plan approval" } },
+			{ event: "herdr:blocked", data: { active: false } },
+		]);
 		const planRoot = path.dirname(path.dirname(path.dirname(result.details.planPath)));
 		expect(planRoot).toMatch(new RegExp(`${path.sep.replace("\\", "\\\\")}pi-plan-`));
 		expect(result.details.revision).toBe(1);
 		expect(result.details.planPath).toMatch(/revisions[/\\]r1\.md$/);
 		expect(await readFile(result.details.planPath, "utf8")).toContain("Implement it");
 		expect(pi.entries).toHaveLength(0);
-		expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+		expect(pi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls", COMPLETE_PLAN_TOOL]);
 		expect(harness.terminal).toMatchObject({ stops: 1, starts: 1 });
 		expect(pi.sentUserMessages).toHaveLength(0);
 		expect(pi.sentMessages).toHaveLength(1);
 		const sent = pi.sentMessages[0];
 		expect(sent.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
-		expect(sent.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+		expect(sent.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls", COMPLETE_PLAN_TOOL]);
 		expect(sent.message).toMatchObject({
 			customType: APPROVED_PLAN_MESSAGE_TYPE,
 			display: true,
@@ -426,7 +456,7 @@ describe("Plan Mode extension lifecycle", () => {
 		expect(plain(fallbackMessage[0])).toBe("✓ PLAN APPROVED");
 		const aboveEntry = [...harness.widgets.entries()].find(([, widget]) => widget.placement === "aboveEditor");
 		expect(aboveEntry).toBeDefined();
-		expect(plain(harness.renderWidget(aboveEntry![0])?.join("\n"))).toContain("APPROVED · r1");
+		expect(plain(harness.renderWidget(aboveEntry![0])?.join("\n"))).toContain("IMPLEMENTING · r1");
 		expect(plain(harness.renderWidget(aboveEntry![0])?.join("\n"))).toContain("2 steps");
 		expect([...harness.widgets.values()].some((widget) => widget.placement === "belowEditor")).toBe(false);
 		const stepsShortcut = pi.shortcuts.get(PLAN_STEPS_SHORTCUT) as { handler: (ctx: ExtensionContext) => void };
@@ -435,6 +465,10 @@ describe("Plan Mode extension lifecycle", () => {
 		expect(plain(harness.renderWidget(aboveEntry![0])?.join("\n"))).toContain("Ctrl+Alt+O collapse");
 
 		await turnPlanOn(pi, harness.ctx);
+		expect(pi.emittedEvents.slice(-2)).toEqual([
+			{ event: "herdr:blocked", data: { active: true, label: "plan lifecycle decision" } },
+			{ event: "herdr:blocked", data: { active: false } },
+		]);
 		const replanningPrompt = await pi.emit("before_agent_start", { systemPrompt: "BASE" }, harness.ctx) as { systemPrompt: string };
 		expect(replanningPrompt.systemPrompt).toContain("[CURRENT PLAN REFERENCE]");
 		expect(replanningPrompt.systemPrompt).toContain(`Plan ID: ${result.details.planId}`);
@@ -475,6 +509,149 @@ describe("Plan Mode extension lifecycle", () => {
 		expect(pi.activeTools).toContain("edit");
 	});
 
+	it("reports manual lifecycle confirmations as balanced Herdr blocked events", async () => {
+		await fakeRevdiff();
+		const pi = new FakePi();
+		planModeExtension(pi.api());
+		const harness = fakeContext({ entries: pi.entries, choices: ["Approve Plan", "confirm"] });
+		await pi.emit("session_start", { reason: "startup" }, harness.ctx);
+		await turnPlanOn(pi, harness.ctx);
+		await submitPlan(pi, harness.ctx);
+		const command = pi.commands.get("plan") as { handler: (args: string, ctx: ExtensionContext) => Promise<void> };
+		await command.handler("abandon", harness.ctx);
+		expect(pi.emittedEvents.slice(-2)).toEqual([
+			{ event: "herdr:blocked", data: { active: true, label: "plan abandonment confirmation" } },
+			{ event: "herdr:blocked", data: { active: false } },
+		]);
+		expect(pi.activeTools).not.toContain(COMPLETE_PLAN_TOOL);
+		const aboveKey = [...harness.widgets.entries()].find(([, widget]) => widget.placement === "aboveEditor")?.[0];
+		expect(plain(harness.renderWidget(aboveKey!)?.join("\n"))).toContain("ABANDONED · r1");
+	});
+
+	it("completes exact approved work and starts the next Plan unattached by default", async () => {
+		await fakeRevdiff();
+		const agentDir = await mkdtemp(path.join(tmpdir(), "pi-plan-complete-test-"));
+		cleanup.add(agentDir);
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+		const sessionFile = path.join(agentDir, "sessions", "session.jsonl");
+		const entries: CustomEntry[] = [];
+		const pi = new FakePi(entries);
+		planModeExtension(pi.api());
+		const harness = fakeContext({
+			sessionFile,
+			sessionId: "complete-session",
+			entries,
+			choices: ["Approve Plan"],
+		});
+		await pi.emit("session_start", { reason: "startup" }, harness.ctx);
+		await turnPlanOn(pi, harness.ctx);
+		const approved = await submitPlan(pi, harness.ctx) as {
+			details: { planId: string; revision: number; approvedHash: string; planPath: string };
+		};
+		const implementingBranch = [...entries];
+		const completeTool = pi.tools.get(COMPLETE_PLAN_TOOL);
+		expect(completeTool).toBeDefined();
+		await expect(completeTool.execute(
+			"complete-wrong",
+			{
+				planId: approved.details.planId,
+				revision: 2,
+				summary: "Wrong revision",
+				verification: ["pnpm test"],
+			},
+			undefined,
+			undefined,
+			harness.ctx,
+		)).rejects.toThrow(`must target ${approved.details.planId} r1`);
+		expect(pi.activeTools).toContain(COMPLETE_PLAN_TOOL);
+		const completed = await completeTool.execute(
+			"complete-1",
+			{
+				planId: approved.details.planId,
+				revision: approved.details.revision,
+				summary: "Implemented the approved scope",
+				verification: ["pnpm test", "pnpm typecheck"],
+			},
+			undefined,
+			undefined,
+			harness.ctx,
+		);
+		expect(completed).toMatchObject({
+			terminate: true,
+			details: {
+				kind: "completed",
+				planId: approved.details.planId,
+				revision: 1,
+				summary: "Implemented the approved scope",
+			},
+		});
+		expect(pi.activeTools).not.toContain(COMPLETE_PLAN_TOOL);
+		const lifecycleEntry = entries.find((entry) => entry.customType === PLAN_LIFECYCLE_ENTRY_TYPE && (entry.data as any).kind === "completed");
+		expect(lifecycleEntry).toBeDefined();
+		const lifecycleRenderer = pi.entryRenderers.get(PLAN_LIFECYCLE_ENTRY_TYPE);
+		expect(lifecycleRenderer).toBeDefined();
+		expect(plain(lifecycleRenderer(lifecycleEntry, { expanded: false }, (harness.ctx.ui as any).theme).render(100).join("\n")))
+			.toBe("✓ PLAN COMPLETED · Implement simple Plan Mode · r1");
+		const aboveKey = [...harness.widgets.entries()].find(([, widget]) => widget.placement === "aboveEditor")?.[0];
+		expect(aboveKey).toBeDefined();
+		expect(plain(harness.renderWidget(aboveKey!)?.join("\n"))).toContain("COMPLETED · r1");
+
+		const completedBranch = [...entries];
+		const older = fakeContext({ sessionFile, sessionId: "complete-session", entries: implementingBranch });
+		await pi.emit("session_tree", { newLeafId: "older" }, older.ctx);
+		expect(pi.activeTools).toContain(COMPLETE_PLAN_TOOL);
+		const olderWidget = [...older.widgets.entries()].find(([, widget]) => widget.placement === "aboveEditor")?.[0];
+		expect(plain(older.renderWidget(olderWidget!)?.join("\n"))).toContain("IMPLEMENTING · r1");
+		const latest = fakeContext({ sessionFile, sessionId: "complete-session", entries: completedBranch });
+		await pi.emit("session_tree", { newLeafId: "latest" }, latest.ctx);
+		expect(pi.activeTools).not.toContain(COMPLETE_PLAN_TOOL);
+		const latestWidget = [...latest.widgets.entries()].find(([, widget]) => widget.placement === "aboveEditor")?.[0];
+		expect(plain(latest.renderWidget(latestWidget!)?.join("\n"))).toContain("COMPLETED · r1");
+
+		await turnPlanOn(pi, harness.ctx);
+		expect(pi.activeTools).toEqual(["read", "grep", "find", "ls", SUBMIT_PLAN_TOOL]);
+		expect([...harness.widgets.values()].some((widget) => widget.placement === "aboveEditor")).toBe(false);
+		const prompt = await pi.emit("before_agent_start", { systemPrompt: "BASE" }, harness.ctx) as { systemPrompt: string };
+		expect(prompt.systemPrompt).toContain("[NEW PLAN]");
+		expect(prompt.systemPrompt).not.toContain("[CURRENT PLAN REFERENCE]");
+		expect(prompt.systemPrompt).not.toContain(approved.details.planId);
+	});
+
+	it("migrates legacy approved pointers to unknown work instead of assuming completion", async () => {
+		await fakeRevdiff();
+		const agentDir = await mkdtemp(path.join(tmpdir(), "pi-plan-legacy-test-"));
+		cleanup.add(agentDir);
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+		const sessionFile = path.join(agentDir, "sessions", "session.jsonl");
+		const entries: CustomEntry[] = [];
+		const firstPi = new FakePi(entries);
+		planModeExtension(firstPi.api());
+		const first = fakeContext({ sessionFile, sessionId: "legacy-session", entries, choices: ["Approve Plan"] });
+		await firstPi.emit("session_start", { reason: "startup" }, first.ctx);
+		await turnPlanOn(firstPi, first.ctx);
+		const approved = await submitPlan(firstPi, first.ctx) as { details: { planId: string } };
+		entries.push({
+			type: "custom",
+			customType: "zhcsyncer-plan-mode-state",
+			data: {
+				version: 2,
+				mode: "normal",
+				planId: approved.details.planId,
+				revision: 1,
+				normalTools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+			},
+		});
+
+		const resumedPi = new FakePi(entries);
+		planModeExtension(resumedPi.api());
+		const resumed = fakeContext({ sessionFile, sessionId: "legacy-session", entries });
+		await resumedPi.emit("session_start", { reason: "resume" }, resumed.ctx);
+		expect(resumedPi.activeTools).toContain(COMPLETE_PLAN_TOOL);
+		const command = resumedPi.commands.get("plan") as { handler: (args: string, ctx: ExtensionContext) => Promise<void> };
+		await command.handler("", resumed.ctx);
+		expect(resumed.notifications.at(-1)?.message).toContain("Plan work: UNKNOWN");
+	});
+
 	it("restores normal mode and the current Plan pointer from persistent Session state", async () => {
 		await fakeRevdiff();
 		const agentDir = await mkdtemp(path.join(tmpdir(), "pi-plan-agent-test-"));
@@ -489,16 +666,16 @@ describe("Plan Mode extension lifecycle", () => {
 		await firstPi.emit("session_start", { reason: "startup" }, first.ctx);
 		await turnPlanOn(firstPi, first.ctx);
 		const approved = await submitPlan(firstPi, first.ctx) as { details: { planPath: string } };
-		expect(entries.some((entry) => (entry.data as any).mode === "normal" && (entry.data as any).revision === 1)).toBe(true);
+		expect(entries.some((entry) => (entry.data as any).mode === "normal" && (entry.data as any).work?.revision === 1)).toBe(true);
 
 		const resumedPi = new FakePi(entries);
 		planModeExtension(resumedPi.api());
 		const resumed = fakeContext({ sessionFile, sessionId: "persistent-session", entries });
 		await resumedPi.emit("session_start", { reason: "resume" }, resumed.ctx);
-		expect(resumedPi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+		expect(resumedPi.activeTools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls", COMPLETE_PLAN_TOOL]);
 		const command = resumedPi.commands.get("plan") as { handler: (args: string, ctx: ExtensionContext) => Promise<void> };
 		await command.handler("", resumed.ctx);
-		expect(resumed.notifications.at(-1)?.message).toContain("APPROVED · r1");
+		expect(resumed.notifications.at(-1)?.message).toContain("IMPLEMENTING · Implement simple Plan Mode · r1");
 		expect(resumed.notifications.at(-1)?.message).toContain(approved.details.planPath);
 	});
 });
