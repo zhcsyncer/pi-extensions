@@ -31,6 +31,7 @@ export interface GlanceRuntimeAdapters {
 	loadConfigSync(): GlanceConfig;
 	loadConfig(): Promise<GlanceConfig>;
 	saveConfig(config: GlanceConfig): Promise<void>;
+	consumeConfigNotices?(): string[];
 	showPane(initial: GlanceConfig, ctx: ExtensionCommandContext, previewState?: GlanceState, options?: RuntimeShowPaneOptions): Promise<GlancePaneResult>;
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	nowMs?: () => number;
@@ -245,6 +246,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		events: {
 			sessionStart: (_event, ctx) => {
 				config = adapters.loadConfigSync();
+				for (const notice of adapters.consumeConfigNotices?.() ?? []) ctx.ui.notify?.(notice, "warning");
 				refreshSession.sessionStart(ctx);
 				installInputSurface(ctx);
 			},

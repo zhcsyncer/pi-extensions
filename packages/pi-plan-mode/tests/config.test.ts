@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,6 +34,7 @@ describe("Plan Mode config", () => {
 
 	it.each(["auto", "en", "zh-CN"] as const)("loads supported content language %s", async (contentLanguage) => {
 		const directory = await agentDir();
+		await mkdir(path.dirname(getPlanModeConfigPath(directory)), { recursive: true });
 		await writeFile(getPlanModeConfigPath(directory), `${JSON.stringify({ contentLanguage })}\n`, "utf8");
 		expect(await loadPlanModeConfig(directory)).toEqual({
 			config: { contentLanguage },
@@ -47,10 +48,24 @@ describe("Plan Mode config", () => {
 		["unsupported language", '{"contentLanguage":"fr"}'],
 	])("warns and falls back for %s", async (_label, content) => {
 		const directory = await agentDir();
+		await mkdir(path.dirname(getPlanModeConfigPath(directory)), { recursive: true });
 		await writeFile(getPlanModeConfigPath(directory), content, "utf8");
 		const loaded = await loadPlanModeConfig(directory);
 		expect(loaded.config).toEqual({ contentLanguage: "auto" });
 		expect(loaded.warning).toContain("Invalid Plan Mode config");
 		expect(loaded.warning).toContain('Using contentLanguage "auto"');
+	});
+
+	it("migrates the legacy config and drops unmappable fields", async () => {
+		const directory = await agentDir();
+		const legacyPath = path.join(directory, "plan-mode.json");
+		await writeFile(legacyPath, '{"contentLanguage":"zh-CN","obsolete":true}\n', "utf8");
+
+		const loaded = await loadPlanModeConfig(directory);
+
+		expect(loaded.config).toEqual({ contentLanguage: "zh-CN" });
+		expect(loaded.warning).toContain("obsolete");
+		expect(JSON.parse(await readFile(getPlanModeConfigPath(directory), "utf8"))).toEqual({ contentLanguage: "zh-CN" });
+		await expect(stat(legacyPath)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });

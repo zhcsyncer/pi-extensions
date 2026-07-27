@@ -119,7 +119,7 @@ async function main(): Promise<void> {
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 
 	try {
-		const configDir = join(agentDir, "pi-glance");
+		const configDir = join(agentDir, "extension-data", "pi-glance");
 		const configPath = join(configDir, "config.json");
 		const { configToText, defaultConfig } = await import("../config.js");
 		const initialConfig = defaultConfig();

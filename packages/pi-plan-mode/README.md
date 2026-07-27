@@ -73,7 +73,7 @@ All `/plan` actions support command argument completion.
 
 ## Plan content language
 
-Plan Mode reads one optional user-level file from `<agent-dir>/plan-mode.json` (normally `~/.pi/agent/plan-mode.json`):
+Plan Mode reads one optional user-level file from `<agent-dir>/extension-data/pi-plan-mode/config.json` (normally `~/.pi/agent/extension-data/pi-plan-mode/config.json`):
 
 ```json
 {
@@ -87,7 +87,7 @@ Supported values:
 - `en`: require English title, content, and section headings.
 - `zh-CN`: require Simplified Chinese title, content, and section headings.
 
-The extension only reads this file and never creates or rewrites it. Reload or restart Pi after editing it. Invalid JSON or an unsupported value produces a warning and falls back to `auto`. This setting controls generated Plan content and headings only; Plan Mode UI, revdiff UI, control prompts, and approval events remain English.
+Reload or restart Pi after editing it. On first load, the previous `plan-mode.json` path is automatically migrated and upgraded; unmappable fields are dropped with a warning. Invalid JSON or an unsupported value is preserved, produces a warning, and falls back to `auto`. This setting controls generated Plan content and headings only; Plan Mode UI, revdiff UI, control prompts, and approval events remain English.
 
 ## Widgets
 
@@ -136,10 +136,10 @@ Persistent widgets do not receive focus and Pi's public Widget API has no mouse 
 
 ## Storage
 
-Persistent Sessions store application data separately from Pi JSONL transcripts. The optional language config is a sibling of the `plans/` directory:
+Persistent Sessions store application data separately from Pi JSONL transcripts. Only the optional language config moves under `extension-data`; Plan artifacts remain at their stable path:
 
 ```text
-~/.pi/agent/plan-mode.json
+~/.pi/agent/extension-data/pi-plan-mode/config.json
 ~/.pi/agent/plans/
 └── <plan-id>/
     ├── manifest.json

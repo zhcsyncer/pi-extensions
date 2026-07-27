@@ -2,11 +2,15 @@
  * Config loading and module-level mutable state for pi-search-hub extension.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { BackendConfig, SearchConfig } from "./types.js";
-import { getAgentDir } from "./utils.js";
 import { clearCredentialCache, FALLBACK_ENV_MAP } from "./credentials.js";
+import { loadMigratedSearchConfig, type MigrationNoticeSink } from "./config-storage.js";
+import {
+	getGlobalConfigPath,
+	getLegacyGlobalConfigPath,
+	getLegacyProjectConfigPath,
+	getProjectConfigPath,
+} from "./paths.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mutable state
@@ -43,46 +47,38 @@ export function recordLatency(backend: string, ms: number): void {
 // Config loading
 // ---------------------------------------------------------------------------
 
-export function loadConfig(cwd: string): SearchConfig {
-	const globalPath = join(getAgentDir(), "extensions", "search.json");
-	const projectPath = join(cwd, ".pi", "search.json");
+export function loadConfig(cwd: string, projectTrusted = false, onNotice?: MigrationNoticeSink): SearchConfig {
+	let config: SearchConfig = {
+		defaultBackend: "duckduckgo",
+		backends: {},
+		...loadMigratedSearchConfig({
+			targetPath: getGlobalConfigPath(),
+			legacyPath: getLegacyGlobalConfigPath(),
+			scope: "global",
+			onNotice,
+		}),
+	};
 
-	let config: SearchConfig = { defaultBackend: "duckduckgo", backends: {} };
-
-	if (existsSync(globalPath)) {
-		try {
-			config = { ...config, ...JSON.parse(readFileSync(globalPath, "utf-8")) };
-		} catch {
-			// ignore
-		}
-	}
-
-	// Save global backends before project config overwrites them
+	// Save global backends before project config overwrites them.
 	const preProjectBackends = { ...(config.backends ?? {}) };
 
-	if (existsSync(projectPath)) {
-		try {
-			const project = JSON.parse(readFileSync(projectPath, "utf-8"));
-			config = { ...config, ...project };
-			// Guard: if project config set backends to null/undefined, restore global backends
-			if (config.backends == null) {
-				config.backends = preProjectBackends;
+	if (projectTrusted) {
+		const project = loadMigratedSearchConfig({
+			targetPath: getProjectConfigPath(cwd),
+			legacyPath: getLegacyProjectConfigPath(cwd),
+			scope: "project",
+			onNotice,
+		});
+		config = { ...config, ...project };
+		if (config.backends == null) config.backends = preProjectBackends;
+		if (project.backends && typeof project.backends === "object") {
+			const merged = { ...preProjectBackends, ...config.backends };
+			for (const [key, val] of Object.entries(project.backends)) {
+				const bc = val as BackendConfig | undefined;
+				if (bc && merged[key]) merged[key] = { ...merged[key], ...bc };
+				else merged[key] = bc;
 			}
-			if (project.backends && typeof project.backends === "object") {
-				// Deep merge: merge per-backend so global backends not re-listed in project config are preserved
-				const merged = { ...preProjectBackends, ...config.backends };
-				for (const [key, val] of Object.entries(project.backends)) {
-					const bc = val as BackendConfig | undefined;
-					if (bc && merged[key]) {
-						merged[key] = { ...merged[key], ...bc };
-					} else {
-						merged[key] = bc;
-					}
-				}
-				config.backends = merged;
-			}
-		} catch {
-			// ignore
+			config.backends = merged;
 		}
 	}
 
@@ -112,14 +108,22 @@ export function loadConfig(cwd: string): SearchConfig {
 
 let activeBackendsList: string[] = [];
 let configCacheTime = 0;
+let configCacheKey = "";
 const CONFIG_TTL_MS = 10_000; // re-read config at most every 10s
 
-export function refreshConfig(cwd: string, force = false): string[] {
+export function refreshConfig(
+	cwd: string,
+	projectTrusted = false,
+	force = false,
+	onNotice?: MigrationNoticeSink,
+): string[] {
 	const now = Date.now();
-	if (!force && now - configCacheTime < CONFIG_TTL_MS) return activeBackendsList;
+	const nextCacheKey = `${getGlobalConfigPath()}\0${cwd}\0${projectTrusted ? "trusted" : "untrusted"}`;
+	if (!force && nextCacheKey === configCacheKey && now - configCacheTime < CONFIG_TTL_MS) return activeBackendsList;
 
-	config = loadConfig(cwd);
+	config = loadConfig(cwd, projectTrusted, onNotice);
 	configCacheTime = now;
+	configCacheKey = nextCacheKey;
 
 	activeBackendsList = Object.entries(config.backends || {})
 		.filter(([_, bc]) => bc?.enabled)

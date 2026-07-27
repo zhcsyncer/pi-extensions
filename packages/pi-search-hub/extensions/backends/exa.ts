@@ -18,7 +18,7 @@ export async function fetchExaContents(
 	signal?: AbortSignal,
 ): Promise<{ title: string; url: string; content: string; warning?: string }> {
 	// Check quota before making request
-	const preWarning = checkExaUsage();
+	const preWarning = await checkExaUsage();
 
 	const response = await fetch("https://api.exa.ai/contents", {
 		method: "POST",
@@ -42,7 +42,7 @@ export async function fetchExaContents(
 	}
 
 	// Increment usage after successful request
-	const warning = incrementExaUsage();
+	const warning = await incrementExaUsage();
 
 	const data = (await response.json()) as Record<string, unknown>;
 	const results = Array.isArray(data.results)
@@ -102,7 +102,7 @@ export async function searchExa(
 	}
 
 	// Increment usage after successful request
-	const warning = incrementExaUsage();
+	const warning = await incrementExaUsage();
 
 	const data = (await response.json()) as Record<string, unknown>;
 	return {

@@ -11,6 +11,7 @@ import planModeExtension, {
 	REVISE_WORK_CHOICE,
 	isPersistentSession,
 } from "../extensions/plan-mode.ts";
+import { getPlanModeConfigPath } from "../src/config.ts";
 import { COMPLETE_PLAN_TOOL, SUBMIT_PLAN_TOOL } from "../src/policy.ts";
 
 interface CustomEntry {
@@ -318,8 +319,9 @@ describe("Plan Mode extension lifecycle", () => {
 
 	it("loads zh-CN Plan content language into status and the planning prompt", async () => {
 		const revdiff = await fakeRevdiff();
-		const configPath = path.join(path.dirname(revdiff), "plan-mode.json");
-		await writeFile(configPath, '{"contentLanguage":"zh-CN"}\n', "utf8");
+		const legacyConfigPath = path.join(path.dirname(revdiff), "plan-mode.json");
+		const configPath = getPlanModeConfigPath(path.dirname(revdiff));
+		await writeFile(legacyConfigPath, '{"contentLanguage":"zh-CN"}\n', "utf8");
 		const pi = new FakePi();
 		planModeExtension(pi.api());
 		const harness = fakeContext({ entries: pi.entries });

@@ -65,7 +65,7 @@ pi -e ./packages/pi-recap
 打开 TUI 配置界面，修改常用配置并保存到：
 
 ```text
-~/.pi/agent/recap.json
+$PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
 ```
 
 ```text
@@ -83,11 +83,11 @@ recap 只在 Pi TUI 模式工作。`print`、`json`、`rpc` 等 headless 模式�
 插件读取：
 
 ```text
-~/.pi/agent/recap.json
-.pi/recap.json
+$PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
+.pi/extension-data/pi-recap/config.json
 ```
 
-项目级 `.pi/recap.json` 仅在项目被 Pi trust 后读取，并覆盖全局配置。
+项目级 `.pi/extension-data/pi-recap/config.json` 仅在项目被 Pi trust 后读取，并覆盖全局配置。首次加载时会自动迁移并升级旧的全局路径和受信任项目路径；无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。
 
 示例配置见：
 

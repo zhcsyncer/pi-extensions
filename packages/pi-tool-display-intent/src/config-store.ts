@@ -1,5 +1,6 @@
-import { resolvePiAgentDir } from "./agent-dir.js";
+import { randomUUID } from "node:crypto";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -35,9 +36,10 @@ import {
 	normalizeToolDisplayMode,
 } from "./presets.js";
 import { toRecord } from "./tool-metadata.js";
+import { getToolDisplayConfigPath as resolveToolDisplayConfigPath } from "./storage-paths.js";
+import { finalizeToolDisplayStorageMigration, prepareToolDisplayStorageMigration, withToolDisplayStorageLock } from "./storage-migration.js";
 
-const CONFIG_DIR = join(resolvePiAgentDir(), "extensions", "pi-tool-display-intent");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const CONFIG_FILE = resolveToolDisplayConfigPath();
 const LEGACY_BACKUP_FILE_NAME = "config.legacy.json";
 
 interface LegacyToolDisplayConfigSource extends Record<string, unknown> {
@@ -499,6 +501,28 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	return errors;
 }
 
+function dropInvalidV2Settings(source: Record<string, unknown>, validationErrors: readonly string[]): Record<string, unknown> {
+	const sanitized = structuredClone(source);
+	const paths = validationErrors
+		.map((error) => error.slice(0, error.indexOf(":")))
+		.filter(Boolean)
+		.sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+	for (const settingPath of paths) {
+		const parts = settingPath.split(".");
+		if (settingPath.endsWith("required section") || settingPath.endsWith("required setting")) continue;
+		let parent: unknown = sanitized;
+		for (const part of parts.slice(0, -1)) {
+			if (!parent || typeof parent !== "object") break;
+			parent = (parent as Record<string, unknown>)[part];
+		}
+		if (!parent || typeof parent !== "object") continue;
+		const key = parts.at(-1)!;
+		if (Array.isArray(parent) && /^\d+$/.test(key)) parent.splice(Number(key), 1);
+		else delete (parent as Record<string, unknown>)[key];
+	}
+	return sanitized;
+}
+
 function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 	const source = toRecord(raw);
 	const results = toRecord(source.results);
@@ -613,11 +637,12 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 }
 
 function writeConfigAtomically(configFile: string, serialized: Record<string, unknown>): void {
-	const tmpFile = `${configFile}.tmp`;
-	mkdirSync(dirname(configFile), { recursive: true });
+	const tmpFile = `${configFile}.${randomUUID()}.tmp`;
+	mkdirSync(dirname(configFile), { recursive: true, mode: 0o700 });
 	try {
-		writeFileSync(tmpFile, `${JSON.stringify(serialized, null, 2)}\n`, "utf-8");
+		writeFileSync(tmpFile, `${JSON.stringify(serialized, null, 2)}\n`, { encoding: "utf-8", mode: 0o600, flag: "wx" });
 		renameSync(tmpFile, configFile);
+		chmodSync(configFile, 0o600);
 	} catch (error) {
 		try {
 			if (existsSync(tmpFile)) unlinkSync(tmpFile);
@@ -628,9 +653,23 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 	}
 }
 
+const LEGACY_CONFIG_KEYS = new Set([
+	"version", "enabled", "debug", "displaySummary", "toolIntent", "registerToolOverrides", "registerReadToolOverride",
+	"customToolOverrides", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
+	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "enableThinkingLabel", "previewRows",
+	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
+	"diffCollapsedRows", "diffCollapsedLines", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",
+	"bashCollapsedLines", "bashCollapsedRows",
+]);
+
+function collectUnknownLegacyFields(source: Record<string, unknown>): string[] {
+	return Object.keys(source).filter((key) => !LEGACY_CONFIG_KEYS.has(key));
+}
+
 function buildLegacyMigrationNotice(
 	source: Record<string, unknown>,
 	config: ToolDisplayConfig,
+	dropped: readonly string[] = collectUnknownLegacyFields(source),
 ): string | undefined {
 	const messages: string[] = [];
 	if (hasOwn(source, "bashCollapsedLines") || hasOwn(source, "bashCollapsedRows")) {
@@ -644,6 +683,7 @@ function buildLegacyMigrationNotice(
 	if (!resolveLegacyResultMode(source).exact) {
 		messages.push(`per-tool result settings were consolidated to results.mode=${config.resultMode}`);
 	}
+	if (dropped.length > 0) messages.push(`dropped unmappable fields: ${dropped.join(", ")}`);
 	return messages.length > 0
 		? `tool-display-intent migrated its config: ${messages.join("; ")}`
 		: undefined;
@@ -661,11 +701,14 @@ function migrateLegacyConfigFile(
 			throw new Error("v2 migration changed the normalized configuration");
 		}
 
-		const backupFile = join(dirname(configFile), LEGACY_BACKUP_FILE_NAME);
-		if (!existsSync(backupFile)) {
-			writeFileSync(backupFile, rawText, { encoding: "utf-8", flag: "wx" });
-		}
-		writeConfigAtomically(configFile, serialized);
+		withToolDisplayStorageLock(() => {
+			if (readFileSync(configFile, "utf8") !== rawText) throw new Error("config changed during migration; retrying on next load");
+			const backupFile = join(dirname(configFile), LEGACY_BACKUP_FILE_NAME);
+			if (!existsSync(backupFile)) {
+				writeFileSync(backupFile, rawText, { encoding: "utf-8", mode: 0o600, flag: "wx" });
+			}
+			writeConfigAtomically(configFile, serialized);
+		}, dirname(configFile));
 		return undefined;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -674,9 +717,16 @@ function migrateLegacyConfigFile(
 }
 
 export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResult {
+	const usesDefaultPath = configFile === CONFIG_FILE;
+	const preparedStorage = usesDefaultPath ? prepareToolDisplayStorageMigration() : undefined;
 	const fingerprint = getConfigFingerprint(configFile);
 	if (cachedConfigResult && cachedConfigFile === configFile && cachedConfigFingerprint === fingerprint) {
-		return cloneLoadResult(cachedConfigResult);
+		const cached = cloneLoadResult(cachedConfigResult);
+		if (preparedStorage) {
+			const notices = finalizeToolDisplayStorageMigration(preparedStorage, !cached.error);
+			if (notices.length > 0) cached.notice = [cached.notice, ...notices].filter(Boolean).join(" ");
+		}
+		return cached;
 	}
 
 	let result: ConfigLoadResult;
@@ -690,24 +740,30 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 				throw new Error("root: expected object");
 			}
 			const source = parsed as Record<string, unknown>;
-			if (hasOwn(source, "version")) {
-				if (source.version !== TOOL_DISPLAY_CONFIG_VERSION) {
-					result = {
-						config: cloneDefaultConfig(),
-						error: `Unsupported tool display config version in ${configFile}: ${String(source.version)}`,
-					};
+			if (hasOwn(source, "version") && source.version === TOOL_DISPLAY_CONFIG_VERSION) {
+				const validationErrors = validateToolDisplayConfigV2(source);
+				const sanitizedSource = validationErrors.length > 0 ? dropInvalidV2Settings(source, validationErrors) : source;
+				const config = normalizeToolDisplayConfigV2(sanitizedSource);
+				if (validationErrors.length === 0) {
+					result = { config };
 				} else {
-					const validationErrors = validateToolDisplayConfigV2(source);
-					result = validationErrors.length > 0
-						? {
-							config: cloneDefaultConfig(),
-							error: `Invalid tool display v2 config in ${configFile}: ${validationErrors.join("; ")}`,
-						}
-						: { config: normalizeToolDisplayConfigV2(source) };
+					const migrationError = migrateLegacyConfigFile(configFile, rawText, config);
+					result = {
+						config,
+						...(migrationError ? { error: migrationError } : {}),
+						...(!migrationError ? { notice: `tool-display-intent upgraded its v2 config and dropped or normalized unmappable settings: ${validationErrors.join("; ")}` } : {}),
+					};
 				}
+			} else if (hasOwn(source, "version") && typeof source.version === "number" && source.version > TOOL_DISPLAY_CONFIG_VERSION) {
+				result = {
+					config: cloneDefaultConfig(),
+					error: `Unsupported tool display config version in ${configFile}: ${String(source.version)}`,
+				};
 			} else {
-				const config = normalizeToolDisplayConfig(source);
-				const notice = buildLegacyMigrationNotice(source, config);
+				const legacySource = { ...source };
+				delete legacySource.version;
+				const config = normalizeToolDisplayConfig(legacySource);
+				const notice = buildLegacyMigrationNotice(legacySource, config);
 				const migrationError = migrateLegacyConfigFile(configFile, rawText, config);
 				result = {
 					config,
@@ -724,19 +780,21 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 		}
 	}
 
+	if (preparedStorage) {
+		const notices = finalizeToolDisplayStorageMigration(preparedStorage, !result.error);
+		if (notices.length > 0) result.notice = [result.notice, ...notices].filter(Boolean).join(" ");
+	}
 	cachedConfigFile = configFile;
 	cachedConfigFingerprint = getConfigFingerprint(configFile);
 	cachedConfigResult = cloneLoadResult(result);
-	if (cachedConfigResult.notice) {
-		cachedConfigResult.notice = undefined;
-	}
+	if (cachedConfigResult.notice) cachedConfigResult.notice = undefined;
 	return result;
 }
 
 export function saveToolDisplayConfig(config: ToolDisplayConfig, configFile = CONFIG_FILE): ConfigSaveResult {
 	const normalized = normalizeToolDisplayConfig(config);
 	try {
-		writeConfigAtomically(configFile, serializeToolDisplayConfigV2(normalized));
+		withToolDisplayStorageLock(() => writeConfigAtomically(configFile, serializeToolDisplayConfigV2(normalized)), dirname(configFile));
 		cachedConfigFile = undefined;
 		cachedConfigFingerprint = undefined;
 		cachedConfigResult = undefined;

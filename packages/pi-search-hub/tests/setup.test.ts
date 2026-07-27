@@ -50,6 +50,7 @@ function createHarness(cwd: string, selections: Selection[] = [], inputs: Array<
 		hasUI: true,
 		mode: "tui",
 		cwd,
+		isProjectTrusted: () => true,
 		modelRegistry: {
 			getProviderAuthStatus() {
 				return { configured: false };
@@ -74,7 +75,7 @@ function pickOption(fragment: string): Selection {
 }
 
 function globalConfigPath(home: string): string {
-	return join(home, ".pi", "agent", "extensions", "search.json");
+	return join(home, ".pi", "agent", "extension-data", "pi-search-hub", "config.json");
 }
 
 function writeJson(path: string, value: unknown): void {

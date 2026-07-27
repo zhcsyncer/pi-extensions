@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadConfig, loadConfigSync, saveConfig } from "./config.js";
+import { consumeGlanceConfigNotices, loadConfig, loadConfigSync, saveConfig } from "./config.js";
 import { showGlancePane } from "./pane.js";
 import { createGlanceRuntime } from "./runtime.js";
 
@@ -9,6 +9,7 @@ export default function piGlance(pi: ExtensionAPI): void {
 		loadConfigSync,
 		loadConfig,
 		saveConfig,
+		consumeConfigNotices: consumeGlanceConfigNotices,
 		showPane: showGlancePane,
 	});
 

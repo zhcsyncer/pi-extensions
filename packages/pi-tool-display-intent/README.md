@@ -80,10 +80,10 @@ Tool ownership and intent-schema changes take effect after `/reload`. Legacy `pr
 The global config is stored at:
 
 ```text
-$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
+$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 ```
 
-When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Extension enablement is managed through Pi package settings rather than another config switch. The v2 file is grouped by responsibility and stores only non-default values:
+When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Debug output, when explicitly enabled, is written to `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/state/debug.log`. Extension enablement is managed through Pi package settings rather than another config switch. The v2 file is grouped by responsibility and stores only non-default values:
 
 ```json
 {
@@ -133,7 +133,7 @@ Model-written intent uses the theme's regular `accent` color without bold or bac
 
 ### Automatic legacy migration
 
-When the extension loads an old flat config without `version`, it normalizes it and atomically replaces `config.json` after a validated v2 round trip. The first migration keeps `config.legacy.json` as a backup. Key mappings are:
+On first load, the extension automatically moves the previous config path, legacy backup, and debug log into `extension-data`. An old flat config or pre-v2 version is normalized and atomically replaced after a validated v2 round trip. The first schema migration keeps `config.legacy.json` as a backup. Key mappings are:
 
 - `displaySummary` / `toolIntent` → `intent`;
 - `toolCallStyle` → `toolCalls.style`;
@@ -143,7 +143,7 @@ When the extension loads an old flat config without `version`, it normalizes it 
 - `customToolOverrides` → `tools.custom` without an `enabled` switch;
 - diff, transcript, hints, and debug → their corresponding sections.
 
-`bashCollapsedLines` is intentionally discarded because all previews now share `results.previewRows`. After migration, the Pi status bar tells the user to adjust that value if needed. Deprecated `displaySummary.required` and `displaySummary.showInTui` are also removed. Invalid JSON, unknown v2 fields, and invalid v2 values are never rewritten and are reported with exact field paths. Run `/reload` after editing the file directly.
+`bashCollapsedLines` is intentionally discarded because all previews now share `results.previewRows`. Deprecated `displaySummary.required`, `displaySummary.showInTui`, unknown fields, and invalid values that cannot be mapped are also discarded. The Pi status bar reports the exact affected field paths. Malformed JSON and unsupported future schema versions are preserved and use defaults instead. Run `/reload` after editing the file directly.
 
 When `intent.enabled` is on, `displaySummary` is required in owned built-in schemas and always shown in TUI. If an old or incomplete call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 

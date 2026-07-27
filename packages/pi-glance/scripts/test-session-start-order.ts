@@ -89,8 +89,8 @@ async function main(): Promise<void> {
 			assert.deepEqual(nonTuiCalls, [], `${mode} session_start should not install or clear TUI footer/editor`);
 		}
 
-		await mkdir(join(agentDir, "pi-glance"), { recursive: true });
-		await writeFile(join(agentDir, "pi-glance", "config.json"), `${JSON.stringify({ enabled: false })}\n`, "utf8");
+		await mkdir(join(agentDir, "extension-data", "pi-glance"), { recursive: true });
+		await writeFile(join(agentDir, "extension-data", "pi-glance", "config.json"), `${JSON.stringify({ enabled: false })}\n`, "utf8");
 
 		const disabledPi = createPi();
 		piGlance(disabledPi.api);

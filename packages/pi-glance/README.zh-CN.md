@@ -122,7 +122,7 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 }
 ```
 
-配置保存在 `~/.pi/agent/pi-glance/config.json`。当前 schema 为版本 11；旧配置会自动迁移并保留原 Glance palette，Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
+配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 11；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
 
 ## 工作区标题
 

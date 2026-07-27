@@ -65,7 +65,7 @@ Generate a recent activity recap. It will:
 Open the TUI config screen and save common settings to:
 
 ```text
-~/.pi/agent/recap.json
+$PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
 ```
 
 ```text
@@ -83,11 +83,11 @@ recap only runs in Pi TUI mode. Headless modes such as `print`, `json`, and `rpc
 The extension reads:
 
 ```text
-~/.pi/agent/recap.json
-.pi/recap.json
+$PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
+.pi/extension-data/pi-recap/config.json
 ```
 
-Project-local `.pi/recap.json` is read only when the project is trusted, and it overrides global config.
+Project-local `.pi/extension-data/pi-recap/config.json` is read only when the project is trusted, and it overrides global config. On first load, the previous global and trusted-project paths are automatically migrated and upgraded; unmappable fields are dropped with a warning, and malformed files are preserved.
 
 See example config:
 

@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
@@ -38,9 +39,29 @@ import type {
 	WorkspaceLabelMode,
 } from "./types.js";
 
-const CONFIG_PATH = join(getAgentDir(), "pi-glance", "config.json");
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
 const CONFIG_VERSION = 11 as const;
+const emittedMigrationNotices = new Set<string>();
+const pendingMigrationNotices: string[] = [];
+const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+export function getGlanceConfigPath(agentDir = getAgentDir()): string {
+	return join(agentDir, "extension-data", "pi-glance", "config.json");
+}
+
+export function getLegacyGlanceConfigPath(agentDir = getAgentDir()): string {
+	return join(agentDir, "pi-glance", "config.json");
+}
+
+export function consumeGlanceConfigNotices(): string[] {
+	return pendingMigrationNotices.splice(0);
+}
+
+function queueMigrationNotice(message: string): void {
+	if (emittedMigrationNotices.has(message)) return;
+	emittedMigrationNotices.add(message);
+	pendingMigrationNotices.push(message);
+}
 
 const COLOR_SOURCES = new Set<ColorSource>(COLOR_SOURCE_VALUES);
 const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
@@ -282,27 +303,160 @@ export function configToText(config: GlanceConfig): string {
 	return `${JSON.stringify(normalizeConfig(config), null, "\t")}\n`;
 }
 
-export function loadConfigSync(): GlanceConfig {
+const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
+	"": new Set(["version", "enabled", "colorSource", "theme", "icons", "editor", "display", "segments", "model", "git", "context", "cost", "tokens", "throughput", "bottomDetails"]),
+	theme: new Set(["light", "dark"]),
+	editor: new Set(["minContentRows", "topMarginRows"]),
+	display: new Set(["showProvider", "workspaceLabel"]),
+	model: new Set(["customNames", "showThinking"]),
+	git: new Set(["showDirty", "showAheadBehind", "shaMode", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
+	context: new Set(["display", "unknown", "progressStyle", "progressWidth"]),
+	cost: new Set(["hideZero"]),
+	tokens: new Set(["display", "cache"]),
+	throughput: new Set(["precision"]),
+	bottomDetails: new Set(["showAutoCompact"]),
+};
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function collectDroppedConfigFields(value: unknown): string[] {
+	if (!isRecordValue(value)) return ["<root>"];
+	const dropped: string[] = [];
+	for (const [key, child] of Object.entries(value)) {
+		if (!CONFIG_SHAPE[""]!.has(key)) {
+			dropped.push(key);
+			continue;
+		}
+		const fields = CONFIG_SHAPE[key];
+		if (fields && isRecordValue(child)) {
+			for (const childKey of Object.keys(child)) if (!fields.has(childKey)) dropped.push(`${key}.${childKey}`);
+		}
+		if (key === "segments" && Array.isArray(child)) {
+			for (const [index, segment] of child.entries()) {
+				if (!isRecordValue(segment)) continue;
+				for (const segmentKey of Object.keys(segment)) if (segmentKey !== "id" && segmentKey !== "enabled") dropped.push(`segments[${index}].${segmentKey}`);
+			}
+		}
+	}
+	return [...new Set(dropped)];
+}
+
+function droppedSummary(dropped: readonly string[]): string {
+	return dropped.length > 0 ? ` Dropped unmappable fields: ${dropped.join(", ")}.` : "";
+}
+
+function sleepSync(milliseconds: number): void {
+	Atomics.wait(waitBuffer, 0, 0, milliseconds);
+}
+
+function withConfigLock<T>(directory: string, fn: () => T): T {
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const lockPath = join(directory, ".config-migration.lock");
+	const deadline = Date.now() + 1_000;
+	let descriptor: number | undefined;
+	while (descriptor === undefined) {
+		try {
+			descriptor = openSync(lockPath, "wx", 0o600);
+			writeFileSync(descriptor, `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`);
+		} catch (error) {
+			if (!isRecordValue(error) || error.code !== "EEXIST") throw error;
+			try {
+				if (Date.now() - statSync(lockPath).mtimeMs > 30_000) {
+					unlinkSync(lockPath);
+					continue;
+				}
+			} catch (statError) {
+				if (isRecordValue(statError) && statError.code === "ENOENT") continue;
+				throw statError;
+			}
+			if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${lockPath}`);
+			sleepSync(20);
+		}
+	}
 	try {
-		const text = readFileSync(CONFIG_PATH, "utf8");
-		return configFromText(text);
-	} catch {
+		return fn();
+	} finally {
+		closeSync(descriptor);
+		rmSync(lockPath, { force: true });
+	}
+}
+
+function writeConfigSync(file: string, config: GlanceConfig): void {
+	const directory = dirname(file);
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const temporary = join(directory, `.${randomUUID()}.tmp`);
+	try {
+		writeFileSync(temporary, configToText(config), { encoding: "utf8", mode: 0o600, flag: "wx" });
+		renameSync(temporary, file);
+		chmodSync(file, 0o600);
+	} finally {
+		rmSync(temporary, { force: true });
+	}
+}
+
+function parseStoredConfig(file: string): { config: GlanceConfig; raw: unknown; dropped: string[] } {
+	const raw = JSON.parse(readFileSync(file, "utf8")) as unknown;
+	if (!isRecordValue(raw)) throw new Error("the root value must be a JSON object");
+	return { config: normalizeConfig(raw), raw, dropped: collectDroppedConfigFields(raw) };
+}
+
+export function loadConfigSync(): GlanceConfig {
+	const target = getGlanceConfigPath();
+	const legacy = getLegacyGlanceConfigPath();
+	if (existsSync(target)) {
+		try {
+			let loaded = parseStoredConfig(target);
+			const rawVersion = isRecordValue(loaded.raw) ? loaded.raw.version : undefined;
+			if (rawVersion !== CONFIG_VERSION || loaded.dropped.length > 0) {
+				loaded = withConfigLock(dirname(target), () => {
+					const current = parseStoredConfig(target);
+					const currentVersion = isRecordValue(current.raw) ? current.raw.version : undefined;
+					if (currentVersion !== CONFIG_VERSION || current.dropped.length > 0) writeConfigSync(target, current.config);
+					return current;
+				});
+				queueMigrationNotice(`Upgraded pi-glance config at ${target}.${droppedSummary(loaded.dropped)}`);
+			}
+			if (existsSync(legacy)) queueMigrationNotice(`Ignored conflicting legacy pi-glance config at ${legacy}; canonical config is ${target}.`);
+			return loaded.config;
+		} catch (error) {
+			queueMigrationNotice(`Failed to read pi-glance config at ${target}: ${error instanceof Error ? error.message : String(error)}. The file was preserved.`);
+			return defaultConfig();
+		}
+	}
+	if (!existsSync(legacy)) return defaultConfig();
+	try {
+		return withConfigLock(dirname(target), () => {
+			if (existsSync(target)) return parseStoredConfig(target).config;
+			const loaded = parseStoredConfig(legacy);
+			writeConfigSync(target, loaded.config);
+			const verified = parseStoredConfig(target).config;
+			unlinkSync(legacy);
+			queueMigrationNotice(`Migrated pi-glance config from ${legacy} to ${target}.${droppedSummary(loaded.dropped)}`);
+			return verified;
+		});
+	} catch (error) {
+		queueMigrationNotice(`Failed to migrate pi-glance config from ${legacy} to ${target}: ${error instanceof Error ? error.message : String(error)}. The legacy file was preserved.`);
 		return defaultConfig();
 	}
 }
 
 export async function loadConfig(): Promise<GlanceConfig> {
-	try {
-		const text = await readFile(CONFIG_PATH, "utf8");
-		return configFromText(text);
-	} catch {
-		return defaultConfig();
-	}
+	return loadConfigSync();
 }
 
 export async function saveConfig(config: GlanceConfig): Promise<void> {
-	await mkdir(dirname(CONFIG_PATH), { recursive: true });
-	await writeFile(CONFIG_PATH, configToText(config), "utf8");
+	const target = getGlanceConfigPath();
+	const directory = dirname(target);
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	const temporary = join(directory, `.${randomUUID()}.tmp`);
+	try {
+		await writeFile(temporary, configToText(config), { encoding: "utf8", mode: 0o600, flag: "wx" });
+		await rename(temporary, target);
+	} finally {
+		await rm(temporary, { force: true });
+	}
 }
 
 export function moveSegment(config: GlanceConfig, id: SegmentId, direction: -1 | 1): GlanceConfig {
