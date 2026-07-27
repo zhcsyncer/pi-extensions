@@ -74,9 +74,12 @@ export function appendPlanningPrompt(
 	contentLanguage: PlanContentLanguage = "auto",
 ): string {
 	const base = `${systemPrompt}\n\n${buildPlanningPrompt(contentLanguage)}`;
-	if (!currentPlan) return base;
+	if (!currentPlan) {
+		return `${base}\n\n[NEW PLAN]
+No Plan revision is attached for revision. Create a new Plan for the current goal and omit planId when calling submit_plan. Do not reuse a recently approved Plan ID unless the user explicitly enters its revision workflow.`;
+	}
 	return `${base}\n\n[CURRENT PLAN REFERENCE]
-A Plan is attached to the current Session branch. Use it as context and inspect the current workspace before deciding whether it still applies. Pass this planId to submit_plan only when revising the same goal; omit planId to create a different Plan.
+The user explicitly attached this Plan revision for continued planning. Use it as context and inspect the current workspace before deciding changes. Pass this exact planId to submit_plan for this revision lineage.
 
 Plan: ${currentPlan.title}
 Plan ID: ${currentPlan.planId}
@@ -107,6 +110,8 @@ Approved hash: ${input.approvedHash}
 Plan path: ${input.planPath}
 
 Implement the approved Plan using the current workspace as the source of truth. If repository facts invalidate a decision, stop and ask the user rather than silently changing scope.
+
+After every approved item is implemented and all necessary verification passes, call complete_plan with this exact Plan ID and revision, a concise implementation summary, and the completed verification checks. Call complete_plan as the only and final tool in its batch. Do not call it while scope is incomplete, verification is failing, or unresolved errors remain.
 
 --- BEGIN APPROVED PLAN ---
 ${input.markdown}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	COMPLETE_PLAN_TOOL,
 	SUBMIT_PLAN_TOOL,
+	getNormalTools,
 	getPlanningTools,
 	isPlanningToolAllowed,
 	withoutManagedTools,
@@ -18,8 +20,10 @@ describe("strict planning tool policy", () => {
 		}
 	});
 
-	it("restores the previous normal tools without leaking submit_plan", () => {
-		const saved = ["read", "bash", "edit", SUBMIT_PLAN_TOOL, "read"];
+	it("restores normal tools and activates complete_plan only for closable work", () => {
+		const saved = ["read", "bash", "edit", SUBMIT_PLAN_TOOL, COMPLETE_PLAN_TOOL, "read"];
 		expect(withoutManagedTools(saved)).toEqual(["read", "bash", "edit"]);
+		expect(getNormalTools(saved, false)).toEqual(["read", "bash", "edit"]);
+		expect(getNormalTools(saved, true)).toEqual(["read", "bash", "edit", COMPLETE_PLAN_TOOL]);
 	});
 });

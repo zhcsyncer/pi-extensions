@@ -10,7 +10,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — 分支感知的 Todo overlay，提供严格生命周期、原子批量操作、SDK Session 状态隔离和可展开审计摘要。
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
-- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 临时只读 Plan Mode，支持 word-aware revdiff 评审、不可变 revision、中英文 Plan 内容配置、显式批准和可折叠 TUI Steps。
+- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 
 ## Bundle 私有 Search Hub

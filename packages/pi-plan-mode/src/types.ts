@@ -1,8 +1,10 @@
 export const PLAN_METADATA_VERSION = 2 as const;
-export const SESSION_STATE_VERSION = 2 as const;
+export const SESSION_STATE_VERSION = 3 as const;
+export const LEGACY_SESSION_STATE_VERSION = 2 as const;
 
 export type PlanMode = "normal" | "planning";
 export type PlanStatus = "draft" | "changes_requested" | "approved";
+export type PlanWorkStatus = "implementing" | "completed" | "abandoned" | "unknown";
 export type PlanStorageMode = "persistent" | "temporary";
 
 export interface PlanRevision {
@@ -43,8 +45,29 @@ export interface PlanPaths {
 	annotations: string;
 }
 
+export interface PlanReference {
+	planId: string;
+	revision: number;
+}
+
+export interface PlanWorkReference extends PlanReference {
+	approvedHash: string;
+	status: PlanWorkStatus;
+	startedAt?: string;
+	completedAt?: string;
+	abandonedAt?: string;
+}
+
 export interface PlanSessionState {
 	version: typeof SESSION_STATE_VERSION;
+	mode: PlanMode;
+	planning?: PlanReference;
+	work?: PlanWorkReference;
+	normalTools: string[];
+}
+
+export interface LegacyPlanSessionState {
+	version: typeof LEGACY_SESSION_STATE_VERSION;
 	mode: PlanMode;
 	planId?: string;
 	revision?: number;
