@@ -16,11 +16,15 @@ import {
 // Module-level mutable state
 // ---------------------------------------------------------------------------
 
-/** Module-level config accessible from helper functions. */
-export let config: SearchConfig = { defaultBackend: "duckduckgo", backends: {} };
+/** Current runtime config. Keep private so consumers cannot retain a stale Jiti import snapshot. */
+let config: SearchConfig = { defaultBackend: "duckduckgo", backends: {} };
+
+export function getConfig(): SearchConfig {
+	return config;
+}
 
 /** Round-robin counter — increments on each call, never resets until pi restarts. */
-export let roundRobinIndex = 0;
+let roundRobinIndex = 0;
 
 export function incrementRoundRobin(): number {
 	return roundRobinIndex++;

@@ -5,7 +5,7 @@
 import type { BackendRunner, BackendConfig, SearchResult } from "../types.js";
 import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKey } from "../credentials.js";
-import { config } from "../config.js";
+import { getConfig } from "../config.js";
 import { recordBackendSuccess, recordBackendFailure } from "../scoring.js";
 
 import { searchDuckDuckGo } from "./duckduckgo.js";
@@ -40,12 +40,11 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "DuckDuckGo",
 		setupLabel: null,
-		search: async (query, numResults, { signal }) => {
-			const bc = (config.backends as Record<string, BackendConfig> | undefined)?.duckduckgo;
+		search: async (query, numResults, { signal, backendConfig }) => {
 			const ddg = await searchDuckDuckGo(query, numResults, signal, {
-				backend: bc?.ddgsBackend,
-				region: bc?.ddgsRegion,
-				timelimit: bc?.ddgsTimelimit,
+				backend: backendConfig?.ddgsBackend,
+				region: backendConfig?.ddgsRegion,
+				timelimit: backendConfig?.ddgsTimelimit,
 			});
 			return { results: ddg.results };
 		},
@@ -190,9 +189,8 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "Perplexity",
 		setupLabel: "Perplexity Sonar (unlimited free)",
-		search: async (query, numResults, { key, signal }) => {
-			const model = (config.backends?.perplexity as BackendConfig | undefined)?.model;
-			const result = await searchPerplexity(query, numResults, key!, signal, model);
+		search: async (query, numResults, { key, signal, backendConfig }) => {
+			const result = await searchPerplexity(query, numResults, key!, signal, backendConfig?.model);
 			return { results: result.results };
 		},
 	},
@@ -215,9 +213,8 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "Brave LLM",
 		setupLabel: "Brave LLM Context (same key as Brave, pre-extracted AI chunks)",
-		search: async (query, numResults, { key, signal }) => {
-			const bc = (config.backends as Record<string, BackendConfig> | undefined)?.["brave-llm"];
-			const result = await searchBraveLLM(query, numResults, key!, signal, bc?.tokenBudget);
+		search: async (query, numResults, { key, signal, backendConfig }) => {
+			const result = await searchBraveLLM(query, numResults, key!, signal, backendConfig?.tokenBudget);
 			return { results: result.results };
 		},
 	},
@@ -228,9 +225,8 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "Linkup",
 		setupLabel: "Linkup (EU/GDPR, AI-native, $20 free credit)",
-		search: async (query, numResults, { key, signal }) => {
-			const bc = (config.backends as Record<string, BackendConfig> | undefined)?.linkup;
-			const result = await searchLinkup(query, numResults, key!, signal, bc?.depth);
+		search: async (query, numResults, { key, signal, backendConfig }) => {
+			const result = await searchLinkup(query, numResults, key!, signal, backendConfig?.depth);
 			return { results: result.results };
 		},
 	},
@@ -253,9 +249,8 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "fastCRW",
 		setupLabel: "fastCRW (500 free/mo, self-hostable)",
-		search: async (query, numResults, { key, signal }) => {
-			const bc = (config.backends as Record<string, BackendConfig> | undefined)?.fastcrw;
-			const result = await searchFastcrw(query, numResults, key!, signal, bc?.baseUrl);
+		search: async (query, numResults, { key, signal, backendConfig }) => {
+			const result = await searchFastcrw(query, numResults, key!, signal, backendConfig?.baseUrl);
 			return { results: result.results };
 		},
 	},
@@ -294,6 +289,7 @@ export async function runBackend(
 	await waitForCooldown(backend);
 	const def = BACKEND_DEFS[backend];
 	if (!def) throw new Error(`Unknown backend: ${backend}`);
+	const config = getConfig();
 
 	let key: string | undefined;
 	if (def.providerAuth) {

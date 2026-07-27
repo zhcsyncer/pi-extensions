@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { config, loadConfig, refreshConfig } from "../extensions/config.js";
+import { getConfig, loadConfig, refreshConfig } from "../extensions/config.js";
+import { resolveBackendKey } from "../extensions/credentials.js";
 import { resetSearchConfigMigrationNoticesForTests } from "../extensions/config-storage.js";
 import { incrementExaUsage, resetExaUsageNoticesForTests } from "../extensions/exa-usage.js";
 import {
@@ -42,13 +43,20 @@ describe("Search Hub storage migration", () => {
 		const target = getGlobalConfigPath();
 		writeJson(legacy, {
 			combine: true,
+			reader: "firecrawl",
 			obsolete: true,
-			backends: { serper: { enabled: true, apiKey: "SERPER_KEY", removed: 1 } },
+			backends: {
+				firecrawl: { enabled: true, apiKey: "fc-test-key" },
+				serper: { enabled: true, apiKey: "SERPER_KEY", removed: 1 },
+			},
 		});
 		const notices: string[] = [];
 
 		const loaded = loadConfig(cwd, false, (message) => notices.push(message));
 
+		expect(loaded.reader).toBe("firecrawl");
+		expect(loaded.backends?.firecrawl).toEqual({ enabled: true, apiKey: "fc-test-key" });
+		expect(resolveBackendKey("firecrawl", loaded)).toBe("fc-test-key");
 		expect(loaded.backends?.serper).toEqual({ enabled: true, apiKey: "SERPER_KEY" });
 		expect(readFileSync(target, "utf8")).not.toContain("obsolete");
 		expect(readFileSync(target, "utf8")).not.toContain("removed");
@@ -74,9 +82,9 @@ describe("Search Hub storage migration", () => {
 		writeJson(getProjectConfigPath(cwd), { compact: true });
 
 		refreshConfig(cwd, false, true);
-		expect(config.compact).toBe(false);
+		expect(getConfig().compact).toBe(false);
 		refreshConfig(cwd, true, false);
-		expect(config.compact).toBe(true);
+		expect(getConfig().compact).toBe(true);
 	});
 
 	it("preserves an unparsable legacy config", () => {

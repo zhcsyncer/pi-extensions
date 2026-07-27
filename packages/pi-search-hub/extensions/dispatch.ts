@@ -5,7 +5,7 @@
 import type { SearchResult, SearchResultWithBackend } from "./types.js";
 
 export type BackendStats = { success: boolean; count: number; error?: string };
-import { config, roundRobinIndex, incrementRoundRobin } from "./config.js";
+import { incrementRoundRobin } from "./config.js";
 import { scoreBackends } from "./scoring.js";
 
 // ---------------------------------------------------------------------------
@@ -27,8 +27,7 @@ export function selectBackendsForFallback(
 		}
 		case "round-robin": {
 			if (backends.length === 0) return [];
-			const index = roundRobinIndex % backends.length;
-			incrementRoundRobin();
+			const index = incrementRoundRobin() % backends.length;
 			const selected = backends[index];
 			// Put selected first, then the rest
 			return [selected, ...backends.filter((b) => b !== selected)];

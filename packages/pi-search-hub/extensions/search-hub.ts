@@ -52,7 +52,7 @@ import { fetchSofya } from "./backends/sofya.js";
 import { fetchFirecrawl } from "./backends/firecrawl.js";
 import { fetchExaContents } from "./backends/exa.js";
 import { fetchExaMCP } from "./backends/exa-mcp.js";
-import { config, refreshConfig, getActiveBackends, recordLatency, latencyMap } from "./config.js";
+import { getConfig, refreshConfig, getActiveBackends, recordLatency, latencyMap } from "./config.js";
 import { loadMigratedSearchConfig, saveSearchConfig } from "./config-storage.js";
 import {
 	getGlobalConfigPath,
@@ -180,6 +180,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const config = getConfig();
 			const numResults = Math.max(1, Math.min(params.numResults ?? 10, 20));
 			const requestedBackend = params.backend || "auto";
 			const combine = params.combine ?? false;
@@ -452,6 +453,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const config = getConfig();
 
 			const updateActivity = (status: string, reader: ReaderName) => {
 				onUpdate?.({
@@ -566,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	}), {
-		getCallPresentation: (args) => getWebReadCallPresentation(args, configuredReaderOrder(config)[0]),
+		getCallPresentation: (args) => getWebReadCallPresentation(args, configuredReaderOrder(getConfig())[0]),
 		getResultPresentation: getWebReadResultPresentation,
 	}));
 
