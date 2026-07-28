@@ -1,6 +1,6 @@
 # Releasing
 
-This repository publishes seven public npm packages:
+This repository publishes eight public npm packages:
 
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
@@ -8,6 +8,7 @@ This repository publishes seven public npm packages:
 - `@zhcsyncer/pi-todo`
 - `@zhcsyncer/pi-glance`
 - `@zhcsyncer/pi-plan-mode`
+- `@zhcsyncer/pi-context7`
 - `pi-provider-volcengine-agent-plan`
 
 Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The standalone `pi-provider-volcengine-agent-plan` package is excluded from the aggregate tarball and may release without the root. Unchanged siblings remain unreleased.
