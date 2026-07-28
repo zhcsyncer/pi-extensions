@@ -13,12 +13,19 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createBashTool,
+  createBashToolDefinition,
   createEditTool,
+  createEditToolDefinition,
   createFindTool,
+  createFindToolDefinition,
   createGrepTool,
+  createGrepToolDefinition,
   createLsTool,
+  createLsToolDefinition,
   createReadTool,
+  createReadToolDefinition,
   createWriteTool,
+  createWriteToolDefinition,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
@@ -426,8 +433,58 @@ function createLazyToolRecord<T>(
   } as Record<keyof BuiltInTools, T>;
 }
 
-function createLazyPromptMetadata(bootstrapTools: BuiltInTools): Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>> {
-  return createLazyToolRecord(bootstrapTools, extractPromptMetadata);
+function createBuiltInToolDefinitions(cwd: string) {
+  return {
+    read: () => createReadToolDefinition(cwd),
+    grep: () => createGrepToolDefinition(cwd),
+    find: () => createFindToolDefinition(cwd),
+    ls: () => createLsToolDefinition(cwd),
+    bash: () => createBashToolDefinition(cwd, loadBashToolOverrideOptions()),
+    edit: () => createEditToolDefinition(cwd),
+    write: () => createWriteToolDefinition(cwd),
+  } as const;
+}
+
+/**
+ * Prompt metadata must come from ToolDefinition factories.
+ * `create*Tool()` goes through `wrapToolDefinition()`, which drops
+ * `promptSnippet` / `promptGuidelines`. Without those fields, Pi omits the
+ * overridden tools from the system prompt `Available tools` section.
+ */
+function createLazyPromptMetadata(
+  bootstrapTools: BuiltInTools,
+  cwd: string = process.cwd(),
+): Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>> {
+  const definitions = createBuiltInToolDefinitions(cwd);
+  const cache = new Map<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>();
+  const get = (name: keyof BuiltInTools): ReturnType<typeof extractPromptMetadata> => {
+    const cached = cache.get(name);
+    if (cached) {
+      return cached;
+    }
+
+    const fromDefinition = extractPromptMetadata(definitions[name]());
+    const fallbackSnippet = buildPromptSnippetFromDescription(
+      bootstrapTools[name].description,
+      name,
+    );
+    const metadata = {
+      promptSnippet: fromDefinition.promptSnippet ?? fallbackSnippet,
+      promptGuidelines: fromDefinition.promptGuidelines,
+    };
+    cache.set(name, metadata);
+    return metadata;
+  };
+
+  return {
+    get read() { return get("read"); },
+    get grep() { return get("grep"); },
+    get find() { return get("find"); },
+    get ls() { return get("ls"); },
+    get bash() { return get("bash"); },
+    get edit() { return get("edit"); },
+    get write() { return get("write"); },
+  } as Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>;
 }
 
 function createLazyClonedParameters(bootstrapTools: BuiltInTools): Record<keyof BuiltInTools, unknown> {

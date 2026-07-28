@@ -5,12 +5,19 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	createBashTool,
+	createBashToolDefinition,
 	createEditTool,
+	createEditToolDefinition,
 	createFindTool,
+	createFindToolDefinition,
 	createGrepTool,
+	createGrepToolDefinition,
 	createLsTool,
+	createLsToolDefinition,
 	createReadTool,
+	createReadToolDefinition,
 	createWriteTool,
+	createWriteToolDefinition,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -108,6 +115,17 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 
 	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
 	const cwd = process.cwd();
+	// Prompt metadata lives on ToolDefinition. create*Tool() wraps through
+	// wrapToolDefinition() and drops promptSnippet/promptGuidelines.
+	const builtInDefinitions = {
+		read: createReadToolDefinition(cwd),
+		grep: createGrepToolDefinition(cwd),
+		find: createFindToolDefinition(cwd),
+		ls: createLsToolDefinition(cwd),
+		bash: createBashToolDefinition(cwd),
+		edit: createEditToolDefinition(cwd),
+		write: createWriteToolDefinition(cwd),
+	};
 	const builtInTools = {
 		read: createReadTool(cwd),
 		grep: createGrepTool(cwd),
@@ -118,18 +136,27 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 		write: createWriteTool(cwd),
 	};
 
-	for (const [name, builtInTool] of Object.entries(builtInTools)) {
+	for (const [name, definition] of Object.entries(builtInDefinitions)) {
 		const registeredTool = byName.get(name);
-		const builtInMetadata = builtInTool as unknown as RegisteredToolLike;
+		const builtInTool = builtInTools[name as keyof typeof builtInTools] as unknown as RegisteredToolLike;
 		assert.ok(registeredTool, `expected '${name}' to be registered`);
-		assert.equal(registeredTool.description, builtInMetadata.description);
-		assert.equal(registeredTool.promptSnippet, builtInMetadata.promptSnippet);
+		assert.equal(registeredTool.description, builtInTool.description);
+		assert.equal(typeof definition.promptSnippet, "string");
+		assert.ok((definition.promptSnippet ?? "").trim().length > 0, `${name} definition has promptSnippet`);
+		assert.equal(registeredTool.promptSnippet, definition.promptSnippet);
 	}
 
+	// Regression: AgentTool wrappers drop prompt metadata. Overrides must not
+	// copy that loss, or Pi omits the tools from Available tools.
+	assert.equal((builtInTools.read as unknown as RegisteredToolLike).promptSnippet, undefined);
+	assert.notEqual(byName.get("read")?.promptSnippet, undefined);
+
 	const intentGuidelines = new Set<string>();
-	for (const [name, builtInTool] of Object.entries(builtInTools)) {
+	for (const [name, definition] of Object.entries(builtInDefinitions)) {
 		const registeredGuidelines = byName.get(name)?.promptGuidelines ?? [];
-		const builtInGuidelines = (builtInTool as unknown as RegisteredToolLike).promptGuidelines ?? [];
+		const builtInGuidelines = Array.isArray(definition.promptGuidelines)
+			? definition.promptGuidelines
+			: [];
 		assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
 		const intentGuideline = registeredGuidelines.at(-1) ?? "";
 		assert.match(intentGuideline, /displaySummary/);
