@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.12.0
+
+### Minor Changes
+
+- b7677c4: Add Context7 documentation tools with compact self-contained TUI rendering and the full upstream skill. The package publishes as `@zhcsyncer/pi-context7` and is also embedded in the root extension bundle.
+
 ## 0.11.0
 
 ### Minor Changes
