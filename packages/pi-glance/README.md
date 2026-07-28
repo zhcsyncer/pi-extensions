@@ -188,7 +188,7 @@ pnpm debug:git
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
 - pi-glance never replaces Pi's native Header or resource area. Context/Skills/Prompts/Extensions keep Pi's native compact/expanded hierarchy; expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
-- Global config at `~/.pi/agent/pi-glance/config.json` (schema version 11; older configs preserve Glance palette behavior unless `colorSource` was explicitly set)
+- Global config at `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` (schema version 11). The previous path is migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed files are preserved
 
 ## License and attribution
 

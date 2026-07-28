@@ -6,11 +6,12 @@
  * - Optionally sync Pi session name to the nearest terminal multiplexer.
  *
  * Config:
- *   ~/.pi/agent/recap.json
- *   .pi/recap.json          (only read when the project is trusted)
+ *   $PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
+ *   .pi/extension-data/pi-recap/config.json (trusted projects only)
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
@@ -132,27 +133,48 @@ function deepMerge<T extends Record<string, unknown>>(base: T, override: unknown
 type ConfigMigration = {
 	value: unknown;
 	changed: boolean;
+	dropped: string[];
 };
+
+const CONFIG_FIELDS: Record<string, ReadonlySet<string>> = {
+	recap: new Set(["enabled", "auto", "manualCommand", "idleAfterTurnMs", "minSessionTurns", "neverTwiceInARow", "model", "fallbackToCurrentModel", "maxRecentChars", "maxTokens", "language"]),
+	display: new Set(["widgetPlacement"]),
+	title: new Set(["generate", "applyToSessionName", "applyPolicy", "maxLength"]),
+	multiplexer: new Set(["enabled", "template", "maxLength", "restoreOnShutdown"]),
+};
+const emittedMigrationNotices = new Set<string>();
+
+function stripUnknownConfig(value: unknown): { value: unknown; dropped: string[] } {
+	if (!isRecord(value)) throw new Error("the root value must be a JSON object");
+	const result: Record<string, unknown> = {};
+	const dropped: string[] = [];
+	for (const [section, sectionValue] of Object.entries(value)) {
+		const fields = CONFIG_FIELDS[section];
+		if (!fields) {
+			dropped.push(section);
+			continue;
+		}
+		if (!isRecord(sectionValue)) {
+			dropped.push(section);
+			continue;
+		}
+		const nextSection: Record<string, unknown> = {};
+		for (const [key, fieldValue] of Object.entries(sectionValue)) {
+			if (fields.has(key)) nextSection[key] = fieldValue;
+			else dropped.push(`${section}.${key}`);
+		}
+		result[section] = nextSection;
+	}
+	return { value: result, dropped };
+}
 
 function migrateLegacyConfig(value: unknown): ConfigMigration {
 	const multiplexerMigration = migrateMultiplexerConfig(value);
-	const migrated = multiplexerMigration.value;
-	if (!isRecord(migrated) || !isRecord(migrated.display)) {
-		return multiplexerMigration;
-	}
-
-	const display = { ...migrated.display };
-	let changed = multiplexerMigration.changed;
-	for (const key of ["notify", "mode", "widget", "clearWidgetOnNextAgentStart"]) {
-		if (key in display) {
-			delete display[key];
-			changed = true;
-		}
-	}
-
+	const stripped = stripUnknownConfig(multiplexerMigration.value);
 	return {
-		value: changed ? { ...migrated, display } : migrated,
-		changed,
+		value: stripped.value,
+		changed: multiplexerMigration.changed || stripped.dropped.length > 0,
+		dropped: stripped.dropped,
 	};
 }
 
@@ -165,42 +187,159 @@ async function readJsonIfExists(file: string): Promise<unknown | undefined> {
 	}
 }
 
-function getGlobalConfigPath(): string {
-	return path.join(getAgentDir(), "recap.json");
+async function pathExists(file: string): Promise<boolean> {
+	try {
+		await stat(file);
+		return true;
+	} catch (error) {
+		if (isRecord(error) && error.code === "ENOENT") return false;
+		throw error;
+	}
+}
+
+export function getGlobalConfigPath(agentDir = getAgentDir()): string {
+	return path.join(agentDir, "extension-data", "pi-recap", "config.json");
+}
+
+export function getLegacyGlobalConfigPath(agentDir = getAgentDir()): string {
+	return path.join(agentDir, "recap.json");
+}
+
+export function getProjectConfigPath(cwd: string): string {
+	return path.join(cwd, CONFIG_DIR_NAME, "extension-data", "pi-recap", "config.json");
+}
+
+export function getLegacyProjectConfigPath(cwd: string): string {
+	return path.join(cwd, CONFIG_DIR_NAME, "recap.json");
 }
 
 async function writeJsonConfig(file: string, value: unknown): Promise<void> {
-	await mkdir(path.dirname(file), { recursive: true });
-	await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+	const directory = path.dirname(file);
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	const temporary = path.join(directory, `.${randomUUID()}.tmp`);
+	try {
+		await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+		await rename(temporary, file);
+		await chmod(file, 0o600);
+	} finally {
+		await rm(temporary, { force: true });
+	}
+}
+
+async function withMigrationLock<T>(directory: string, fn: () => Promise<T>): Promise<T> {
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	const lockPath = path.join(directory, ".config-migration.lock");
+	const deadline = Date.now() + 2_000;
+	let handle: Awaited<ReturnType<typeof open>> | undefined;
+	while (!handle) {
+		try {
+			handle = await open(lockPath, "wx", 0o600);
+			await handle.writeFile(`${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`);
+		} catch (error) {
+			if (!isRecord(error) || error.code !== "EEXIST") throw error;
+			try {
+				if (Date.now() - (await stat(lockPath)).mtimeMs > 30_000) {
+					await unlink(lockPath);
+					continue;
+				}
+			} catch (statError) {
+				if (isRecord(statError) && statError.code === "ENOENT") continue;
+				throw statError;
+			}
+			if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${lockPath}`);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+	}
+	try {
+		return await fn();
+	} finally {
+		await handle.close();
+		await rm(lockPath, { force: true });
+	}
+}
+
+function notifyMigration(ctx: ExtensionContext, message: string): void {
+	if (emittedMigrationNotices.has(message)) return;
+	emittedMigrationNotices.add(message);
+	if (ctx.hasUI === false) console.warn(message);
+	else ctx.ui.notify(message, "warning");
+}
+
+function droppedSummary(dropped: readonly string[]): string {
+	return dropped.length > 0 ? ` Dropped unmappable fields: ${dropped.join(", ")}.` : "";
 }
 
 async function saveGlobalConfig(config: RecapConfig): Promise<void> {
 	await writeJsonConfig(getGlobalConfigPath(), config);
 }
 
-async function loadConfigSource(file: string, ctx: ExtensionContext): Promise<unknown | undefined> {
-	const migration = migrateLegacyConfig(await readJsonIfExists(file));
-	if (migration.changed) {
+async function loadConfigSource(target: string, legacy: string, scope: "global" | "project", ctx: ExtensionContext): Promise<unknown | undefined> {
+	let targetValue: unknown | undefined;
+	try {
+		targetValue = await readJsonIfExists(target);
+	} catch (error) {
+		notifyMigration(ctx, `Invalid ${scope} Recap config at ${target}: ${error instanceof Error ? error.message : String(error)}. The file was preserved.`);
+		return undefined;
+	}
+	if (targetValue !== undefined) {
 		try {
-			await writeJsonConfig(file, migration.value);
+			let migration = migrateLegacyConfig(targetValue);
+			if (migration.changed) {
+				migration = await withMigrationLock(path.dirname(target), async () => {
+					const current = migrateLegacyConfig(await readJsonIfExists(target));
+					if (current.changed) await writeJsonConfig(target, current.value);
+					return current;
+				});
+				notifyMigration(ctx, `Upgraded ${scope} Recap config at ${target}.${droppedSummary(migration.dropped)}`);
+			}
+			try {
+				if (await pathExists(legacy)) notifyMigration(ctx, `Ignored conflicting legacy ${scope} Recap config at ${legacy}; canonical config is ${target}.`);
+			} catch (error) {
+				notifyMigration(ctx, `Could not inspect legacy ${scope} Recap config at ${legacy}: ${error instanceof Error ? error.message : String(error)}.`);
+			}
+			return migration.value;
 		} catch (error) {
-			ctx.ui.notify(
-				`Using migrated recap config in memory, but failed to update ${file}: ${error instanceof Error ? error.message : String(error)}`,
-				"warning",
-			);
+			notifyMigration(ctx, `Failed to upgrade ${scope} Recap config at ${target}: ${error instanceof Error ? error.message : String(error)}.`);
+			return undefined;
 		}
 	}
-	return migration.value;
+	let legacyValue: unknown | undefined;
+	try {
+		legacyValue = await readJsonIfExists(legacy);
+	} catch (error) {
+		notifyMigration(ctx, `Invalid legacy ${scope} Recap config at ${legacy}: ${error instanceof Error ? error.message : String(error)}. The file was preserved.`);
+		return undefined;
+	}
+	if (legacyValue === undefined) return undefined;
+	try {
+		return await withMigrationLock(path.dirname(target), async () => {
+			const racedTarget = await readJsonIfExists(target);
+			if (racedTarget !== undefined) return migrateLegacyConfig(racedTarget).value;
+			const migration = migrateLegacyConfig(legacyValue);
+			await writeJsonConfig(target, migration.value);
+			const verified = migrateLegacyConfig(await readJsonIfExists(target)).value;
+			await unlink(legacy);
+			notifyMigration(ctx, `Migrated ${scope} Recap config from ${legacy} to ${target}.${droppedSummary(migration.dropped)}`);
+			return verified;
+		});
+	} catch (error) {
+		notifyMigration(ctx, `Failed to migrate ${scope} Recap config from ${legacy} to ${target}: ${error instanceof Error ? error.message : String(error)}. The legacy file was preserved.`);
+		try {
+			return migrateLegacyConfig(await readJsonIfExists(legacy)).value;
+		} catch {
+			return undefined;
+		}
+	}
 }
 
-async function loadConfig(ctx: ExtensionContext): Promise<RecapConfig> {
+export async function loadRecapConfig(ctx: ExtensionContext): Promise<RecapConfig> {
 	let config = deepMerge(DEFAULT_CONFIG as unknown as Record<string, unknown>, {}) as RecapConfig;
 
-	const globalConfig = await loadConfigSource(getGlobalConfigPath(), ctx);
+	const globalConfig = await loadConfigSource(getGlobalConfigPath(), getLegacyGlobalConfigPath(), "global", ctx);
 	config = deepMerge(config as unknown as Record<string, unknown>, globalConfig) as RecapConfig;
 
 	if (ctx.isProjectTrusted()) {
-		const projectConfig = await loadConfigSource(path.join(ctx.cwd, CONFIG_DIR_NAME, "recap.json"), ctx);
+		const projectConfig = await loadConfigSource(getProjectConfigPath(ctx.cwd), getLegacyProjectConfigPath(ctx.cwd), "project", ctx);
 		config = deepMerge(config as unknown as Record<string, unknown>, projectConfig) as RecapConfig;
 	}
 
@@ -948,7 +1087,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		try {
-			state.config = await loadConfig(ctx);
+			state.config = await loadRecapConfig(ctx);
 		} catch (error) {
 			ctx.ui.notify(`Failed to load recap config: ${error instanceof Error ? error.message : String(error)}`, "warning");
 			state.config = DEFAULT_CONFIG;

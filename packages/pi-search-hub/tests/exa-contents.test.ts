@@ -1,18 +1,26 @@
 /**
  * Unit tests for Exa Contents API fetch function.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fetchExaContents } from "../extensions/backends/exa.js";
 
 describe("fetchExaContents", () => {
 	let fetchSpy: ReturnType<typeof vi.spyOn>;
+	let root: string;
 
 	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "pi-search-exa-contents-"));
+		vi.stubEnv("PI_CODING_AGENT_DIR", root);
 		fetchSpy = vi.spyOn(global, "fetch");
 	});
 
 	afterEach(() => {
 		fetchSpy.mockRestore();
+		vi.unstubAllEnvs();
+		rmSync(root, { recursive: true, force: true });
 	});
 
 	it("sends x-api-key header", async () => {

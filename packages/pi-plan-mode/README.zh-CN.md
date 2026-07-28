@@ -73,7 +73,7 @@ brew install umputun/apps/revdiff
 
 ## Plan 内容语言
 
-Plan Mode 从 `<agent-dir>/plan-mode.json`（通常是 `~/.pi/agent/plan-mode.json`）读取一个可选用户级配置：
+Plan Mode 从 `<agent-dir>/extension-data/pi-plan-mode/config.json`（通常是 `~/.pi/agent/extension-data/pi-plan-mode/config.json`）读取一个可选用户级配置：
 
 ```json
 {
@@ -87,7 +87,7 @@ Plan Mode 从 `<agent-dir>/plan-mode.json`（通常是 `~/.pi/agent/plan-mode.js
 - `en`：要求英文标题、内容和章节标题。
 - `zh-CN`：要求简体中文标题、内容和章节标题。
 
-扩展只读取该文件，不会自动创建或改写。编辑后需 reload 或重启 Pi。JSON 无效或值不受支持时会提示 warning 并回退到 `auto`。该设置只控制生成的 Plan 内容和标题；Plan Mode UI、revdiff UI、控制 prompt 和批准事件仍使用英文。
+编辑后需 reload 或重启 Pi。首次加载时会自动迁移并升级旧的 `plan-mode.json` 路径；无法映射的字段会被丢弃并提示 warning。JSON 无效或值不受支持时会保留原文件、提示 warning 并回退到 `auto`。该设置只控制生成的 Plan 内容和标题；Plan Mode UI、revdiff UI、控制 prompt 和批准事件仍使用英文。
 
 ## Widgets
 
@@ -136,10 +136,10 @@ Steps 默认收起。`Ctrl+Alt+O` 展开终端高度的最多 30%，并限制在
 
 ## 存储方式
 
-持久 Session 把应用数据与 Pi JSONL transcript 分开保存。可选语言配置与 `plans/` 目录同级：
+持久 Session 把应用数据与 Pi JSONL transcript 分开保存。只有可选语言配置迁入 `extension-data`；Plan artifact 继续使用稳定路径：
 
 ```text
-~/.pi/agent/plan-mode.json
+~/.pi/agent/extension-data/pi-plan-mode/config.json
 ~/.pi/agent/plans/
 └── <plan-id>/
     ├── manifest.json

@@ -1,17 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { resolvePiAgentDir } from "./agent-dir.js";
+import { dirname } from "node:path";
+import { getToolDisplayConfigPath, getToolDisplayDebugLogPath } from "./storage-paths.js";
 import { toRecord } from "./tool-metadata.js";
 
-const DEFAULT_DEBUG_CONFIG_FILE = join(
-  resolvePiAgentDir(),
-  "extensions",
-  "pi-tool-display-intent",
-  "config.json",
-);
-const DEFAULT_DEBUG_DIR = join(dirname(DEFAULT_DEBUG_CONFIG_FILE), "debug");
-const DEFAULT_DEBUG_LOG_FILE = join(DEFAULT_DEBUG_DIR, "debug.log");
+const DEFAULT_DEBUG_CONFIG_FILE = getToolDisplayConfigPath();
+const DEFAULT_DEBUG_LOG_FILE = getToolDisplayDebugLogPath();
+const DEFAULT_DEBUG_DIR = dirname(DEFAULT_DEBUG_LOG_FILE);
 
 const DEFAULT_DEBUG_CONFIG_CACHE_TTL_MS = 1_000;
 

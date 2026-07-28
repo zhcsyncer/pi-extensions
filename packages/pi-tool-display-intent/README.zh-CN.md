@@ -80,10 +80,10 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 全局配置位置：
 
 ```text
-$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
+$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 ```
 
-未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。扩展启停统一通过 Pi package 设置管理，不再增加另一个配置开关。v2 按职责分组，只保存非默认值：
+未设置 `PI_CODING_AGENT_DIR` 时使用 Pi 默认 agent 目录。显式启用 debug 后，日志写入 `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/state/debug.log`。扩展启停统一通过 Pi package 设置管理，不再增加另一个配置开关。v2 按职责分组，只保存非默认值：
 
 ```json
 {
@@ -133,7 +133,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 
 ### 历史配置自动迁移
 
-扩展加载没有 `version` 的旧 flat 配置时，会规范化配置，并在验证 v2 round-trip 后原子替换 `config.json`。首次迁移保留 `config.legacy.json`。主要映射：
+首次加载时，扩展会自动把旧配置路径、legacy backup 和 debug log 迁入 `extension-data`。没有 `version` 的旧 flat 配置或 v2 之前的版本会被规范化，并在验证 v2 round-trip 后原子替换 `config.json`。首次 schema 迁移保留 `config.legacy.json`。主要映射：
 
 - `displaySummary` / `toolIntent` → `intent`；
 - `toolCallStyle` → `toolCalls.style`；
@@ -143,7 +143,7 @@ $PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json
 - `customToolOverrides` → 没有 `enabled` 开关的 `tools.custom`；
 - diff、transcript、hint 和 debug → 对应分组。
 
-`bashCollapsedLines` 会直接丢弃，因为所有预览统一使用 `results.previewRows`。迁移完成后，Pi 状态栏会提示用户按需调整该值。废弃的 `displaySummary.required` 和 `displaySummary.showInTui` 也会移除。无效 JSON、未知 v2 字段或错误的 v2 值不会被改写，并会报告准确字段路径。直接编辑配置后执行 `/reload` 重新读取。
+`bashCollapsedLines` 会直接丢弃，因为所有预览统一使用 `results.previewRows`。废弃的 `displaySummary.required`、`displaySummary.showInTui`、未知字段和无法映射的无效值也会被丢弃；Pi 状态栏会报告准确字段路径。格式损坏的 JSON 和未来版本 schema 会原样保留并回退默认值。直接编辑配置后执行 `/reload` 重新读取。
 
 启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。旧 Session 或不完整 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 

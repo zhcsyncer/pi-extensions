@@ -16,10 +16,10 @@
  *   searxng       — ✅ Self-hosted, 70+ aggregators. Needs instance URL
  *
  * Tools: web_search (auto-fallback + RRF combine modes), web_read (URL content)
- * Config: ~/.pi/agent/extensions/search.json + .pi/search.json (project wins)
+ * Config: $PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json + .pi/extension-data/pi-search-hub/config.json
  * Credentials: env var refs (ALL_CAPS), shell commands (!command), or literal keys
  *
- * Example .pi/search.json:
+ * Example .pi/extension-data/pi-search-hub/config.json:
  *   {
  *     "defaultBackend": "auto",
  *     "backends": {
@@ -37,8 +37,6 @@
  *   }
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -48,13 +46,20 @@ import {
 } from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
 import type { BackendConfig, ReaderName, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
-import { getAgentDir, timeoutSignal, sanitizeError, clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
+import { timeoutSignal, sanitizeError, clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
 import { resolveBackendKey, getKeySource, FALLBACK_ENV_MAP } from "./credentials.js";
 import { fetchSofya } from "./backends/sofya.js";
 import { fetchFirecrawl } from "./backends/firecrawl.js";
 import { fetchExaContents } from "./backends/exa.js";
 import { fetchExaMCP } from "./backends/exa-mcp.js";
-import { config, refreshConfig, getActiveBackends, recordLatency, latencyMap } from "./config.js";
+import { getConfig, refreshConfig, getActiveBackends, recordLatency, latencyMap } from "./config.js";
+import { loadMigratedSearchConfig, saveSearchConfig } from "./config-storage.js";
+import {
+	getGlobalConfigPath,
+	getLegacyGlobalConfigPath,
+	getLegacyProjectConfigPath,
+	getProjectConfigPath,
+} from "./paths.js";
 import { BACKEND_DEFS, runBackend } from "./backends/registry.js";
 import { selectBackendsForFallback, reciprocalRankFusion, runTargetedCombine } from "./dispatch.js";
 import { formatResults, formatCombinedResults, formatResultsCompact, formatCombinedResultsCompact } from "./formatters.js";
@@ -134,7 +139,7 @@ export default function (pi: ExtensionAPI) {
 			"Auto mode tries enabled backends in order (DuckDuckGo is the free fallback)",
 			"Set combine=true to query enabled backends in parallel and merge/deduplicate results",
 			"Set combineMode=targeted in search.json to cap combine fan-out while still using multiple backends",
-			"Configure additional backends in .pi/search.json for better quality results",
+			"Configure additional backends in .pi/extension-data/pi-search-hub/config.json for better quality results",
 		],
 		parameters: Type.Object({
 			query: Type.String({
@@ -174,7 +179,8 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			refreshConfig(ctx.cwd);
+			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const config = getConfig();
 			const numResults = Math.max(1, Math.min(params.numResults ?? 10, 20));
 			const requestedBackend = params.backend || "auto";
 			const combine = params.combine ?? false;
@@ -446,7 +452,8 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			refreshConfig(ctx.cwd);
+			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const config = getConfig();
 
 			const updateActivity = (status: string, reader: ReaderName) => {
 				onUpdate?.({
@@ -561,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	}), {
-		getCallPresentation: (args) => getWebReadCallPresentation(args, configuredReaderOrder(config)[0]),
+		getCallPresentation: (args) => getWebReadCallPresentation(args, configuredReaderOrder(getConfig())[0]),
 		getResultPresentation: getWebReadResultPresentation,
 	}));
 
@@ -569,51 +576,40 @@ export default function (pi: ExtensionAPI) {
 	// Commands
 	// -----------------------------------------------------------------------
 
-	const getGlobalConfigPath = () => join(getAgentDir(), "extensions", "search.json");
+	const notifyMigration = (ctx: ExtensionContext) => (message: string): void => {
+		if (ctx.hasUI === false) console.warn(message);
+		else ctx.ui.notify(message, "warning");
+	};
 
-	function readGlobalConfig(): SearchConfig {
-		const configPath = getGlobalConfigPath();
-		if (!existsSync(configPath)) return {};
-		try {
-			return JSON.parse(readFileSync(configPath, "utf-8")) as SearchConfig;
-		} catch {
-			return {};
-		}
+	function readGlobalConfig(ctx: ExtensionContext): SearchConfig {
+		return loadMigratedSearchConfig({
+			targetPath: getGlobalConfigPath(),
+			legacyPath: getLegacyGlobalConfigPath(),
+			scope: "global",
+			onNotice: notifyMigration(ctx),
+		});
 	}
 
 	function writeGlobalConfig(nextConfig: SearchConfig): void {
-		const configPath = getGlobalConfigPath();
-		const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
-		const serialized = { ...nextConfig } as SearchConfig & Record<string, unknown>;
-		delete serialized.showStatus;
-		delete serialized.cacheTtl;
-		delete serialized.cacheMax;
-		mkdirSync(join(getAgentDir(), "extensions"), { recursive: true });
-		try {
-			writeFileSync(tempPath, JSON.stringify(serialized, null, 2) + "\n", { mode: 0o600 });
-			renameSync(tempPath, configPath);
-		} catch (error) {
-			rmSync(tempPath, { force: true });
-			throw error;
-		}
+		saveSearchConfig(getGlobalConfigPath(), nextConfig);
 	}
 
 	function cloneConfig(value: SearchConfig): SearchConfig {
 		return JSON.parse(JSON.stringify(value)) as SearchConfig;
 	}
 
-	function readProjectConfig(cwd: string): SearchConfig {
-		const projectPath = join(cwd, ".pi", "search.json");
-		if (!existsSync(projectPath)) return {};
-		try {
-			return JSON.parse(readFileSync(projectPath, "utf-8")) as SearchConfig;
-		} catch {
-			return {};
-		}
+	function readProjectConfig(ctx: ExtensionContext): SearchConfig {
+		if (!ctx.isProjectTrusted()) return {};
+		return loadMigratedSearchConfig({
+			targetPath: getProjectConfigPath(ctx.cwd),
+			legacyPath: getLegacyProjectConfigPath(ctx.cwd),
+			scope: "project",
+			onNotice: notifyMigration(ctx),
+		});
 	}
 
-	function effectiveDraftConfig(globalDraft: SearchConfig, cwd: string): SearchConfig {
-		const project = readProjectConfig(cwd);
+	function effectiveDraftConfig(globalDraft: SearchConfig, ctx: ExtensionContext): SearchConfig {
+		const project = readProjectConfig(ctx);
 		const globalBackends = { ...(globalDraft.backends ?? {}) } as Record<string, BackendConfig | undefined>;
 		const projectBackends = project.backends && typeof project.backends === "object"
 			? project.backends as Record<string, BackendConfig | undefined>
@@ -664,7 +660,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	function refreshRuntimeConfig(ctx: ExtensionContext): void {
-		refreshConfig(ctx.cwd, true);
+		refreshConfig(ctx.cwd, ctx.isProjectTrusted(), true, notifyMigration(ctx));
 	}
 
 	function authSourceLabel(source: string): string {
@@ -771,7 +767,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function setupHomeTitle(ctx: ExtensionContext, state: SetupDraftState): string {
-		const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+		const effective = effectiveDraftConfig(state.draft, ctx);
 		const active = activeBackendsFor(effective);
 		const defaultBackend = effective.defaultBackend && active.includes(effective.defaultBackend)
 			? effective.defaultBackend
@@ -828,7 +824,7 @@ export default function (pi: ExtensionAPI) {
 			state.original = cloneConfig(saved);
 			state.draft = cloneConfig(saved);
 			refreshRuntimeConfig(ctx);
-			const hasProjectOverrides = Object.keys(readProjectConfig(ctx.cwd)).length > 0;
+			const hasProjectOverrides = Object.keys(readProjectConfig(ctx)).length > 0;
 			ctx.ui.notify(
 				hasProjectOverrides
 					? "Search Hub configuration saved and applied. Current project overrides remain effective."
@@ -859,7 +855,7 @@ export default function (pi: ExtensionAPI) {
 		const globalEnabled = globalBackend?.enabled === true;
 		const codexAuth = piAuthDetail(ctx);
 		const globalState = backendStateSummary(backend, state.draft, activeBackendsFor(state.draft), codexAuth);
-		const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+		const effective = effectiveDraftConfig(state.draft, ctx);
 		const effectiveState = backendStateSummary(backend, effective, activeBackendsFor(effective), codexAuth);
 		const title = [
 			def.label,
@@ -1077,7 +1073,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function configureBackends(ctx: ExtensionContext, state: SetupDraftState): Promise<void> {
 		while (true) {
-			const effective = effectiveDraftConfig(state.draft, ctx.cwd);
+			const effective = effectiveDraftConfig(state.draft, ctx);
 			const active = activeBackendsFor(effective);
 			const codexAuth = piAuthDetail(ctx);
 			const backendEntries = Object.keys(BACKEND_DEFS).map((backend) => {
@@ -1121,7 +1117,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			refreshRuntimeConfig(ctx);
-			const original = readGlobalConfig();
+			const original = readGlobalConfig(ctx);
 			const state: SetupDraftState = {
 				original: cloneConfig(original),
 				draft: cloneConfig(original),

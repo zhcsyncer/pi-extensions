@@ -273,7 +273,7 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 	});
 });
 
-test("invalid or old v2 fields are reported with paths and never rewritten", () => {
+test("invalid or old v2 fields are dropped with paths and rewritten", () => {
 	withTempDir("pi-tool-display-config-invalid-v2-", (dir) => {
 		const configFile = join(dir, "config.json");
 		const original = `${JSON.stringify({
@@ -289,16 +289,18 @@ test("invalid or old v2 fields are reported with paths and never rewritten", () 
 		writeFileSync(configFile, original, "utf8");
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.deepEqual(loaded.config, DEFAULT_TOOL_DISPLAY_CONFIG);
-		assert.match(loaded.error ?? "", /extension: unknown setting/);
-		assert.match(loaded.error ?? "", /toolCalls\.frame: unknown setting/);
-		assert.match(loaded.error ?? "", /toolCalls\.bashCommandPreviewRows: expected integer from 1 to 8/);
-		assert.match(loaded.error ?? "", /results\.profile: unknown setting/);
-		assert.match(loaded.error ?? "", /results\.mode: required setting/);
-		assert.equal(readFileSync(configFile, "utf8"), original);
+		assert.equal(loaded.error, undefined);
+		assert.match(loaded.notice ?? "", /extension: unknown setting/);
+		assert.match(loaded.notice ?? "", /toolCalls\.frame: unknown setting/);
+		assert.match(loaded.notice ?? "", /toolCalls\.bashCommandPreviewRows: expected integer from 1 to 8/);
+		assert.match(loaded.notice ?? "", /results\.profile: unknown setting/);
+		assert.match(loaded.notice ?? "", /results\.mode: required setting/);
+		assert.notEqual(readFileSync(configFile, "utf8"), original);
+		assert.equal(readFileSync(join(dir, "config.legacy.json"), "utf8"), original);
 	});
 });
 
-test("strict v2 validation rejects schema type, duplicate passthrough entries, and invalid custom tool names", () => {
+test("v2 upgrade drops invalid schema, duplicate passthrough entries, and invalid custom tool names", () => {
 	withTempDir("pi-tool-display-config-strict-v2-", (dir) => {
 		const configFile = join(dir, "config.json");
 		const original = `${JSON.stringify({
@@ -315,11 +317,15 @@ test("strict v2 validation rejects schema type, duplicate passthrough entries, a
 		}, null, 2)}\n`;
 		writeFileSync(configFile, original, "utf8");
 		const loaded = loadToolDisplayConfig(configFile);
-		assert.match(loaded.error ?? "", /\$schema: expected string/);
-		assert.match(loaded.error ?? "", /tools\.passthrough\.1: duplicate built-in tool/);
-		assert.match(loaded.error ?? "", /tools\.custom\.read: expected a non-empty trimmed non-built-in tool name/);
-		assert.match(loaded.error ?? "", /tools\.custom\. padded : expected a non-empty trimmed non-built-in tool name/);
-		assert.equal(readFileSync(configFile, "utf8"), original);
+		assert.equal(loaded.error, undefined);
+		assert.match(loaded.notice ?? "", /\$schema: expected string/);
+		assert.match(loaded.notice ?? "", /tools\.passthrough\.1: duplicate built-in tool/);
+		assert.match(loaded.notice ?? "", /tools\.custom\.read: expected a non-empty trimmed non-built-in tool name/);
+		assert.match(loaded.notice ?? "", /tools\.custom\. padded : expected a non-empty trimmed non-built-in tool name/);
+		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as { tools?: { passthrough?: string[]; custom?: Record<string, unknown> } };
+		assert.deepEqual(persisted.tools?.passthrough, ["read"]);
+		assert.deepEqual(persisted.tools?.custom, undefined);
+		assert.equal(readFileSync(join(dir, "config.legacy.json"), "utf8"), original);
 	});
 });
 

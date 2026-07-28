@@ -19,6 +19,10 @@ zhcsyncer 维护的一组 Pi extensions。
 
 该 fork 保留上游多后端搜索和页面提取能力，同时集成模型生成的 `displaySummary` intent、语义化 query/URL 调用行、backend 和 reader 状态，以及共享的工具结果展示模式。配置与本地行为详见 [Search Hub 中文文档](./packages/pi-search-hub/README.zh-CN.md) 或其 [英文版本](./packages/pi-search-hub/README.md)。
 
+## 扩展持久化数据
+
+Bundle 内扩展的配置和状态统一保存在 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`。旧文件会自动迁移升级；无法映射的字段会被丢弃并提示 warning，格式损坏的源文件会原样保留。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `.pi/extension-data/<extension-id>/config.json`。Plan artifact 刻意继续保存在 `$PI_CODING_AGENT_DIR/plans/`。
+
 ## 从 Git 安装
 
 从本仓库安装完整 extension bundle：

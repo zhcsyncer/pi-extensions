@@ -68,10 +68,12 @@ Global `results.mode` controls whether Search Hub results are hidden, summarized
 
 Search Hub reads configuration from:
 
-1. `$PI_CODING_AGENT_DIR/extensions/search.json` for global settings;
-2. `.pi/search.json` in the current project.
+1. `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json` for global settings;
+2. `.pi/extension-data/pi-search-hub/config.json` in a trusted current project.
 
-Project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Configuration is refreshed during use; interactive edits are staged until `Save & apply`.
+Trusted project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Untrusted projects are never probed for Search Hub configuration. Configuration is refreshed during use; interactive edits are staged until `Save & apply`.
+
+On first use, Search Hub automatically migrates the previous global and trusted-project paths, upgrades recognized settings, drops unmappable fields with a warning, and removes the old file only after the new file passes a semantic round trip. Exa usage state similarly moves to `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json` with serialized atomic updates.
 
 ### Interactive setup
 
@@ -81,7 +83,7 @@ Each concise backend row starts with `[ON]`, `[OFF]`, or `[AUTO]` and uses one `
 
 All pages edit one in-memory global draft. `Back` never writes, and the home page marks unsaved changes. `Save & apply` normalizes the draft, removes obsolete fields, writes the global file atomically with mode `0600`, refreshes runtime configuration once, and emits one result notification. Closing with pending edits offers `Save & apply`, `Discard changes`, or `Continue editing`. After a successful save, `/reload` or a new session is not required.
 
-`/search-setup` changes only the global file. A project `.pi/search.json` can override that change for the current project; Search Hub reports this after saving. Disabling a backend does not delete a stored credential; use `Remove saved API key or reference` in that backend's detail menu when it must also be removed from disk. Search Hub does not cache search results locally; `web_read.fresh` only asks supported remote readers to bypass their own caches.
+`/search-setup` changes only the global file. A trusted project `.pi/extension-data/pi-search-hub/config.json` can override that change for the current project; Search Hub reports this after saving. Disabling a backend does not delete a stored credential; use `Remove saved API key or reference` in that backend's detail menu when it must also be removed from disk. Search Hub does not cache search results locally; `web_read.fresh` only asks supported remote readers to bypass their own caches.
 
 Minimal example:
 

@@ -19,6 +19,10 @@ The aggregate `@zhcsyncer/pi-extensions` package includes the private Search Hub
 
 This fork keeps upstream multi-backend search and page extraction while integrating model-written `displaySummary` intents, semantic query/URL call lines, backend and reader status, and the shared tool-display result modes. See the [Search Hub documentation](./packages/pi-search-hub/README.md) or its [Simplified Chinese version](./packages/pi-search-hub/README.zh-CN.md) for configuration and local behavior.
 
+## Persistent extension data
+
+Bundle extension configuration and state live under `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`. Existing files are migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed source files are preserved. Trusted project overrides for Recap and Search Hub use `.pi/extension-data/<extension-id>/config.json`. Plan artifacts intentionally remain in `$PI_CODING_AGENT_DIR/plans/`.
+
 ## Install from Git
 
 Install the whole extension bundle from this repository:

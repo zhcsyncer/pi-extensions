@@ -12,6 +12,7 @@ interface ConfigModule {
 	loadConfigSync(): GlanceConfig;
 	loadConfig(): Promise<GlanceConfig>;
 	saveConfig(config: GlanceConfig): Promise<void>;
+	consumeGlanceConfigNotices(): string[];
 }
 
 async function writeConfigText(configPath: string, text: string): Promise<void> {
@@ -25,14 +26,20 @@ async function main(): Promise<void> {
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 
 	try {
-		// CONFIG_PATH is computed when config.js is imported, so set the isolated
-		// agent dir before this dynamic import to avoid touching real user config.
 		const configModule = (await import(`../config.js?config-io=${process.pid}-${Date.now()}`)) as ConfigModule;
-		const { configFromText, configToText, defaultConfig, loadConfig, loadConfigSync, normalizeConfig, saveConfig } = configModule;
-		const configPath = join(agentDir, "pi-glance", "config.json");
+		const { configFromText, configToText, consumeGlanceConfigNotices, defaultConfig, loadConfig, loadConfigSync, normalizeConfig, saveConfig } = configModule;
+		const configPath = join(agentDir, "extension-data", "pi-glance", "config.json");
+		const legacyConfigPath = join(agentDir, "pi-glance", "config.json");
 
 		assert.deepEqual(loadConfigSync(), defaultConfig(), "missing config file should make loadConfigSync fall back to defaults");
 		assert.deepEqual(await loadConfig(), defaultConfig(), "missing config file should make async loadConfig fall back to defaults");
+
+		await writeConfigText(legacyConfigPath, JSON.stringify({ version: 10, enabled: false, obsolete: true }));
+		assert.equal(loadConfigSync().enabled, false, "legacy config should migrate and retain mapped fields");
+		assert.match(consumeGlanceConfigNotices().join("\n"), /obsolete/, "migration should report discarded fields");
+		await assert.rejects(readFile(legacyConfigPath, "utf8"), /ENOENT/, "verified migration should delete the legacy file");
+		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 11, "migration should write the current schema version");
+		await rm(configPath, { force: true });
 
 		await writeConfigText(configPath, "{");
 		assert.deepEqual(loadConfigSync(), defaultConfig(), "invalid JSON should make loadConfigSync fall back to defaults");

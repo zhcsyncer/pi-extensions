@@ -22,11 +22,15 @@ import {
 } from "./types.js";
 
 export function publishToolDisplayMigrationNotice(
-  ui: { setStatus(key: string, text: string | undefined): void },
+  ui: {
+    setStatus(key: string, text: string | undefined): void;
+    notify?(message: string, level: "warning"): void;
+  },
   notice: string | undefined,
 ): void {
   if (notice) {
     ui.setStatus("tool-display-intent-migration", notice);
+    ui.notify?.(notice, "warning");
   }
 }
 

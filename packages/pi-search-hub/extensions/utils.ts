@@ -2,8 +2,7 @@
  * Shared utilities for pi-search-hub extension.
  */
 
-import { join } from "node:path";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+export { checkExaUsage, incrementExaUsage } from "./exa-usage.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -17,16 +16,8 @@ export const MISSING_KEY_HELP =
 	"Set the API key via env var (SEARCH_<BACKEND>_API_KEY), " +
 	"config reference (\"apiKey\": \"SOME_ENV_VAR\"), " +
 	"shell command (\"apiKey\": \"!pass show api/backend\"), " +
-	"or a literal key in ~/.pi/agent/extensions/search.json. " +
+	"or a literal key in $PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json. " +
 	"DuckDuckGo needs no key. Marginalia uses a shared public key (optional)."
-
-// ---------------------------------------------------------------------------
-// Agent directory
-// ---------------------------------------------------------------------------
-
-export function getAgentDir(): string {
-	return join(process.env.HOME || process.env.USERPROFILE || "~", ".pi", "agent");
-}
 
 // ---------------------------------------------------------------------------
 // Per-backend cooldown
@@ -59,88 +50,6 @@ export function timeoutSignal(signal?: AbortSignal, timeoutMs?: number): AbortSi
 	const effectiveTimeout = timeoutMs ?? HTTP_TIMEOUT_MS;
 	if (!signal) return AbortSignal.timeout(effectiveTimeout);
 	return AbortSignal.any([signal, AbortSignal.timeout(effectiveTimeout)]);
-}
-
-// ---------------------------------------------------------------------------
-// Exa usage tracking (monthly quota)
-// ---------------------------------------------------------------------------
-
-const EXA_MONTHLY_LIMIT = 1000;
-const EXA_WARNING_THRESHOLD = 800; // warn at 80%
-
-interface ExaUsageRecord {
-	count: number;
-	resetAt: string; // ISO date string for month start
-}
-
-function getUsageFilePath(): string {
-	return join(getAgentDir(), "exa-usage.json");
-}
-
-function getCurrentMonthStart(): string {
-	const now = new Date();
-	return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-}
-
-function readUsage(): ExaUsageRecord {
-	try {
-		const data = readFileSync(getUsageFilePath(), "utf-8");
-		return JSON.parse(data) as ExaUsageRecord;
-	} catch {
-		return { count: 0, resetAt: getCurrentMonthStart() };
-	}
-}
-
-function writeUsage(record: ExaUsageRecord): void {
-	try {
-		const dir = getAgentDir();
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(getUsageFilePath(), JSON.stringify(record, null, 2));
-	} catch {
-		// ignore write failures
-	}
-}
-
-/** Check Exa usage and return warning message if approaching quota, or null. */
-export function checkExaUsage(): string | null {
-	const usage = readUsage();
-	// Reset if new month
-	const currentMonth = getCurrentMonthStart();
-	if (usage.resetAt !== currentMonth) {
-		return null; // will be reset on next increment
-	}
-	if (usage.count >= EXA_WARNING_THRESHOLD) {
-		const remaining = EXA_MONTHLY_LIMIT - usage.count;
-		if (remaining <= 0) {
-			return `⚠️ Exa quota exhausted (${usage.count}/${EXA_MONTHLY_LIMIT}). Upgrade at https://exa.ai/pricing`;
-		}
-		return `⚠️ Exa quota low (${remaining} remaining of ${EXA_MONTHLY_LIMIT}/month)`;
-	}
-	return null;
-}
-
-/** Increment Exa usage count. Call after each successful request. */
-export function incrementExaUsage(): string | null {
-	const usage = readUsage();
-	const currentMonth = getCurrentMonthStart();
-	// Reset if new month
-	if (usage.resetAt !== currentMonth) {
-		usage.count = 0;
-		usage.resetAt = currentMonth;
-	}
-	usage.count++;
-	writeUsage(usage);
-	// Return warning if needed
-	if (usage.count >= EXA_WARNING_THRESHOLD) {
-		const remaining = EXA_MONTHLY_LIMIT - usage.count;
-		if (remaining <= 0) {
-			return `⚠️ Exa quota exhausted. Upgrade at https://exa.ai/pricing`;
-		}
-		if (usage.count === EXA_WARNING_THRESHOLD) {
-			return `⚠️ Exa quota at ${EXA_WARNING_THRESHOLD}/${EXA_MONTHLY_LIMIT}. ${remaining} requests remaining this month.`;
-		}
-	}
-	return null;
 }
 
 // ---------------------------------------------------------------------------
