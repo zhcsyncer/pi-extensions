@@ -12,12 +12,19 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable extension statuses, bottom-right context progress, and a highlighted auto-compaction marker.
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
+- [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 
 ## Bundle-private Search Hub
 
 The aggregate `@zhcsyncer/pi-extensions` package includes the private Search Hub fork and registers its `web_search` and `web_read` tools. Search Hub is not published as a standalone npm package; install the root bundle to use it.
 
 This fork keeps upstream multi-backend search and page extraction while integrating model-written `displaySummary` intents, semantic query/URL call lines, backend and reader status, and the shared tool-display result modes. See the [Search Hub documentation](./packages/pi-search-hub/README.md) or its [Simplified Chinese version](./packages/pi-search-hub/README.zh-CN.md) for configuration and local behavior.
+
+## Context7
+
+`@zhcsyncer/pi-context7` is a maintained fork of Context7 documentation tools. It can be installed on its own or used through the root bundle, which embeds and registers the same extension and skill.
+
+This fork keeps upstream tool descriptions, model-facing result text, and the full skill while adding compact local `renderCall` / `renderResult` rows, AbortSignal-aware fetches, and HTTP error throwing for correct Pi tool-error marking. Set `CONTEXT7_API_KEY` for higher quotas. See the [Context7 documentation](./packages/pi-context7/README.md) or its [Simplified Chinese version](./packages/pi-context7/README.zh-CN.md).
 
 ## Persistent extension data
 
@@ -39,7 +46,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -75,6 +82,12 @@ Install only strict Plan Mode:
 pi install npm:@zhcsyncer/pi-plan-mode
 ```
 
+Install only Context7 documentation tools:
+
+```bash
+pi install npm:@zhcsyncer/pi-context7
+```
+
 ## Development
 
 Test the root bundle:
@@ -92,6 +105,7 @@ pi --no-extensions -e ./packages/pi-todo --list-models nope
 pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
+pi --no-extensions -e ./packages/pi-context7 --list-models nope
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
@@ -117,3 +131,5 @@ MIT
 `pi-glance` is forked from MIT-licensed [`LinYS77/pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. The exact revision and preserved notices are recorded in [`packages/pi-glance/UPSTREAM_SOURCE.md`](./packages/pi-glance/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-glance/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-glance/UPSTREAM_LICENSE).
 
 `pi-search-hub` is forked from [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0, whose package metadata and README declare MIT. Its exact revision and preserved notices are recorded in [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) and [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md).
+
+`pi-context7` is forked from MIT-licensed [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2 (`b250c2515694eee4b6df4db82fa056df9ed3e306`). The exact revision and preserved notices are recorded in [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-context7/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE).

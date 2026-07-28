@@ -1,6 +1,6 @@
-MIT License
+The MIT License (MIT)
 
-Copyright (c) 2026 zhcsyncer
+Copyright (c) 2021 Upstash, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This repository also embeds or redistributes MIT-licensed third-party works.
-Their original copyright notices and license texts are preserved beside the
-corresponding packages, including:
-
-- packages/pi-context7 (fork of @upstash/context7-pi)
-- packages/pi-glance (fork of pi-glance)
-- packages/pi-todo (fork of @juicesharp/rpiv-todo)
-- packages/pi-tool-display-intent (fork/adaptation of pi-tool-display and pi-tool-display-summary)
-- packages/pi-search-hub (fork of pi-search-hub)

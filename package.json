@@ -62,7 +62,16 @@
     "packages/pi-search-hub/UPSTREAM_README.md",
     "packages/pi-search-hub/UPSTREAM_CHANGELOG.md",
     "packages/pi-search-hub/UPSTREAM_SOURCE.md",
-    "!packages/pi-search-hub/**/*.test.ts"
+    "!packages/pi-search-hub/**/*.test.ts",
+    "packages/pi-context7/package.json",
+    "packages/pi-context7/lib/**/*.ts",
+    "packages/pi-context7/config.json.example",
+    "packages/pi-context7/skills/**/*",
+    "packages/pi-context7/CHANGELOG.md",
+    "packages/pi-context7/UPSTREAM_README.md",
+    "packages/pi-context7/UPSTREAM_CHANGELOG.md",
+    "packages/pi-context7/UPSTREAM_SOURCE.md",
+    "!packages/pi-context7/**/*.test.ts"
   ],
   "publishConfig": {
     "access": "public"
@@ -84,7 +93,11 @@
       "./packages/pi-todo/index.ts",
       "./packages/pi-glance/index.ts",
       "./packages/pi-plan-mode/extensions/plan-mode.ts",
-      "./packages/pi-search-hub/extensions/search-hub.ts"
+      "./packages/pi-search-hub/extensions/search-hub.ts",
+      "./packages/pi-context7/extensions/context7.ts"
+    ],
+    "skills": [
+      "./packages/pi-context7/skills"
     ]
   },
   "dependencies": {

@@ -1,0 +1,76 @@
+{
+  "name": "@zhcsyncer/pi-context7",
+  "version": "0.0.0",
+  "description": "Context7 documentation tools for the Pi coding agent with compact self-contained TUI rendering.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "pi-coding-agent",
+    "coding-agent",
+    "context7",
+    "documentation"
+  ],
+  "author": "Upstash",
+  "contributors": [
+    "zhcsyncer (fork maintainer)"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-context7"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-context7#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "files": [
+    "extensions/",
+    "lib/",
+    "skills/",
+    "config.json.example",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "UPSTREAM_LICENSE",
+    "UPSTREAM_README.md",
+    "UPSTREAM_CHANGELOG.md",
+    "UPSTREAM_SOURCE.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/context7.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@earendil-works/pi-tui": "^0.80.0",
+    "typebox": "^1.1.24"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.82.1",
+    "@earendil-works/pi-tui": "0.81.1",
+    "@types/node": "25.6.0",
+    "typebox": "1.1.24",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}
