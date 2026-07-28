@@ -13,6 +13,7 @@ const packagePaths = [
 	"./packages/pi-glance",
 	"./packages/pi-plan-mode",
 	"./packages/pi-search-hub",
+	"./packages/pi-context7",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -34,6 +35,13 @@ const requiredPackFiles = new Map([
 		"packages/pi-plan-mode/README.zh-CN.md",
 		"packages/pi-search-hub/README.md",
 		"packages/pi-search-hub/README.zh-CN.md",
+		"packages/pi-context7/extensions/context7.ts",
+		"packages/pi-context7/lib/api.ts",
+		"packages/pi-context7/config.json.example",
+		"packages/pi-context7/skills/context7-docs/SKILL.md",
+		"packages/pi-context7/README.md",
+		"packages/pi-context7/README.zh-CN.md",
+		"packages/pi-context7/UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-recap", [
 		"extensions/recap.ts",
@@ -63,6 +71,20 @@ const requiredPackFiles = new Map([
 		"LICENSE",
 	]],
 	["./packages/pi-search-hub", ["README.md", "README.zh-CN.md"]],
+	["./packages/pi-context7", [
+		"extensions/context7.ts",
+		"lib/api.ts",
+		"lib/config.ts",
+		"lib/render.ts",
+		"config.json.example",
+		"skills/context7-docs/SKILL.md",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"UPSTREAM_LICENSE",
+		"UPSTREAM_SOURCE.md",
+	]],
 	["./providers/pi-provider-volcengine-agent-plan", [
 		"index.ts",
 		"README.md",
@@ -82,6 +104,8 @@ const maintainedReadmes = [
 	"packages/pi-plan-mode/README.zh-CN.md",
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
+	"packages/pi-context7/README.md",
+	"packages/pi-context7/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",
@@ -120,6 +144,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-search-hub/README.md",
 	"packages/pi-search-hub/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-context7/README.md",
+	"packages/pi-context7/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",

@@ -12,12 +12,19 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
+- [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 
 ## Bundle 私有 Search Hub
 
 聚合包 `@zhcsyncer/pi-extensions` 内置私有 Search Hub fork，并注册其 `web_search` 和 `web_read` 工具。Search Hub 不作为独立 npm 包发布；需要安装根 bundle 才能使用。
 
 该 fork 保留上游多后端搜索和页面提取能力，同时集成模型生成的 `displaySummary` intent、语义化 query/URL 调用行、backend 和 reader 状态，以及共享的工具结果展示模式。配置与本地行为详见 [Search Hub 中文文档](./packages/pi-search-hub/README.zh-CN.md) 或其 [英文版本](./packages/pi-search-hub/README.md)。
+
+## Context7
+
+`@zhcsyncer/pi-context7` 是维护中的 Context7 文档工具 fork。可以单独安装，也可以通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展与 Skill。
+
+该 fork 保留上游工具描述、面向模型的结果文本和完整 Skill，同时加入本地紧凑 `renderCall` / `renderResult` 行、AbortSignal 感知的 fetch，以及非 2xx HTTP 抛错以便 Pi 正确标记 tool error。更高配额请设置 `CONTEXT7_API_KEY`。详见 [Context7 中文文档](./packages/pi-context7/README.zh-CN.md) 或其 [英文版本](./packages/pi-context7/README.md)。
 
 ## 扩展持久化数据
 
@@ -39,7 +46,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode 和私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -75,6 +82,12 @@ pi install npm:@zhcsyncer/pi-glance
 pi install npm:@zhcsyncer/pi-plan-mode
 ```
 
+仅安装 Context7 文档工具：
+
+```bash
+pi install npm:@zhcsyncer/pi-context7
+```
+
 ## 开发
 
 测试根 bundle：
@@ -92,6 +105,7 @@ pi --no-extensions -e ./packages/pi-todo --list-models nope
 pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
+pi --no-extensions -e ./packages/pi-context7 --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。
@@ -117,3 +131,5 @@ MIT
 `pi-glance` fork 自 MIT 许可的 [`LinYS77/pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3。准确 revision 和保留声明见 [`packages/pi-glance/UPSTREAM_SOURCE.md`](./packages/pi-glance/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-glance/LICENSE) 和 [`UPSTREAM_LICENSE`](./packages/pi-glance/UPSTREAM_LICENSE)。
 
 `pi-search-hub` fork 自 [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0，其 package metadata 和 README 声明为 MIT。准确 revision 和保留声明见 [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) 与 [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md)。
+
+`pi-context7` fork 自 MIT 许可的 [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2（`b250c2515694eee4b6df4db82fa056df9ed3e306`）。准确 revision 和保留声明见 [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-context7/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE)。
