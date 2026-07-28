@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-recap",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Recent activity recap extension for Pi with optional session title and Herdr/tmux name sync.",
   "repository": {
     "type": "git",
