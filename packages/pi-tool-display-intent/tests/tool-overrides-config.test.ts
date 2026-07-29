@@ -226,6 +226,48 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 	);
 });
 
+test("MCP errors stay visible in every output mode and expand from content", async () => {
+	for (const mode of ["hidden", "summary", "preview"] as const) {
+		const config = buildConfig({
+			mcpOutputMode: mode,
+			previewRows: 2,
+		});
+		const mcpTool: RegisteredToolLike & Record<string, unknown> = {
+			name: "mcp",
+			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
+			parameters: {},
+			execute(): void {
+				// No-op test stub.
+			},
+		};
+		const { api, runtimeTools, eventHandlers } = createExtensionApiStub([mcpTool]);
+		registerToolDisplayOverrides(api, () => config);
+		await runLifecycle(eventHandlers);
+
+		const decoratedMcp = runtimeTools.find((tool) => tool.name === "mcp");
+		assert.equal(
+			renderToolResult(decoratedMcp, {
+				text: "Gateway timed out\nrequest id: 42\nretry exhausted\n",
+				isError: true,
+			}),
+			"↳ Gateway timed out • Ctrl+O to expand",
+			`${mode} should show one collapsed error summary`,
+		);
+		assert.equal(
+			renderToolResult(decoratedMcp, {
+				text: "Gateway timed out\nrequest id: 42\nretry exhausted\n",
+				isError: true,
+				expanded: true,
+			}),
+			"Gateway timed out\nrequest id: 42\nretry exhausted",
+			`${mode} should show complete expanded error content`,
+		);
+		if (mode === "hidden") {
+			assert.equal(renderToolResult(decoratedMcp, "successful but hidden"), "");
+		}
+	}
+});
+
 test("registerToolDisplayOverrides preserves MCP prompt metadata for proxy and direct wrappers", async () => {
 	const { api, runtimeTools, eventHandlers } = createExtensionApiStub([
 		{
@@ -478,6 +520,27 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 	assert.equal(
 		renderToolResult(previewStub.registeredTools.find((tool) => tool.name === "bash"), output),
 		"alpha\nbeta\n... (1 more line • Ctrl+O to expand)",
+	);
+});
+
+test("Claude Bash results keep a connected frame when collapsed and expanded", async () => {
+	const config = buildConfig({
+		toolCallStyle: "claude",
+		bashOutputMode: "preview",
+		previewRows: 2,
+	});
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const bashTool = registeredTools.find((tool) => tool.name === "bash");
+	assert.equal(
+		renderToolResult(bashTool, "alpha\nbeta\ngamma\n"),
+		"│ alpha\n  │ beta\n  └ ... (1 more line • Ctrl+O to expand)",
+	);
+	assert.equal(
+		renderToolResult(bashTool, { text: "alpha\nbeta\ngamma\n", expanded: true }),
+		"│ alpha\n  │ beta\n  └ gamma",
 	);
 });
 

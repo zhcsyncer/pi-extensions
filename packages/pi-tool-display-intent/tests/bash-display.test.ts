@@ -171,6 +171,41 @@ test("renderBashCall gives collapsed Claude calls an intent-first header and com
 	);
 });
 
+test("renderBashCall highlights the separate Claude command prompt", () => {
+	const theme = {
+		fg: (color: string, text: string): string => `<${color}>${text}</${color}>`,
+		bold: (text: string): string => `<b>${text}</b>`,
+	};
+	const text = renderBashCall(
+		{ command: "printf one\nprintf two" },
+		theme,
+		makeContext(),
+		undefined,
+		"claude",
+	);
+
+	assert.match(renderedText(text, 200), /<accent><b>\$<\/b><\/accent>/);
+});
+
+test("renderBashCall keeps expanded shell syntax complete while using the highlighter path", () => {
+	const theme = {
+		fg: (color: string, text: string): string => `<${color}>${text}</${color}>`,
+		bold: (text: string): string => text,
+	};
+	const command = 'if test -f "$file"; then echo ok; fi';
+	const text = renderBashCall(
+		{ command },
+		theme,
+		makeContext({ expanded: true }),
+		undefined,
+		"claude",
+	);
+	const rendered = renderedText(text, 200);
+
+	assert.match(rendered, /if test -f .*; then echo ok; fi/);
+	assert.doesNotMatch(rendered, /<text>if test -f/);
+});
+
 test("renderBashCall respects the configured collapsed command row budget", () => {
 	const text = renderBashCall(
 		{ command: "printf one\nprintf two\nprintf three" },

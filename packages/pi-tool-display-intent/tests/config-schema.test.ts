@@ -45,7 +45,8 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.equal(schema.$id, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
 	assert.equal(schema.properties?.version?.const, TOOL_DISPLAY_CONFIG_VERSION);
 	assert.ok(schema.properties?.results?.properties?.mode);
-	assert.ok(schema.properties?.results?.properties?.previewRows);
+	const previewRows = schema.properties?.results?.properties?.previewRows as { minimum?: number } | undefined;
+	assert.equal(previewRows?.minimum, 2);
 	assert.equal(schema.properties?.results?.properties?.profile, undefined);
 	assert.equal(schema.properties?.results?.properties?.overrides, undefined);
 	assert.ok(schema.properties?.toolCalls?.properties?.style);

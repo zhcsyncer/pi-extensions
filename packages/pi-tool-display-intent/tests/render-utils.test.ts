@@ -7,6 +7,7 @@ import {
 } from "../src/line-width-safety.ts";
 import {
   compactOutputLines,
+  compactPathForDisplay,
   countNonEmptyLines,
   extractTextOutput,
   isLikelyQuietCommand,
@@ -129,6 +130,27 @@ test("shortenPath: path exactly matching homedir with trailing slash returns til
   const home = homedir();
   const result = shortenPath(`${home}/`);
   assert.equal(result, "~/");
+});
+
+test("shortenPath: a sibling prefix of homedir is not mistaken for home", () => {
+  const home = homedir();
+  assert.equal(shortenPath(`${home}-backup/file.txt`), `${home}-backup/file.txt`);
+});
+
+test("compactPathForDisplay preserves useful path anchors within its width", () => {
+  const path = `${homedir()}/.local/share/pnpm/store/v11/links/@earendil-works/pi-coding-agent/docs/rpc.md`;
+  const compacted = compactPathForDisplay(path, 44);
+
+  assert.ok([...compacted].length <= 44);
+  assert.match(compacted, /^~\//);
+  assert.match(compacted, /…/u);
+  assert.match(compacted, /rpc\.md$/u);
+  assert.doesNotMatch(compacted, /pnpm\/store\/v11\/links/u);
+});
+
+test("compactPathForDisplay leaves fitting and expanded paths untouched", () => {
+  assert.equal(compactPathForDisplay("src/docs/rpc.md", 80), "src/docs/rpc.md");
+  assert.equal(compactPathForDisplay("src/docs/rpc.md", 0), "");
 });
 
 // ---------------------------------------------------------------------------

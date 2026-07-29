@@ -13,15 +13,22 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createBashTool,
+  createBashToolDefinition,
   createEditTool,
+  createEditToolDefinition,
   createFindTool,
+  createFindToolDefinition,
   createGrepTool,
+  createGrepToolDefinition,
   createLsTool,
+  createLsToolDefinition,
   createReadTool,
+  createReadToolDefinition,
   createWriteTool,
+  createWriteToolDefinition,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import {
@@ -41,11 +48,11 @@ import {
   extractTextOutput,
   isLikelyQuietCommand,
   pluralize,
-  shortenPath,
   splitLines,
 } from "./render-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
 import { MAX_PREVIEW_LAYOUT_ROWS, PreviewText } from "./preview-text.js";
+import { renderPathCall } from "./path-call.js";
 import {
   buildPendingEditPreviewData,
   buildPendingWritePreviewData,
@@ -245,7 +252,10 @@ function applyRuntimeToolCallStyle(
   if (typeof originalRenderResult === "function") {
     styledTool.renderResult = function renderStyledResult(result, options, theme, context) {
       const component = originalRenderResult.call(tool, result, options, theme, context);
-      return applyToolResultStyle(component, getConfig().toolCallStyle);
+      return applyToolResultStyle(component, getConfig().toolCallStyle, {
+        connectRows: tool.name === "bash",
+        theme,
+      });
     };
   }
 
@@ -426,8 +436,58 @@ function createLazyToolRecord<T>(
   } as Record<keyof BuiltInTools, T>;
 }
 
-function createLazyPromptMetadata(bootstrapTools: BuiltInTools): Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>> {
-  return createLazyToolRecord(bootstrapTools, extractPromptMetadata);
+function createBuiltInToolDefinitions(cwd: string) {
+  return {
+    read: () => createReadToolDefinition(cwd),
+    grep: () => createGrepToolDefinition(cwd),
+    find: () => createFindToolDefinition(cwd),
+    ls: () => createLsToolDefinition(cwd),
+    bash: () => createBashToolDefinition(cwd, loadBashToolOverrideOptions()),
+    edit: () => createEditToolDefinition(cwd),
+    write: () => createWriteToolDefinition(cwd),
+  } as const;
+}
+
+/**
+ * Prompt metadata must come from ToolDefinition factories.
+ * `create*Tool()` goes through `wrapToolDefinition()`, which drops
+ * `promptSnippet` / `promptGuidelines`. Without those fields, Pi omits the
+ * overridden tools from the system prompt `Available tools` section.
+ */
+function createLazyPromptMetadata(
+  bootstrapTools: BuiltInTools,
+  cwd: string = process.cwd(),
+): Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>> {
+  const definitions = createBuiltInToolDefinitions(cwd);
+  const cache = new Map<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>();
+  const get = (name: keyof BuiltInTools): ReturnType<typeof extractPromptMetadata> => {
+    const cached = cache.get(name);
+    if (cached) {
+      return cached;
+    }
+
+    const fromDefinition = extractPromptMetadata(definitions[name]());
+    const fallbackSnippet = buildPromptSnippetFromDescription(
+      bootstrapTools[name].description,
+      name,
+    );
+    const metadata = {
+      promptSnippet: fromDefinition.promptSnippet ?? fallbackSnippet,
+      promptGuidelines: fromDefinition.promptGuidelines,
+    };
+    cache.set(name, metadata);
+    return metadata;
+  };
+
+  return {
+    get read() { return get("read"); },
+    get grep() { return get("grep"); },
+    get find() { return get("find"); },
+    get ls() { return get("ls"); },
+    get bash() { return get("bash"); },
+    get edit() { return get("edit"); },
+    get write() { return get("write"); },
+  } as Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>;
 }
 
 function createLazyClonedParameters(bootstrapTools: BuiltInTools): Record<keyof BuiltInTools, unknown> {
@@ -656,18 +716,18 @@ function resolvePendingDiffPreview(
 }
 
 function buildPendingDiffCallComponent(
-  summaryText: string,
+  summaryComponent: Component,
   previewData: PendingDiffPreviewData | undefined,
   context: ToolRenderContextLike | undefined,
   config: ToolDisplayConfig,
   theme: RenderTheme,
-): Text | Container {
+): Component {
   if (!context?.isPartial || !previewData) {
-    return textResult(summaryText);
+    return summaryComponent;
   }
 
   const container = new Container();
-  container.addChild(new Text(summaryText, 0, 0));
+  container.addChild(summaryComponent);
   if (config.toolCallStyle !== "claude") {
     container.addChild(new Spacer(1));
   }
@@ -836,8 +896,20 @@ function renderSearchPreview(ctx: PreviewHintContext, expandedOnly = false): Com
   return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendPreviewHints(p, ctx), expandedOnly);
 }
 
-function renderMcpPreview(ctx: McpPreviewHintContext, expandedOnly = false): Component {
-  return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendMcpPreviewHints(p, ctx), expandedOnly);
+function renderMcpPreview(
+  ctx: McpPreviewHintContext,
+  expandedOnly = false,
+  outputColor?: string,
+): Component {
+  return renderPreviewText(
+    ctx.lines,
+    ctx.config,
+    ctx.theme,
+    ctx.options,
+    (p) => appendMcpPreviewHints(p, ctx),
+    expandedOnly,
+    outputColor,
+  );
 }
 
 function formatRtkSummarySuffix(params: RtkHintParams): string {
@@ -929,6 +1001,7 @@ function renderPreviewText(
   options: ToolRenderResultOptions,
   appendHints: (preview: string) => string,
   expandedOnly: boolean = false,
+  outputColor?: string,
 ): Component {
   const useExpanded = expandedOnly || options.expanded;
   return new PreviewText({
@@ -938,6 +1011,7 @@ function renderPreviewText(
       : config.previewRows,
     theme,
     expanded: useExpanded,
+    outputColor,
     emptyText: theme.fg("muted", "↳ (no output)"),
     expandedRowCap: useExpanded ? config.expandedPreviewMaxRows : undefined,
     appendHints,
@@ -1030,8 +1104,64 @@ type ToolRenderInput = {
   details?: unknown;
 };
 
+const TOOL_ERROR_SUMMARY_MAX_LENGTH = 240;
+
+class SingleLineResultText implements Component {
+  constructor(private readonly text: string) {}
+
+  render(width: number): string[] {
+    const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+    return safeWidth > 0 ? [truncateToWidth(this.text, safeWidth, "…")] : [];
+  }
+
+  invalidate(): void {
+    // Stateless component.
+  }
+}
+
 function textResult(text: string): Text {
   return new Text(text, 0, 0);
+}
+
+function getToolErrorSummary(rawOutput: string): string {
+  for (const line of rawOutput.replace(/\r/g, "").split("\n")) {
+    const summary = normalizeDisplaySummary(line, TOOL_ERROR_SUMMARY_MAX_LENGTH);
+    if (summary) {
+      return summary;
+    }
+  }
+  return "Tool failed.";
+}
+
+function renderToolErrorResult(
+  rawOutput: string,
+  options: ToolRenderResultOptions,
+  config: ToolDisplayConfig,
+  theme: RenderTheme,
+  details: unknown,
+): Component {
+  const summary = getToolErrorSummary(rawOutput);
+  if (!options.expanded) {
+    return new SingleLineResultText(
+      `${theme.fg("error", `↳ ${summary}`)}${formatExpandHint(theme)}`,
+    );
+  }
+
+  const lines = prepareOutputLines(rawOutput, options);
+  if (lines.length === 0) {
+    return new SingleLineResultText(theme.fg("error", `↳ ${summary}`));
+  }
+
+  const truncation = getMcpTruncationDetails(details);
+  const mcpCtx: McpPreviewHintContext = {
+    lines,
+    config,
+    theme,
+    options,
+    details,
+    truncation,
+  };
+  return renderMcpPreview(mcpCtx, true, "error");
 }
 
 function partialResultText(theme: RenderTheme, label: string): Text {
@@ -1234,6 +1364,7 @@ function renderMcpResult(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
   theme: RenderTheme,
+  context?: ToolRenderContextLike,
   presentation?: ToolDisplayResultPresentation,
 ): Component {
   const partial = handlePartialResult(options, theme, "running...");
@@ -1241,11 +1372,16 @@ function renderMcpResult(
     return partial;
   }
 
+  const rawOutput = extractTextOutput(result);
+  if (isToolError(result, context)) {
+    return renderToolErrorResult(rawOutput, options, config, theme, result.details);
+  }
+
   if (config.mcpOutputMode === "hidden") {
     return textResult("");
   }
 
-  const outputLines = prepareOutputLines(extractTextOutput(result), options);
+  const outputLines = prepareOutputLines(rawOutput, options);
   const previewStartLine = Math.min(
     outputLines.length,
     normalizePositiveInteger(presentation?.previewStartLine) ?? 0,
@@ -1373,25 +1509,30 @@ function formatGenericToolCallLine(
   return new Text(line, 0, 0);
 }
 
-function getSearchScope(args: Record<string, unknown>): string {
-  return shortenPath((args.path as string) || ".");
+function getSearchPath(args: Record<string, unknown>): string {
+  return getStringField(args, "path") || ".";
 }
 
 function formatSearchCallLine(
   toolName: string,
-  accent: string,
-  mutedSuffix: string,
+  path: string,
+  buildTarget: (displayPath: string) => string,
   theme: RenderTheme,
   args: unknown,
   config: ToolDisplayConfig,
   context?: ToolRenderContextLike,
-): Text {
-  const target = `${theme.fg("text", accent)}${theme.fg("muted", mutedSuffix)}`;
+): Component {
   const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
-  const line = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
-  return new Text(line, 0, 0);
+  return renderPathCall(
+    path,
+    (displayPath) => {
+      const target = buildTarget(displayPath);
+      return config.toolCallStyle === "claude"
+        ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
+    },
+    context,
+  );
 }
 
 function renderCustomToolResult(
@@ -1400,6 +1541,7 @@ function renderCustomToolResult(
   config: ToolDisplayConfig,
   outputMode: CustomToolOverrideConfig["outputMode"],
   theme: RenderTheme,
+  context?: ToolRenderContextLike,
   adapter: ToolDisplayAdapter = {},
 ): Component {
   return renderMcpResult(
@@ -1407,6 +1549,7 @@ function renderCustomToolResult(
     options,
     { ...config, mcpOutputMode: outputMode },
     theme,
+    context,
     resolveResultPresentation(result, adapter),
   );
 }
@@ -1443,8 +1586,8 @@ function renderReadDisplayCall(
   adapter: ToolDisplayAdapter = {},
   config?: ToolDisplayConfig,
   context?: ToolRenderContextLike,
- ): Text {
-  const path = shortenPath(getAdapterPath(args, adapter));
+ ): Component {
+  const path = getAdapterPath(args, adapter);
   const offset = getNumericField(args, "offset");
   const limit = getNumericField(args, "limit");
   let suffix = "";
@@ -1453,12 +1596,17 @@ function renderReadDisplayCall(
     const to = limit !== undefined ? from + limit - 1 : undefined;
     suffix = to ? `:${from}-${to}` : `:${from}`;
   }
-  const target = `${theme.fg("text", path || "...")}${theme.fg("warning", suffix)}`;
   const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config) : "";
-  const line = config?.toolCallStyle === "claude"
-    ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("read"))} ${target}${intentSuffix}`;
-  return textResult(line);
+  return renderPathCall(
+    path,
+    (displayPath) => {
+      const target = `${theme.fg("text", displayPath)}${theme.fg("warning", suffix)}`;
+      return config?.toolCallStyle === "claude"
+        ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold("read"))} ${target}${intentSuffix}`;
+    },
+    context,
+  );
 }
 
 function renderReadDisplayResult(
@@ -1508,17 +1656,21 @@ function renderEditDisplayCall(
   context: ToolRenderContextLike | undefined,
   adapter: ToolDisplayAdapter = {},
   getConfig: ConfigGetter,
- ): Text | Container {
-  const path = shortenPath(getAdapterPath(args, adapter));
+ ): Component {
+  const path = getAdapterPath(args, adapter);
   const lineCount = adapter.getEditLineCount?.(args) ?? getEditLineCount(args);
   const config = getConfig();
   const lineCountSuffix = formatLineCountSuffix(lineCount, theme);
   const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config);
-  const summaryText = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall("edit", theme.fg("text", path || "..."), lineCountSuffix, intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("text", path || "...")}${lineCountSuffix}${intentSuffix}`;
+  const summaryComponent = renderPathCall(
+    path,
+    (displayPath) => config.toolCallStyle === "claude"
+      ? formatClaudeToolCall("edit", theme.fg("text", displayPath), lineCountSuffix, intentSuffix, theme, context)
+      : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("text", displayPath)}${lineCountSuffix}${intentSuffix}`,
+    context,
+  );
   if (!context?.argsComplete || !context.isPartial) {
-    return textResult(summaryText);
+    return summaryComponent;
   }
 
   const previewKey = JSON.stringify({
@@ -1533,7 +1685,7 @@ function renderEditDisplayCall(
     previewKey,
     () => buildPendingEditPreviewData(args, context.cwd),
   );
-  return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
+  return buildPendingDiffCallComponent(summaryComponent, previewData, context, getConfig(), theme);
 }
 
 function renderEditDisplayResult(
@@ -1666,12 +1818,17 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
         (kind === "mcp" || (kind === "generic" && resolvedAdapter.outputMode !== undefined)) &&
         (overrideExisting || typeof decorated.renderResult !== "function")
       ) {
-        decorated.renderResult = (result: ToolRenderInput, options: ToolRenderResultOptions, theme: RenderTheme) => {
+        decorated.renderResult = (
+          result: ToolRenderInput,
+          options: ToolRenderResultOptions,
+          theme: RenderTheme,
+          context?: ToolRenderContextLike,
+        ) => {
           const config = getConfig();
           const outputMode = resolvedAdapter.outputMode === undefined || resolvedAdapter.outputMode === "inherit"
             ? config.mcpOutputMode
             : resolvedAdapter.outputMode;
-          return renderCustomToolResult(result, options, config, outputMode, theme, resolvedAdapter);
+          return renderCustomToolResult(result, options, config, outputMode, theme, context, resolvedAdapter);
         };
       }
 
@@ -1809,8 +1966,8 @@ export function registerToolDisplayOverrides(
     return renderSearchResult(result as never, options, config, theme, unitLabel, result.details, pluralLabel);
   };
 
-  const buildSearchCallSuffix = (args: Record<string, unknown>): { scope: string; limitSuffix: string } => {
-    return { scope: getSearchScope(args), limitSuffix: args.limit !== undefined ? ` (limit ${args.limit})` : "" };
+  const buildSearchCallSuffix = (args: Record<string, unknown>): { path: string; limitSuffix: string } => {
+    return { path: getSearchPath(args), limitSuffix: args.limit !== undefined ? ` (limit ${args.limit})` : "" };
   };
 
   registerIfOwned("read", () => {
@@ -1833,11 +1990,19 @@ export function registerToolDisplayOverrides(
     label: "grep",
     ...createBuiltinToolBase("grep"),
     renderCall(args, theme, context) {
-      const scope = getSearchScope(args);
+      const path = getSearchPath(args);
       const globSuffix = args.glob ? ` (${args.glob})` : "";
       const limitSuffix =
         args.limit !== undefined ? ` limit ${args.limit}` : "";
-      return formatSearchCallLine("grep", `/${args.pattern}/`, ` in ${scope}${globSuffix}${limitSuffix}`, theme, args, getConfig(), context);
+      return formatSearchCallLine(
+        "grep",
+        path,
+        (displayPath) => `${theme.fg("text", `/${args.pattern}/`)}${theme.fg("muted", ` in ${displayPath}${globSuffix}${limitSuffix}`)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "match", "matches");
@@ -1851,8 +2016,16 @@ export function registerToolDisplayOverrides(
     label: "find",
     ...createBuiltinToolBase("find"),
     renderCall(args, theme, context) {
-      const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("find", args.pattern as string, ` in ${scope}${limitSuffix}`, theme, args, getConfig(), context);
+      const { path, limitSuffix } = buildSearchCallSuffix(args);
+      return formatSearchCallLine(
+        "find",
+        path,
+        (displayPath) => `${theme.fg("text", args.pattern as string)}${theme.fg("muted", ` in ${displayPath}${limitSuffix}`)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "result");
@@ -1866,8 +2039,16 @@ export function registerToolDisplayOverrides(
     label: "ls",
     ...createBuiltinToolBase("ls"),
     renderCall(args, theme, context) {
-      const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("ls", scope, limitSuffix, theme, args, getConfig(), context);
+      const { path, limitSuffix } = buildSearchCallSuffix(args);
+      return formatSearchCallLine(
+        "ls",
+        path,
+        (displayPath) => `${theme.fg("text", displayPath)}${theme.fg("muted", limitSuffix)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "entry", "entries");
@@ -1927,7 +2108,7 @@ export function registerToolDisplayOverrides(
       const content = getToolContentArg(args);
       const lineCount = countWriteContentLines(content);
       const sizeBytes = getWriteContentSizeBytes(content);
-      const path = shortenPath(getToolPathArg(args));
+      const path = getToolPathArg(args);
       const suffix = shouldRenderWriteCallSummary({
         hasContent: content !== undefined,
         hasDetailedResultHeader: false,
@@ -1936,11 +2117,15 @@ export function registerToolDisplayOverrides(
         : "";
       const config = getConfig();
       const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config);
-      const summaryText = config.toolCallStyle === "claude"
-        ? formatClaudeToolCall("write", theme.fg("text", path || "..."), suffix, intentSuffix, theme, context)
-        : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("text", path || "...")}${suffix}${intentSuffix}`;
+      const summaryComponent = renderPathCall(
+        path,
+        (displayPath) => config.toolCallStyle === "claude"
+          ? formatClaudeToolCall("write", theme.fg("text", displayPath), suffix, intentSuffix, theme, context)
+          : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("text", displayPath)}${suffix}${intentSuffix}`,
+        context,
+      );
       if (!context.argsComplete || !context.isPartial) {
-        return textResult(summaryText);
+        return summaryComponent;
       }
 
       const previewKey = JSON.stringify({ path: getToolPathArg(args) ?? null, content: content ?? null });
@@ -1950,7 +2135,7 @@ export function registerToolDisplayOverrides(
         previewKey,
         () => buildPendingWritePreviewData(args, context.cwd),
       );
-      return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
+      return buildPendingDiffCallComponent(summaryComponent, previewData, context, getConfig(), theme);
     },
     renderResult(result, options, theme, context) {
       const content = getToolContentArg(context?.args);
@@ -2081,13 +2266,14 @@ export function registerToolDisplayOverrides(
           }
           return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
         },
-        renderResult(result, options, theme) {
+        renderResult(result, options, theme, context) {
           return renderCustomToolResult(
             result as ToolRenderInput,
             options,
             getConfig(),
             override.outputMode,
             theme,
+            context,
           );
         },
       },
@@ -2149,12 +2335,13 @@ export function registerToolDisplayOverrides(
         renderCall(args, theme, context) {
           return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig(), context);
         },
-        renderResult(result, options, theme) {
+        renderResult(result, options, theme, context) {
           return renderMcpResult(
             result as ToolRenderInput,
             options,
             getConfig(),
             theme,
+            context,
           );
         },
       },

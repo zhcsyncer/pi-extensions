@@ -123,9 +123,11 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | `summary` | Show counts or summaries | Show a line-count summary |
 | `preview` | Show content previews | Show a content preview |
 
-Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. It counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. `advanced.expandedRows` separately caps expanded output.
+Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. Its supported range is `2`–`80`, and it counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. A stored v2 value of `1` is migrated to `2`; `advanced.expandedRows` separately caps expanded output.
 
-`toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header and put the command preview on its own row. `Ctrl+O` reveals the complete original command. This setting does not affect command output.
+`toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header, put the command preview on its own row, and emphasize that row's shell prompt with the accent color. `Ctrl+O` reveals the complete original command and applies Bash syntax highlighting within safety limits. This setting does not affect command output. Claude-style Bash results use a connected left gutter through their final row in both collapsed and expanded views.
+
+Path-bearing `read`, `grep`, `find`, `ls`, `edit`, and `write` calls keep short paths unchanged. When a full call header would wrap, the collapsed view removes middle path segments while preserving useful leading directories and the basename. `Ctrl+O` restores every path segment and lets the full header wrap normally; home paths remain normalized with `~`.
 
 Model-written intent uses the theme's regular `accent` color without bold or background styling. Deterministic commands, paths, and queries use normal `text`; metadata, separators, and deterministic fallback intents remain `muted`.
 
@@ -191,6 +193,8 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `decorateToolForDisplay` adds shared call rendering. For `generic` tools, setting `outputMode` also adds shared result rendering: `inherit` follows the active global `results.mode`, while `hidden`, `summary`, and `preview` pin the tool to one result mode. Omitting `outputMode` leaves the tool's existing result renderer untouched. Providers can also return a primary target plus metadata from `getCallPresentation` to replace generic `(N args)` text, and return semantic status plus `previewStartLine` from `getResultPresentation` to show backend/count summaries while skipping duplicated raw headers inside the shared visual-row budget. Presentation text is sanitized to one line, and callback failures fall back to generic rendering.
 
+For shared generic and MCP rendering, failed results always show one error-colored summary derived from the first meaningful `content` line, even when the active mode is `hidden`; `Ctrl+O` shows the complete error content within the normal expanded-row budget. Empty error content falls back to `Tool failed.` Successful `hidden` results remain hidden, and semantic result presentations never replace the content-derived failure reason.
+
 Pi 0.80.x exposes metadata, not complete arbitrary tool definitions, through `getAllTools()`. Therefore configuration-only discovery should not be treated as a reliable way to add intent schemas to unrelated extensions. Use the cooperative wrapper for schema and execution guarantees. `tools.custom` remains useful for presentation-only decoration where the definition is available.
 
 ## RPC and model context
@@ -210,7 +214,7 @@ The extension retains `displaySummary` in later model context. This small token 
 
 - There is no extra inference request; intent text uses a small number of tokens in the existing model response.
 - Intent text is untrusted model output. ANSI/OSC/control sequences, newlines, and excess length are sanitized before TUI display.
-- The extension always keeps deterministic paths/commands/patterns visible; intent text must not be used for authorization, auditing, or execution decisions.
+- The extension keeps deterministic paths/commands/patterns visible, with complete compacted paths available through `Ctrl+O`; intent text must not be used for authorization, auditing, or execution decisions.
 - Schema guidance asks the model not to include secrets or credentials, but sensitive tools should still be opted out when necessary.
 
 ## Local testing

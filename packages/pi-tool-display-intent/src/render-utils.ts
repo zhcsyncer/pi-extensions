@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeAnsiForThemedOutput } from "./ansi-utils.js";
 
 export { sanitizeAnsiForThemedOutput };
@@ -88,9 +89,109 @@ export function shortenPath(inputPath: string | undefined): string {
     return "";
   }
   const home = homedir();
-  return inputPath.startsWith(home)
+  const isHomePath = inputPath === home || inputPath.startsWith(`${home}/`) || inputPath.startsWith(`${home}\\`);
+  return isHomePath
     ? `~${inputPath.slice(home.length)}`
     : inputPath;
+}
+
+interface DisplayPathParts {
+  prefix: string;
+  separator: "/" | "\\";
+  segments: string[];
+}
+
+function splitDisplayPath(path: string): DisplayPathParts {
+  const separator: "/" | "\\" = path.includes("/") || !path.includes("\\") ? "/" : "\\";
+  let prefix = "";
+  let rest = path;
+
+  if (separator === "/") {
+    if (rest.startsWith("~/")) {
+      prefix = "~/";
+      rest = rest.slice(2);
+    } else if (rest.startsWith("/")) {
+      prefix = "/";
+      rest = rest.slice(1);
+    } else if (rest.startsWith("./")) {
+      prefix = "./";
+      rest = rest.slice(2);
+    } else {
+      while (rest.startsWith("../")) {
+        prefix += "../";
+        rest = rest.slice(3);
+      }
+    }
+  } else {
+    const drive = rest.match(/^[A-Za-z]:\\/u)?.[0];
+    if (drive) {
+      prefix = drive;
+      rest = rest.slice(drive.length);
+    } else if (rest.startsWith("\\\\")) {
+      prefix = "\\\\";
+      rest = rest.slice(2);
+    } else if (rest.startsWith(".\\")) {
+      prefix = ".\\";
+      rest = rest.slice(2);
+    } else {
+      while (rest.startsWith("..\\")) {
+        prefix += "..\\";
+        rest = rest.slice(3);
+      }
+    }
+  }
+
+  return {
+    prefix,
+    separator,
+    segments: rest.split(separator).filter((segment) => segment.length > 0),
+  };
+}
+
+function joinDisplayPath(prefix: string, separator: "/" | "\\", segments: string[]): string {
+  return `${prefix}${segments.join(separator)}`;
+}
+
+/** Compact the middle of a path while preserving its root, first directory, and basename. */
+export function compactPathForDisplay(inputPath: string | undefined, maxWidth: number): string {
+  const path = shortenPath(inputPath);
+  const safeWidth = Number.isFinite(maxWidth) ? Math.max(0, Math.floor(maxWidth)) : 0;
+  if (!path || safeWidth === 0) {
+    return "";
+  }
+  if (visibleWidth(path) <= safeWidth) {
+    return path;
+  }
+
+  const { prefix, separator, segments } = splitDisplayPath(path);
+  if (segments.length < 2) {
+    return truncateToWidth(path, safeWidth, "…");
+  }
+
+  const basename = segments.at(-1) ?? "";
+  const directories = segments.slice(0, -1);
+  const firstDirectory = directories[0];
+  const remainingDirectories = firstDirectory === undefined ? [] : directories.slice(1);
+
+  if (firstDirectory !== undefined) {
+    for (let tailCount = Math.max(0, remainingDirectories.length - 1); tailCount >= 0; tailCount--) {
+      const tail = tailCount > 0 ? remainingDirectories.slice(-tailCount) : [];
+      const candidate = joinDisplayPath(prefix, separator, [firstDirectory, "…", ...tail, basename]);
+      if (visibleWidth(candidate) <= safeWidth) {
+        return candidate;
+      }
+    }
+  }
+
+  for (let tailCount = Math.max(0, directories.length - 1); tailCount >= 0; tailCount--) {
+    const tail = tailCount > 0 ? directories.slice(-tailCount) : [];
+    const candidate = joinDisplayPath(prefix, separator, ["…", ...tail, basename]);
+    if (visibleWidth(candidate) <= safeWidth) {
+      return candidate;
+    }
+  }
+
+  return truncateToWidth(basename || path, safeWidth, "…");
 }
 
 export function extractTextOutput(result: ToolResultLike): string {

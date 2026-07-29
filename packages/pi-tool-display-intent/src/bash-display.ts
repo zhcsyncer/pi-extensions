@@ -1,4 +1,4 @@
-import { formatSize } from "@earendil-works/pi-coding-agent";
+import { formatSize, highlightCode } from "@earendil-works/pi-coding-agent";
 import {
 	Text,
 	truncateToWidth,
@@ -19,6 +19,8 @@ const BASH_SPINNER_INTERVAL_MS = 200;
 const BASH_SPINNER_STATE_KEY = "__piToolDisplayIntentBashSpinner";
 const BASH_SPINNER_TOOL_CALL_ID_KEY = "__piToolDisplayIntentBashSpinnerToolCallId";
 const MIN_COLLAPSED_COMMAND_COLUMNS = 8;
+const MAX_HIGHLIGHTED_COMMAND_CHARS = 50_000;
+const MAX_HIGHLIGHTED_COMMAND_LINES = 1_000;
 
 interface BashCallArgs {
 	command?: string;
@@ -214,6 +216,21 @@ function buildBashCallPresentation(
 	};
 }
 
+function highlightExpandedCommand(commandDisplay: string): string {
+	if (
+		commandDisplay.length > MAX_HIGHLIGHTED_COMMAND_CHARS ||
+		normalizeCommandLines(commandDisplay).length > MAX_HIGHLIGHTED_COMMAND_LINES
+	) {
+		return commandDisplay;
+	}
+
+	try {
+		return highlightCode(commandDisplay, "bash").join("\n");
+	} catch {
+		return commandDisplay;
+	}
+}
+
 function buildExpandedBashCallText(
 	presentation: BashCallPresentation,
 	theme: BashCallRenderTheme,
@@ -230,10 +247,14 @@ function buildExpandedBashCallText(
 		intentSuffix,
 	} = presentation;
 
+	const renderedCommand = context.expanded
+		? highlightExpandedCommand(commandDisplay)
+		: theme.fg("text", commandDisplay);
+
 	if (toolCallStyle === "claude") {
 		return formatClaudeToolCall(
 			"bash",
-			theme.fg("text", commandDisplay),
+			renderedCommand,
 			`${shellSuffix}${timeoutSuffix}${elapsedSuffix}`,
 			intentSuffix,
 			theme,
@@ -242,7 +263,7 @@ function buildExpandedBashCallText(
 		);
 	}
 
-	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${theme.fg("text", commandDisplay)}${shellSuffix}${timeoutSuffix}${elapsedSuffix}${intentSuffix}`;
+	return `${spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} ${renderedCommand}${shellSuffix}${timeoutSuffix}${elapsedSuffix}${intentSuffix}`;
 }
 
 function normalizeCommandLines(commandDisplay: string): string[] {
@@ -303,7 +324,7 @@ function buildCollapsedCommandRows(
 	rows[lastIndex] = `${truncateToWidth(rows[lastIndex] ?? "", lastContentWidth, "")}${suffix}`;
 
 	const firstPrefix = toolCallStyle === "claude"
-		? `${theme.fg("muted", "  ")}${theme.fg("toolTitle", theme.bold("$"))} `
+		? `${theme.fg("muted", "  ")}${theme.fg("accent", theme.bold("$"))} `
 		: `${presentation.spinnerPrefix}${theme.fg("toolTitle", theme.bold("$"))} `;
 	const continuationPrefix = theme.fg("muted", continuationPrefixPlain);
 
