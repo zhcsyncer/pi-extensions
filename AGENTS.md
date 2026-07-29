@@ -4,3 +4,4 @@
 - 不要直接运行版本升级或发布命令，也不要绕过 version PR 直接向 `main` 提交发版版本、推送发布 tag 或手动发布 npm 包。
 - 准备发布根包 `@zhcsyncer/pi-extensions` 时，先检查并处理 [`BACKLOG.md`](./BACKLOG.md) 中标记为下一次根包发布前完成的未勾选事项。
 - 发版前必须先向用户列出计划更新的包、当前版本和目标版本，并等待用户明确 review/确认；确认前不得将发版变更推送到 `main`、合并 version PR 或触发发布。
+- 公开包进 Pi gallery **能打开详情页 ≠ 能被搜索到**。gallery 检索依赖 npm search（`keywords:pi-package`）；npm `score.final = 0` 或 registry 未收录 README 时，包会在搜索中隐形。新包 bootstrap / 既有包发版后必须核验：registry 有 README 元数据、npm search 对该包 `score.final > 0`、`pi.dev/packages` 能搜到。不要为了刷索引单独发版；细则与未修项见 [`RELEASING.md`](./RELEASING.md) 与 [`BACKLOG.md`](./BACKLOG.md)。

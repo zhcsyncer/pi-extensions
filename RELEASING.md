@@ -82,3 +82,14 @@ Do not push the release-bearing change to `main`, merge the generated version PR
 6. The workflow reconciles package tags and creates GitHub Releases for the packages published in that plan.
 
 Publishing and release reconciliation are idempotent. If npm publishing partially succeeds or GitHub Release creation fails, rerun the failed workflow job.
+
+## Post-publish discoverability check
+
+A working direct package page or `pi install npm:<name>` is not enough. The Pi package gallery search uses the npm search API (typically with `keywords:pi-package`). Packages can be fully installable and still invisible in search when npm's search score stays at `0` or registry metadata omits the README body.
+
+After bootstrap or any public package publish, once npm has had time to reindex:
+
+1. Confirm registry metadata for the new version includes a root `README.md` (`readmeFilename` and non-empty `readme`), not only a file inside the tarball.
+2. Query the npm search API for the exact package / author and require `score.final > 0`.
+3. Confirm a distinctive `keywords:pi-package …` query can surface the package, and that `https://pi.dev/packages/<name>` remains reachable from gallery search—not only by typed URL.
+4. If score remains `0` after solid reindex evidence, file an upstream indexing issue; do not cut versions solely to poke the indexer. Track outstanding cases in [`BACKLOG.md`](./BACKLOG.md).
