@@ -48,6 +48,24 @@ test("Claude result wrapper replaces legacy arrows, indents continuations, and r
 	assert.doesNotThrow(() => wrapped.invalidate());
 });
 
+test("Claude Bash result wrapper connects every output row through the last line", () => {
+	const wrapped = applyToolResultStyle(
+		new Text("first output\nsecond output\nlast output", 0, 0),
+		"claude",
+		{ connectRows: true },
+	) as { render(width: number): string[] };
+
+	assert.deepEqual(
+		wrapped.render(24).map((line) => line.trimEnd()),
+		["  │ first output", "  │ second output", "  └ last output"],
+	);
+
+	const single = applyToolResultStyle(new Text("only output", 0, 0), "claude", { connectRows: true }) as {
+		render(width: number): string[];
+	};
+	assert.deepEqual(single.render(24).map((line) => line.trimEnd()), ["  └ only output"]);
+});
+
 test("Claude result wrapper hides empty result components and compact style is unchanged", () => {
 	const empty = applyToolResultStyle(new Text("", 0, 0), "claude") as { render(width: number): string[] };
 	assert.deepEqual(empty.render(80), []);

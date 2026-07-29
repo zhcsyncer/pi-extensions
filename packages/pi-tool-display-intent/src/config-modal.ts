@@ -22,7 +22,7 @@ interface ModalOverlayOptions {
 	margin: number;
 }
 
-const PREVIEW_ROW_VALUES = ["4", "8", "12", "20", "40"] as const;
+const PREVIEW_ROW_VALUES = ["2", "4", "8", "12", "20", "40"] as const;
 const BASH_COMMAND_PREVIEW_ROW_VALUES = ["1", "2", "3", "4"] as const;
 const MODE_COMMAND_HINT = RESULT_DISPLAY_MODES.join("|");
 
@@ -113,7 +113,7 @@ function buildInspectorSettings(
 				"A single long logical line consumes multiple rows instead of bypassing the limit.",
 			],
 			inspectorOptions: [
-				"Lower values keep transcripts dense and skimmable",
+				"2 — minimum supported preview for a dense transcript",
 				"Higher values show more read, search, MCP, custom, and bash output",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [

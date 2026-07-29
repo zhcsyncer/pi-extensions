@@ -523,6 +523,27 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 	);
 });
 
+test("Claude Bash results keep a connected frame when collapsed and expanded", async () => {
+	const config = buildConfig({
+		toolCallStyle: "claude",
+		bashOutputMode: "preview",
+		previewRows: 2,
+	});
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	await eventHandlers.before_agent_start?.();
+
+	const bashTool = registeredTools.find((tool) => tool.name === "bash");
+	assert.equal(
+		renderToolResult(bashTool, "alpha\nbeta\ngamma\n"),
+		"│ alpha\n  │ beta\n  └ ... (1 more line • Ctrl+O to expand)",
+	);
+	assert.equal(
+		renderToolResult(bashTool, { text: "alpha\nbeta\ngamma\n", expanded: true }),
+		"│ alpha\n  │ beta\n  └ gamma",
+	);
+});
+
 test("bash call spinner appears only while execution is active", async () => {
 	const config = buildConfig({
 		bashOutputMode: "summary",

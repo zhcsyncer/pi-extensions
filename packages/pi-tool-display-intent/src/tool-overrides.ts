@@ -252,7 +252,10 @@ function applyRuntimeToolCallStyle(
   if (typeof originalRenderResult === "function") {
     styledTool.renderResult = function renderStyledResult(result, options, theme, context) {
       const component = originalRenderResult.call(tool, result, options, theme, context);
-      return applyToolResultStyle(component, getConfig().toolCallStyle);
+      return applyToolResultStyle(component, getConfig().toolCallStyle, {
+        connectRows: tool.name === "bash",
+        theme,
+      });
     };
   }
 

@@ -320,7 +320,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
-			1,
+			2,
 			80,
 			DEFAULT_TOOL_DISPLAY_CONFIG.previewRows,
 		),
@@ -445,7 +445,7 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateKnownKeys(results, ["mode", "previewRows"], "results.", errors);
 	if (!hasOwn(results, "mode")) errors.push("results.mode: required setting");
 	validateOptionalEnum(results, "mode", RESULT_DISPLAY_MODES, "results.", errors);
-	validateOptionalInteger(results, "previewRows", 1, 80, "results.", errors);
+	validateOptionalInteger(results, "previewRows", 2, 80, "results.", errors);
 
 	const diff = getV2Section(source, "diff", errors);
 	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedRows", "wordWrap"], "diff.", errors);
@@ -499,6 +499,25 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalBoolean(advanced, "rtkCompactionHints", "advanced.", errors);
 	validateOptionalBoolean(advanced, "debug", "advanced.", errors);
 	return errors;
+}
+
+function normalizeMappableV2Settings(source: Record<string, unknown>): {
+	source: Record<string, unknown>;
+	notices: string[];
+} {
+	const results = toRecord(source.results);
+	if (results.previewRows !== 1) {
+		return { source, notices: [] };
+	}
+
+	const normalized = structuredClone(source);
+	const normalizedResults = toRecord(normalized.results);
+	normalizedResults.previewRows = 2;
+	normalized.results = normalizedResults;
+	return {
+		source: normalized,
+		notices: ["results.previewRows: raised from 1 to the new minimum of 2"],
+	};
 }
 
 function dropInvalidV2Settings(source: Record<string, unknown>, validationErrors: readonly string[]): Record<string, unknown> {
@@ -741,17 +760,21 @@ export function loadToolDisplayConfig(configFile = CONFIG_FILE): ConfigLoadResul
 			}
 			const source = parsed as Record<string, unknown>;
 			if (hasOwn(source, "version") && source.version === TOOL_DISPLAY_CONFIG_VERSION) {
-				const validationErrors = validateToolDisplayConfigV2(source);
-				const sanitizedSource = validationErrors.length > 0 ? dropInvalidV2Settings(source, validationErrors) : source;
+				const normalizedV2 = normalizeMappableV2Settings(source);
+				const validationErrors = validateToolDisplayConfigV2(normalizedV2.source);
+				const sanitizedSource = validationErrors.length > 0
+					? dropInvalidV2Settings(normalizedV2.source, validationErrors)
+					: normalizedV2.source;
 				const config = normalizeToolDisplayConfigV2(sanitizedSource);
-				if (validationErrors.length === 0) {
+				const upgradeNotices = [...normalizedV2.notices, ...validationErrors];
+				if (upgradeNotices.length === 0) {
 					result = { config };
 				} else {
 					const migrationError = migrateLegacyConfigFile(configFile, rawText, config);
 					result = {
 						config,
 						...(migrationError ? { error: migrationError } : {}),
-						...(!migrationError ? { notice: `tool-display-intent upgraded its v2 config and dropped or normalized unmappable settings: ${validationErrors.join("; ")}` } : {}),
+						...(!migrationError ? { notice: `tool-display-intent upgraded its v2 config and dropped or normalized settings: ${upgradeNotices.join("; ")}` } : {}),
 					};
 				}
 			} else if (hasOwn(source, "version") && typeof source.version === "number" && source.version > TOOL_DISPLAY_CONFIG_VERSION) {

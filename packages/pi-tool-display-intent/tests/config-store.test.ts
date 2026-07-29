@@ -54,6 +54,11 @@ test("legacy normalization maps result modes, clamps rows, and discards bashColl
 	assert.equal(config.diffWordWrap, false);
 });
 
+test("preview rows clamp to the supported minimum of two", () => {
+	assert.equal(normalizeToolDisplayConfig({ previewRows: 1 }).previewRows, 2);
+	assert.equal(normalizeToolDisplayConfig({ previewLines: -10 }).previewRows, 2);
+});
+
 test("legacy stored Profile names map to final result modes", () => {
 	assert.equal(normalizeToolDisplayConfig({ resultProfile: "minimal" }).resultMode, "compact");
 	assert.equal(normalizeToolDisplayConfig({ resultProfile: "balanced" }).resultMode, "summary");
@@ -297,6 +302,24 @@ test("invalid or old v2 fields are dropped with paths and rewritten", () => {
 		assert.match(loaded.notice ?? "", /results\.mode: required setting/);
 		assert.notEqual(readFileSync(configFile, "utf8"), original);
 		assert.equal(readFileSync(join(dir, "config.legacy.json"), "utf8"), original);
+	});
+});
+
+test("v2 preview rows of one migrate to the new minimum", () => {
+	withTempDir("pi-tool-display-config-preview-min-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, `${JSON.stringify({
+			version: 2,
+			results: { mode: "compact", previewRows: 1 },
+		}, null, 2)}\n`, "utf8");
+
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.config.previewRows, 2);
+		assert.match(loaded.notice ?? "", /results\.previewRows: raised from 1 to the new minimum of 2/);
+		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
+			results?: { previewRows?: number };
+		};
+		assert.equal(persisted.results?.previewRows, 2);
 	});
 });
 

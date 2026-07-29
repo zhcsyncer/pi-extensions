@@ -123,12 +123,11 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 | `summary` | 显示数量或摘要 | 显示行数摘要 |
 | `preview` | 显示内容预览 | 显示内容预览 |
 
-所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。`advanced.expandedRows` 单独限制展开后的输出。
+所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`，支持范围为 `2`–`80`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。已有 v2 配置中的 `1` 会迁移为 `2`；`advanced.expandedRows` 单独限制展开后的输出。
 
-`toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，并把命令预览放到独立行。按 `Ctrl+O` 可查看完整原始命令。该配置不影响命令输出。
+`toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，把命令预览放到独立行，并使用 accent 色强调该行的 shell prompt。按 `Ctrl+O` 可查看完整原始命令，并在安全限制内应用 Bash 语法高亮。该配置不影响命令输出。Claude 风格的 Bash 结果无论折叠还是展开，左侧线框都会贯穿到最后一行。
 
 带路径的 `read`、`grep`、`find`、`ls`、`edit`、`write` 调用会原样保留短路径。如果完整调用标题即将折行，折叠视图会省略路径中段，同时保留有辨识度的开头目录和文件名。按 `Ctrl+O` 会恢复全部路径段，并允许完整标题正常折行；Home 路径仍统一显示为 `~`。
-
 
 模型生成的 intent 使用主题的常规 `accent` 色，不加粗、不加背景。确定性的命令、路径和 query 使用普通 `text`；元数据、分隔符和确定性 fallback intent 继续使用 `muted`。
 
@@ -215,7 +214,7 @@ extension 会在后续模型上下文中保留 `displaySummary`。这会增加�
 
 - 不会产生额外推理请求；只在已有模型响应中消耗少量额外 token。
 - 意图属于不可信模型输出。渲染前会清理 ANSI、OSC、控制字符、换行和超长内容。
-- TUI 始终保留真实路径、命令和 pattern；不得使用意图文本进行授权、审计或执行判断。
+- TUI 保留确定性的路径、命令和 pattern；缩略路径可通过 `Ctrl+O` 查看完整内容。不得使用意图文本进行授权、审计或执行判断。
 - Schema 会提示模型不要包含秘密或凭据，但敏感工具仍应根据需要关闭该能力。
 
 ## 本地测试

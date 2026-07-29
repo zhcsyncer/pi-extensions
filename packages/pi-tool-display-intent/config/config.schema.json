@@ -58,7 +58,7 @@
         },
         "previewRows": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 2,
           "maximum": 80,
           "default": 8,
           "description": "Maximum rendered terminal rows shown by collapsed tool-result content previews after wrapping."
