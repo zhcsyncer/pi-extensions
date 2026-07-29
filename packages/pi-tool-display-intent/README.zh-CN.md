@@ -127,6 +127,9 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 `toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，并把命令预览放到独立行。按 `Ctrl+O` 可查看完整原始命令。该配置不影响命令输出。
 
+带路径的 `read`、`grep`、`find`、`ls`、`edit`、`write` 调用会原样保留短路径。如果完整调用标题即将折行，折叠视图会省略路径中段，同时保留有辨识度的开头目录和文件名。按 `Ctrl+O` 会恢复全部路径段，并允许完整标题正常折行；Home 路径仍统一显示为 `~`。
+
+
 模型生成的 intent 使用主题的常规 `accent` 色，不加粗、不加背景。确定性的命令、路径和 query 使用普通 `text`；元数据、分隔符和确定性 fallback intent 继续使用 `muted`。
 
 `tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。

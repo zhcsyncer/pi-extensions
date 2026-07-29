@@ -48,11 +48,11 @@ import {
   extractTextOutput,
   isLikelyQuietCommand,
   pluralize,
-  shortenPath,
   splitLines,
 } from "./render-utils.js";
 import { renderEditDiffResult, renderWriteDiffResult } from "./diff-renderer.js";
 import { MAX_PREVIEW_LAYOUT_ROWS, PreviewText } from "./preview-text.js";
+import { renderPathCall } from "./path-call.js";
 import {
   buildPendingEditPreviewData,
   buildPendingWritePreviewData,
@@ -713,18 +713,18 @@ function resolvePendingDiffPreview(
 }
 
 function buildPendingDiffCallComponent(
-  summaryText: string,
+  summaryComponent: Component,
   previewData: PendingDiffPreviewData | undefined,
   context: ToolRenderContextLike | undefined,
   config: ToolDisplayConfig,
   theme: RenderTheme,
-): Text | Container {
+): Component {
   if (!context?.isPartial || !previewData) {
-    return textResult(summaryText);
+    return summaryComponent;
   }
 
   const container = new Container();
-  container.addChild(new Text(summaryText, 0, 0));
+  container.addChild(summaryComponent);
   if (config.toolCallStyle !== "claude") {
     container.addChild(new Spacer(1));
   }
@@ -1506,25 +1506,30 @@ function formatGenericToolCallLine(
   return new Text(line, 0, 0);
 }
 
-function getSearchScope(args: Record<string, unknown>): string {
-  return shortenPath((args.path as string) || ".");
+function getSearchPath(args: Record<string, unknown>): string {
+  return getStringField(args, "path") || ".";
 }
 
 function formatSearchCallLine(
   toolName: string,
-  accent: string,
-  mutedSuffix: string,
+  path: string,
+  buildTarget: (displayPath: string) => string,
   theme: RenderTheme,
   args: unknown,
   config: ToolDisplayConfig,
   context?: ToolRenderContextLike,
-): Text {
-  const target = `${theme.fg("text", accent)}${theme.fg("muted", mutedSuffix)}`;
+): Component {
   const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
-  const line = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
-  return new Text(line, 0, 0);
+  return renderPathCall(
+    path,
+    (displayPath) => {
+      const target = buildTarget(displayPath);
+      return config.toolCallStyle === "claude"
+        ? formatClaudeToolCall(toolName, target, "", intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold(toolName))} ${target}${intentSuffix}`;
+    },
+    context,
+  );
 }
 
 function renderCustomToolResult(
@@ -1578,8 +1583,8 @@ function renderReadDisplayCall(
   adapter: ToolDisplayAdapter = {},
   config?: ToolDisplayConfig,
   context?: ToolRenderContextLike,
- ): Text {
-  const path = shortenPath(getAdapterPath(args, adapter));
+ ): Component {
+  const path = getAdapterPath(args, adapter);
   const offset = getNumericField(args, "offset");
   const limit = getNumericField(args, "limit");
   let suffix = "";
@@ -1588,12 +1593,17 @@ function renderReadDisplayCall(
     const to = limit !== undefined ? from + limit - 1 : undefined;
     suffix = to ? `:${from}-${to}` : `:${from}`;
   }
-  const target = `${theme.fg("text", path || "...")}${theme.fg("warning", suffix)}`;
   const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config) : "";
-  const line = config?.toolCallStyle === "claude"
-    ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("read"))} ${target}${intentSuffix}`;
-  return textResult(line);
+  return renderPathCall(
+    path,
+    (displayPath) => {
+      const target = `${theme.fg("text", displayPath)}${theme.fg("warning", suffix)}`;
+      return config?.toolCallStyle === "claude"
+        ? formatClaudeToolCall("read", target, "", intentSuffix, theme, context)
+        : `${theme.fg("toolTitle", theme.bold("read"))} ${target}${intentSuffix}`;
+    },
+    context,
+  );
 }
 
 function renderReadDisplayResult(
@@ -1643,17 +1653,21 @@ function renderEditDisplayCall(
   context: ToolRenderContextLike | undefined,
   adapter: ToolDisplayAdapter = {},
   getConfig: ConfigGetter,
- ): Text | Container {
-  const path = shortenPath(getAdapterPath(args, adapter));
+ ): Component {
+  const path = getAdapterPath(args, adapter);
   const lineCount = adapter.getEditLineCount?.(args) ?? getEditLineCount(args);
   const config = getConfig();
   const lineCountSuffix = formatLineCountSuffix(lineCount, theme);
   const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config);
-  const summaryText = config.toolCallStyle === "claude"
-    ? formatClaudeToolCall("edit", theme.fg("text", path || "..."), lineCountSuffix, intentSuffix, theme, context)
-    : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("text", path || "...")}${lineCountSuffix}${intentSuffix}`;
+  const summaryComponent = renderPathCall(
+    path,
+    (displayPath) => config.toolCallStyle === "claude"
+      ? formatClaudeToolCall("edit", theme.fg("text", displayPath), lineCountSuffix, intentSuffix, theme, context)
+      : `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("text", displayPath)}${lineCountSuffix}${intentSuffix}`,
+    context,
+  );
   if (!context?.argsComplete || !context.isPartial) {
-    return textResult(summaryText);
+    return summaryComponent;
   }
 
   const previewKey = JSON.stringify({
@@ -1668,7 +1682,7 @@ function renderEditDisplayCall(
     previewKey,
     () => buildPendingEditPreviewData(args, context.cwd),
   );
-  return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
+  return buildPendingDiffCallComponent(summaryComponent, previewData, context, getConfig(), theme);
 }
 
 function renderEditDisplayResult(
@@ -1949,8 +1963,8 @@ export function registerToolDisplayOverrides(
     return renderSearchResult(result as never, options, config, theme, unitLabel, result.details, pluralLabel);
   };
 
-  const buildSearchCallSuffix = (args: Record<string, unknown>): { scope: string; limitSuffix: string } => {
-    return { scope: getSearchScope(args), limitSuffix: args.limit !== undefined ? ` (limit ${args.limit})` : "" };
+  const buildSearchCallSuffix = (args: Record<string, unknown>): { path: string; limitSuffix: string } => {
+    return { path: getSearchPath(args), limitSuffix: args.limit !== undefined ? ` (limit ${args.limit})` : "" };
   };
 
   registerIfOwned("read", () => {
@@ -1973,11 +1987,19 @@ export function registerToolDisplayOverrides(
     label: "grep",
     ...createBuiltinToolBase("grep"),
     renderCall(args, theme, context) {
-      const scope = getSearchScope(args);
+      const path = getSearchPath(args);
       const globSuffix = args.glob ? ` (${args.glob})` : "";
       const limitSuffix =
         args.limit !== undefined ? ` limit ${args.limit}` : "";
-      return formatSearchCallLine("grep", `/${args.pattern}/`, ` in ${scope}${globSuffix}${limitSuffix}`, theme, args, getConfig(), context);
+      return formatSearchCallLine(
+        "grep",
+        path,
+        (displayPath) => `${theme.fg("text", `/${args.pattern}/`)}${theme.fg("muted", ` in ${displayPath}${globSuffix}${limitSuffix}`)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "match", "matches");
@@ -1991,8 +2013,16 @@ export function registerToolDisplayOverrides(
     label: "find",
     ...createBuiltinToolBase("find"),
     renderCall(args, theme, context) {
-      const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("find", args.pattern as string, ` in ${scope}${limitSuffix}`, theme, args, getConfig(), context);
+      const { path, limitSuffix } = buildSearchCallSuffix(args);
+      return formatSearchCallLine(
+        "find",
+        path,
+        (displayPath) => `${theme.fg("text", args.pattern as string)}${theme.fg("muted", ` in ${displayPath}${limitSuffix}`)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "result");
@@ -2006,8 +2036,16 @@ export function registerToolDisplayOverrides(
     label: "ls",
     ...createBuiltinToolBase("ls"),
     renderCall(args, theme, context) {
-      const { scope, limitSuffix } = buildSearchCallSuffix(args);
-      return formatSearchCallLine("ls", scope, limitSuffix, theme, args, getConfig(), context);
+      const { path, limitSuffix } = buildSearchCallSuffix(args);
+      return formatSearchCallLine(
+        "ls",
+        path,
+        (displayPath) => `${theme.fg("text", displayPath)}${theme.fg("muted", limitSuffix)}`,
+        theme,
+        args,
+        getConfig(),
+        context,
+      );
     },
     renderResult(result, options, theme) {
       return renderSearchToolResult(result, options, theme, "entry", "entries");
@@ -2067,7 +2105,7 @@ export function registerToolDisplayOverrides(
       const content = getToolContentArg(args);
       const lineCount = countWriteContentLines(content);
       const sizeBytes = getWriteContentSizeBytes(content);
-      const path = shortenPath(getToolPathArg(args));
+      const path = getToolPathArg(args);
       const suffix = shouldRenderWriteCallSummary({
         hasContent: content !== undefined,
         hasDetailedResultHeader: false,
@@ -2076,11 +2114,15 @@ export function registerToolDisplayOverrides(
         : "";
       const config = getConfig();
       const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config);
-      const summaryText = config.toolCallStyle === "claude"
-        ? formatClaudeToolCall("write", theme.fg("text", path || "..."), suffix, intentSuffix, theme, context)
-        : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("text", path || "...")}${suffix}${intentSuffix}`;
+      const summaryComponent = renderPathCall(
+        path,
+        (displayPath) => config.toolCallStyle === "claude"
+          ? formatClaudeToolCall("write", theme.fg("text", displayPath), suffix, intentSuffix, theme, context)
+          : `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("text", displayPath)}${suffix}${intentSuffix}`,
+        context,
+      );
       if (!context.argsComplete || !context.isPartial) {
-        return textResult(summaryText);
+        return summaryComponent;
       }
 
       const previewKey = JSON.stringify({ path: getToolPathArg(args) ?? null, content: content ?? null });
@@ -2090,7 +2132,7 @@ export function registerToolDisplayOverrides(
         previewKey,
         () => buildPendingWritePreviewData(args, context.cwd),
       );
-      return buildPendingDiffCallComponent(summaryText, previewData, context, getConfig(), theme);
+      return buildPendingDiffCallComponent(summaryComponent, previewData, context, getConfig(), theme);
     },
     renderResult(result, options, theme, context) {
       const content = getToolContentArg(context?.args);

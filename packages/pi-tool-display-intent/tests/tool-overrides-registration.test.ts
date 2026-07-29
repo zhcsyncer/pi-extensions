@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -27,6 +27,7 @@ import {
 } from "../tool-display-api-consumer.js";
 import { addDisplaySummaryParameter } from "../src/display-summary.js";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
+import { shortenPath } from "../src/render-utils.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 
 const TOOL_DISPLAY_PENDING_DECORATIONS_KEY = Symbol.for("pi-tool-display-intent.pendingDecorations.v1");
@@ -254,6 +255,65 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 	});
 });
 
+test("path-bearing built-ins compact long call paths and restore them when expanded", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallStyle: "claude" as const,
+	};
+	registerToolDisplayOverrides(api, () => config);
+
+	const longPath = `${homedir()}/.local/share/pnpm/store/v11/links/@earendil-works/pi-coding-agent/0.82.1/3f756669fd860ae9f8a03cb73678ac7de01add7dc08f75902c7f14389da37058/node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`;
+	const expectedFullPath = shortenPath(longPath);
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
+	const cases: Array<{ name: string; args: Record<string, unknown> }> = [
+		{ name: "read", args: { path: longPath, offset: 1, limit: 2000 } },
+		{ name: "grep", args: { pattern: "systemPrompt", path: longPath } },
+		{ name: "find", args: { pattern: "*.md", path: longPath } },
+		{ name: "ls", args: { path: longPath } },
+		{ name: "edit", args: { path: longPath, edits: [{ oldText: "a", newText: "b" }] } },
+		{ name: "write", args: { path: longPath, content: "x" } },
+	];
+
+	for (const entry of cases) {
+		const tool = byName.get(entry.name);
+		assert.ok(tool?.renderCall, `${entry.name} has renderCall`);
+		const args = { ...entry.args, displaySummary: "Inspecting the RPC docs" };
+		const collapsedContext = {
+			argsComplete: false,
+			executionStarted: true,
+			expanded: false,
+			isPartial: false,
+		};
+		const collapsed = tool.renderCall(args, theme, collapsedContext) as { render(width: number): string[] };
+		const collapsedLines = collapsed.render(76).map((line) => line.trimEnd());
+		const collapsedText = collapsedLines.join("\n");
+
+		assert.equal(collapsedLines.length, 1, `${entry.name} collapsed header stays on one line`);
+		assert.ok(visibleWidth(collapsedLines[0] ?? "") <= 76, `${entry.name} respects available width`);
+		assert.match(collapsedText, /…/u, `${entry.name} shows a middle path ellipsis`);
+		assert.match(collapsedText, /rpc\.md/u, `${entry.name} preserves the basename`);
+		assert.doesNotMatch(collapsedText, /3f756669fd860ae9/u, `${entry.name} hides store hashes`);
+
+		const expanded = tool.renderCall(
+			args,
+			theme,
+			{ ...collapsedContext, expanded: true, lastComponent: collapsed },
+		) as { render(width: number): string[] };
+		assert.equal(expanded, collapsed, `${entry.name} reuses its call component`);
+		const expandedLines = expanded.render(76).map((line) => line.trimEnd());
+		assert.match(expandedLines[0] ?? "", /^● \S/u, `${entry.name} keeps its status marker with the call label`);
+		assert.ok(
+			expandedLines.join("").includes(expectedFullPath),
+			`${entry.name} restores the complete path when expanded`,
+		);
+	}
+});
+
 test("built-in renderers use accent for model intent and muted for fallback intent", () => {
 	const { api, registeredTools } = createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
@@ -333,7 +393,6 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 	) as { render(width: number): string[] };
 	assert.match(resultComponent.render(160).join("\n"), /Remote · 2 values/);
 
-
 	const errorResult = {
 		content: [{ type: "text", text: "Remote content failure\nstack frame one\nstack frame two" }],
 		details: { summary: "presentation must not replace content" },
@@ -360,8 +419,6 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 		expandedError.render(160).map((line) => line.trimEnd()).join("\n"),
 		"Remote content failure\nstack frame one\nstack frame two",
 	);
-
-	
 
 	await customTool.execute("call-custom", args);
 	assert.deepEqual(executedArgs, { query: "alpha" });

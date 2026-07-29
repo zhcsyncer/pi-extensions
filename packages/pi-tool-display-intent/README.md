@@ -127,6 +127,9 @@ Every content preview, including custom tools and bash live/error output, uses `
 
 `toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header and put the command preview on its own row. `Ctrl+O` reveals the complete original command. This setting does not affect command output.
 
+Path-bearing `read`, `grep`, `find`, `ls`, `edit`, and `write` calls keep short paths unchanged. When a full call header would wrap, the collapsed view removes middle path segments while preserving useful leading directories and the basename. `Ctrl+O` restores every path segment and lets the full header wrap normally; home paths remain normalized with `~`.
+
+
 Model-written intent uses the theme's regular `accent` color without bold or background styling. Deterministic commands, paths, and queries use normal `text`; metadata, separators, and deterministic fallback intents remain `muted`.
 
 `tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
