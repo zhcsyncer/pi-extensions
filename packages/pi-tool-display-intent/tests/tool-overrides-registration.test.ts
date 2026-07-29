@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	createBashTool,
 	createBashToolDefinition,
@@ -331,6 +332,36 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 		{},
 	) as { render(width: number): string[] };
 	assert.match(resultComponent.render(160).join("\n"), /Remote · 2 values/);
+
+
+	const errorResult = {
+		content: [{ type: "text", text: "Remote content failure\nstack frame one\nstack frame two" }],
+		details: { summary: "presentation must not replace content" },
+	};
+	const collapsedError = customTool.renderResult?.(
+		errorResult,
+		{ expanded: false, isPartial: false },
+		theme,
+		{ isError: true },
+	) as { render(width: number): string[] };
+	const collapsedErrorLines = collapsedError.render(32).map((line) => line.trimEnd());
+	assert.equal(collapsedErrorLines.length, 1);
+	assert.ok(visibleWidth(collapsedErrorLines[0] ?? "") <= 32);
+	assert.match(collapsedErrorLines[0] ?? "", /^↳ Remote content failure/u);
+	assert.doesNotMatch(collapsedErrorLines[0] ?? "", /Remote · 2 values/);
+
+	const expandedError = customTool.renderResult?.(
+		errorResult,
+		{ expanded: true, isPartial: false },
+		theme,
+		{ isError: true },
+	) as { render(width: number): string[] };
+	assert.equal(
+		expandedError.render(160).map((line) => line.trimEnd()).join("\n"),
+		"Remote content failure\nstack frame one\nstack frame two",
+	);
+
+	
 
 	await customTool.execute("call-custom", args);
 	assert.deepEqual(executedArgs, { query: "alpha" });

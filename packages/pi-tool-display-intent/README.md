@@ -191,6 +191,8 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `decorateToolForDisplay` adds shared call rendering. For `generic` tools, setting `outputMode` also adds shared result rendering: `inherit` follows the active global `results.mode`, while `hidden`, `summary`, and `preview` pin the tool to one result mode. Omitting `outputMode` leaves the tool's existing result renderer untouched. Providers can also return a primary target plus metadata from `getCallPresentation` to replace generic `(N args)` text, and return semantic status plus `previewStartLine` from `getResultPresentation` to show backend/count summaries while skipping duplicated raw headers inside the shared visual-row budget. Presentation text is sanitized to one line, and callback failures fall back to generic rendering.
 
+
+
 Pi 0.80.x exposes metadata, not complete arbitrary tool definitions, through `getAllTools()`. Therefore configuration-only discovery should not be treated as a reliable way to add intent schemas to unrelated extensions. Use the cooperative wrapper for schema and execution guarantees. `tools.custom` remains useful for presentation-only decoration where the definition is available.
 
 ## RPC and model context

@@ -107,11 +107,17 @@ function renderToText(component: unknown): string {
 		.trim();
 }
 
-function renderToolResult(tool: RuntimeTool, text: string, options: Record<string, unknown> = {}): string {
+function renderToolResult(
+	tool: RuntimeTool,
+	text: string,
+	options: Record<string, unknown> = {},
+	context: Record<string, unknown> = {},
+): string {
 	return renderToolRawResult(
 		tool,
 		{ content: [{ type: "text", text }], details: {} },
 		options,
+		context,
 	);
 }
 
@@ -119,6 +125,7 @@ function renderToolRawResult(
 	tool: RuntimeTool,
 	result: Record<string, unknown>,
 	options: Record<string, unknown> = {},
+	context: Record<string, unknown> = {},
 ): string {
 	assert.equal(typeof tool.renderResult, "function", `expected ${tool.name} to have renderResult`);
 	return renderToText(
@@ -126,6 +133,7 @@ function renderToolRawResult(
 			result,
 			{ expanded: false, isPartial: false, ...options },
 			createTheme(),
+			context,
 		),
 	);
 }
@@ -242,6 +250,49 @@ test("custom generic tool override honors per-tool hidden output mode", async ()
 	await runLifecycle(eventHandlers);
 
 	assert.equal(renderToolResult(quietTool, "secret\nnoisy\noutput\n"), "");
+});
+
+test("generic custom tool errors stay visible in every output mode and expand from content", async () => {
+	const modes = ["hidden", "summary", "preview"] as const;
+	const tools = modes.map((mode) => ({
+		name: `generic_error_${mode}`,
+		description: `Generic ${mode} error probe.`,
+		parameters: {},
+		execute: () => {},
+	}));
+	const config = buildConfigWithCustomOverrides(
+		Object.fromEntries(modes.map((mode) => [`generic_error_${mode}`, { outputMode: mode }])),
+		{ previewRows: 2 },
+	);
+	const { api, eventHandlers } = createExtensionApiStub(tools);
+
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+
+	for (const [index, mode] of modes.entries()) {
+		const tool = tools[index]!;
+		assert.equal(
+			renderToolResult(tool, "Remote request failed\nstack frame one\nstack frame two\n", {}, { isError: true }),
+			"↳ Remote request failed • Ctrl+O to expand",
+			`${mode} should show one collapsed error summary`,
+		);
+		assert.equal(
+			renderToolResult(
+				tool,
+				"Remote request failed\nstack frame one\nstack frame two\n",
+				{ expanded: true },
+				{ isError: true },
+			),
+			"Remote request failed\nstack frame one\nstack frame two",
+			`${mode} should show complete expanded error content`,
+		);
+	}
+
+	assert.equal(renderToolResult(tools[0]!, "successful but hidden"), "");
+	assert.equal(
+		renderToolRawResult(tools[0]!, { content: [], details: {} }, {}, { isError: true }),
+		"↳ Tool failed. • Ctrl+O to expand",
+	);
 });
 
 test("custom tool overrides ignore missing tools instead of registering phantom tools", async () => {

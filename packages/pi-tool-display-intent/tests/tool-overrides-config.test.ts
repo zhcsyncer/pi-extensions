@@ -226,6 +226,48 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 	);
 });
 
+test("MCP errors stay visible in every output mode and expand from content", async () => {
+	for (const mode of ["hidden", "summary", "preview"] as const) {
+		const config = buildConfig({
+			mcpOutputMode: mode,
+			previewRows: 2,
+		});
+		const mcpTool: RegisteredToolLike & Record<string, unknown> = {
+			name: "mcp",
+			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
+			parameters: {},
+			execute(): void {
+				// No-op test stub.
+			},
+		};
+		const { api, runtimeTools, eventHandlers } = createExtensionApiStub([mcpTool]);
+		registerToolDisplayOverrides(api, () => config);
+		await runLifecycle(eventHandlers);
+
+		const decoratedMcp = runtimeTools.find((tool) => tool.name === "mcp");
+		assert.equal(
+			renderToolResult(decoratedMcp, {
+				text: "Gateway timed out\nrequest id: 42\nretry exhausted\n",
+				isError: true,
+			}),
+			"↳ Gateway timed out • Ctrl+O to expand",
+			`${mode} should show one collapsed error summary`,
+		);
+		assert.equal(
+			renderToolResult(decoratedMcp, {
+				text: "Gateway timed out\nrequest id: 42\nretry exhausted\n",
+				isError: true,
+				expanded: true,
+			}),
+			"Gateway timed out\nrequest id: 42\nretry exhausted",
+			`${mode} should show complete expanded error content`,
+		);
+		if (mode === "hidden") {
+			assert.equal(renderToolResult(decoratedMcp, "successful but hidden"), "");
+		}
+	}
+});
+
 test("registerToolDisplayOverrides preserves MCP prompt metadata for proxy and direct wrappers", async () => {
 	const { api, runtimeTools, eventHandlers } = createExtensionApiStub([
 		{

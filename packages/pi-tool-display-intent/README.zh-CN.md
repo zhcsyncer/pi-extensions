@@ -191,6 +191,8 @@ pi.registerTool(decorateToolForDisplay(tool, {
 
 `decorateToolForDisplay` 提供统一的调用行渲染。对于 `generic` 工具，设置 `outputMode` 还会启用统一结果渲染：`inherit` 跟随全局 `results.mode`，`hidden`、`summary` 和 `preview` 则固定该工具的结果模式。不设置 `outputMode` 时会保留工具原有的结果 renderer。工具提供方还可以通过 `getCallPresentation` 返回主目标与元数据，用语义字段替代通用 `(N args)`；通过 `getResultPresentation` 返回结果状态与 `previewStartLine`，在共享视觉行预算内展示 backend、数量等摘要并跳过重复的原始头部。这些文本会被单行清理，回调失败时自动退回通用展示。
 
+对于共用的 generic 与 MCP renderer，失败结果即使处于 `hidden` 模式，也会从第一条有效 `content` 文本生成一行错误色摘要；按 `Ctrl+O` 后会在现有展开行预算内显示完整错误内容。错误 content 为空时回退为 `Tool failed.`。成功的 `hidden` 结果仍保持隐藏，语义 presentation 也不会覆盖由 content 提取的失败原因。
+
 Pi 0.80.x 的 `getAllTools()` 公开返回元数据，而不是任意工具的完整 definition。因此不能把“仅配置工具名”视为给其他 extension 添加意图 Schema 的可靠方式。需要 Schema 和执行保证时，应使用合作式 wrapper；definition 可用时，`tools.custom` 仍可用于纯展示装饰。
 
 ## RPC 与模型上下文

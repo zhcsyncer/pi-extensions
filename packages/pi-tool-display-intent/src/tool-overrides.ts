@@ -28,7 +28,7 @@ import {
   createWriteToolDefinition,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import {
@@ -893,8 +893,20 @@ function renderSearchPreview(ctx: PreviewHintContext, expandedOnly = false): Com
   return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendPreviewHints(p, ctx), expandedOnly);
 }
 
-function renderMcpPreview(ctx: McpPreviewHintContext, expandedOnly = false): Component {
-  return renderPreviewText(ctx.lines, ctx.config, ctx.theme, ctx.options, (p) => appendMcpPreviewHints(p, ctx), expandedOnly);
+function renderMcpPreview(
+  ctx: McpPreviewHintContext,
+  expandedOnly = false,
+  outputColor?: string,
+): Component {
+  return renderPreviewText(
+    ctx.lines,
+    ctx.config,
+    ctx.theme,
+    ctx.options,
+    (p) => appendMcpPreviewHints(p, ctx),
+    expandedOnly,
+    outputColor,
+  );
 }
 
 function formatRtkSummarySuffix(params: RtkHintParams): string {
@@ -986,6 +998,7 @@ function renderPreviewText(
   options: ToolRenderResultOptions,
   appendHints: (preview: string) => string,
   expandedOnly: boolean = false,
+  outputColor?: string,
 ): Component {
   const useExpanded = expandedOnly || options.expanded;
   return new PreviewText({
@@ -995,6 +1008,7 @@ function renderPreviewText(
       : config.previewRows,
     theme,
     expanded: useExpanded,
+    outputColor,
     emptyText: theme.fg("muted", "↳ (no output)"),
     expandedRowCap: useExpanded ? config.expandedPreviewMaxRows : undefined,
     appendHints,
@@ -1087,8 +1101,64 @@ type ToolRenderInput = {
   details?: unknown;
 };
 
+const TOOL_ERROR_SUMMARY_MAX_LENGTH = 240;
+
+class SingleLineResultText implements Component {
+  constructor(private readonly text: string) {}
+
+  render(width: number): string[] {
+    const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+    return safeWidth > 0 ? [truncateToWidth(this.text, safeWidth, "…")] : [];
+  }
+
+  invalidate(): void {
+    // Stateless component.
+  }
+}
+
 function textResult(text: string): Text {
   return new Text(text, 0, 0);
+}
+
+function getToolErrorSummary(rawOutput: string): string {
+  for (const line of rawOutput.replace(/\r/g, "").split("\n")) {
+    const summary = normalizeDisplaySummary(line, TOOL_ERROR_SUMMARY_MAX_LENGTH);
+    if (summary) {
+      return summary;
+    }
+  }
+  return "Tool failed.";
+}
+
+function renderToolErrorResult(
+  rawOutput: string,
+  options: ToolRenderResultOptions,
+  config: ToolDisplayConfig,
+  theme: RenderTheme,
+  details: unknown,
+): Component {
+  const summary = getToolErrorSummary(rawOutput);
+  if (!options.expanded) {
+    return new SingleLineResultText(
+      `${theme.fg("error", `↳ ${summary}`)}${formatExpandHint(theme)}`,
+    );
+  }
+
+  const lines = prepareOutputLines(rawOutput, options);
+  if (lines.length === 0) {
+    return new SingleLineResultText(theme.fg("error", `↳ ${summary}`));
+  }
+
+  const truncation = getMcpTruncationDetails(details);
+  const mcpCtx: McpPreviewHintContext = {
+    lines,
+    config,
+    theme,
+    options,
+    details,
+    truncation,
+  };
+  return renderMcpPreview(mcpCtx, true, "error");
 }
 
 function partialResultText(theme: RenderTheme, label: string): Text {
@@ -1291,6 +1361,7 @@ function renderMcpResult(
   options: ToolRenderResultOptions,
   config: ToolDisplayConfig,
   theme: RenderTheme,
+  context?: ToolRenderContextLike,
   presentation?: ToolDisplayResultPresentation,
 ): Component {
   const partial = handlePartialResult(options, theme, "running...");
@@ -1298,11 +1369,16 @@ function renderMcpResult(
     return partial;
   }
 
+  const rawOutput = extractTextOutput(result);
+  if (isToolError(result, context)) {
+    return renderToolErrorResult(rawOutput, options, config, theme, result.details);
+  }
+
   if (config.mcpOutputMode === "hidden") {
     return textResult("");
   }
 
-  const outputLines = prepareOutputLines(extractTextOutput(result), options);
+  const outputLines = prepareOutputLines(rawOutput, options);
   const previewStartLine = Math.min(
     outputLines.length,
     normalizePositiveInteger(presentation?.previewStartLine) ?? 0,
@@ -1457,6 +1533,7 @@ function renderCustomToolResult(
   config: ToolDisplayConfig,
   outputMode: CustomToolOverrideConfig["outputMode"],
   theme: RenderTheme,
+  context?: ToolRenderContextLike,
   adapter: ToolDisplayAdapter = {},
 ): Component {
   return renderMcpResult(
@@ -1464,6 +1541,7 @@ function renderCustomToolResult(
     options,
     { ...config, mcpOutputMode: outputMode },
     theme,
+    context,
     resolveResultPresentation(result, adapter),
   );
 }
@@ -1723,12 +1801,17 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
         (kind === "mcp" || (kind === "generic" && resolvedAdapter.outputMode !== undefined)) &&
         (overrideExisting || typeof decorated.renderResult !== "function")
       ) {
-        decorated.renderResult = (result: ToolRenderInput, options: ToolRenderResultOptions, theme: RenderTheme) => {
+        decorated.renderResult = (
+          result: ToolRenderInput,
+          options: ToolRenderResultOptions,
+          theme: RenderTheme,
+          context?: ToolRenderContextLike,
+        ) => {
           const config = getConfig();
           const outputMode = resolvedAdapter.outputMode === undefined || resolvedAdapter.outputMode === "inherit"
             ? config.mcpOutputMode
             : resolvedAdapter.outputMode;
-          return renderCustomToolResult(result, options, config, outputMode, theme, resolvedAdapter);
+          return renderCustomToolResult(result, options, config, outputMode, theme, context, resolvedAdapter);
         };
       }
 
@@ -2138,13 +2221,14 @@ export function registerToolDisplayOverrides(
           }
           return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
         },
-        renderResult(result, options, theme) {
+        renderResult(result, options, theme, context) {
           return renderCustomToolResult(
             result as ToolRenderInput,
             options,
             getConfig(),
             override.outputMode,
             theme,
+            context,
           );
         },
       },
@@ -2206,12 +2290,13 @@ export function registerToolDisplayOverrides(
         renderCall(args, theme, context) {
           return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig(), context);
         },
-        renderResult(result, options, theme) {
+        renderResult(result, options, theme, context) {
           return renderMcpResult(
             result as ToolRenderInput,
             options,
             getConfig(),
             theme,
+            context,
           );
         },
       },
