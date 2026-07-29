@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1
+
+### Patch Changes
+
+- c75a5d8: Keep path-bearing built-in tool call headers compact at narrow widths. Collapsed `read`, `grep`, `find`, `ls`, `edit`, and `write` calls now abbreviate middle path segments while preserving useful anchors and the basename; expanding tools with `Ctrl+O` restores the complete path.
+- c75a5d8: Improve Bash transcript readability in Claude-style rendering. Separate command previews now emphasize their shell prompt, expanded commands use bounded Bash syntax highlighting, and Bash result gutters connect through the final row in collapsed and expanded views. The shared `results.previewRows` setting now exposes and enforces a minimum of two rows.
+- c75a5d8: Restore built-in `promptSnippet` and `promptGuidelines` when overriding tools for display. Overrides now read metadata from Pi ToolDefinitions instead of wrapped AgentTools, so `read`, `write`, and the other owned tools reappear in the system prompt `Available tools` section.
+- c75a5d8: Keep generic and MCP failures visible in every result mode. Failed tools now render one content-derived error summary even when compact mode hides successful output, while `Ctrl+O` reveals the complete error content through the existing expanded preview budget.
+
 ## 0.6.0
 
 ### Minor Changes
