@@ -9,7 +9,8 @@
 ## 功能
 
 - 原生注册 Pi provider，并集成 `/login`。
-- 静态维护当前 13 个 Agent Plan 文本模型。
+- 静态维护当前 13 个 Agent Plan 模型。
+- 9 个支持视觉的模型可接收图片输入；MiniMax M2.7、GLM 5.2、DeepSeek V4 Flash/Pro 仅文本。
 - 按 Small、Medium、Large 和 Max 套餐过滤可用模型。
 - 默认使用 OpenAI Responses；Kimi K2.6 和 Kimi K2.7 Code 路由到 Chat Completions。
 - 已通过 Agent Plan 网关验证流式、reasoning 和工具调用。
@@ -70,7 +71,7 @@ export ARK_AGENT_PLAN_TIER='medium'
 - GLM 5.2
 - Kimi K2.6、Kimi K2.7 Code 和 Kimi K3
 
-Small 展示 12 个模型。Kimi K3 当前要求 Medium 或更高套餐。Medium、Large 和 Max 展示当前全部 13 个文本模型。
+Small 展示 12 个模型。Kimi K3 当前要求 Medium 或更高套餐。Medium、Large 和 Max 展示当前全部 13 个模型。
 
 ## 兼容性
 
@@ -108,7 +109,7 @@ npm pack --dry-run --json ./providers/pi-provider-volcengine-agent-plan
 
 Agent Plan 没有可用的 `/models` 端点，因此模型目录和元数据采用静态版本维护。火山引擎可能在本包更新前修改别名、协议行为、限制或套餐权限。
 
-本包目前只声明文本输入。图片输入、极限上下文、最大长度输出、并发、限流和套餐余量展示不在当前覆盖范围内。
+目录为 9 个支持视觉的模型（Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro、MiniMax M3、Kimi K2.6/K2.7 Code/K3）声明图片输入；MiniMax M2.7、GLM 5.2、DeepSeek V4 Flash/Pro 仍仅文本。极限上下文、最大长度输出、并发、限流和套餐余量展示不在当前覆盖范围内。
 
 ## 许可证
 

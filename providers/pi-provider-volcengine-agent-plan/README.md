@@ -9,7 +9,8 @@ This community package is not affiliated with or endorsed by Volcengine.
 ## Features
 
 - Native Pi provider registration and `/login` integration.
-- Static catalog for the 13 current Agent Plan text models.
+- Static catalog for the 13 current Agent Plan models.
+- Image input for the 9 vision-capable models; text-only routing for MiniMax M2.7, GLM 5.2, and DeepSeek V4 Flash/Pro.
 - Tier-aware availability for Small, Medium, Large, and Max plans.
 - OpenAI Responses by default, with Chat Completions routing for Kimi K2.6 and Kimi K2.7 Code.
 - Streaming, reasoning, and tool-call support tested through the Agent Plan gateway.
@@ -70,7 +71,7 @@ The current catalog contains:
 - GLM 5.2
 - Kimi K2.6, Kimi K2.7 Code, and Kimi K3
 
-Small exposes 12 models. Kimi K3 currently requires Medium or higher. Medium, Large, and Max expose all 13 current text models.
+Small exposes 12 models. Kimi K3 currently requires Medium or higher. Medium, Large, and Max expose all 13 current models.
 
 ## Compatibility
 
@@ -108,7 +109,7 @@ Unit tests use mocked credentials and fetch responses. Real-key contract tests a
 
 Agent Plan does not expose a usable `/models` endpoint, so the catalog and model metadata are versioned statically. Volcengine may change aliases, protocol behavior, limits, or tier availability before this package is updated.
 
-The package currently declares text input only. Image input, extreme context windows, maximum-length output, concurrency, rate limits, and subscription quota reporting are not covered.
+The catalog declares image input for the 9 vision-capable models (Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro, MiniMax M3, Kimi K2.6/K2.7 Code/K3). MiniMax M2.7, GLM 5.2, and DeepSeek V4 Flash/Pro remain text-only. Extreme context windows, maximum-length output, concurrency, rate limits, and subscription quota reporting are not covered.
 
 ## License
 
