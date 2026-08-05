@@ -169,6 +169,33 @@ test("provides public API cost estimates for every model", () => {
 	}
 });
 
+test("declares image input only for vision-capable models", () => {
+	const models = createAgentPlanProvider().getModels();
+	const visionIds = [
+		"doubao-seed-2.0-mini",
+		"doubao-seed-2.0-lite",
+		"doubao-seed-evolving",
+		"doubao-seed-2.0-code",
+		"doubao-seed-2.0-pro",
+		"minimax-m3",
+		"kimi-k2.6",
+		"kimi-k2.7-code",
+		"kimi-k3",
+	];
+	const textOnlyIds = ["minimax-m2.7", "glm-5.2", "deepseek-v4-flash", "deepseek-v4-pro"];
+
+	for (const id of visionIds) {
+		const model = models.find((entry) => entry.id === id);
+		assert.ok(model, `${id} should be in the catalog`);
+		assert.deepEqual(model.input, ["text", "image"], `${id} should accept image input`);
+	}
+	for (const id of textOnlyIds) {
+		const model = models.find((entry) => entry.id === id);
+		assert.ok(model, `${id} should be in the catalog`);
+		assert.deepEqual(model.input, ["text"], `${id} should remain text-only`);
+	}
+});
+
 test("exposes only Kimi K3's supported thinking levels", () => {
 	const kimiK3 = createAgentPlanProvider()
 		.getModels()
