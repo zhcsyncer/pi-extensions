@@ -1,49 +1,80 @@
 # @zhcsyncer/pi-subagents
 
-Maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) with a **brief ConversationViewer**: dispatch prompt, one-line tool step summaries, and final result — instead of dumping full tool-result walls in the overlay.
-
-Upstream documentation is preserved in [`UPSTREAM_README.md`](./UPSTREAM_README.md). Source pin and local deltas: [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md).
+Maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) (`v0.14.3` / `@tintinweb/pi-subagents@0.14.3`).
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
+**Full upstream docs** (features, Agent tool, schedules, settings): [`UPSTREAM_README.md`](./UPSTREAM_README.md)  
+**Pin + license trail**: [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md) · [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)
+
+---
+
+## Differences from upstream (read this first)
+
+This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView wiring, notifications, schedules). The changes are almost entirely **how progress and tool results are shown** in the TUI — so you can scan subagent work without drowning in dumps.
+
+| Area | Upstream (`@tintinweb/pi-subagents`) | This fork (`@zhcsyncer/pi-subagents`) |
+| --- | --- | --- |
+| **Conversation overlay** (FleetView / agent list → Enter) | Full conversation dump: user / assistant / toolResult walls (tool bodies truncated ~500 chars but still large) | **Scheme A brief view**: **Prompt** → **Steps** (one line per tool) → **Result**; tool bodies folded by default |
+| Overlay step detail | N/A (everything dumped) | Press **`o`** to expand/fold tool args + results |
+| Overlay on agent **error / aborted / stopped** | Last messages still dominate the dump | **Result** prefers `record.error` (or stopped/aborted label); mid-run assistant text is demoted to a dim footnote |
+| Overlay **bashExecution** | Shown as command + output dump | One step line; **`exitCode` / `cancelled`** → `✗` (not a false `✓`) |
+| **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has compact Claude-ish rows; **`get_subagent_result` has no custom `renderResult`** → Pi dumps the full model-facing payload and expand does not help | Shared collapsible renderers: default **one-line preview**; **Ctrl+O** expands to status header + **Markdown** body |
+| Tool call **model / effort** | Model often omitted when same as parent; thinking only buried in tags if set | Call + result rows always show **effective model** (`haiku (inherit)` when parent-inherited) and **`effort:`** (from tool/frontmatter `thinking`) |
+| Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details (or undetailed fallback that **never** paints success `✓`) |
+| Packaging | Standalone npm package | Workspace package `@zhcsyncer/pi-subagents` at **`0.0.0`** until Changesets cuts the first release; **not** registered in the root `@zhcsyncer/pi-extensions` bundle yet — load with `-e` (below) |
+
+### What did *not* change
+
+- Tool names and contracts: `Agent`, `get_subagent_result`, `steer_subagent`
+- Background completion **followUp** notifications (`triggerTurn`)
+- FleetView list navigation, Enter steer, `x` `x` stop, Esc/q close
+- Custom agents, worktrees, schedules, settings menus, RPC
+
+Upstream remains the source of truth for those behaviors — start from [`UPSTREAM_README.md`](./UPSTREAM_README.md).
+
+---
+
 ## Try locally (this monorepo)
 
-Do **not** change global `~/.pi/agent/settings.json` unless you intend to replace `@tintinweb/pi-subagents` permanently. For a side-by-side trial from this worktree:
+Do **not** change global `~/.pi/agent/settings.json` unless you intend to replace `@tintinweb/pi-subagents` permanently.
 
 ```bash
-# from the monorepo root
+# monorepo root
 pnpm install
 pi -e ./packages/pi-subagents/src/index.ts
 ```
 
-If another copy of `pi-subagents` is already loaded from settings, temporarily disable/remove that entry for the trial session so only this fork registers the `Agent` tools and FleetView UI.
+If settings already load another `pi-subagents`, temporarily remove that entry for the trial session so only this fork registers the tools and UI.
 
 ### Conversation overlay (scheme A)
 
 Open FleetView / agent list, select a subagent, press Enter:
 
-1. **Header** — name / status / duration / tools / tokens (unchanged)
+1. **Header** — name / status / duration / tools / tokens (upstream)
 2. **Prompt** — first meaningful user (dispatch) message
-3. **Steps** — one line per tool call (`✓ read path`, `⠹ bash …`, `✗ grep …`); results folded by default
-4. **Result** — last non-empty assistant text, or `(running…)` while in flight
-
-Keys (unchanged unless noted):
+3. **Steps** — one line per tool (`✓ read path`, `⠹ bash …`, `✗ grep …`); results folded
+4. **Result** — final assistant text, running indicator, or **error** on terminal failure
 
 | Key | Action |
 | --- | --- |
-| `Esc` / `q` | Close overlay |
+| `Esc` / `q` | Close |
 | `↑↓` / PgUp/PgDn | Scroll |
-| `Enter` | Steer (running agents) |
+| `Enter` | Steer (running) |
 | `x` `x` | Arm + confirm stop |
-| `o` | Toggle expanded tool args/results (**fork**) |
+| `o` | Expand/fold step detail (**fork**) |
 
 ### Tool TUI (main transcript)
 
-`Agent`, `get_subagent_result`, and `steer_subagent` use compact custom renderers:
+| State | What you see |
+| --- | --- |
+| **Call** | `▸ Explore  desc  haiku · effort: high · bg` (`model: inherit` if unset at call time) |
+| **Collapsed** | Status/stats (model, effort, tools, tokens, …) + one-line preview |
+| **Expanded** (`Ctrl+O`) | Status header + **Markdown** body |
 
-- **Call line:** type/description plus **model** and **effort** chips (`model: inherit` when unset; `effort:` maps from tool/frontmatter `thinking`)
-- **Collapsed (default):** status/stats (model, effort, tools, tokens, …) + one-line result preview — no full transcript wall
-- **Expanded (`Ctrl+O` / tools expand):** status header + **Markdown** body
+`effort` is display wording for the existing `thinking` parameter/frontmatter field.
+
+---
 
 ## Package scripts
 
@@ -55,4 +86,4 @@ pnpm --filter @zhcsyncer/pi-subagents typecheck
 
 ## License
 
-MIT — see [LICENSE](./LICENSE) and upstream [UPSTREAM_LICENSE](./UPSTREAM_LICENSE).
+MIT — [LICENSE](./LICENSE) and upstream [UPSTREAM_LICENSE](./UPSTREAM_LICENSE).

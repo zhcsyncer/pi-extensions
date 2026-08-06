@@ -14,6 +14,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
+- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). **Not** in the root bundle yet — load with `-e` (see below).
 
 ## Bundle-private Search Hub
 
@@ -26,6 +27,21 @@ This fork keeps upstream multi-backend search and page extraction while integrat
 `@zhcsyncer/pi-context7` is a maintained fork of Context7 documentation tools. It can be installed on its own or used through the root bundle, which embeds and registers the same extension and skill.
 
 This fork keeps upstream tool descriptions, model-facing result text, and the full skill while adding compact local `renderCall` / `renderResult` rows, AbortSignal-aware fetches, and HTTP error throwing for correct Pi tool-error marking. Set `CONTEXT7_API_KEY` for higher quotas. See the [Context7 documentation](./packages/pi-context7/README.md) or its [Simplified Chinese version](./packages/pi-context7/README.zh-CN.md).
+
+## Subagents (workspace fork, not in root bundle yet)
+
+`@zhcsyncer/pi-subagents` is a maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3. Upstream runtime (Agent / steer / resume / FleetView / notifications) is unchanged; this fork changes **how progress is shown**:
+
+- Conversation overlay defaults to **Prompt · one-line Steps · Result** (not a full toolResult dump)
+- Main-transcript tool rows are collapsible; expand uses Markdown; call/result rows show **model** and **effort**
+
+It is a workspace package at pre-release `0.0.0` and is **not** registered on the root `@zhcsyncer/pi-extensions` `pi.extensions` list yet. Do not expect `pi install npm:@zhcsyncer/pi-extensions` to load it. Try from the monorepo:
+
+```bash
+pi -e ./packages/pi-subagents/src/index.ts
+```
+
+If `~/.pi/agent/settings.json` already loads `@tintinweb/pi-subagents`, disable that entry for the trial session. Upstream pin and the full local-diff checklist: [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md). User-facing comparison tables: [English package README](./packages/pi-subagents/README.md) (default) / [简体中文](./packages/pi-subagents/README.zh-CN.md).
 
 ## Persistent extension data
 
@@ -114,9 +130,12 @@ pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
+pi --no-extensions -e ./packages/pi-subagents/src/index.ts
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
+
+When testing `pi-subagents`, do not load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / FleetView registration).
 
 ## Releasing
 
@@ -143,3 +162,5 @@ MIT
 `pi-context7` is forked from MIT-licensed [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2 (`b250c2515694eee4b6df4db82fa056df9ed3e306`). The exact revision and preserved notices are recorded in [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-context7/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE).
 
 `pi-ask-user-question` is forked from MIT-licensed [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0. The exact revision and preserved notices are recorded in [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-ask-user-question/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE).
+
+`pi-subagents` is forked from MIT-licensed [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 (`c10b1836256e760da75296ccd4e57a77ada1325e`). The exact revision, local UI deltas, and preserved notices are recorded in [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-subagents/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE).
