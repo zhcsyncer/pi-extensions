@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { renderRunningAgentStatus } from "../src/index.js";
 import type { WidgetMode } from "../src/types.js";
-import { type AgentActivity, AgentWidget, fgPreservingNestedStyles, formatSessionTokens } from "../src/ui/agent-widget.js";
+import {
+  type AgentActivity,
+  AgentWidget,
+  describeActivity,
+  fgPreservingNestedStyles,
+  formatActiveToolSummary,
+  formatSessionTokens,
+} from "../src/ui/agent-widget.js";
 
 describe("formatSessionTokens", () => {
   const theme = { fg: (c: string, s: string) => `<${c}>${s}</${c}>`, bold: (s: string) => s };
@@ -133,5 +140,25 @@ describe("AgentWidget", () => {
   it("renders nothing in 'off' mode", () => {
     const manager = { listAgents: () => [makeRecord("background", { isBackground: true })] };
     expect(renderLines(manager, "background", () => "off")).toBe("");
+  });
+});
+
+describe("formatActiveToolSummary / describeActivity", () => {
+  it("summarizes read/bash/grep args into a step line", () => {
+    expect(formatActiveToolSummary("read", { path: "src/a.ts" })).toBe("reading src/a.ts");
+    expect(formatActiveToolSummary("bash", { command: 'rg "auth" -n' })).toBe('running rg "auth" -n');
+    expect(formatActiveToolSummary("grep", { pattern: "foo", glob: "*.ts" })).toBe('searching "foo" *.ts');
+    expect(formatActiveToolSummary("edit", {})).toBe("editing");
+  });
+
+  it("describeActivity prefers in-flight step summaries over thinking…", () => {
+    const tools = new Map<string, string>([
+      ["c1", "reading src/a.ts"],
+      ["c2", "running rg auth"],
+    ]);
+    expect(describeActivity(tools)).toBe("reading src/a.ts, running rg auth…");
+    expect(describeActivity(new Map([["c1", "searching \"x\""]]))).toBe('searching "x"…');
+    expect(describeActivity(new Map(), " partial answer ")).toBe("partial answer");
+    expect(describeActivity(new Map())).toBe("thinking…");
   });
 });

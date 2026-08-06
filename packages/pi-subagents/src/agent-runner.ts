@@ -345,6 +345,10 @@ function resolveDefaultModel(
 export interface ToolActivity {
   type: "start" | "end";
   toolName: string;
+  /** Stable id for pairing start/end (preferred over toolName). */
+  toolCallId?: string;
+  /** Tool-call arguments at start — used for widget step summaries. */
+  args?: unknown;
 }
 
 export interface RunOptions {
@@ -875,10 +879,19 @@ export async function runAgent(
       options.onTextDelta?.(event.assistantMessageEvent.delta, currentMessageText);
     }
     if (event.type === "tool_execution_start") {
-      options.onToolActivity?.({ type: "start", toolName: event.toolName });
+      options.onToolActivity?.({
+        type: "start",
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        args: event.args,
+      });
     }
     if (event.type === "tool_execution_end") {
-      options.onToolActivity?.({ type: "end", toolName: event.toolName });
+      options.onToolActivity?.({
+        type: "end",
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+      });
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
       const u = (event.message as any).usage;
@@ -942,8 +955,21 @@ export async function resumeAgent(
 
   const unsubEvents = (options.onToolActivity || options.onAssistantUsage || options.onCompaction)
     ? session.subscribe((event: AgentSessionEvent) => {
-        if (event.type === "tool_execution_start") options.onToolActivity?.({ type: "start", toolName: event.toolName });
-        if (event.type === "tool_execution_end") options.onToolActivity?.({ type: "end", toolName: event.toolName });
+        if (event.type === "tool_execution_start") {
+          options.onToolActivity?.({
+            type: "start",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            args: event.args,
+          });
+        }
+        if (event.type === "tool_execution_end") {
+          options.onToolActivity?.({
+            type: "end",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+          });
+        }
         if (event.type === "message_end" && event.message.role === "assistant") {
           const u = (event.message as any).usage;
           if (u) options.onAssistantUsage?.({

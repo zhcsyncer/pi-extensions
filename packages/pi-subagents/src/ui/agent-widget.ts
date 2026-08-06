@@ -25,12 +25,15 @@ export const ERROR_STATUSES = new Set(["error", "aborted", "steered", "stopped"]
 /** Tool name → human-readable action for activity descriptions. */
 const TOOL_DISPLAY: Record<string, string> = {
   read: "reading",
-  bash: "running command",
+  bash: "running",
   edit: "editing",
   write: "writing",
   grep: "searching",
-  find: "finding files",
+  find: "finding",
   ls: "listing",
+  Agent: "spawning",
+  get_subagent_result: "awaiting",
+  steer_subagent: "steering",
 };
 
 // ---- Types ----
@@ -51,6 +54,10 @@ export type UICtx = {
 
 /** Per-agent live activity state. */
 export interface AgentActivity {
+  /**
+   * In-flight tools: key = toolCallId (or synthetic), value = one-line step summary
+   * e.g. "reading src/a.ts", "running rg auth".
+   */
   activeTools: Map<string, string>;
   toolUses: number;
   responseText: string;
@@ -198,24 +205,62 @@ function truncateLine(text: string, len = 60): string {
   return line.slice(0, len) + "…";
 }
 
-/** Build a human-readable activity string from currently-running tools or response text. */
+/**
+ * One-line summary for an in-flight tool (widget / tool-result activity row).
+ * Prefers path/command/pattern from args when present.
+ */
+export function formatActiveToolSummary(toolName: string, args?: unknown): string {
+  if (toolName.startsWith("tools-error:") || toolName.startsWith("extension-error:")) {
+    return truncateLine(toolName.replace(/^(tools|extension)-error:/, "⚠ "), 70);
+  }
+  const action = TOOL_DISPLAY[toolName] ?? toolName;
+  const record =
+    args && typeof args === "object" && !Array.isArray(args)
+      ? (args as Record<string, unknown>)
+      : {};
+  // Inline lightweight detail extraction (mirrors conversation-brief summarizeToolArgs keys).
+  const firstString = (...keys: string[]): string | undefined => {
+    for (const k of keys) {
+      const v = record[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return undefined;
+  };
+  const path = firstString("path", "file_path", "filePath", "filename", "file", "target");
+  const command = firstString("command", "cmd");
+  const pattern = firstString("pattern", "query", "regex", "search");
+  const glob = firstString("glob", "include", "glob_pattern", "globPattern");
+  let detail: string | undefined;
+  if (command) detail = command;
+  else if (path) detail = path;
+  else if (pattern && (path || glob)) detail = `${JSON.stringify(pattern)} ${path ?? glob}`;
+  else if (pattern) detail = JSON.stringify(pattern);
+  else if (glob) detail = glob;
+  else if (typeof record.url === "string" && record.url.trim()) detail = record.url.trim();
+  if (detail) {
+    const one = detail.replace(/\s+/g, " ");
+    const clipped = one.length > 48 ? `${one.slice(0, 47)}…` : one;
+    return `${action} ${clipped}`;
+  }
+  return action;
+}
+
+/**
+ * Build the widget's last-line activity string.
+ * Prefer in-flight tool step summaries; else streaming assistant text; else "thinking…".
+ */
 export function describeActivity(activeTools: Map<string, string>, responseText?: string): string {
   if (activeTools.size > 0) {
-    const groups = new Map<string, number>();
-    for (const toolName of activeTools.values()) {
-      const action = TOOL_DISPLAY[toolName] ?? toolName;
-      groups.set(action, (groups.get(action) ?? 0) + 1);
+    const parts = [...activeTools.values()].filter((p) => p.trim().length > 0);
+    if (parts.length === 1) {
+      const p = parts[0]!;
+      return p.endsWith("…") ? p : `${p}…`;
     }
-
-    const parts: string[] = [];
-    for (const [action, count] of groups) {
-      if (count > 1) {
-        parts.push(`${action} ${count} ${action === "searching" ? "patterns" : "files"}`);
-      } else {
-        parts.push(action);
-      }
+    if (parts.length > 1) {
+      const head = parts.slice(0, 2).join(", ");
+      const more = parts.length > 2 ? ` +${parts.length - 2}` : "";
+      return `${head}${more}…`;
     }
-    return parts.join(", ") + "…";
   }
 
   // No tools active — show truncated response text if available

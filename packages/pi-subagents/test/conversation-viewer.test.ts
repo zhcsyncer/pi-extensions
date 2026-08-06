@@ -196,7 +196,7 @@ describe("ConversationViewer", () => {
 
     it("no line exceeds width with running activity indicator", () => {
       const activity = {
-        activeTools: new Map([["read", "file.ts"], ["grep", "pattern"]]),
+        activeTools: new Map([["c1", "reading file.ts"], ["c2", "searching pattern"]]),
         toolUses: 5, tokens: "10k", responseText: "R".repeat(400),
         session: { getSessionStats: () => ({ tokens: { total: 50000 } }) },
       };

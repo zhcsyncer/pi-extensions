@@ -36,6 +36,7 @@ import {
   AgentWidget,
   buildInvocationTags,
   describeActivity,
+  formatActiveToolSummary,
   formatDuration,
   formatMs,
   formatTokens,
@@ -154,12 +155,29 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
   };
 
   const callbacks = {
-    onToolActivity: (activity: { type: "start" | "end"; toolName: string }) => {
+    onToolActivity: (activity: {
+      type: "start" | "end";
+      toolName: string;
+      toolCallId?: string;
+      args?: unknown;
+    }) => {
       if (activity.type === "start") {
-        state.activeTools.set(activity.toolName + "_" + Date.now(), activity.toolName);
+        const id = activity.toolCallId ?? `${activity.toolName}_${Date.now()}`;
+        // Store a one-line step summary (not bare tool name) so the widget
+        // last line shows e.g. "reading src/a.ts" instead of only "thinking…".
+        state.activeTools.set(id, formatActiveToolSummary(activity.toolName, activity.args));
       } else {
-        for (const [key, name] of state.activeTools) {
-          if (name === activity.toolName) { state.activeTools.delete(key); break; }
+        if (activity.toolCallId && state.activeTools.has(activity.toolCallId)) {
+          state.activeTools.delete(activity.toolCallId);
+        } else {
+          // Fallback: drop one entry whose summary starts with this tool's action/name.
+          const action = formatActiveToolSummary(activity.toolName);
+          for (const [key, summary] of state.activeTools) {
+            if (summary === action || summary.startsWith(`${action} `) || summary.startsWith(activity.toolName)) {
+              state.activeTools.delete(key);
+              break;
+            }
+          }
         }
         state.toolUses++;
       }
