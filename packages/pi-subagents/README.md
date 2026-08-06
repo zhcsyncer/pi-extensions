@@ -19,8 +19,8 @@ This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView w
 | Overlay step detail | N/A (everything dumped) | Press **`o`** to expand/fold tool args + results |
 | Overlay on agent **error / aborted / stopped** | Last messages still dominate the dump | **Result** prefers `record.error` (or stopped/aborted label); mid-run assistant text is demoted to a dim footnote |
 | Overlay **bashExecution** | Shown as command + output dump | One step line; **`exitCode` / `cancelled`** → `✗` (not a false `✓`) |
-| **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has compact Claude-ish rows; **`get_subagent_result` has no custom `renderResult`** → Pi dumps the full model-facing payload and expand does not help | Shared collapsible renderers: default **one-line preview**; **Ctrl+O** expands to status header + **Markdown** body |
-| Tool call **model / effort** | Model often omitted when same as parent; thinking only buried in tags if set | Call + result rows always show **effective model** (`haiku (inherit)` when parent-inherited) and **`effort:`** (from tool/frontmatter `thinking`) |
+| **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has Claude Code chrome; **`get_subagent_result` has no custom `renderResult`** → Pi dumps full payload | Same **Claude Code chrome** for all three tools: `▸ Type  desc` / `✓ stats` + `⎿ Done` (running: `⠹` + `⎿ activity`); **Ctrl+O** expands Markdown body without dumping by default |
+| Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:` from `thinking`; call line only adds chips when args explicitly set model/thinking/bg |
 | Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details (or undetailed fallback that **never** paints success `✓`) |
 | Packaging | Standalone npm package | Workspace package `@zhcsyncer/pi-subagents` at **`0.0.0`** until Changesets cuts the first release; **not** registered in the root `@zhcsyncer/pi-extensions` bundle yet — load with `-e` (below) |
 
@@ -64,15 +64,26 @@ Open FleetView / agent list, select a subagent, press Enter:
 | `x` `x` | Arm + confirm stop |
 | `o` | Expand/fold step detail (**fork**) |
 
-### Tool TUI (main transcript)
+### Tool TUI (main transcript) — Claude Code chrome
+
+Matches upstream’s documented shape ([UPSTREAM_README](./UPSTREAM_README.md) “Individual agent results”):
+
+```text
+▸ Explore  Find auth files
+⠹ haiku · effort: high · ↻3 · 3 tool uses · 12.4k token
+  ⎿  searching…
+✓ haiku · effort: high · ↻8 · 5 tool uses · 33.8k token · 12.3s
+  ⎿  Done
+```
 
 | State | What you see |
 | --- | --- |
-| **Call** | `▸ Explore  desc  haiku · effort: high · bg` (`model: inherit` if unset at call time) |
-| **Collapsed** | Status/stats (model, effort, tools, tokens, …) + one-line preview |
-| **Expanded** (`Ctrl+O`) | Status header + **Markdown** body |
+| **Call** | `▸ Type  description` (+ dim chips only if call args set `model` / `thinking` / `bg`) |
+| **Running** | `⠹` + stats / `⎿` activity |
+| **Completed** | `✓` + stats · duration / `⎿ Done` (or Wrapped up / Stopped / Error) |
+| **Expanded** (`Ctrl+O`) | Same chrome + **Markdown** body (no default dump) |
 
-`effort` is display wording for the existing `thinking` parameter/frontmatter field.
+`effort` is display wording for the existing `thinking` parameter/frontmatter field. Effective **model** (including parent inherit) is always on the **result** stats line when known.
 
 ---
 

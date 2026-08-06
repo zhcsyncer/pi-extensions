@@ -92,27 +92,17 @@ export function renderExpandedMarkdown(content: string): Component {
   return new Markdown(content, 0, 0, getMarkdownTheme());
 }
 
-export function appendCollapsedPreviewLine(
-  base: string,
-  text: string,
-  theme: Pick<Theme, "fg">,
-  emptyLabel: string,
-  opts?: { withExpandHint?: boolean; previewColor?: string },
-): string {
-  const preview = firstLinePreview(resultBodyText(text));
-  const label = preview || emptyLabel;
-  const hint = opts?.withExpandHint === false ? "" : ` (${expandHint()})`;
-  const color = opts?.previewColor ?? "dim";
-  return base + "\n" + theme.fg(color, `  ⎿  ${label}${hint}`);
+/** Claude Code-style secondary line: `  ⎿  …`. */
+export function formatClerkLine(theme: Pick<Theme, "fg">, text: string, color = "dim"): string {
+  return theme.fg(color, `  ⎿  ${text}`);
 }
 
 /**
- * Call-line / stats meta chips: model · effort · bg · …
- * `model` omitted → "model: inherit" so the call node never hides the default.
+ * Optional call-line chips (Claude Code keeps the title clean).
+ * Only emits chips for **explicit** args — never invents "model: inherit".
  */
 export function formatAgentCallMeta(opts: {
   model?: string;
-  /** When true, append (inherit) after the model chip. */
   modelInherited?: boolean;
   effort?: string;
   background?: boolean;
@@ -122,8 +112,6 @@ export function formatAgentCallMeta(opts: {
   const model = opts.model?.trim();
   if (model) {
     parts.push(opts.modelInherited ? `${model} (inherit)` : model);
-  } else {
-    parts.push("model: inherit");
   }
   const effort = opts.effort?.trim();
   if (effort) parts.push(`effort: ${effort}`);
@@ -189,25 +177,42 @@ export function looksLikeFailureText(text: string): boolean {
   );
 }
 
-/** Compact call title: `▸ Label  muted…`. */
+/**
+ * Claude Code-style call title:
+ *   ▸ Explore  Find auth files
+ * Optional trailing dim chips only when explicitly set (model / effort / bg).
+ */
 export function renderToolCallTitle(label: string, muted: string | undefined, theme: Theme, dimExtra?: string): Text {
   let line = "▸ " + theme.fg("toolTitle", theme.bold(label));
   if (muted) line += "  " + theme.fg("muted", muted);
-  if (dimExtra) line += "  " + theme.fg("dim", dimExtra);
+  if (dimExtra?.trim()) line += "  " + theme.fg("dim", dimExtra.trim());
   return new Text(line, 0, 0);
 }
 
-function withHeaderAndMarkdown(header: string, markdownBody: string): Component {
+function withHeaderAndMarkdown(headerLines: string, markdownBody: string): Component {
   const container = new Container();
-  container.addChild(new Text(header, 0, 0));
+  for (const raw of headerLines.split("\n")) {
+    container.addChild(new Text(raw, 0, 0));
+  }
   const body = markdownBody.trim() || "_(no output)_";
   container.addChild(renderExpandedMarkdown(body));
   return container;
 }
 
+function statusHeaderLine(
+  icon: string,
+  stats: string,
+  duration: string | undefined,
+  theme: Theme,
+): string {
+  let line = icon + (stats ? " " + stats : "");
+  if (duration) line += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+  return line;
+}
+
 /**
  * Fallback when execute returned plain text without AgentDetails.
- * Never assumes success — missing details + failure-ish text → ✗; else neutral •.
+ * Claude Code shape: icon line + ⎿ message (never green ✓ on failures).
  */
 export function renderUndetailedResult(
   resultText: string,
@@ -216,21 +221,23 @@ export function renderUndetailedResult(
 ): Component {
   const failed = opts.isError === true || looksLikeFailureText(resultText);
   const icon = failed ? theme.fg("error", "✗") : theme.fg("dim", "•");
-  if (opts.expanded) {
-    return withHeaderAndMarkdown(icon, resultText.trim() || "_(empty)_");
-  }
   const preview = firstLinePreview(resultBodyText(resultText)) || (failed ? "failed" : "ok");
-  return new Text(
-    icon + " " + theme.fg(failed ? "error" : "dim", `${preview} (${expandHint()})`),
-    0,
-    0,
-  );
+  const clerk = formatClerkLine(theme, failed ? `Error: ${preview}` : preview, failed ? "error" : "dim");
+  if (opts.expanded) {
+    return withHeaderAndMarkdown(icon + "\n" + clerk, resultText.trim() || "_(empty)_");
+  }
+  return new Text(icon + "\n" + clerk, 0, 0);
 }
 
 /**
- * Shared Agent / get_subagent_result result chrome.
- * `resultText` is the full tool content (model-facing); only a preview is shown collapsed.
- * Expanded renders the body as Markdown under a one-line status header.
+ * Shared Agent / get_subagent_result result chrome — Claude Code transcript shape:
+ *
+ *   ⠹ ↻3 · 3 tool uses · 12.4k token
+ *     ⎿  searching…
+ *   ✓ ↻8 · 5 tool uses · 33.8k token · 12.3s
+ *     ⎿  Done
+ *
+ * Collapsed never dumps the model-facing body; expanded adds Markdown under the chrome.
  */
 export function renderAgentLikeResult(
   details: AgentDetails,
@@ -244,20 +251,20 @@ export function renderAgentLikeResult(
       ? formatMs(details.durationMs)
       : undefined;
 
+  // Running / queued — match upstream renderRunningAgentStatus layout
   if (opts.isPartial || isActiveStatus(details.status)) {
     const frame = SPINNER[details.spinnerFrame ?? 0] ?? SPINNER[0];
-    let line = theme.fg("accent", frame!) + (s ? " " + s : "");
-    if (details.agentId) line += " " + theme.fg("dim", "·") + " " + theme.fg("dim", details.agentId);
+    const top = theme.fg("accent", frame!) + (s ? " " + s : "");
     const activity =
       details.activity ??
-      (details.status === "queued" ? "queued…" : "running…");
-    line += "\n" + theme.fg("dim", `  ⎿  ${activity}`);
-    return new Text(line, 0, 0);
+      (details.status === "queued" ? "queued…" : "thinking…");
+    return new Text(top + "\n" + formatClerkLine(theme, activity), 0, 0);
   }
 
+  // Background launch — single clerk line (upstream CC style)
   if (details.status === "background") {
     return new Text(
-      theme.fg("dim", `  ⎿  Running in background (ID: ${details.agentId ?? "?"})`),
+      formatClerkLine(theme, `Running in background (ID: ${details.agentId ?? "?"})`),
       0,
       0,
     );
@@ -266,42 +273,41 @@ export function renderAgentLikeResult(
   if (details.status === "completed" || details.status === "steered") {
     const isSteered = details.status === "steered";
     const icon = isSteered ? theme.fg("warning", "✓") : theme.fg("success", "✓");
-    let header = icon + (s ? " " + s : "");
-    if (duration) header += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+    const header = statusHeaderLine(icon, s, duration, theme);
+    const doneText = isSteered ? "Wrapped up (turn limit)" : "Done";
+    const clerk = formatClerkLine(theme, doneText);
 
     if (opts.expanded) {
       const body = resultBodyText(resultText) || resultText.trim();
-      return withHeaderAndMarkdown(header, body);
+      return withHeaderAndMarkdown(header + "\n" + clerk, body);
     }
-
-    const empty = isSteered ? "Wrapped up (turn limit)" : "Done";
-    return new Text(appendCollapsedPreviewLine(header, resultText, theme, empty), 0, 0);
+    return new Text(header + "\n" + clerk, 0, 0);
   }
 
   if (details.status === "stopped") {
-    let header = theme.fg("dim", "■") + (s ? " " + s : "");
-    if (duration) header += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+    const header = statusHeaderLine(theme.fg("dim", "■"), s, duration, theme);
+    const clerk = formatClerkLine(theme, "Stopped");
     if (opts.expanded && resultText.trim()) {
-      return withHeaderAndMarkdown(header + "\n" + theme.fg("dim", "  ⎿  Stopped"), resultBodyText(resultText) || resultText);
+      return withHeaderAndMarkdown(header + "\n" + clerk, resultBodyText(resultText) || resultText);
     }
-    return new Text(header + "\n" + theme.fg("dim", "  ⎿  Stopped"), 0, 0);
+    return new Text(header + "\n" + clerk, 0, 0);
   }
 
   // error / aborted
-  let header = theme.fg("error", "✗") + (s ? " " + s : "");
-  if (duration) header += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+  const header = statusHeaderLine(theme.fg("error", "✗"), s, duration, theme);
+  let clerk: string;
   if (details.status === "error") {
     const err =
       details.error?.trim() ||
       firstLinePreview(resultBodyText(resultText)) ||
       firstLinePreview(resultText) ||
       "unknown";
-    header += "\n" + theme.fg("error", `  ⎿  Error: ${firstLinePreview(err, 120)}`);
+    clerk = formatClerkLine(theme, `Error: ${firstLinePreview(err, 120)}`, "error");
   } else {
-    header += "\n" + theme.fg("warning", "  ⎿  Aborted (max turns exceeded)");
+    clerk = formatClerkLine(theme, "Aborted (max turns exceeded)", "warning");
   }
   if (opts.expanded && resultText.trim()) {
-    return withHeaderAndMarkdown(header, resultBodyText(resultText) || resultText);
+    return withHeaderAndMarkdown(header + "\n" + clerk, resultBodyText(resultText) || resultText);
   }
-  return new Text(header, 0, 0);
+  return new Text(header + "\n" + clerk, 0, 0);
 }

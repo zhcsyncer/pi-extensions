@@ -78,14 +78,21 @@ describe("renderAgentLikeResult", () => {
     ...Array.from({ length: 40 }, (_, i) => `detail line ${i}`),
   ].join("\n");
 
-  it("collapsed completed result is a short Text preview without dumping the body wall", () => {
-    const component = renderAgentLikeResult(completedDetails(), hugeBody, { expanded: false }, theme());
+  it("collapsed completed result is Claude Code chrome (✓ stats / ⎿ Done), no body wall", () => {
+    const component = renderAgentLikeResult(
+      completedDetails({ modelName: "haiku", effort: "high", turnCount: 3 }),
+      hugeBody,
+      { expanded: false },
+      theme(),
+    );
     expect(component).toBeInstanceOf(Text);
     const out = plain(component);
-    expect(out).toMatch(/✓/);
-    expect(out).toMatch(/Report|# Report/);
+    expect(out).toMatch(/^✓/m);
+    expect(out).toContain("haiku");
+    expect(out).toContain("effort: high");
+    expect(out).toMatch(/⎿\s+Done/);
+    expect(out).not.toContain("LINE_SHOULD_STAY_COLLAPSED");
     expect(out).not.toContain("detail line 20");
-    expect(out).toMatch(/expand/i);
   });
 
   it("expanded completed result uses Markdown under a status header", () => {
@@ -101,16 +108,18 @@ describe("renderAgentLikeResult", () => {
     expect(out).toContain("Report");
   });
 
-  it("running status stays compact", () => {
+  it("running status is spinner + ⎿ activity (Claude Code shape)", () => {
     const component = renderAgentLikeResult(
-      completedDetails({ status: "running", durationMs: 0, activity: "reading src/a.ts" }),
+      completedDetails({ status: "running", durationMs: 0, activity: "reading src/a.ts", toolUses: 2 }),
       "",
       { expanded: false },
       theme(),
     );
     const out = plain(component, 100);
-    expect(out).toMatch(/running|reading/i);
-    expect(out).toContain("abc123");
+    expect(out).toMatch(/reading src\/a\.ts/);
+    expect(out).toMatch(/⎿/);
+    expect(out).toContain("2 tool uses");
+    expect(out).not.toContain("abc123"); // id stays off the running chrome (CC)
   });
 
   it("error collapsed shows error line without full dump", () => {
@@ -153,14 +162,30 @@ describe("renderUndetailedResult", () => {
     const out = plain(component);
     expect(out).toMatch(/✗/);
     expect(out).not.toMatch(/✓/);
+    expect(out).toMatch(/⎿/);
     expect(out).toMatch(/Model not in scope/);
   });
 });
 
+describe("background launch chrome", () => {
+  it("renders single ⎿ Running in background line", () => {
+    const component = renderAgentLikeResult(
+      completedDetails({ status: "background", agentId: "abc", durationMs: 0, toolUses: 0, tokens: "" }),
+      "",
+      { expanded: false },
+      theme(),
+    );
+    const out = plain(component);
+    expect(out).toMatch(/Running in background \(ID: abc\)/);
+    expect(out).toMatch(/⎿/);
+    expect(out).not.toMatch(/✓/);
+  });
+});
+
 describe("formatAgentCallMeta / formatAgentDetailsStats", () => {
-  it("call meta always shows model chip (inherit when unset)", async () => {
+  it("call meta is empty unless model/effort/bg explicitly set (clean CC title)", async () => {
     const { formatAgentCallMeta } = await import("../src/ui/tool-render.js");
-    expect(formatAgentCallMeta({})).toBe("model: inherit");
+    expect(formatAgentCallMeta({})).toBe("");
     expect(formatAgentCallMeta({ model: "haiku", effort: "high", background: true })).toBe(
       "haiku · effort: high · bg",
     );

@@ -19,8 +19,8 @@
 | Overlay 步骤详情 | 无（全摊开） | **`o`** 展开/折叠 tool 参数与结果 |
 | Overlay 在 agent **error / aborted / stopped** | 仍以消息流为主 | **Result 优先 `record.error`**（或 stopped/aborted 文案）；中途 assistant 碎语降为 dim 附注 |
 | Overlay **bashExecution** | 命令 + 输出 dump | 一步一行；**`exitCode` / `cancelled`** → `✗`（不会误标 ✓） |
-| **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有紧凑行；**`get_subagent_result` 无自定义 `renderResult`** → Pi 整段 dump 且无法靠 expand 收起 | 统一可折叠渲染：默认 **一行预览**；**Ctrl+O** 展开为状态头 + **Markdown** 正文 |
-| Tool 节点 **model / effort** | 与父模型相同时常不显示 model；thinking 仅偶尔进 tags | 调用行与结果行始终显示 **有效模型**（继承则 `haiku (inherit)`）与 **`effort:`**（来自 `thinking`） |
+| **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**：`▸ Type  desc` / `✓ stats` + `⎿ Done`（运行中 `⠹` + `⎿ activity`）；**Ctrl+O** 展开 Markdown，默认不 dump |
+| Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；调用行仅在 args 显式带 model/thinking/bg 时附加芯片 |
 | 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | 带 `error` details（或 undetailed 回退 **永不**画绿 ✓） |
 | 发包 | 独立 npm 包 | 工作区包 `@zhcsyncer/pi-subagents`，版本 **`0.0.0`** 直至 Changesets 切首版；**尚未**挂进根包 `@zhcsyncer/pi-extensions` bundle — 用下面的 `-e` 试用 |
 
@@ -64,15 +64,26 @@ FleetView / agent 列表选中子 agent 后回车：
 | `x` `x` | 二次确认停止 |
 | `o` | 展开/折叠步骤详情（**本 fork**） |
 
-### 主会话 tool TUI
+### 主会话 tool TUI — Claude Code chrome
+
+对齐上游文档中的呈现（见 [UPSTREAM_README](./UPSTREAM_README.md)）：
+
+```text
+▸ Explore  Find auth files
+⠹ haiku · effort: high · ↻3 · 3 tool uses · 12.4k token
+  ⎿  searching…
+✓ haiku · effort: high · ↻8 · 5 tool uses · 33.8k token · 12.3s
+  ⎿  Done
+```
 
 | 状态 | 呈现 |
 | --- | --- |
-| **调用行** | `▸ Explore  desc  haiku · effort: high · bg`（调用时未指定模型则 `model: inherit`） |
-| **折叠** | 状态/统计（model、effort、tools、tokens…）+ 一行预览 |
-| **展开**（`Ctrl+O`） | 状态头 + **Markdown** 正文 |
+| **调用行** | `▸ Type  description`（仅当 args 显式带 model/thinking/bg 时附加 dim 芯片） |
+| **运行中** | `⠹` + stats / `⎿` activity |
+| **完成** | `✓` + stats · duration / `⎿ Done`（或 Wrapped up / Stopped / Error） |
+| **展开**（`Ctrl+O`） | 同上 chrome + **Markdown** 正文 |
 
-`effort` 是展示名，对应工具/frontmatter 的 `thinking` 字段。
+`effort` 对应 `thinking`。有效 **model**（含继承）在**结果** stats 中展示。
 
 ---
 
