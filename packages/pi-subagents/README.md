@@ -37,6 +37,13 @@ Keys (unchanged unless noted):
 | `x` `x` | Arm + confirm stop |
 | `o` | Toggle expanded tool args/results (**fork**) |
 
+### Tool TUI (main transcript)
+
+`Agent`, `get_subagent_result`, and `steer_subagent` use compact custom renderers:
+
+- **Collapsed (default):** status/stats + one-line result preview — no full transcript wall
+- **Expanded (`Ctrl+O` / tools expand):** status header + **Markdown** body
+
 ## Package scripts
 
 ```bash

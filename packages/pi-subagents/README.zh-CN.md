@@ -37,6 +37,13 @@ FleetView / agent 列表选中子 agent 后回车：
 | `x` `x` | 二次确认停止 |
 | `o` | 展开/折叠 tool 参数与结果（**本 fork**） |
 
+### 主会话 tool TUI
+
+`Agent` / `get_subagent_result` / `steer_subagent` 使用紧凑自定义渲染：
+
+- **折叠（默认）**：状态/统计 + 一行结果预览，不再整段 transcript 占屏
+- **展开（`Ctrl+O`）**：状态头 + **Markdown** 正文
+
 ## 脚本
 
 ```bash
