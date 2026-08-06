@@ -227,6 +227,19 @@ function truncateLine(text: string, len = 60): string {
 }
 
 /**
+ * Compact status-bar copy used only when the above-editor widget is off.
+ * Returns undefined when there is nothing to report.
+ */
+export function formatSubagentsStatusText(runningCount: number, queuedCount: number): string | undefined {
+  if (runningCount <= 0 && queuedCount <= 0) return undefined;
+  const parts: string[] = [];
+  if (runningCount > 0) parts.push(`${runningCount} running`);
+  if (queuedCount > 0) parts.push(`${queuedCount} queued`);
+  const total = runningCount + queuedCount;
+  return `${parts.join(", ")} agent${total === 1 ? "" : "s"}`;
+}
+
+/**
  * One-line summary for an in-flight tool (widget / tool-result activity row).
  * Prefers path/command/pattern from args when present.
  */
@@ -563,7 +576,9 @@ export class AgentWidget {
   /** Force an immediate widget update. */
   update() {
     if (!this.uiCtx) return;
+    const mode = this.mode();
     const allAgents = this.widgetAgents();
+    const listed = this.manager.listAgents();
 
     // Lightweight existence checks — full categorization happens in renderWidget()
     let runningCount = 0;
@@ -575,38 +590,46 @@ export class AgentWidget {
       else if (a.completedAt && this.shouldShowFinished(a.id, a.status)) { hasFinished = true; }
     }
     const hasActive = runningCount > 0 || queuedCount > 0;
+    const widgetWantsShow = hasActive || hasFinished;
 
-    // Nothing to show — clear widget
-    if (!hasActive && !hasFinished) {
+    // Status bar policy (auto):
+    //   - Widget mode all/background and the tree is (or will be) visible → clear status
+    //     (plain "1 running agent" fights the rich widget chrome).
+    //   - Widget mode off → compact count is the sole bottom-bar indicator.
+    //   - Nothing active → clear.
+    let newStatusText: string | undefined;
+    if (mode === "off") {
+      let statusRunning = 0;
+      let statusQueued = 0;
+      for (const a of listed) {
+        if (a.status === "running") statusRunning++;
+        else if (a.status === "queued") statusQueued++;
+      }
+      newStatusText = formatSubagentsStatusText(statusRunning, statusQueued);
+    } else {
+      newStatusText = undefined;
+    }
+    if (newStatusText !== this.lastStatusText) {
+      this.uiCtx.setStatus("subagents", newStatusText);
+      this.lastStatusText = newStatusText;
+    }
+
+    // Nothing for the above-editor tree — drop the widget (status may still be live when mode=off).
+    if (!widgetWantsShow) {
       if (this.widgetRegistered) {
         this.uiCtx.setWidget("agents", undefined);
         this.widgetRegistered = false;
         this.tui = undefined;
       }
-      if (this.lastStatusText !== undefined) {
-        this.uiCtx.setStatus("subagents", undefined);
-        this.lastStatusText = undefined;
+      // Keep the timer while status fallback must refresh; stop otherwise.
+      if (!(mode === "off" && newStatusText)) {
+        if (this.widgetInterval) { clearInterval(this.widgetInterval); this.widgetInterval = undefined; }
       }
-      if (this.widgetInterval) { clearInterval(this.widgetInterval); this.widgetInterval = undefined; }
-      // Clean up stale entries
+      // Clean up stale finished-age entries against the full list.
       for (const [id] of this.finishedTurnAge) {
-        if (!allAgents.some(a => a.id === id)) this.finishedTurnAge.delete(id);
+        if (!listed.some(a => a.id === id)) this.finishedTurnAge.delete(id);
       }
       return;
-    }
-
-    // Status bar — only call setStatus when the text actually changes
-    let newStatusText: string | undefined;
-    if (hasActive) {
-      const statusParts: string[] = [];
-      if (runningCount > 0) statusParts.push(`${runningCount} running`);
-      if (queuedCount > 0) statusParts.push(`${queuedCount} queued`);
-      const total = runningCount + queuedCount;
-      newStatusText = `${statusParts.join(", ")} agent${total === 1 ? "" : "s"}`;
-    }
-    if (newStatusText !== this.lastStatusText) {
-      this.uiCtx.setStatus("subagents", newStatusText);
-      this.lastStatusText = newStatusText;
     }
 
     this.widgetFrame++;

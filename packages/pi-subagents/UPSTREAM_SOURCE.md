@@ -45,6 +45,7 @@ Stable “why” only — implementation detail lives in code/tests.
 - Result stats always surface **effective model** (including parent inherit) and **effort** (from `thinking`).
 - Widget last line shows the **current tool step** (e.g. `reading src/a.ts`) from `tool_execution_start` args, not only bare `thinking…` when tools are in flight.
 - `AgentInvocation.modelInherited` is persisted on the record so `get_subagent_result` restores the same `model (inherit)` chip as the original Agent tool row.
+- Status bar (`setStatus("subagents")`) is **auto**: cleared while the above-editor widget is on; compact `N running` text only when `widgetMode: off`.
 - Resume details come from the **stored invocation** (old session model/effort) — not the current parent tool args.
 - Validation / not-found failures carry **error** details; a `tool_result` hook maps `details.status` ∈ {error,aborted,stopped} → Pi `isError` so the default shell uses error background (not green success).
 - Undetailed fallback: explicit `isError=false` never heuristic-reds; free-word scans of user text removed.

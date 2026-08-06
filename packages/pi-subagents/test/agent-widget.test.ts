@@ -8,6 +8,7 @@ import {
   fgPreservingNestedStyles,
   formatActiveToolSummary,
   formatSessionTokens,
+  formatSubagentsStatusText,
 } from "../src/ui/agent-widget.js";
 
 describe("formatSessionTokens", () => {
@@ -140,6 +141,63 @@ describe("AgentWidget", () => {
   it("renders nothing in 'off' mode", () => {
     const manager = { listAgents: () => [makeRecord("background", { isBackground: true })] };
     expect(renderLines(manager, "background", () => "off")).toBe("");
+  });
+});
+
+describe("formatSubagentsStatusText", () => {
+  it("formats running/queued counts and returns undefined when idle", () => {
+    expect(formatSubagentsStatusText(0, 0)).toBeUndefined();
+    expect(formatSubagentsStatusText(1, 0)).toBe("1 running agent");
+    expect(formatSubagentsStatusText(2, 1)).toBe("2 running, 1 queued agents");
+  });
+});
+
+describe("AgentWidget status bar policy", () => {
+  function makeRecord(id: string, opts: { isBackground?: boolean; status?: string } = {}) {
+    return {
+      id,
+      type: "general-purpose",
+      description: `${id} description`,
+      status: opts.status ?? "running",
+      toolUses: 0,
+      startedAt: Date.now(),
+      lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      compactionCount: 0,
+      isBackground: opts.isBackground ?? true,
+    };
+  }
+
+  function captureStatus(mode: () => import("../src/types.js").WidgetMode, agents: unknown[]) {
+    const statuses: Array<string | undefined> = [];
+    const widget = new AgentWidget(
+      { listAgents: () => agents } as any,
+      new Map(),
+      mode,
+    );
+    widget.setUICtx({
+      setStatus: (_key, text) => { statuses.push(text); },
+      setWidget: () => {},
+    });
+    widget.update();
+    return statuses.at(-1);
+  }
+
+  it("clears status when the widget tree is active (background mode)", () => {
+    expect(captureStatus(() => "background", [makeRecord("bg")])).toBeUndefined();
+  });
+
+  it("clears status when the widget tree is active (all mode)", () => {
+    expect(captureStatus(() => "all", [makeRecord("fg", { isBackground: false })])).toBeUndefined();
+  });
+
+  it("uses compact status only when widget mode is off", () => {
+    expect(captureStatus(() => "off", [makeRecord("bg")])).toBe("1 running agent");
+    expect(
+      captureStatus(() => "off", [
+        makeRecord("a"),
+        makeRecord("b", { status: "queued" }),
+      ]),
+    ).toBe("1 running, 1 queued agents");
   });
 });
 
