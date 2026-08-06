@@ -36,7 +36,6 @@ import {
   AgentWidget,
   buildInvocationTags,
   describeActivity,
-  fgPreservingNestedStyles,
   formatDuration,
   formatMs,
   formatTokens,
@@ -49,6 +48,14 @@ import {
 } from "./ui/agent-widget.js";
 import { FleetList, type FleetUICtx } from "./ui/fleet-list.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
+import {
+  firstLinePreview,
+  formatAgentDetailsStats,
+  renderAgentLikeResult,
+  renderExpandedMarkdown,
+  renderToolCallTitle,
+  toolResultText,
+} from "./ui/tool-render.js";
 import { addUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
 
 // ---- Shared helpers ----
@@ -976,88 +983,39 @@ Terse command-style prompts produce shallow, generic work.
 
     renderCall(args, theme) {
       const displayName = args.subagent_type ? getDisplayName(args.subagent_type) : "Agent";
-      const desc = args.description ?? "";
-      return new Text("▸ " + theme.fg("toolTitle", theme.bold(displayName)) + (desc ? "  " + theme.fg("muted", desc) : ""), 0, 0);
+      const desc = typeof args.description === "string" ? args.description : "";
+      return renderToolCallTitle(displayName, desc || undefined, theme);
     },
 
     renderResult(result, { expanded, isPartial }, theme) {
       const details = result.details as AgentDetails | undefined;
+      const text = toolResultText(result);
       if (!details) {
-        const text = result.content[0]?.type === "text" ? result.content[0].text : "";
-        return new Text(text, 0, 0);
+        // No structured details — still honor expand so we never dump walls by default.
+        return renderAgentLikeResult(
+          {
+            displayName: "Agent",
+            description: "",
+            subagentType: "general-purpose",
+            toolUses: 0,
+            tokens: "",
+            durationMs: 0,
+            status: "completed",
+          },
+          text,
+          { expanded, isPartial },
+          theme,
+        );
       }
 
-      // Helper: build "haiku · thinking: high · ↻5≤30 · 3 tool uses · 33.8k tokens" stats string
-      const stats = (d: AgentDetails) => {
-        const parts: string[] = [];
-        if (d.modelName) parts.push(d.modelName);
-        if (d.tags) parts.push(...d.tags);
-        if (d.turnCount != null && d.turnCount > 0) {
-          parts.push(formatTurns(d.turnCount, d.maxTurns));
-        }
-        if (d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
-        if (d.tokens) parts.push(d.tokens);
-        return parts.map(p => fgPreservingNestedStyles(theme, "dim", p)).join(" " + theme.fg("dim", "·") + " ");
-      };
-
-      // ---- While running (streaming) ----
+      // Streaming partials keep the live spinner component (animated via onUpdate).
       if (isPartial || details.status === "running") {
         const frame = SPINNER[details.spinnerFrame ?? 0];
-        const s = stats(details);
+        const s = formatAgentDetailsStats(details, theme);
         return renderRunningAgentStatus(frame, s, details.activity ?? "thinking…", theme);
       }
 
-      // ---- Background agent launched ----
-      if (details.status === "background") {
-        return new Text(theme.fg("dim", `  ⎿  Running in background (ID: ${details.agentId})`), 0, 0);
-      }
-
-      // ---- Completed / Steered ----
-      if (details.status === "completed" || details.status === "steered") {
-        const duration = formatMs(details.durationMs);
-        const isSteered = details.status === "steered";
-        const icon = isSteered ? theme.fg("warning", "✓") : theme.fg("success", "✓");
-        const s = stats(details);
-        let line = icon + (s ? " " + s : "");
-        line += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
-
-        if (expanded) {
-          const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
-          if (resultText) {
-            const lines = resultText.split("\n").slice(0, 50);
-            for (const l of lines) {
-              line += "\n" + theme.fg("dim", `  ${l}`);
-            }
-            if (resultText.split("\n").length > 50) {
-              line += "\n" + theme.fg("muted", "  ... (use get_subagent_result with verbose for full output)");
-            }
-          }
-        } else {
-          const doneText = isSteered ? "Wrapped up (turn limit)" : "Done";
-          line += "\n" + theme.fg("dim", `  ⎿  ${doneText}`);
-        }
-        return new Text(line, 0, 0);
-      }
-
-      // ---- Stopped (user-initiated abort) ----
-      if (details.status === "stopped") {
-        const s = stats(details);
-        let line = theme.fg("dim", "■") + (s ? " " + s : "");
-        line += "\n" + theme.fg("dim", "  ⎿  Stopped");
-        return new Text(line, 0, 0);
-      }
-
-      // ---- Error / Aborted (hard max_turns) ----
-      const s = stats(details);
-      let line = theme.fg("error", "✗") + (s ? " " + s : "");
-
-      if (details.status === "error") {
-        line += "\n" + theme.fg("error", `  ⎿  Error: ${details.error ?? "unknown"}`);
-      } else {
-        line += "\n" + theme.fg("warning", "  ⎿  Aborted (max turns exceeded)");
-      }
-
-      return new Text(line, 0, 0);
+      return renderAgentLikeResult(details, text, { expanded, isPartial }, theme);
     },
 
     // ---- Execute ----
@@ -1459,6 +1417,40 @@ Terse command-style prompts produce shallow, generic work.
         }),
       ),
     }),
+
+    // Without renderResult Pi dumps the entire model-facing payload (often a full
+    // agent transcript) with no collapse — keep the TUI to a one-line preview.
+    renderCall(args, theme) {
+      const id = typeof args.agent_id === "string" ? args.agent_id : "";
+      const flags = [
+        args.wait ? "wait" : undefined,
+        args.verbose ? "verbose" : undefined,
+      ].filter((f): f is string => !!f).join(" · ");
+      return renderToolCallTitle("Get Result", id || undefined, theme, flags || undefined);
+    },
+
+    renderResult(result, { expanded, isPartial }, theme) {
+      const details = result.details as AgentDetails | undefined;
+      const text = toolResultText(result);
+      if (!details) {
+        return renderAgentLikeResult(
+          {
+            displayName: "Get Result",
+            description: "",
+            subagentType: "general-purpose",
+            toolUses: 0,
+            tokens: "",
+            durationMs: 0,
+            status: "completed",
+          },
+          text,
+          { expanded, isPartial },
+          theme,
+        );
+      }
+      return renderAgentLikeResult(details, text, { expanded, isPartial }, theme);
+    },
+
     execute: async (_toolCallId, params, signal, _onUpdate, _ctx) => {
       const record = manager.getRecord(params.agent_id);
       if (!record) {
@@ -1495,8 +1487,10 @@ Terse command-style prompts produce shallow, generic work.
         `Type: ${displayName} | Status: ${record.status}${getStatusNote(record.status)} | ${statsParts.join(" | ")}\n` +
         `Description: ${record.description}\n\n`;
 
-      if (record.status === "running") {
-        output += "Agent is still running. Use wait: true or check back later.";
+      if (record.status === "running" || record.status === "queued") {
+        output += record.status === "queued"
+          ? "Agent is queued. Use wait: true or check back later."
+          : "Agent is still running. Use wait: true or check back later.";
       } else if (record.status === "error") {
         output += `Error: ${record.error}${partialOutputSuffix(record)}`;
       } else {
@@ -1517,7 +1511,25 @@ Terse command-style prompts produce shallow, generic work.
         }
       }
 
-      return textResult(output);
+      const activity = agentActivity.get(record.id);
+      const details: AgentDetails = {
+        displayName,
+        description: record.description,
+        subagentType: record.type,
+        toolUses: record.toolUses,
+        tokens: tokens || "",
+        durationMs: record.completedAt ? record.completedAt - record.startedAt : 0,
+        status: record.status as AgentDetails["status"],
+        agentId: record.id,
+        error: record.error,
+        turnCount: activity?.turnCount,
+        maxTurns: activity?.maxTurns,
+        activity: activity
+          ? describeActivity(activity.activeTools, activity.responseText)
+          : undefined,
+      };
+
+      return textResult(output, details);
     },
   }));
 
@@ -1538,6 +1550,30 @@ Terse command-style prompts produce shallow, generic work.
         description: "The steering message to send. This will appear as a user message in the agent's conversation.",
       }),
     }),
+
+    renderCall(args, theme) {
+      const id = typeof args.agent_id === "string" ? args.agent_id : "";
+      const msg = typeof args.message === "string" ? firstLinePreview(args.message, 60) : "";
+      return renderToolCallTitle("Steer", id || undefined, theme, msg || undefined);
+    },
+
+    renderResult(result, { expanded }, theme) {
+      const text = toolResultText(result);
+      const failed =
+        /\bfailed\b/i.test(text) ||
+        /\bnot found\b/i.test(text) ||
+        /\bcannot steer\b/i.test(text) ||
+        /\bnot running\b/i.test(text);
+      const icon = failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+      if (expanded) {
+        const container = new Container();
+        container.addChild(new Text(icon, 0, 0));
+        container.addChild(renderExpandedMarkdown(text.trim() || "_(empty)_"));
+        return container;
+      }
+      return new Text(icon + " " + theme.fg("dim", firstLinePreview(text, 100) || "steered"), 0, 0);
+    },
+
     execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
       const record = manager.getRecord(params.agent_id);
       if (!record) {
