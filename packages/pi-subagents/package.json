@@ -1,0 +1,77 @@
+{
+  "name": "@zhcsyncer/pi-subagents",
+  "version": "0.0.0",
+  "description": "Claude Code-style autonomous sub-agents for the Pi coding agent, with a step-summary conversation viewer.",
+  "author": "tintinweb",
+  "contributors": [
+    "zhcsyncer (fork maintainer)"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-subagents"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-subagents#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "subagent",
+    "agent",
+    "autonomous"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src/**/*.ts",
+    "examples/**/*",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "UPSTREAM_LICENSE",
+    "UPSTREAM_README.md",
+    "UPSTREAM_CHANGELOG.md",
+    "UPSTREAM_SOURCE.md",
+    "!src/**/*.test.ts",
+    "!test/**"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.80.0",
+    "@earendil-works/pi-coding-agent": ">=0.80.0",
+    "@earendil-works/pi-tui": ">=0.80.0"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.49",
+    "croner": "^10.0.1",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@earendil-works/pi-tui": "0.81.1",
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}

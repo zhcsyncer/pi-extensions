@@ -35,3 +35,48 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Add the Ask User Question pair to the bilingual parity check so a missing or structurally divergent translation fails CI.
   - Add an explicit repository-wide rule to `AGENTS.md`: maintained user-facing package documentation is bilingual, with English in `README.md` and Simplified Chinese in `README.zh-CN.md`, unless a documented exception applies.
   - Add the appropriate package and root changeset because the corrected README is user-visible in both npm artifacts.
+
+## `@zhcsyncer/pi-subagents` (post honesty-fix residuals)
+
+Fork display work and adversarial-review P1/P2 honesty fixes are on the branch; these are **not** ship-blockers. Track here so they stay visible before first public cut / root-bundle inclusion.
+
+- [ ] **Redact sensitive args in parent TUI activity / Steps**
+
+  Default widget activity and overlay step summaries currently surface raw bash commands, URLs, and patterns from the child agent. Tokens, passwords, and signed URLs can land in the parent terminal, screenshots, and logs.
+
+  Acceptance criteria:
+
+  - Default collapsed views show a safe summary (e.g. executable + redacted args), not full command lines with secrets.
+  - Common secret shapes (bearer/token/password/authorization, obvious URL query secrets) are masked.
+  - Full args remain available only behind explicit expand (`o` / Ctrl+O), with no regression to false ✓/✗ status chrome.
+  - Unit coverage for at least one bash command containing a token-like value.
+
+- [ ] **Strip ANSI / terminal control sequences from child-sourced display text**
+
+  Tool args and outputs can carry ESC/OSC sequences into parent widget lines and step notes; pi-tui may pass them through.
+
+  Acceptance criteria:
+
+  - Paths that feed parent TUI (`formatActiveToolSummary`, step result notes, undetailed previews) strip C0/C1 and ESC sequences before render.
+  - Printable text and normal wide characters still display correctly.
+  - A regression test feeds an ESC/OSC payload and asserts it does not appear raw in the rendered line.
+
+- [ ] **Guard against double-loading upstream + fork**
+
+  README warns not to load `@tintinweb/pi-subagents` together with this fork; code does not detect duplicate `Agent` / FleetView registration.
+
+  Acceptance criteria:
+
+  - On extension load, if the same tool names are already registered (or a known upstream marker is present), emit a clear warning naming both packages.
+  - Does not hard-crash the session; warning is enough for operator recovery.
+  - Documented in package README try steps.
+
+- [ ] **Persist invocation snapshot for schedule / RPC spawns**
+
+  Agents started via schedule (and some RPC paths) may lack `record.invocation`, so `get_subagent_result` cannot show model/effort chips.
+
+  Acceptance criteria:
+
+  - Schedule (and RPC spawn if applicable) attach the same `AgentInvocation` shape as the Agent tool path.
+  - `get_subagent_result` call/result chips match a normally spawned background agent when model/thinking were configured on the job.
+  - Contract test covers schedule → get_result chip restore.

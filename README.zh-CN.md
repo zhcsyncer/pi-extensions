@@ -14,6 +14,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
+- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 
 ## Bundle 私有 Search Hub
 
@@ -26,6 +27,15 @@ zhcsyncer 维护的一组 Pi extensions。
 `@zhcsyncer/pi-context7` 是维护中的 Context7 文档工具 fork。可以单独安装，也可以通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展与 Skill。
 
 该 fork 保留上游工具描述、面向模型的结果文本和完整 Skill，同时加入本地紧凑 `renderCall` / `renderResult` 行、AbortSignal 感知的 fetch，以及非 2xx HTTP 抛错以便 Pi 正确标记 tool error。更高配额请设置 `CONTEXT7_API_KEY`。详见 [Context7 中文文档](./packages/pi-context7/README.zh-CN.md) 或其 [英文版本](./packages/pi-context7/README.md)。
+
+## Subagents
+
+`@zhcsyncer/pi-subagents` 是 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 的维护 fork。可单独安装，也可通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展。上游运行时（Agent / steer / resume / FleetView / 通知）不变；本 fork 主要改 **进展怎么显示**：
+
+- 对话 overlay 默认 **Prompt · 一行 Steps · Result**（不再 dump 整墙 toolResult）
+- 主 transcript tool 行可折叠；展开为 Markdown；调用/结果行显示 **model** 与 **effort**
+
+**不要**与 `@tintinweb/pi-subagents` 同时加载（会双注册 `Agent` / FleetView）。上游钉扎与差异清单：[`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)。对比表默认英文：[package README](./packages/pi-subagents/README.md) / [简体中文](./packages/pi-subagents/README.zh-CN.md)。
 
 ## 扩展持久化数据
 
@@ -47,7 +57,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、结构化问答，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、Subagents、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -114,9 +124,12 @@ pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
+pi --no-extensions -e ./packages/pi-subagents --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。
+
+测试 `pi-subagents` 时，不要同时加载 `@tintinweb/pi-subagents`（会双注册 `Agent` / FleetView）。
 
 ## 发版
 
@@ -143,3 +156,5 @@ MIT
 `pi-context7` fork 自 MIT 许可的 [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2（`b250c2515694eee4b6df4db82fa056df9ed3e306`）。准确 revision 和保留声明见 [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-context7/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE)。
 
 `pi-ask-user-question` fork 自 MIT 许可的 [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0。准确 revision 和保留声明见 [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-ask-user-question/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE)。
+
+`pi-subagents` fork 自 MIT 许可的 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3（`c10b1836256e760da75296ccd4e57a77ada1325e`）。准确 revision、本地 UI 差异与保留声明见 [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-subagents/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE)。

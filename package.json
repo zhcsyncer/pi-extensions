@@ -84,7 +84,15 @@
     "packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
     "!packages/pi-ask-user-question/**/*.test.ts",
     "!packages/pi-ask-user-question/test-support.ts",
-    "!packages/pi-ask-user-question/test-fixtures.ts"
+    "!packages/pi-ask-user-question/test-fixtures.ts",
+    "packages/pi-subagents/package.json",
+    "packages/pi-subagents/examples/**/*",
+    "packages/pi-subagents/CHANGELOG.md",
+    "packages/pi-subagents/UPSTREAM_README.md",
+    "packages/pi-subagents/UPSTREAM_CHANGELOG.md",
+    "packages/pi-subagents/UPSTREAM_SOURCE.md",
+    "!packages/pi-subagents/**/*.test.ts",
+    "!packages/pi-subagents/test/**"
   ],
   "publishConfig": {
     "access": "public"
@@ -108,7 +116,8 @@
       "./packages/pi-plan-mode/extensions/plan-mode.ts",
       "./packages/pi-search-hub/extensions/search-hub.ts",
       "./packages/pi-context7/extensions/context7.ts",
-      "./packages/pi-ask-user-question/index.ts"
+      "./packages/pi-ask-user-question/index.ts",
+      "./packages/pi-subagents/src/index.ts"
     ],
     "skills": [
       "./packages/pi-context7/skills"
@@ -116,6 +125,9 @@
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "2.4.0",
+    "@sinclair/typebox": "^0.34.49",
+    "croner": "^10.0.1",
+    "nanoid": "^5.0.0",
     "typebox": "1.1.24",
     "wreq-js": "2.3.1"
   },

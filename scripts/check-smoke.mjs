@@ -14,6 +14,7 @@ const packagePaths = [
 	"./packages/pi-search-hub",
 	"./packages/pi-context7",
 	"./packages/pi-ask-user-question",
+	"./packages/pi-subagents",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 

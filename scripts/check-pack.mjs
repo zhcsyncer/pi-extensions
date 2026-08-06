@@ -15,6 +15,7 @@ const packagePaths = [
 	"./packages/pi-search-hub",
 	"./packages/pi-context7",
 	"./packages/pi-ask-user-question",
+	"./packages/pi-subagents",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -48,6 +49,13 @@ const requiredPackFiles = new Map([
 		"packages/pi-ask-user-question/locales/zh.json",
 		"packages/pi-ask-user-question/README.md",
 		"packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
+		"packages/pi-subagents/src/index.ts",
+		"packages/pi-subagents/src/ui/conversation-brief.ts",
+		"packages/pi-subagents/src/ui/tool-render.ts",
+		"packages/pi-subagents/package.json",
+		"packages/pi-subagents/README.md",
+		"packages/pi-subagents/README.zh-CN.md",
+		"packages/pi-subagents/UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-recap", [
 		"extensions/recap.ts",
@@ -104,6 +112,19 @@ const requiredPackFiles = new Map([
 		"UPSTREAM_LICENSE",
 		"UPSTREAM_SOURCE.md",
 	]],
+	["./packages/pi-subagents", [
+		"src/index.ts",
+		"src/ui/conversation-brief.ts",
+		"src/ui/conversation-viewer.ts",
+		"src/ui/tool-render.ts",
+		"src/ui/agent-widget.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"UPSTREAM_LICENSE",
+		"UPSTREAM_SOURCE.md",
+	]],
 	["./providers/pi-provider-volcengine-agent-plan", [
 		"index.ts",
 		"README.md",
@@ -126,6 +147,8 @@ const maintainedReadmes = [
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
 	"packages/pi-ask-user-question/README.md",
+	"packages/pi-subagents/README.md",
+	"packages/pi-subagents/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",
@@ -168,6 +191,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-subagents/README.md",
+	"packages/pi-subagents/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",

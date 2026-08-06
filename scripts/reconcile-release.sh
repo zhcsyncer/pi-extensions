@@ -10,6 +10,7 @@ PACKAGES=(
   "@zhcsyncer/pi-plan-mode|packages/pi-plan-mode/package.json|packages/pi-plan-mode/CHANGELOG.md|pi-plan-mode|child"
   "@zhcsyncer/pi-context7|packages/pi-context7/package.json|packages/pi-context7/CHANGELOG.md|pi-context7|child"
   "@zhcsyncer/pi-ask-user-question|packages/pi-ask-user-question/package.json|packages/pi-ask-user-question/CHANGELOG.md|pi-ask-user-question|child"
+  "@zhcsyncer/pi-subagents|packages/pi-subagents/package.json|packages/pi-subagents/CHANGELOG.md|pi-subagents|child"
   "pi-provider-volcengine-agent-plan|providers/pi-provider-volcengine-agent-plan/package.json|providers/pi-provider-volcengine-agent-plan/CHANGELOG.md|pi-provider-volcengine-agent-plan|child"
 )
 
