@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { validateReleasePolicy } from "./release-policy.mjs";
+import { CHILD_PACKAGES, validateReleasePolicy } from "./release-policy.mjs";
 
 const ROOT = "@zhcsyncer/pi-extensions";
 const RECAP = "@zhcsyncer/pi-recap";
@@ -18,6 +19,13 @@ function releases(...entries) {
 		releases: entries.map(([name, type]) => ({ name, type })),
 	};
 }
+
+test("release reconciliation covers every bundled child package", () => {
+	const script = readFileSync(new URL("./reconcile-release.sh", import.meta.url), "utf8");
+	for (const childPackage of CHILD_PACKAGES) {
+		assert.match(script, new RegExp(childPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	}
+});
 
 test("allows an empty release plan", () => {
 	assert.deepEqual(validateReleasePolicy(releases()), []);
