@@ -560,3 +560,36 @@ describe("ConversationViewer brief layout (scheme A)", () => {
     expect(viewer.render(W).join("\n")).not.toContain(hiddenLine);
   });
 });
+
+describe("ConversationViewer failed terminal result", () => {
+  const W = 80;
+
+  it("shows record.error instead of intermediate assistant text when status is error", () => {
+    const messages = [
+      { role: "user", content: "do work" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I'll start looking around first." }],
+      },
+    ];
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      mockSession(messages),
+      mockRecord({ status: "error", error: "Model blew up: rate limit" }),
+      undefined,
+      ansiTheme(),
+      vi.fn(),
+    );
+    const out = viewer.render(W).join("\n");
+    expect(out).toContain("Model blew up: rate limit");
+    expect(out).toContain("last assistant text before failure");
+    expect(out).toContain("I'll start looking around first.");
+    // Error line should appear in Result section before the intermediate text label.
+    const resultIdx = out.indexOf("Result");
+    const errIdx = out.indexOf("Model blew up");
+    const midIdx = out.indexOf("I'll start looking");
+    expect(resultIdx).toBeGreaterThan(-1);
+    expect(errIdx).toBeGreaterThan(resultIdx);
+    expect(midIdx).toBeGreaterThan(errIdx);
+  });
+});

@@ -352,19 +352,38 @@ export class ConversationViewer implements Component {
     // ── Result ──────────────────────────────────────────────────────────
     lines.push("");
     section("Result");
-    if (brief.result) {
+    const failedTerminal =
+      this.record.status === "error" ||
+      this.record.status === "aborted" ||
+      this.record.status === "stopped";
+    if (failedTerminal) {
+      // Prefer record.error over intermediate assistant chatter so a mid-run
+      // "I'll check…" is never mistaken for the final outcome.
+      const errText =
+        (typeof this.record.error === "string" && this.record.error.trim()) ||
+        (this.record.status === "stopped"
+          ? "Stopped by user"
+          : this.record.status === "aborted"
+            ? "Aborted (max turns exceeded)"
+            : "failed");
+      lines.push(th.fg("error", errText));
+      if (brief.result?.trim()) {
+        lines.push(th.fg("dim", "── last assistant text before failure ──"));
+        for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
+          lines.push(th.fg("dim", line));
+        }
+      }
+    } else if (brief.result) {
       for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
         lines.push(line);
       }
-    } else if (this.record.status === "running") {
+    } else if (this.record.status === "running" || this.record.status === "queued") {
       if (this.activity) {
         const act = describeActivity(this.activity.activeTools, this.activity.responseText);
         lines.push(truncateToWidth(th.fg("accent", "⠹ ") + th.fg("dim", act || "running…"), width));
       } else {
         lines.push(th.fg("dim", "(running…)"));
       }
-    } else if (this.record.status === "error") {
-      lines.push(th.fg("error", "(failed — no final assistant text)"));
     } else {
       lines.push(th.fg("dim", "(no final result text)"));
     }

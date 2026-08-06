@@ -127,3 +127,32 @@ describe("renderAgentLikeResult", () => {
     expect(out.split("\n").length).toBeLessThan(6);
   });
 });
+
+describe("resultBodyText header peel", () => {
+  it("keeps multi-paragraph errors intact (does not drop first segment)", () => {
+    const text =
+      'Model not in scope: "foo".\n\nAllowed models (from enabledModels):\n  anthropic/claude';
+    expect(resultBodyText(text)).toContain("Model not in scope");
+    expect(resultBodyText(text)).toContain("Allowed models");
+    expect(firstLinePreview(resultBodyText(text))).toMatch(/Model not in scope/);
+  });
+
+  it("still peels Agent completed status headers", () => {
+    const text = "Agent completed in 1.2s (3 tool uses).\n\n## Findings\n\nok";
+    expect(resultBodyText(text)).toContain("## Findings");
+    expect(resultBodyText(text)).not.toMatch(/^Agent completed/);
+  });
+});
+
+describe("renderUndetailedResult", () => {
+  it("does not paint success for plain validation failures", async () => {
+    const { renderUndetailedResult } = await import("../src/ui/tool-render.js");
+    const text =
+      'Model not in scope: "foo".\n\nAllowed models (from enabledModels):\n  anthropic/claude';
+    const component = renderUndetailedResult(text, { expanded: false }, theme());
+    const out = plain(component);
+    expect(out).toMatch(/✗/);
+    expect(out).not.toMatch(/✓/);
+    expect(out).toMatch(/Model not in scope/);
+  });
+});

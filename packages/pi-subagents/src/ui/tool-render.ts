@@ -45,15 +45,31 @@ export function firstLinePreview(text: string, maxChars = RESULT_COLLAPSED_PREVI
 }
 
 /**
- * Prefer the body after the first blank line (status header · body), else whole text.
- * Used so collapsed previews / expanded markdown show the agent answer, not
- * "Agent completed in 1.2s…".
+ * True when the first `\n\n`-delimited block looks like our tool status header
+ * (safe to peel). Plain multi-paragraph errors must NOT match.
+ */
+export function looksLikeStatusHeader(block: string): boolean {
+  const head = block.replace(/\r\n/g, "\n").trim();
+  if (!head) return false;
+  if (/^Agent completed in \d/i.test(head)) return true;
+  if (/^Agent failed:/i.test(head)) return true;
+  if (/^Note: Unknown agent type/i.test(head)) return true;
+  // get_subagent_result / background spawn multi-line meta block
+  if (/^Agent:\s+\S+/m.test(head) && /^Type:\s+/m.test(head)) return true;
+  if (/^Agent (queued|started) in background/i.test(head)) return true;
+  return false;
+}
+
+/**
+ * Prefer the body after a recognized status header; otherwise keep full text.
+ * Prevents multi-paragraph errors like "Model not in scope…\n\nAllowed…" from
+ * losing their first (most important) paragraph in previews.
  */
 export function resultBodyText(text: string): string {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (!normalized) return "";
   const parts = normalized.split(/\n\n+/);
-  if (parts.length >= 2) {
+  if (parts.length >= 2 && looksLikeStatusHeader(parts[0] ?? "")) {
     const body = parts.slice(1).join("\n\n").trim();
     if (body) return body;
   }
@@ -81,12 +97,13 @@ export function appendCollapsedPreviewLine(
   text: string,
   theme: Pick<Theme, "fg">,
   emptyLabel: string,
-  opts?: { withExpandHint?: boolean },
+  opts?: { withExpandHint?: boolean; previewColor?: string },
 ): string {
   const preview = firstLinePreview(resultBodyText(text));
   const label = preview || emptyLabel;
   const hint = opts?.withExpandHint === false ? "" : ` (${expandHint()})`;
-  return base + "\n" + theme.fg("dim", `  ⎿  ${label}${hint}`);
+  const color = opts?.previewColor ?? "dim";
+  return base + "\n" + theme.fg(color, `  ⎿  ${label}${hint}`);
 }
 
 /** Build "haiku · ↻5≤30 · 3 tool uses · 33.8k token" stats fragment. */
@@ -111,6 +128,21 @@ export function isActiveStatus(status: string | undefined): boolean {
   return status === "running" || status === "queued";
 }
 
+/** Lightweight heuristic when structured details are missing. */
+export function looksLikeFailureText(text: string): boolean {
+  const head = text.trim().slice(0, 240);
+  return (
+    /^error\b/i.test(head) ||
+    /\bfailed\b/i.test(head) ||
+    /\bnot found\b/i.test(head) ||
+    /\bcannot\b/i.test(head) ||
+    /\bnot in scope\b/i.test(head) ||
+    /\bunavailable\b/i.test(head) ||
+    /\binvalid\b/i.test(head) ||
+    /\bdisabled\b/i.test(head)
+  );
+}
+
 /** Compact call title: `▸ Label  muted…`. */
 export function renderToolCallTitle(label: string, muted: string | undefined, theme: Theme, dimExtra?: string): Text {
   let line = "▸ " + theme.fg("toolTitle", theme.bold(label));
@@ -125,6 +157,28 @@ function withHeaderAndMarkdown(header: string, markdownBody: string): Component 
   const body = markdownBody.trim() || "_(no output)_";
   container.addChild(renderExpandedMarkdown(body));
   return container;
+}
+
+/**
+ * Fallback when execute returned plain text without AgentDetails.
+ * Never assumes success — missing details + failure-ish text → ✗; else neutral •.
+ */
+export function renderUndetailedResult(
+  resultText: string,
+  opts: { expanded: boolean; isError?: boolean },
+  theme: Theme,
+): Component {
+  const failed = opts.isError === true || looksLikeFailureText(resultText);
+  const icon = failed ? theme.fg("error", "✗") : theme.fg("dim", "•");
+  if (opts.expanded) {
+    return withHeaderAndMarkdown(icon, resultText.trim() || "_(empty)_");
+  }
+  const preview = firstLinePreview(resultBodyText(resultText)) || (failed ? "failed" : "ok");
+  return new Text(
+    icon + " " + theme.fg(failed ? "error" : "dim", `${preview} (${expandHint()})`),
+    0,
+    0,
+  );
 }
 
 /**
@@ -191,7 +245,11 @@ export function renderAgentLikeResult(
   let header = theme.fg("error", "✗") + (s ? " " + s : "");
   if (duration) header += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
   if (details.status === "error") {
-    const err = details.error?.trim() || firstLinePreview(resultBodyText(resultText)) || "unknown";
+    const err =
+      details.error?.trim() ||
+      firstLinePreview(resultBodyText(resultText)) ||
+      firstLinePreview(resultText) ||
+      "unknown";
     header += "\n" + theme.fg("error", `  ⎿  Error: ${firstLinePreview(err, 120)}`);
   } else {
     header += "\n" + theme.fg("warning", "  ⎿  Aborted (max turns exceeded)");
