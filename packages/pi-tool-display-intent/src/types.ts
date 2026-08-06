@@ -7,6 +7,7 @@ export const BASH_OUTPUT_MODES = ["summary", "preview"] as const;
 export const RESULT_DISPLAY_MODES = ["compact", "summary", "preview"] as const;
 export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
+export const DIFF_COLLAPSED_MODES = ["body", "summary"] as const;
 export const TOOL_INTENT_LANGUAGES = ["auto", "zh-CN", "en"] as const;
 export const TOOL_CALL_STYLES = ["compact", "claude"] as const;
 export const TOOL_DISPLAY_CONFIG_VERSION = 2 as const;
@@ -22,6 +23,7 @@ export type BashOutputMode = (typeof BASH_OUTPUT_MODES)[number];
 export type ResultDisplayMode = (typeof RESULT_DISPLAY_MODES)[number];
 export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
+export type DiffCollapsedMode = (typeof DIFF_COLLAPSED_MODES)[number];
 export type ToolIntentLanguage = (typeof TOOL_INTENT_LANGUAGES)[number];
 export type ToolCallStyle = (typeof TOOL_CALL_STYLES)[number];
 
@@ -79,6 +81,7 @@ export interface ToolDisplayConfig {
 	diffIndicatorMode: DiffIndicatorMode;
 	diffSplitMinWidth: number;
 	diffCollapsedRows: number;
+	diffCollapsedMode: DiffCollapsedMode;
 	diffWordWrap: boolean;
 	showTruncationHints: boolean;
 	showRtkCompactionHints: boolean;
@@ -116,6 +119,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	diffIndicatorMode: "bars",
 	diffSplitMinWidth: 120,
 	diffCollapsedRows: 24,
+	diffCollapsedMode: "body",
 	diffWordWrap: true,
 	showTruncationHints: false,
 	showRtkCompactionHints: false,

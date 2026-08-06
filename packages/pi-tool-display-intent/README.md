@@ -110,7 +110,7 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | `intent` | `enabled`, `language`, `maxLength` | Model-written tool intent. |
 | `toolCalls` | `style`, `bashCommandPreviewRows` | Call framing and the wrapped-row budget for collapsed Bash command arguments. |
 | `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
-| `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `wordWrap` | Edit/write diff presentation. |
+| `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `collapsedMode`, `wordWrap` | Edit/write diff presentation. `collapsedMode: summary` shows only the +N -M stats line before Ctrl+O for the densest transcript; `body` (default) keeps the `collapsedRows` preview. |
 | `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
 | `tools` | `passthrough`, `custom` | Renderer ownership and explicitly listed custom tools. |
 | `advanced` | `expandedRows`, `truncationHints`, `rtkCompactionHints`, `debug` | Expansion safety and diagnostics. |

@@ -89,6 +89,11 @@
           "maximum": 240,
           "default": 24
         },
+        "collapsedMode": {
+          "enum": ["body", "summary"],
+          "default": "body",
+          "description": "Controls what edit/write diffs render before Ctrl+O expansion. 'body' shows the first collapsedRows rows then a fold hint; 'summary' shows only the +N -M stats line for the densest transcript."
+        },
         "wordWrap": {
           "type": "boolean",
           "default": true

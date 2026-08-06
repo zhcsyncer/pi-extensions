@@ -1,9 +1,8 @@
 import { strict as assert } from "node:assert";
 import {
-	CONTEXT_DISPLAY_MODE_VALUES,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
-	CONTEXT_UNKNOWN_MODE_VALUES,
+	CONTEXT_TEXT_MODE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
@@ -34,9 +33,9 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 11, "Follow Pi should keep CONFIG_VERSION at 11");
-assert.equal(normalizeConfig({ version: 0 }).version, 11, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 11, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 12, "Follow Pi should keep CONFIG_VERSION at 12");
+assert.equal(normalizeConfig({ version: 0 }).version, 12, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 12, "future raw version should normalize to current schema version");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
 assert.equal(normalizeConfig({ version: 10 }).colorSource, "glance", "v10 configs should preserve Glance palette behavior when colorSource is missing");
 assert.equal(normalizeConfig({ version: 10, colorSource: "pi" }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
@@ -108,12 +107,17 @@ for (const topMarginRows of EDITOR_TOP_MARGIN_ROW_VALUES) {
 for (const shaMode of GIT_SHA_MODE_VALUES) {
 	assert.equal(normalizeConfig({ git: { shaMode } }).git.shaMode, shaMode, `${shaMode} should normalize as a valid git SHA mode`);
 }
-for (const display of CONTEXT_DISPLAY_MODE_VALUES) {
-	assert.equal(normalizeConfig({ context: { display } }).context.display, display, `${display} should normalize as a valid context display mode`);
+for (const textMode of CONTEXT_TEXT_MODE_VALUES) {
+	assert.equal(normalizeConfig({ context: { text: textMode } }).context.text, textMode, `${textMode} should normalize as a valid context text mode`);
 }
-for (const unknown of CONTEXT_UNKNOWN_MODE_VALUES) {
-	assert.equal(normalizeConfig({ context: { unknown } }).context.unknown, unknown, `${unknown} should normalize as a valid context unknown mode`);
-}
+assert.equal(normalizeConfig({ context: { progress: true } }).context.progress, true, "context.progress true should normalize");
+assert.equal(normalizeConfig({ context: { progress: false } }).context.progress, false, "context.progress false should normalize");
+assert.deepEqual(normalizeConfig({ context: { display: "percent+tokens" } }).context, { ...defaults.context, text: "percent+tokens", progress: false }, "legacy display percent+tokens should migrate to text without progress");
+assert.deepEqual(normalizeConfig({ context: { display: "percent" } }).context, { ...defaults.context, text: "percent", progress: false }, "legacy display percent should migrate to text without progress");
+assert.deepEqual(normalizeConfig({ context: { display: "tokens" } }).context, { ...defaults.context, text: "tokens", progress: false }, "legacy display tokens should migrate to text without progress");
+assert.deepEqual(normalizeConfig({ context: { display: "progress" } }).context, { ...defaults.context, text: "percent", progress: true }, "legacy display progress should migrate to percent text with progress on");
+assert.deepEqual(normalizeConfig({ context: { display: "progress", text: "tokens", progress: false } }).context, { ...defaults.context, text: "tokens", progress: false }, "explicit new context fields should win over legacy display");
+assert.equal("unknown" in normalizeConfig({ context: { unknown: "hide" } }).context, false, "legacy context.unknown should be dropped");
 for (const progressStyle of CONTEXT_PROGRESS_STYLE_VALUES) {
 	assert.equal(normalizeConfig({ context: { progressStyle } }).context.progressStyle, progressStyle, `${progressStyle} should normalize as a valid context progress style`);
 }
@@ -173,8 +177,8 @@ const userConfig = normalizeConfig({
 		pollIntervalMs: 30000,
 	},
 	context: {
-		display: "tokens",
-		unknown: "hide",
+		text: "tokens",
+		progress: false,
 		progressStyle: "track",
 		progressWidth: "remaining",
 	},
@@ -193,7 +197,7 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 11,
+		version: 12,
 		enabled: false,
 		colorSource: "glance",
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
@@ -230,8 +234,8 @@ assert.deepEqual(
 			pollIntervalMs: 30000,
 		},
 		context: {
-			display: "tokens",
-			unknown: "hide",
+			text: "tokens",
+			progress: false,
 			progressStyle: "track",
 			progressWidth: "remaining",
 		},
@@ -292,8 +296,9 @@ assert.equal(normalizeConfig({ icons: null }).icons, defaults.icons, "non-string
 assert.equal(normalizeConfig({ display: { showProvider: "sometimes" } }).display.showProvider, defaults.display.showProvider, "unknown provider mode should fall back to default");
 assert.equal(normalizeConfig({ display: { workspaceLabel: "repo" } }).display.workspaceLabel, defaults.display.workspaceLabel, "unknown workspace label mode should fall back to default");
 assert.equal(normalizeConfig({ git: { shaMode: "branch" } }).git.shaMode, defaults.git.shaMode, "unknown git SHA mode should fall back to default");
-assert.equal(normalizeConfig({ context: { display: "window" } }).context.display, defaults.context.display, "unknown context display mode should fall back to default");
-assert.equal(normalizeConfig({ context: { unknown: "dim" } }).context.unknown, defaults.context.unknown, "unknown context unknown mode should fall back to default");
+assert.equal(normalizeConfig({ context: { text: "window" } }).context.text, defaults.context.text, "unknown context text mode should fall back to default");
+assert.equal(normalizeConfig({ context: { progress: "yes" } }).context.progress, defaults.context.progress, "invalid context progress should fall back to default");
+assert.deepEqual(normalizeConfig({ context: { display: "window" } }).context, defaults.context, "unknown legacy context display should fall back to defaults");
 assert.equal(normalizeConfig({ context: { progressStyle: "meter" } }).context.progressStyle, defaults.context.progressStyle, "unknown context progress style should fall back to default");
 assert.equal(normalizeConfig({ context: { progressWidth: "half" } }).context.progressWidth, defaults.context.progressWidth, "unknown context progress width should fall back to default");
 assert.equal(normalizeConfig({ tokens: { display: "input" } }).tokens.display, defaults.tokens.display, "unknown tokens display mode should fall back to default");

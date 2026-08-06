@@ -278,6 +278,26 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 	});
 });
 
+test("v2 diff.collapsedMode serializes sparsely and round-trips", () => {
+	const summaryConfig = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		diffCollapsedMode: "summary",
+	});
+	const summarySerialized = serializeToolDisplayConfigV2(summaryConfig);
+	assert.deepEqual(summarySerialized.diff, { collapsedMode: "summary" });
+
+	withTempDir("pi-tool-display-config-diff-fold-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, `${JSON.stringify(summarySerialized, null, 2)}\n`, "utf8");
+		assert.equal(loadToolDisplayConfig(configFile).config.diffCollapsedMode, "summary");
+	});
+
+	// Default "body" is not emitted by the sparse serializer.
+	const bodySerialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(bodySerialized.diff, undefined);
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedMode, "body");
+});
+
 test("invalid or old v2 fields are dropped with paths and rewritten", () => {
 	withTempDir("pi-tool-display-config-invalid-v2-", (dir) => {
 		const configFile = join(dir, "config.json");

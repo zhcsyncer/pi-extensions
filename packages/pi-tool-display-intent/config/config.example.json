@@ -19,6 +19,7 @@
     "indicators": "bars",
     "splitMinWidth": 120,
     "collapsedRows": 24,
+    "collapsedMode": "body",
     "wordWrap": true
   },
   "transcript": {

@@ -110,7 +110,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 | `intent` | `enabled`、`language`、`maxLength` | 模型生成的工具调用意图。 |
 | `toolCalls` | `style`、`bashCommandPreviewRows` | 调用外框和 Bash 命令参数折叠后的视觉行预算。 |
 | `results` | `mode`、`previewRows` | 结果显示量和统一的折行后视觉行预算。 |
-| `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`wordWrap` | edit/write diff 展示。 |
+| `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`collapsedMode`、`wordWrap` | edit/write diff 展示。`collapsedMode: summary` 在 Ctrl+O 前只显示 +N -M 统计行，最省空间；`body`（默认）保留 `collapsedRows` 行的预览。 |
 | `transcript` | `userMessageStyle`、`thinkingLabel` | 用户消息和 reasoning 标签。 |
 | `tools` | `passthrough`、`custom` | renderer ownership 和明确列出的自定义工具。 |
 | `advanced` | `expandedRows`、`truncationHints`、`rtkCompactionHints`、`debug` | 展开安全上限和诊断。 |

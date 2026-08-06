@@ -5,6 +5,7 @@ import { applyToolDisplayMode, parseToolDisplayMode } from "./presets.js";
 import { shortenPath } from "./render-utils.js";
 import type { InspectorSettingItem } from "./settings-inspector-modal.js";
 import {
+	DIFF_COLLAPSED_MODES,
 	RESULT_DISPLAY_MODES,
 	type ToolDisplayConfig,
 } from "./types.js";
@@ -44,6 +45,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
 		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
 		`diffRows=${config.diffCollapsedRows}`,
+		`diffFold=${config.diffCollapsedMode}`,
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
 		`ownership={${toolOwnershipSummary(config)}}`,
 	];
@@ -223,6 +225,26 @@ function buildInspectorSettings(
 			searchTerms: ["diff", "indicator", "bars", "classic", "none"],
 		},
 		{
+			id: "diffCollapsedMode",
+			label: "Diff collapsed style",
+			currentValue: config.diffCollapsedMode,
+			values: DIFF_COLLAPSED_MODES,
+			inspectorTitle: "Diff Collapsed Style",
+			inspectorSummary: [
+				"Controls what edit and write diffs render before Ctrl+O expansion.",
+				"summary shows only the +N -M stats line for the densest transcript; body keeps the existing collapsedRows preview.",
+			],
+			inspectorOptions: [
+				"body — show the first diff.collapsedRows rows then a fold hint (default)",
+				"summary — show only the stats line; Ctrl+O expands the full diff",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"When set to summary, diff.collapsedRows is ignored until expansion.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["diff", "collapsed", "summary", "body", "fold", "compact", "ctrl+o"],
+		},
+		{
 			id: "enableThinkingLabel",
 			label: "Thinking label",
 			currentValue: toOnOff(config.enableThinkingLabel),
@@ -288,6 +310,8 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 			return { ...config, diffViewMode: value as ToolDisplayConfig["diffViewMode"] };
 		case "diffIndicatorMode":
 			return { ...config, diffIndicatorMode: value as ToolDisplayConfig["diffIndicatorMode"] };
+		case "diffCollapsedMode":
+			return { ...config, diffCollapsedMode: value as ToolDisplayConfig["diffCollapsedMode"] };
 		default:
 			return config;
 	}

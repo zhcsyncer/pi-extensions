@@ -86,7 +86,7 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
 - **Git**：dirty、冲突、ahead/behind、SHA 和轮询。
 - **Cost**：累计费用，可隐藏零费用。
 - **Reply speed**：output tokens / wall time，支持自动、1 位或 0 位小数。
-- **Context**：百分比、当前 token / context window、右下角独立 track 或底边进度、三分之一或全部剩余宽度，以及压缩后的未知状态。
+- **Context**：百分比 / tokens 文本、可选右下角进度条（开启后文本跟随到底部且始终含百分比），以及独立 track 或底边样式、三分之一或全部剩余宽度。
 - **Tokens**：input/output、total、cache read/write；累计口径包括 assistant、嵌套 LLM tool、compaction 和 branch summary usage。
 - **Model**：provider、模型名和 thinking level。
 
@@ -102,17 +102,17 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 
 输入框右下角详情固定启用，没有总开关，并且只包含：
 
-- **Context progress**：在 `/glance` → **Context** → `Display` 中选择 `progress bar`。`Progress style: track` 保留独立的 `╶───────────╴ 23%`；`Progress style: border` 直接利用输入框底边，未用部分保持细线 `─`，已用部分变为粗线 `━`，并使用 `╼` 连接。`Progress width` 可选择进度与标签合计占内部宽度 `one third`，或使用底边全部 `remaining` 空间。百分比保持普通文本色，底部不显示 context 图标；`nerd` 文本模式仍使用 `󰍛`。
+- **Context progress**：在 `/glance` → **Context** 中打开 `Progress bar`。Context 文本会离开顶栏，跟随到底部进度旁；标签始终包含百分比，`Text` 仍可附加 tokens（`percent / tokens`）。`Progress style: track` 保留独立的 `╶───────────╴ 23%`；`Progress style: border` 直接利用输入框底边，未用部分保持细线 `─`，已用部分变为粗线 `━`，并使用 `╼` 连接。`Progress width` 可选择进度与标签合计占内部宽度 `one third`，或使用底边全部 `remaining` 空间。百分比保持普通文本色，底部不显示 context 图标；`nerd` 文本模式仍使用 `󰍛`。
 - **Context risk**：低于 70% 时已用部分使用 context 色，70%（含）到 85%（不含）使用 warning，85% 及以上使用 error。顶部 context 文本和两种底部进度样式共用这些固定阈值；填充色和未填充边框都来自当前 Color source，未知进度使用 dim 色。
 - **Auto compact**：Pi 自动压缩开启时显示。`plain` 模式高亮 `auto`，`nerd` 模式高亮 `󰁄 auto`；可在 **Bottom details** 中单独隐藏。该状态反映 Pi 合并后的全局/项目设置，项目设置仅在项目受信任时读取。
 
-窄终端会优先缩短进度显示；极窄终端中 context 优先于 auto compact。相关配置为：
+窄终端会优先缩短进度显示，随后丢弃可选 token 细节并保留百分比；极窄终端中 context 优先于 auto compact。相关配置为：
 
 ```json
 {
   "context": {
-    "display": "progress",
-    "unknown": "show",
+    "text": "percent",
+    "progress": true,
     "progressStyle": "border",
     "progressWidth": "third"
   },
@@ -122,7 +122,7 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 }
 ```
 
-配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 11；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
+配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 12；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
 
 ## 工作区标题
 
