@@ -45,10 +45,10 @@ describe("formatSessionTokens", () => {
 describe("renderRunningAgentStatus", () => {
   it("renders running status as separate component lines", () => {
     const theme = { fg: (_c: string, s: string) => s };
-    const component = renderRunningAgentStatus("⠋", "thinking: xhigh · 4 tool uses", "thinking…", theme);
+    const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "thinking…", theme);
 
     expect(component.render(120).map((line) => line.trimEnd())).toEqual([
-      "⠋ thinking: xhigh · 4 tool uses",
+      "⠋ effort: xhigh · 4 tool uses",
       "  ⎿  thinking…",
     ]);
   });

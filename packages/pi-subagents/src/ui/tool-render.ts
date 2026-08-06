@@ -106,18 +106,64 @@ export function appendCollapsedPreviewLine(
   return base + "\n" + theme.fg(color, `  ⎿  ${label}${hint}`);
 }
 
-/** Build "haiku · ↻5≤30 · 3 tool uses · 33.8k token" stats fragment. */
+/**
+ * Call-line / stats meta chips: model · effort · bg · …
+ * `model` omitted → "model: inherit" so the call node never hides the default.
+ */
+export function formatAgentCallMeta(opts: {
+  model?: string;
+  /** When true, append (inherit) after the model chip. */
+  modelInherited?: boolean;
+  effort?: string;
+  background?: boolean;
+  extra?: string[];
+}): string {
+  const parts: string[] = [];
+  const model = opts.model?.trim();
+  if (model) {
+    parts.push(opts.modelInherited ? `${model} (inherit)` : model);
+  } else {
+    parts.push("model: inherit");
+  }
+  const effort = opts.effort?.trim();
+  if (effort) parts.push(`effort: ${effort}`);
+  if (opts.background) parts.push("bg");
+  if (opts.extra?.length) {
+    for (const x of opts.extra) {
+      const t = x.trim();
+      if (t) parts.push(t);
+    }
+  }
+  return parts.join(" · ");
+}
+
+/** Build "haiku · effort: high · ↻5≤30 · 3 tool uses · 33.8k token" stats fragment. */
 export function formatAgentDetailsStats(d: AgentDetails, theme: Theme): string {
   const parts: string[] = [];
-  if (d.modelName) parts.push(d.modelName);
-  if (d.tags) parts.push(...d.tags);
-  if (d.turnCount != null && d.turnCount > 0) {
-    parts.push(formatTurns(d.turnCount, d.maxTurns));
+  if (d.modelName) {
+    parts.push(d.modelInherited ? `${d.modelName} (inherit)` : d.modelName);
   }
-  if (d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
-  if (d.tokens) parts.push(d.tokens);
-  if (!parts.length) return "";
-  return parts.map((p) => fgPreservingNestedStyles(theme, "dim", p)).join(" " + theme.fg("dim", "·") + " ");
+  if (d.effort) parts.push(`effort: ${d.effort}`);
+  // Tags from buildInvocationTags — skip effort: (already explicit above).
+  if (d.tags) {
+    for (const tag of d.tags) {
+      if (tag.startsWith("effort:")) continue;
+      parts.push(tag);
+    }
+  }
+  const seen = new Set<string>();
+  const unique = parts.filter((p) => {
+    if (seen.has(p)) return false;
+    seen.add(p);
+    return true;
+  });
+  if (d.turnCount != null && d.turnCount > 0) {
+    unique.push(formatTurns(d.turnCount, d.maxTurns));
+  }
+  if (d.toolUses > 0) unique.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
+  if (d.tokens) unique.push(d.tokens);
+  if (!unique.length) return "";
+  return unique.map((p) => fgPreservingNestedStyles(theme, "dim", p)).join(" " + theme.fg("dim", "·") + " ");
 }
 
 export function isErrorStatus(status: string | undefined): boolean {

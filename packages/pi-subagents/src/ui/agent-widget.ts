@@ -76,9 +76,16 @@ export interface AgentDetails {
   activity?: string;
   /** Current spinner frame index (for animated running indicator). */
   spinnerFrame?: number;
-  /** Short model name if different from parent (e.g. "haiku", "sonnet"). */
+  /** Effective short model label when known (e.g. "haiku", "sonnet") — including parent-inherited. */
   modelName?: string;
-  /** Notable config tags (e.g. ["thinking: high", "isolated"]). */
+  /** True when the effective model is the parent session model. */
+  modelInherited?: boolean;
+  /**
+   * Thinking / effort level for TUI (maps from tool/frontmatter `thinking`).
+   * Shown as `effort: <level>` for Claude Code-adjacent wording.
+   */
+  effort?: string;
+  /** Notable config tags (e.g. ["effort: high", "isolated", "background"]). */
   tags?: string[];
   /** Current turn count. */
   turnCount?: number;
@@ -160,13 +167,22 @@ export function getPromptModeLabel(type: SubagentType): string | undefined {
   return config.promptMode === "append" ? "twin" : undefined;
 }
 
+/** Short model label for TUI (strips leading "Claude ", lowercases). */
+export function shortModelLabel(model: { id?: string; name?: string } | null | undefined): string | undefined {
+  if (!model) return undefined;
+  const raw = (model.name ?? model.id ?? "").trim();
+  if (!raw) return undefined;
+  return raw.replace(/^Claude\s+/i, "").toLowerCase();
+}
+
 /** Mode label is not included — callers add it where they want it. */
 export function buildInvocationTags(
   invocation: AgentInvocation | undefined,
 ): { modelName?: string; tags: string[] } {
   const tags: string[] = [];
   if (!invocation) return { tags };
-  if (invocation.thinking) tags.push(`thinking: ${invocation.thinking}`);
+  // TUI wording: effort (Claude Code-adjacent); source field remains `thinking`.
+  if (invocation.thinking) tags.push(`effort: ${invocation.thinking}`);
   if (invocation.isolated) tags.push("isolated");
   if (invocation.isolation === "worktree") tags.push("worktree");
   if (invocation.inheritContext) tags.push("inherit context");

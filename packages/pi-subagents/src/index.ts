@@ -42,6 +42,7 @@ import {
   formatTurns,
   getDisplayName,
   getPromptModeLabel,
+  shortModelLabel,
   SPINNER,
   type Theme,
   type UICtx,
@@ -50,6 +51,7 @@ import { FleetList, type FleetUICtx } from "./ui/fleet-list.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import {
   firstLinePreview,
+  formatAgentCallMeta,
   formatAgentDetailsStats,
   renderAgentLikeResult,
   renderExpandedMarkdown,
@@ -79,6 +81,8 @@ function errorTextResult(msg: string, partial?: Partial<AgentDetails>) {
     error: partial?.error ?? firstLinePreview(msg, 160),
     agentId: partial?.agentId,
     modelName: partial?.modelName,
+    modelInherited: partial?.modelInherited,
+    effort: partial?.effort,
     tags: partial?.tags,
   });
 }
@@ -246,7 +250,7 @@ function formatTaskNotification(record: AgentRecord, resultMaxLen: number): stri
 
 /** Build AgentDetails from a base + record-specific fields. */
 function buildDetails(
-  base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "tags">,
+  base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags">,
   record: { toolUses: number; startedAt: number; completedAt?: number; status: string; error?: string; id?: string; session?: any; lifetimeUsage: LifetimeUsage },
   activity?: AgentActivity,
   overrides?: Partial<AgentDetails>,
@@ -1000,9 +1004,16 @@ Terse command-style prompts produce shallow, generic work.
     // ---- Custom rendering: Claude Code style ----
 
     renderCall(args, theme) {
-      const displayName = args.subagent_type ? getDisplayName(args.subagent_type) : "Agent";
+      const displayName = args.subagent_type ? getDisplayName(args.subagent_type as string) : "Agent";
       const desc = typeof args.description === "string" ? args.description : "";
-      return renderToolCallTitle(displayName, desc || undefined, theme);
+      // Call-time chips use tool args (may be fuzzy model / unset = inherit).
+      // Result stats use the resolved effective model from details.
+      const meta = formatAgentCallMeta({
+        model: typeof args.model === "string" ? args.model : undefined,
+        effort: typeof args.thinking === "string" ? args.thinking : undefined,
+        background: args.run_in_background === true,
+      });
+      return renderToolCallTitle(displayName, desc || undefined, theme, meta);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1102,9 +1113,10 @@ Terse command-style prompts produce shallow, generic work.
 
       const parentModelId = ctx.model?.id;
       const effectiveModelId = model?.id;
-      const modelName = effectiveModelId && effectiveModelId !== parentModelId
-        ? (model?.name ?? effectiveModelId).replace(/^Claude\s+/i, "").toLowerCase()
-        : undefined;
+      // Always surface the effective model on the tool node (including inherit).
+      const modelName = shortModelLabel(model);
+      const modelInherited = !!(effectiveModelId && parentModelId && effectiveModelId === parentModelId);
+      const effort = thinking ? String(thinking) : undefined;
       const effectiveMaxTurns = normalizeMaxTurns(resolvedConfig.maxTurns ?? getDefaultMaxTurns());
       const agentInvocation: AgentInvocation = {
         modelName,
@@ -1121,11 +1133,16 @@ Terse command-style prompts produce shallow, generic work.
       const modeLabel = getPromptModeLabel(subagentType);
       const { tags: invocationTags } = buildInvocationTags(agentInvocation);
       const agentTags = modeLabel ? [modeLabel, ...invocationTags] : invocationTags;
-      const detailBase = {
+      const detailBase: Pick<
+        AgentDetails,
+        "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags"
+      > = {
         displayName,
         description: params.description,
         subagentType,
         modelName,
+        modelInherited: modelInherited || undefined,
+        effort,
         tags: agentTags.length > 0 ? agentTags : undefined,
       };
 
@@ -1424,8 +1441,16 @@ Terse command-style prompts produce shallow, generic work.
       const flags = [
         args.wait ? "wait" : undefined,
         args.verbose ? "verbose" : undefined,
-      ].filter((f): f is string => !!f).join(" · ");
-      return renderToolCallTitle("Get Result", id || undefined, theme, flags || undefined);
+      ].filter((f): f is string => !!f);
+      // Prefer live record meta when the id is still in the manager.
+      const rec = typeof args.agent_id === "string" ? manager.getRecord(args.agent_id) : undefined;
+      const meta = formatAgentCallMeta({
+        model: rec?.invocation?.modelName,
+        effort: rec?.invocation?.thinking ? String(rec.invocation.thinking) : undefined,
+        background: rec?.invocation?.runInBackground === true,
+        extra: flags,
+      });
+      return renderToolCallTitle("Get Result", id || undefined, theme, meta);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1498,6 +1523,8 @@ Terse command-style prompts produce shallow, generic work.
       }
 
       const activity = agentActivity.get(record.id);
+      const inv = record.invocation;
+      const invTags = buildInvocationTags(inv).tags;
       const details: AgentDetails = {
         displayName,
         description: record.description,
@@ -1510,6 +1537,9 @@ Terse command-style prompts produce shallow, generic work.
         error: record.error,
         turnCount: activity?.turnCount,
         maxTurns: activity?.maxTurns,
+        modelName: inv?.modelName,
+        effort: inv?.thinking ? String(inv.thinking) : undefined,
+        tags: invTags.length > 0 ? invTags : undefined,
         activity: activity
           ? describeActivity(activity.activeTools, activity.responseText)
           : undefined,

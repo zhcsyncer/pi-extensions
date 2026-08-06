@@ -156,3 +156,49 @@ describe("renderUndetailedResult", () => {
     expect(out).toMatch(/Model not in scope/);
   });
 });
+
+describe("formatAgentCallMeta / formatAgentDetailsStats", () => {
+  it("call meta always shows model chip (inherit when unset)", async () => {
+    const { formatAgentCallMeta } = await import("../src/ui/tool-render.js");
+    expect(formatAgentCallMeta({})).toBe("model: inherit");
+    expect(formatAgentCallMeta({ model: "haiku", effort: "high", background: true })).toBe(
+      "haiku · effort: high · bg",
+    );
+    expect(formatAgentCallMeta({ model: "haiku", modelInherited: true })).toBe("haiku (inherit)");
+  });
+
+  it("result stats include model (inherit) and effort", async () => {
+    const { formatAgentDetailsStats } = await import("../src/ui/tool-render.js");
+    const s = formatAgentDetailsStats(
+      {
+        displayName: "Explore",
+        description: "x",
+        subagentType: "Explore",
+        toolUses: 2,
+        tokens: "1.0k token",
+        durationMs: 1000,
+        status: "completed",
+        modelName: "haiku",
+        modelInherited: true,
+        effort: "high",
+        tags: ["effort: high", "background"],
+      },
+      theme(),
+    );
+    expect(s).toContain("haiku (inherit)");
+    expect(s).toContain("effort: high");
+    expect(s).toContain("background");
+    expect(s).toContain("2 tool uses");
+    // effort not duplicated from tags
+    expect(s.match(/effort: high/g)?.length).toBe(1);
+  });
+});
+
+describe("shortModelLabel", () => {
+  it("strips Claude prefix and lowercases", async () => {
+    const { shortModelLabel } = await import("../src/ui/agent-widget.js");
+    expect(shortModelLabel({ name: "Claude Sonnet 4", id: "claude-sonnet-4" })).toBe("sonnet 4");
+    expect(shortModelLabel({ id: "haiku" })).toBe("haiku");
+    expect(shortModelLabel(undefined)).toBeUndefined();
+  });
+});
