@@ -10,6 +10,7 @@ import type { AgentManager } from "../agent-manager.js";
 import { getConfig } from "../agent-types.js";
 import type { AgentInvocation, SubagentType, WidgetMode } from "../types.js";
 import { getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "../usage.js";
+import { sanitizeDisplayText } from "./display-safety.js";
 
 // ---- Constants ----
 
@@ -221,7 +222,7 @@ export function detailsFromInvocation(invocation: AgentInvocation | undefined): 
 
 /** Truncate text to a single line, max `len` chars. */
 function truncateLine(text: string, len = 60): string {
-  const line = text.split("\n").find(l => l.trim())?.trim() ?? "";
+  const line = sanitizeDisplayText(text).split("\n").find(l => l.trim())?.trim() ?? "";
   if (line.length <= len) return line;
   return line.slice(0, len) + "…";
 }
@@ -244,10 +245,11 @@ export function formatSubagentsStatusText(runningCount: number, queuedCount: num
  * Prefers path/command/pattern from args when present.
  */
 export function formatActiveToolSummary(toolName: string, args?: unknown): string {
-  if (toolName.startsWith("tools-error:") || toolName.startsWith("extension-error:")) {
-    return truncateLine(toolName.replace(/^(tools|extension)-error:/, "⚠ "), 70);
+  const safeToolName = sanitizeDisplayText(toolName);
+  if (safeToolName.startsWith("tools-error:") || safeToolName.startsWith("extension-error:")) {
+    return truncateLine(safeToolName.replace(/^(tools|extension)-error:/, "⚠ "), 70);
   }
-  const action = TOOL_DISPLAY[toolName] ?? toolName;
+  const action = TOOL_DISPLAY[safeToolName] ?? safeToolName;
   const record =
     args && typeof args === "object" && !Array.isArray(args)
       ? (args as Record<string, unknown>)
@@ -256,7 +258,9 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
   const firstString = (...keys: string[]): string | undefined => {
     for (const k of keys) {
       const v = record[k];
-      if (typeof v === "string" && v.trim()) return v.trim();
+      if (typeof v !== "string") continue;
+      const safe = sanitizeDisplayText(v).trim();
+      if (safe) return safe;
     }
     return undefined;
   };
@@ -264,13 +268,14 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
   const command = firstString("command", "cmd");
   const pattern = firstString("pattern", "query", "regex", "search");
   const glob = firstString("glob", "include", "glob_pattern", "globPattern");
+  const url = firstString("url");
   let detail: string | undefined;
   if (command) detail = command;
   else if (path) detail = path;
   else if (pattern && (path || glob)) detail = `${JSON.stringify(pattern)} ${path ?? glob}`;
   else if (pattern) detail = JSON.stringify(pattern);
   else if (glob) detail = glob;
-  else if (typeof record.url === "string" && record.url.trim()) detail = record.url.trim();
+  else if (url) detail = url;
   if (detail) {
     const one = detail.replace(/\s+/g, " ");
     const clipped = one.length > 48 ? `${one.slice(0, 47)}…` : one;
@@ -285,7 +290,9 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
  */
 export function describeActivity(activeTools: Map<string, string>, responseText?: string): string {
   if (activeTools.size > 0) {
-    const parts = [...activeTools.values()].filter((p) => p.trim().length > 0);
+    const parts = [...activeTools.values()]
+      .map((part) => sanitizeDisplayText(part))
+      .filter((part) => part.trim().length > 0);
     if (parts.length === 1) {
       const p = parts[0]!;
       return p.endsWith("…") ? p : `${p}…`;

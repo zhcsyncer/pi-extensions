@@ -22,7 +22,7 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Package file lists and pack checks include both language versions where applicable.
   - Add an appropriate changeset if the documentation update accompanies user-visible behavior changes.
 
-- [ ] Make `@zhcsyncer/pi-ask-user-question` documentation bilingual with English as the default before the next root bundle release.
+- [x] Make `@zhcsyncer/pi-ask-user-question` documentation bilingual with English as the default before the next root bundle release.
 
   Acceptance criteria:
 
@@ -51,7 +51,7 @@ Fork display work and adversarial-review P1/P2 honesty fixes are on the branch; 
   - Full args remain available only behind explicit expand (`o` / Ctrl+O), with no regression to false ✓/✗ status chrome.
   - Unit coverage for at least one bash command containing a token-like value.
 
-- [ ] **Strip ANSI / terminal control sequences from child-sourced display text**
+- [x] **Strip ANSI / terminal control sequences from child-sourced display text**
 
   Tool args and outputs can carry ESC/OSC sequences into parent widget lines and step notes; pi-tui may pass them through.
 

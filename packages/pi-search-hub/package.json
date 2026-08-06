@@ -52,14 +52,16 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^0.80.0",
-    "@earendil-works/pi-coding-agent": "^0.80.0"
+    "@earendil-works/pi-ai": ">=0.80.0 <1",
+    "@earendil-works/pi-coding-agent": ">=0.80.0 <1"
   },
   "dependencies": {
     "typebox": "1.1.24",
     "wreq-js": "2.3.1"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
     "@types/node": "25.6.0",
     "typescript": "6.0.3",
     "vitest": "4.1.7"

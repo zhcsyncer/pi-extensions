@@ -76,6 +76,7 @@
     "packages/pi-ask-user-question/locales/*.json",
     "packages/pi-ask-user-question/docs/*.md",
     "packages/pi-ask-user-question/README.md",
+    "packages/pi-ask-user-question/README.zh-CN.md",
     "packages/pi-ask-user-question/CHANGELOG.md",
     "packages/pi-ask-user-question/LICENSE",
     "packages/pi-ask-user-question/UPSTREAM_LICENSE",
@@ -137,7 +138,10 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@changesets/cli": "2.31.0"
+    "@changesets/cli": "2.31.0",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0"
   },
   "packageManager": "pnpm@11.11.0"
 }

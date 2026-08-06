@@ -6,6 +6,7 @@
  */
 
 import { extractText } from "../context.js";
+import { sanitizeDisplayText } from "./display-safety.js";
 
 /** Max lines of the dispatch prompt shown before truncation note. */
 export const PROMPT_MAX_LINES = 30;
@@ -61,14 +62,16 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function firstString(args: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
-    const v = args[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    const value = args[key];
+    if (typeof value !== "string") continue;
+    const safe = sanitizeDisplayText(value).trim();
+    if (safe) return safe;
   }
   return undefined;
 }
 
 function compactInline(text: string, maxChars: number): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
+  const oneLine = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
   if (oneLine.length <= maxChars) return oneLine;
   if (maxChars <= 1) return "…";
   return `${oneLine.slice(0, Math.max(0, maxChars - 1))}…`;
@@ -139,7 +142,7 @@ export function summarizeToolArgs(toolName: string, args: Record<string, unknown
 
 /** Build a folded one-line note for a tool result body. */
 export function summarizeToolResult(text: string, isError: boolean, maxChars = RESULT_PREVIEW_MAX_CHARS): string {
-  const trimmed = text.replace(/\r\n/g, "\n").trim();
+  const trimmed = sanitizeDisplayText(text).trim();
   if (!trimmed) return isError ? "error" : "ok";
 
   const lines = trimmed.split("\n");
@@ -162,8 +165,8 @@ export function summarizeToolResult(text: string, isError: boolean, maxChars = R
 }
 
 function messageText(msg: LooseMessage): string {
-  if (typeof msg.content === "string") return msg.content;
-  if (Array.isArray(msg.content)) return extractText(msg.content);
+  if (typeof msg.content === "string") return sanitizeDisplayText(msg.content);
+  if (Array.isArray(msg.content)) return sanitizeDisplayText(extractText(msg.content));
   return "";
 }
 
@@ -201,18 +204,22 @@ export function buildConversationBrief(messages: readonly LooseMessage[]): Conve
       for (const raw of content) {
         const block = asRecord(raw);
         if (!block) continue;
-        if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-          textParts.push(block.text);
+        if (block.type === "text" && typeof block.text === "string") {
+          const safeText = sanitizeDisplayText(block.text);
+          if (safeText.trim()) textParts.push(safeText);
         } else if (block.type === "toolCall") {
-          const toolName =
+          const toolName = sanitizeDisplayText(
             (typeof block.name === "string" && block.name) ||
             (typeof block.toolName === "string" && block.toolName) ||
-            "unknown";
+            "unknown",
+          );
           const id = getToolCallId(block) ?? `anon-${++syntheticSeq}`;
           const args = getToolCallArgs(block);
           let argsText: string | undefined;
           try {
-            argsText = Object.keys(args).length > 0 ? JSON.stringify(args, null, 2) : undefined;
+            argsText = Object.keys(args).length > 0
+              ? sanitizeDisplayText(JSON.stringify(args, null, 2))
+              : undefined;
           } catch {
             argsText = undefined;
           }
@@ -243,10 +250,11 @@ export function buildConversationBrief(messages: readonly LooseMessage[]): Conve
         (typeof msg.toolCallId === "string" && msg.toolCallId) ||
         (typeof msg.toolUseId === "string" && msg.toolUseId) ||
         `result-${++syntheticSeq}`;
-      const toolName =
+      const toolName = sanitizeDisplayText(
         (typeof msg.toolName === "string" && msg.toolName) ||
         byId.get(id)?.toolName ||
-        "tool";
+        "tool",
+      );
       const text = messageText(msg);
       const isError = msg.isError === true;
       const note = summarizeToolResult(text, isError);
@@ -272,8 +280,8 @@ export function buildConversationBrief(messages: readonly LooseMessage[]): Conve
     }
 
     if (role === "bashExecution") {
-      const command = typeof msg.command === "string" ? msg.command : "";
-      const output = typeof msg.output === "string" ? msg.output : "";
+      const command = typeof msg.command === "string" ? sanitizeDisplayText(msg.command) : "";
+      const output = typeof msg.output === "string" ? sanitizeDisplayText(msg.output) : "";
       // Pi records exitCode/cancelled on bashExecution (see recordBashResult).
       const exitCode = typeof msg.exitCode === "number" ? msg.exitCode : undefined;
       const cancelled = msg.cancelled === true;
@@ -312,7 +320,7 @@ export function promptLooksLikeInheritedContext(prompt: string): boolean {
  * dispatch task is not eaten by the parent history wall.
  */
 export function truncatePromptLines(prompt: string, maxLines = PROMPT_MAX_LINES): { lines: string[]; truncated: boolean } {
-  const lines = prompt.replace(/\r\n/g, "\n").split("\n");
+  const lines = sanitizeDisplayText(prompt).split("\n");
   if (lines.length <= maxLines) return { lines, truncated: false };
   const hidden = lines.length - maxLines;
   if (promptLooksLikeInheritedContext(prompt)) {
@@ -376,13 +384,13 @@ export function stepStatusIcon(status: StepStatus): string {
 /** Format one step row without theme colors: `✓ read   path/to/file.ts`. */
 export function formatStepLine(step: BriefStep, opts?: { includeResultNote?: boolean }): string {
   const icon = stepStatusIcon(step.status);
-  const name = step.toolName || "tool";
+  const name = sanitizeDisplayText(step.toolName || "tool");
   const padName = name.length < 6 ? name.padEnd(6) : name;
   const parts = [icon, padName];
-  if (step.summary) parts.push(step.summary);
+  if (step.summary) parts.push(sanitizeDisplayText(step.summary));
   let line = parts.join(" ");
   if (opts?.includeResultNote !== false && step.resultNote) {
-    line += `  · ${step.resultNote}`;
+    line += `  · ${sanitizeDisplayText(step.resultNote)}`;
   }
   return line;
 }

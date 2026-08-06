@@ -81,6 +81,7 @@ test("re-prompts an invalid key and stores the selected tier", async () => {
 	let secretPrompts = 0;
 	const notifications: string[] = [];
 	const credential = await login({
+		signal: new AbortController().signal,
 		async prompt(prompt) {
 			if (prompt.type === "secret") {
 				secretPrompts += 1;
@@ -113,6 +114,7 @@ test("allows an explicit save when validation is temporarily unavailable", async
 
 	const prompts: string[] = [];
 	const credential = await login({
+		signal: new AbortController().signal,
 		async prompt(prompt) {
 			prompts.push(prompt.type);
 			if (prompt.type === "secret") return "unchecked-key";
@@ -155,11 +157,12 @@ test("filters the static catalog by tier and resolves standard auth", async () =
 		async env() { return undefined; },
 		async fileExists() { return false; },
 	};
-	const auth = await provider.auth.apiKey?.resolve({ ctx, credential: mediumCredential });
+	const signal = new AbortController().signal;
+	const auth = await provider.auth.apiKey?.resolve({ ctx, credential: mediumCredential, signal });
 	assert.equal(auth?.auth.apiKey, "stored-key");
 	assert.equal(auth?.env?.ARK_AGENT_PLAN_TIER, "medium");
 	assert.equal(auth?.source, "Pi auth.json");
-	assert.equal(await provider.auth.apiKey?.check?.({ ctx }), undefined);
+	assert.equal(await provider.auth.apiKey?.check?.({ ctx, signal }), undefined);
 });
 
 test("provides public API cost estimates for every model", () => {
