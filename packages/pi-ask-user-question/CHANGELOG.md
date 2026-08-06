@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Added `1`–`4` shortcuts for selecting single-choice options and toggling multi-select options.
+- Added context-aware number shortcuts: `1`–`N` selects or toggles authored options, `N+1` focuses `Type something.`, and later digits become input text.
 - Added a readable result renderer that shows answers, notes, errors, and bounded expanded previews after interaction completes.
 
 ### Changed

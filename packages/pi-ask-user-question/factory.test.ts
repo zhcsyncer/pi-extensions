@@ -291,11 +291,10 @@ describe("ask_user_question — 'Type something.' free-text flow", () => {
 		expect(r?.details.answers[0].answer).toBe("hello");
 	});
 
-	it("number keys become text after focus moves to Type something", async () => {
+	it("the Type something number focuses its editor, then later digits become text", async () => {
 		const tool = register();
 		const { custom } = driveCustom((c) => {
-			c.handleInput(KEY.DOWN); // → Second; digits would still direct-select here
-			c.handleInput(KEY.DOWN); // → Type something (inputMode=true)
+			c.handleInput("3"); // two authored options → row 3 is Type something (inputMode=true)
 			c.handleInput("2");
 			c.handleInput("0");
 			c.handleInput("2");

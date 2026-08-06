@@ -228,7 +228,7 @@ export class SubmitTabStrategy implements TabContentStrategy {
 
 /**
  * Build the controls hint line. Order:
- *   Enter/1-4 select · ↑/↓ [· Space toggle] [· n notes] [· Tab switch] · Esc · Ctrl+] collapse
+ *   Enter/1-5 select · ↑/↓ [· Space toggle] [· n notes] [· Tab switch] · Esc · Ctrl+] collapse
  *   [· Shift+Enter newline] [· Ctrl+U clear]
  *
  * `NOTES` is part of the resting (notes-closed) core — it drops while the notes

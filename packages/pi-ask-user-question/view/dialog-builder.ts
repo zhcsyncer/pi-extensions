@@ -8,7 +8,7 @@ import type { StatefulView } from "./stateful-view.js";
 import type { TabComponents } from "./tab-components.js";
 import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
 
-export const HINT_PART_ENTER = "Enter/1-4 to select";
+export const HINT_PART_ENTER = "Enter/1-5 to select";
 export const HINT_PART_NAV = "↑/↓ to navigate";
 export const HINT_PART_NEW_LINE = "Shift+Enter for newline";
 export const HINT_PART_CLEAR = "Ctrl+U to clear";

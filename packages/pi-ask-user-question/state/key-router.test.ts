@@ -240,8 +240,22 @@ describe("routeKey — confirm (single-select)", () => {
 		});
 	});
 
-	it("number keys never address sentinel rows or out-of-range options", () => {
-		expect(routeKey("4", makeState(), makeRuntime())).toEqual({ kind: "ignore" });
+	it("the number after the authored options focuses Type something", () => {
+		const items: WrappingSelectItem[] = [
+			{ kind: "option", label: "A" },
+			{ kind: "option", label: "B" },
+			{ kind: "option", label: "C" },
+			{ kind: "other", label: "Type something." },
+		];
+		expect(routeKey("4", makeState(), makeRuntime({ items, currentItem: items[0] }))).toEqual({
+			kind: "nav",
+			nextIndex: 3,
+			inputValue: "",
+		});
+	});
+
+	it("number keys never address rows beyond Type something", () => {
+		expect(routeKey("5", makeState(), makeRuntime())).toEqual({ kind: "ignore" });
 	});
 });
 

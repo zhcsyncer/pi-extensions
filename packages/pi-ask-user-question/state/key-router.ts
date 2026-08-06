@@ -106,8 +106,8 @@ function buildMultiSelected(state: QuestionnaireState, runtime: QuestionnaireRun
 	return out;
 }
 
-function directOptionIndex(data: string, optionCount: number): number | undefined {
-	const upper = Math.min(optionCount, MAX_DIRECT_OPTION_KEY);
+function directRowIndex(data: string, rowCount: number): number | undefined {
+	const upper = Math.min(rowCount, MAX_DIRECT_OPTION_KEY);
 	for (let index = 0; index < upper; index++) {
 		const key = String(index + 1) as Parameters<typeof matchesKey>[1];
 		if (matchesKey(data, key)) return index;
@@ -239,12 +239,18 @@ export function routeKey(data: string, state: QuestionnaireState, runtime: Quest
 	const q = runtime.questions[state.currentTab];
 	if (!q) return { kind: "ignore" };
 
-	// Number keys address authored options directly. Sentinel rows are intentionally
-	// excluded: custom text still requires focusing "Type something.", and multi-select
-	// submission still requires the Next row. Notes/input/submit modes returned above,
-	// so digits remain ordinary text while editing and never activate hidden choices.
-	const directIndex = directOptionIndex(data, q.options.length);
+	// Number keys address authored options plus the immediately following "Type something."
+	// row. Once that row gains focus, inputMode returns above before this block, so every
+	// subsequent digit is inserted as text. The final Next row in multi-select questions
+	// remains navigation-only and cannot be submitted accidentally by number.
+	const directIndex = directRowIndex(data, q.options.length + 1);
 	if (directIndex !== undefined) {
+		if (directIndex === q.options.length) {
+			const directItem = runtime.items[directIndex];
+			return directItem?.kind === "other"
+				? { kind: "nav", nextIndex: directIndex, inputValue: runtime.inputBuffer }
+				: { kind: "ignore" };
+		}
 		if (q.multiSelect) return { kind: "toggle", index: directIndex };
 		const option = q.options[directIndex];
 		if (!option) return { kind: "ignore" };

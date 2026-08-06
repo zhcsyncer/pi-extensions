@@ -8,7 +8,7 @@ adapts to the size of your terminal.
 | Key | What it does | Where it applies |
 | --- | --- | --- |
 | `↑` / `↓` | Move between rows. Wraps at both ends. | Option list, Submit picker |
-| `1`–`4` | Select the corresponding authored option immediately; toggles it in multi-select questions. | Question tabs outside text/notes editing |
+| `1`–`5` | `1`–`N` selects or toggles an authored option; `N+1` focuses `Type something.`. After it gains focus, digits are inserted as text. | Question tabs outside text/notes editing |
 | `Enter` | Confirm the focused option, commit typed text, close notes, or activate the focused Submit-picker row. | Everywhere |
 | `Shift+Enter` | Insert a newline. | `Type something.` input, notes editor |
 | `Esc` | Cancel the whole questionnaire. | Everywhere except the notes editor, where it closes notes |
