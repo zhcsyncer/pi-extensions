@@ -21,3 +21,17 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Both language versions stay structurally aligned and link to one another.
   - Package file lists and pack checks include both language versions where applicable.
   - Add an appropriate changeset if the documentation update accompanies user-visible behavior changes.
+
+- [ ] Make `@zhcsyncer/pi-ask-user-question` documentation bilingual with English as the default before the next root bundle release.
+
+  Acceptance criteria:
+
+  - Replace the current Chinese-only `packages/pi-ask-user-question/README.md` with:
+    - `README.md` in English as the npm/GitHub default;
+    - `README.zh-CN.md` in Simplified Chinese.
+  - Keep both README heading structures aligned and add reciprocal language links.
+  - Preserve upstream documentation separately as `UPSTREAM_README.md`; do not treat it as the maintained English README.
+  - Include both maintained README files in the standalone package and root bundle manifests and require both in `scripts/check-pack.mjs`.
+  - Add the Ask User Question pair to the bilingual parity check so a missing or structurally divergent translation fails CI.
+  - Add an explicit repository-wide rule to `AGENTS.md`: maintained user-facing package documentation is bilingual, with English in `README.md` and Simplified Chinese in `README.zh-CN.md`, unless a documented exception applies.
+  - Add the appropriate package and root changeset because the corrected README is user-visible in both npm artifacts.
