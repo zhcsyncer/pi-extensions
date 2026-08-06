@@ -209,6 +209,16 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(formatActiveToolSummary("edit", {})).toBe("editing");
   });
 
+  it("strips terminal controls from parent widget activity", () => {
+    const summary = formatActiveToolSummary("bash", {
+      command: "echo \u001b[31mred\u001b[0m \u001b]8;;https://evil.invalid/?token=x\u0007link\u001b]8;;\u0007 中文",
+    });
+
+    expect(summary).toBe("running echo red link 中文");
+    expect(summary).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/);
+    expect(summary).not.toContain("evil.invalid");
+  });
+
   it("describeActivity prefers in-flight step summaries over thinking…", () => {
     const tools = new Map<string, string>([
       ["c1", "reading src/a.ts"],

@@ -1,45 +1,47 @@
 # pi-ask-user-question
 
-面向 Pi 的结构化问答扩展，维护自 `@juicesharp/rpiv-ask-user-question`。它注册 `ask_user_question` 工具，让模型在需求不明确时一次提出 1–4 个带说明的单选或多选问题。
+[简体中文](./README.zh-CN.md)
 
-该 fork 将问卷放入 Pi 的正常自定义组件布局，而不是覆盖底部区域的全屏 overlay；同时支持上下文感知的数字键直选，并在交互结束后提供可审计结果渲染。
+A structured questionnaire extension for Pi, maintained from `@juicesharp/rpiv-ask-user-question`. It registers the `ask_user_question` tool so the model can ask 1–4 documented single-select or multi-select questions at once when requirements are ambiguous.
 
-## 安装
+This fork renders the questionnaire in Pi's normal custom-component layout instead of a full-screen overlay over the bottom area. It also adds context-aware numeric selection and an auditable result view after the interaction finishes.
 
-只安装问答扩展：
+## Install
+
+Install only the questionnaire extension:
 
 ```bash
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
-也可以安装完整扩展集合：
+Or install the complete extension bundle:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-## 交互
+## Interaction
 
-- `1`–`5`：焦点不在 `Type something.` 时，`1`–`N` 直接选择或切换正式选项，`N+1` 聚焦 `Type something.`。
-- `↑` / `↓`：移动焦点。
-- `Enter`：确认当前单选项；多选中切换当前项，聚焦 `Next` 时提交该题。
-- `Space`：切换当前多选项。
-- `Tab` / `Shift+Tab`：在多题问卷的题目与提交页之间切换。
-- `n`：为当前题添加备注。
-- `Esc`：取消整个问卷。
-- `Ctrl+]`：把问卷缩成一行或恢复；可通过配置修改或关闭。
+- `1`–`5`: when `Type something.` is not focused, `1`–`N` selects or toggles a defined option directly, while `N+1` focuses `Type something.`.
+- `↑` / `↓`: move focus.
+- `Enter`: confirm the focused single-select option; in multi-select questions, toggle the focused option or submit the question when `Next` is focused.
+- `Space`: toggle the focused multi-select option.
+- `Tab` / `Shift+Tab`: move between questions and the submit page in a multi-question questionnaire.
+- `n`: add a note to the current question.
+- `Esc`: cancel the entire questionnaire.
+- `Ctrl+]`: collapse the questionnaire to one line or restore it; the shortcut can be changed or disabled in configuration.
 
-每道题会自动追加 `Type something.`，用于输入选项之外的回答。未进入输入状态时，可按紧随正式选项的编号直接聚焦该行；聚焦后所有数字都作为普通文本输入。多选题的 `Next` 仍只能通过导航与 Enter 触发，避免数字误提交。
+Every question automatically includes a `Type something.` row for answers outside the authored options. Before text entry begins, press the number immediately following the defined options to focus that row. Once focused, every digit is entered as ordinary text. A multi-select question's `Next` row still requires navigation and `Enter`, preventing accidental submission through numeric shortcuts.
 
-## TUI 布局与工具展示
+## TUI Layout and Tool Rendering
 
-问卷通过非 overlay 的 `ctx.ui.custom()` 渲染：交互期间临时替换底部 editor、保留并在结束后恢复 editor 草稿，同时参与 Pi 正常布局计算，使 transcript 重排且 footer 始终单独可见。
+The questionnaire uses non-overlay `ctx.ui.custom()` rendering. During the interaction it temporarily replaces the bottom editor, preserves and later restores its draft, and participates in Pi's normal layout calculation so the transcript reflows while the footer remains separately visible.
 
-交互进行时不额外显示 pending tool call；结束后结果节点展示每道题的答案、回答类型和备注，展开后可阅读受长度限制的已选 preview。取消时仍保留可审计的部分回答，校验与运行错误始终可见。宽屏左右分栏时，内容宽度的 preview 框会在右侧剩余列中居中。
+No additional pending tool call is shown while the questionnaire is active. After completion, the result node shows each answer, its answer type, and any note; expanding it reveals length-limited previews for selected options. Cancellation retains partial answers for auditing, and validation or runtime errors remain visible. In a wide side-by-side layout, the content-width preview box is centered within the remaining columns on the right.
 
-## 配置
+## Configuration
 
-配置文件沿用上游位置：`$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`，未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/rpiv-ask-user-question/config.json`。
+The configuration path remains compatible with upstream: `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`, or `~/.config/rpiv-ask-user-question/config.json` when `XDG_CONFIG_HOME` is unset.
 
 ```json
 {
@@ -50,22 +52,22 @@ pi install npm:@zhcsyncer/pi-extensions
 }
 ```
 
-`collapseKey` 设为 `"off"` 可关闭折叠快捷键。`guidance.promptSnippet` 和 `guidance.promptGuidelines` 可覆盖默认模型指导。
+Set `collapseKey` to `"off"` to disable the collapse shortcut. Use `guidance.promptSnippet` and `guidance.promptGuidelines` to override the default model guidance.
 
-## 来源
+## Provenance
 
-- 上游：[`juicesharp/rpiv-mono`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question)
-- 基线：`@juicesharp/rpiv-ask-user-question@2.4.0` / `a1531ed4207c21a00941c62571bc1bd3e386cfcb`
-- 上游文档：[`UPSTREAM_README.md`](./UPSTREAM_README.md)
-- 上游版本历史：[`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)
+- Upstream: [`juicesharp/rpiv-mono`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question)
+- Baseline: `@juicesharp/rpiv-ask-user-question@2.4.0` / `a1531ed4207c21a00941c62571bc1bd3e386cfcb`
+- Preserved upstream documentation: [`UPSTREAM_README.md`](./UPSTREAM_README.md)
+- Preserved upstream history: [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md)
 
-## 开发
+## Development
 
 ```bash
 pnpm --filter @zhcsyncer/pi-ask-user-question check
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models __pi_ask_user_question_check__
 ```
 
-## 许可证
+## License
 
-MIT。参见 [`LICENSE`](./LICENSE) 和 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)。
+MIT. See [`LICENSE`](./LICENSE) and [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE).

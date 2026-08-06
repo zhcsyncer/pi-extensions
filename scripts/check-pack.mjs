@@ -48,6 +48,7 @@ const requiredPackFiles = new Map([
 		"packages/pi-ask-user-question/view/tool-renderer.ts",
 		"packages/pi-ask-user-question/locales/zh.json",
 		"packages/pi-ask-user-question/README.md",
+		"packages/pi-ask-user-question/README.zh-CN.md",
 		"packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
 		"packages/pi-subagents/src/index.ts",
 		"packages/pi-subagents/src/ui/conversation-brief.ts",
@@ -107,6 +108,7 @@ const requiredPackFiles = new Map([
 		"locales/en.json",
 		"locales/zh.json",
 		"README.md",
+		"README.zh-CN.md",
 		"CHANGELOG.md",
 		"LICENSE",
 		"UPSTREAM_LICENSE",
@@ -147,6 +149,7 @@ const maintainedReadmes = [
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
 	"packages/pi-ask-user-question/README.md",
+	"packages/pi-ask-user-question/README.zh-CN.md",
 	"packages/pi-subagents/README.md",
 	"packages/pi-subagents/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
@@ -191,6 +194,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-ask-user-question/README.md",
+	"packages/pi-ask-user-question/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"packages/pi-subagents/README.md",

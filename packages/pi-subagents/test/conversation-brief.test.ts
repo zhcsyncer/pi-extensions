@@ -33,6 +33,15 @@ describe("summarizeToolArgs", () => {
     expect(out.length).toBeLessThanOrEqual(40);
     expect(out.endsWith("…")).toBe(true);
   });
+
+  it("strips terminal controls while preserving printable Unicode", () => {
+    const out = summarizeToolArgs("bash", {
+      command: "printf '\u001b[31m危险\u001b[0m' \u001b]0;owned\u0007",
+    });
+    expect(out).toBe("printf '危险'");
+    expect(out).not.toContain("owned");
+    expect(out).not.toContain("\u001b");
+  });
 });
 
 describe("summarizeToolResult", () => {
@@ -46,6 +55,12 @@ describe("summarizeToolResult", () => {
 
   it("marks errors", () => {
     expect(summarizeToolResult("boom", true)).toBe("error · boom");
+  });
+
+  it("strips terminal controls from folded result notes", () => {
+    const note = summarizeToolResult("\u001b[31mboom\u001b[0m\u001b]2;title\u0007", true);
+    expect(note).toBe("error · boom");
+    expect(note).not.toContain("\u001b");
   });
 });
 
@@ -82,6 +97,22 @@ describe("buildConversationBrief", () => {
     expect(brief.steps[0]?.resultText).toContain("src/a.ts");
     // Intermediate assistant chatter is not the final result.
     expect(brief.result).toBe("Found three files.");
+  });
+
+  it("strips terminal controls from child assistant text", () => {
+    const brief = buildConversationBrief([
+      {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: "\u001b[32m完成\u001b[0m \u001b]8;;https://evil.invalid\u0007report\u001b]8;;\u0007",
+        }],
+      },
+    ]);
+
+    expect(brief.result).toBe("完成 report");
+    expect(brief.result).not.toContain("evil.invalid");
+    expect(brief.result).not.toContain("\u001b");
   });
 
   it("keeps running steps open until a toolResult arrives", () => {

@@ -1,3 +1,7 @@
+# Documentation
+
+- 维护中的用户可见包文档必须提供双语版本：英文使用默认 `README.md`，简体中文使用 `README.zh-CN.md`；只有仓库中明确记录的例外可以省略该规则。
+
 # Release
 
 - 发版必须走 Changesets 的 version PR 流程：用户可见变更先附带 changeset 合入 `main`，等待 `.github/workflows/release.yml` 创建或更新 `chore: version packages` PR，审核并合并该 PR 后再由 GitHub Actions 发布。

@@ -49,6 +49,7 @@ import {
   type Theme,
   type UICtx,
 } from "./ui/agent-widget.js";
+import { sanitizeDisplayText } from "./ui/display-safety.js";
 import { FleetList, type FleetUICtx } from "./ui/fleet-list.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import {
@@ -316,22 +317,23 @@ function buildDetails(
 /** Build notification details for the custom message renderer. */
 function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, activity?: AgentActivity): NotificationDetails {
   const totalTokens = getLifetimeTotal(record.lifetimeUsage);
+  const safeResult = record.result ? sanitizeDisplayText(record.result) : undefined;
 
   return {
-    id: record.id,
-    description: record.description,
+    id: sanitizeDisplayText(record.id),
+    description: sanitizeDisplayText(record.description),
     status: record.status,
     toolUses: record.toolUses,
     turnCount: activity?.turnCount ?? 0,
     maxTurns: activity?.maxTurns,
     totalTokens,
     durationMs: record.completedAt ? record.completedAt - record.startedAt : 0,
-    outputFile: record.outputFile,
-    error: record.error,
-    resultPreview: record.result
-      ? record.result.length > resultMaxLen
-        ? record.result.slice(0, resultMaxLen) + "…"
-        : record.result
+    outputFile: record.outputFile ? sanitizeDisplayText(record.outputFile) : undefined,
+    error: record.error ? sanitizeDisplayText(record.error) : undefined,
+    resultPreview: safeResult
+      ? safeResult.length > resultMaxLen
+        ? safeResult.slice(0, resultMaxLen) + "…"
+        : safeResult
       : "No output.",
   };
 }
@@ -367,9 +369,12 @@ export default function (pi: ExtensionAPI) {
         const statusText = isError ? d.status
           : d.status === "steered" ? "completed (steered)"
           : "completed";
+        const description = sanitizeDisplayText(d.description);
+        const resultPreview = sanitizeDisplayText(d.resultPreview);
+        const outputFile = d.outputFile ? sanitizeDisplayText(d.outputFile) : undefined;
 
         // Line 1: icon + agent description + status
-        let line = `${icon} ${theme.bold(d.description)} ${theme.fg("dim", statusText)}`;
+        let line = `${icon} ${theme.bold(description)} ${theme.fg("dim", statusText)}`;
 
         // Line 2: stats
         const parts: string[] = [];
@@ -383,16 +388,16 @@ export default function (pi: ExtensionAPI) {
 
         // Line 3: result preview (collapsed) or full (expanded)
         if (expanded) {
-          const lines = d.resultPreview.split("\n").slice(0, 30);
+          const lines = resultPreview.split("\n").slice(0, 30);
           for (const l of lines) line += "\n" + theme.fg("dim", `  ${l}`);
         } else {
-          const preview = d.resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
+          const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
           line += "\n  " + theme.fg("dim", `⎿  ${preview}`);
         }
 
         // Line 4: output file link (if present)
-        if (d.outputFile) {
-          line += "\n  " + theme.fg("muted", `transcript: ${d.outputFile}`);
+        if (outputFile) {
+          line += "\n  " + theme.fg("muted", `transcript: ${outputFile}`);
         }
 
         return line;

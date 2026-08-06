@@ -181,6 +181,19 @@ describe("renderUndetailedResult", () => {
     const component = renderUndetailedResult("all good actually", { expanded: false, isError: true }, theme());
     expect(plain(component)).toMatch(/✗/);
   });
+
+  it("strips terminal controls from undetailed previews", async () => {
+    const { renderUndetailedResult } = await import("../src/ui/tool-render.js");
+    const component = renderUndetailedResult(
+      "\u001b[31mfailed\u001b[0m \u001b]8;;https://evil.invalid\u0007details\u001b]8;;\u0007",
+      { expanded: false, isError: true },
+      theme(),
+    );
+    const out = plain(component);
+    expect(out).toContain("failed details");
+    expect(out).not.toContain("evil.invalid");
+    expect(out).not.toContain("\u001b");
+  });
 });
 
 describe("looksLikeStatusHeader / isFailureDetailsStatus", () => {

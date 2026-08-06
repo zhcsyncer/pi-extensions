@@ -12,6 +12,7 @@ import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, type Component } from "@earendil-works/pi-tui";
 import type { AgentDetails, Theme } from "./agent-widget.js";
 import { fgPreservingNestedStyles, formatMs, formatTurns, SPINNER } from "./agent-widget.js";
+import { sanitizeDisplayText } from "./display-safety.js";
 
 /** Collapsed preview: first non-empty line, hard-capped. */
 export const RESULT_COLLAPSED_PREVIEW_CHARS = 100;
@@ -26,15 +27,14 @@ export function toolResultText(result: TextResultLike): string {
   if (!result.content?.length) return "";
   return result.content
     .filter((c) => c.type === "text" && typeof c.text === "string")
-    .map((c) => c.text ?? "")
+    .map((c) => sanitizeDisplayText(c.text ?? ""))
     .join("\n");
 }
 
 /** First non-empty line, collapsed to a single visual line. */
 export function firstLinePreview(text: string, maxChars = RESULT_COLLAPSED_PREVIEW_CHARS): string {
   const line =
-    text
-      .replace(/\r\n/g, "\n")
+    sanitizeDisplayText(text)
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
@@ -54,7 +54,7 @@ export function firstLinePreview(text: string, maxChars = RESULT_COLLAPSED_PREVI
  *   (`Type: … | Status: …`), so agent-authored reports are not eaten.
  */
 export function looksLikeStatusHeader(block: string): boolean {
-  const head = block.replace(/\r\n/g, "\n").trim();
+  const head = sanitizeDisplayText(block).trim();
   if (!head) return false;
   if (/^Agent completed in \d/i.test(head)) return true;
   if (/^Agent failed:/i.test(head)) return true;
@@ -70,7 +70,7 @@ export function looksLikeStatusHeader(block: string): boolean {
  * losing their first (most important) paragraph in previews.
  */
 export function resultBodyText(text: string): string {
-  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const normalized = sanitizeDisplayText(text).trim();
   if (!normalized) return "";
   const parts = normalized.split(/\n\n+/);
   if (parts.length >= 2 && looksLikeStatusHeader(parts[0] ?? "")) {
@@ -93,12 +93,12 @@ export function expandHint(): string {
 }
 
 export function renderExpandedMarkdown(content: string): Component {
-  return new Markdown(content, 0, 0, getMarkdownTheme());
+  return new Markdown(sanitizeDisplayText(content), 0, 0, getMarkdownTheme());
 }
 
 /** Claude Code-style secondary line: `  ⎿  …`. */
 export function formatClerkLine(theme: Pick<Theme, "fg">, text: string, color = "dim"): string {
-  return theme.fg(color, `  ⎿  ${text}`);
+  return theme.fg(color, `  ⎿  ${sanitizeDisplayText(text)}`);
 }
 
 /**
@@ -113,16 +113,16 @@ export function formatAgentCallMeta(opts: {
   extra?: string[];
 }): string {
   const parts: string[] = [];
-  const model = opts.model?.trim();
+  const model = opts.model ? sanitizeDisplayText(opts.model).trim() : "";
   if (model) {
     parts.push(opts.modelInherited ? `${model} (inherit)` : model);
   }
-  const effort = opts.effort?.trim();
+  const effort = opts.effort ? sanitizeDisplayText(opts.effort).trim() : "";
   if (effort) parts.push(`effort: ${effort}`);
   if (opts.background) parts.push("bg");
   if (opts.extra?.length) {
     for (const x of opts.extra) {
-      const t = x.trim();
+      const t = sanitizeDisplayText(x).trim();
       if (t) parts.push(t);
     }
   }
@@ -174,7 +174,7 @@ export function isActiveStatus(status: string | undefined): boolean {
  * content (schedule names like "Investigate failed tests" must not go red).
  */
 export function looksLikeFailureText(text: string): boolean {
-  const head = text.trim().slice(0, 240);
+  const head = sanitizeDisplayText(text).trim().slice(0, 240);
   return (
     /^error\b/i.test(head) ||
     /^failed\b/i.test(head) ||
@@ -198,9 +198,11 @@ export function isFailureDetailsStatus(status: string | undefined): boolean {
  * Optional trailing dim chips only when explicitly set (model / effort / bg).
  */
 export function renderToolCallTitle(label: string, muted: string | undefined, theme: Theme, dimExtra?: string): Text {
-  let line = "▸ " + theme.fg("toolTitle", theme.bold(label));
-  if (muted) line += "  " + theme.fg("muted", muted);
-  if (dimExtra?.trim()) line += "  " + theme.fg("dim", dimExtra.trim());
+  let line = "▸ " + theme.fg("toolTitle", theme.bold(sanitizeDisplayText(label)));
+  const safeMuted = muted ? sanitizeDisplayText(muted) : "";
+  const safeExtra = dimExtra ? sanitizeDisplayText(dimExtra).trim() : "";
+  if (safeMuted) line += "  " + theme.fg("muted", safeMuted);
+  if (safeExtra) line += "  " + theme.fg("dim", safeExtra);
   return new Text(line, 0, 0);
 }
 

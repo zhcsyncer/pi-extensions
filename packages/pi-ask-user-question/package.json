@@ -55,6 +55,7 @@
     "locales/",
     "docs/",
     "README.md",
+    "README.zh-CN.md",
     "CHANGELOG.md",
     "UPSTREAM_LICENSE",
     "UPSTREAM_README.md",
@@ -115,9 +116,9 @@
     "@juicesharp/rpiv-config": "2.4.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.80.3",
-    "@earendil-works/pi-coding-agent": "0.80.3",
-    "@earendil-works/pi-tui": "0.80.3",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
     "@juicesharp/rpiv-i18n": "2.4.0",
     "@types/node": "25.6.0",
     "typebox": "1.1.24",
