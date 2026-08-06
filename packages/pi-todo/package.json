@@ -42,6 +42,7 @@
   },
   "files": [
     "config.ts",
+    "config-paths.ts",
     "index.ts",
     "locales/",
     "todo.ts",
@@ -59,6 +60,7 @@
     "view/format.ts",
     "CHANGELOG.md",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE",
     "UPSTREAM_LICENSE",
     "UPSTREAM_README.md",

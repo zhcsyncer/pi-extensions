@@ -41,7 +41,7 @@ No additional pending tool call is shown while the questionnaire is active. Afte
 
 ## Configuration
 
-The configuration path remains compatible with upstream: `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`, or `~/.config/rpiv-ask-user-question/config.json` when `XDG_CONFIG_HOME` is unset.
+Global configuration lives at `$PI_CODING_AGENT_DIR/extension-data/pi-ask-user-question/config.json` (by default `~/.pi/agent/extension-data/pi-ask-user-question/config.json`). On first read, the former `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json` or `~/.config/rpiv-ask-user-question/config.json` file is migrated atomically. Canonical data always wins; malformed, unreadable, or conflicting legacy files are retained with a de-duplicated warning.
 
 ```json
 {

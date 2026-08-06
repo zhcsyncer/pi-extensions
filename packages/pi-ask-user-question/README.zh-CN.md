@@ -41,7 +41,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ## 配置
 
-配置文件沿用上游位置：`$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`，未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/rpiv-ask-user-question/config.json`。
+全局配置位于 `$PI_CODING_AGENT_DIR/extension-data/pi-ask-user-question/config.json`（默认是 `~/.pi/agent/extension-data/pi-ask-user-question/config.json`）。首次读取时，原 `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json` 或 `~/.config/rpiv-ask-user-question/config.json` 会原子迁移。canonical 数据始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
 
 ```json
 {

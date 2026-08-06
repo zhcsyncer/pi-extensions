@@ -1,7 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSubagentsConfigNoticesForTests } from "../src/config-storage.js";
+import {
+  getGlobalSubagentsSettingsPath,
+  getLegacyGlobalSubagentsSettingsPath,
+  getLegacyProjectSubagentsSettingsPath,
+  getProjectSubagentsSettingsPath,
+} from "../src/config-paths.js";
 import {
   applyAndEmitLoaded,
   applySettings,
@@ -15,39 +22,52 @@ import {
 /**
  * Tests for persistent settings. Uses two tmp directories:
  * - `globalDir`: redirected via PI_CODING_AGENT_DIR so getAgentDir() returns it.
- *   Simulates `~/.pi/agent/` — the global scope.
  * - `projectDir`: passed explicitly as cwd to load/save.
- *   Simulates the user's project root. Settings live at `<projectDir>/.pi/subagents.json`.
+ * HOME and XDG_CONFIG_HOME are also redirected so no real user path can be read.
  */
 describe("settings persistence", () => {
   let globalDir: string;
   let projectDir: string;
-  let originalAgentDirEnv: string | undefined;
 
-  const globalFile = () => join(globalDir, "subagents.json");
-  const projectFile = () => join(projectDir, ".pi", "subagents.json");
+  const globalFile = () => getGlobalSubagentsSettingsPath(globalDir);
+  const legacyGlobalFile = () => getLegacyGlobalSubagentsSettingsPath(globalDir);
+  const projectFile = () => getProjectSubagentsSettingsPath(projectDir);
+  const legacyProjectFile = () => getLegacyProjectSubagentsSettingsPath(projectDir);
 
   beforeEach(() => {
     globalDir = mkdtempSync(join(tmpdir(), "pi-settings-global-"));
     projectDir = mkdtempSync(join(tmpdir(), "pi-settings-project-"));
-    originalAgentDirEnv = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = globalDir;
+    vi.stubEnv("HOME", join(globalDir, "home"));
+    vi.stubEnv("XDG_CONFIG_HOME", join(globalDir, "xdg"));
+    vi.stubEnv("PI_CODING_AGENT_DIR", globalDir);
+    resetSubagentsConfigNoticesForTests();
   });
 
   afterEach(() => {
-    if (originalAgentDirEnv == null) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = originalAgentDirEnv;
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    resetSubagentsConfigNoticesForTests();
     rmSync(globalDir, { recursive: true, force: true });
     rmSync(projectDir, { recursive: true, force: true });
   });
 
   function writeGlobal(obj: unknown) {
+    mkdirSync(dirname(globalFile()), { recursive: true });
     writeFileSync(globalFile(), JSON.stringify(obj));
   }
 
   function writeProject(obj: unknown) {
-    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    mkdirSync(dirname(projectFile()), { recursive: true });
     writeFileSync(projectFile(), JSON.stringify(obj));
+  }
+
+  function writeLegacyGlobal(obj: unknown) {
+    writeFileSync(legacyGlobalFile(), JSON.stringify(obj));
+  }
+
+  function writeLegacyProject(obj: unknown) {
+    mkdirSync(dirname(legacyProjectFile()), { recursive: true });
+    writeFileSync(legacyProjectFile(), JSON.stringify(obj));
   }
 
   it("returns {} when both files are missing", () => {
@@ -55,10 +75,91 @@ describe("settings persistence", () => {
   });
 
   it("returns {} when both files are malformed JSON", () => {
+    mkdirSync(dirname(globalFile()), { recursive: true });
     writeFileSync(globalFile(), "not json {{");
-    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    mkdirSync(dirname(projectFile()), { recursive: true });
     writeFileSync(projectFile(), "also not json");
     expect(loadSettings(projectDir)).toEqual({});
+  });
+
+  it("resolves canonical and legacy global/project paths through Pi helpers", () => {
+    expect(globalFile()).toBe(join(globalDir, "extension-data", "pi-subagents", "config.json"));
+    expect(legacyGlobalFile()).toBe(join(globalDir, "subagents.json"));
+    expect(projectFile()).toBe(join(projectDir, ".pi", "extension-data", "pi-subagents", "config.json"));
+    expect(legacyProjectFile()).toBe(join(projectDir, ".pi", "subagents.json"));
+  });
+
+  it("migrates global and project settings before merging with project precedence", () => {
+    writeLegacyGlobal({ maxConcurrent: 16, graceTurns: 9, unknownGlobal: true });
+    writeLegacyProject({ maxConcurrent: 4, defaultMaxTurns: 50, unknownProject: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 4, graceTurns: 9, defaultMaxTurns: 50 });
+    expect(existsSync(legacyGlobalFile())).toBe(false);
+    expect(existsSync(legacyProjectFile())).toBe(false);
+    expect(JSON.parse(readFileSync(globalFile(), "utf8"))).toEqual({ maxConcurrent: 16, graceTurns: 9 });
+    expect(JSON.parse(readFileSync(projectFile(), "utf8"))).toEqual({ maxConcurrent: 4, defaultMaxTurns: 50 });
+    expect(readdirSync(dirname(globalFile()))).toEqual(["config.json"]);
+    expect(readdirSync(dirname(projectFile()))).toEqual(["config.json"]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Dropped 1 invalid or unknown field"));
+  });
+
+  it("keeps conflicting legacy settings and warns once while canonical wins", () => {
+    writeGlobal({ maxConcurrent: 12 });
+    writeLegacyGlobal({ maxConcurrent: 3 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 12 });
+    expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 12 });
+    expect(existsSync(legacyGlobalFile())).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("conflicting legacy global settings"));
+  });
+
+  it("removes semantically equivalent legacy settings after canonical re-read", () => {
+    writeGlobal({ maxConcurrent: 12 });
+    writeLegacyGlobal({ futureField: "ignored", maxConcurrent: 12 });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 12 });
+    expect(existsSync(legacyGlobalFile())).toBe(false);
+  });
+
+  it("retains malformed legacy settings, creates no canonical file, and de-duplicates warnings", () => {
+    writeFileSync(legacyGlobalFile(), "{ bad JSON", "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({});
+    expect(loadSettings(projectDir)).toEqual({});
+    expect(existsSync(legacyGlobalFile())).toBe(true);
+    expect(existsSync(globalFile())).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("unreadable or malformed"));
+  });
+
+  it("never replaces malformed canonical settings with a valid legacy file", () => {
+    mkdirSync(dirname(globalFile()), { recursive: true });
+    writeFileSync(globalFile(), "not JSON", "utf8");
+    writeLegacyGlobal({ maxConcurrent: 9 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({});
+    expect(readFileSync(globalFile(), "utf8")).toBe("not JSON");
+    expect(existsSync(legacyGlobalFile())).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("legacy config was not used or removed"));
+  });
+
+  it("uses valid legacy settings as a runtime fallback when canonical migration cannot write", () => {
+    writeLegacyGlobal({ maxConcurrent: 7 });
+    writeFileSync(join(globalDir, "extension-data"), "not a directory", "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 7 });
+    expect(existsSync(legacyGlobalFile())).toBe(true);
+    expect(existsSync(globalFile())).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to migrate or reconcile global settings"));
   });
 
   it("loads from global when no project file", () => {
@@ -141,18 +242,18 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({});
   });
 
-  it("saveSettings writes only to the project file; global is untouched", () => {
+  it("saveSettings atomically writes only canonical project config; global and legacy paths stay untouched", () => {
     writeGlobal({ maxConcurrent: 16 });
-    saveSettings({ maxConcurrent: 2 }, projectDir);
+    expect(saveSettings({ maxConcurrent: 2 }, projectDir)).toBe(true);
 
-    // Project file contains the new value
     expect(JSON.parse(readFileSync(projectFile(), "utf-8"))).toEqual({ maxConcurrent: 2 });
-    // Global file unchanged
     expect(JSON.parse(readFileSync(globalFile(), "utf-8"))).toEqual({ maxConcurrent: 16 });
+    expect(existsSync(legacyProjectFile())).toBe(false);
+    expect(readdirSync(dirname(projectFile()))).toEqual(["config.json"]);
   });
 
-  it("saveSettings creates <cwd>/.pi/ when missing", () => {
-    expect(existsSync(join(projectDir, ".pi"))).toBe(false);
+  it("saveSettings creates the canonical project extension-data directory when missing", () => {
+    expect(existsSync(dirname(projectFile()))).toBe(false);
     saveSettings({ maxConcurrent: 4 }, projectDir);
     expect(existsSync(projectFile())).toBe(true);
   });
@@ -276,7 +377,7 @@ describe("settings persistence", () => {
     });
 
     it("returns {} when the JSON root is not an object (array, string, null)", () => {
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(dirname(projectFile()), { recursive: true });
       writeFileSync(projectFile(), '["not", "an", "object"]');
       expect(loadSettings(projectDir)).toEqual({});
       writeFileSync(projectFile(), '"just a string"');
@@ -339,12 +440,12 @@ describe("settings persistence", () => {
 
     it("warns to console.warn when an existing file is malformed", () => {
       const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      mkdirSync(dirname(projectFile()), { recursive: true });
       writeFileSync(projectFile(), "not valid json {{{");
       try {
         expect(loadSettings(projectDir)).toEqual({});
         expect(spy).toHaveBeenCalledTimes(1);
-        expect(String(spy.mock.calls[0][0])).toMatch(/Ignoring malformed settings/);
+        expect(String(spy.mock.calls[0][0])).toMatch(/Could not read canonical project settings/);
       } finally {
         spy.mockRestore();
       }

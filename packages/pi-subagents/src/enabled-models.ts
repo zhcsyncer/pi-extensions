@@ -5,7 +5,7 @@
  *
  * **Project overrides global**, mirroring pi's own `SettingsManager`
  * deep-merge behavior and matching the precedence we use for our own
- * `subagents.json` settings (see `src/settings.ts:loadSettings`). If
+ * extension `config.json` settings (see `src/settings.ts:loadSettings`). If
  * project file has `enabledModels` set, it wholly replaces global's
  * (array fields are replaced, not concatenated).
  *

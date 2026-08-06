@@ -39,7 +39,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 扩展持久化数据
 
-Bundle 内扩展的配置和状态通常保存在 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`。旧文件会自动迁移升级；无法映射的字段会被丢弃并提示 warning，格式损坏的源文件会原样保留。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `.pi/extension-data/<extension-id>/config.json`。Plan artifact 刻意继续保存在 `$PI_CODING_AGENT_DIR/plans/`。Ask User Question 为兼容上游，继续使用 `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`。
+Bundle 内所有独立配置现统一使用 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`，包括 Todo、Ask User Question 与 Subagents。旧文件会原子迁移，并在删除前完成验证；canonical 数据优先，格式损坏或冲突的旧文件会保留并提示 warning。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`；Subagents 保留原有项目覆盖全局行为，使用对应项目路径，并把可选 `agent-tool-description.md` 放在 `config.json` 同目录。本次只迁移配置，不移动自定义 agent、skill、Pi `settings.json` 或 `auth.json`、memory、schedule、transcript、session 状态与 Plan artifact；它们继续使用原有 resource/state 位置，包括 `$PI_CODING_AGENT_DIR/plans/`。
 
 ## 从 Git 安装
 

@@ -1,10 +1,18 @@
 // Persistence for pi-subagents operational settings.
-// - Global:  ~/.pi/agent/subagents.json (via getAgentDir()) — manual defaults, never written here
-// - Project: <cwd>/.pi/subagents.json — written by /agents → Settings; overrides global on load
+// - Global:  $PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json — manual defaults, never written here
+// - Project: <cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json — written by /agents → Settings; overrides global
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  loadMigratedJsonConfig,
+  type NormalizedJsonConfig,
+  saveJsonConfig,
+} from "./config-storage.js";
+import {
+  getGlobalSubagentsSettingsPath,
+  getLegacyGlobalSubagentsSettingsPath,
+  getLegacyProjectSubagentsSettingsPath,
+  getProjectSubagentsSettingsPath,
+} from "./config-paths.js";
 import type { JoinMode, WidgetMode } from "./types.js";
 
 export interface SubagentsSettings {
@@ -59,8 +67,9 @@ export interface SubagentsSettings {
    * Which Agent tool description the LLM sees. "full" (default) is the rich
    * Claude Code-style prompt; "compact" is a ~75% smaller version (one-line
    * agent type list, terse usage notes) for small/local models where tool-spec
-   * tokens are expensive; "custom" reads `.pi/agent-tool-description.md`
-   * (project, falling back to `<agentDir>/agent-tool-description.md`) with
+   * tokens are expensive; "custom" reads the project
+   * `extension-data/pi-subagents/agent-tool-description.md` (falling back to
+   * the corresponding global extension-data file) with
    * `{{placeholder}}` substitution — a missing/empty file falls back to "full".
    * The mode is read once at tool registration — changing it applies on the
    * next pi session.
@@ -180,49 +189,44 @@ function sanitize(raw: unknown): SubagentsSettings {
   return out;
 }
 
-function globalPath(): string {
-  return join(getAgentDir(), "subagents.json");
-}
-
-function projectPath(cwd: string): string {
-  return join(cwd, ".pi", "subagents.json");
-}
-
-/**
- * Read a settings file. Missing file is silent (returns `{}`). A file that
- * exists but can't be parsed emits a warning to stderr so users aren't
- * silently reverted to defaults — and still returns `{}` so startup proceeds.
- */
-function readSettingsFile(path: string): SubagentsSettings {
-  if (!existsSync(path)) return {};
-  try {
-    return sanitize(JSON.parse(readFileSync(path, "utf-8")));
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.warn(`[pi-subagents] Ignoring malformed settings at ${path}: ${reason}`);
-    return {};
+function normalizeSettings(raw: unknown): NormalizedJsonConfig<SubagentsSettings> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("the root value must be a JSON object");
   }
+  const value = sanitize(raw);
+  const dropped = Object.keys(raw as Record<string, unknown>).filter((key) => !(key in value));
+  return { value, dropped };
 }
 
 /** Load merged settings: global provides defaults, project overrides. */
 export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
-  return { ...readSettingsFile(globalPath()), ...readSettingsFile(projectPath(cwd)) };
+  const global = loadMigratedJsonConfig({
+    canonicalPath: getGlobalSubagentsSettingsPath(),
+    legacyPath: getLegacyGlobalSubagentsSettingsPath(),
+    scope: "global settings",
+    normalize: normalizeSettings,
+    fallback: {},
+  });
+  const project = loadMigratedJsonConfig({
+    canonicalPath: getProjectSubagentsSettingsPath(cwd),
+    legacyPath: getLegacyProjectSubagentsSettingsPath(cwd),
+    scope: "project settings",
+    normalize: normalizeSettings,
+    fallback: {},
+  });
+  return { ...global, ...project };
 }
 
 /**
- * Write project-local settings. Global is never touched from code.
- * Returns `true` on success, `false` if the write (or mkdir) failed so the
- * caller can surface a warning — persistence isn't fatal but isn't silent.
+ * Atomically write project-local settings to the canonical path. Global is
+ * never touched from code. Returns `true` only after a semantic re-read.
  */
 export function saveSettings(s: SubagentsSettings, cwd: string = process.cwd()): boolean {
-  const path = projectPath(cwd);
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(s, null, 2), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
+  return saveJsonConfig({
+    canonicalPath: getProjectSubagentsSettingsPath(cwd),
+    value: s,
+    normalize: normalizeSettings,
+  });
 }
 
 /** Apply persisted settings to the in-memory state via caller-supplied setters. */

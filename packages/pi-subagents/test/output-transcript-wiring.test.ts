@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/agent-runner.js", async () => {
@@ -15,6 +15,7 @@ vi.mock("../src/output-file.js", () => ({
 }));
 
 import { runAgent } from "../src/agent-runner.js";
+import { getProjectSubagentsSettingsPath } from "../src/config-paths.js";
 import subagentsExtension from "../src/index.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "../src/output-file.js";
 
@@ -67,8 +68,9 @@ describe("output_transcript agent wiring", () => {
     previousHome = process.env.HOME;
     process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.HOME = agentDir;
-    mkdirSync(join(cwd, ".pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "subagents.json"), JSON.stringify({ schedulingEnabled: false }));
+    const settingsPath = getProjectSubagentsSettingsPath(cwd);
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({ schedulingEnabled: false }));
     mkdirSync(join(agentDir, "agents"), { recursive: true });
     process.chdir(cwd);
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
@@ -146,9 +148,9 @@ describe("output_transcript agent wiring", () => {
     await lifecycle.get("session_shutdown")?.({}, makeCtx(cwd));
   });
 
-  it("suppresses the transcript project-wide when subagents.json sets outputTranscript false", async () => {
+  it("suppresses the transcript project-wide when config.json sets outputTranscript false", async () => {
     // A plain default agent (no frontmatter) inherits the project default.
-    writeFileSync(join(cwd, ".pi", "subagents.json"), JSON.stringify({ schedulingEnabled: false, outputTranscript: false }));
+    writeFileSync(getProjectSubagentsSettingsPath(cwd), JSON.stringify({ schedulingEnabled: false, outputTranscript: false }));
     const { pi, tools, lifecycle } = makePi();
     subagentsExtension(pi);
 
@@ -167,7 +169,7 @@ describe("output_transcript agent wiring", () => {
   });
 
   it("lets agent frontmatter output_transcript true override a project outputTranscript false", async () => {
-    writeFileSync(join(cwd, ".pi", "subagents.json"), JSON.stringify({ schedulingEnabled: false, outputTranscript: false }));
+    writeFileSync(getProjectSubagentsSettingsPath(cwd), JSON.stringify({ schedulingEnabled: false, outputTranscript: false }));
     writeFileSync(join(agentDir, "agents", "audited.md"), `---\ndescription: Always keeps a transcript\noutput_transcript: true\n---\n\nWrite a transcript regardless of the project default.`);
     const { pi, tools, lifecycle } = makePi();
     subagentsExtension(pi);
