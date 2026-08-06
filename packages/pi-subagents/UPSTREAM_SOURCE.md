@@ -22,3 +22,5 @@ The production source and upstream tests were copied from that tag before local 
 - `agent-runner` skips a null parent `modelRuntime` when constructing `createAgentSession` options so typecheck passes against stricter Pi `ModelRuntime` typings.
 - `bashExecution` steps honor `exitCode` / `cancelled` so failed or aborted shell runs render as `✗`, not `✓`.
 - `Agent` / `get_subagent_result` / `steer_subagent` tool TUI: collapsed one-line preview (honors expand toggle); expanded body renders as Markdown under a status header. `get_subagent_result` attaches `AgentDetails` so the renderer does not dump the model-facing transcript by default.
+- Validation/not-found tool failures return `error` details (or undetailed fallback never assumes `completed`/✓). `resultBodyText` only peels recognized status headers so multi-paragraph errors keep their first line.
+- ConversationViewer Result prefers `record.error` on error/aborted/stopped over intermediate assistant chatter.
