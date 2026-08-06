@@ -39,6 +39,7 @@ Stable “why” only — implementation detail lives in code/tests.
   - Expanded (Ctrl+O): same chrome + **Markdown** body — never dump full payload by default (`src/ui/tool-render.ts`)
 - Result stats always surface **effective model** (including parent inherit) and **effort** (from `thinking`).
 - Widget last line shows the **current tool step** (e.g. `reading src/a.ts`) from `tool_execution_start` args, not only bare `thinking…` when tools are in flight.
+- `AgentInvocation.modelInherited` is persisted on the record so `get_subagent_result` restores the same `model (inherit)` chip as the original Agent tool row.
 - Validation / not-found failures carry **error** details; undetailed fallback never assumes `completed` / green ✓.
 - `resultBodyText` peels only **recognized status headers** so multi-paragraph errors keep the first line.
 
