@@ -1,5 +1,13 @@
 # @zhcsyncer/pi-extensions
 
+## 0.15.1
+
+### Patch Changes
+
+- 44c7eee: Publish an English default README and a structurally aligned Simplified Chinese README for Ask User Question in both standalone and bundle artifacts.
+- 44c7eee: Declare and verify compatibility with Pi 0.84 across the bundled extensions.
+- 44c7eee: Strip ANSI and terminal control sequences from child-agent text before rendering it in the parent TUI.
+
 ## 0.15.0
 
 ### Minor Changes

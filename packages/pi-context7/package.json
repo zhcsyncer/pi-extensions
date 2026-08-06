@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-context7",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Context7 documentation tools for the Pi coding agent with compact self-contained TUI rendering.",
   "keywords": [
     "pi-package",
