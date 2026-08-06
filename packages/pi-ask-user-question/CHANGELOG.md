@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0
+
+### Minor Changes
+
+- 992463b: Publish a maintained structured-question fork with a non-overlay TUI layout, context-aware number-key selection, centered preview columns, and readable expandable post-interaction result rendering, and include it in the aggregate extension bundle.
+
 All notable changes to `@zhcsyncer/pi-ask-user-question` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

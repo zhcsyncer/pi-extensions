@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.14.0
+
+### Minor Changes
+
+- 992463b: Publish a maintained structured-question fork with a non-overlay TUI layout, context-aware number-key selection, centered preview columns, and readable expandable post-interaction result rendering, and include it in the aggregate extension bundle.
+
 ## 0.13.0
 
 ### Minor Changes
