@@ -36,6 +36,7 @@ import {
   AgentWidget,
   buildInvocationTags,
   describeActivity,
+  detailsFromInvocation,
   formatActiveToolSummary,
   formatDuration,
   formatMs,
@@ -1138,6 +1139,9 @@ Terse command-style prompts produce shallow, generic work.
       const effectiveMaxTurns = normalizeMaxTurns(resolvedConfig.maxTurns ?? getDefaultMaxTurns());
       const agentInvocation: AgentInvocation = {
         modelName,
+        // Persist inherit flag on the record so get_subagent_result can restore
+        // the same "model (inherit)" chip as the original Agent tool row.
+        modelInherited: modelInherited || undefined,
         thinking,
         // Explicit value only — the default fallback would just add noise.
         // Normalize so `0` (unlimited) doesn't surface as a misleading "max turns: 0".
@@ -1462,13 +1466,17 @@ Terse command-style prompts produce shallow, generic work.
       ].filter((f): f is string => !!f);
       // Prefer live record meta when the id is still in the manager.
       const rec = typeof args.agent_id === "string" ? manager.getRecord(args.agent_id) : undefined;
+      // Only attach model/effort chips when the live record still has an invocation
+      // snapshot — never invent "inherit" for unknown/expired ids.
+      const inv = rec?.invocation;
       const meta = formatAgentCallMeta({
-        model: rec?.invocation?.modelName,
-        effort: rec?.invocation?.thinking ? String(rec.invocation.thinking) : undefined,
-        background: rec?.invocation?.runInBackground === true,
+        model: inv?.modelName,
+        modelInherited: inv?.modelInherited,
+        effort: inv?.thinking ? String(inv.thinking) : undefined,
+        background: inv?.runInBackground === true,
         extra: flags,
       });
-      return renderToolCallTitle("Get Result", id || undefined, theme, meta);
+      return renderToolCallTitle("Get Result", id || undefined, theme, meta || undefined);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1541,8 +1549,7 @@ Terse command-style prompts produce shallow, generic work.
       }
 
       const activity = agentActivity.get(record.id);
-      const inv = record.invocation;
-      const invTags = buildInvocationTags(inv).tags;
+      const invMeta = detailsFromInvocation(record.invocation);
       const details: AgentDetails = {
         displayName,
         description: record.description,
@@ -1555,9 +1562,7 @@ Terse command-style prompts produce shallow, generic work.
         error: record.error,
         turnCount: activity?.turnCount,
         maxTurns: activity?.maxTurns,
-        modelName: inv?.modelName,
-        effort: inv?.thinking ? String(inv.thinking) : undefined,
-        tags: invTags.length > 0 ? invTags : undefined,
+        ...invMeta,
         activity: activity
           ? describeActivity(activity.activeTools, activity.responseText)
           : undefined,

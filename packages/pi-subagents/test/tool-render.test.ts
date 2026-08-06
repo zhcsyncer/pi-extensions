@@ -227,3 +227,75 @@ describe("shortModelLabel", () => {
     expect(shortModelLabel(undefined)).toBeUndefined();
   });
 });
+
+describe("Agent → invocation → get_subagent_result inherit contract", () => {
+  it("detailsFromInvocation preserves modelInherited for result stats", async () => {
+    const { detailsFromInvocation } = await import("../src/ui/agent-widget.js");
+    const { formatAgentDetailsStats, formatAgentCallMeta, renderAgentLikeResult } = await import(
+      "../src/ui/tool-render.js"
+    );
+
+    // What Agent tool stores on record.invocation at spawn time.
+    const invocation = {
+      modelName: "sonnet",
+      modelInherited: true,
+      thinking: "high" as const,
+      runInBackground: true,
+    };
+
+    // What get_subagent_result rebuilds into AgentDetails.
+    const fromInv = detailsFromInvocation(invocation);
+    expect(fromInv.modelName).toBe("sonnet");
+    expect(fromInv.modelInherited).toBe(true);
+    expect(fromInv.effort).toBe("high");
+
+    const stats = formatAgentDetailsStats(
+      {
+        displayName: "Explore",
+        description: "x",
+        subagentType: "Explore",
+        toolUses: 1,
+        tokens: "1k token",
+        durationMs: 1000,
+        status: "completed",
+        ...fromInv,
+      },
+      theme(),
+    );
+    expect(stats).toContain("sonnet (inherit)");
+    expect(stats).toContain("effort: high");
+
+    // Call-line chips when record is still live.
+    expect(
+      formatAgentCallMeta({
+        model: invocation.modelName,
+        modelInherited: invocation.modelInherited,
+        effort: invocation.thinking,
+      }),
+    ).toBe("sonnet (inherit) · effort: high");
+
+    // Missing record/invocation must not invent inherit.
+    expect(formatAgentCallMeta({ extra: ["wait"] })).toBe("wait");
+    expect(formatAgentCallMeta({})).toBe("");
+
+    const out = plain(
+      renderAgentLikeResult(
+        {
+          displayName: "Explore",
+          description: "x",
+          subagentType: "Explore",
+          toolUses: 1,
+          tokens: "1k token",
+          durationMs: 1200,
+          status: "completed",
+          ...fromInv,
+        },
+        "Agent completed in 1.2s.\n\nall good",
+        { expanded: false },
+        theme(),
+      ),
+    );
+    expect(out).toContain("sonnet (inherit)");
+    expect(out).toMatch(/⎿\s+Done/);
+  });
+});

@@ -131,8 +131,10 @@ export interface AgentRecord {
 }
 
 export interface AgentInvocation {
-  /** Short display name, e.g. "haiku" — only set when different from parent. */
+  /** Effective short model label when known (e.g. "haiku"), including parent-inherited. */
   modelName?: string;
+  /** True when the effective model is the parent session model (for TUI "(inherit)" chips). */
+  modelInherited?: boolean;
   thinking?: ThinkingLevel;
   maxTurns?: number;
   isolated?: boolean;

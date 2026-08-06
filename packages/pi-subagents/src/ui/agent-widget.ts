@@ -195,7 +195,28 @@ export function buildInvocationTags(
   if (invocation.inheritContext) tags.push("inherit context");
   if (invocation.runInBackground) tags.push("background");
   if (invocation.maxTurns != null) tags.push(`max turns: ${invocation.maxTurns}`);
-  return { modelName: invocation.modelName, tags };
+  const modelName = invocation.modelName
+    ? (invocation.modelInherited ? `${invocation.modelName} (inherit)` : invocation.modelName)
+    : undefined;
+  return { modelName, tags };
+}
+
+/**
+ * Rebuild Agent tool-result details fields from a stored invocation snapshot.
+ * Keeps Agent row and get_subagent_result row chips aligned (model/inherit/effort).
+ */
+export function detailsFromInvocation(invocation: AgentInvocation | undefined): Pick<
+  AgentDetails,
+  "modelName" | "modelInherited" | "effort" | "tags"
+> {
+  if (!invocation) return {};
+  const { tags } = buildInvocationTags(invocation);
+  return {
+    modelName: invocation.modelName,
+    modelInherited: invocation.modelInherited,
+    effort: invocation.thinking ? String(invocation.thinking) : undefined,
+    tags: tags.length > 0 ? tags : undefined,
+  };
 }
 
 /** Truncate text to a single line, max `len` chars. */
