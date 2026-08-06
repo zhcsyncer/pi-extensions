@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@earendil-works/pi-coding-agent@0.80.3>@earendil-works/pi-agent-core': 0.80.3
+  '@earendil-works/pi-coding-agent@0.80.3>@earendil-works/pi-ai': 0.80.3
+  '@earendil-works/pi-coding-agent@0.80.3>@earendil-works/pi-tui': 0.80.3
+
 importers:
 
   .:
@@ -18,8 +23,8 @@ importers:
         specifier: '*'
         version: 0.80.3
       '@juicesharp/rpiv-config':
-        specifier: 1.20.0
-        version: 1.20.0(typebox@1.1.24)
+        specifier: 2.4.0
+        version: 2.4.0
       typebox:
         specifier: 1.1.24
         version: 1.1.24
@@ -30,6 +35,37 @@ importers:
       '@changesets/cli':
         specifier: 2.31.0
         version: 2.31.0(@types/node@26.1.1)
+
+  packages/pi-ask-user-question:
+    dependencies:
+      '@juicesharp/rpiv-config':
+        specifier: 2.4.0
+        version: 2.4.0
+    devDependencies:
+      '@earendil-works/pi-ai':
+        specifier: 0.80.3
+        version: 0.80.3(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.80.3
+        version: 0.80.3(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-tui':
+        specifier: 0.80.3
+        version: 0.80.3
+      '@juicesharp/rpiv-i18n':
+        specifier: 2.4.0
+        version: 2.4.0(@earendil-works/pi-coding-agent@0.80.3(ws@8.21.0)(zod@4.4.3))(@earendil-works/pi-tui@0.80.3)
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      typebox:
+        specifier: 1.1.24
+        version: 1.1.24
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/pi-context7:
     devDependencies:
@@ -619,8 +655,17 @@ packages:
     peerDependencies:
       typebox: '*'
 
+  '@juicesharp/rpiv-config@2.4.0':
+    resolution: {integrity: sha512-yUeDLfpAeKv3fdoBsye6bDy8M+TOQDAo8wX7DY9Qqyh60dT65AmWT7HQ/BOc3o08n/5TrwTlX9EnZcPAcgz4pw==}
+
   '@juicesharp/rpiv-i18n@1.20.0':
     resolution: {integrity: sha512-8f0KH/aHhkz7lDi7QRTuqjAEfTfiP4admIr4NbIaphWobU20o9//1LS/BCZTdb/5mRS1UtH3dQUXh8a4EyDSTA==}
+    peerDependencies:
+      '@earendil-works/pi-coding-agent': '*'
+      '@earendil-works/pi-tui': '*'
+
+  '@juicesharp/rpiv-i18n@2.4.0':
+    resolution: {integrity: sha512-8hsJ2UJQa2RTXEWns1mad6Tiav3abudapR05Fn9PGmxSGvk98kmcwLKh/gv0Azp3r2zttQCjsxD42CqX6D+iAQ==}
     peerDependencies:
       '@earendil-works/pi-coding-agent': '*'
       '@earendil-works/pi-tui': '*'
@@ -2458,13 +2503,13 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@juicesharp/rpiv-config@1.20.0(typebox@1.1.24)':
-    dependencies:
-      typebox: 1.1.24
-
   '@juicesharp/rpiv-config@1.20.0(typebox@1.1.38)':
     dependencies:
       typebox: 1.1.38
+
+  '@juicesharp/rpiv-config@2.4.0':
+    dependencies:
+      typebox: 1.1.24
 
   '@juicesharp/rpiv-i18n@1.20.0(@earendil-works/pi-coding-agent@0.80.3(ws@8.21.0)(zod@4.4.3))(@earendil-works/pi-tui@0.80.3)(typebox@1.1.38)':
     dependencies:
@@ -2473,6 +2518,12 @@ snapshots:
       '@juicesharp/rpiv-config': 1.20.0(typebox@1.1.38)
     transitivePeerDependencies:
       - typebox
+
+  '@juicesharp/rpiv-i18n@2.4.0(@earendil-works/pi-coding-agent@0.80.3(ws@8.21.0)(zod@4.4.3))(@earendil-works/pi-tui@0.80.3)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 0.80.3(ws@8.21.0)(zod@4.4.3)
+      '@earendil-works/pi-tui': 0.80.3
+      '@juicesharp/rpiv-config': 2.4.0
 
   '@manypkg/find-root@1.1.0':
     dependencies:

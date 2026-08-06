@@ -1,0 +1,97 @@
+# Keyboard and dialog layout
+
+Every key the questionnaire dialog reacts to, the rows it appends for you, and how it
+adapts to the size of your terminal.
+
+## Keys
+
+| Key | What it does | Where it applies |
+| --- | --- | --- |
+| `↑` / `↓` | Move between rows. Wraps at both ends. | Option list, Submit picker |
+| `1`–`4` | Select the corresponding authored option immediately; toggles it in multi-select questions. | Question tabs outside text/notes editing |
+| `Enter` | Confirm the focused option, commit typed text, close notes, or activate the focused Submit-picker row. | Everywhere |
+| `Shift+Enter` | Insert a newline. | `Type something.` input, notes editor |
+| `Esc` | Cancel the whole questionnaire. | Everywhere except the notes editor, where it closes notes |
+| `Tab` / `Shift+Tab` | Next / previous tab, wrapping. `→` / `←` do the same. | Multi-question dialogs only |
+| `Space` | Toggle the focused checkbox. | Multi-select questions |
+| `n` | Open the notes editor for the current question. | Every question tab |
+| `Ctrl+G` | Open Pi's configured external editor with the current custom-answer draft. | `Type something.` input |
+| `Ctrl+U` | Clear the current custom-answer draft. | `Type something.` input |
+| `Ctrl+]` | Collapse or expand the dialog. Configurable via `collapseKey`. | Everywhere, including while collapsed |
+
+In a multi-select question, `Enter` on a regular row toggles its checkbox exactly like
+`Space` — it does not submit. Committing the question means focusing the `Next` row and
+pressing `Enter`. That is deliberate: it makes `Enter` a zero-cost way to flip boxes
+without leaving the home row.
+
+`Space` is suppressed on two rows: `Next` (it is a command, not a choice) and
+`Type something.` (it is an inline text input, so the space character belongs to your
+answer).
+
+## The rows the dialog adds
+
+| Row | Label | Appended to |
+| --- | --- | --- |
+| Custom answer | `Type something.` | Every question — single-select and multi-select, with or without previews |
+| Commit | `Next` | Multi-select questions only |
+
+Focusing `Type something.` switches the row into an inline multiline editor. In preview
+mode it expands to the full pane width while you type, so a long custom answer is not
+squeezed into the narrow options column. `Shift+Enter` inserts a line break; vertical
+arrows move between lines and return to row navigation at the draft's top and bottom.
+The draft replaces the static row label while you browse other options and is isolated
+per question. `Ctrl+G` round-trips it through Pi's configured external editor; `Ctrl+U`
+clears it, while `Esc` remains the explicit way to cancel the questionnaire. Confirming
+it produces an answer of `kind: "custom"`.
+
+Both labels are reserved — the model cannot author an option that collides with them.
+Both localize with the rest of the UI chrome; the reserved-label check always compares
+against the canonical English strings.
+
+## Notes
+
+`n` opens a notes editor on any question tab, whether the question is single- or
+multi-select and whether or not its options carry previews. Notes are stored in a
+side-band keyed by tab index, not inside the answer, so writing a note does not mark a
+question as answered — the Submit tab still lists it as outstanding. The note merges into
+the answer when you confirm it, and reaches the model as `user notes: <text>`.
+
+Inside the editor, `Shift+Enter` inserts a newline, while `Esc` and `Enter` close it; other
+keystrokes edit the buffer, so `n` types an `n`. Pasted line breaks are preserved.
+
+## Collapse mode
+
+`Ctrl+]` shrinks the active questionnaire component to a single dim hint row. The
+questionnaire remains in Pi's normal editor slot rather than entering the overlay stack, so
+the footer stays separately visible. Press the same key to restore the questionnaire with
+your answers intact; the regular editor returns only after the questionnaire closes.
+
+While collapsed, every keystroke other than cancel is ignored, so you cannot mutate
+answers you cannot see.
+
+The default `ctrl+]` is free in Terminal.app, iTerm2, Warp, tmux, zellij and screen. On
+keyboard layouts where `]` sits on the shifted layer — Latin American `es-AR` / `es-MX`,
+among others — set a different `collapseKey`, or `"off"` to disable the shortcut.
+
+## Layout
+
+The questionnaire is Pi's active non-overlay custom component. While active, it replaces
+the regular editor in the same bottom layout slot, reflows the transcript, and leaves the
+footer separately visible. Pi restores the editor and its saved draft after the questionnaire
+closes.
+
+Options render in a vertical list. When any option in a single-select question carries a
+`preview`, the dialog splits into a side-by-side layout with the option list on the left
+and a bordered monospace preview box on the right — but only when both the terminal and
+the dialog pane are at least 100 columns wide. Below that, the preview stacks underneath
+the options instead.
+
+When the dialog is taller than the terminal, the body scrolls between a sticky heading and
+a sticky footer, and an overflow indicator shows which direction is clipped: `↑` for
+content above, `↓` for content below, `↕` for both.
+
+The footer hint line adapts to context — it drops the notes hint and appends the
+`Shift+Enter` newline hint whenever a text editor has the keyboard, with `Ctrl+U` still at
+the far right for custom answers. It adds the tab hint only in multi-question dialogs.
+`Ctrl+G` remains Pi's global external-editor shortcut and is not repeated there. On narrow
+terminals the right edge clips with `…` so the core hints survive.

@@ -13,6 +13,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
+- [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, number-key selection, previews, and readable tool call/result rendering.
 
 ## Bundle-private Search Hub
 
@@ -28,7 +29,7 @@ This fork keeps upstream tool descriptions, model-facing result text, and the fu
 
 ## Persistent extension data
 
-Bundle extension configuration and state live under `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`. Existing files are migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed source files are preserved. Trusted project overrides for Recap and Search Hub use `.pi/extension-data/<extension-id>/config.json`. Plan artifacts intentionally remain in `$PI_CODING_AGENT_DIR/plans/`.
+Bundle extension configuration and state generally live under `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`. Existing files are migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed source files are preserved. Trusted project overrides for Recap and Search Hub use `.pi/extension-data/<extension-id>/config.json`. Plan artifacts intentionally remain in `$PI_CODING_AGENT_DIR/plans/`. Ask User Question retains its upstream-compatible `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json` path.
 
 ## Install from Git
 
@@ -46,7 +47,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, structured user questions, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -88,6 +89,12 @@ Install only Context7 documentation tools:
 pi install npm:@zhcsyncer/pi-context7
 ```
 
+Install only structured user questions:
+
+```bash
+pi install npm:@zhcsyncer/pi-ask-user-question
+```
+
 ## Development
 
 Test the root bundle:
@@ -106,6 +113,7 @@ pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
+pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
@@ -133,3 +141,5 @@ MIT
 `pi-search-hub` is forked from [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0, whose package metadata and README declare MIT. Its exact revision and preserved notices are recorded in [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) and [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md).
 
 `pi-context7` is forked from MIT-licensed [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2 (`b250c2515694eee4b6df4db82fa056df9ed3e306`). The exact revision and preserved notices are recorded in [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-context7/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE).
+
+`pi-ask-user-question` is forked from MIT-licensed [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0. The exact revision and preserved notices are recorded in [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-ask-user-question/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE).

@@ -10,6 +10,7 @@ const TODO = "@zhcsyncer/pi-todo";
 const GLANCE = "@zhcsyncer/pi-glance";
 const PLAN_MODE = "@zhcsyncer/pi-plan-mode";
 const CONTEXT7 = "@zhcsyncer/pi-context7";
+const ASK_USER_QUESTION = "@zhcsyncer/pi-ask-user-question";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
@@ -63,6 +64,12 @@ test("requires the root package when Plan Mode releases", () => {
 test("requires the root package when Context7 releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([CONTEXT7, "minor"])), [
 		`${CONTEXT7} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Ask User Question releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([ASK_USER_QUESTION, "minor"])), [
+		`${ASK_USER_QUESTION} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 

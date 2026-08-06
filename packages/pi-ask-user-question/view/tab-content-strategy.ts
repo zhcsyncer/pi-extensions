@@ -1,0 +1,249 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, Container, type Editor, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { t } from "../state/i18n-bridge.js";
+import { formatAnswerScalar } from "../tool/format-answer.js";
+import type { QuestionData } from "../tool/types.js";
+import type { PreviewPane, PreviewPaneProps } from "./components/preview/preview-pane.js";
+import {
+	type DialogState,
+	HINT_PART_CANCEL,
+	HINT_PART_CLEAR,
+	HINT_PART_COLLAPSE,
+	HINT_PART_ENTER,
+	HINT_PART_NAV,
+	HINT_PART_NEW_LINE,
+	HINT_PART_NOTES,
+	HINT_PART_TAB,
+	HINT_PART_TOGGLE,
+	INCOMPLETE_WARNING_PREFIX,
+	READY_PROMPT,
+	REVIEW_HEADING,
+} from "./dialog-builder.js";
+import type { StatefulView } from "./stateful-view.js";
+import type { TabComponents } from "./tab-components.js";
+
+const NOTES_HEADER = "Notes:";
+
+/**
+ * Single-row, width-clipped chrome cell. The footer row count is invariant
+ * (`QuestionTabStrategy.footerRowCount = 2`) — pi-tui's `Text` word-wraps when
+ * the styled hint exceeds `width`, inflating that row count and desyncing the
+ * `bodyHeight + footerRowCount` math in `DialogView.render`. Clipping with
+ * `truncateToWidth` (ANSI-aware, matches `multi-select-view.ts` usage) keeps
+ * the hint on one line; the collapse affordance falls off the right edge with
+ * `…` on terminals too narrow to advertise it.
+ */
+class OneLineClippedText implements Component {
+	constructor(
+		private readonly text: string,
+		private readonly paddingLeft: number = 0,
+	) {}
+
+	render(width: number): string[] {
+		const pad = " ".repeat(this.paddingLeft);
+		const avail = Math.max(0, width - this.paddingLeft);
+		return [pad + truncateToWidth(this.text, avail, "…", false)];
+	}
+
+	invalidate(): void {}
+
+	handleInput(_data: string): void {}
+}
+
+/**
+ * Per-tab content provider. Pure functional — closes over construction-time
+ * config; per-tick state threads through method args. The chrome wrapper
+ * enforces height equality across tabs via `bodyHeight + footerRowCount`.
+ */
+export interface TabContentStrategy {
+	/** Total RENDERED footer rows — MUST equal what `footerRows()` actually emits. Drives residual math. */
+	readonly footerRowCount: number;
+
+	/** Variable rows above the body, after top chrome (border + tabBar + Spacer). */
+	headingRows(state: DialogState): Component[];
+
+	/** Body Component placed at the body slot. */
+	bodyComponent(state: DialogState): Component;
+
+	/** Natural rendered height of `bodyComponent(state)` at given width. */
+	bodyHeight(width: number, state: DialogState): number;
+
+	/** Optional rows between body's trailing Spacer and the bottom border. */
+	midRows(state: DialogState): Component[];
+
+	/** Footer rows below the bottom border. Rendered row count MUST equal `footerRowCount`. */
+	footerRows(state: DialogState): Component[];
+
+	/** Row range of the focused item within the body's rendered output, or undefined if no interactive focus. */
+	focusedItemRowRange(width: number, state: DialogState): [number, number] | undefined;
+}
+
+export interface QuestionTabStrategyConfig {
+	theme: Theme;
+	questions: readonly QuestionData[];
+	getPreviewPane: () => StatefulView<PreviewPaneProps>;
+	tabsByIndex: ReadonlyArray<TabComponents>;
+	notesInput: Editor;
+	isMulti: boolean;
+	getCurrentBodyHeight: (width: number) => number;
+}
+
+export class QuestionTabStrategy implements TabContentStrategy {
+	/** Spacer(1) + OneLineClippedText(hint, 1) = 2 rendered rows. */
+	readonly footerRowCount = 2;
+
+	constructor(private readonly config: QuestionTabStrategyConfig) {}
+
+	headingRows(state: DialogState): Component[] {
+		const out: Component[] = [];
+		const question = this.config.questions[state.currentTab];
+		// In multi-question mode the tab bar already shows the header; suppress the inline badge.
+		if (!this.config.isMulti && question?.header && question.header.length > 0) {
+			out.push(new Text(this.config.theme.bg("selectedBg", ` ${question.header} `), 1, 0));
+			out.push(new Spacer(1));
+		}
+		if (question) {
+			out.push(new Text(this.config.theme.bold(question.question), 1, 0));
+			out.push(new Spacer(1));
+		}
+		return out;
+	}
+
+	bodyComponent(state: DialogState): Component {
+		const question = this.config.questions[state.currentTab];
+		const mso = this.config.tabsByIndex[state.currentTab]?.multiSelect;
+		if (question?.multiSelect === true && mso) return mso;
+		return this.config.getPreviewPane();
+	}
+
+	bodyHeight(width: number, _state: DialogState): number {
+		return this.config.getCurrentBodyHeight(width);
+	}
+
+	midRows(state: DialogState): Component[] {
+		if (!state.notesVisible) return [];
+		return [
+			new Text(this.config.theme.fg("muted", t("notes.header", NOTES_HEADER)), 1, 0),
+			this.config.notesInput,
+			new Spacer(1),
+		];
+	}
+
+	footerRows(state: DialogState): Component[] {
+		const question = this.config.questions[state.currentTab];
+		// OneLineClippedText (not pi-tui `Text`) — `buildHintText` includes the collapse
+		// affordance, pushing the rendered string past 80 columns; `Text` would wrap and
+		// break the strategy's `footerRowCount = 2` invariant. Clipping on narrow terminals
+		// drops the trailing parts (collapse hint first, then cancel) with `…`.
+		return [
+			new Spacer(1),
+			new OneLineClippedText(this.config.theme.fg("dim", buildHintText(question, this.config.isMulti, state)), 1),
+		];
+	}
+
+	focusedItemRowRange(width: number, state: DialogState): [number, number] | undefined {
+		const question = this.config.questions[state.currentTab];
+		const mso = this.config.tabsByIndex[state.currentTab]?.multiSelect;
+		if (question?.multiSelect === true && mso) return mso.focusedItemRowRange(width);
+		return (this.config.getPreviewPane() as unknown as PreviewPane).focusedItemRowRange(width);
+	}
+}
+
+export interface SubmitTabStrategyConfig {
+	theme: Theme;
+	questions: readonly QuestionData[];
+	submitPicker: Component | undefined;
+}
+
+export class SubmitTabStrategy implements TabContentStrategy {
+	/** Spacer(1) + Text(prompt, 1) + Spacer(1) + submitPicker(2) = 5 rendered rows. Fallback path lands at 5 via 2 trailing Spacer(1)s. */
+	readonly footerRowCount = 5;
+
+	constructor(private readonly config: SubmitTabStrategyConfig) {}
+
+	headingRows(_state: DialogState): Component[] {
+		return [
+			new Text(this.config.theme.bold(this.config.theme.fg("accent", t("review.heading", REVIEW_HEADING))), 1, 0),
+			new Spacer(1),
+		];
+	}
+
+	bodyComponent(state: DialogState): Component {
+		const c = new Container();
+		for (let i = 0; i < this.config.questions.length; i++) {
+			const q = this.config.questions[i];
+			const a = state.answers.get(i);
+			if (!a) continue;
+			const label = q.header && q.header.length > 0 ? q.header : `Q${i + 1}`;
+			const answerText = formatAnswerScalar(a, "summary");
+			c.addChild(new Text(this.config.theme.fg("muted", ` ● ${label}`), 1, 0));
+			c.addChild(
+				new Text(`   ${this.config.theme.fg("muted", "→")} ${this.config.theme.fg("text", answerText)}`, 1, 0),
+			);
+			if (a.notes && a.notes.length > 0) {
+				c.addChild(new Text(this.config.theme.fg("dim", `     notes: ${a.notes}`), 1, 0));
+			}
+		}
+		return c;
+	}
+
+	bodyHeight(width: number, state: DialogState): number {
+		return this.bodyComponent(state).render(width).length;
+	}
+
+	midRows(_state: DialogState): Component[] {
+		return [];
+	}
+
+	footerRows(state: DialogState): Component[] {
+		const missing: string[] = [];
+		for (let i = 0; i < this.config.questions.length; i++) {
+			const q = this.config.questions[i];
+			if (!state.answers.has(i)) {
+				missing.push(q.header && q.header.length > 0 ? q.header : `Q${i + 1}`);
+			}
+		}
+		const promptText =
+			missing.length === 0
+				? this.config.theme.fg("muted", t("review.ready", READY_PROMPT))
+				: this.config.theme.fg(
+						"warning",
+						`${t("review.incomplete", INCOMPLETE_WARNING_PREFIX)} ${missing.join(", ")}`,
+					);
+		const out: Component[] = [new Spacer(1), new Text(promptText, 1, 0), new Spacer(1)];
+		if (this.config.submitPicker) {
+			out.push(this.config.submitPicker);
+		} else {
+			// Padding when the picker isn't wired — keeps rendered row count at footerRowCount=5.
+			out.push(new Spacer(1));
+			out.push(new Spacer(1));
+		}
+		return out;
+	}
+
+	focusedItemRowRange(_width: number, _state: DialogState): [number, number] | undefined {
+		return undefined;
+	}
+}
+
+/**
+ * Build the controls hint line. Order:
+ *   Enter/1-4 select · ↑/↓ [· Space toggle] [· n notes] [· Tab switch] · Esc · Ctrl+] collapse
+ *   [· Shift+Enter newline] [· Ctrl+U clear]
+ *
+ * `NOTES` is part of the resting (notes-closed) core — it drops while the notes
+ * editor or custom-answer input has the keyboard. Ctrl+G is Pi's global external-
+ * editor shortcut and needs no local hint; the context-specific clear shortcut is
+ * appended at the far right while input mode is active.
+ */
+export function buildHintText(question: QuestionData | undefined, isMulti: boolean, state: DialogState): string {
+	const parts: string[] = [t("hint.enter", HINT_PART_ENTER), t("hint.navigate", HINT_PART_NAV)];
+	if (question?.multiSelect === true) parts.push(t("hint.toggle", HINT_PART_TOGGLE));
+	if (question && !state.notesVisible && !state.inputMode) parts.push(t("hint.notes", HINT_PART_NOTES));
+	if (isMulti) parts.push(t("hint.tab", HINT_PART_TAB));
+	parts.push(t("hint.cancel", HINT_PART_CANCEL));
+	parts.push(t("hint.collapse", HINT_PART_COLLAPSE));
+	if (state.notesVisible || state.inputMode) parts.push(t("hint.newline", HINT_PART_NEW_LINE));
+	if (state.inputMode) parts.push(t("hint.clear", HINT_PART_CLEAR));
+	return parts.join(" · ");
+}

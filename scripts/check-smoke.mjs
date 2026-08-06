@@ -13,6 +13,7 @@ const packagePaths = [
 	"./packages/pi-plan-mode",
 	"./packages/pi-search-hub",
 	"./packages/pi-context7",
+	"./packages/pi-ask-user-question",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 

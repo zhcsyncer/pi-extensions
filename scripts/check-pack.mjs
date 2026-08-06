@@ -14,6 +14,7 @@ const packagePaths = [
 	"./packages/pi-plan-mode",
 	"./packages/pi-search-hub",
 	"./packages/pi-context7",
+	"./packages/pi-ask-user-question",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -42,6 +43,11 @@ const requiredPackFiles = new Map([
 		"packages/pi-context7/README.md",
 		"packages/pi-context7/README.zh-CN.md",
 		"packages/pi-context7/UPSTREAM_SOURCE.md",
+		"packages/pi-ask-user-question/index.ts",
+		"packages/pi-ask-user-question/view/tool-renderer.ts",
+		"packages/pi-ask-user-question/locales/zh.json",
+		"packages/pi-ask-user-question/README.md",
+		"packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-recap", [
 		"extensions/recap.ts",
@@ -85,6 +91,19 @@ const requiredPackFiles = new Map([
 		"UPSTREAM_LICENSE",
 		"UPSTREAM_SOURCE.md",
 	]],
+	["./packages/pi-ask-user-question", [
+		"index.ts",
+		"ask-user-question.ts",
+		"state/key-router.ts",
+		"view/tool-renderer.ts",
+		"locales/en.json",
+		"locales/zh.json",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"UPSTREAM_LICENSE",
+		"UPSTREAM_SOURCE.md",
+	]],
 	["./providers/pi-provider-volcengine-agent-plan", [
 		"index.ts",
 		"README.md",
@@ -106,6 +125,7 @@ const maintainedReadmes = [
 	"packages/pi-search-hub/README.zh-CN.md",
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
+	"packages/pi-ask-user-question/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",

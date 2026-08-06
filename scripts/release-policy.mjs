@@ -12,6 +12,7 @@ export const CHILD_PACKAGES = Object.freeze([
 	"@zhcsyncer/pi-glance",
 	"@zhcsyncer/pi-plan-mode",
 	"@zhcsyncer/pi-context7",
+	"@zhcsyncer/pi-ask-user-question",
 ]);
 
 /**
