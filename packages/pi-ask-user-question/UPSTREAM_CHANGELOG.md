@@ -1,0 +1,425 @@
+# Changelog
+
+All notable changes to `@juicesharp/rpiv-ask-user-question` are documented here.
+
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.4.0] - 2026-08-03
+
+### Fixed
+
+- Preview questionnaires now rebalance after terminal resizing: option descriptions gain useful width without exceeding half the dialog, while content-sized previews align with the right edge.
+- The notes affordance below a right-aligned preview box slides left instead of clipping when a locale string is wider than the box (the French string sits exactly at the box's minimum width).
+
+## [2.3.1] - 2026-07-31
+
+## [2.3.0] - 2026-07-31
+
+## [2.2.0] - 2026-07-29
+
+### Added
+- Custom answers and notes now use Pi's multiline editor semantics: `Shift+Enter` inserts a newline, pasted line breaks are preserved, and vertical arrows move within the draft before returning to row navigation at its boundaries.
+- `Ctrl+G` opens Pi's configured external editor for the focused `Type something.` draft, and `Ctrl+U` clears that draft without cancelling the questionnaire. The input-mode hint bar advertises the context-specific controls at its right edge.
+
+### Fixed
+- Custom-answer drafts now survive browsing other options, remain visible in place of the `Type something.` label while another option has focus, and stay isolated per question instead of being cleared on navigation or leaking across tabs.
+
+## [2.1.0] - 2026-07-23
+
+### Added
+- Press `n` to open the notes editor from every question tab — single- or multi-select, with or without option previews — instead of only when the focused option carried a preview. The hint bar now advertises notes on every tab, except while the custom-answer field is capturing typed text.
+- Emit `rpiv:ask-user:blocked` (`{ active: boolean }`) while the questionnaire awaits input, cleared when the questionnaire resolves, so external status listeners can show `blocked` instead of `working`.
+
+### Changed
+- Tool description and prompt guidelines now describe the custom-answer behavior consistently: the "Type something." row is appended to every question, and the reserved labels `Other` / `Type something.` are rejected in every question mode.
+- README rewritten to follow the documentation standard shared across all packages.
+- npm tarball now includes the versioned `docs/` reference and no longer ships cover or screenshot art.
+
+### Fixed
+- The notes editor no longer discards an in-progress note when it is reopened before the option is confirmed.
+- Collapse toggles now ignore Kitty keyboard repeat and release events, preventing a tap from immediately reopening the questionnaire or a held key from toggling it rapidly in terminals such as cmux/Ghostty.
+- A missing collapse-key value at runtime is treated as disabled instead of crashing the host process (previously possible when a long-lived Pi session spanned a package update).
+
+## [2.0.0] - 2026-07-21
+
+### Added
+- Questionnaires now render in RPC hosts (e.g. the VS Code pendant, Zed) through native select and input dialogs instead of silently reporting a decline.
+- Free-text `Type something.` answers on every question type — added to multi-select and no longer suppressed on single-select questions whose options carry previews.
+- Configurable collapse/expand shortcut via the new `collapseKey` config field (default `ctrl+]`; `off` disables it).
+- Hide the tool from the model entirely in non-interactive runs instead of auto-declining each call.
+- Honor `XDG_CONFIG_HOME` when locating the config file, falling back to the legacy `~/.config` location when the new one is absent.
+
+### Changed
+- Collapsing the questionnaire now fully hides the overlay — chat scrolling and editor focus resume, Esc no longer cancels while hidden, and a one-time notification names the reopen key.
+
+### Removed
+- The `Chat about this` escape hatch; Esc is now the only way to abandon the questionnaire without answering.
+
+### Fixed
+- Hosts with no dialog UI at all now receive an explicit no-UI error telling the model to re-ask in chat, instead of a false report that the user declined.
+- Malformed `collapseKey` values fall back to the default instead of capturing every press of the bare key.
+- The collapse shortcut no longer steals its key from other focused overlays.
+- Report a clear restart remedy when the plugin's files are replaced mid-session (e.g. by a reinstall), instead of failing every later questionnaire with an opaque error.
+- Tool registration no longer fails with a missing-module error under package installers that do not materialise peer dependencies.
+
+## [1.20.0] - 2026-06-15
+
+### Added
+- Chinese (`zh`) translations (`locales/zh.json`) (#68).
+
+## [1.19.1] - 2026-06-10
+
+## [1.19.0] - 2026-06-09
+
+## [1.18.2] - 2026-06-04
+
+## [1.18.1] - 2026-06-04
+
+## [1.18.0] - 2026-06-04
+
+### Changed
+- The questionnaire view/render graph (TUI components, preview, markdown) now loads lazily on the first `ask_user_question` invocation instead of at extension registration, cutting the extension's session-start load cost (~227ms → ~58ms).
+
+## [1.17.1] - 2026-06-01
+
+## [1.17.0] - 2026-06-01
+
+## [1.16.1] - 2026-05-30
+
+## [1.16.0] - 2026-05-30
+
+## [1.15.0] - 2026-05-28
+
+## [1.14.7] - 2026-05-28
+
+### Added
+- `Ctrl+]` collapses the questionnaire overlay to a single-line footer (`Ctrl+] to expand · Esc to cancel`), exposing the agent transcript that sat behind the bottom-anchored dialog. Pressing `Ctrl+]` again expands. Works from any inner mode (notes, inputMode, chat, submit tab); the overlay stays focused so expand never falls through to a lower overlay (e.g. `/btw`), preserving the focus-restore semantics from v1.14.0.
+- Footer hint advertises the new affordance (`… · Esc to cancel · Ctrl+] to collapse`). On terminals too narrow to fit the full hint, the trailing collapse part clips with `…` so the core controls stay readable.
+
+### Fixed
+- Issue #47: agent transcript was unreadable while the questionnaire overlay was up. The overlay still composites on top of the transcript (pi-tui doesn't reflow main content around overlays), but the new collapse toggle lets the user shrink the dialog to a single row on demand and read the LLM's pre-question preamble before answering.
+
+## [1.14.6] - 2026-05-28
+
+## [1.14.5] - 2026-05-28
+
+## [1.14.4] - 2026-05-28
+
+## [1.14.3] - 2026-05-28
+
+## [1.14.2] - 2026-05-28
+
+## [1.14.1] - 2026-05-28
+
+## [1.14.0] - 2026-05-28
+
+### Added
+- Questionnaire renders as a bottom-anchored overlay.
+
+## [1.13.0] - 2026-05-25
+
+### Added
+- `rpiv:ask-user:prompt` event emitted before showing the questionnaire, with a typed payload and importable event contract from `@juicesharp/rpiv-ask-user-question/events`.
+
+## [1.12.0] - 2026-05-21
+
+## [1.11.0] - 2026-05-20
+
+### Changed
+- Relocate npm + MIT badges from the cover area to the License section in README.
+
+## [1.10.2] - 2026-05-20
+
+### Changed
+- Refresh npm cover (`docs/cover.{svg,png}`): tighter card rhythm so all options, the divider, the trailing `4. Chat about this` row, and the keyboard hints sit inside the card; `4.` now aligns with the rest of the option numerals.
+
+## [1.10.1] - 2026-05-19
+
+## [1.10.0] - 2026-05-19
+
+## [1.9.2] - 2026-05-19
+
+### Changed
+- Adding a translated locale no longer requires editing the extension entry — drop `locales/<code>.json` next to the existing files and it loads automatically on next start.
+
+## [1.9.1] - 2026-05-19
+
+### Changed
+- Inline "Other" free-text input now renders the cursor at the actual typed position (cursor-aware reverse-video on the cell under the cursor, per ECMA-48 SGR 7 — same pattern as pi-tui Input, ink-text-input, terkelg/prompts, ratatui). Previously a stationary `▌` glyph rendered at end-of-buffer regardless of arrow-key navigation. Pi-tui's `CURSOR_MARKER` is emitted so the hardware terminal cursor lands at the typed column when pi's `showHardwareCursor` setting is enabled. NBSP (U+00A0) substitutes for whitespace under the cursor to avoid wrap-break tokenization in `wrapTextWithAnsi`. Cursor extraction uses `Intl.Segmenter` so the reverse-video cell covers the full grapheme cluster — emoji, ZWJ sequences (e.g. 👨‍👩‍👧), and combining marks render intact instead of splitting surrogate pairs across the SGR boundary.
+
+## [1.9.0] - 2026-05-18
+
+### Added
+- Terminal-row-aware overflow scroll for dialogs — content is rendered at full height then sliced into a three-region layout (sticky top, scrollable middle, sticky bottom) with scroll-to-focus and overflow indicators.
+
+### Fixed
+- Overflow indicator collision when only a single middle row is available — now shows a combined ↕ indicator instead of silently overwriting the up arrow.
+
+## [1.8.3] - 2026-05-18
+
+## [1.8.2] - 2026-05-17
+
+## [1.8.1] - 2026-05-17
+
+## [1.8.0] - 2026-05-16
+
+## [1.7.0] - 2026-05-15
+
+## [1.6.1] - 2026-05-14
+
+## [1.6.0] - 2026-05-14
+
+## [1.5.2] - 2026-05-13
+
+### Added
+- Configurable LLM guidance overrides via package config.
+
+## [1.5.1] - 2026-05-13
+
+## [1.5.0] - 2026-05-12
+
+## [1.4.2] - 2026-05-11
+
+## [1.4.1] - 2026-05-11
+
+### Fixed
+- Tool description now advertises the 60-character label limit in prose, reducing rejected responses from models that overlook schema-level constraints.
+
+## [1.4.0] - 2026-05-10
+
+## [1.3.1] - 2026-05-10
+
+## [1.3.0] - 2026-05-08
+
+### Fixed
+- Inline "Other" input row now wraps long custom answers across multiple lines instead of clipping them off the right edge.
+
+## [1.2.1] - 2026-05-07
+
+## [1.2.0] - 2026-05-07
+
+### Added
+- `header` chip limit raised from 12 to 16 characters.
+- Left column in side-by-side preview adapts its width to the longest option label instead of using a fixed 40-character cap.
+- Preview slack donated back to the option list when previews are narrower than the right column's allocation, giving descriptions more horizontal room.
+- Short option labels (e.g. npm/pnpm/yarn-style 1–4 character labels) skip the preview-donation algorithm, keeping the layout compact for dense choice sets.
+
+## [1.1.5] - 2026-05-05
+
+### Fixed
+- Tool prompt: dropped an ambiguous "This …" guideline whose antecedent could be read as either the question or the option, leading callers to phrase options inconsistently (#10).
+
+## [1.1.4] - 2026-05-03
+
+### Changed
+- `@juicesharp/rpiv-i18n` is now a soft optional peer (`peerDependenciesMeta.optional: true`). The bridge and module-init `registerStrings` call use a dynamic `await import()` inside try/catch, so a standalone install of just `rpiv-ask-user-question` no longer fails with `Cannot find module '@juicesharp/rpiv-i18n'` — the dialog stays online with English-only UI when the SDK isn't present, and lights up localization automatically when it is.
+
+## [1.1.3] - 2026-05-03
+
+## [1.1.2] - 2026-05-03
+
+## [1.1.1] - 2026-05-03
+
+## [1.1.0] - 2026-05-03
+
+### Added
+- Localized TUI strings via `@juicesharp/rpiv-i18n`: sentinel rows ("Type something.", "Chat about this", "Next"), submit/cancel labels, dialog hints, review-tab heading and prompts, preview placeholder, notes affordance, and the chat-summary line all resolve at render time through the i18n bridge.
+- Ships Deutsch / English / Español / Français / Português (PT) / Português (BR) / Русский / Українська translation maps under `locales/`. Auto-translated drafts marked in each file's `_meta.notes` — native-speaker contributions welcome (see rpiv-i18n README → "Contributing translations").
+- Bridge module (`state/i18n-bridge.ts`) exposes `t(key, fallback)` and `displayLabel(kind)` so the rest of the package localizes through one import surface.
+
+### Changed
+- `RESERVED_LABEL_SET` and the LLM-facing tool description / TypeBox schemas / response envelope remain English-only by design — localizing those would let model-emitted equivalents bypass the duplicate-detection guard.
+- A missing or malformed `locales/<code>.json` no longer takes the extension offline at module init; `loadLocale` warns to console and the bridge falls back to canonical English literals at every call site.
+
+## [1.0.19] - 2026-05-03
+
+## [1.0.18] - 2026-05-02
+
+### Changed
+- Lead the `header` field description with `MAX 12 CHARACTERS — hard limit, requests over the limit are rejected.` so mid-tier reasoning models (which were occasionally emitting 13–14 char chip labels despite the typebox `maxLength: 12` constraint already being on the wire) see the cap at the top of the description instead of buried in a parenthetical. The schema constraint and validator behavior are unchanged.
+
+## [1.0.17] - 2026-05-02
+
+## [1.0.16] - 2026-05-02
+
+## [1.0.15] - 2026-05-02
+
+## [1.0.14] - 2026-05-01
+
+### Changed
+- Cover redesigned as a macOS-style terminal-window screenshot mimicking the real questionnaire dialog.
+
+## [1.0.13] - 2026-05-01
+
+### Added
+- `docs/vertical-cover.{svg,png}` — portrait-orientation hero artwork (1280×800 canvas; PNG downscaled to 320×711).
+
+### Changed
+- Cover canvas extended from 1280×640 to 1280×800 with refreshed crop marks/footer.
+- README hero swapped from `docs/cover.png` to `docs/vertical-cover.png`, rendered at `width="160"`. The `<a>` wrapper around the `<picture>` was removed so the image is no longer a clickable link to the package directory.
+
+## [1.0.12] - 2026-05-01
+
+### Added
+- `docs/cover.png` — package hero (rasterized from `docs/cover.svg` via `rsvg-convert`, 1280×640).
+- New paste/Kitty test fixtures in `factory.test.ts` covering bracketed paste (single + split chunks), embedded `\n`/`\r`/`\t` cleaning, Kitty CSI-u printables, paste+type+backspace merged edits, and raw multi-character chunks (Terminal.app / macOS Dictation parity).
+
+### Changed
+- README hero: open with a `<picture>`-wrapped `cover.png` above the shield badges so pi.dev's package-card image extractor picks the friendly artwork instead of the npm version shield. Existing `docs/code-preview.jpg` screenshot retained below the description; the `## Screens` grid is unchanged.
+- Internal: inline-Other free-text row now owns a headless `pi-tui` `Input` instance (`inlineInput`), mirroring the existing `notesInput` ownership pattern. Replaces the session-level `InputBuffer` cell + ESC-prefix-filtered append fast path. `QuestionnaireState` shape and the closed `Effect` union are unchanged.
+
+### Fixed
+- Inline-Other free-text row now correctly accepts bracketed paste (`\x1b[200~…\x1b[201~`), Kitty CSI-u printables (`\x1b[97u`, etc.), split-chunk paste reassembly, and raw unframed multi-character chunks. Fixes dictation tools (Wispr Flow, FluidVoice, Aqua Voice, macOS Dictation) which previously had their text dropped by the legacy `stripControlChars` filter on Warp / Ghostty / kitty / WezTerm / Terminal.app.
+
+### Removed
+- `state/input-buffer.ts` and the legacy filter surface on `WrappingSelect` (`stripControlChars`, `appendInput`, `backspaceInput`, `getInputBuffer`, `clearInputBuffer`). `setInputBuffer` is now a plain assignment driven by `OptionListView.setProps`.
+
+## [1.0.11] - 2026-04-30
+
+## [1.0.10] - 2026-04-30
+
+## [1.0.9] - 2026-04-30
+
+### Changed
+- Internal refactor: notes-mode dispatch unified onto the reducer. New canonical `QuestionnaireState.notesDraft` field replaces `ApplyContext.pendingNotesValue`; `routeKey` emits `notes_forward` for any non-Esc/Enter key while `notesVisible`, the reducer returns it as a `forward_notes_keystroke` effect, and the runtime forwards to the Input. Eliminates the two-pass dispatch hack and the buried `requestRender` call in the session.
+- Internal refactor: `reduce` switch replaced with a typed dispatch table. 14 named per-kind handlers (`navHandler`, `confirmHandler`, …) registered in `HANDLERS: { [K in QuestionnaireAction["kind"]]: Handler<K> }`; mapped-type Record preserves compile-time exhaustiveness (mirrors `ROW_INTENT_META`). Each handler is pure, individually testable; `reduce` collapses to a two-line lookup.
+- Internal refactor: `buildQuestionnaire` factored into an intention-revealing `QuestionnaireBuilder` class. `build()` reads as a 9-line story (tabs → optional bars → heights → dialog → bindings → adapter → handle); each step is one private method. Local `isActiveTab` predicate now delegates to `selectActivePreviewPaneIndex` instead of re-deriving the clamp. Public surface unchanged.
+
+## [1.0.8] - 2026-04-29
+
+### Changed
+- Internal refactor: unified all projection selectors under one shape — `GlobalSelector<P> = (state, ctx: BindingContext) => P` and `PerTabSelector<P> = (state, ctx: PerTabBindingContext) => P`. Selectors now pass to the binding registry by reference (`select: selectChatRowProps`) instead of through arg-shaping closures. Predicates share the type. New cross-position facts land on `BindingContext` once, so selector signatures stop growing as features accumulate. Selector contract extracted to `state/selectors/contract.ts`; `view/component-binding.ts` keeps only binding shapes and the existential wrappers. Net -162 lines, behavior byte-identical.
+
+## [1.0.7] - 2026-04-29
+
+### Added
+- Multi-select questions now show "Submit" instead of "Next" on the trailing sentinel row when the question is the last in the questionnaire. The action is unchanged — Enter still commits and finishes; the label just stops implying another question follows.
+- Picking "Chat about this" on any tab now closes the dialog immediately and returns whatever has been answered so far together with the chat directive. Previously, multi-question dialogs advanced to the next tab instead of escaping; single-question dialogs already behaved this way. The chat sentinel now consistently fulfills its documented role as the universal escape hatch.
+
+### Changed
+- Internal refactor: replaced the binding-registry's `as ComponentBinding<unknown>` / `as PerTabBinding<unknown>` casts with `globalBinding<P>(spec)` / `perTabBinding<P>(spec)` existential wrappers. TypeScript now verifies at construction that each selector's return shape matches its target component's `setProps` input — a typo in a selector return would fail to compile instead of silently mismatching.
+
+## [1.0.6] - 2026-04-29
+
+### Changed
+- Internal refactor: collapsed three index-aligned arrays (`optionListViewsByTab`, `previewPanes`, `multiSelectOptionsByTab`) into a single `ReadonlyArray<TabComponents>` across the props adapter, dialog builder, tab-content strategy, and `buildQuestionnaire` factory. The "question tab" is now a structural unit (one OptionListView + one PreviewPane + optional MultiSelectView) rather than an implicit length-coincidental invariant. New `view/tab-components.ts` module ships in the manifest. Behavior is byte-identical.
+- Internal cleanup: removed back-compat scaffolding now that the package has no downstream consumers — deleted the `state/questionnaire-state.ts` re-export barrel and the `chatNumberingFor` re-export at the package root. Made `QuestionnaireState.notesByTab` and `focus_options.optionIndex` required (dropped the legacy "no optionIndex preserves cursor" reducer branch and its test). Stripped historical-narration docstrings (extraction notes, "preserved verbatim" framing, internal artifact-id references).
+
+## [1.0.5] - 2026-04-29
+
+### Changed
+- Internal refactor: regrouped sources into `tool/`, `state/`, `view/`, `view/components/`, and `view/components/preview/` layers mirroring the runtime architecture; Pi entry stays at root. `package.json` `files` and ship-manifest tests rewritten to walk the tree recursively.
+- Internal refactor: unified all components under a single `StatefulView<P> + setProps` contract driven by named selectors (`selectMultiSelectProps`, `selectSubmitPickerProps`, `selectOptionListProps`, `selectPreviewPaneProps`, `selectTabBarProps`, `selectChatRowProps`). Eliminates the cross-component live read in `PreviewPane`; extracts `ChatRowView`; removes legacy `stateful-component.ts`.
+- Internal refactor: introduced `ROW_INTENT_META` metadata table — single source of truth for sentinel-row affordances (`other` / `chat` / `next`) replacing scattered branch logic.
+
+### Tests
+- Added ship-manifest + banned-legacy-flags verification tests asserting the published tarball ships every production module and that no legacy `isOther` / `isChat` / `wasCustom` / `wasChat` flags survive the `kind`-tagged union migration.
+
+## [1.0.4] - 2026-04-28
+
+## [1.0.3] - 2026-04-28
+
+### Fixed
+- Publish manifest: `package.json` `files` array now includes `apply-action.ts`, `option-list-view.ts`, `preview-block-renderer.ts`, and `view-adapter.ts`. The 1.0.2 tarball omitted these refactor-introduced production modules, so Pi failed to load the extension with `Cannot find module './apply-action.js'` from `questionnaire-session.ts`.
+
+### Changed
+- Internal refactor: replaced flag-based row/answer discriminators with `kind`-tagged discriminated unions. `WrappingSelectItem` gains `kind: "option" | "other" | "chat" | "next"` (drops `isOther` / `isChat` / `isNext`); `QuestionAnswer` gains `kind: "option" | "custom" | "chat" | "multi"` (drops `wasCustom` / `wasChat`). Modeled after the existing `QuestionnaireAction` / `Effect` unions in this package — exhaustive-`switch` enforcement, no `default:`, no helper. Adding a new row affordance now requires a single union extension + compiler-enforced exhaustive switch updates rather than 8 lockstep edits across modules. No observable behavior change — all existing tests pass after fixture-shape rewrites only.
+
+## [1.0.2] - 2026-04-28
+
+### Changed
+- Internal refactor: split `QuestionnaireSession` into a free-function selector module (`questionnaire-state.ts`), a pure `applyAction(state, action, ctx) → { state, effects }` reducer (`apply-action.ts`), and a `QuestionnaireViewAdapter` for component fan-out (`view-adapter.ts`). The slim runtime keeps the canonical state cell, the two-pass `notesVisible` dispatch loop, and an effect runner. No observable behavior change — all 754 existing tests pass without modification.
+- Drop redundant `QuestionnaireDispatchState` type alias; consumers use the canonical `QuestionnaireDispatchSnapshot` directly.
+- Unify hint copy via `HINT_PART_*` phrase tokens shared by `buildHintText()` and the existing `HINT_*` test-substring constants — single source of truth for the controls hint line.
+
+## [1.0.1] - 2026-04-28
+
+## [1.0.0] - 2026-04-28
+
+## [0.13.0] - 2026-04-28
+
+### Added
+- Multi-question dialogs with a tab bar (`Tab` to switch).
+- Preview pane: side-by-side or stacked, with per-option notes (`n` to add notes).
+- Multi-select questions: checkboxes, `Space` to toggle, `Next` sentinel, Enter-as-toggle on rows, toggles persisted across tab switches.
+- Submit tab with answer review and a Submit picker; warns about unanswered questions.
+- Chat row available on every tab.
+- Schema: `questions[]`, per-option `preview`, per-option `notes`.
+
+### Changed
+- Preview pane hidden entirely when no option carries a preview.
+- Continuous numbering across options and the chat row.
+- Controls hint reworked per tab (Space/n/Tab hints shown only when relevant).
+
+### Fixed
+- Dialog height stable across tab switches (Submit tab no longer collapses).
+- Enter on a single multi-select question now submits.
+- DOWN on the chat row exits to options (was a one-way trap).
+- No doubled cursor when chat or notes are focused on multi-select tabs.
+- Preview height cap matches the actual layout (side-by-side vs stacked).
+- `package.json` `files` array now ships every published module.
+
+## [0.12.7] - 2026-04-26
+
+### Fixed
+- Inline "Other" free-text input now clips to terminal width, preventing crashes on narrow terminals (e.g. Arch + Ghostty) where the row could overflow by a column or two and trip pi's safety check.
+
+## [0.12.6] - 2026-04-26
+
+## [0.12.5] - 2026-04-24
+
+## [0.12.4] - 2026-04-24
+
+## [0.12.3] - 2026-04-24
+
+## [0.12.2] - 2026-04-24
+
+## [0.12.1] - 2026-04-24
+
+## [0.12.0] - 2026-04-24
+
+## [0.11.7] - 2026-04-23
+
+## [0.11.6] - 2026-04-22
+
+## [0.11.5] - 2026-04-22
+
+## [0.11.4] - 2026-04-21
+
+## [0.11.3] - 2026-04-21
+
+## [0.11.2] - 2026-04-21
+
+## [0.11.1] - 2026-04-20
+
+## [0.11.0] - 2026-04-20
+
+### Added
+- `dispatchQuestionInput(index, item, ctx)` extracted from the selector's `keyBinding` handler and `buildDialogContainer(mainItems, ctx, initialIndex, onKey)` exported so the dispatch matrix (edit / skip / finalize / single-select / multi-select toggle+Enter) and dialog wiring can be unit-tested directly. Bodies and TUI semantics unchanged — additive `export` only.
+
+## [0.10.0] - 2026-04-20
+
+### Added
+- Five pure helpers are now exported from `ask-user-question.ts` for direct unit testing: `buildMainItems`, `itemAt`, `wrapIndex`, `buildResponse`, `buildToolResult`. Signatures and bodies unchanged — additive `export` keyword only.
+
+## [0.9.1] - 2026-04-20
+
+## [0.9.0] - 2026-04-19
+
+## [0.8.3] - 2026-04-19
+
+## [0.8.2] - 2026-04-19
+
+## [0.8.1] - 2026-04-19
+
+## [0.8.0] - 2026-04-19
+
+## [0.7.0] - 2026-04-18
+
+## [0.6.1] - 2026-04-18
+
+## [0.6.0] — 2026-04-18
+
+### Changed
+- Consolidated into the `juicesharp/rpiv-mono` monorepo. Version aligned to the rpiv-pi family lockstep starting point. No runtime behavior change from `0.1.4`.

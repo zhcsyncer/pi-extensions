@@ -13,6 +13,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
+- [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 
 ## Bundle 私有 Search Hub
 
@@ -28,7 +29,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 扩展持久化数据
 
-Bundle 内扩展的配置和状态统一保存在 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`。旧文件会自动迁移升级；无法映射的字段会被丢弃并提示 warning，格式损坏的源文件会原样保留。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `.pi/extension-data/<extension-id>/config.json`。Plan artifact 刻意继续保存在 `$PI_CODING_AGENT_DIR/plans/`。
+Bundle 内扩展的配置和状态通常保存在 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`。旧文件会自动迁移升级；无法映射的字段会被丢弃并提示 warning，格式损坏的源文件会原样保留。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `.pi/extension-data/<extension-id>/config.json`。Plan artifact 刻意继续保存在 `$PI_CODING_AGENT_DIR/plans/`。Ask User Question 为兼容上游，继续使用 `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`。
 
 ## 从 Git 安装
 
@@ -46,7 +47,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、结构化问答，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -88,6 +89,12 @@ pi install npm:@zhcsyncer/pi-plan-mode
 pi install npm:@zhcsyncer/pi-context7
 ```
 
+仅安装结构化问答：
+
+```bash
+pi install npm:@zhcsyncer/pi-ask-user-question
+```
+
 ## 开发
 
 测试根 bundle：
@@ -106,6 +113,7 @@ pi --no-extensions -e ./packages/pi-glance
 pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
+pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。
@@ -133,3 +141,5 @@ MIT
 `pi-search-hub` fork 自 [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0，其 package metadata 和 README 声明为 MIT。准确 revision 和保留声明见 [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) 与 [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md)。
 
 `pi-context7` fork 自 MIT 许可的 [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2（`b250c2515694eee4b6df4db82fa056df9ed3e306`）。准确 revision 和保留声明见 [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-context7/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE)。
+
+`pi-ask-user-question` fork 自 MIT 许可的 [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0。准确 revision 和保留声明见 [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-ask-user-question/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE)。

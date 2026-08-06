@@ -71,7 +71,20 @@
     "packages/pi-context7/UPSTREAM_README.md",
     "packages/pi-context7/UPSTREAM_CHANGELOG.md",
     "packages/pi-context7/UPSTREAM_SOURCE.md",
-    "!packages/pi-context7/**/*.test.ts"
+    "!packages/pi-context7/**/*.test.ts",
+    "packages/pi-ask-user-question/**/*.ts",
+    "packages/pi-ask-user-question/locales/*.json",
+    "packages/pi-ask-user-question/docs/*.md",
+    "packages/pi-ask-user-question/README.md",
+    "packages/pi-ask-user-question/CHANGELOG.md",
+    "packages/pi-ask-user-question/LICENSE",
+    "packages/pi-ask-user-question/UPSTREAM_LICENSE",
+    "packages/pi-ask-user-question/UPSTREAM_README.md",
+    "packages/pi-ask-user-question/UPSTREAM_CHANGELOG.md",
+    "packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
+    "!packages/pi-ask-user-question/**/*.test.ts",
+    "!packages/pi-ask-user-question/test-support.ts",
+    "!packages/pi-ask-user-question/test-fixtures.ts"
   ],
   "publishConfig": {
     "access": "public"
@@ -94,14 +107,15 @@
       "./packages/pi-glance/index.ts",
       "./packages/pi-plan-mode/extensions/plan-mode.ts",
       "./packages/pi-search-hub/extensions/search-hub.ts",
-      "./packages/pi-context7/extensions/context7.ts"
+      "./packages/pi-context7/extensions/context7.ts",
+      "./packages/pi-ask-user-question/index.ts"
     ],
     "skills": [
       "./packages/pi-context7/skills"
     ]
   },
   "dependencies": {
-    "@juicesharp/rpiv-config": "1.20.0",
+    "@juicesharp/rpiv-config": "2.4.0",
     "typebox": "1.1.24",
     "wreq-js": "2.3.1"
   },
