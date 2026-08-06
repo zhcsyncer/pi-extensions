@@ -20,3 +20,4 @@ The production source and upstream tests were copied from that tag before local 
 - Optional `o` toggles expanded tool argument/result detail for all steps.
 - Pure `messages → brief view model` helpers live in `src/ui/conversation-brief.ts` with unit tests.
 - `agent-runner` skips a null parent `modelRuntime` when constructing `createAgentSession` options so typecheck passes against stricter Pi `ModelRuntime` typings.
+- `bashExecution` steps honor `exitCode` / `cancelled` so failed or aborted shell runs render as `✗`, not `✓`.

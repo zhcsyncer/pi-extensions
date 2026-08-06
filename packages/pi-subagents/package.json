@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-subagents",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Claude Code-style autonomous sub-agents for the Pi coding agent, with a step-summary conversation viewer.",
   "author": "tintinweb",
   "contributors": [

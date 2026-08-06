@@ -148,11 +148,43 @@ describe("buildConversationBrief", () => {
         role: "bashExecution",
         command: "ls -la",
         output: "a\nb\n",
+        exitCode: 0,
       },
     ]);
     expect(brief.steps[0]?.toolName).toBe("bash");
     expect(brief.steps[0]?.summary).toBe("ls -la");
     expect(brief.steps[0]?.status).toBe("completed");
+    expect(brief.steps[0]?.isError).toBe(false);
+  });
+
+  it("marks bashExecution with non-zero exitCode as error", () => {
+    const brief = buildConversationBrief([
+      {
+        role: "bashExecution",
+        command: "false",
+        output: "failed",
+        exitCode: 1,
+      },
+    ]);
+    expect(brief.steps[0]?.status).toBe("error");
+    expect(brief.steps[0]?.isError).toBe(true);
+    expect(brief.steps[0]?.resultNote).toMatch(/^error/);
+    expect(formatStepLine(brief.steps[0]!).startsWith("✗")).toBe(true);
+  });
+
+  it("marks cancelled bashExecution as error", () => {
+    const brief = buildConversationBrief([
+      {
+        role: "bashExecution",
+        command: "sleep 999",
+        output: "",
+        exitCode: 130,
+        cancelled: true,
+      },
+    ]);
+    expect(brief.steps[0]?.status).toBe("error");
+    expect(brief.steps[0]?.isError).toBe(true);
+    expect(brief.steps[0]?.resultNote).toMatch(/cancelled/);
   });
 });
 

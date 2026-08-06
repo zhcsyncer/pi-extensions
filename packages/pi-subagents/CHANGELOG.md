@@ -1,8 +1,5 @@
 # Changelog
 
-## 0.1.0
+## Unreleased
 
-### Minor Changes
-
-- Initial maintained fork of `@tintinweb/pi-subagents@0.14.3` as `@zhcsyncer/pi-subagents`.
-- ConversationViewer default overlay shows dispatch prompt, one-line tool step summaries, and final/current result instead of full tool-result dumps. Press `o` to expand step detail.
+Initial public release will be cut by Changesets from `0.0.0`.

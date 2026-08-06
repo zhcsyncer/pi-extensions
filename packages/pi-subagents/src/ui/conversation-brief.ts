@@ -274,15 +274,23 @@ export function buildConversationBrief(messages: readonly LooseMessage[]): Conve
     if (role === "bashExecution") {
       const command = typeof msg.command === "string" ? msg.command : "";
       const output = typeof msg.output === "string" ? msg.output : "";
+      // Pi records exitCode/cancelled on bashExecution (see recordBashResult).
+      const exitCode = typeof msg.exitCode === "number" ? msg.exitCode : undefined;
+      const cancelled = msg.cancelled === true;
+      const isError = cancelled || (exitCode !== undefined && exitCode !== 0);
       const id = `bash-${++syntheticSeq}`;
       pushStep({
         id,
         toolName: "bash",
         summary: summarizeToolArgs("bash", { command }),
-        status: "completed",
-        isError: false,
+        status: isError ? "error" : "completed",
+        isError,
         argsText: command || undefined,
-        resultNote: output.trim() ? summarizeToolResult(output, false) : undefined,
+        resultNote: output.trim()
+          ? summarizeToolResult(output, isError)
+          : isError
+            ? (cancelled ? "error · cancelled" : `error · exit ${exitCode}`)
+            : undefined,
         resultText: output.trim() || undefined,
       });
     }
