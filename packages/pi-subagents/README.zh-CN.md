@@ -41,7 +41,8 @@ FleetView / agent 列表选中子 agent 后回车：
 
 `Agent` / `get_subagent_result` / `steer_subagent` 使用紧凑自定义渲染：
 
-- **折叠（默认）**：状态/统计 + 一行结果预览，不再整段 transcript 占屏
+- **调用行**：类型/描述 + **model** / **effort** 芯片（未指定模型显示 `model: inherit`；`effort` 对应工具/frontmatter 的 `thinking`）
+- **折叠（默认）**：状态/统计（model、effort、tools、tokens…）+ 一行结果预览
 - **展开（`Ctrl+O`）**：状态头 + **Markdown** 正文
 
 ## 脚本

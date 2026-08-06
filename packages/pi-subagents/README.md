@@ -41,7 +41,8 @@ Keys (unchanged unless noted):
 
 `Agent`, `get_subagent_result`, and `steer_subagent` use compact custom renderers:
 
-- **Collapsed (default):** status/stats + one-line result preview — no full transcript wall
+- **Call line:** type/description plus **model** and **effort** chips (`model: inherit` when unset; `effort:` maps from tool/frontmatter `thinking`)
+- **Collapsed (default):** status/stats (model, effort, tools, tokens, …) + one-line result preview — no full transcript wall
 - **Expanded (`Ctrl+O` / tools expand):** status header + **Markdown** body
 
 ## Package scripts
