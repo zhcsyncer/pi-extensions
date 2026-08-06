@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { contextRiskLevel } from "./context-risk.js";
 import { BOTTOM_DETAIL_ICONS } from "./palette.js";
-import { formatPercent } from "./segment-display-primitives.js";
+import { formatPercent, formatTokens } from "./segment-display-primitives.js";
 import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
 import type { GlanceConfig, GlanceState } from "./types.js";
 
@@ -52,10 +52,8 @@ function contextSegmentEnabled(config: GlanceConfig): boolean {
 	return config.segments.some((segment) => segment.id === "context" && segment.enabled);
 }
 
-function shouldRenderContext(state: GlanceState, config: GlanceConfig): boolean {
-	if (config.context.display !== "progress" || !contextSegmentEnabled(config)) return false;
-	const unknown = state.context.percent === null && state.context.tokens === null;
-	return config.context.unknown === "show" || !unknown;
+function shouldRenderContext(_state: GlanceState, config: GlanceConfig): boolean {
+	return config.context.progress && contextSegmentEnabled(config);
 }
 
 function contextFillCells(percent: number | null, width: number): number {
@@ -77,6 +75,37 @@ function progressStyler(stylers: DetailStylers, percent: number | null): TextSty
 	}
 }
 
+/**
+ * Bottom label always includes percent when progress is on.
+ * `tokens` text mode upgrades to percent+tokens (option A).
+ */
+export function contextBottomLabel(state: GlanceState, config: GlanceConfig): string {
+	const percent = formatPercent(state.context.percent);
+	if (config.context.text === "percent") return percent;
+	const ratio = `${formatTokens(state.context.tokens)}/${formatTokens(state.context.window)}`;
+	return `${percent} ${ratio}`;
+}
+
+function contextBottomLabelCandidates(state: GlanceState, config: GlanceConfig): string[] {
+	const full = contextBottomLabel(state, config);
+	const percentOnly = formatPercent(state.context.percent);
+	return full === percentOnly ? [full] : [full, percentOnly];
+}
+
+function renderTrack(state: GlanceState, label: string, width: number, stylers: DetailStylers): string {
+	const suffixWidth = visibleWidth(` ${label}`);
+	const trackWidth = Math.floor(width - suffixWidth);
+	if (trackWidth < MIN_PROGRESS_WIDTH) {
+		return visibleWidth(label) <= width ? stylers.text(label) : "";
+	}
+	const track = `${TRACK_START}${TRACK_CELL.repeat(trackWidth - 2)}${TRACK_END}`;
+	const filledWidth = contextFillCells(state.context.percent, trackWidth);
+	const filled = track.slice(0, filledWidth);
+	const empty = track.slice(filledWidth);
+	// Keep the separator space unstyled so label styling stays exact (`23%`, not ` 23%`).
+	return `${progressStyler(stylers, state.context.percent)(filled)}${stylers.muted(empty)} ${stylers.text(label)}`;
+}
+
 function renderContextProgress(
 	state: GlanceState,
 	config: GlanceConfig,
@@ -84,22 +113,20 @@ function renderContextProgress(
 	stylers: DetailStylers,
 ): string {
 	if (width <= 0 || !shouldRenderContext(state, config)) return "";
-	const percent = formatPercent(state.context.percent);
+	const labels = contextBottomLabelCandidates(state, config);
+
 	if (config.context.progressStyle === "border") {
-		return visibleWidth(percent) <= width ? stylers.text(percent) : "";
+		for (const label of labels) {
+			if (visibleWidth(label) <= width) return stylers.text(label);
+		}
+		return "";
 	}
 
-	const suffixWidth = visibleWidth(` ${percent}`);
-	const trackWidth = Math.floor(width - suffixWidth);
-	if (trackWidth >= MIN_PROGRESS_WIDTH) {
-		const track = `${TRACK_START}${TRACK_CELL.repeat(trackWidth - 2)}${TRACK_END}`;
-		const filledWidth = contextFillCells(state.context.percent, trackWidth);
-		const filled = track.slice(0, filledWidth);
-		const empty = track.slice(filledWidth);
-		return `${progressStyler(stylers, state.context.percent)(filled)}${stylers.muted(empty)} ${stylers.text(percent)}`;
+	for (const label of labels) {
+		const rendered = renderTrack(state, label, width, stylers);
+		if (rendered) return rendered;
 	}
-
-	return visibleWidth(percent) <= width ? stylers.text(percent) : "";
+	return "";
 }
 
 function renderAutoCompact(state: GlanceState, config: GlanceConfig, stylers: DetailStylers): string {

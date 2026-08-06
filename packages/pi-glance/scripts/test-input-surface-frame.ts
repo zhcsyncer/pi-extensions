@@ -164,7 +164,8 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	): string {
 		const config = defaultConfig();
 		config.editor.topMarginRows = 0;
-		config.context.display = "progress";
+		config.context.progress = true;
+		config.context.text = "percent";
 		config.context.progressStyle = progressStyle;
 		config.context.progressWidth = progressWidth;
 		config.bottomDetails.showAutoCompact = false;

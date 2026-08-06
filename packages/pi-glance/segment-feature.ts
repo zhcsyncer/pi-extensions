@@ -7,6 +7,8 @@ interface SegmentSettingDescriptorBase {
 	label: string;
 	hint: string;
 	value(config: GlanceConfig): string;
+	/** When false, the setting is omitted from the settings catalog for the current config. */
+	visible?(config: GlanceConfig): boolean;
 }
 
 export type EditableSegmentSettingDescriptor = SegmentSettingDescriptorBase & {

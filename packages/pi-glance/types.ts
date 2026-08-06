@@ -13,8 +13,7 @@ export type IconMode = "nerd" | "plain";
 export type WidthMode = "full" | "compact" | "minimal";
 export type GitStatus = "clean" | "dirty" | "conflict" | "unknown";
 export type GitShaMode = "off" | "detached" | "always";
-export type ContextDisplayMode = "percent+tokens" | "percent" | "tokens" | "progress";
-export type ContextUnknownMode = "show" | "hide";
+export type ContextTextMode = "percent+tokens" | "percent" | "tokens";
 export type ContextProgressStyle = "track" | "border";
 export type ContextProgressWidth = "third" | "remaining";
 export type TokensDisplayMode = "input-output" | "total";
@@ -49,8 +48,10 @@ export interface GitConfig {
 }
 
 interface ContextConfig {
-	display: ContextDisplayMode;
-	unknown: ContextUnknownMode;
+	/** Text details. Placement follows progress: top status when off, bottom label when on. */
+	text: ContextTextMode;
+	/** Bottom-right progress bar. When on, text moves next to the bar and always includes percent. */
+	progress: boolean;
 	progressStyle: ContextProgressStyle;
 	progressWidth: ContextProgressWidth;
 }
@@ -73,7 +74,7 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 11;
+	version: 12;
 	enabled: boolean;
 	colorSource: ColorSource;
 	theme: GlanceThemePair;

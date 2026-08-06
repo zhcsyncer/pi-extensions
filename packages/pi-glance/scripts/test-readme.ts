@@ -19,7 +19,7 @@ assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should insta
 assertReadmeIncludes("Pi 0.80 or newer", "README should document the supported Pi baseline");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
 assertReadmeIncludes("**Bottom details**", "README should document the remaining bottom-details settings category");
-assertReadmeIncludes("`progress bar`", "README should document the bottom-right context progress mode");
+assertReadmeIncludes("`Progress bar`", "README should document the bottom-right context progress toggle");
 assertReadmeIncludes("standalone `track` or a progress-aware `border`", "README should document both context progress styles");
 assertReadmeIncludes("unused cells stay light `─`, used cells become heavy `━`, and `╼` joins them", "README should document the border progress glyph encoding");
 assertReadmeIncludes("The percentage keeps normal text color", "README should document the quieter percentage hierarchy");
@@ -33,11 +33,11 @@ assertReadmeExcludes('"showDefaultStatus"', "README should not document a remove
 assertReadmeExcludes('"enabled": true,\n    "showSession"', "README should not document the removed bottom-details master and session switches");
 assert.equal("footer" in defaultConfig(), false, "README footer behavior should stay aligned with config removal");
 assert.deepEqual(defaultConfig().bottomDetails, { showAutoCompact: true }, "README bottom-details JSON should stay aligned with defaultConfig");
-assert.deepEqual(defaultConfig().context, { display: "percent+tokens", unknown: "show", progressStyle: "border", progressWidth: "third" }, "README context progress defaults should stay aligned with defaultConfig");
+assert.deepEqual(defaultConfig().context, { text: "percent+tokens", progress: false, progressStyle: "border", progressWidth: "third" }, "README context progress defaults should stay aligned with defaultConfig");
 assert.ok(readmeZh.includes("pi install npm:@zhcsyncer/pi-glance"), "Chinese README should document scoped install");
 assert.ok(readmeZh.includes("Footer 组合"), "Chinese README should document footer composition");
 assert.ok(readmeZh.includes("右下角详情"), "Chinese README should document bottom-right details");
-assert.ok(readmeZh.includes("progress bar"), "Chinese README should document context progress mode");
+assert.ok(readmeZh.includes("Progress bar"), "Chinese README should document context progress mode");
 assert.ok(readmeZh.includes("未用部分保持细线 `─`，已用部分变为粗线 `━`"), "Chinese README should document border progress glyphs");
 assert.ok(readmeZh.includes("70%（含）到 85%（不含）使用 warning，85% 及以上使用 error"), "Chinese README should document fixed context risk thresholds");
 assertReadmeIncludes("Icons default to `plain`", "README should state that icons default to plain");

@@ -20,45 +20,34 @@ function line(
 assert.equal(line("context"), "ctx 23% 47k/200k", "context defaults to percent / tokens");
 assert.equal(
 	line("context", {}, (config) => {
-		config.context.display = "percent";
+		config.context.text = "percent";
 	}),
 	"ctx 23%",
 	"context can show percent only",
 );
 assert.equal(
 	line("context", {}, (config) => {
-		config.context.display = "tokens";
+		config.context.text = "tokens";
 	}),
 	"ctx 47k/200k",
 	"context can show tokens only",
 );
 assert.equal(
 	line("context", {}, (config) => {
-		config.context.display = "progress";
+		config.context.progress = true;
 	}),
 	"",
 	"context progress mode should leave the top status line for bottom-right rendering",
 );
 assert.equal(
-	line("context", { context: { tokens: null, percent: null, window: 200_000 } }, (config) => {
-		config.context.unknown = "show";
-	}),
+	line("context", { context: { tokens: null, percent: null, window: 200_000 } }),
 	"ctx ? ?/200k",
-	"context unknown defaults to visible unknown values",
+	"context unknown values stay visible as ?",
 );
 assert.equal(
-	line("context", { context: { tokens: null, percent: null, window: 200_000 } }, (config) => {
-		config.context.unknown = "hide";
-	}),
-	"",
-	"context unknown can hide the segment",
-);
-assert.equal(
-	line("context", { context: { tokens: null, percent: 23.4, window: 200_000 } }, (config) => {
-		config.context.unknown = "hide";
-	}),
+	line("context", { context: { tokens: null, percent: 23.4, window: 200_000 } }),
 	"ctx 23% ?/200k",
-	"context unknown hide keeps partial context when percent is known",
+	"context keeps partial values when only percent is known",
 );
 
 assert.equal(line("cost"), "$ $0.000", "cost defaults to visible zero");

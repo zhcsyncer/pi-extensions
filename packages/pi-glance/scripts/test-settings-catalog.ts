@@ -1,10 +1,9 @@
 import { strict as assert } from "node:assert";
 import {
 	COLOR_SOURCE_VALUES,
-	CONTEXT_DISPLAY_MODE_VALUES,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
-	CONTEXT_UNKNOWN_MODE_VALUES,
+	CONTEXT_TEXT_MODE_VALUES,
 	EDITOR_TOP_MARGIN_ROW_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
@@ -306,11 +305,45 @@ const contextRows = assertRows(config, "context", [
 		kind: "toggle",
 	},
 	{
-		id: "context.display",
-		label: "Display",
+		id: "context.text",
+		label: "Text",
 		value: "percent / tokens",
-		hint: "Choose text details or a bottom-right progress bar.",
+		hint: "Text details. With Progress bar on, this label moves to the bottom and always includes percent.",
 		kind: "cycle",
+	},
+	{
+		id: "context.progress",
+		label: "Progress bar",
+		value: "off",
+		hint: "Show a bottom-right bar. Text moves next to it and always includes percent.",
+		kind: "toggle",
+	},
+]);
+
+const progressContextConfig = withTestConfig(config, (next) => {
+	next.context.progress = true;
+});
+const progressContextRows = assertRows(progressContextConfig, "context", [
+	{
+		id: "context.enabled",
+		label: "Enabled",
+		value: "on",
+		hint: "Show or hide this segment.",
+		kind: "toggle",
+	},
+	{
+		id: "context.text",
+		label: "Text",
+		value: "percent / tokens",
+		hint: "Text details. With Progress bar on, this label moves to the bottom and always includes percent.",
+		kind: "cycle",
+	},
+	{
+		id: "context.progress",
+		label: "Progress bar",
+		value: "on",
+		hint: "Show a bottom-right bar. Text moves next to it and always includes percent.",
+		kind: "toggle",
 	},
 	{
 		id: "context.progressStyle",
@@ -324,13 +357,6 @@ const contextRows = assertRows(config, "context", [
 		label: "Progress width",
 		value: "one third",
 		hint: "Use one third or all remaining bottom-border space.",
-		kind: "cycle",
-	},
-	{
-		id: "context.unknown",
-		label: "Unknown",
-		value: "show",
-		hint: "Show ? or hide when context is unknown.",
 		kind: "cycle",
 	},
 ]);
@@ -466,10 +492,10 @@ const pollingValues = [2000, 5000, 10000, 30000].map((pollIntervalMs) =>
 assert.deepEqual(pollingValues, ["2s", "5s", "10s", "30s"], "polling values should be formatted as seconds");
 
 assert.equal(rowById(contextRows, "context.enabled").apply!(config).segments.find((segment) => segment.id === "context")?.enabled, false, "context enabled should toggle off");
-assert.equal(rowById(contextRows, "context.display").apply!(config).context.display, "percent", "context display should cycle percent+tokens -> percent");
-assert.equal(rowById(contextRows, "context.progressStyle").apply!(config).context.progressStyle, "track", "context progress style should cycle border -> track");
-assert.equal(rowById(contextRows, "context.progressWidth").apply!(config).context.progressWidth, "remaining", "context progress width should cycle third -> remaining");
-assert.equal(rowById(contextRows, "context.unknown").apply!(config).context.unknown, "hide", "context unknown should cycle show -> hide");
+assert.equal(rowById(contextRows, "context.text").apply!(config).context.text, "percent", "context text should cycle percent+tokens -> percent");
+assert.equal(rowById(contextRows, "context.progress").apply!(config).context.progress, true, "context progress should toggle on");
+assert.equal(rowById(progressContextRows, "context.progressStyle").apply!(progressContextConfig).context.progressStyle, "track", "context progress style should cycle border -> track");
+assert.equal(rowById(progressContextRows, "context.progressWidth").apply!(progressContextConfig).context.progressWidth, "remaining", "context progress width should cycle third -> remaining");
 
 assert.equal(rowById(costRows, "cost.enabled").apply!(config).segments.find((segment) => segment.id === "cost")?.enabled, false, "cost enabled should toggle off");
 assert.equal(rowById(costRows, "cost.hideZero").apply!(config).cost.hideZero, true, "cost hide zero should toggle on");
@@ -546,47 +572,38 @@ assertCycleUsesValues(
 );
 assertCycleUsesValues(
 	config,
-	CONTEXT_DISPLAY_MODE_VALUES,
+	CONTEXT_TEXT_MODE_VALUES,
 	"context",
-	"context.display",
-	"Context Display",
-	(base, display) => withTestConfig(base, (next) => {
-		next.context.display = display;
+	"context.text",
+	"Context Text",
+	(base, textMode) => withTestConfig(base, (next) => {
+		next.context.text = textMode;
 	}),
-	(after) => after.context.display,
+	(after) => after.context.text,
 );
 assertCycleUsesValues(
-	config,
+	progressContextConfig,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	"context",
 	"context.progressStyle",
 	"Context Progress Style",
 	(base, progressStyle) => withTestConfig(base, (next) => {
+		next.context.progress = true;
 		next.context.progressStyle = progressStyle;
 	}),
 	(after) => after.context.progressStyle,
 );
 assertCycleUsesValues(
-	config,
+	progressContextConfig,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
 	"context",
 	"context.progressWidth",
 	"Context Progress Width",
 	(base, progressWidth) => withTestConfig(base, (next) => {
+		next.context.progress = true;
 		next.context.progressWidth = progressWidth;
 	}),
 	(after) => after.context.progressWidth,
-);
-assertCycleUsesValues(
-	config,
-	CONTEXT_UNKNOWN_MODE_VALUES,
-	"context",
-	"context.unknown",
-	"Context Unknown",
-	(base, unknown) => withTestConfig(base, (next) => {
-		next.context.unknown = unknown;
-	}),
-	(after) => after.context.unknown,
 );
 assertCycleUsesValues(
 	config,

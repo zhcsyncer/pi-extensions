@@ -5,10 +5,9 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	COLOR_SOURCE_VALUES,
-	CONTEXT_DISPLAY_MODE_VALUES,
 	CONTEXT_PROGRESS_STYLE_VALUES,
 	CONTEXT_PROGRESS_WIDTH_VALUES,
-	CONTEXT_UNKNOWN_MODE_VALUES,
+	CONTEXT_TEXT_MODE_VALUES,
 	GIT_SHA_MODE_VALUES,
 	ICON_MODE_VALUES,
 	MODEL_THINKING_MODE_VALUES,
@@ -21,10 +20,9 @@ import { THROUGHPUT_PRECISION_DESCRIPTOR } from "./config-schema.js";
 import { defaultSegmentConfigs, isSegmentId } from "./segment-registry.js";
 import { GLANCE_THEME_ID_SET } from "./themes.js";
 import type {
-	ContextDisplayMode,
 	ContextProgressStyle,
 	ContextProgressWidth,
-	ContextUnknownMode,
+	ContextTextMode,
 	ColorSource,
 	EditorTopMarginRows,
 	GitShaMode,
@@ -40,7 +38,7 @@ import type {
 } from "./types.js";
 
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 11 as const;
+const CONFIG_VERSION = 12 as const;
 const emittedMigrationNotices = new Set<string>();
 const pendingMigrationNotices: string[] = [];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -68,8 +66,7 @@ const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
 const PROVIDER_MODES = new Set<GlanceConfig["display"]["showProvider"]>(PROVIDER_DISPLAY_MODE_VALUES);
 const WORKSPACE_LABEL_MODES = new Set<WorkspaceLabelMode>(WORKSPACE_LABEL_MODE_VALUES);
 const GIT_SHA_MODES = new Set<GitShaMode>(GIT_SHA_MODE_VALUES);
-const CONTEXT_DISPLAY_MODES = new Set<ContextDisplayMode>(CONTEXT_DISPLAY_MODE_VALUES);
-const CONTEXT_UNKNOWN_MODES = new Set<ContextUnknownMode>(CONTEXT_UNKNOWN_MODE_VALUES);
+const CONTEXT_TEXT_MODES = new Set<ContextTextMode>(CONTEXT_TEXT_MODE_VALUES);
 const CONTEXT_PROGRESS_STYLES = new Set<ContextProgressStyle>(CONTEXT_PROGRESS_STYLE_VALUES);
 const CONTEXT_PROGRESS_WIDTHS = new Set<ContextProgressWidth>(CONTEXT_PROGRESS_WIDTH_VALUES);
 const TOKENS_DISPLAY_MODES = new Set<TokensDisplayMode>(TOKENS_DISPLAY_MODE_VALUES);
@@ -105,8 +102,8 @@ export function defaultConfig(): GlanceConfig {
 			pollIntervalMs: 5000,
 		},
 		context: {
-			display: "percent+tokens",
-			unknown: "show",
+			text: "percent+tokens",
+			progress: false,
 			progressStyle: "border",
 			progressWidth: "third",
 		},
@@ -172,6 +169,30 @@ function parseIntInRange(value: unknown, fallback: number, min: number, max: num
 function parseIntAtLeast(value: unknown, fallback: number, min: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
 	return Math.max(min, Math.floor(value));
+}
+
+function legacyContextFromDisplay(display: unknown): { text: ContextTextMode; progress: boolean } | undefined {
+	if (display === "percent+tokens" || display === "percent" || display === "tokens") {
+		return { text: display, progress: false };
+	}
+	if (display === "progress") {
+		// Old progress-only mode rendered percent beside the bar.
+		return { text: "percent", progress: true };
+	}
+	return undefined;
+}
+
+function normalizeContextConfig(
+	context: Record<string, unknown>,
+	defaults: GlanceConfig["context"],
+): GlanceConfig["context"] {
+	const legacy = legacyContextFromDisplay(context.display);
+	return {
+		text: parseStringEnum(context.text, CONTEXT_TEXT_MODES, legacy?.text ?? defaults.text),
+		progress: parseBool(context.progress, legacy?.progress ?? defaults.progress),
+		progressStyle: parseStringEnum(context.progressStyle, CONTEXT_PROGRESS_STYLES, defaults.progressStyle),
+		progressWidth: parseStringEnum(context.progressWidth, CONTEXT_PROGRESS_WIDTHS, defaults.progressWidth),
+	};
 }
 
 // Preserve known segment order/enabled flags for configs that already contain the
@@ -273,12 +294,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 			refreshDebounceMs: parseIntAtLeast(git.refreshDebounceMs, defaults.git.refreshDebounceMs, 0),
 			pollIntervalMs: parseIntAtLeast(git.pollIntervalMs, defaults.git.pollIntervalMs, 1000),
 		},
-		context: {
-			display: parseStringEnum(context.display, CONTEXT_DISPLAY_MODES, defaults.context.display),
-			unknown: parseStringEnum(context.unknown, CONTEXT_UNKNOWN_MODES, defaults.context.unknown),
-			progressStyle: parseStringEnum(context.progressStyle, CONTEXT_PROGRESS_STYLES, defaults.context.progressStyle),
-			progressWidth: parseStringEnum(context.progressWidth, CONTEXT_PROGRESS_WIDTHS, defaults.context.progressWidth),
-		},
+		context: normalizeContextConfig(context, defaults.context),
 		cost: {
 			hideZero: parseBool(cost.hideZero, defaults.cost.hideZero),
 		},
@@ -310,7 +326,7 @@ const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
 	display: new Set(["showProvider", "workspaceLabel"]),
 	model: new Set(["customNames", "showThinking"]),
 	git: new Set(["showDirty", "showAheadBehind", "shaMode", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
-	context: new Set(["display", "unknown", "progressStyle", "progressWidth"]),
+	context: new Set(["text", "progress", "progressStyle", "progressWidth"]),
 	cost: new Set(["hideZero"]),
 	tokens: new Set(["display", "cache"]),
 	throughput: new Set(["precision"]),

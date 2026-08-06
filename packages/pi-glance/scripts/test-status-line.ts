@@ -173,7 +173,7 @@ for (const themeId of ["light", "dark", "high-contrast-light"] as const) {
 		1,
 		(config) => {
 			useTheme(config, themeId);
-			config.context.display = "percent";
+			config.context.text = "percent";
 		},
 	);
 	assert.equal(
@@ -254,7 +254,7 @@ for (const themeId of ["light", "dark"] as const) {
 		120,
 		1,
 		(config) => {
-			config.context.display = "percent";
+			config.context.text = "percent";
 		},
 	);
 	const warn = rawLine(
@@ -263,7 +263,7 @@ for (const themeId of ["light", "dark"] as const) {
 		120,
 		1,
 		(config) => {
-			config.context.display = "percent";
+			config.context.text = "percent";
 		},
 	);
 	const error = rawLine(
@@ -272,7 +272,7 @@ for (const themeId of ["light", "dark"] as const) {
 		120,
 		1,
 		(config) => {
-			config.context.display = "percent";
+			config.context.text = "percent";
 		},
 	);
 	assert.equal(lastColorBefore(normal, normal.indexOf("ctx")), fgSeq(palette.segments.context.fg), "context below warn threshold should use normal context color");
@@ -288,7 +288,7 @@ for (const themeId of ["light", "dark"] as const) {
 		120,
 		1,
 		(config) => {
-			config.context.display = "percent";
+			config.context.text = "percent";
 		},
 	);
 	assert.equal(lastColorBefore(joined, joined.indexOf(" · ")), fgSeq(palette.separator), "separator should have separator color, not context warning/error bleed");

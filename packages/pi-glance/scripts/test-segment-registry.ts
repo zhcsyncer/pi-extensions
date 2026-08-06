@@ -35,11 +35,21 @@ const EXPECTED_LABELS: Record<ExpectedSegmentId, string> = {
 
 const EXPECTED_SEGMENT_SETTING_IDS: Record<ExpectedSegmentId, string[]> = {
 	git: ["git.dirtyMarker", "git.aheadBehind", "git.sha", "git.polling"],
-	context: ["context.display", "context.progressStyle", "context.progressWidth", "context.unknown"],
+	context: ["context.text", "context.progress", "context.progressStyle", "context.progressWidth"],
 	cost: ["cost.hideZero", "cost.display"],
 	tokens: ["tokens.display", "tokens.cache"],
 	model: ["model.providerLabel", "model.thinkingLabel"],
 	throughput: ["throughput.precision"],
+};
+
+/** Catalog rows hide progress style/width while progress is off (default). */
+const EXPECTED_CATALOG_SETTING_IDS: Record<ExpectedSegmentId, string[]> = {
+	git: EXPECTED_SEGMENT_SETTING_IDS.git,
+	context: ["context.text", "context.progress"],
+	cost: EXPECTED_SEGMENT_SETTING_IDS.cost,
+	tokens: EXPECTED_SEGMENT_SETTING_IDS.tokens,
+	model: EXPECTED_SEGMENT_SETTING_IDS.model,
+	throughput: EXPECTED_SEGMENT_SETTING_IDS.throughput,
 };
 
 const FORBIDDEN_REGISTRY_SOURCE_SNIPPETS = [
@@ -202,8 +212,18 @@ for (const id of EXPECTED_SEGMENT_IDS) {
 
 	assert.deepEqual(
 		getSettingsRows(config, id).map((row) => row.id),
-		[`${id}.enabled`, ...EXPECTED_SEGMENT_SETTING_IDS[id]],
-		`${id} catalog rows should keep enabled plus registry-covered segment setting ids`,
+		[`${id}.enabled`, ...EXPECTED_CATALOG_SETTING_IDS[id]],
+		`${id} catalog rows should keep enabled plus currently visible segment setting ids`,
+	);
+}
+
+{
+	const withProgress = defaultConfig();
+	withProgress.context.progress = true;
+	assert.deepEqual(
+		getSettingsRows(withProgress, "context").map((row) => row.id),
+		["context.enabled", ...EXPECTED_SEGMENT_SETTING_IDS.context],
+		"context catalog should reveal progress style/width when progress bar is on",
 	);
 }
 

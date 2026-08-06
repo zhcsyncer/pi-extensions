@@ -148,7 +148,13 @@ function segmentRows(config: GlanceConfig, id: SegmentId, rows: SettingsRow[]): 
 }
 
 function segmentDescriptorRows(config: GlanceConfig, id: SegmentId): SettingsRow[] {
-	return segmentRows(config, id, getSegmentSettings(id).map((descriptor) => descriptorRow(config, descriptor)));
+	return segmentRows(
+		config,
+		id,
+		getSegmentSettings(id)
+			.filter((descriptor) => descriptor.visible?.(config) ?? true)
+			.map((descriptor) => descriptorRow(config, descriptor)),
+	);
 }
 
 export function getSettingsCategories(config: GlanceConfig): SettingsCategory[] {

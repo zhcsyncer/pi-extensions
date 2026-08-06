@@ -6,9 +6,10 @@ import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
 import { planSurfaceBottomFrame, renderSurfaceChunks } from "../surface-layout.js";
 import { testState } from "./helpers.js";
 
-function progressConfig() {
+function progressConfig(text: "percent" | "percent+tokens" | "tokens" = "percent") {
 	const config = defaultConfig();
-	config.context.display = "progress";
+	config.context.progress = true;
+	config.context.text = text;
 	config.context.progressStyle = "track";
 	return config;
 }
@@ -84,10 +85,23 @@ const standardDetailsBudget = bottomDetailsBudget(78);
 	assert.equal(
 		renderBottomDetails(unknown, config, standardDetailsBudget),
 		`${track(17)} ? · auto`,
-		"show-unknown mode should render a dim border-aligned track",
+		"unknown context should still render a dim border-aligned track with ?",
 	);
-	config.context.unknown = "hide";
-	assert.equal(renderBottomDetails(unknown, config, standardDetailsBudget), "auto", "hide-unknown mode should suppress bottom-right context");
+}
+
+{
+	const config = progressConfig("percent+tokens");
+	assert.equal(
+		renderBottomDetails(state, config, standardDetailsBudget),
+		`${track(6)} 23% 47k/200k · auto`,
+		"progress + percent/tokens should keep the text label beside the bottom bar",
+	);
+	config.context.text = "tokens";
+	assert.equal(
+		renderBottomDetails(state, config, standardDetailsBudget),
+		`${track(6)} 23% 47k/200k · auto`,
+		"progress + tokens text should still force a percent label (option A)",
+	);
 }
 
 {
