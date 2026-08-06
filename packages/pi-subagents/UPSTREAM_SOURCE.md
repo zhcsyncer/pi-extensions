@@ -54,8 +54,8 @@ Stable “why” only — implementation detail lives in code/tests.
 ### Engineering / packaging
 
 - Package name `@zhcsyncer/pi-subagents`; monorepo path `packages/pi-subagents/`.
-- Pre-release version **`0.0.0`** until Changesets cuts the first public version.
-- Not registered on the root `@zhcsyncer/pi-extensions` `pi.extensions` list yet — local trial via `pi -e ./packages/pi-subagents/src/index.ts`.
+- Publishes standalone **and** is embedded/registered on the root `@zhcsyncer/pi-extensions` `pi.extensions` list (`./packages/pi-subagents/src/index.ts`).
+- Root tarball carries subagents sources plus runtime deps (`@sinclair/typebox`, `croner`, `nanoid`).
 - `agent-runner`: skip null parent `modelRuntime` for stricter Pi `ModelRuntime` typings.
 
 ### Intentionally unchanged vs upstream

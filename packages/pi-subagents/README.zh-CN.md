@@ -1,8 +1,10 @@
 # @zhcsyncer/pi-subagents
 
+[English](./README.md)
+
 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 的维护向 fork（基线 `v0.14.3` / `@tintinweb/pi-subagents@0.14.3`）。
 
-> English: [README.md](./README.md)
+本包可单独发布，也会嵌入聚合包 `@zhcsyncer/pi-extensions`。
 
 **完整上游说明**（功能、Agent 工具、调度、设置）：[`UPSTREAM_README.md`](./UPSTREAM_README.md)  
 **版本钉扎与许可证**：[`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md) · [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)
@@ -22,7 +24,7 @@
 | **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**；queued 真话；**Ctrl+O** 展开 Markdown，默认不 dump |
 | Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；resume 用存储的 invocation |
 | 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
-| 发包 | 独立 npm 包 | 工作区包 `@zhcsyncer/pi-subagents`，版本 **`0.0.0`** 直至 Changesets 切首版；**尚未**挂进根包 `@zhcsyncer/pi-extensions` bundle — 用下面的 `-e` 试用 |
+| 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
 
 ### 未改动的部分
 
@@ -35,17 +37,31 @@
 
 ---
 
-## 本地试用（本 monorepo）
+## 安装
 
-**不要**为了试用去改全局 `~/.pi/agent/settings.json`（是否永久替换上游留给人工决定）。
+单独安装：
+
+```bash
+pi install npm:@zhcsyncer/pi-subagents
+```
+
+或通过根 bundle（注册同一扩展）：
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
+
+若 `~/.pi/agent/settings.json` 已加载 `@tintinweb/pi-subagents`，请先去掉该条目——两边都会注册 `Agent` / FleetView，不能并存。
+
+## 本地试用（本 monorepo）
 
 ```bash
 # monorepo 根目录
 pnpm install
-pi -e ./packages/pi-subagents/src/index.ts
+pi --no-extensions -e ./packages/pi-subagents
+# 或加载整个根 bundle：
+pi -e .
 ```
-
-若 settings 已加载另一份 `pi-subagents`，试用会话请先临时去掉该条目，避免双注册。
 
 ### 对话 overlay（方案 A）
 

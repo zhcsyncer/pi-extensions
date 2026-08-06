@@ -1,8 +1,10 @@
 # @zhcsyncer/pi-subagents
 
+[简体中文](./README.zh-CN.md)
+
 Maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) (`v0.14.3` / `@tintinweb/pi-subagents@0.14.3`).
 
-> Chinese: [README.zh-CN.md](./README.zh-CN.md)
+This package publishes on its own and is also embedded in the aggregate `@zhcsyncer/pi-extensions` bundle.
 
 **Full upstream docs** (features, Agent tool, schedules, settings): [`UPSTREAM_README.md`](./UPSTREAM_README.md)  
 **Pin + license trail**: [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md) · [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)
@@ -22,7 +24,7 @@ This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView w
 | **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has Claude Code chrome; **`get_subagent_result` has no custom `renderResult`** → Pi dumps full payload | Same **Claude Code chrome** for all three; queued is honest (`queued…`); **Ctrl+O** expands Markdown without dumping by default |
 | Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:`; resume chips come from stored invocation |
 | Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details + `tool_result` → Pi `isError` (error shell); undetailed success paths never heuristic-red |
-| Packaging | Standalone npm package | Workspace package `@zhcsyncer/pi-subagents` at **`0.0.0`** until Changesets cuts the first release; **not** registered in the root `@zhcsyncer/pi-extensions` bundle yet — load with `-e` (below) |
+| Packaging | Standalone npm package | Standalone `@zhcsyncer/pi-subagents` **and** embedded/registered in root `@zhcsyncer/pi-extensions` |
 
 ### What did *not* change
 
@@ -35,17 +37,31 @@ Upstream remains the source of truth for those behaviors — start from [`UPSTRE
 
 ---
 
-## Try locally (this monorepo)
+## Install
 
-Do **not** change global `~/.pi/agent/settings.json` unless you intend to replace `@tintinweb/pi-subagents` permanently.
+Standalone:
+
+```bash
+pi install npm:@zhcsyncer/pi-subagents
+```
+
+Or via the root bundle (registers the same extension):
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
+
+If `~/.pi/agent/settings.json` already loads `@tintinweb/pi-subagents`, remove that entry — both packages register `Agent` / FleetView and must not run together.
+
+## Try locally (this monorepo)
 
 ```bash
 # monorepo root
 pnpm install
-pi -e ./packages/pi-subagents/src/index.ts
+pi --no-extensions -e ./packages/pi-subagents
+# or load the whole root bundle:
+pi -e .
 ```
-
-If settings already load another `pi-subagents`, temporarily remove that entry for the trial session so only this fork registers the tools and UI.
 
 ### Conversation overlay (scheme A)
 

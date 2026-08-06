@@ -14,7 +14,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
-- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。**尚未**进根 bundle — 用 `-e` 加载（见下）。
+- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 
 ## Bundle 私有 Search Hub
 
@@ -28,20 +28,14 @@ zhcsyncer 维护的一组 Pi extensions。
 
 该 fork 保留上游工具描述、面向模型的结果文本和完整 Skill，同时加入本地紧凑 `renderCall` / `renderResult` 行、AbortSignal 感知的 fetch，以及非 2xx HTTP 抛错以便 Pi 正确标记 tool error。更高配额请设置 `CONTEXT7_API_KEY`。详见 [Context7 中文文档](./packages/pi-context7/README.zh-CN.md) 或其 [英文版本](./packages/pi-context7/README.md)。
 
-## Subagents（工作区 fork，尚未进根 bundle）
+## Subagents
 
-`@zhcsyncer/pi-subagents` 是 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 的维护 fork。上游运行时（Agent / steer / resume / FleetView / 通知）不变；本 fork 主要改 **进展怎么显示**：
+`@zhcsyncer/pi-subagents` 是 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 的维护 fork。可单独安装，也可通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展。上游运行时（Agent / steer / resume / FleetView / 通知）不变；本 fork 主要改 **进展怎么显示**：
 
 - 对话 overlay 默认 **Prompt · 一行 Steps · Result**（不再 dump 整墙 toolResult）
 - 主 transcript tool 行可折叠；展开为 Markdown；调用/结果行显示 **model** 与 **effort**
 
-工作区包预发版 `0.0.0`，**尚未**写入根包 `@zhcsyncer/pi-extensions` 的 `pi.extensions`。`pi install npm:@zhcsyncer/pi-extensions` **不会**加载它。在 monorepo 中试用：
-
-```bash
-pi -e ./packages/pi-subagents/src/index.ts
-```
-
-若 `~/.pi/agent/settings.json` 已加载 `@tintinweb/pi-subagents`，试用会话请先去掉该条目。上游钉扎与差异清单：[`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)。对比表默认英文：[package README](./packages/pi-subagents/README.md) / [简体中文](./packages/pi-subagents/README.zh-CN.md)。
+**不要**与 `@tintinweb/pi-subagents` 同时加载（会双注册 `Agent` / FleetView）。上游钉扎与差异清单：[`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)。对比表默认英文：[package README](./packages/pi-subagents/README.md) / [简体中文](./packages/pi-subagents/README.zh-CN.md)。
 
 ## 扩展持久化数据
 
@@ -63,7 +57,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、结构化问答，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、Subagents、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -130,7 +124,7 @@ pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
-pi --no-extensions -e ./packages/pi-subagents/src/index.ts
+pi --no-extensions -e ./packages/pi-subagents --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。

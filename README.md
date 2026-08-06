@@ -14,7 +14,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
-- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). **Not** in the root bundle yet — load with `-e` (see below).
+- [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
 
 ## Bundle-private Search Hub
 
@@ -28,20 +28,14 @@ This fork keeps upstream multi-backend search and page extraction while integrat
 
 This fork keeps upstream tool descriptions, model-facing result text, and the full skill while adding compact local `renderCall` / `renderResult` rows, AbortSignal-aware fetches, and HTTP error throwing for correct Pi tool-error marking. Set `CONTEXT7_API_KEY` for higher quotas. See the [Context7 documentation](./packages/pi-context7/README.md) or its [Simplified Chinese version](./packages/pi-context7/README.zh-CN.md).
 
-## Subagents (workspace fork, not in root bundle yet)
+## Subagents
 
-`@zhcsyncer/pi-subagents` is a maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3. Upstream runtime (Agent / steer / resume / FleetView / notifications) is unchanged; this fork changes **how progress is shown**:
+`@zhcsyncer/pi-subagents` is a maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3. It can be installed on its own or used through the root bundle, which embeds and registers the same extension. Upstream runtime (Agent / steer / resume / FleetView / notifications) is unchanged; this fork changes **how progress is shown**:
 
 - Conversation overlay defaults to **Prompt · one-line Steps · Result** (not a full toolResult dump)
 - Main-transcript tool rows are collapsible; expand uses Markdown; call/result rows show **model** and **effort**
 
-It is a workspace package at pre-release `0.0.0` and is **not** registered on the root `@zhcsyncer/pi-extensions` `pi.extensions` list yet. Do not expect `pi install npm:@zhcsyncer/pi-extensions` to load it. Try from the monorepo:
-
-```bash
-pi -e ./packages/pi-subagents/src/index.ts
-```
-
-If `~/.pi/agent/settings.json` already loads `@tintinweb/pi-subagents`, disable that entry for the trial session. Upstream pin and the full local-diff checklist: [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md). User-facing comparison tables: [English package README](./packages/pi-subagents/README.md) (default) / [简体中文](./packages/pi-subagents/README.zh-CN.md).
+Do **not** load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / FleetView registration). Upstream pin and the full local-diff checklist: [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md). User-facing comparison tables: [English package README](./packages/pi-subagents/README.md) (default) / [简体中文](./packages/pi-subagents/README.zh-CN.md).
 
 ## Persistent extension data
 
@@ -63,7 +57,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, structured user questions, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, structured user questions, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -111,6 +105,12 @@ Install only structured user questions:
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
+Install only Subagents:
+
+```bash
+pi install npm:@zhcsyncer/pi-subagents
+```
+
 ## Development
 
 Test the root bundle:
@@ -130,7 +130,7 @@ pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
 pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
-pi --no-extensions -e ./packages/pi-subagents/src/index.ts
+pi --no-extensions -e ./packages/pi-subagents --list-models nope
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
