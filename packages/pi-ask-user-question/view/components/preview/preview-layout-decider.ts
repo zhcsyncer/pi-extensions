@@ -155,7 +155,7 @@ export function crossTabPreviewBudget(questions: readonly QuestionData[], paneWi
  *
  * `crossTabMaxLeftWidth` is NOT replaced — it continues to exist as the primitive.
  * Donation obeys the same `MAX_LEFT_RATIO` cap as the label-driven path; the preview
- * composer right-aligns narrower boxes inside the remaining column.
+ * composer centers narrower boxes inside the remaining column.
  */
 export function crossTabLeftWidthWithDonation(
 	tabs: ReadonlyArray<{ multiSelect?: boolean }>,

@@ -83,6 +83,12 @@ describe("ask_user_question.execute — early returns", () => {
 });
 
 describe("ask_user_question.execute — ctx.ui.custom dispatch", () => {
+	it("uses the self-render shell so the empty pending call stays invisible", () => {
+		const tool = register();
+		expect(tool.renderShell).toBe("self");
+		expect(tool.renderCall).toBeTypeOf("function");
+	});
+
 	it("uses the normal custom-component layout instead of an overlay", async () => {
 		const tool = register();
 		const customSpy = vi.fn(async () => ({ answers: [], cancelled: true }));

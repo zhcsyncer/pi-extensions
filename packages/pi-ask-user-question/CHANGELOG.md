@@ -9,9 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Added `1`–`4` shortcuts for selecting single-choice options and toggling multi-select options.
-- Added readable tool call/result renderers that show questions, option descriptions, answers, notes, errors, and bounded expanded previews.
+- Added a readable result renderer that shows answers, notes, errors, and bounded expanded previews after interaction completes.
 
 ### Changed
 
 - Render the questionnaire as Pi's normal active custom component instead of a bottom-anchored full-screen overlay. It temporarily replaces the editor in the normal layout, restores the saved editor draft afterward, and leaves the footer separately visible.
 - Keep collapse as an in-component one-line mode without overlay visibility side effects.
+- Hide the pending tool-call node while the interactive questionnaire is active.
+- Center content-sized preview boxes within the right-side preview column instead of aligning them to the terminal edge.

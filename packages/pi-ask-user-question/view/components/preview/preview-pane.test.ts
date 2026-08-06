@@ -70,6 +70,19 @@ const markdownTheme = {
 	underline: (t: string) => t,
 } as never;
 
+function expectPreviewCentered(lines: string[], paneWidth: number, leftWidth: number): void {
+	const borderLine = lines.find((line) => line.includes("┌") && line.includes("┐"));
+	expect(borderLine).toBeDefined();
+	const borderStartRaw = borderLine!.indexOf("┌");
+	const borderEndRaw = borderLine!.lastIndexOf("┐") + 1;
+	const borderStart = visibleWidth(borderLine!.slice(0, borderStartRaw));
+	const borderEnd = visibleWidth(borderLine!.slice(0, borderEndRaw));
+	const leftSlack = borderStart - leftWidth - PREVIEW_COLUMN_GAP;
+	const rightSlack = paneWidth - borderEnd;
+	expect(leftSlack).toBeGreaterThanOrEqual(1);
+	expect(Math.abs(leftSlack - rightSlack)).toBeLessThanOrEqual(1);
+}
+
 function makePane(question: QuestionData, getWidth: () => number = () => 120) {
 	const items: WrappingSelectItem[] = question.options.map((o) => ({
 		kind: "option" as const,
@@ -131,7 +144,7 @@ describe("PreviewPane.render — layout switching", () => {
 		expect(trailing).toBeLessThanOrEqual(MAX_PREVIEW_HEIGHT_STACKED);
 	});
 
-	it("a resize from width 99 to 100 switches from stacked to right-aligned side-by-side", () => {
+	it("a resize from width 99 to 100 switches from stacked to centered side-by-side", () => {
 		let terminalWidth = 99;
 		const view = makePane(question, () => terminalWidth);
 		view.pane.setGlobalLeftWidth((w) =>
@@ -144,8 +157,13 @@ describe("PreviewPane.render — layout switching", () => {
 		terminalWidth = PREVIEW_MIN_WIDTH;
 		const wideLines = view.pane.render(PREVIEW_MIN_WIDTH);
 		expect(wideLines.some((l) => /MD\[\d+\]:/.test(l))).toBe(true);
-		const previewTop = wideLines.find((line) => line.includes("┌"));
-		expect(visibleWidth(previewTop!)).toBe(PREVIEW_MIN_WIDTH);
+		const leftWidth = crossTabLeftWidthWithDonation(
+			[{ multiSelect: false }],
+			[view.items],
+			[question],
+			PREVIEW_MIN_WIDTH,
+		);
+		expectPreviewCentered(wideLines, PREVIEW_MIN_WIDTH, leftWidth);
 	});
 });
 
@@ -384,7 +402,7 @@ describe("PreviewPane.maxNaturalHeight", () => {
 	});
 });
 
-describe("PreviewPane — right-aligned preview with a bounded options column", () => {
+describe("PreviewPane — centered preview with a bounded options column", () => {
 	const question: QuestionData = {
 		question: "pick",
 		header: "pick",
@@ -398,11 +416,13 @@ describe("PreviewPane — right-aligned preview with a bounded options column", 
 		return joined.filter((l) => /MD\[\d+\]:/.test(l));
 	}
 
-	it("content-sized preview boxes share the right edge while retaining their natural widths", () => {
+	it("content-sized preview boxes stay centered while retaining their natural widths", () => {
 		const short = makePane(question, () => 120);
 		short.optionListView.setProps({ selectedIndex: 0, focused: true, inputBuffer: "" });
 		const shortLines = short.pane.render(120);
 		const shortMD = extractPreviewColumnLines(shortLines)[0].indexOf("MD[");
+		const shortLeft = adaptiveLeftWidth(short.items, short.items.length + 1, 120);
+		expectPreviewCentered(shortLines, 120, shortLeft);
 
 		const longQ: QuestionData = {
 			question: "pick",
@@ -416,9 +436,9 @@ describe("PreviewPane — right-aligned preview with a bounded options column", 
 		long.optionListView.setProps({ selectedIndex: 0, focused: true, inputBuffer: "" });
 		const longLines = long.pane.render(120);
 		const longMD = extractPreviewColumnLines(longLines)[0].indexOf("MD[");
+		const longLeft = adaptiveLeftWidth(long.items, long.items.length + 1, 120);
+		expectPreviewCentered(longLines, 120, longLeft);
 
-		expect(visibleWidth(shortLines.find((line) => line.includes("┌"))!)).toBe(120);
-		expect(visibleWidth(longLines.find((line) => line.includes("┌"))!)).toBe(120);
 		expect(shortMD).toBeGreaterThan(longMD);
 	});
 
@@ -511,8 +531,7 @@ describe("PreviewPane — slack donation to left column", () => {
 		expect(donatedLeft).toBe(Math.floor(200 * MAX_LEFT_RATIO));
 
 		const lines = pane.render(200);
-		const previewTop = lines.find((line) => line.includes("┌"));
-		expect(visibleWidth(previewTop!)).toBe(200);
+		expectPreviewCentered(lines, 200, donatedLeft);
 	});
 
 	it("long labels + narrow previews → donation engaged, MD at wider offset", () => {
@@ -538,11 +557,10 @@ describe("PreviewPane — slack donation to left column", () => {
 		const mdLine = lines.find((l) => /MD\[\d+\]:/.test(l));
 		expect(mdLine).toBeDefined();
 		// Donation wants 73 columns, but the 50% ratio caps the options column at 60.
-		// The narrow preview is then right-aligned inside the remaining column.
+		// The narrow preview is then centered inside the remaining column.
 		const donatedLeft = crossTabLeftWidthWithDonation(tabs, itemsByTab, questions, 120);
 		expect(donatedLeft).toBe(Math.floor(120 * MAX_LEFT_RATIO));
-		const previewTop = lines.find((line) => line.includes("┌"));
-		expect(visibleWidth(previewTop!)).toBe(120);
+		expectPreviewCentered(lines, 120, donatedLeft);
 	});
 
 	it("long labels + wide previews → donation suppressed, MD at label-driven offset", () => {

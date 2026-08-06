@@ -3,4 +3,4 @@
 "@zhcsyncer/pi-extensions": minor
 ---
 
-Publish a maintained structured-question fork with a non-overlay TUI layout, number-key option selection, and readable expandable tool call/result rendering, and include it in the aggregate extension bundle.
+Publish a maintained structured-question fork with a non-overlay TUI layout, context-aware number-key selection, centered preview columns, and readable expandable post-interaction result rendering, and include it in the aggregate extension bundle.

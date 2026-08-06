@@ -291,6 +291,24 @@ describe("ask_user_question — 'Type something.' free-text flow", () => {
 		expect(r?.details.answers[0].answer).toBe("hello");
 	});
 
+	it("number keys become text after focus moves to Type something", async () => {
+		const tool = register();
+		const { custom } = driveCustom((c) => {
+			c.handleInput(KEY.DOWN); // → Second; digits would still direct-select here
+			c.handleInput(KEY.DOWN); // → Type something (inputMode=true)
+			c.handleInput("2");
+			c.handleInput("0");
+			c.handleInput("2");
+			c.handleInput("6");
+			c.handleInput(KEY.ENTER);
+		});
+		const ctx = { hasUI: true, ui: { custom } } as never;
+		const r = (await tool.execute?.("tc", freeTextParams as never, undefined as never, undefined as never, ctx)) as
+			| ToolResult
+			| undefined;
+		expect(r?.details.answers[0]).toMatchObject({ kind: "custom", answer: "2026" });
+	});
+
 	it("Type something with no input → kind:'custom', answer=null", async () => {
 		const tool = register();
 		const { custom } = driveCustom((c) => {

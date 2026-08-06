@@ -147,6 +147,7 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: QuestionParamsSchema,
+		renderShell: "self",
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const typed = params as unknown as QuestionParams;
@@ -248,8 +249,8 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
 			}
 		},
 
-		renderCall(args, theme, context) {
-			return renderAskUserQuestionCall(args, theme, context.expanded);
+		renderCall() {
+			return renderAskUserQuestionCall();
 		},
 
 		renderResult(result, options, theme, context) {

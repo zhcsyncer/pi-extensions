@@ -13,7 +13,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
-- [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持数字键直选、预览和可读的 tool call/result 展示。
+- [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 
 ## Bundle 私有 Search Hub
 
