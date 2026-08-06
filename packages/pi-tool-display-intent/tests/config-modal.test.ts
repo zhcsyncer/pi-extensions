@@ -114,6 +114,16 @@ test("show reports unavailable optional capabilities", async () => {
 	await getHandler()!("show", ctx);
 	assert.match(notifications[0]?.message ?? "", /mcp=unavailable/);
 	assert.match(notifications[0]?.message ?? "", /rtkHints=unavailable/);
+	assert.match(notifications[0]?.message ?? "", /diffFold=body/);
+});
+
+test("show reports the diff collapsed mode", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller } = createControllerStub({ diffCollapsedMode: "summary" });
+	const { ctx, notifications } = createCtxStub(true);
+	registerToolDisplayCommand(api, controller);
+	await getHandler()!("show", ctx);
+	assert.match(notifications[0]?.message ?? "", /diffFold=summary/);
 });
 
 test("reset restores the complete default config", async () => {

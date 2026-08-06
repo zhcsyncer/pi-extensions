@@ -2027,6 +2027,13 @@ function renderSingleDiffRow(text: string, color: string, width: number, theme: 
 	return [clampDiffLineToWidth(stabilizeBackgroundResets(theme.fg(color, text)), width)];
 }
 
+function renderDiffExpandHintRow(width: number, theme: DiffTheme): string[] {
+	if (width <= 0) {
+		return [""];
+	}
+	return [clampDiffLineToWidth(theme.fg("muted", "… (Ctrl+O to expand)"), width)];
+}
+
 function safeGetDiff(details: unknown): string {
 	if (!details || typeof details !== "object") {
 		return "";
@@ -2107,14 +2114,20 @@ export function renderEditDiffResult(
 	return {
 		render(width: number): string[] {
 			const safeWidth = normalizeDiffRenderWidth(width);
-			const mode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
+			const resolvedMode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
+			const forceSummary = !options.expanded && config.diffCollapsedMode === "summary";
+			const mode: DiffPresentationMode = forceSummary ? "summary" : resolvedMode;
 			const cached = cache.get(safeWidth, options.expanded, mode);
 			if (cached) {
 				return cached;
 			}
 
 			if (mode === "summary") {
-				return cache.set(safeWidth, options.expanded, mode, clampDiffLinesToWidth(renderSingleDiffRow(buildDiffSummaryText(parsed.stats, safeWidth), "toolOutput", safeWidth, theme), safeWidth));
+				const summaryRows = renderSingleDiffRow(buildDiffSummaryText(parsed.stats, safeWidth), "toolOutput", safeWidth, theme);
+				const rows = forceSummary
+					? [...summaryRows, ...renderDiffExpandHintRow(safeWidth, theme)]
+					: summaryRows;
+				return cache.set(safeWidth, options.expanded, mode, clampDiffLinesToWidth(rows, safeWidth));
 			}
 
 			const headerRows = renderHeaderRows(parsed.stats, mode, safeWidth, theme);
@@ -2443,11 +2456,13 @@ export function renderWriteDiffResult(
 		render(width: number): string[] {
 			const safeWidth = normalizeDiffRenderWidth(width);
 			const resolvedMode = resolveDiffPresentationMode(config, safeWidth, canRenderSplitLayout(safeWidth));
-			const mode: DiffPresentationMode = hasComparablePrevious
+			const layoutMode: DiffPresentationMode = hasComparablePrevious
 				? resolvedMode
 				: resolvedMode === "split"
 					? "unified"
 					: resolvedMode;
+			const forceSummary = !options.expanded && config.diffCollapsedMode === "summary";
+			const mode: DiffPresentationMode = forceSummary ? "summary" : layoutMode;
 			const cached = cache.get(safeWidth, options.expanded, mode);
 			if (cached) {
 				return cached;
@@ -2470,7 +2485,10 @@ export function renderWriteDiffResult(
 				const summaryRows = approximateStats.lines === 0
 					? [header]
 					: [header, ...renderSingleDiffRow(buildDiffSummaryText(approximateStats, safeWidth), "toolOutput", safeWidth, theme)];
-				return cache.set(safeWidth, options.expanded, mode, clampDiffLinesToWidth(summaryRows, safeWidth));
+				const rows = forceSummary && approximateStats.lines > 0
+					? [...summaryRows, ...renderDiffExpandHintRow(safeWidth, theme)]
+					: summaryRows;
+				return cache.set(safeWidth, options.expanded, mode, clampDiffLinesToWidth(rows, safeWidth));
 			}
 
 			const data = getDetailedData();

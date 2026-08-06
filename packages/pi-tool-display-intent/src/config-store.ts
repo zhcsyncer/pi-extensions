@@ -19,6 +19,7 @@ import {
 	type ConfigLoadResult,
 	type ConfigSaveResult,
 	type CustomToolOverrideConfig,
+	DIFF_COLLAPSED_MODES,
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
 	RESULT_DISPLAY_MODES,
@@ -112,6 +113,12 @@ function toDiffIndicatorMode(value: unknown): ToolDisplayConfig["diffIndicatorMo
 	return DIFF_INDICATOR_MODES.includes(value as ToolDisplayConfig["diffIndicatorMode"])
 		? (value as ToolDisplayConfig["diffIndicatorMode"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.diffIndicatorMode;
+}
+
+function toDiffCollapsedMode(value: unknown): ToolDisplayConfig["diffCollapsedMode"] {
+	return DIFF_COLLAPSED_MODES.includes(value as ToolDisplayConfig["diffCollapsedMode"])
+		? (value as ToolDisplayConfig["diffCollapsedMode"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedMode;
 }
 
 function normalizeToolIntentConfig(rawConfig: unknown): ToolDisplayConfig["toolIntent"] {
@@ -344,6 +351,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			240,
 			DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedRows,
 		),
+		diffCollapsedMode: toDiffCollapsedMode(source.diffCollapsedMode),
 		diffWordWrap: toBoolean(source.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap),
 		showTruncationHints: toBoolean(
 			source.showTruncationHints,
@@ -448,11 +456,12 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(results, "previewRows", 2, 80, "results.", errors);
 
 	const diff = getV2Section(source, "diff", errors);
-	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedRows", "wordWrap"], "diff.", errors);
+	validateKnownKeys(diff, ["layout", "indicators", "splitMinWidth", "collapsedRows", "collapsedMode", "wordWrap"], "diff.", errors);
 	validateOptionalEnum(diff, "layout", DIFF_VIEW_MODES, "diff.", errors);
 	validateOptionalEnum(diff, "indicators", DIFF_INDICATOR_MODES, "diff.", errors);
 	validateOptionalInteger(diff, "splitMinWidth", 70, 240, "diff.", errors);
 	validateOptionalInteger(diff, "collapsedRows", 4, 240, "diff.", errors);
+	validateOptionalEnum(diff, "collapsedMode", DIFF_COLLAPSED_MODES, "diff.", errors);
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
@@ -573,6 +582,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		diffIndicatorMode: diff.indicators,
 		diffSplitMinWidth: diff.splitMinWidth,
 		diffCollapsedRows: diff.collapsedRows,
+		diffCollapsedMode: toDiffCollapsedMode(diff.collapsedMode),
 		diffWordWrap: diff.wordWrap,
 		showTruncationHints: advanced.truncationHints,
 		showRtkCompactionHints: advanced.rtkCompactionHints,
@@ -613,6 +623,7 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.diffIndicatorMode !== defaults.diffIndicatorMode) diff.indicators = config.diffIndicatorMode;
 	if (config.diffSplitMinWidth !== defaults.diffSplitMinWidth) diff.splitMinWidth = config.diffSplitMinWidth;
 	if (config.diffCollapsedRows !== defaults.diffCollapsedRows) diff.collapsedRows = config.diffCollapsedRows;
+	if (config.diffCollapsedMode !== defaults.diffCollapsedMode) diff.collapsedMode = config.diffCollapsedMode;
 	if (config.diffWordWrap !== defaults.diffWordWrap) diff.wordWrap = config.diffWordWrap;
 	assignSection(output, "diff", diff);
 
@@ -677,7 +688,7 @@ const LEGACY_CONFIG_KEYS = new Set([
 	"customToolOverrides", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
 	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "enableThinkingLabel", "previewRows",
 	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
-	"diffCollapsedRows", "diffCollapsedLines", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",
+	"diffCollapsedRows", "diffCollapsedLines", "diffCollapsedMode", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",
 	"bashCollapsedLines", "bashCollapsedRows",
 ]);
 

@@ -25,6 +25,7 @@ test("bundled config example is valid simple v2", () => {
 		assert.equal(loaded.config.bashCommandPreviewRows, 1);
 		assert.equal(loaded.config.previewRows, 10);
 		assert.equal(loaded.config.diffCollapsedRows, 24);
+		assert.equal(loaded.config.diffCollapsedMode, "body");
 		assert.equal(loaded.config.expandedPreviewMaxRows, 500);
 		assert.equal(loaded.config.debug, false);
 	} finally {
@@ -40,6 +41,7 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 			results?: { properties?: Record<string, unknown> };
 			toolCalls?: { properties?: Record<string, unknown> };
 			tools?: { properties?: Record<string, unknown> };
+			diff?: { properties?: Record<string, unknown> };
 		};
 	};
 	assert.equal(schema.$id, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
@@ -55,4 +57,25 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);
 	assert.equal(schema.properties?.extension, undefined);
+	const collapsedMode = schema.properties?.diff?.properties?.collapsedMode as { enum?: string[]; default?: string } | undefined;
+	assert.deepEqual(collapsedMode?.enum, ["body", "summary"]);
+	assert.equal(collapsedMode?.default, "body");
+});
+
+test("invalid diff.collapsedMode is dropped and falls back to body", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-tool-display-schema-invalid-fold-"));
+	try {
+		const configFile = join(root, "config.json");
+		writeFileSync(
+			configFile,
+			`${JSON.stringify({ version: 2, results: { mode: "compact" }, diff: { collapsedMode: "compact" } }, null, 2)}\n`,
+			"utf8",
+		);
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.config.diffCollapsedMode, "body");
+		assert.match(loaded.notice ?? "", /diff\.collapsedMode: expected body \| summary/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
