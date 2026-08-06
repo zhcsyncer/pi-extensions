@@ -47,15 +47,19 @@ export function firstLinePreview(text: string, maxChars = RESULT_COLLAPSED_PREVI
 /**
  * True when the first `\n\n`-delimited block looks like our tool status header
  * (safe to peel). Plain multi-paragraph errors must NOT match.
+ *
+ * Deliberately strict:
+ * - Does NOT peel "Note: Unknown agent type…" (user must see the fallback warning).
+ * - `Agent:` + `Type:` only match the real get_subagent_result meta shape
+ *   (`Type: … | Status: …`), so agent-authored reports are not eaten.
  */
 export function looksLikeStatusHeader(block: string): boolean {
   const head = block.replace(/\r\n/g, "\n").trim();
   if (!head) return false;
   if (/^Agent completed in \d/i.test(head)) return true;
   if (/^Agent failed:/i.test(head)) return true;
-  if (/^Note: Unknown agent type/i.test(head)) return true;
-  // get_subagent_result / background spawn multi-line meta block
-  if (/^Agent:\s+\S+/m.test(head) && /^Type:\s+/m.test(head)) return true;
+  // get_subagent_result multi-line meta block (requires Status on the Type line)
+  if (/^Agent:\s+\S+/m.test(head) && /^Type:\s+.+\|\s*Status:\s*/m.test(head)) return true;
   if (/^Agent (queued|started) in background/i.test(head)) return true;
   return false;
 }
@@ -132,10 +136,12 @@ export function formatAgentDetailsStats(d: AgentDetails, theme: Theme): string {
     parts.push(d.modelInherited ? `${d.modelName} (inherit)` : d.modelName);
   }
   if (d.effort) parts.push(`effort: ${d.effort}`);
-  // Tags from buildInvocationTags — skip effort: (already explicit above).
+  // Tags from buildInvocationTags — skip effort: / max turns: (already explicit via
+  // effort field and formatTurns below).
   if (d.tags) {
     for (const tag of d.tags) {
       if (tag.startsWith("effort:")) continue;
+      if (tag.startsWith("max turns:")) continue;
       parts.push(tag);
     }
   }
@@ -162,19 +168,28 @@ export function isActiveStatus(status: string | undefined): boolean {
   return status === "running" || status === "queued";
 }
 
-/** Lightweight heuristic when structured details are missing. */
+/**
+ * Lightweight heuristic when structured details / explicit isError are missing.
+ * Only matches strong *leading* failure markers — never free-word scans of user
+ * content (schedule names like "Investigate failed tests" must not go red).
+ */
 export function looksLikeFailureText(text: string): boolean {
   const head = text.trim().slice(0, 240);
   return (
     /^error\b/i.test(head) ||
-    /\bfailed\b/i.test(head) ||
-    /\bnot found\b/i.test(head) ||
-    /\bcannot\b/i.test(head) ||
-    /\bnot in scope\b/i.test(head) ||
-    /\bunavailable\b/i.test(head) ||
-    /\binvalid\b/i.test(head) ||
-    /\bdisabled\b/i.test(head)
+    /^failed\b/i.test(head) ||
+    /^agent failed:/i.test(head) ||
+    /^model not in scope\b/i.test(head) ||
+    /^agent not found\b/i.test(head) ||
+    /^cannot combine\b/i.test(head) ||
+    /^scheduling is disabled\b/i.test(head) ||
+    /^failed to (resume|steer)\b/i.test(head)
   );
+}
+
+/** Statuses that should flip Pi's tool-result `isError` (error shell / model flag). */
+export function isFailureDetailsStatus(status: string | undefined): boolean {
+  return status === "error" || status === "aborted" || status === "stopped";
 }
 
 /**
@@ -219,7 +234,14 @@ export function renderUndetailedResult(
   opts: { expanded: boolean; isError?: boolean },
   theme: Theme,
 ): Component {
-  const failed = opts.isError === true || looksLikeFailureText(resultText);
+  // Explicit false wins (success paths); explicit true forces error; undefined
+  // falls back to a tight leading-marker heuristic only.
+  const failed =
+    opts.isError === true
+      ? true
+      : opts.isError === false
+        ? false
+        : looksLikeFailureText(resultText);
   const icon = failed ? theme.fg("error", "✗") : theme.fg("dim", "•");
   const preview = firstLinePreview(resultBodyText(resultText)) || (failed ? "failed" : "ok");
   const clerk = formatClerkLine(theme, failed ? `Error: ${preview}` : preview, failed ? "error" : "dim");
@@ -255,13 +277,15 @@ export function renderAgentLikeResult(
   if (opts.isPartial || isActiveStatus(details.status)) {
     const frame = SPINNER[details.spinnerFrame ?? 0] ?? SPINNER[0];
     const top = theme.fg("accent", frame!) + (s ? " " + s : "");
+    // Queued must never show thinking… even if a stale activity string was attached.
     const activity =
-      details.activity ??
-      (details.status === "queued" ? "queued…" : "thinking…");
+      details.status === "queued"
+        ? "queued…"
+        : (details.activity ?? "thinking…");
     return new Text(top + "\n" + formatClerkLine(theme, activity), 0, 0);
   }
 
-  // Background launch — single clerk line (upstream CC style)
+  // Background launch — single clerk line (upstream CC style). Queued is handled above.
   if (details.status === "background") {
     return new Text(
       formatClerkLine(theme, `Running in background (ID: ${details.agentId ?? "?"})`),

@@ -592,4 +592,99 @@ describe("ConversationViewer failed terminal result", () => {
     expect(errIdx).toBeGreaterThan(resultIdx);
     expect(midIdx).toBeGreaterThan(errIdx);
   });
+
+  it("steered shows turn-limit notice instead of silent Done", () => {
+    const messages = [
+      { role: "user", content: "long task" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "partial wrap-up text" }],
+      },
+    ];
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      mockSession(messages),
+      mockRecord({ status: "steered" }),
+      undefined,
+      ansiTheme(),
+      vi.fn(),
+    );
+    const out = viewer.render(W).join("\n");
+    expect(out).toMatch(/Wrapped up \(turn limit\)/);
+    expect(out).toContain("partial wrap-up text");
+    expect(out).toMatch(/✓/); // warning checkmark in header
+  });
+
+  it("stopped header uses ■ and settles dangling running steps", () => {
+    const messages = [
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "sleep 999" } }],
+      },
+    ];
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      mockSession(messages),
+      mockRecord({ status: "stopped" }),
+      undefined,
+      ansiTheme(),
+      vi.fn(),
+    );
+    const out = viewer.render(W).join("\n");
+    expect(out).toMatch(/■/);
+    expect(out).toMatch(/Stopped by user/);
+    expect(out).toMatch(/✗/); // dangling step settled to error
+    expect(out).not.toMatch(/⠹/);
+  });
+
+  it("expanded args are hard-capped so write content cannot flood the overlay", () => {
+    const huge = "X".repeat(2500);
+    const messages = [
+      { role: "user", content: "write it" },
+      {
+        role: "assistant",
+        content: [{
+          type: "toolCall",
+          id: "w1",
+          name: "write",
+          arguments: { path: "big.ts", content: huge },
+        }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "w1",
+        toolName: "write",
+        isError: false,
+        content: [{ type: "text", text: "ok" }],
+      },
+    ];
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      mockSession(messages),
+      mockRecord({ status: "completed" }),
+      undefined,
+      ansiTheme(),
+      vi.fn(),
+    );
+    viewer.handleInput("o");
+    const out = viewer.render(W).join("\n");
+    expect(out).toMatch(/truncated/);
+    // Full 2500-char blob must not appear.
+    expect(out.includes(huge)).toBe(false);
+  });
+});
+
+describe("headerStatusIcon", () => {
+  it("maps terminal statuses consistently", async () => {
+    const { headerStatusIcon } = await import("../src/ui/conversation-viewer.js");
+    const th = { fg: (_c: string, t: string) => t, bold: (t: string) => t } as any;
+    expect(headerStatusIcon("running", th)).toBe("●");
+    expect(headerStatusIcon("queued", th)).toBe("○");
+    expect(headerStatusIcon("completed", th)).toBe("✓");
+    expect(headerStatusIcon("steered", th)).toBe("✓");
+    expect(headerStatusIcon("error", th)).toBe("✗");
+    expect(headerStatusIcon("aborted", th)).toBe("✗");
+    expect(headerStatusIcon("stopped", th)).toBe("■");
+  });
 });

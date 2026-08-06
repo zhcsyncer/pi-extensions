@@ -165,6 +165,87 @@ describe("renderUndetailedResult", () => {
     expect(out).toMatch(/⎿/);
     expect(out).toMatch(/Model not in scope/);
   });
+
+  it("explicit isError=false never paints ✗ even when text mentions failed/invalid", async () => {
+    const { renderUndetailedResult } = await import("../src/ui/tool-render.js");
+    const text =
+      'Scheduled "Investigate failed tests" (id: job1, type: cron). Next run: tomorrow.';
+    const component = renderUndetailedResult(text, { expanded: false, isError: false }, theme());
+    const out = plain(component);
+    expect(out).not.toMatch(/✗/);
+    expect(out).toContain("Investigate failed tests");
+  });
+
+  it("explicit isError=true paints ✗ without relying on keywords", async () => {
+    const { renderUndetailedResult } = await import("../src/ui/tool-render.js");
+    const component = renderUndetailedResult("all good actually", { expanded: false, isError: true }, theme());
+    expect(plain(component)).toMatch(/✗/);
+  });
+});
+
+describe("looksLikeStatusHeader / isFailureDetailsStatus", () => {
+  it("does not peel unknown-agent notes or bare Agent:/Type: reports", async () => {
+    const { looksLikeStatusHeader, resultBodyText, isFailureDetailsStatus } = await import(
+      "../src/ui/tool-render.js",
+    );
+    expect(looksLikeStatusHeader("Note: Unknown agent type 'x'. Falling back to general-purpose.")).toBe(false);
+    const agentReport = "Agent: foo\nType: bar\n\n## Findings\n\nok";
+    expect(looksLikeStatusHeader(agentReport.split("\n\n")[0]!)).toBe(false);
+    expect(resultBodyText(agentReport)).toContain("Agent: foo");
+    expect(resultBodyText(agentReport)).toContain("## Findings");
+
+    const realMeta =
+      "Agent: abc\nType: Explore | Status: completed | Tool uses: 1\nDescription: x\n\nbody";
+    expect(resultBodyText(realMeta)).toBe("body");
+
+    expect(isFailureDetailsStatus("error")).toBe(true);
+    expect(isFailureDetailsStatus("aborted")).toBe(true);
+    expect(isFailureDetailsStatus("stopped")).toBe(true);
+    expect(isFailureDetailsStatus("completed")).toBe(false);
+    expect(isFailureDetailsStatus("queued")).toBe(false);
+  });
+});
+
+describe("terminal chrome variants", () => {
+  it("queued forces queued… not thinking…", () => {
+    const out = plain(
+      renderAgentLikeResult(
+        completedDetails({ status: "queued", durationMs: 0, activity: "thinking…", toolUses: 0, tokens: "" }),
+        "",
+        { expanded: false },
+        theme(),
+      ),
+    );
+    expect(out).toMatch(/queued/);
+    expect(out).not.toMatch(/thinking/);
+  });
+
+  it("steered shows warning ✓ + Wrapped up (turn limit)", () => {
+    const out = plain(
+      renderAgentLikeResult(
+        completedDetails({ status: "steered", durationMs: 1500 }),
+        "partial answer",
+        { expanded: false },
+        theme(),
+      ),
+    );
+    expect(out).toMatch(/✓/);
+    expect(out).toMatch(/Wrapped up \(turn limit\)/);
+  });
+
+  it("stopped shows ■ Stopped; aborted shows ✗ Aborted", () => {
+    const stopped = plain(
+      renderAgentLikeResult(completedDetails({ status: "stopped", durationMs: 900 }), "", { expanded: false }, theme()),
+    );
+    expect(stopped).toMatch(/■/);
+    expect(stopped).toMatch(/Stopped/);
+
+    const aborted = plain(
+      renderAgentLikeResult(completedDetails({ status: "aborted", durationMs: 900 }), "", { expanded: false }, theme()),
+    );
+    expect(aborted).toMatch(/✗/);
+    expect(aborted).toMatch(/Aborted/);
+  });
 });
 
 describe("background launch chrome", () => {

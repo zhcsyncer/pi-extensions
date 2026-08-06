@@ -17,11 +17,11 @@ This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView w
 | --- | --- | --- |
 | **Conversation overlay** (FleetView / agent list → Enter) | Full conversation dump: user / assistant / toolResult walls (tool bodies truncated ~500 chars but still large) | **Scheme A brief view**: **Prompt** → **Steps** (one line per tool) → **Result**; tool bodies folded by default |
 | Overlay step detail | N/A (everything dumped) | Press **`o`** to expand/fold tool args + results |
-| Overlay on agent **error / aborted / stopped** | Last messages still dominate the dump | **Result** prefers `record.error` (or stopped/aborted label); mid-run assistant text is demoted to a dim footnote |
+| Overlay on agent **error / aborted / stopped / steered** | Last messages still dominate the dump | **Result** prefers `record.error`; `steered` shows turn-limit; header icons match chrome; terminal records settle dangling running steps |
 | Overlay **bashExecution** | Shown as command + output dump | One step line; **`exitCode` / `cancelled`** → `✗` (not a false `✓`) |
-| **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has Claude Code chrome; **`get_subagent_result` has no custom `renderResult`** → Pi dumps full payload | Same **Claude Code chrome** for all three tools: `▸ Type  desc` / `✓ stats` + `⎿ Done` (running: `⠹` + `⎿ activity`); **Ctrl+O** expands Markdown body without dumping by default |
-| Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:` from `thinking`; call line only adds chips when args explicitly set model/thinking/bg |
-| Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details (or undetailed fallback that **never** paints success `✓`) |
+| **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has Claude Code chrome; **`get_subagent_result` has no custom `renderResult`** → Pi dumps full payload | Same **Claude Code chrome** for all three; queued is honest (`queued…`); **Ctrl+O** expands Markdown without dumping by default |
+| Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:`; resume chips come from stored invocation |
+| Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details + `tool_result` → Pi `isError` (error shell); undetailed success paths never heuristic-red |
 | Packaging | Standalone npm package | Workspace package `@zhcsyncer/pi-subagents` at **`0.0.0`** until Changesets cuts the first release; **not** registered in the root `@zhcsyncer/pi-extensions` bundle yet — load with `-e` (below) |
 
 ### What did *not* change

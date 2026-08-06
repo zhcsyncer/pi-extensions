@@ -17,11 +17,11 @@
 | --- | --- | --- |
 | **对话 overlay**（FleetView / 列表 → Enter） | 全文 dump：user / assistant / toolResult 墙（tool 体约 500 字截断仍很大） | **方案 A 摘要视图**：**Prompt** → **Steps**（一行一步）→ **Result**；tool 体默认折叠 |
 | Overlay 步骤详情 | 无（全摊开） | **`o`** 展开/折叠 tool 参数与结果 |
-| Overlay 在 agent **error / aborted / stopped** | 仍以消息流为主 | **Result 优先 `record.error`**（或 stopped/aborted 文案）；中途 assistant 碎语降为 dim 附注 |
+| Overlay 在 agent **error / aborted / stopped / steered** | 仍以消息流为主 | **Result 优先 `record.error`**；`steered` 标明 turn-limit；头部图标对齐 chrome；终态收敛悬空 running step |
 | Overlay **bashExecution** | 命令 + 输出 dump | 一步一行；**`exitCode` / `cancelled`** → `✗`（不会误标 ✓） |
-| **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**：`▸ Type  desc` / `✓ stats` + `⎿ Done`（运行中 `⠹` + `⎿ activity`）；**Ctrl+O** 展开 Markdown，默认不 dump |
-| Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；调用行仅在 args 显式带 model/thinking/bg 时附加芯片 |
-| 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | 带 `error` details（或 undetailed 回退 **永不**画绿 ✓） |
+| **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**；queued 真话；**Ctrl+O** 展开 Markdown，默认不 dump |
+| Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；resume 用存储的 invocation |
+| 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
 | 发包 | 独立 npm 包 | 工作区包 `@zhcsyncer/pi-subagents`，版本 **`0.0.0`** 直至 Changesets 切首版；**尚未**挂进根包 `@zhcsyncer/pi-extensions` bundle — 用下面的 `-e` 试用 |
 
 ### 未改动的部分

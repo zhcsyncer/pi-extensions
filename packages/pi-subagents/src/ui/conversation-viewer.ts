@@ -14,9 +14,13 @@ import { type AgentActivity, buildInvocationTags, describeActivity, fgPreserving
 import {
   buildConversationBrief,
   formatStepLine,
+  settleDanglingBriefSteps,
   truncatePromptLines,
   type BriefStep,
 } from "./conversation-brief.js";
+
+/** Expanded step args/results hard cap (avoid write/edit dumping whole files). */
+const EXPAND_TEXT_MAX_CHARS = 1000;
 import { createViewerKeys, type ViewerKeybindings, type ViewerKeys } from "./viewer-keys.js";
 
 /** Base lines consumed by chrome: top border + header + header sep + footer sep + footer + bottom border. */
@@ -155,13 +159,7 @@ export class ConversationViewer implements Component {
     const name = getDisplayName(this.record.type);
     const modeLabel = getPromptModeLabel(this.record.type);
     const modeTag = modeLabel ? ` ${th.fg("dim", `(${modeLabel})`)}` : "";
-    const statusIcon = this.record.status === "running"
-      ? th.fg("accent", "●")
-      : this.record.status === "completed"
-        ? th.fg("success", "✓")
-        : this.record.status === "error"
-          ? th.fg("error", "✗")
-          : th.fg("dim", "○");
+    const statusIcon = headerStatusIcon(this.record.status, th);
     const duration = formatDuration(this.record.startedAt, this.record.completedAt);
 
     const headerParts: string[] = [duration];
@@ -309,6 +307,8 @@ export class ConversationViewer implements Component {
     }
 
     const brief = buildConversationBrief(messages);
+    // Terminal records must not keep spinner steps for unmatched toolCalls.
+    settleDanglingBriefSteps(brief.steps, this.record.status);
     const section = (title: string) => {
       lines.push(th.bold(title));
     };
@@ -373,6 +373,14 @@ export class ConversationViewer implements Component {
           lines.push(th.fg("dim", line));
         }
       }
+    } else if (this.record.status === "steered") {
+      // Turn-limit wrap-up is not a hard failure, but must not look like normal Done.
+      lines.push(th.fg("warning", "Wrapped up (turn limit)"));
+      if (brief.result?.trim()) {
+        for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
+          lines.push(line);
+        }
+      }
     } else if (brief.result) {
       for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
         lines.push(line);
@@ -426,13 +434,13 @@ export class ConversationViewer implements Component {
     if (!this.expandDetails) return;
 
     if (step.argsText?.trim()) {
-      for (const line of wrapTextWithAnsi(step.argsText.trim(), Math.max(1, width - 2))) {
+      const body = clipExpandText(step.argsText.trim());
+      for (const line of wrapTextWithAnsi(body, Math.max(1, width - 2))) {
         lines.push(truncateToWidth(th.fg("dim", `  ${line}`), width));
       }
     }
     if (step.resultText?.trim()) {
-      const body = step.resultText.trim();
-      const shown = body.length > 500 ? `${body.slice(0, 500)}... (truncated)` : body;
+      const shown = clipExpandText(step.resultText.trim());
       const color = step.isError ? "error" : "dim";
       for (const line of wrapTextWithAnsi(shown, Math.max(1, width - 2))) {
         lines.push(truncateToWidth(th.fg(color, `  ${line}`), width));
@@ -441,4 +449,30 @@ export class ConversationViewer implements Component {
       lines.push(truncateToWidth(th.fg(step.isError ? "error" : "dim", `  ${step.resultNote}`), width));
     }
   }
+}
+
+/** Header status icon aligned with tool-render chrome. */
+export function headerStatusIcon(status: string | undefined, th: Theme): string {
+  switch (status) {
+    case "running":
+      return th.fg("accent", "●");
+    case "queued":
+      return th.fg("accent", "○");
+    case "completed":
+      return th.fg("success", "✓");
+    case "steered":
+      return th.fg("warning", "✓");
+    case "error":
+    case "aborted":
+      return th.fg("error", "✗");
+    case "stopped":
+      return th.fg("dim", "■");
+    default:
+      return th.fg("dim", "○");
+  }
+}
+
+function clipExpandText(text: string, max = EXPAND_TEXT_MAX_CHARS): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}... (truncated)`;
 }

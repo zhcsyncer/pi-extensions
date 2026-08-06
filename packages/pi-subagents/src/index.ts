@@ -55,8 +55,8 @@ import {
   firstLinePreview,
   formatAgentCallMeta,
   formatAgentDetailsStats,
+  isFailureDetailsStatus,
   renderAgentLikeResult,
-  renderExpandedMarkdown,
   renderToolCallTitle,
   renderUndetailedResult,
   toolResultText,
@@ -87,6 +87,31 @@ function errorTextResult(msg: string, partial?: Partial<AgentDetails>) {
     effort: partial?.effort,
     tags: partial?.tags,
   });
+}
+
+/** Rebuild display base from a stored invocation (resume / get_result) — never invent current-parent model. */
+function detailBaseFromRecord(record: {
+  type: string;
+  description: string;
+  invocation?: AgentInvocation;
+}): Pick<
+  AgentDetails,
+  "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags"
+> {
+  const displayName = getDisplayName(record.type);
+  const invMeta = detailsFromInvocation(record.invocation);
+  const modeLabel = getPromptModeLabel(record.type);
+  const tags = invMeta.tags ? [...invMeta.tags] : [];
+  if (modeLabel) tags.unshift(modeLabel);
+  return {
+    displayName,
+    description: record.description,
+    subagentType: record.type,
+    modelName: invMeta.modelName,
+    modelInherited: invMeta.modelInherited,
+    effort: invMeta.effort,
+    tags: tags.length > 0 ? tags : undefined,
+  };
 }
 
 /** Await a promise until it settles or the caller cancels, without aborting the underlying work. */
@@ -312,6 +337,23 @@ function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, act
 }
 
 export default function (pi: ExtensionAPI) {
+  // Map structured failure details → Pi tool-result isError so the default shell
+  // uses toolErrorBg (inner chrome already paints ✗). Keeps model-facing text.
+  pi.on("tool_result", async (event) => {
+    if (
+      event.toolName !== SUBAGENT_TOOL_NAMES.AGENT &&
+      event.toolName !== SUBAGENT_TOOL_NAMES.GET_RESULT &&
+      event.toolName !== SUBAGENT_TOOL_NAMES.STEER
+    ) {
+      return;
+    }
+    const details = event.details as AgentDetails | undefined;
+    if (!details || typeof details !== "object") return;
+    if (isFailureDetailsStatus(details.status)) {
+      return { isError: true };
+    }
+  });
+
   // ---- Register custom notification renderer ----
   pi.registerMessageRenderer<NotificationDetails>(
     "subagent-notification",
@@ -1130,11 +1172,14 @@ Terse command-style prompts produce shallow, generic work.
         writeInitialEntry(rec.outputFile, agentId, params.prompt, ctx.cwd);
       };
 
-      const parentModelId = ctx.model?.id;
-      const effectiveModelId = model?.id;
+      const parentModelKey =
+        ctx.model?.provider && ctx.model?.id ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const effectiveModelKey =
+        model?.provider && model?.id ? `${model.provider}/${model.id}` : undefined;
       // Always surface the effective model on the tool node (including inherit).
+      // Compare provider+id so cross-provider same-id models are not marked inherit.
       const modelName = shortModelLabel(model);
-      const modelInherited = !!(effectiveModelId && parentModelId && effectiveModelId === parentModelId);
+      const modelInherited = !!(effectiveModelKey && parentModelKey && effectiveModelKey === parentModelKey);
       const effort = thinking ? String(thinking) : undefined;
       const effectiveMaxTurns = normalizeMaxTurns(resolvedConfig.maxTurns ?? getDefaultMaxTurns());
       const agentInvocation: AgentInvocation = {
@@ -1199,9 +1244,12 @@ Terse command-style prompts produce shallow, generic work.
             isolation: isolation,
           });
           const next = scheduler.getNextRun(job.id);
-          return textResult(`Scheduled "${job.name}" (id: ${job.id}, type: ${job.scheduleType}). ` +
-            `Next run: ${next ?? "(unknown)"}. ` +
-            `Manage via /agents → Scheduled jobs.`,);
+          // No AgentDetails: undetailed path with context.isError=false (never heuristic-red).
+          return textResult(
+            `Scheduled "${job.name}" (id: ${job.id}, type: ${job.scheduleType}). ` +
+              `Next run: ${next ?? "(unknown)"}. ` +
+              `Manage via /agents → Scheduled jobs.`,
+          );
         } catch (err) {
           return errorTextResult(err instanceof Error ? err.message : String(err));
         }
@@ -1216,18 +1264,22 @@ Terse command-style prompts produce shallow, generic work.
         if (!existing.session) {
           return errorTextResult(`Agent "${params.resume}" has no active session to resume.`);
         }
+        // Resume continues the old session model/effort — current parent params and
+        // tool-call model/thinking do not apply. Details must come from the stored
+        // invocation so chips match get_subagent_result.
         const record = await manager.resume(params.resume, params.prompt, signal);
         if (!record) {
           return errorTextResult(`Failed to resume agent "${params.resume}".`);
         }
+        const resumeBase = detailBaseFromRecord(record);
         // A failed resume surfaces the error, plus any partial output THIS
         // resume produced (never the previous turn's answer, #144).
         if (record.status === "error") {
-          return textResult(`Agent failed: ${record.error}${partialOutputSuffix(record)}`, buildDetails(detailBase, record));
+          return textResult(`Agent failed: ${record.error}${partialOutputSuffix(record)}`, buildDetails(resumeBase, record));
         }
         return textResult(
           record.result?.trim() || "No output.",
-          buildDetails(detailBase, record),
+          buildDetails(resumeBase, record),
         );
       }
 
@@ -1310,7 +1362,16 @@ Terse command-style prompts produce shallow, generic work.
           `\nYou will be notified when this agent completes.\n` +
           `Use get_subagent_result to retrieve full results, or steer_subagent to send it messages.\n` +
           `Do not duplicate this agent's work.`,
-          { ...detailBase, toolUses: 0, tokens: "", durationMs: 0, status: "background" as const, agentId: id },);
+          {
+            ...detailBase,
+            toolUses: 0,
+            tokens: "",
+            durationMs: 0,
+            // Tell the truth: queued agents are not "running in background" yet.
+            status: isQueued ? ("queued" as const) : ("background" as const),
+            activity: isQueued ? "queued…" : undefined,
+            agentId: id,
+          },);
       }
 
       // Foreground (synchronous) execution — stream progress via onUpdate
@@ -1550,6 +1611,13 @@ Terse command-style prompts produce shallow, generic work.
 
       const activity = agentActivity.get(record.id);
       const invMeta = detailsFromInvocation(record.invocation);
+      // Queued must force "queued…" — never let an empty activity map become thinking…
+      const activityText =
+        record.status === "queued"
+          ? "queued…"
+          : activity
+            ? describeActivity(activity.activeTools, activity.responseText)
+            : undefined;
       const details: AgentDetails = {
         displayName,
         description: record.description,
@@ -1563,9 +1631,7 @@ Terse command-style prompts produce shallow, generic work.
         turnCount: activity?.turnCount,
         maxTurns: activity?.maxTurns,
         ...invMeta,
-        activity: activity
-          ? describeActivity(activity.activeTools, activity.responseText)
-          : undefined,
+        activity: activityText,
       };
 
       return textResult(output, details);
@@ -1622,7 +1688,9 @@ Terse command-style prompts produce shallow, generic work.
         if (!record.pendingSteers) record.pendingSteers = [];
         record.pendingSteers.push(params.message);
         pi.events.emit("subagents:steered", { id: record.id, message: params.message });
-        return textResult(`Steering message queued for agent ${record.id}. It will be delivered once the session initializes.`);
+        return textResult(
+          `Steering message queued for agent ${record.id}. It will be delivered once the session initializes.`,
+        );
       }
 
       try {
@@ -1637,7 +1705,7 @@ Terse command-style prompts produce shallow, generic work.
         if (record.compactionCount) stateParts.push(`${record.compactionCount} compaction${record.compactionCount === 1 ? "" : "s"}`);
         return textResult(
           `Steering message sent to agent ${record.id}. The agent will process it after its current tool execution.\n` +
-          `Current state: ${stateParts.join(" · ")}`,
+            `Current state: ${stateParts.join(" · ")}`,
         );
       } catch (err) {
         return errorTextResult(`Failed to steer agent: ${err instanceof Error ? err.message : String(err)}`);

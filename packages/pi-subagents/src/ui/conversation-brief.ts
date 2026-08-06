@@ -299,14 +299,72 @@ export function buildConversationBrief(messages: readonly LooseMessage[]): Conve
   return { prompt, steers, steps, result };
 }
 
-/** Split prompt text into display lines with an optional truncation marker. */
+/** Detect inherit_context parent dump (see `buildParentContext`). */
+export function promptLooksLikeInheritedContext(prompt: string): boolean {
+  return /#\s*Parent Conversation Context/i.test(prompt);
+}
+
+/**
+ * Split prompt text into display lines with an optional truncation marker.
+ *
+ * Default keeps the **head** (normal dispatch). When the prompt embeds parent
+ * conversation context (inherit_context), keeps the **tail** so the actual
+ * dispatch task is not eaten by the parent history wall.
+ */
 export function truncatePromptLines(prompt: string, maxLines = PROMPT_MAX_LINES): { lines: string[]; truncated: boolean } {
   const lines = prompt.replace(/\r\n/g, "\n").split("\n");
   if (lines.length <= maxLines) return { lines, truncated: false };
-  const kept = lines.slice(0, maxLines);
   const hidden = lines.length - maxLines;
+  if (promptLooksLikeInheritedContext(prompt)) {
+    const kept = lines.slice(-maxLines);
+    kept.unshift(
+      `… (${hidden} earlier line${hidden === 1 ? "" : "s"} truncated — parent context folded; dispatch task below)`,
+    );
+    return { lines: kept, truncated: true };
+  }
+  const kept = lines.slice(0, maxLines);
   kept.push(`… (${hidden} more line${hidden === 1 ? "" : "s"} truncated — scroll source session for full prompt)`);
   return { lines: kept, truncated: true };
+}
+
+export type TerminalRecordStatus = "completed" | "steered" | "error" | "aborted" | "stopped";
+
+/** True when the agent record is no longer running/queued. */
+export function isTerminalRecordStatus(status: string | undefined): status is TerminalRecordStatus {
+  return (
+    status === "completed" ||
+    status === "steered" ||
+    status === "error" ||
+    status === "aborted" ||
+    status === "stopped"
+  );
+}
+
+/**
+ * After the agent has left running/queued, any step still marked `running`
+ * (toolCall without a matching toolResult) is a lie — settle it.
+ */
+export function settleDanglingBriefSteps(
+  steps: BriefStep[],
+  recordStatus: string | undefined,
+): BriefStep[] {
+  if (!isTerminalRecordStatus(recordStatus)) return steps;
+  const asError = recordStatus === "error" || recordStatus === "aborted" || recordStatus === "stopped";
+  const note =
+    recordStatus === "stopped"
+      ? "interrupted"
+      : recordStatus === "aborted"
+        ? "aborted"
+        : recordStatus === "error"
+          ? "interrupted"
+          : "ended";
+  for (const step of steps) {
+    if (step.status !== "running") continue;
+    step.status = asError ? "error" : "completed";
+    step.isError = asError;
+    if (!step.resultNote) step.resultNote = note;
+  }
+  return steps;
 }
 
 export function stepStatusIcon(status: StepStatus): string {

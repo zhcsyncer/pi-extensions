@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationBrief,
   formatStepLine,
+  settleDanglingBriefSteps,
   summarizeToolArgs,
   summarizeToolResult,
   truncatePromptLines,
@@ -201,6 +202,49 @@ describe("truncatePromptLines", () => {
     expect(truncated).toBe(true);
     expect(lines).toHaveLength(31);
     expect(lines[30]).toMatch(/10 more lines truncated/);
+  });
+
+  it("keeps the tail when prompt embeds parent conversation context", () => {
+    const parent = Array.from({ length: 40 }, (_, i) => `parent ${i}`).join("\n");
+    const prompt = `# Parent Conversation Context\n${parent}\n\nDo the real dispatch task now.`;
+    const { lines, truncated } = truncatePromptLines(prompt, 10);
+    expect(truncated).toBe(true);
+    const joined = lines.join("\n");
+    expect(joined).toMatch(/earlier line/);
+    expect(joined).toContain("Do the real dispatch task now.");
+    expect(joined).not.toContain("parent 0");
+  });
+});
+
+describe("settleDanglingBriefSteps", () => {
+  it("marks unmatched running steps as error when record is stopped", () => {
+    const steps = [
+      {
+        id: "1",
+        toolName: "bash",
+        summary: "sleep 999",
+        status: "running" as const,
+        isError: false,
+      },
+    ];
+    settleDanglingBriefSteps(steps, "stopped");
+    expect(steps[0]?.status).toBe("error");
+    expect(steps[0]?.isError).toBe(true);
+    expect(steps[0]?.resultNote).toMatch(/interrupted/);
+  });
+
+  it("leaves steps alone while still running", () => {
+    const steps = [
+      {
+        id: "1",
+        toolName: "read",
+        summary: "a.ts",
+        status: "running" as const,
+        isError: false,
+      },
+    ];
+    settleDanglingBriefSteps(steps, "running");
+    expect(steps[0]?.status).toBe("running");
   });
 });
 
