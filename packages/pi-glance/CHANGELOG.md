@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.4.0
+
+### Minor Changes
+
+- 13df227: Split context display into independent `text` and `progress` settings so progress-bar mode keeps a bottom label (always including percent), hide progress style/width until the bar is on, drop the unused `unknown` toggle, and migrate schema 11 configs to version 12.
+
 ## 0.3.0
 
 ### Minor Changes
