@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- 44c7eee: Strip ANSI and terminal control sequences from child-agent text before rendering it in the parent TUI.
+
 ## 0.1.0
 
 ### Minor Changes

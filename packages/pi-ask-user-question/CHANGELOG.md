@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- 44c7eee: Publish an English default README and a structurally aligned Simplified Chinese README for Ask User Question in both standalone and bundle artifacts.
+
 ## 0.1.0
 
 ### Minor Changes

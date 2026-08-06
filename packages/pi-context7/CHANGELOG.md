@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-context7
 
+## 0.1.1
+
+### Patch Changes
+
+- 44c7eee: Declare and verify compatibility with Pi 0.84 across the bundled extensions.
+
 ## 0.1.0
 
 ### Minor Changes

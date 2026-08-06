@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+### Patch Changes
+
+- 44c7eee: Declare and verify compatibility with Pi 0.84 across the bundled extensions.
+
 ## 0.7.0
 
 ### Minor Changes
