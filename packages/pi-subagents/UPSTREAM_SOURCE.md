@@ -32,9 +32,12 @@ Stable “why” only — implementation detail lives in code/tests.
 
 ### Main-transcript tool TUI
 
-- Custom `renderCall` / `renderResult` for **`Agent`**, **`get_subagent_result`**, **`steer_subagent`**.
-- Collapsed = one-line preview (expand toggle honored); expanded = status header + **Markdown** body (`src/ui/tool-render.ts`).
-- Always surface **effective model** (including parent inherit) and **effort** (from `thinking`) on call/result rows.
+- Custom `renderCall` / `renderResult` for **`Agent`**, **`get_subagent_result`**, **`steer_subagent`** using **Claude Code chrome** (upstream README shape):
+  - Call: `▸ Type  description` (+ chips only when args explicitly set model/thinking/bg)
+  - Running: `⠹ stats` / `⎿ activity`
+  - Done: `✓ stats · duration` / `⎿ Done` (Wrapped up / Stopped / Error variants)
+  - Expanded (Ctrl+O): same chrome + **Markdown** body — never dump full payload by default (`src/ui/tool-render.ts`)
+- Result stats always surface **effective model** (including parent inherit) and **effort** (from `thinking`).
 - Validation / not-found failures carry **error** details; undetailed fallback never assumes `completed` / green ✓.
 - `resultBodyText` peels only **recognized status headers** so multi-paragraph errors keep the first line.
 
