@@ -7,11 +7,5 @@
   "status.deleted": "excluída",
 
   "overlay.heading": "Tarefas",
-  "overlay.more": "mais",
-
-  "command.no_todos": "Nenhuma tarefa ainda. Peça ao agente para adicionar algumas!",
-  "command.requires_interactive": "/todos requer modo interativo",
-  "command.section.pending": "── Pendentes ──",
-  "command.section.in_progress": "── Em andamento ──",
-  "command.section.completed": "── Concluídas ──"
+  "overlay.more": "mais"
 }

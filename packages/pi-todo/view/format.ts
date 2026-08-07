@@ -64,17 +64,6 @@ export function formatOverlayTaskLine(
 	return line;
 }
 
-/**
- * Format a single task line for the `/todos` slash command (no glyph color,
- * indented bullet prefix). Pre-refactor `todo.ts:670-674`.
- */
-export function formatCommandTaskLine(t: Task, glyph: string, theme: Theme): string {
-	const block = t.blockedBy?.length
-		? theme.fg("dim", `    ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}`)
-		: "";
-	return `  ${glyph} ${formatTaskId(t, theme)} ${formatTaskSubject(t, theme)}${block}`;
-}
-
 // ---------------------------------------------------------------------------
 // Tool render hooks
 // ---------------------------------------------------------------------------

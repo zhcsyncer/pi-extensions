@@ -1,6 +1,6 @@
 /**
- * rpiv-todo — Pi extension. Registers the `todo` tool, `/todos` slash
- * command, and the persistent TodoOverlay widget.
+ * rpiv-todo — Pi extension. Registers the `todo` tool, `/todo` visual
+ * settings command, and the persistent TodoOverlay widget.
  *
  * TUI chrome strings localize at render time via the i18n bridge. Strings are
  * registered with rpiv-i18n here, once, at module init — but only when the
@@ -20,10 +20,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadConfig, resolveTodoVisualConfig, saveTodoVisualConfig } from "./config.js";
 import { I18N_NAMESPACE } from "./state/i18n-bridge.js";
 import { replayFromBranch } from "./state/replay.js";
 import { createTodoStore } from "./state/store.js";
-import { registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
+import { registerTodoCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
 
 type I18nLoader = {
@@ -55,15 +56,24 @@ export default function (pi: ExtensionAPI) {
 	// Every extension runtime owns an isolated store. This matters for SDK hosts
 	// that keep multiple AgentSession instances alive in one Node.js process.
 	const store = createTodoStore();
+	const loadedConfig = loadConfig();
+	let visualConfig = resolveTodoVisualConfig(loadedConfig);
 	let todoOverlay: TodoOverlay | undefined;
 
-	registerTodoTool(pi, store);
-	registerTodosCommand(pi, store);
+	registerTodoTool(pi, store, loadedConfig);
+	registerTodoCommand(pi, {
+		getConfig: () => visualConfig,
+		updateConfig: (next) => {
+			saveTodoVisualConfig(next);
+			visualConfig = next;
+			todoOverlay?.setConfig(next);
+		},
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		store.replaceState(replayFromBranch(ctx));
 		if (ctx.hasUI) {
-			todoOverlay ??= new TodoOverlay(store);
+			todoOverlay ??= new TodoOverlay(store, visualConfig);
 			todoOverlay.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
 			todoOverlay.update();

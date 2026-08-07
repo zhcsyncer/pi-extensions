@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { STATUS_ICON_PRESETS, type StatusIcons } from "./config.js";
+import type { StatusIconPreset } from "./config.js";
 import { createMockPi, createMockUI } from "./test-fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTodoStore, registerTodoTool, type TaskAction } from "./todo.js";
@@ -21,7 +21,8 @@ function completeActions(id: number): Array<{ action: TaskAction; [k: string]: u
 
 async function setup(
 	actions: Array<{ action: TaskAction; [k: string]: unknown }>,
-	statusIcons: StatusIcons = STATUS_ICON_PRESETS.ascii,
+	statusIcons: StatusIconPreset = "ascii",
+	maxWidgetLines = 13,
 ) {
 	const { pi, captured } = createMockPi();
 	const store = createTodoStore();
@@ -31,7 +32,7 @@ async function setup(
 		await tool.execute?.("tc", p as never, undefined as never, undefined as never, {} as never);
 	}
 	const ui = createMockUI() as unknown as ExtensionUIContext;
-	const overlay = new TodoOverlay(store, statusIcons);
+	const overlay = new TodoOverlay(store, { statusIcons, maxWidgetLines });
 	overlay.setUICtx(ui);
 	overlay.update();
 	const setWidget = ui.setWidget as ReturnType<typeof vi.fn>;
@@ -73,7 +74,7 @@ describe("TodoOverlay — heading", () => {
 	it("uses the configured static Nerd Font Todo icon in the heading", async () => {
 		const { widget, overlay } = await setup(
 			[{ action: "create", subject: "active", status: "in_progress" }],
-			STATUS_ICON_PRESETS["nerd-font"],
+			"nerd-font",
 		);
 		expect(widget.render(200)[0]).toContain("󰝖");
 		overlay.dispose();
@@ -127,7 +128,7 @@ describe("TodoOverlay — per-task formatting", () => {
 	it("uses the configured Unicode symbols", async () => {
 		const { widget, overlay } = await setup(
 			[{ action: "create", subject: "unicode", status: "in_progress" }],
-			STATUS_ICON_PRESETS.unicode,
+			"unicode",
 		);
 		expect(widget.render(200)[1]).toContain("◉");
 		overlay.dispose();
@@ -138,7 +139,7 @@ describe("TodoOverlay — per-task formatting", () => {
 		try {
 			const { widget, overlay, tui, tool } = await setup(
 				[{ action: "create", subject: "animated", status: "in_progress" }],
-				STATUS_ICON_PRESETS["nerd-font"],
+				"nerd-font",
 			);
 			expect(widget.render(200)[1]).toContain("󰪞");
 			vi.advanceTimersByTime(299);
@@ -161,6 +162,29 @@ describe("TodoOverlay — per-task formatting", () => {
 		}
 	});
 
+	it("stops and restarts icon animation when presets change", async () => {
+		vi.useFakeTimers();
+		try {
+			const { overlay } = await setup(
+				[{ action: "create", subject: "active", status: "in_progress" }],
+				"ascii",
+			);
+			expect(vi.getTimerCount()).toBe(0);
+
+			overlay.setConfig({ statusIcons: "nerd-font", maxWidgetLines: 13 });
+			expect(vi.getTimerCount()).toBe(1);
+			overlay.setConfig({ statusIcons: "unicode", maxWidgetLines: 13 });
+			expect(vi.getTimerCount()).toBe(0);
+			overlay.setConfig({ statusIcons: "nerd-font", maxWidgetLines: 13 });
+			expect(vi.getTimerCount()).toBe(1);
+
+			overlay.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("completed task stays visible until the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
 			{ action: "create", subject: "done" },
@@ -171,6 +195,20 @@ describe("TodoOverlay — per-task formatting", () => {
 		expect(firstRender[1]).toContain("done");
 		expect(widget.render(200)[1]).toContain("done");
 		overlay.hideCompletedTasksFromPreviousTurn();
+		expect(widget.render(200)).toEqual([]);
+	});
+
+	it("does not reset completed-task hiding when visual config changes", async () => {
+		const { widget, overlay } = await setup([
+			{ action: "create", subject: "done" },
+			...completeActions(1),
+		]);
+		expect(widget.render(200).join("\n")).toContain("done");
+		overlay.hideCompletedTasksFromPreviousTurn();
+		expect(widget.render(200)).toEqual([]);
+
+		overlay.setConfig({ statusIcons: "unicode", maxWidgetLines: 4 });
+
 		expect(widget.render(200)).toEqual([]);
 	});
 });
@@ -234,9 +272,9 @@ describe("TodoOverlay — overflow collapse", () => {
 	});
 
 	it("summary contains both 'completed' and 'pending' when mixed overflow", async () => {
-		// 12 pending + 3 completed = 15 total. budget=10. All 12 pending won't
-		// fit — visible = first 10 pending, truncatedTail = 2 pending, hidden
-		// completed = 3. Summary: "+5 more (3 completed, 2 pending)".
+		// 12 pending + 3 completed = 15 total. A 10-task admission
+		// budget keeps the first 10 pending and hides 2 pending + 3 completed.
+		// Summary: "+5 more (3 completed, 2 pending)".
 		const actions: Array<{ action: TaskAction; [k: string]: unknown }> = [];
 		for (let i = 1; i <= 12; i++) actions.push({ action: "create", subject: `p${i}` });
 		for (let i = 13; i <= 15; i++) {
@@ -272,7 +310,7 @@ describe("TodoOverlay — overflow collapse", () => {
 	});
 
 	it("does not engage overflow at exactly 11 visible tasks", async () => {
-		// 11 tasks → all fit (heading + 11 = 12), plus trailing spacer = 13. No summary row.
+		// 11 tasks → all fit (heading + 11 + trailing spacer = 13). No summary row.
 		const actions: Array<{ action: TaskAction; [k: string]: unknown }> = [];
 		for (let i = 1; i <= 11; i++) actions.push({ action: "create", subject: `t${i}` });
 		const { widget } = await setup(actions);
@@ -282,6 +320,26 @@ describe("TodoOverlay — overflow collapse", () => {
 		expect(lines[lines.length - 1]).toBe("");
 		expect(lines[lines.length - 2]).not.toContain("+");
 		expect(lines[lines.length - 2]).toContain("└─");
+	});
+
+	it.each([4, 7, 13])("never renders more than maxWidgetLines=%i", async (maxWidgetLines) => {
+		const actions: Array<{ action: TaskAction; [k: string]: unknown }> = [];
+		for (let i = 1; i <= 20; i++) actions.push({ action: "create", subject: `t${i}` });
+		const { widget } = await setup(actions, "ascii", maxWidgetLines);
+
+		expect(widget.render(200).length).toBeLessThanOrEqual(maxWidgetLines);
+	});
+
+	it("admits a later-created in-progress task before earlier pending tasks", async () => {
+		const actions: Array<{ action: TaskAction; [k: string]: unknown }> = [];
+		for (let i = 1; i <= 8; i++) actions.push({ action: "create", subject: `pending-${i}` });
+		actions.push({ action: "update", id: 8, status: "in_progress" });
+		const { widget } = await setup(actions, "ascii", 4);
+		const output = widget.render(200).join("\n");
+
+		expect(output).toContain("pending-8");
+		expect(output).not.toContain("pending-1");
+		expect(output).toContain("7 pending");
 	});
 });
 

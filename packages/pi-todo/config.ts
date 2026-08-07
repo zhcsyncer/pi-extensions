@@ -29,6 +29,8 @@ export interface StatusIcons {
 }
 
 export const DEFAULT_STATUS_ICON_PRESET: StatusIconPreset = "ascii";
+export const DEFAULT_MAX_WIDGET_LINES = 13;
+export const MIN_MAX_WIDGET_LINES = 4;
 
 export const STATUS_ICON_PRESETS: Readonly<Record<StatusIconPreset, StatusIcons>> = {
 	ascii: {
@@ -57,6 +59,12 @@ export const STATUS_ICON_PRESETS: Readonly<Record<StatusIconPreset, StatusIcons>
 export interface TodoConfig {
 	guidance?: GuidanceFields;
 	statusIcons?: StatusIconPreset;
+	maxWidgetLines?: number;
+}
+
+export interface TodoVisualConfig {
+	statusIcons: StatusIconPreset;
+	maxWidgetLines: number;
 }
 
 type ConfigRead =
@@ -352,6 +360,38 @@ export function loadConfig(): TodoConfig {
 	}
 }
 
+export function saveTodoVisualConfig(config: TodoVisualConfig): TodoConfig {
+	const targetPath = getTodoConfigPath();
+	const loaded = loadConfig();
+
+	return withConfigLock(dirname(targetPath), () => {
+		let current = loaded;
+		if (existsSync(targetPath)) {
+			const canonical = readConfigFile(targetPath);
+			if (!canonical.ok) {
+				throw new Error(`could not update malformed Todo config at ${targetPath} (${canonical.reason})`);
+			}
+			current = canonical.config;
+		}
+
+		const visual = resolveTodoVisualConfig(config);
+		const next: TodoConfig = {
+			...current,
+			statusIcons: visual.statusIcons,
+			maxWidgetLines: visual.maxWidgetLines,
+		};
+		// JSON.parse accepts values such as 1e400 as Infinity, while stringify
+		// rewrites them to null. Refuse that lossy rewrite before touching disk.
+		const source = `${JSON.stringify(next, null, 2)}\n`;
+		const roundTrip = JSON.parse(source) as unknown;
+		if (!isRecord(roundTrip) || !configsEqual(next, roundTrip as TodoConfig)) {
+			throw new Error(`could not safely serialize Todo config at ${targetPath}`);
+		}
+		writeConfigAtomically(targetPath, source);
+		return next;
+	});
+}
+
 export function resetTodoConfigNoticesForTests(): void {
 	emittedConfigNotices.clear();
 }
@@ -362,6 +402,18 @@ export function resolveStatusIconPreset(value: unknown): StatusIconPreset {
 
 export function resolveStatusIcons(value: unknown): StatusIcons {
 	return STATUS_ICON_PRESETS[resolveStatusIconPreset(value)];
+}
+
+export function resolveMaxWidgetLines(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_MAX_WIDGET_LINES;
+	return Math.max(MIN_MAX_WIDGET_LINES, Math.floor(value));
+}
+
+export function resolveTodoVisualConfig(config: TodoConfig): TodoVisualConfig {
+	return {
+		statusIcons: resolveStatusIconPreset(config.statusIcons),
+		maxWidgetLines: resolveMaxWidgetLines(config.maxWidgetLines),
+	};
 }
 
 export { validateGuidanceFields };

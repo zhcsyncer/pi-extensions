@@ -7,11 +7,5 @@
   "status.deleted": "видалено",
 
   "overlay.heading": "Завдання",
-  "overlay.more": "ще",
-
-  "command.no_todos": "Завдань поки немає. Попросіть агента додати!",
-  "command.requires_interactive": "/todos потребує інтерактивного режиму",
-  "command.section.pending": "── Очікування ──",
-  "command.section.in_progress": "── У роботі ──",
-  "command.section.completed": "── Виконано ──"
+  "overlay.more": "ще"
 }

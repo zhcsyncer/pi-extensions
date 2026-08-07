@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-A Todo extension for Pi, maintained from `@juicesharp/rpiv-todo`. It registers the `todo` tool, the `/todos` command, and a persistent task overlay. It can be installed on its own and is also included in the aggregate `@zhcsyncer/pi-extensions` package.
+A Todo extension for Pi, maintained from `@juicesharp/rpiv-todo`. It registers the `todo` tool, the `/todo` visual-settings command, and a persistent task overlay. It can be installed on its own and is also included in the aggregate `@zhcsyncer/pi-extensions` package.
 
 This fork intentionally does not integrate tool intent. Successful Todo calls render as zero rows in the TUI transcript by default because the persistent widget already shows current state. Press `Ctrl+O` to expand compact call and result summaries; execution errors always remain visible. Tool `content` and versioned state `details` remain in the session, preserving model feedback, branch restoration, and reconstruction after reload.
 
@@ -53,7 +53,9 @@ Hand off an existing list in operation order:
 }
 ```
 
-## Configuration and status icons
+## Visual settings and JSON configuration
+
+In TUI mode, run `/todo` to configure the user-visible `statusIcons` and `maxWidgetLines` settings. Changes are saved atomically to the canonical config file and applied to the current widget immediately. Other Pi modes reject the command with a clear error instead of opening an unsupported custom UI.
 
 Global configuration lives at:
 
@@ -63,13 +65,16 @@ $PI_CODING_AGENT_DIR/extension-data/pi-todo/config.json
 
 Pi's default agent directory makes this `~/.pi/agent/extension-data/pi-todo/config.json`. On first read, an existing `$XDG_CONFIG_HOME/rpiv-todo/config.json` (normally `~/.config/rpiv-todo/config.json`) is migrated atomically. The canonical file always wins; malformed, unreadable, or conflicting legacy files are retained with a warning rather than overwritten or silently removed.
 
-Select a status-icon preset with `statusIcons`:
+The same visual settings can be edited directly as JSON:
 
 ```json
 {
-  "statusIcons": "ascii"
+  "statusIcons": "ascii",
+  "maxWidgetLines": 13
 }
 ```
+
+`maxWidgetLines` limits the widget's actual height, including its heading, task rows, overflow summary, and trailing blank separator. The default remains 13 lines. Finite numeric values are floored and clamped to at least 4; invalid values fall back to 13. JSON accepts any finite integer, while `/todo` offers practical presets and retains a valid custom value already loaded from JSON.
 
 | Preset | Heading | pending | in_progress | completed | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -77,9 +82,11 @@ Select a status-icon preset with `statusIcons`:
 | `unicode` | `≡` | `○` | `◉` | `✓` | Compact standard Unicode glyphs |
 | `nerd-font` | `󰝖` | `󰄰` | `󰪞`…`󰪥` | `󰗠` | Requires a Nerd Font; only active task rows animate at 300 ms intervals |
 
-The heading always uses its own static Todo icon. Status glyphs use Pi theme semantics: pending is `dim`, in progress is `accent`, and completed is `success`. Task text further distinguishes state: pending is `muted`, in progress is bold `accent`, and completed is struck-through `dim`. `/todos` is a one-shot notification and uses the static middle frame `󰪡` for Nerd Font mode.
+The heading always uses its own static Todo icon. Status glyphs use Pi theme semantics: pending is `dim`, in progress is `accent`, and completed is `success`. Task text further distinguishes state: pending is `muted`, in progress is bold `accent`, and completed is struck-through `dim`. Nerd Font in-progress frames animate at 300 ms intervals and react immediately when the preset changes.
 
-The same file may set `guidance.promptSnippet` and `guidance.promptGuidelines` to override model-facing Todo guidance. Invalid icon or guidance values retain the existing fallback behavior.
+When the widget overflows, admission priority is `in_progress`, then `pending`, then `completed`; tasks keep their original order within each status, and admitted rows render in natural task order. The summary reports hidden pending and completed tasks accurately.
+
+The same JSON file may set `guidance.promptSnippet` and `guidance.promptGuidelines` to override model-facing Todo guidance. These fields intentionally remain JSON-only because they change the model's system prompt and are not visual settings. Invalid icon or guidance values retain the existing fallback behavior.
 
 Legacy session snapshots may still contain `activeForm`; replay ignores that retired field, and new schemas and snapshots no longer emit it.
 
