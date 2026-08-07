@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-ask-user-question",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Structured user questions for Pi with non-overlay TUI layout, numeric selection, previews, and readable tool rendering.",
   "keywords": [
     "pi-package",
