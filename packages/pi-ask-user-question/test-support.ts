@@ -104,7 +104,7 @@ export function makeTheme(): Theme {
 }
 
 const SKIP_DIRS = new Set(["node_modules", "docs"]);
-const SKIP_FILES = new Set(["test-fixtures.ts", "test-support.ts"]);
+const SKIP_FILES = new Set(["test-fixtures.ts", "test-support.ts", "vitest.config.ts", "vitest.setup.ts"]);
 
 export function verifyShipManifest(packageDirOrUrl: string): {
 	declared: readonly string[];

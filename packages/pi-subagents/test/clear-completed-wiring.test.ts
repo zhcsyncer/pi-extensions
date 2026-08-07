@@ -14,7 +14,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/agent-runner.js", async () => {
@@ -23,6 +23,7 @@ vi.mock("../src/agent-runner.js", async () => {
 });
 
 import { runAgent } from "../src/agent-runner.js";
+import { getProjectSubagentsSettingsPath } from "../src/config-paths.js";
 import subagentsExtension from "../src/index.js";
 
 function makePi() {
@@ -105,8 +106,9 @@ describe("issue #108: unread completed background agents survive session events"
     process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.HOME = agentDir;
     prevCwd = process.cwd();
-    mkdirSync(join(tmpDir, ".pi"), { recursive: true });
-    writeFileSync(join(tmpDir, ".pi", "subagents.json"), JSON.stringify({ schedulingEnabled: false }));
+    const settingsPath = getProjectSubagentsSettingsPath(tmpDir);
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({ schedulingEnabled: false }));
     process.chdir(tmpDir);
   });
 

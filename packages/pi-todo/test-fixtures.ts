@@ -127,7 +127,7 @@ export function buildSessionEntries(messages: Message[]): SessionEntry[] {
 }
 
 const SKIP_DIRS = new Set(["node_modules", "docs"]);
-const SKIP_FILES = new Set(["test-fixtures.ts"]);
+const SKIP_FILES = new Set(["test-fixtures.ts", "vitest.config.ts", "vitest.setup.ts"]);
 
 export interface ShipManifestResult {
 	declared: readonly string[];

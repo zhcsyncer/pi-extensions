@@ -101,6 +101,19 @@ Matches upstream’s documented shape ([UPSTREAM_README](./UPSTREAM_README.md) �
 
 `effort` is display wording for the existing `thinking` parameter/frontmatter field. Effective **model** (including parent inherit) is always on the **result** stats line when known.
 
+## Configuration storage
+
+Operational settings now use the extension-data layout:
+
+- Global defaults: `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
+- Project overrides: `<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json` (normally `<cwd>/.pi/extension-data/pi-subagents/config.json`)
+
+Project fields override global fields. `/agents` → Settings still writes only the project file; the global file remains hand-edited. The optional custom Agent tool description uses `agent-tool-description.md` beside the corresponding global or project `config.json`, with project content taking precedence.
+
+The former global/project `subagents.json` and `agent-tool-description.md` locations are one-time migration inputs. Migration uses an atomic same-directory rename and semantic re-read before deleting a legacy file. Canonical files always win; malformed, unreadable, or conflicting legacy files remain in place with a de-duplicated warning.
+
+This relocation covers only pi-subagents' operational settings and tool-description override. Custom agents, Pi/native skills and `settings.json`, memory, schedules, session persistence, worktrees, and `.output` transcripts remain in their existing resource or runtime locations. Provider credentials remain in Pi's `auth.json`.
+
 ---
 
 ## Package scripts

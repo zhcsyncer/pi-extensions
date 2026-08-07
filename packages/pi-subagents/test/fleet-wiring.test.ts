@@ -11,7 +11,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/agent-runner.js", async () => {
@@ -20,6 +20,7 @@ vi.mock("../src/agent-runner.js", async () => {
 });
 
 import { runAgent } from "../src/agent-runner.js";
+import { getProjectSubagentsSettingsPath } from "../src/config-paths.js";
 import subagentsExtension from "../src/index.js";
 
 function makePi() {
@@ -82,10 +83,11 @@ describe("FleetView wiring (real extension lifecycle)", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.HOME = agentDir;
     prevCwd = process.cwd();
-    mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+    const settingsPath = getProjectSubagentsSettingsPath(tmpDir);
+    mkdirSync(dirname(settingsPath), { recursive: true });
     // async join → completion routes straight to sendIndividualNudge (no batch
     // debounce), so fleet.onAgentFinished fires synchronously on the result.
-    writeFileSync(join(tmpDir, ".pi", "subagents.json"), JSON.stringify({ schedulingEnabled: false, defaultJoinMode: "async" }));
+    writeFileSync(settingsPath, JSON.stringify({ schedulingEnabled: false, defaultJoinMode: "async" }));
     process.chdir(tmpDir);
   });
 

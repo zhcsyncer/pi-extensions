@@ -48,6 +48,7 @@
     "ask-user-question.ts",
     "rpc-fallback.ts",
     "config.ts",
+    "config-paths.ts",
     "events.ts",
     "index.ts",
     "reconcile.ts",

@@ -39,7 +39,7 @@ Do **not** load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / 
 
 ## Persistent extension data
 
-Bundle extension configuration and state generally live under `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/`. Existing files are migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed source files are preserved. Trusted project overrides for Recap and Search Hub use `.pi/extension-data/<extension-id>/config.json`. Plan artifacts intentionally remain in `$PI_CODING_AGENT_DIR/plans/`. Ask User Question retains its upstream-compatible `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json` path.
+Every independent bundle configuration now uses `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`, including Todo, Ask User Question, and Subagents. Existing files are migrated atomically and verified before removal; canonical data wins, while malformed or conflicting legacy files are preserved with a warning. Trusted project overrides for Recap and Search Hub use `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`; Subagents keeps its existing project-over-global settings behavior at the corresponding project path and stores its optional `agent-tool-description.md` beside `config.json`. Configuration relocation does not move custom agents, skills, Pi settings or `auth.json`, memory, schedules, transcripts, session state, or Plan artifacts; those remain in their standard resource/state locations, including `$PI_CODING_AGENT_DIR/plans/`.
 
 ## Install from Git
 

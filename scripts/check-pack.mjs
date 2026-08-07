@@ -24,6 +24,10 @@ const requiredPackFiles = new Map([
 		"README.md",
 		"README.zh-CN.md",
 		"packages/pi-recap/extensions/multiplexer.ts",
+		"packages/pi-todo/config.ts",
+		"packages/pi-todo/config-paths.ts",
+		"packages/pi-todo/README.md",
+		"packages/pi-todo/README.zh-CN.md",
 		"packages/pi-glance/index.ts",
 		"packages/pi-glance/footer.ts",
 		"packages/pi-glance/README.md",
@@ -45,12 +49,15 @@ const requiredPackFiles = new Map([
 		"packages/pi-context7/README.zh-CN.md",
 		"packages/pi-context7/UPSTREAM_SOURCE.md",
 		"packages/pi-ask-user-question/index.ts",
+		"packages/pi-ask-user-question/config-paths.ts",
 		"packages/pi-ask-user-question/view/tool-renderer.ts",
 		"packages/pi-ask-user-question/locales/zh.json",
 		"packages/pi-ask-user-question/README.md",
 		"packages/pi-ask-user-question/README.zh-CN.md",
 		"packages/pi-ask-user-question/UPSTREAM_SOURCE.md",
 		"packages/pi-subagents/src/index.ts",
+		"packages/pi-subagents/src/config-paths.ts",
+		"packages/pi-subagents/src/config-storage.ts",
 		"packages/pi-subagents/src/ui/conversation-brief.ts",
 		"packages/pi-subagents/src/ui/tool-render.ts",
 		"packages/pi-subagents/package.json",
@@ -64,6 +71,17 @@ const requiredPackFiles = new Map([
 		"examples/recap.json",
 		"README.md",
 		"README.zh-CN.md",
+	]],
+	["./packages/pi-todo", [
+		"config.ts",
+		"config-paths.ts",
+		"index.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"UPSTREAM_LICENSE",
+		"UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-glance", [
 		"index.ts",
@@ -103,6 +121,7 @@ const requiredPackFiles = new Map([
 	["./packages/pi-ask-user-question", [
 		"index.ts",
 		"ask-user-question.ts",
+		"config-paths.ts",
 		"state/key-router.ts",
 		"view/tool-renderer.ts",
 		"locales/en.json",
@@ -116,6 +135,8 @@ const requiredPackFiles = new Map([
 	]],
 	["./packages/pi-subagents", [
 		"src/index.ts",
+		"src/config-paths.ts",
+		"src/config-storage.ts",
 		"src/ui/conversation-brief.ts",
 		"src/ui/conversation-viewer.ts",
 		"src/ui/tool-render.ts",
@@ -155,6 +176,7 @@ const maintainedReadmes = [
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",
+	"packages/pi-todo/README.zh-CN.md",
 	"packages/pi-tool-display-intent/README.md",
 	"packages/pi-tool-display-intent/README.zh-CN.md",
 ];
@@ -194,6 +216,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-context7/README.md",
 	"packages/pi-context7/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-todo/README.md",
+	"packages/pi-todo/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"packages/pi-ask-user-question/README.md",

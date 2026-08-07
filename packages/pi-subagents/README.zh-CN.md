@@ -101,6 +101,19 @@ FleetView / agent 列表选中子 agent 后回车：
 
 `effort` 对应 `thinking`。有效 **model**（含继承）在**结果** stats 中展示。
 
+## 配置存储
+
+运行设置现已使用 extension-data 布局：
+
+- 全局默认值：`$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
+- 项目覆盖：`<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json`（通常是 `<cwd>/.pi/extension-data/pi-subagents/config.json`）
+
+项目字段覆盖全局字段。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。
+
+原全局/项目 `subagents.json` 与 `agent-tool-description.md` 只作为一次性迁移输入。迁移通过同目录原子 rename 写入，并在删除旧文件前进行语义复读。canonical 文件始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
+
+本次迁移只覆盖 pi-subagents 自身的运行设置和工具描述 override。自定义 agent、Pi/native skills 与 `settings.json`、memory、schedule、session 持久化、worktree 和 `.output` transcript 均保留原有 resource 或 runtime 位置。Provider credential 仍保存在 Pi 的 `auth.json`。
+
 ---
 
 ## 脚本

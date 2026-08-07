@@ -5,13 +5,15 @@ wrong.
 
 ## The config file
 
-```
-~/.config/rpiv-ask-user-question/config.json
+```text
+$PI_CODING_AGENT_DIR/extension-data/pi-ask-user-question/config.json
 ```
 
-The file is optional — with no config at all, every setting takes its default. This
-package only ever *reads* the file; it never creates, writes or chmods it, so its
-permissions are whatever you give it.
+Pi's default agent directory makes this
+`~/.pi/agent/extension-data/pi-ask-user-question/config.json`. The file is optional —
+with no config at all, every setting takes its default. Normal operation only reads the
+canonical file; the package writes it with owner-only permissions during a successful
+one-time legacy migration.
 
 A complete example:
 
@@ -30,28 +32,34 @@ A complete example:
 
 ### Where the file is looked up
 
-1. `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`, if `XDG_CONFIG_HOME` is set,
-   non-empty and absolute. A leading `~` is expanded first; a relative value is ignored.
-   Unset or ignored, the directory falls back to `~/.config`.
-2. If that file does not exist, the legacy path `~/.config/rpiv-ask-user-question/config.json`
-   is read. This path deliberately ignores `XDG_CONFIG_HOME`, so an existing config keeps
-   working after you set the variable.
-3. Neither present: all defaults.
+1. The canonical `$PI_CODING_AGENT_DIR/extension-data/pi-ask-user-question/config.json`
+   file wins whenever it exists. A malformed or unreadable canonical file is reported and
+   is never replaced from a legacy source.
+2. If canonical config is absent, the loader checks
+   `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json` when `XDG_CONFIG_HOME` is
+   non-empty and absolute. A leading `~` is expanded; a relative value is ignored.
+3. If that XDG file is absent, it checks the historical
+   `~/.config/rpiv-ask-user-question/config.json` fallback.
+4. A valid legacy object is written to a same-directory temporary file, atomically renamed
+   to the canonical path, parsed again, and compared semantically. Only then is the migrated
+   legacy file removed. If the write or verification fails, the legacy value remains the
+   runtime fallback and its file is retained.
 
-If the XDG-path file exists, its result wins even when it is malformed — there is no
-second chance at the legacy path.
+When canonical and legacy files coexist, canonical content wins. Semantically equivalent
+legacy data may be removed after canonical re-read; malformed, unreadable, or conflicting
+legacy data is retained with a warning. Repeated loads do not repeat the same warning in one
+process.
 
 ### When the file is invalid
 
-Malformed JSON is not fatal. The loader warns on stderr and continues with defaults:
+Malformed JSON, unreadable files, and JSON roots that are not objects are not fatal. The
+loader warns on stderr and continues with defaults. A bad canonical file is never masked by
+legacy data, and a bad legacy file is never deleted.
 
-```
-rpiv-config: invalid JSON at <path>, using default ({}) — <parser message>
-```
-
-Valid JSON that is not an object (a string, number, `null`, or an array) is rejected too,
-falling back to defaults — but silently, with no warning. Individual keys with the wrong
-type are likewise dropped back to their default without a warning.
+Individual `collapseKey` and `guidance` values keep their previous behavior: the raw object
+is loaded, while each consumer validates its own field. Invalid collapse-key specs and
+invalid guidance fields therefore fall back to the built-in defaults without rewriting the
+user's canonical file.
 
 ## Settings
 
@@ -99,11 +107,13 @@ tool, so changes take effect on the next Pi restart.
 
 | Variable | Effect |
 | --- | --- |
-| `XDG_CONFIG_HOME` | Relocates the config directory, as described above. Must be absolute. |
+| `PI_CODING_AGENT_DIR` | Sets Pi's global agent directory and therefore the canonical extension-data path. Defaults to `~/.pi/agent`. |
+| `XDG_CONFIG_HOME` | Used only to discover the former rpiv config during one-time migration. Must be absolute after optional leading-`~` expansion. |
 
 `LANG` and `LC_ALL` influence the dialog language, but they are read by
 [`@juicesharp/rpiv-i18n`](https://www.npmjs.com/package/@juicesharp/rpiv-i18n) rather than
 by this package — see [localization.md](./localization.md).
 
-No other environment variables are read. The package makes no model calls, so it needs no
-API keys or model settings of its own.
+`HOME` supplies the default agent directory through Pi and the historical `~/.config`
+legacy fallback. No other package-specific environment variables are read. The package
+makes no model calls, so it needs no API keys or model settings of its own.

@@ -14,6 +14,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
+    setupFiles: ["./test/setup-env.ts"],
     // Skip heavy e2e suites in the monorepo default path; run with
     // `pnpm test -- test/e2e` or the upstream `test:e2e` script when needed.
     exclude: ["**/node_modules/**", "**/dist/**", "test/e2e/**", "test/**/*-e2e.test.ts", "test/subagents-print-mode-e2e.test.ts"],

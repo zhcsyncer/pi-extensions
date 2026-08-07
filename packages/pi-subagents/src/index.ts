@@ -20,6 +20,7 @@ import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, normalizeMaxTu
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
+import { emitSubagentsConfigNotice, loadAgentToolDescriptionConfig } from "./config-storage.js";
 import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
 import { GroupJoinManager } from "./group-join.js";
 import { resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
@@ -743,7 +744,7 @@ export default function (pi: ExtensionAPI) {
   // When enabled, the three hardcoded default agents (general-purpose, Explore,
   // Plan) are not registered. User-defined agents from project/global custom
   // agent dirs are completely unaffected — only DEFAULT_AGENTS are suppressed.
-  // Defaults to false; opt-in via `/agents → Settings` or subagents.json.
+  // Defaults to false; opt-in via `/agents → Settings` or the extension config.json.
   // State lives in agent-types.ts (isDefaultsDisabled) because registerAgents
   // needs it; this wrapper just re-registers after flipping it.
   function setDisableDefaultAgents(b: boolean): void {
@@ -968,26 +969,14 @@ Terse command-style prompts produce shallow, generic work.
     // Replacement callback (not a string) — agent descriptions may contain `$&` etc.
     return template.replace(/\{\{(\w+)\}\}/g, (raw, name: string) => {
       if (vars[name]) return vars[name]();
-      console.warn(`[pi-subagents] agent-tool-description.md: unknown placeholder ${raw} left as-is`);
+      emitSubagentsConfigNotice(`[pi-subagents] agent-tool-description.md: unknown placeholder ${raw} left as-is`);
       return raw;
     });
   };
 
   const loadCustomToolDescription = (): string | undefined => {
-    for (const path of [
-      join(process.cwd(), ".pi", "agent-tool-description.md"),
-      join(getAgentDir(), "agent-tool-description.md"),
-    ]) {
-      try {
-        if (!existsSync(path)) continue;
-        const text = readFileSync(path, "utf-8").trim();
-        if (text) return renderToolDescriptionTemplate(text);
-        console.warn(`[pi-subagents] ${path} is empty — ignoring`);
-      } catch (err) {
-        console.warn(`[pi-subagents] failed to read ${path}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    return undefined;
+    const template = loadAgentToolDescriptionConfig(process.cwd());
+    return template === undefined ? undefined : renderToolDescriptionTemplate(template);
   };
 
   const agentToolDescription = (() => {
@@ -996,7 +985,7 @@ Terse command-style prompts produce shallow, generic work.
     if (mode === "custom") {
       const custom = loadCustomToolDescription();
       if (custom) return custom;
-      console.warn('[pi-subagents] toolDescriptionMode is "custom" but no agent-tool-description.md found — using "full"');
+      emitSubagentsConfigNotice('[pi-subagents] toolDescriptionMode is "custom" but no extension-data/pi-subagents/agent-tool-description.md was usable — using "full"');
     }
     return fullAgentToolDescription;
   })();
@@ -2379,7 +2368,7 @@ ${systemPrompt}
         {
           id: "toolDescriptionMode",
           label: "Tool description",
-          description: "Agent tool description sent to the LLM: full (rich, default), compact (~75% fewer tokens, for small/local models), or custom (.pi/agent-tool-description.md with {{placeholders}})",
+          description: "Agent tool description sent to the LLM: full (rich, default), compact (~75% fewer tokens), or custom (extension-data/pi-subagents/agent-tool-description.md with {{placeholders}})",
           currentValue: getToolDescriptionMode(),
           values: ["full", "compact", "custom"],
         },
