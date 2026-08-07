@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- 1d5ad9e: Replace the duplicate `/todos` list command with a `/todo` visual-settings TUI, add atomically persisted widget icon and maximum-height controls, and keep active work visible through priority-aware overflow rendering.
+
 ## 0.3.3
 
 ### Patch Changes
