@@ -6,26 +6,7 @@ export function selectVisibleTasks(state: TaskState): readonly Task[] {
 	return state.tasks.filter((t) => t.status !== "deleted");
 }
 
-/**
- * Group visible tasks by status. Iteration order at the call site uses
- * (`completed`, `inProgress`, `pending`) to match the `/todos` header part
- * order pinned by `todo.command.test.ts`.
- */
-export interface TasksByStatus {
-	pending: readonly Task[];
-	inProgress: readonly Task[];
-	completed: readonly Task[];
-}
-export function selectTasksByStatus(state: TaskState): TasksByStatus {
-	const visible = selectVisibleTasks(state);
-	return {
-		pending: visible.filter((t) => t.status === "pending"),
-		inProgress: visible.filter((t) => t.status === "in_progress"),
-		completed: visible.filter((t) => t.status === "completed"),
-	};
-}
-
-/** Total counts for the overlay heading (`Todos (n/m)`) and `/todos` header. */
+/** Total counts for the overlay heading (`Todos (n/m)`). */
 export interface TodoCounts {
 	total: number;
 	pending: number;
@@ -33,12 +14,12 @@ export interface TodoCounts {
 	completed: number;
 }
 export function selectTodoCounts(state: TaskState): TodoCounts {
-	const groups = selectTasksByStatus(state);
+	const visible = selectVisibleTasks(state);
 	return {
-		total: groups.pending.length + groups.inProgress.length + groups.completed.length,
-		pending: groups.pending.length,
-		inProgress: groups.inProgress.length,
-		completed: groups.completed.length,
+		total: visible.length,
+		pending: visible.filter((task) => task.status === "pending").length,
+		inProgress: visible.filter((task) => task.status === "in_progress").length,
+		completed: visible.filter((task) => task.status === "completed").length,
 	};
 }
 
@@ -61,39 +42,41 @@ export function selectTaskSubjectById(state: TaskState, id: number): string | un
 }
 
 /**
- * Overlay layout decision. Encapsulates the "drop completed first, then
- * truncate non-completed tail" rule pre-refactor lived in
- * `todo-overlay.ts:144-188`. `budget` is the body-slot count (caller passes
- * `MAX_WIDGET_LINES - 1` to reserve the heading row); on overflow the
- * selector reserves one more slot internally for the summary row. Returns
- * the visible task slice plus the overflow summary parts.
+ * Select task rows for the widget body. `budget` covers task rows plus an
+ * overflow summary when needed; the caller separately reserves the heading
+ * and trailing spacer. Overflow admission is status-prioritized
+ * (`in_progress`, `pending`, `completed`), while the returned rows retain the
+ * store's natural order so status transitions do not reorder the whole list.
  */
 export interface OverlayLayout {
 	visible: readonly Task[];
+	hiddenPending: number;
 	hiddenCompleted: number;
-	truncatedTail: number;
 }
 export function selectOverlayLayout(state: TaskState, budget: number): OverlayLayout {
 	const all = selectVisibleTasks(state);
 	if (all.length <= budget) {
-		return { visible: all, hiddenCompleted: 0, truncatedTail: 0 };
+		return { visible: all, hiddenPending: 0, hiddenCompleted: 0 };
 	}
-	const innerBudget = budget - 1;
-	const nonCompleted = all.filter((t) => t.status !== "completed");
-	const totalCompleted = all.length - nonCompleted.length;
-	if (nonCompleted.length <= innerBudget) {
-		const kept = new Set<Task>(nonCompleted);
-		for (const t of all) {
-			if (kept.size >= innerBudget) break;
-			if (t.status === "completed") kept.add(t);
-		}
-		const visible = all.filter((t) => kept.has(t));
-		const shownCompleted = visible.filter((t) => t.status === "completed").length;
-		return { visible, hiddenCompleted: totalCompleted - shownCompleted, truncatedTail: 0 };
-	}
-	const visible = nonCompleted.slice(0, innerBudget);
-	const truncatedTail = nonCompleted.length - innerBudget;
-	return { visible, hiddenCompleted: totalCompleted, truncatedTail };
+
+	const taskBudget = Math.max(0, budget - 1);
+	const prioritized = [
+		...all.filter((task) => task.status === "in_progress"),
+		...all.filter((task) => task.status === "pending"),
+		...all.filter((task) => task.status === "completed"),
+	];
+	const selected = new Set(prioritized.slice(0, taskBudget));
+	const visible = all.filter((task) => selected.has(task));
+
+	return {
+		visible,
+		hiddenPending:
+			all.filter((task) => task.status === "pending").length -
+			visible.filter((task) => task.status === "pending").length,
+		hiddenCompleted:
+			all.filter((task) => task.status === "completed").length -
+			visible.filter((task) => task.status === "completed").length,
+	};
 }
 
 /**

@@ -4,8 +4,10 @@ import { contextRiskLevel } from "./context-risk.js";
 import { renderGlanceLine } from "./status-line.js";
 import {
 	planSurfaceBottomFrame,
+	planSurfaceRemainingLeftWidth,
 	planSurfaceRow,
 	planSurfaceStatusBudget,
+	planSurfaceStatusFirstBudget,
 	planSurfaceTopFrame,
 	planWorkspaceTitle,
 	renderSurfaceChunks,
@@ -84,16 +86,22 @@ function activeBorder(input: InputSurfaceFrameInput): TextStyler {
 	return shouldDimChrome(input) ? input.styles.dim : input.chrome?.border ?? input.styles.border;
 }
 
-function topLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">) {
+function interactiveTopLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "innerWidth">) {
 	const scrollIndicator = input.chrome?.topScrollIndicator;
 	const modeLabel = input.chrome?.modeLabel?.trim();
-	if (scrollIndicator || modeLabel) {
-		const mode = modeLabel ? `─ ${modeLabel} ` : "";
-		const text = truncateToWidth(`${mode}${scrollIndicator ?? "─"}`, Math.max(1, metrics.innerWidth), "");
-		const chunks = [{ role: "border" as const, text }];
-		return { chunks, width: visibleWidth(text) };
-	}
+	if (!scrollIndicator && !modeLabel) return undefined;
 
+	const mode = modeLabel ? `─ ${modeLabel} ` : "";
+	const text = truncateToWidth(`${mode}${scrollIndicator ?? "─"}`, Math.max(1, metrics.innerWidth), "");
+	const chunks = [{ role: "border" as const, text }];
+	return { chunks, width: visibleWidth(text) };
+}
+
+function workspaceTitlePlan(
+	input: InputSurfaceFrameInput,
+	metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">,
+	maxWidth?: number,
+) {
 	return planWorkspaceTitle({
 		workspacePath: input.state.workspace.path,
 		workspaceName: input.state.workspace.name,
@@ -101,6 +109,7 @@ function topLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFr
 		innerWidth: metrics.innerWidth,
 		surfaceWidth: metrics.safeWidth,
 		showTitle: input.chrome?.showTitle,
+		maxWidth,
 	});
 }
 
@@ -108,10 +117,22 @@ function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfac
 	const dimChrome = shouldDimChrome(input);
 	const border = activeBorder(input);
 	const title = dimChrome ? input.styles.dim : input.styles.title;
-	const left = topLeftPlan(input, metrics);
-	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, left.width);
-	const status = resolveStatus(input, statusBudget);
-	const rendered = renderSurfaceChunks(planSurfaceTopFrame({ width: metrics.safeWidth, left, status }).chunks, {
+	const interactiveLeft = interactiveTopLeftPlan(input, metrics);
+	let plan: ReturnType<typeof planSurfaceTopFrame>;
+
+	if (interactiveLeft) {
+		const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, interactiveLeft.width);
+		const status = resolveStatus(input, statusBudget);
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left: interactiveLeft, status });
+	} else {
+		const statusBudget = planSurfaceStatusFirstBudget(metrics.innerWidth);
+		const status = resolveStatus(input, statusBudget);
+		const titleMaxWidth = planSurfaceRemainingLeftWidth(metrics.innerWidth, status);
+		const left = workspaceTitlePlan(input, metrics, titleMaxWidth);
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left, status });
+	}
+
+	const rendered = renderSurfaceChunks(plan.chunks, {
 		border,
 		title,
 		status: identity,

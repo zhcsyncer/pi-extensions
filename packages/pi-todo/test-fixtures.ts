@@ -45,6 +45,7 @@ export interface MockUI {
 	confirm: ReturnType<typeof vi.fn>;
 	input: ReturnType<typeof vi.fn>;
 	select: ReturnType<typeof vi.fn>;
+	custom: ReturnType<typeof vi.fn>;
 	setWidget: ReturnType<typeof vi.fn>;
 	setStatus: ReturnType<typeof vi.fn>;
 	setWorkingMessage: ReturnType<typeof vi.fn>;
@@ -60,6 +61,7 @@ export function createMockUI(): MockUI {
 		confirm: vi.fn(async () => true),
 		input: vi.fn(async () => ""),
 		select: vi.fn(async () => undefined),
+		custom: vi.fn(async () => undefined),
 		setWidget: vi.fn(),
 		setStatus: vi.fn(),
 		setWorkingMessage: vi.fn(),
@@ -71,11 +73,14 @@ export function createMockUI(): MockUI {
 
 export function createMockCtx(options: {
 	hasUI?: boolean;
+	mode?: "tui" | "rpc" | "json" | "print";
 	branch?: SessionEntry[];
 } = {}): ExtensionContext {
 	const branch = options.branch ?? [];
+	const hasUI = options.hasUI ?? false;
 	return {
-		hasUI: options.hasUI ?? false,
+		hasUI,
+		mode: options.mode ?? (hasUI ? "tui" : "print"),
 		cwd: "/tmp/pi-todo-test",
 		ui: createMockUI() as unknown as ExtensionUIContext,
 		sessionManager: {

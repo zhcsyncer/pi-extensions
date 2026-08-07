@@ -11,8 +11,8 @@
  * - `formatStatusLabel(status)` resolves a TaskStatus to its locale-aware
  *   label via the canonical `status.*` namespace, with the English literal
  *   as fallback so nothing renders blank if the namespace isn't registered.
- *   This is the SINGLE point of localization for status words — overlay,
- *   /todos header, /todos render-call all route through here.
+ *   This is the SINGLE point of localization for status words in the Todo
+ *   overlay.
  *
  * Strings are registered ONCE at extension load (see ../index.ts). Call sites
  * MUST use this module at render time — never bake the result into a top-level

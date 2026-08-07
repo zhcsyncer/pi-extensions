@@ -124,6 +124,14 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 
 配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 12；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
 
+## 顶边框优先级
+
+顶边框可以展示两类信息：左侧的工作区标题，以及右侧的动态状态（按启用情况包含 Git、费用、Reply speed、context、可选 tokens 和模型）。
+
+正常编辑时，只要宽度足够，两类信息会同时显示。终端变窄后，动态状态优先获得宽度；工作区标题先在剩余空间中缩短，空间太小时再隐藏。动态状态内部也以 `/glance` 配置的 segment 顺序作为优先级：左侧 segment 优先保留，文案会按需切换为更短形式，再从右端逐项移除，最后才截断单个仍然过长的 segment。
+
+Bash 标签（`Bash` / `Bash · no context`）和编辑器的 `↑ N more` 滚动提示属于更高优先级的交互提示。它们会替代工作区标题并优先占用左侧，动态状态只使用剩余空间。
+
 ## 工作区标题
 
 在 `/glance` → **General** → `Workspace label` 中选择：

@@ -12,8 +12,10 @@ import { resolveBuiltInGlanceStyles, resolvePiThemeStyles } from "../theme-adapt
 import { renderGlanceLine } from "../status-line.js";
 import {
 	planSurfaceBottomFrame,
+	planSurfaceRemainingLeftWidth,
 	planSurfaceRow,
 	planSurfaceStatusBudget,
+	planSurfaceStatusFirstBudget,
 	planSurfaceTopFrame,
 	planWorkspaceTitle,
 	renderSurfaceChunks,
@@ -213,15 +215,16 @@ function stripStatusForLegacyDim(status: string): string {
 
 function renderLegacyStyledEditorTop(state: GlanceState, config: GlanceConfig, width: number, focused: boolean): string {
 	const { safeWidth, innerWidth } = surfaceMetrics(width);
+	const statusBudget = planSurfaceStatusFirstBudget(innerWidth);
+	const rawStatus = renderGlanceLine(state, config, statusBudget, state.providers.availableCount);
 	const title = planWorkspaceTitle({
 		workspacePath: state.workspace.path,
 		workspaceName: state.workspace.name,
 		mode: config.display.workspaceLabel,
 		innerWidth,
 		surfaceWidth: safeWidth,
+		maxWidth: planSurfaceRemainingLeftWidth(innerWidth, rawStatus),
 	});
-	const statusBudget = planSurfaceStatusBudget(innerWidth, title.width);
-	const rawStatus = renderGlanceLine(state, config, statusBudget, state.providers.availableCount);
 	const status = focused || !rawStatus ? rawStatus : legacyDim(config, stripStatusForLegacyDim(rawStatus));
 	return renderSurfaceChunks(planSurfaceTopFrame({ width: safeWidth, left: title, status }).chunks, {
 		border: (text) => legacyEditorBorder(config, focused, text),
@@ -275,6 +278,8 @@ function renderLegacyStyledInputSurface(state: GlanceState, config: GlanceConfig
 	const minRows = Math.max(2, Math.min(4, config.editor.minContentRows));
 	const contentLines = options.contentLines ?? [""];
 	const rows = Math.max(minRows, contentLines.length);
+	const statusBudget = planSurfaceStatusFirstBudget(innerWidth);
+	const status = renderGlanceLine(state, config, statusBudget, state.providers.availableCount);
 	const title = planWorkspaceTitle({
 		workspacePath: state.workspace.path,
 		workspaceName: state.workspace.name,
@@ -282,9 +287,8 @@ function renderLegacyStyledInputSurface(state: GlanceState, config: GlanceConfig
 		innerWidth,
 		surfaceWidth: safeWidth,
 		showTitle: options.showTitle,
+		maxWidth: planSurfaceRemainingLeftWidth(innerWidth, status),
 	});
-	const statusBudget = planSurfaceStatusBudget(innerWidth, title.width);
-	const status = renderGlanceLine(state, config, statusBudget, state.providers.availableCount);
 	const top = renderSurfaceChunks(planSurfaceTopFrame({ width: safeWidth, left: title, status }).chunks, {
 		border: (text) => legacyBorder(config, text),
 		title: (text) => legacyTitle(config, text),
