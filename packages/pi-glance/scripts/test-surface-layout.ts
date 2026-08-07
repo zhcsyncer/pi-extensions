@@ -7,9 +7,10 @@ import {
 	SURFACE_TITLE_RATIO,
 	formatSurfaceScrollIndicator,
 	planSurfaceBottomFrame,
+	planSurfaceRemainingLeftWidth,
 	planSurfaceRow,
 	planSurfaceStatus,
-	planSurfaceStatusBudget,
+	planSurfaceStatusFirstBudget,
 	planSurfaceTopFrame,
 	planWorkspaceTitle,
 	renderSurfaceChunks,
@@ -42,7 +43,7 @@ function colored(chunks: Parameters<typeof renderSurfaceChunks>[0]): string {
 	});
 }
 
-function titlePlan(width: number, mode: WorkspaceLabelMode = "name", showTitle = true) {
+function titlePlan(width: number, mode: WorkspaceLabelMode = "name", showTitle = true, maxWidth?: number) {
 	const metrics = surfaceMetrics(width);
 	return planWorkspaceTitle({
 		workspacePath: homePath,
@@ -51,6 +52,7 @@ function titlePlan(width: number, mode: WorkspaceLabelMode = "name", showTitle =
 		innerWidth: metrics.innerWidth,
 		surfaceWidth: metrics.safeWidth,
 		showTitle,
+		...(maxWidth === undefined ? {} : { maxWidth }),
 	});
 }
 
@@ -59,9 +61,9 @@ for (const width of WIDTHS) {
 	assert.equal(metrics.safeWidth, Math.max(4, width), `safe width clamps at ${width}`);
 	assert.equal(metrics.innerWidth, metrics.safeWidth - 2, `inner width reserves borders at ${width}`);
 
-	const title = titlePlan(width);
-	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, title.width);
+	const statusBudget = planSurfaceStatusFirstBudget(metrics.innerWidth);
 	const status = planSurfaceStatus("git main · ctx 23% · $0.042 · Sonnet 4", statusBudget, "…");
+	const title = titlePlan(width, "name", true, planSurfaceRemainingLeftWidth(metrics.innerWidth, status.text));
 	const top = planSurfaceTopFrame({ width, left: title, status: status.text, statusEllipsis: "…" });
 	const bottom = planSurfaceBottomFrame({ width });
 	const bottomWithIndicator = planSurfaceBottomFrame({ width, scrollIndicator: formatSurfaceScrollIndicator("│ ↑ 123 more │", width) });
@@ -96,6 +98,20 @@ assert.deepEqual(renderSurfaceTopMargin(Number.NaN, 1), [""], "non-finite width 
 assert.equal(surfaceTitleBudget(200), SURFACE_TITLE_MAX_WIDTH, "title budget is capped at 48 columns");
 assert.equal(surfaceTitleBudget(100), 42, "title budget uses the 42% ratio before the cap");
 assert.equal(surfaceTitleBudget(99), Math.floor(99 * SURFACE_TITLE_RATIO), "title budget ratio is floored");
+assert.equal(planSurfaceStatusFirstBudget(46), 42, "status-first planning should reserve only the left border lead and right status chrome");
+assert.equal(planSurfaceRemainingLeftWidth(46, "x".repeat(34)), 9, "status-first planning should give the title only the width left after rendered status chrome");
+assert.equal(planSurfaceRemainingLeftWidth(46, ""), 46, "an empty status should leave the full inner width available to the title");
+assert.equal(planSurfaceRemainingLeftWidth(46, "\x1b[0m"), 43, "ANSI-only status text should still reserve its visible status chrome");
+assert.equal(planSurfaceRemainingLeftWidth(20, "\x1b[31m中文🙂\x1b[0m"), 11, "ANSI and wide status cells should use visible terminal geometry for the remaining title slot");
+
+const constrainedTitle = titlePlan(48, "name", true, 9);
+assert.equal(constrainedTitle.kind, "workspace", "a constrained title should stay visible while its minimum compact form fits");
+assert.equal(constrainedTitle.width, 9, "a constrained title should consume no more than its remaining slot");
+assert.ok(constrainedTitle.label.startsWith("07_"), "a constrained title should retain recognizable workspace text");
+assert.ok(constrainedTitle.label.length < "07_pi-glance".length, "a constrained title should shorten before disappearing");
+const displacedTitle = titlePlan(52, "name", true, 1);
+assert.equal(displacedTitle.kind, "fallback", "a status that consumes the title slot should hide workspace text");
+assert.equal(plain(displacedTitle.chunks), "─", "a hidden-by-priority workspace title should leave only the border lead-in");
 
 for (const width of [4, 12, 15]) {
 	const title = titlePlan(width);
