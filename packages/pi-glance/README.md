@@ -149,6 +149,14 @@ On narrow terminals the progress visualization shrinks first, then optional toke
 }
 ```
 
+## Top border priority
+
+The top border can show two kinds of information: the workspace title on the left, and dynamic status on the right (Git, cost, Reply speed, context, optional tokens, and model, depending on what is enabled).
+
+During normal editing, both remain visible when they fit. On narrower terminals the dynamic status gets width first; the workspace title shortens into the remaining space, then disappears if that space is too small. Within the status, the segment order configured in `/glance` is also its priority order: leftmost segments stay first, labels switch to shorter forms as needed, and segments are removed from the right before a single overlong segment is truncated.
+
+Bash labels (`Bash` / `Bash · no context`) and the editor's `↑ N more` scroll indicator are higher-priority interaction cues. They replace the workspace title and reserve the left side first, so the dynamic status uses only the space that remains.
+
 ## Workspace title
 
 Open `/glance`, select **General**, and set `Workspace label`:

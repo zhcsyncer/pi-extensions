@@ -21,6 +21,12 @@ function assertFrameGeometry(lines: readonly string[], config: GlanceConfig, wid
 	}
 }
 
+function assertExactFrameWidth(lines: readonly string[], width: number, label: string): void {
+	for (const [index, line] of lines.entries()) {
+		assert.equal(visibleWidth(line), width, `${label} line ${index} should exactly fill width ${width}: ${stripAnsi(line)}`);
+	}
+}
+
 for (const width of [Number.NaN, -4, 0, 1, 4, 20, 80]) {
 	const measured = measureInputSurfaceFrame(width);
 	const legacy = surfaceMetrics(width);
@@ -112,12 +118,104 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	});
 
 	assert.equal(capturedStyles, styles, "custom status callback should receive the shared ResolvedGlanceStyles instance");
-	assert.ok(capturedBudget >= 0, "custom status callback should receive a concrete top-frame budget");
+	assert.equal(capturedBudget, 30, "top scroll indicator should reserve the interactive left slot before budgeting status");
 	assertFrameGeometry(frame, config, 48, 1, "editor-like frame");
 	assert.ok(stripAnsi(frame[2] ?? "").includes("─── ↑ 7 more"), "top scroll indicator should be placed in the top-left frame slot");
 	assert.ok(frame[3]?.includes(rawBody), "editor body rows should remain already-rendered text while being wrapped by the frame");
 	assert.match(stripAnsi(frame[4] ?? ""), /^│ *│$/, "editor-like frame should pad body rows up to minContentRows");
 	assert.ok(stripAnsi(frame.at(-1) ?? "").includes("─── ↓ 2 more"), "bottom scroll indicator should be placed in the bottom frame slot");
+}
+
+{
+	const config = defaultConfig();
+	config.editor.topMarginRows = 0;
+	config.editor.minContentRows = 2;
+	onlySegments(config, ["git", "cost", "context", "model"]);
+	const state = richState();
+	const styles = resolveBuiltInGlanceStyles(config.theme.light);
+
+	let capturedNormalBudget = -1;
+	renderInputSurfaceFrame({
+		state,
+		config,
+		width: 48,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		status: {
+			render: (budget) => {
+				capturedNormalBudget = budget;
+				return "status";
+			},
+		},
+	});
+	assert.equal(capturedNormalBudget, 42, "normal editing should budget status before the workspace title using only frame chrome");
+
+	const narrow = renderInputSurfaceFrame({ state, config, width: 48, styles, body: { kind: "editor", lines: [""] } });
+	const narrowTop = stripAnsi(narrow[0] ?? "");
+	assert.ok(narrowTop.includes("git main *"), "narrow normal frame should preserve the first configured status segment");
+	assert.ok(narrowTop.includes("$ $0.042"), "narrow normal frame should preserve a middle status segment that the old title-first budget dropped");
+	assert.ok(narrowTop.includes("ctx 23%"), "narrow normal frame should protect the rightmost status segment that fits the status-first budget");
+	assert.equal(narrowTop.includes("ai Sonnet 4"), false, "narrow status should still evict segments from the configured right edge");
+	assert.ok(narrowTop.includes("07_pi"), "workspace title should shorten while some left-side space remains");
+	assert.equal(narrowTop.includes("07_pi-glance"), false, "workspace title should not retain its full width ahead of protected status");
+	assertExactFrameWidth(narrow, 48, "narrow status-first frame");
+
+	const displaced = renderInputSurfaceFrame({ state, config, width: 52, styles, body: { kind: "editor", lines: [""] } });
+	const displacedTop = stripAnsi(displaced[0] ?? "");
+	assert.ok(displacedTop.includes("ai Sonnet 4"), "a later status segment should use space released by hiding the workspace title");
+	assert.equal(displacedTop.includes("07_pi"), false, "workspace title should hide when protected status leaves no usable title slot");
+	assertExactFrameWidth(displaced, 52, "title-displaced frame");
+
+	const wide = renderInputSurfaceFrame({ state, config, width: 120, styles, body: { kind: "editor", lines: [""] } });
+	const wideTop = stripAnsi(wide[0] ?? "");
+	assert.ok(wideTop.includes("07_pi-glance"), "wide normal frame should keep the full workspace title");
+	for (const expected of ["git main *", "$ $0.042", "ctx 23%", "ai anthropic/Sonnet 4 high"]) {
+		assert.ok(wideTop.includes(expected), `wide normal frame should keep status ${expected}`);
+	}
+	assertExactFrameWidth(wide, 120, "wide coexistence frame");
+
+	const bash = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 40,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { modeLabel: "Bash" },
+	});
+	const bashTop = stripAnsi(bash[0] ?? "");
+	assert.ok(bashTop.includes("Bash"), "Bash mode label should keep the interactive left slot on narrow frames");
+	assert.equal(bashTop.includes("07_pi"), false, "Bash mode label should replace the workspace title");
+	assert.ok(bashTop.includes("git main *") && bashTop.includes("$ $0.042"), "Bash mode should leave its remaining width to earlier status segments");
+	assert.equal(bashTop.includes("ctx 23%"), false, "Bash mode should take width before later status segments");
+	assertExactFrameWidth(bash, 40, "narrow Bash frame");
+
+	const scrolled = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 40,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { topScrollIndicator: "─── ↑ 7 more " },
+	});
+	const scrolledTop = stripAnsi(scrolled[0] ?? "");
+	assert.ok(scrolledTop.includes("─── ↑ 7 more"), "top scroll indicator should keep the interactive left slot on narrow frames");
+	assert.equal(scrolledTop.includes("07_pi"), false, "top scroll indicator should replace the workspace title");
+	assert.ok(scrolledTop.includes("git main *") && scrolledTop.includes("$ $0.042"), "top scroll indicator should leave remaining width to earlier status segments");
+	assert.equal(scrolledTop.includes("ctx 23%"), false, "top scroll indicator should take width before later status segments");
+	assertExactFrameWidth(scrolled, 40, "narrow scrolled frame");
+
+	const reorderedConfig = defaultConfig();
+	reorderedConfig.editor.topMarginRows = 0;
+	reorderedConfig.editor.minContentRows = 2;
+	reorderedConfig.segments = (["model", "context", "cost", "git"] as const).map((id) => ({ id, enabled: true }));
+	const reordered = renderInputSurfaceFrame({ state, config: reorderedConfig, width: 40, styles, body: { kind: "editor", lines: [""] } });
+	const reorderedTop = stripAnsi(reordered[0] ?? "");
+	const modelIndex = reorderedTop.indexOf("ai Sonnet 4");
+	const contextIndex = reorderedTop.indexOf("ctx 23%");
+	const costIndex = reorderedTop.indexOf("$ $0.042");
+	assert.ok(modelIndex >= 0 && modelIndex < contextIndex && contextIndex < costIndex, "custom /glance order should define left-to-right status priority");
+	assert.equal(reorderedTop.includes("git main"), false, "custom /glance order should evict the configured rightmost segment first");
+	assertExactFrameWidth(reordered, 40, "custom-order frame");
 }
 
 {

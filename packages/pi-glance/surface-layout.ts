@@ -87,6 +87,7 @@ interface WorkspaceTitlePlanOptions {
 	innerWidth: number;
 	surfaceWidth: number;
 	showTitle?: boolean;
+	maxWidth?: number;
 }
 
 interface SurfaceTopFrameOptions {
@@ -196,14 +197,18 @@ export function renderSurfaceChunks(chunks: readonly SurfaceChunk[], renderers: 
 export function planWorkspaceTitle(options: WorkspaceTitlePlanOptions): SurfaceTitlePlan {
 	const innerWidth = Math.max(0, finiteFloor(options.innerWidth, 0));
 	const surfaceWidth = safeSurfaceWidth(options.surfaceWidth);
-	const budget = surfaceTitleBudget(innerWidth);
+	const naturalBudget = surfaceTitleBudget(innerWidth);
+	const maxWidth = options.maxWidth === undefined
+		? naturalBudget + visibleWidth(SURFACE_BORDER.horizontal)
+		: Math.max(1, finiteFloor(options.maxWidth, 1));
+	const budget = Math.min(naturalBudget, Math.max(0, maxWidth - visibleWidth(SURFACE_BORDER.horizontal)));
 	const fallbackChunks = [chunk("border", SURFACE_BORDER.horizontal)];
 
 	if (options.showTitle === false) {
 		return { kind: "hidden", budget, label: "", title: "", chunks: fallbackChunks, width: surfaceChunksWidth(fallbackChunks) };
 	}
 
-	if (innerWidth < SURFACE_TITLE_MIN_INNER_WIDTH) {
+	if (innerWidth < SURFACE_TITLE_MIN_INNER_WIDTH || budget < surfaceTitleBudget(SURFACE_TITLE_MIN_INNER_WIDTH)) {
 		return { kind: "fallback", budget, label: "", title: "", chunks: fallbackChunks, width: surfaceChunksWidth(fallbackChunks) };
 	}
 
@@ -219,6 +224,17 @@ export function planSurfaceStatusBudget(innerWidth: number, leftWidth: number): 
 	const safeInnerWidth = Math.max(0, finiteFloor(innerWidth, 0));
 	const safeLeftWidth = Math.max(0, finiteFloor(leftWidth, 0));
 	return Math.max(0, safeInnerWidth - safeLeftWidth - SURFACE_STATUS_CHROME_WIDTH);
+}
+
+export function planSurfaceStatusFirstBudget(innerWidth: number): number {
+	return planSurfaceStatusBudget(innerWidth, visibleWidth(SURFACE_BORDER.horizontal));
+}
+
+export function planSurfaceRemainingLeftWidth(innerWidth: number, status: string | undefined): number {
+	const safeInnerWidth = Math.max(0, finiteFloor(innerWidth, 0));
+	const rawStatus = status ?? "";
+	const statusChromeWidth = rawStatus ? SURFACE_STATUS_CHROME_WIDTH : 0;
+	return Math.max(1, safeInnerWidth - visibleWidth(rawStatus) - statusChromeWidth);
 }
 
 export function planSurfaceStatus(status: string | undefined, budget: number, ellipsis = ""): SurfaceStatusPlan {
