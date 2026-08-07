@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.4.1
+
+### Patch Changes
+
+- 1d5ad9e: Prioritize Glance's dynamic top-border status over the workspace title on narrow terminals while preserving Bash and scroll indicators as the highest-priority interaction cues.
+
 ## 0.4.0
 
 ### Minor Changes

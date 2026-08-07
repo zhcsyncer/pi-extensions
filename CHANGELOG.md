@@ -1,5 +1,15 @@
 # @zhcsyncer/pi-extensions
 
+## 0.16.0
+
+### Minor Changes
+
+- 1d5ad9e: Replace the duplicate `/todos` list command with a `/todo` visual-settings TUI, add atomically persisted widget icon and maximum-height controls, and keep active work visible through priority-aware overflow rendering.
+
+### Patch Changes
+
+- 1d5ad9e: Prioritize Glance's dynamic top-border status over the workspace title on narrow terminals while preserving Bash and scroll indicators as the highest-priority interaction cues.
+
 ## 0.15.2
 
 ### Patch Changes
