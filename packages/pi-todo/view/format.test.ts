@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { STATUS_ICON_PRESETS } from "../config.js";
 import type { Task, TaskStatus } from "../tool/types.js";
-import { formatCommandTaskLine, formatOverlayTaskLine } from "./format.js";
+import { formatOverlayTaskLine } from "./format.js";
 
 const theme = {
 	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -36,17 +36,10 @@ describe("status-aware task text styling", () => {
 		expect(formatOverlayTaskLine(value, theme, true, STATUS_ICON_PRESETS.ascii)).toBe(expected);
 	});
 
-	it("uses the same subject and id hierarchy in /todos output", () => {
-		const value = task(2, "working", "in_progress");
-		expect(formatCommandTaskLine(value, "<accent>[>]</accent>", theme)).toBe(
-			"  <accent>[>]</accent> <accent>#2</accent> <accent><bold>working</bold></accent>",
-		);
-	});
-
-	it("keeps dependency details dim", () => {
+	it("keeps overlay dependency details dim", () => {
 		const value = { ...task(1, "blocked", "pending"), blockedBy: [2, 3] };
-		expect(formatCommandTaskLine(value, "<dim>[ ]</dim>", theme)).toContain(
-			"<dim>    ⛓ #2,#3</dim>",
+		expect(formatOverlayTaskLine(value, theme, true, STATUS_ICON_PRESETS.ascii)).toContain(
+			"<dim>⛓ #2,#3</dim>",
 		);
 	});
 });

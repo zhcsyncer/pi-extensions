@@ -13,11 +13,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	DEFAULT_MAX_WIDGET_LINES,
 	DEFAULT_STATUS_ICON_PRESET,
 	loadConfig,
+	MIN_MAX_WIDGET_LINES,
 	resetTodoConfigNoticesForTests,
+	resolveMaxWidgetLines,
 	resolveStatusIconPreset,
 	resolveStatusIcons,
+	saveTodoVisualConfig,
 	STATUS_ICON_PRESETS,
 } from "./config.js";
 import { getLegacyTodoConfigPaths, getTodoConfigPath } from "./config-paths.js";
@@ -226,6 +230,67 @@ describe("Todo config paths and migration", () => {
 		expect(existsSync(legacyPath!)).toBe(true);
 		expect(existsSync(getTodoConfigPath())).toBe(false);
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to migrate or reconcile"));
+	});
+
+	it("atomically saves visual settings while preserving JSON-only guidance and unknown fields", () => {
+		writeJson(getTodoConfigPath(), {
+			statusIcons: "ascii",
+			maxWidgetLines: 9,
+			guidance: { promptSnippet: "Keep this" },
+			futureField: { enabled: true },
+		});
+
+		const saved = saveTodoVisualConfig({ statusIcons: "unicode", maxWidgetLines: 17 });
+
+		expect(saved).toEqual({
+			statusIcons: "unicode",
+			maxWidgetLines: 17,
+			guidance: { promptSnippet: "Keep this" },
+			futureField: { enabled: true },
+		});
+		expect(JSON.parse(readFileSync(getTodoConfigPath(), "utf8"))).toEqual(saved);
+		expect(readdirSync(dirname(getTodoConfigPath()))).toEqual(["config.json"]);
+	});
+
+	it("does not overwrite malformed canonical config when a visual save fails", () => {
+		mkdirSync(dirname(getTodoConfigPath()), { recursive: true });
+		writeFileSync(getTodoConfigPath(), "malformed", "utf8");
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		expect(() => saveTodoVisualConfig({ statusIcons: "unicode", maxWidgetLines: 8 })).toThrow(
+			"could not update malformed Todo config",
+		);
+		expect(readFileSync(getTodoConfigPath(), "utf8")).toBe("malformed");
+	});
+
+	it("rejects a visual save rather than corrupting unknown values that cannot round-trip", () => {
+		const source = '{"statusIcons":"ascii","futureNumber":1e400}\n';
+		mkdirSync(dirname(getTodoConfigPath()), { recursive: true });
+		writeFileSync(getTodoConfigPath(), source, "utf8");
+
+		expect(() => saveTodoVisualConfig({ statusIcons: "unicode", maxWidgetLines: 8 })).toThrow(
+			"could not safely serialize Todo config",
+		);
+		expect(readFileSync(getTodoConfigPath(), "utf8")).toBe(source);
+	});
+});
+
+describe("maxWidgetLines normalization", () => {
+	it("defaults missing and invalid values to the current 13-line widget height", () => {
+		expect(DEFAULT_MAX_WIDGET_LINES).toBe(13);
+		expect(resolveMaxWidgetLines(undefined)).toBe(13);
+		expect(resolveMaxWidgetLines("8")).toBe(13);
+		expect(resolveMaxWidgetLines(Number.POSITIVE_INFINITY)).toBe(13);
+		expect(resolveMaxWidgetLines(Number.NaN)).toBe(13);
+	});
+
+	it("floors finite values and enforces a four-line minimum", () => {
+		expect(MIN_MAX_WIDGET_LINES).toBe(4);
+		expect(resolveMaxWidgetLines(-10)).toBe(4);
+		expect(resolveMaxWidgetLines(3.9)).toBe(4);
+		expect(resolveMaxWidgetLines(4)).toBe(4);
+		expect(resolveMaxWidgetLines(19.9)).toBe(19);
+		expect(resolveMaxWidgetLines(101)).toBe(101);
 	});
 });
 

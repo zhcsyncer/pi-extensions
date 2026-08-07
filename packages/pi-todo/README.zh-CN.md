@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-面向 Pi 的 Todo 扩展，维护自 `@juicesharp/rpiv-todo`。它注册 `todo` 工具、`/todos` 命令以及持久化任务浮层，可独立安装，也包含在 `@zhcsyncer/pi-extensions` 聚合包中。
+面向 Pi 的 Todo 扩展，维护自 `@juicesharp/rpiv-todo`。它注册 `todo` 工具、`/todo` 视觉设置命令以及持久化任务浮层，可独立安装，也包含在 `@zhcsyncer/pi-extensions` 聚合包中。
 
 该 fork 有意不接入工具 intent。成功的 Todo 调用默认在 TUI transcript 中渲染为零行，由持久化 widget 展示当前状态；按 `Ctrl+O` 展开工具输出时可查看紧凑调用与结果摘要，执行错误始终显示。工具的 `content` 与版本化状态 `details` 保持在 session 中，模型反馈、分支恢复和 reload 后重建不受影响。
 
@@ -53,7 +53,9 @@ pi install git:github.com/zhcsyncer/pi-extensions
 }
 ```
 
-## 配置与状态图标
+## 视觉设置与 JSON 配置
+
+在 TUI 模式中运行 `/todo`，可配置用户可见的 `statusIcons` 与 `maxWidgetLines`。变更会原子保存到 canonical 配置文件，并立即应用到当前 widget。其他 Pi 模式会给出清晰错误，不会尝试打开不受支持的自定义 UI。
 
 全局配置位于：
 
@@ -63,13 +65,16 @@ $PI_CODING_AGENT_DIR/extension-data/pi-todo/config.json
 
 Pi 默认 agent 目录下对应 `~/.pi/agent/extension-data/pi-todo/config.json`。首次读取时，已有的 `$XDG_CONFIG_HOME/rpiv-todo/config.json`（通常是 `~/.config/rpiv-todo/config.json`）会原子迁移。canonical 文件始终优先；格式损坏、不可读或与 canonical 冲突的旧文件会保留并给出 warning，不会被覆盖或静默删除。
 
-通过 `statusIcons` 切换图标预设：
+也可以直接通过 JSON 编辑相同的视觉设置：
 
 ```json
 {
-  "statusIcons": "ascii"
+  "statusIcons": "ascii",
+  "maxWidgetLines": 13
 }
 ```
+
+`maxWidgetLines` 限制 widget 的实际高度，标题、任务行、溢出摘要和末尾空白分隔行均计入。默认值仍为 13 行。有限数值会向下取整且至少为 4；无效值回退到 13。JSON 接受任意有限整数；`/todo` 提供一组实用预设，并保留已从 JSON 加载的合法自定义值。
 
 | 预设 | 标题 | pending | in_progress | completed | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -77,9 +82,11 @@ Pi 默认 agent 目录下对应 `~/.pi/agent/extension-data/pi-todo/config.json`
 | `unicode` | `≡` | `○` | `◉` | `✓` | 紧凑的标准 Unicode 字符 |
 | `nerd-font` | `󰝖` | `󰄰` | `󰪞`…`󰪥` | `󰗠` | 需要 Nerd Font；仅任务行的进行中图标以 300ms 间隔动画显示 |
 
-标题始终使用独立的静态 Todo 图标。状态图标使用 Pi 当前主题的语义色：pending 为 `dim`、in_progress 为 `accent`、completed 为 `success`。任务文本进一步区分层级：pending 为 `muted`、in_progress 为 `accent` 加粗、completed 为 `dim` 加删除线；任务 ID 仅在进行中使用 `accent`，其余状态为 `dim`。`/todos` 是一次性通知，Nerd Font 模式使用静态中间帧 `󰪡`。
+标题始终使用独立的静态 Todo 图标。状态图标使用 Pi 当前主题的语义色：pending 为 `dim`、in_progress 为 `accent`、completed 为 `success`。任务文本进一步区分层级：pending 为 `muted`、in_progress 为 `accent` 加粗、completed 为 `dim` 加删除线；任务 ID 仅在进行中使用 `accent`，其余状态为 `dim`。Nerd Font 的进行中帧以 300ms 间隔动画显示，并在预设切换后立即正确响应。
 
-同一文件还可通过 `guidance.promptSnippet` 和 `guidance.promptGuidelines` 覆盖面向模型的 Todo guidance。无效图标或 guidance 值继续沿用原有回退行为。
+widget 超限时，入选优先级依次为 `in_progress`、`pending`、`completed`；同一状态内保持原顺序，最终入选行仍按任务自然顺序渲染。摘要会准确报告被隐藏的 pending 和 completed 数量。
+
+同一 JSON 文件还可通过 `guidance.promptSnippet` 和 `guidance.promptGuidelines` 覆盖面向模型的 Todo guidance。这些字段会改变模型系统提示，并非视觉设置，因此有意只支持 JSON 配置。无效图标或 guidance 值继续沿用原有回退行为。
 
 旧 session 快照中的 `activeForm` 仍可读取，但 replay 时会忽略该废弃字段；新 schema 和新快照不再包含它。
 

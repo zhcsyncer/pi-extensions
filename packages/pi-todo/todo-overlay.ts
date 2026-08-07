@@ -3,8 +3,8 @@
  *
  * Lifecycle controller for Pi's `setWidget` contract: factory-form
  * registration in widgetContainerAbove, register-once + requestRender()
- * refresh, 12-line collapse-not-scroll (plus a trailing spacer row, so the
- * widget renders up to 13 lines), auto-hide when empty.
+ * refresh, configurable collapse-not-scroll line budget (including heading,
+ * summary, and trailing spacer), auto-hide when empty.
  *
  * Reads its injected store at render time — NEVER `replayFromBranch` from
  * `tool_execution_end` (branch is stale; `message_end` runs after).
@@ -12,16 +12,19 @@
 
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type TUI, truncateToWidth } from "@earendil-works/pi-tui";
-import { loadConfig, resolveStatusIcons, type StatusIcons } from "./config.js";
+import {
+	loadConfig,
+	resolveStatusIcons,
+	resolveTodoVisualConfig,
+	type StatusIcons,
+	type TodoVisualConfig,
+} from "./config.js";
 import { formatStatusLabel, t } from "./state/i18n-bridge.js";
 import { selectHasActive, selectOverlayLayout, selectShowTaskIds, selectTodoCounts } from "./state/selectors.js";
 import type { TodoStore } from "./state/store.js";
 import { formatOverlayTaskLine, statusIcon } from "./view/format.js";
 
 const WIDGET_KEY = "rpiv-todos";
-// Budget for content rows (heading + tasks/summary). The rendered widget is
-// one line taller — withTrailingSpacer() appends a blank row below the panel.
-const MAX_WIDGET_LINES = 12;
 const NERD_FONT_ANIMATION_INTERVAL_MS = 300;
 
 // English fallbacks for localized overlay chrome strings.
@@ -37,13 +40,25 @@ export class TodoOverlay {
 	private lastNextId: number | undefined;
 	private animationTimer: ReturnType<typeof setInterval> | undefined;
 	private inProgressFrameIndex = 0;
-	private readonly statusIcons: StatusIcons;
+	private statusIcons: StatusIcons;
+	private maxWidgetLines: number;
 
 	constructor(
 		private readonly store: TodoStore,
-		statusIcons = resolveStatusIcons(loadConfig().statusIcons),
+		config: TodoVisualConfig = resolveTodoVisualConfig(loadConfig()),
 	) {
-		this.statusIcons = statusIcons;
+		const visual = resolveTodoVisualConfig(config);
+		this.statusIcons = resolveStatusIcons(visual.statusIcons);
+		this.maxWidgetLines = visual.maxWidgetLines;
+	}
+
+	setConfig(config: TodoVisualConfig): void {
+		const visual = resolveTodoVisualConfig(config);
+		const nextStatusIcons = resolveStatusIcons(visual.statusIcons);
+		if (nextStatusIcons !== this.statusIcons) this.stopAnimation();
+		this.statusIcons = nextStatusIcons;
+		this.maxWidgetLines = visual.maxWidgetLines;
+		this.update();
 	}
 
 	setUICtx(ctx: ExtensionUIContext): void {
@@ -160,7 +175,9 @@ export class TodoOverlay {
 		const heading = truncate(`${headingIcon} ${theme.fg(headingColor, headingText)}`);
 
 		const lines: string[] = [heading];
-		const layout = selectOverlayLayout(overlayState, MAX_WIDGET_LINES - 1);
+		// Heading and the trailing blank separator consume two rows. The selector
+		// reserves one of the remaining rows for an overflow summary when needed.
+		const layout = selectOverlayLayout(overlayState, this.maxWidgetLines - 2);
 		for (const task of layout.visible) {
 			lines.push(
 				truncate(
@@ -181,16 +198,16 @@ export class TodoOverlay {
 			this.completedTaskIdsPendingHide.add(taskId);
 		}
 
-		if (layout.hiddenCompleted === 0 && layout.truncatedTail === 0) {
+		if (layout.hiddenCompleted === 0 && layout.hiddenPending === 0) {
 			const last = lines.length - 1;
 			lines[last] = lines[last].replace("├─", "└─");
 			return this.withTrailingSpacer(lines);
 		}
 
-		const totalHidden = layout.hiddenCompleted + layout.truncatedTail;
+		const totalHidden = layout.hiddenCompleted + layout.hiddenPending;
 		const overflowParts: string[] = [];
 		if (layout.hiddenCompleted > 0) overflowParts.push(`${layout.hiddenCompleted} ${formatStatusLabel("completed")}`);
-		if (layout.truncatedTail > 0) overflowParts.push(`${layout.truncatedTail} ${formatStatusLabel("pending")}`);
+		if (layout.hiddenPending > 0) overflowParts.push(`${layout.hiddenPending} ${formatStatusLabel("pending")}`);
 		const more = t("overlay.more", OVERLAY_MORE);
 		const summary =
 			overflowParts.length > 0 ? `+${totalHidden} ${more} (${overflowParts.join(", ")})` : `+${totalHidden} ${more}`;

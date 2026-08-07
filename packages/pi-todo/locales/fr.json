@@ -7,11 +7,5 @@
   "status.deleted": "supprimée",
 
   "overlay.heading": "Tâches",
-  "overlay.more": "autres",
-
-  "command.no_todos": "Pas encore de tâches. Demandez à l'agent d'en ajouter !",
-  "command.requires_interactive": "/todos nécessite le mode interactif",
-  "command.section.pending": "── En attente ──",
-  "command.section.in_progress": "── En cours ──",
-  "command.section.completed": "── Terminées ──"
+  "overlay.more": "autres"
 }

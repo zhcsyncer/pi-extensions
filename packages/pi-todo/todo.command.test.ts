@@ -1,182 +1,144 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { STATUS_ICON_PRESETS, type StatusIcons } from "./config.js";
-import { createMockCtx, createMockPi } from "./test-fixtures.js";
+import type { Component } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTodoStore, registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
+import type { TodoVisualConfig } from "./config.js";
 
-function setup(statusIcons: StatusIcons = STATUS_ICON_PRESETS.ascii) {
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
+	return {
+		...actual,
+		getSettingsListTheme: () => ({
+			label: (text: string) => text,
+			value: (text: string) => text,
+			description: (text: string) => text,
+			cursor: ">",
+			hint: (text: string) => text,
+		}),
+	};
+});
+import { createMockCtx, createMockPi, makeTheme } from "./test-fixtures.js";
+import { registerTodoCommand } from "./todo.js";
+
+const DEFAULT_VISUAL_CONFIG: TodoVisualConfig = {
+	statusIcons: "ascii",
+	maxWidgetLines: 13,
+};
+
+function setup(
+	updateConfig: (config: TodoVisualConfig) => void = vi.fn(),
+	initialConfig: TodoVisualConfig = DEFAULT_VISUAL_CONFIG,
+) {
 	const { pi, captured } = createMockPi();
-	const store = createTodoStore();
-	registerTodoTool(pi, store);
-	registerTodosCommand(pi, store, statusIcons);
-	const tool = captured.tools.get(TOOL_NAME);
-	if (!tool) throw new Error("tool not registered");
-	const cmd = captured.commands.get("todos");
-	if (!cmd) throw new Error("command not registered");
-	return { tool, cmd };
+	let config = initialConfig;
+	registerTodoCommand(pi, {
+		getConfig: () => config,
+		updateConfig: (next) => {
+			updateConfig(next);
+			config = next;
+		},
+	});
+	const registered = captured.commands.get("todo");
+	if (!registered) throw new Error("/todo command not registered");
+	const command = registered as unknown as {
+		description?: string;
+		handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+	};
+	return { captured, command, getConfig: () => config };
 }
 
-async function seed(tool: ReturnType<typeof setup>["tool"], actions: Array<Record<string, unknown>>) {
-	for (const p of actions) {
-		await tool.execute?.("tc", p as never, undefined as never, undefined as never, {} as never);
-	}
+function runCustomUI(ctx: ExtensionContext, onComponent: (component: Component) => void): void {
+	const custom = ctx.ui.custom as unknown as ReturnType<typeof vi.fn>;
+	custom.mockImplementation(async (factory: (...args: unknown[]) => Component) => {
+		const component = factory(
+			{ requestRender: vi.fn() },
+			makeTheme(),
+			{},
+			vi.fn(),
+		);
+		onComponent(component);
+		return undefined;
+	});
 }
 
 afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("/todos command — registration", () => {
-	it("registers a command named 'todos' with a description", () => {
-		const { cmd } = setup();
-		expect(cmd.description).toContain("todos");
-	});
-});
-
-describe("/todos command — guard branches", () => {
-	it("notifies an error when the session has no UI", async () => {
-		const { cmd } = setup();
-		const ctx = createMockCtx({ hasUI: false });
-		await cmd.handler("", ctx as never);
-		const notify = ctx.ui.notify as ReturnType<typeof vi.fn>;
-		expect(notify).toHaveBeenCalledTimes(1);
-		expect(notify).toHaveBeenCalledWith(expect.stringContaining("interactive"), "error");
+describe("/todo command", () => {
+	it("registers /todo without retaining /todos", () => {
+		const { captured, command } = setup();
+		expect(command.description).toContain("widget");
+		expect(captured.commands.has("todo")).toBe(true);
+		expect(captured.commands.has("todos")).toBe(false);
 	});
 
-	it("notifies an info message when there are no visible tasks", async () => {
-		const { cmd } = setup();
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const notify = ctx.ui.notify as ReturnType<typeof vi.fn>;
-		expect(notify).toHaveBeenCalledWith(expect.stringContaining("No todos"), "info");
+	it.each(["rpc", "json", "print"] as const)("rejects %s mode without opening custom UI", async (mode) => {
+		const { command } = setup();
+		const ctx = createMockCtx({ hasUI: true, mode });
+
+		await command.handler("", ctx);
+
+		expect(ctx.ui.custom).not.toHaveBeenCalled();
+		expect(ctx.ui.notify).toHaveBeenCalledWith("/todo requires TUI mode", "error");
 	});
 
-	it("treats all-deleted tasks as empty (info notify, not group render)", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "a" },
-			{ action: "update", id: 1, status: "deleted" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const notify = ctx.ui.notify as ReturnType<typeof vi.fn>;
-		expect(notify).toHaveBeenCalledWith(expect.stringContaining("No todos"), "info");
-	});
-});
+	it("cycles a visual setting and saves the new runtime config", async () => {
+		const save = vi.fn();
+		const { command, getConfig } = setup(save);
+		const ctx = createMockCtx({ hasUI: true, mode: "tui" });
+		runCustomUI(ctx, (component) => component.handleInput?.("\r"));
 
-describe("/todos command — grouped output", () => {
-	function grabOutput(ctx: ExtensionContext): string {
-		const notify = ctx.ui.notify as ReturnType<typeof vi.fn>;
-		expect(notify).toHaveBeenCalledTimes(1);
-		const [text, level] = notify.mock.calls[0];
-		expect(level).toBe("info");
-		return text as string;
-	}
+		await command.handler("", ctx);
 
-	it("renders the Pending group with the default ASCII icon", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [{ action: "create", subject: "research" }]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain("── Pending ──");
-		expect(out).toContain("[ ] #1 research");
-		expect(out).toContain("1 pending");
+		expect(save).toHaveBeenCalledWith({ statusIcons: "unicode", maxWidgetLines: 13 });
+		expect(getConfig()).toEqual({ statusIcons: "unicode", maxWidgetLines: 13 });
+		expect(ctx.ui.notify).not.toHaveBeenCalled();
 	});
 
-	it("renders the In Progress group without a duplicate activity description", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "build" },
-			{ action: "update", id: 1, status: "in_progress" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain("── In Progress ──");
-		expect(out).toContain("[>] #1 build");
-		expect(out).toContain("1 in progress");
+	it("cycles maxWidgetLines independently from the icon preset", async () => {
+		const save = vi.fn();
+		const { command } = setup(save);
+		const ctx = createMockCtx({ hasUI: true, mode: "tui" });
+		runCustomUI(ctx, (component) => {
+			component.handleInput?.("\x1b[B");
+			component.handleInput?.("\r");
+		});
+
+		await command.handler("", ctx);
+
+		expect(save).toHaveBeenCalledWith({ statusIcons: "ascii", maxWidgetLines: 20 });
 	});
 
-	it("renders the Completed group with the default ASCII icon and count", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "ship" },
-			{ action: "update", id: 1, status: "in_progress" },
-			{ action: "update", id: 1, status: "completed" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain("── Completed ──");
-		expect(out).toContain("[x] #1 ship");
-		expect(out).toContain("1/1 completed");
+	it("keeps a legal custom maxWidgetLines value in the TUI choices", async () => {
+		const { command } = setup(vi.fn(), { statusIcons: "ascii", maxWidgetLines: 17 });
+		const ctx = createMockCtx({ hasUI: true, mode: "tui" });
+		let rendered = "";
+		runCustomUI(ctx, (component) => {
+			rendered = component.render(100).join("\n");
+		});
+
+		await command.handler("", ctx);
+
+		expect(rendered).toContain("17");
 	});
 
-	it("emits the header parts in 'completed · in progress · pending' order", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "p" },
-			{ action: "create", subject: "done" },
-			{ action: "update", id: 2, status: "in_progress" },
-			{ action: "update", id: 2, status: "completed" },
-			{ action: "create", subject: "ip" },
-			{ action: "update", id: 3, status: "in_progress" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		const header = out.split("\n")[0];
-		const iC = header.indexOf("completed");
-		const iIP = header.indexOf("in progress");
-		const iP = header.indexOf("pending");
-		expect(iC).toBeGreaterThanOrEqual(0);
-		expect(iIP).toBeGreaterThan(iC);
-		expect(iP).toBeGreaterThan(iIP);
-	});
+	it("restores the displayed value and keeps runtime config when saving fails", async () => {
+		const save = vi.fn(() => {
+			throw new Error("disk full");
+		});
+		const { command, getConfig } = setup(save);
+		const ctx = createMockCtx({ hasUI: true, mode: "tui" });
+		let rendered = "";
+		runCustomUI(ctx, (component) => {
+			component.handleInput?.("\r");
+			rendered = component.render(100).join("\n");
+		});
 
-	it.each([
-		["unicode", STATUS_ICON_PRESETS.unicode, "○", "◉", "✓"],
-		["nerd-font", STATUS_ICON_PRESETS["nerd-font"], "󰄰", "󰪡", "󰗠"],
-	] as const)("renders the %s preset with a static command icon", async (_name, icons, pending, active, completed) => {
-		const { tool, cmd } = setup(icons);
-		await seed(tool, [
-			{ action: "create", subject: "pending" },
-			{ action: "create", subject: "active", status: "in_progress" },
-			{ action: "create", subject: "finished" },
-			{ action: "update", id: 3, status: "completed" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain(`${pending} #1 pending`);
-		expect(out).toContain(`${active} #2 active`);
-		expect(out).toContain(`${completed} #3 finished`);
-	});
+		await command.handler("", ctx);
 
-	it("appends '⛓ #deps' suffix for tasks with blockedBy", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "base" },
-			{ action: "create", subject: "follow-up", blockedBy: [1] },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain("⛓ #1");
-	});
-
-	it("omits deleted tombstones from the grouped output", async () => {
-		const { tool, cmd } = setup();
-		await seed(tool, [
-			{ action: "create", subject: "keep" },
-			{ action: "create", subject: "drop" },
-			{ action: "update", id: 2, status: "deleted" },
-		]);
-		const ctx = createMockCtx({ hasUI: true });
-		await cmd.handler("", ctx as never);
-		const out = grabOutput(ctx);
-		expect(out).toContain("keep");
-		expect(out).not.toContain("drop");
+		expect(getConfig()).toEqual(DEFAULT_VISUAL_CONFIG);
+		expect(rendered).toContain("ascii");
+		expect(rendered).not.toContain("unicode");
+		expect(ctx.ui.notify).toHaveBeenCalledWith("Failed to save Todo settings: disk full", "error");
 	});
 });

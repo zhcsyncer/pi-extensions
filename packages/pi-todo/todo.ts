@@ -1,46 +1,32 @@
 /**
- * todo tool + /todos command — thin registration shell.
+ * Todo tool + visual settings command — thin registration shell.
  *
- * Tool/command identity, schema, types, reducer, store, replay, response
- * envelope, selectors, and view formatters live in the layered modules under
- * `tool/`, `state/`, and `view/`. This file is the package-root registration
- * surface — it mirrors `packages/rpiv-ask-user-question/ask-user-question.ts`
- * which keeps the tool registration at the package root.
- *
- * Public re-exports below keep the stable domain helpers while runtime state
- * is explicitly injected through a per-extension `TodoStore`.
+ * Tool identity, schema, types, reducer, store, replay, response envelope,
+ * selectors, and view formatters live in the layered modules under `tool/`,
+ * `state/`, and `view/`. Runtime state is explicitly injected through a
+ * per-extension `TodoStore`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import {
 	loadConfig,
-	resolveStatusIcons,
-	type StatusIcons,
+	resolveMaxWidgetLines,
 	type TodoConfig,
+	type TodoVisualConfig,
 	validateGuidanceFields,
 } from "./config.js";
-import { formatStatusLabel, t } from "./state/i18n-bridge.js";
 import { replayFromBranch } from "./state/replay.js";
-import { selectTasksByStatus, selectTodoCounts, selectVisibleTasks } from "./state/selectors.js";
 import { applyTaskMutation } from "./state/state-reducer.js";
 import type { TodoStore } from "./state/store.js";
 import { buildToolResult } from "./tool/response-envelope.js";
 import {
-	COMMAND_NAME,
-	ERR_REQUIRES_INTERACTIVE,
-	MSG_NO_TODOS,
 	type TaskMutationParams,
 	TOOL_LABEL,
 	TOOL_NAME,
 	TodoParamsSchema,
 } from "./tool/types.js";
-import { formatCommandTaskLine, renderTodoCall, renderTodoResult, statusIcon } from "./view/format.js";
-
-// English fallbacks for localized /todos section headers — the box-drawing
-// decoration is part of the localized string so translators can adjust spacing.
-const SECTION_PENDING = "── Pending ──";
-const SECTION_IN_PROGRESS = "── In Progress ──";
-const SECTION_COMPLETED = "── Completed ──";
+import { renderTodoCall, renderTodoResult } from "./view/format.js";
 
 // ---------------------------------------------------------------------------
 // Public re-exports — pre-refactor consumers (overlay, tests, index.ts) keep
@@ -109,54 +95,106 @@ export function registerTodoTool(pi: ExtensionAPI, store: TodoStore, config: Tod
 }
 
 // ---------------------------------------------------------------------------
-// /todos slash command
+// /todo visual settings command
 // ---------------------------------------------------------------------------
 
-export function registerTodosCommand(
-	pi: ExtensionAPI,
-	store: TodoStore,
-	statusIcons: StatusIcons = resolveStatusIcons(loadConfig().statusIcons),
-): void {
-	const inProgressIcon = statusIcons.inProgressFrames[Math.floor((statusIcons.inProgressFrames.length - 1) / 2)]!;
-	pi.registerCommand(COMMAND_NAME, {
-		description: "Show all todos on the current branch, grouped by status",
+const MAX_WIDGET_LINE_PRESETS = [4, 8, 13, 20, 30] as const;
+
+type TodoVisualSettingId = "statusIcons" | "maxWidgetLines";
+
+export interface TodoCommandOptions {
+	getConfig: () => TodoVisualConfig;
+	updateConfig: (config: TodoVisualConfig) => void;
+}
+
+function maxWidgetLineValues(current: number): string[] {
+	return [...new Set([...MAX_WIDGET_LINE_PRESETS, current])]
+		.sort((left, right) => left - right)
+		.map(String);
+}
+
+function visualSettingValue(config: TodoVisualConfig, id: TodoVisualSettingId): string {
+	return id === "statusIcons" ? config.statusIcons : String(config.maxWidgetLines);
+}
+
+function visualSettingItems(config: TodoVisualConfig): SettingItem[] {
+	return [
+		{
+			id: "statusIcons",
+			label: "Status icons",
+			description: "Choose the glyph preset used by the Todo widget.",
+			currentValue: config.statusIcons,
+			values: ["ascii", "unicode", "nerd-font"],
+		},
+		{
+			id: "maxWidgetLines",
+			label: "Maximum widget lines",
+			description: "Total height including heading, overflow summary, and blank separator.",
+			currentValue: String(config.maxWidgetLines),
+			values: maxWidgetLineValues(config.maxWidgetLines),
+		},
+	];
+}
+
+function applyVisualSetting(
+	config: TodoVisualConfig,
+	id: TodoVisualSettingId,
+	newValue: string,
+): TodoVisualConfig {
+	return id === "statusIcons"
+		? { ...config, statusIcons: newValue as TodoVisualConfig["statusIcons"] }
+		: { ...config, maxWidgetLines: resolveMaxWidgetLines(Number(newValue)) };
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+export function registerTodoCommand(pi: ExtensionAPI, options: TodoCommandOptions): void {
+	pi.registerCommand("todo", {
+		description: "Configure Todo widget appearance",
 		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify(t("command.requires_interactive", ERR_REQUIRES_INTERACTIVE), "error");
+			if (ctx.mode !== "tui") {
+				ctx.ui.notify("/todo requires TUI mode", "error");
 				return;
 			}
-			const state = store.getState();
-			const visible = selectVisibleTasks(state);
-			if (visible.length === 0) {
-				ctx.ui.notify(t("command.no_todos", MSG_NO_TODOS), "info");
-				return;
-			}
-			const groups = selectTasksByStatus(state);
-			const counts = selectTodoCounts(state);
-			const pendingIcon = statusIcon("pending", ctx.ui.theme, statusIcons, inProgressIcon);
-			const activeIcon = statusIcon("in_progress", ctx.ui.theme, statusIcons, inProgressIcon);
-			const completedIcon = statusIcon("completed", ctx.ui.theme, statusIcons, inProgressIcon);
 
-			const header: string[] = [];
-			if (counts.completed > 0) header.push(`${counts.completed}/${counts.total} ${formatStatusLabel("completed")}`);
-			if (counts.inProgress > 0) header.push(`${counts.inProgress} ${formatStatusLabel("in_progress")}`);
-			if (counts.pending > 0) header.push(`${counts.pending} ${formatStatusLabel("pending")}`);
+			await ctx.ui.custom((tui, theme, _keybindings, done) => {
+				let current = options.getConfig();
+				const container = new Container();
+				container.addChild(new Text(theme.fg("accent", theme.bold("Todo Visual Settings")), 1, 0));
+				container.addChild(new Text(theme.fg("dim", "Model guidance remains JSON-only."), 1, 0));
 
-			const lines: string[] = [header.join(" · ")];
-			if (groups.pending.length > 0) {
-				lines.push(t("command.section.pending", SECTION_PENDING));
-				for (const task of groups.pending) lines.push(formatCommandTaskLine(task, pendingIcon, ctx.ui.theme));
-			}
-			if (groups.inProgress.length > 0) {
-				lines.push(t("command.section.in_progress", SECTION_IN_PROGRESS));
-				for (const task of groups.inProgress) lines.push(formatCommandTaskLine(task, activeIcon, ctx.ui.theme));
-			}
-			if (groups.completed.length > 0) {
-				lines.push(t("command.section.completed", SECTION_COMPLETED));
-				for (const task of groups.completed) lines.push(formatCommandTaskLine(task, completedIcon, ctx.ui.theme));
-			}
+				let settingsList: SettingsList;
+				settingsList = new SettingsList(
+					visualSettingItems(current),
+					4,
+					getSettingsListTheme(),
+					(id, newValue) => {
+						const settingId = id as TodoVisualSettingId;
+						const previous = current;
+						const next = applyVisualSetting(previous, settingId, newValue);
+						try {
+							options.updateConfig(next);
+							current = next;
+						} catch (error) {
+							settingsList.updateValue(settingId, visualSettingValue(previous, settingId));
+							ctx.ui.notify(`Failed to save Todo settings: ${errorMessage(error)}`, "error");
+						}
+					},
+					() => done(undefined),
+				);
+				container.addChild(settingsList);
 
-			ctx.ui.notify(lines.join("\n"), "info");
+				return {
+					render: (width: number) => container.render(width),
+					invalidate: () => container.invalidate(),
+					handleInput: (data: string) => {
+						settingsList.handleInput?.(data);
+						tui.requestRender();
+					},
+				};
+			});
 		},
 	});
 }

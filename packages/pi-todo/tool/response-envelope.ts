@@ -5,8 +5,8 @@ import type { Task, TaskAction, TaskDetails, TaskMutationParams } from "./types.
 
 /**
  * Format a single task as a `[status] #id subject [⛓ #dep,…]` line.
- * Used by the `list` content branch only — the overlay and `/todos`
- * formatting paths use `view/format.ts` for richer presentations.
+ * Used by the `list` content branch only; the overlay uses
+ * `view/format.ts` for its richer presentation.
  */
 function formatListLine(t: Task): string {
 	const block = t.blockedBy?.length ? ` ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
