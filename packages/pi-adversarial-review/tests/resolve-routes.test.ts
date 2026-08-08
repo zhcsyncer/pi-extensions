@@ -1,0 +1,83 @@
+import type { Model } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vitest";
+import { resolveReviewerRoutes } from "../src/command/resolve-routes.ts";
+import type { ScopedModelEntry } from "../src/types.ts";
+
+function model(provider: string, id: string, reasoning = true): Model<any> {
+  return {
+    provider,
+    id,
+    reasoning,
+    ...(reasoning ? { thinkingLevelMap: { xhigh: "xhigh", max: "max" } } : {}),
+  } as Model<any>;
+}
+
+function scoped(...entries: Array<[Model<any>, ScopedModelEntry["thinkingLevel"]?]>): ScopedModelEntry[] {
+  return entries.map(([entryModel, thinkingLevel]) => ({
+    model: entryModel,
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+  }));
+}
+
+describe("resolveReviewerRoutes", () => {
+  const a = model("provider-a", "model-a");
+  const b = model("provider-b", "model@b");
+
+  it("uses the last @ and preserves explicit route order", () => {
+    const routes = resolveReviewerRoutes(
+      ["provider-a/model-a@high", "provider-b/model@b@xhigh"],
+      scoped([a], [b]),
+    );
+
+    expect(routes.map(({ key, ordinal, thinkingSource }) => ({ key, ordinal, thinkingSource }))).toEqual([
+      { key: "provider-a/model-a@high", ordinal: 0, thinkingSource: "user" },
+      { key: "provider-b/model@b@xhigh", ordinal: 1, thinkingSource: "user" },
+    ]);
+  });
+
+  it("enforces pinned thinking without clamping", () => {
+    const routes = resolveReviewerRoutes(
+      ["provider-a/model-a@high", "provider-b/model@b@xhigh"],
+      scoped([a, "high"], [b, "xhigh"]),
+    );
+    expect(routes.map((route) => route.thinkingSource)).toEqual(["scope-pinned", "scope-pinned"]);
+
+    expect(() => resolveReviewerRoutes(
+      ["provider-a/model-a@medium", "provider-b/model@b@xhigh"],
+      scoped([a, "high"], [b, "xhigh"]),
+    )).toThrow('pinned to thinking "high"');
+  });
+
+  it("requires exact scoped models and supported thinking", () => {
+    expect(() => resolveReviewerRoutes(
+      ["provider-a/model-a@high", "provider-c/model-c@high"],
+      scoped([a], [b]),
+    )).toThrow("is not in the current scoped models");
+
+    const plain = model("provider-c", "plain", false);
+    expect(() => resolveReviewerRoutes(
+      ["provider-a/model-a@high", "provider-c/plain@high"],
+      scoped([a], [plain]),
+    )).toThrow('Thinking "high" is not supported');
+  });
+
+  it("fails closed on empty scope, duplicate models, and invalid fleet sizes", () => {
+    expect(() => resolveReviewerRoutes(["a/b@off", "c/d@off"], [])).toThrow(
+      "No scoped models are configured",
+    );
+    expect(() => resolveReviewerRoutes(["provider-a/model-a@high"], scoped([a]))).toThrow(
+      "at least 2 distinct reviewer models",
+    );
+    expect(() => resolveReviewerRoutes(
+      ["provider-a/model-a@high", "provider-a/model-a@xhigh"],
+      scoped([a]),
+    )).toThrow("is duplicated");
+    expect(() => resolveReviewerRoutes(
+      Array.from({ length: 9 }, (_, index) => `p${index}/m${index}@off`),
+      scoped(...Array.from(
+        { length: 9 },
+        (_, index): [Model<any>] => [model(`p${index}`, `m${index}`, false)],
+      )),
+    )).toThrow("at most 8 reviewer models");
+  });
+});
