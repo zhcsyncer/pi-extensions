@@ -1,0 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+const REVIEWER_PROMPT_PATH = fileURLToPath(
+  new URL("../../assets/adversarial-reviewer.md", import.meta.url),
+);
+
+export function loadReviewerSystemPrompt(): Promise<string> {
+  return readFile(REVIEWER_PROMPT_PATH, "utf8");
+}

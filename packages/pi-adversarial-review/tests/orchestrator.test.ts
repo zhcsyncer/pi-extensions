@@ -1,0 +1,244 @@
+import type { Model } from "@earendil-works/pi-ai";
+import { describe, expect, it, vi } from "vitest";
+import { runReviewerFleet } from "../src/runtime/orchestrator.ts";
+import type {
+  ReviewAgentStartedEvent,
+  ReviewAgentTerminalEvent,
+  ReviewSubagentRuntime,
+  SpawnReviewAgentInput,
+} from "../src/runtime/types.ts";
+import type { FrozenReviewInput, ReviewerRoute } from "../src/types.ts";
+
+class FakeRuntime implements ReviewSubagentRuntime {
+  readonly startedHandlers = new Set<(event: ReviewAgentStartedEvent) => void>();
+  readonly terminalHandlers = new Set<(event: ReviewAgentTerminalEvent) => void>();
+  readonly spawnInputs: SpawnReviewAgentInput[] = [];
+  readonly stops: string[] = [];
+  spawnImpl?: (input: SpawnReviewAgentInput, agentId: string) => Promise<{ agentId: string }>;
+
+  async getCapabilities() {
+    return { protocolVersion: 3 as const, maxConcurrent: 2 };
+  }
+
+  async spawn(input: SpawnReviewAgentInput): Promise<{ agentId: string }> {
+    this.spawnInputs.push(input);
+    const agentId = `agent-${input.correlationId.split(":").at(-1)}`;
+    return this.spawnImpl ? this.spawnImpl(input, agentId) : { agentId };
+  }
+
+  async stop(agentId: string): Promise<void> {
+    this.stops.push(agentId);
+  }
+
+  onStarted(handler: (event: ReviewAgentStartedEvent) => void): () => void {
+    this.startedHandlers.add(handler);
+    return () => this.startedHandlers.delete(handler);
+  }
+
+  onTerminal(handler: (event: ReviewAgentTerminalEvent) => void): () => void {
+    this.terminalHandlers.add(handler);
+    return () => this.terminalHandlers.delete(handler);
+  }
+
+  emitStarted(event: ReviewAgentStartedEvent): void {
+    for (const handler of this.startedHandlers) handler(event);
+  }
+
+  emitTerminal(event: ReviewAgentTerminalEvent): void {
+    for (const handler of this.terminalHandlers) handler(event);
+  }
+
+  listenerCount(): number {
+    return this.startedHandlers.size + this.terminalHandlers.size;
+  }
+}
+
+function model(provider: string, id: string): Model<any> {
+  return { provider, id, reasoning: true } as Model<any>;
+}
+
+function routes(count: number): ReviewerRoute[] {
+  return Array.from({ length: count }, (_, ordinal) => ({
+    key: `provider-${ordinal}/model-${ordinal}@high`,
+    provider: `provider-${ordinal}`,
+    modelId: `model-${ordinal}`,
+    model: model(`provider-${ordinal}`, `model-${ordinal}`),
+    thinking: "high",
+    thinkingSource: "user",
+    ordinal,
+  }));
+}
+
+function frozen(): FrozenReviewInput {
+  return {
+    runId: "run-1",
+    target: {
+      mode: "local",
+      description: "local",
+      root: "/repo",
+      headSha: "head",
+      statusSha256: "status",
+      targetSha256: "target",
+      changedFiles: ["src/example.ts"],
+    },
+    reviewerCwd: "/repo",
+    inputPath: "/tmp/input.md",
+    charterSource: "builtin",
+    charterSha256: "charter",
+    limitedContext: [],
+    recheck: vi.fn(async () => ({ stale: false, changed: [] })),
+    cleanup: vi.fn(async () => {}),
+  };
+}
+
+function validOutput(summary = "clean"): string {
+  return JSON.stringify({ verdict: "approve", summary, findings: [] });
+}
+
+function terminalFor(input: SpawnReviewAgentInput, agentId: string, overrides: Partial<ReviewAgentTerminalEvent> = {}): ReviewAgentTerminalEvent {
+  return {
+    agentId,
+    correlationId: input.correlationId,
+    status: "completed",
+    result: validOutput(input.correlationId),
+    requestedModel: { provider: input.model.provider, modelId: input.model.id },
+    requestedThinking: input.thinking,
+    effectiveModel: { provider: input.model.provider, modelId: input.model.id },
+    effectiveThinking: input.thinking,
+    ...overrides,
+  };
+}
+
+describe("runReviewerFleet", () => {
+  it("does not lose terminal events that arrive before spawn replies and sorts by route ordinal", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(terminalFor(input, agentId, {
+        status: input.correlationId.endsWith(":0") ? "steered" : "completed",
+      }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(4),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(result.capabilities.maxConcurrent).toBe(2);
+    expect(result.routeResults.map(({ status, route }) => [route.ordinal, status])).toEqual([
+      [0, "completed"],
+      [1, "completed"],
+      [2, "completed"],
+      [3, "completed"],
+    ]);
+    expect(runtime.spawnInputs).toHaveLength(4);
+    expect(runtime.spawnInputs[0]).toMatchObject({
+      cwd: "/repo",
+      maxTurns: 25,
+      correlationId: "run-1:reviewer:0",
+    });
+    expect(runtime.listenerCount()).toBe(0);
+  });
+
+  it("preserves invalid output and effective-route mismatch as separate route failures", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(input.correlationId.endsWith(":0")
+        ? terminalFor(input, agentId, { result: "not-json" })
+        : terminalFor(input, agentId, {
+            effectiveModel: { provider: "different", modelId: "route" },
+          }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(result.routeResults[0]).toMatchObject({ status: "invalid-output" });
+    expect(result.routeResults[0].rawOutput).toBe("not-json");
+    expect(result.routeResults[1]).toMatchObject({
+      status: "errored",
+      error: expect.stringContaining("effective route does not match"),
+    });
+  });
+
+  it("times out a running route, stops it, and ignores late terminal success", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+      routeTimeoutMs: 10,
+      overallTimeoutMs: 100,
+    });
+
+    expect(result.routeResults.every(({ status }) => status === "timed-out")).toBe(true);
+    expect(runtime.stops.sort()).toEqual(["agent-0", "agent-1"]);
+    runtime.emitTerminal(terminalFor(runtime.spawnInputs[0], "agent-0"));
+    expect(result.routeResults[0].status).toBe("timed-out");
+    expect(runtime.listenerCount()).toBe(0);
+  });
+
+  it("cancels active and queued routes once through the shared abort signal", async () => {
+    const runtime = new FakeRuntime();
+    const controller = new AbortController();
+    runtime.spawnImpl = async (input, agentId) => {
+      if (input.correlationId.endsWith(":0")) {
+        runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      }
+      if (runtime.spawnInputs.length === 2) queueMicrotask(() => controller.abort());
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+      signal: controller.signal,
+      overallTimeoutMs: 100,
+    });
+
+    expect(result.routeResults.map(({ status }) => status)).toEqual(["cancelled", "cancelled"]);
+    expect(runtime.stops.sort()).toEqual(["agent-0", "agent-1"]);
+  });
+
+  it("keeps a spawn failure instead of dropping the route", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      if (input.correlationId.endsWith(":0")) {
+        runtime.emitStarted({ agentId, correlationId: input.correlationId });
+        throw new Error("provider unavailable");
+      }
+      runtime.emitTerminal(terminalFor(input, agentId));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(result.routeResults).toHaveLength(2);
+    expect(result.routeResults[0]).toMatchObject({
+      status: "errored",
+      error: "Spawn failed: provider unavailable",
+    });
+    expect(result.routeResults[1].status).toBe("completed");
+    expect(runtime.stops).toEqual(["agent-0"]);
+  });
+});
