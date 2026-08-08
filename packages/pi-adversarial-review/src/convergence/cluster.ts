@@ -9,12 +9,20 @@ export interface ClusteringConfig {
   lineTolerance: number;
   invariantSimilarity: number;
   issueSimilarity: number;
+  minIssueSharedTokens: number;
+  corroboratingIssueSimilarity: number;
+  minCorroboratingIssueTokens: number;
+  minSharedActionTokens: number;
 }
 
 export const DEFAULT_CLUSTERING_CONFIG: ClusteringConfig = {
   lineTolerance: 2,
-  invariantSimilarity: 0.35,
-  issueSimilarity: 0.45,
+  invariantSimilarity: 0.18,
+  issueSimilarity: 0.16,
+  minIssueSharedTokens: 2,
+  corroboratingIssueSimilarity: 0.11,
+  minCorroboratingIssueTokens: 2,
+  minSharedActionTokens: 1,
 };
 
 interface NormalizedFinding {
@@ -29,9 +37,70 @@ interface NormalizedFinding {
 }
 
 const STOP_WORDS = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "because", "by", "can", "does",
-  "for", "from", "has", "if", "in", "into", "is", "it", "may", "not", "of",
-  "on", "or", "that", "the", "this", "to", "when", "which", "will", "with",
+  "a", "after", "all", "an", "and", "are", "as", "at", "be", "because", "before", "both", "by", "can",
+  "configured", "current", "different", "does", "during", "each", "either", "every",
+  "existing", "field", "fields", "for", "from", "has", "if", "in", "inside", "into",
+  "is", "it", "may", "must", "neither", "never", "new", "not", "of", "on", "only",
+  "or", "outside", "path", "per", "previous", "remain", "remains", "request", "requests",
+  "same", "stay", "stays", "successful", "that", "the", "this", "through", "to", "under",
+  "user", "users", "value", "values", "when", "which", "will", "with", "without",
+]);
+
+// Deliberately narrow inflection table. Do not collapse broad concepts such as
+// authorization/token or URL/origin: nearby findings can mention those words
+// while describing different vulnerabilities.
+const TOKEN_ALIASES = new Map<string, string>();
+for (const [canonical, variants] of Object.entries({
+  access: ["access", "accessed", "accesses", "accessing"],
+  address: ["address", "addresses"],
+  auth: ["auth", "authenticated", "authentication"],
+  cache: ["cache", "cached", "caches", "caching"],
+  charge: ["charge", "charged", "charges", "charging"],
+  class: ["class", "classes"],
+  clear: ["clear", "cleared", "clearing", "clears"],
+  client: ["client", "clients"],
+  concurrent: ["concurrency", "concurrent"],
+  create: ["create", "created", "creates", "creating", "creation"],
+  duplicate: ["duplicate", "duplicated", "duplicates"],
+  expire: ["expiration", "expired", "expiry"],
+  fail: ["fail", "failed", "failing", "fails", "failure", "failures"],
+  header: ["header", "headers"],
+  identifier: ["identifier", "identifiers"],
+  insert: ["insert", "inserted", "insertion", "inserts"],
+  job: ["job", "jobs"],
+  lock: ["lock", "locked", "locking", "locks"],
+  log: ["log", "logged", "logging", "logs"],
+  order: ["order", "orders"],
+  payment: ["payment", "payments"],
+  persist: ["persist", "persisted", "persistence"],
+  process: ["process", "processed", "processes", "processing"],
+  profile: ["profile", "profiles"],
+  query: ["filter", "filtered", "filtering", "filters", "lookup", "lookups", "queries", "query"],
+  read: ["read", "reading", "reads"],
+  record: ["record", "records"],
+  redirect: ["redirect", "redirected", "redirects"],
+  reservation: ["reservation", "reservations", "reserve", "reserved"],
+  response: ["response", "responses"],
+  retry: ["retried", "retries", "retry", "retrying"],
+  rollback: ["revert", "reverted", "reverts", "rollback", "rolled"],
+  row: ["row", "rows"],
+  status: ["status", "statuses"],
+  tenant: ["tenant", "tenants"],
+  token: ["token", "tokens"],
+  update: ["update", "updated", "updates", "updating"],
+  wirechange: ["remove", "removed", "removes", "removing", "rename", "renamed", "renames", "renaming"],
+  url: ["url", "urls"],
+  write: ["write", "writes", "writing"],
+})) {
+  for (const variant of variants) TOKEN_ALIASES.set(variant, canonical);
+}
+
+// Entity overlap (order/tenant/id/profile/etc.) is context, not mechanism.
+// At least one shared action token is required so nearby read/write or tax/
+// discount defects cannot become a false consensus merely by naming the same data.
+const ACTION_MECHANISM_TOKENS = new Set([
+  "charge", "clear", "create", "fail", "idempotency", "log", "null", "persist",
+  "query", "redirect", "retry", "rollback", "update", "wirechange", "write",
 ]);
 
 const SEVERITY_RANK: Record<FindingSeverity, number> = {
@@ -45,15 +114,32 @@ function lexical(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function canonicalToken(value: string): string {
+  const token = value.replace(/[’']s$/u, "");
+  return TOKEN_ALIASES.get(token) ?? token;
+}
+
 export function normalizedTokens(value: string): Set<string> {
-  const tokens = value
+  const rawTokens = value
     .normalize("NFKD")
-    .toLowerCase()
     .replace(/[\p{P}\p{S}]+/gu, " ")
     .split(/\s+/u)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0 && !STOP_WORDS.has(token));
-  return new Set(tokens);
+    .filter(Boolean);
+  const tokens = new Set<string>();
+  for (const rawToken of rawTokens) {
+    // Preserve the whole identifier and add camelCase components as extra
+    // evidence. This keeps status/process/access intact while allowing
+    // tenantId from two reviewers to overlap with tenant id wording.
+    const candidates = [
+      rawToken.toLowerCase(),
+      ...rawToken.replace(/([\p{Ll}\d])(\p{Lu})/gu, "$1 $2").toLowerCase().split(" "),
+    ];
+    for (const candidate of candidates) {
+      const token = canonicalToken(candidate.trim());
+      if (token.length > 0 && !STOP_WORDS.has(token)) tokens.add(token);
+    }
+  }
+  return tokens;
 }
 
 export function jaccard(left: Set<string>, right: Set<string>): number {
@@ -78,9 +164,21 @@ function compatible(
   if (left.finding.file !== right.finding.file) return false;
   if (left.finding.category !== right.finding.category) return false;
   if (lineDistance(left.finding, right.finding) > config.lineTolerance) return false;
-  return (
-    jaccard(left.invariantTokens, right.invariantTokens) >= config.invariantSimilarity ||
-    jaccard(left.issueTokens, right.issueTokens) >= config.issueSimilarity
+  const invariantScore = jaccard(left.invariantTokens, right.invariantTokens);
+  const issueScore = jaccard(left.issueTokens, right.issueTokens);
+  const sharedIssueTokens = [...left.issueTokens].filter((token) => right.issueTokens.has(token));
+  const sharedActionTokens = sharedIssueTokens.filter((token) => ACTION_MECHANISM_TOKENS.has(token));
+  const hasSharedAction = sharedActionTokens.length >= config.minSharedActionTokens;
+  return hasSharedAction && (
+    (
+      issueScore >= config.issueSimilarity &&
+      sharedIssueTokens.length >= config.minIssueSharedTokens
+    ) ||
+    (
+      invariantScore >= config.invariantSimilarity &&
+      issueScore >= config.corroboratingIssueSimilarity &&
+      sharedIssueTokens.length >= config.minCorroboratingIssueTokens
+    )
   );
 }
 
@@ -171,7 +269,11 @@ export function clusterReviewFindings(
   if (
     config.lineTolerance < 0 ||
     config.invariantSimilarity < 0 || config.invariantSimilarity > 1 ||
-    config.issueSimilarity < 0 || config.issueSimilarity > 1
+    config.issueSimilarity < 0 || config.issueSimilarity > 1 ||
+    !Number.isInteger(config.minIssueSharedTokens) || config.minIssueSharedTokens < 1 ||
+    config.corroboratingIssueSimilarity < 0 || config.corroboratingIssueSimilarity > 1 ||
+    !Number.isInteger(config.minCorroboratingIssueTokens) || config.minCorroboratingIssueTokens < 0 ||
+    !Number.isInteger(config.minSharedActionTokens) || config.minSharedActionTokens < 0
   ) throw new Error("Invalid clustering configuration.");
 
   const clusters: NormalizedFinding[][] = [];

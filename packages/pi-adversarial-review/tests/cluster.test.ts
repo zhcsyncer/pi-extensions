@@ -77,6 +77,10 @@ describe("clusterReviewFindings", () => {
       lineTolerance: 2,
       invariantSimilarity: 0.5,
       issueSimilarity: 1,
+      minIssueSharedTokens: 1,
+      corroboratingIssueSimilarity: 0,
+      minCorroboratingIssueTokens: 0,
+      minSharedActionTokens: 0,
     });
 
     expect(clusters).toHaveLength(2);
@@ -85,11 +89,11 @@ describe("clusterReviewFindings", () => {
 
   it("does not let one model's finding array order change cross-route votes", () => {
     const routeZeroFindings = [
-      finding({ invariant: "alpha", issue: "issue zero" }),
-      finding({ invariant: "alpha beta", issue: "issue one" }),
-      finding({ invariant: "beta", issue: "issue two" }),
+      finding({ invariant: "alpha", issue: "zero mechanism" }),
+      finding({ invariant: "alpha beta", issue: "one behavior" }),
+      finding({ invariant: "beta", issue: "two outcome" }),
     ];
-    const routeOne = result(1, [finding({ invariant: "alpha gamma", issue: "issue three" })]);
+    const routeOne = result(1, [finding({ invariant: "alpha gamma", issue: "three consequence" })]);
 
     const forward = clusterReviewFindings([result(0, routeZeroFindings), routeOne]);
     const reversed = clusterReviewFindings([result(0, [...routeZeroFindings].reverse()), routeOne]);
@@ -120,6 +124,9 @@ describe("clusterReviewFindings", () => {
 
   it("normalizes punctuation and computes deterministic token similarity", () => {
     expect([...normalizedTokens("The durable-write, completes!")]).toEqual(["durable", "write", "completes"]);
+    expect([...normalizedTokens("status statuses process processing address addresses class classes access accessing")])
+      .toEqual(["status", "process", "address", "class", "access"]);
+    expect(normalizedTokens("tenantId")).toEqual(new Set(["tenantid", "tenant", "id"]));
     expect(jaccard(new Set(["a", "b"]), new Set(["b", "c"]))).toBeCloseTo(1 / 3);
     expect(jaccard(new Set(), new Set())).toBe(0);
   });

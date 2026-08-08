@@ -123,6 +123,20 @@ describe("buildMergedReviewReport", () => {
     expect(report.advisory).toHaveLength(1);
   });
 
+  it("requires adjudication when multiple reviewers raise distinct advisories", () => {
+    const report = build({
+      requested: 2,
+      results: [
+        completed(0, [finding({ file: "src/first.ts" })]),
+        completed(1, [finding({ file: "src/second.ts", issue: "A separate medium-risk defect" })]),
+      ],
+    });
+    expect(report.overall).toBe("needs-adjudication");
+    expect(report.blocking).toEqual([]);
+    expect(report.advisory).toHaveLength(2);
+    expect(report.advisoryReviewerCount).toBe(2);
+  });
+
   it("puts every valid cluster in blocking under strict mode", () => {
     const report = build({
       requested: 2,

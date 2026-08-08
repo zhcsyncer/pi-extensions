@@ -27,7 +27,7 @@ pi install npm:@zhcsyncer/pi-adversarial-review
 
 ## 输出
 
-每一路 reviewer 都会保留 route result，包括 provider error、timeout、cancel 和无效 JSON。确定性门禁只会产生 `candidate-approve`、`needs-adjudication`、`inconclusive`、`stale`、`cancelled` 或 `failed`，永远不声称最终通过。Print 模式直接输出 merged report；其他模式持久化审计 entry，并把报告排到下一次用户 turn，但不会自动唤醒主模型。
+每一路 reviewer 都会保留 route result，包括 provider error、timeout、cancel 和无效 JSON。保守聚类优先避免把不同问题误合并成假共识；若多个 reviewer 各自提出未聚类 advisory，本轮仍要求裁决。确定性门禁只会产生 `candidate-approve`、`needs-adjudication`、`inconclusive`、`stale`、`cancelled` 或 `failed`，永远不声称最终通过。Print 模式直接输出 merged report；其他模式持久化审计 entry，并把报告排到下一次用户 turn，但不会自动唤醒主模型。
 
 ## 安全
 

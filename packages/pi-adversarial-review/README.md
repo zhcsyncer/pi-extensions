@@ -27,7 +27,7 @@ Supported targets are the current local changes, `--base <ref>`, or `--range <re
 
 ## Output
 
-Each reviewer is retained as a route result, including provider errors, timeouts, cancellation, and invalid JSON. A deterministic gate produces `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed`; it never claims final approval. Print mode writes the merged report directly. Other modes persist an audit entry and queue the report for the next user turn without waking the main model automatically.
+Each reviewer is retained as a route result, including provider errors, timeouts, cancellation, and invalid JSON. Conservative clustering prioritizes never merging distinct issues into false consensus; if multiple reviewers raise unclustered advisories, the run still requires adjudication. The deterministic gate produces `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed`; it never claims final approval. Print mode writes the merged report directly. Other modes persist an audit entry and queue the report for the next user turn without waking the main model automatically.
 
 ## Safety
 

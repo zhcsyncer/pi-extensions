@@ -47,6 +47,7 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
     successfulReviewerCount: 1,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
+    advisoryReviewerCount: 0,
     gating: "weighted",
     overall: "inconclusive",
     blocking: [],

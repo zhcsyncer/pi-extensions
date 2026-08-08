@@ -43,6 +43,12 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     lines.push("No blocking cluster met the configured gate. This is a candidate result, not final approval.");
   }
 
+  if (report.overall === "needs-adjudication" && report.blocking.length === 0) {
+    lines.push(
+      "Multiple reviewers raised distinct advisory concerns. They did not form a safe lexical cluster, so adjudication is still required.",
+    );
+  }
+
   if (report.blocking.length > 0) {
     lines.push("", `Blocking findings (${report.blocking.length}):`);
     for (const finding of report.blocking) {

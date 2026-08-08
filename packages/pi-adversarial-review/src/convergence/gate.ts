@@ -94,10 +94,15 @@ export function buildMergedReviewReport(
     advisory = clusters.filter((finding) => !blocking.includes(finding));
   }
 
+  const advisoryReviewerCount = new Set(
+    advisory.flatMap((finding) => finding.reviewers),
+  ).size;
+  const unresolvedAdvisoryQuorum = advisoryReviewerCount >= consensusThreshold;
+
   let overall: MergedReviewReport["overall"];
   if (successfulCount === 0) overall = "failed";
   else if (successfulCount < minSuccessful) overall = "inconclusive";
-  else if (blocking.length > 0) overall = "needs-adjudication";
+  else if (blocking.length > 0 || unresolvedAdvisoryQuorum) overall = "needs-adjudication";
   else overall = "candidate-approve";
   if (options.stale) overall = "stale";
   if (options.cancelled) overall = "cancelled";
@@ -113,6 +118,7 @@ export function buildMergedReviewReport(
     successfulReviewerCount: successfulCount,
     minSuccessfulReviewerCount: minSuccessful,
     consensusThreshold,
+    advisoryReviewerCount,
     gating: options.gating,
     overall,
     blocking,

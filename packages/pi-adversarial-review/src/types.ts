@@ -139,6 +139,7 @@ export interface MergedReviewReport {
   successfulReviewerCount: number;
   minSuccessfulReviewerCount: number;
   consensusThreshold: number;
+  advisoryReviewerCount: number;
   gating: GatingMode;
   overall:
     | "candidate-approve"
