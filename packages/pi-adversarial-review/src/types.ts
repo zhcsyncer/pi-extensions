@@ -95,6 +95,11 @@ export interface ReviewTarget {
   changedFiles: string[];
 }
 
+export interface ReviewInputDrift {
+  stale: boolean;
+  changed: Array<"head" | "status" | "target">;
+}
+
 export interface FrozenReviewInput {
   runId: string;
   target: ReviewTarget;
@@ -103,6 +108,7 @@ export interface FrozenReviewInput {
   charterSource: "builtin";
   charterSha256: string;
   limitedContext: string[];
+  recheck(): Promise<ReviewInputDrift>;
   cleanup(): Promise<void>;
 }
 
