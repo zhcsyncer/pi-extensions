@@ -1,6 +1,9 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { resolveReviewerRoutes } from "../src/command/resolve-routes.ts";
+import {
+  resolveRefuterRoute,
+  resolveReviewerRoutes,
+} from "../src/command/resolve-routes.ts";
 import type { ScopedModelEntry } from "../src/types.ts";
 
 function model(provider: string, id: string, reasoning = true): Model<any> {
@@ -59,6 +62,25 @@ describe("resolveReviewerRoutes", () => {
       ["provider-a/model-a@high", "provider-c/plain@high"],
       scoped([a], [plain]),
     )).toThrow('Thinking "high" is not supported');
+  });
+
+  it("resolves one exact refuter route with the same pin and capability rules", () => {
+    expect(resolveRefuterRoute(
+      "provider-b/model@b@xhigh",
+      scoped([a], [b, "xhigh"]),
+    )).toMatchObject({
+      key: "provider-b/model@b@xhigh",
+      ordinal: 0,
+      thinkingSource: "scope-pinned",
+    });
+    expect(() => resolveRefuterRoute(
+      "provider-b/model@b@high",
+      scoped([b, "xhigh"]),
+    )).toThrow('Refuter model "provider-b/model@b" is pinned');
+    expect(() => resolveRefuterRoute(
+      "missing/model@high",
+      scoped([a], [b]),
+    )).toThrow('Refuter model "missing/model" is not in the current scoped models');
   });
 
   it("fails closed on empty scope, duplicate models, and invalid fleet sizes", () => {

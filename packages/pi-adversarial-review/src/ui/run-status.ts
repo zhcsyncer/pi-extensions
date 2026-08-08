@@ -30,8 +30,8 @@ export function createReviewRunStatus(
   const render = () => {
     if (disposed) return;
     const detail = progress
-      ? `${progress.finished}/${progress.total} finished · ${progress.running} running · ` +
-        `${progress.queued} queued`
+      ? `${progress.phase} ${progress.finished}/${progress.total} finished · ` +
+        `${progress.running} running · ${progress.queued} queued`
       : `preparing · ${totalRoutes} routes`;
     ctx.ui.setStatus(STATUS_KEY, `Adversarial review · ${detail} · ${elapsedText(startedAtMs)}`);
   };

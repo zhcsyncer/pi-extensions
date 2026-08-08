@@ -39,16 +39,16 @@ describe("review run UI", () => {
       "adversarial-review",
       "Adversarial review · preparing · 4 routes · 0s",
     );
-    status.update({ total: 4, queued: 1, running: 2, finished: 1 });
+    status.update({ phase: "review", total: 4, queued: 1, running: 2, finished: 1 });
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · 1/4 finished · 2 running · 1 queued · 0s",
+      "Adversarial review · review 1/4 finished · 2 running · 1 queued · 0s",
     );
 
     vi.advanceTimersByTime(61_000);
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · 1/4 finished · 2 running · 1 queued · 1m01s",
+      "Adversarial review · review 1/4 finished · 2 running · 1 queued · 1m01s",
     );
     status.dispose();
     expect(setStatus).toHaveBeenLastCalledWith("adversarial-review", undefined);

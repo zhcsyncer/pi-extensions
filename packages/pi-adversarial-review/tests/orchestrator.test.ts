@@ -144,7 +144,13 @@ describe("runReviewerFleet", () => {
 
   it("emits aggregate queued/running/finished progress without trusting observer code", async () => {
     const runtime = new FakeRuntime();
-    const progress: Array<{ total: number; queued: number; running: number; finished: number }> = [];
+    const progress: Array<{
+      phase: "review" | "refute";
+      total: number;
+      queued: number;
+      running: number;
+      finished: number;
+    }> = [];
     runtime.spawnImpl = async (input, agentId) => {
       runtime.emitStarted({ agentId, correlationId: input.correlationId });
       runtime.emitTerminal(terminalFor(input, agentId));
@@ -163,9 +169,36 @@ describe("runReviewerFleet", () => {
     });
 
     expect(result.routeResults.every(({ status }) => status === "completed")).toBe(true);
-    expect(progress[0]).toEqual({ total: 2, queued: 2, running: 0, finished: 0 });
-    expect(progress).toContainEqual({ total: 2, queued: 1, running: 1, finished: 0 });
-    expect(progress.at(-1)).toEqual({ total: 2, queued: 0, running: 0, finished: 2 });
+    expect(progress[0]).toEqual({
+      phase: "review", total: 2, queued: 2, running: 0, finished: 0,
+    });
+    expect(progress).toContainEqual({
+      phase: "review", total: 2, queued: 1, running: 1, finished: 0,
+    });
+    expect(progress.at(-1)).toEqual({
+      phase: "review", total: 2, queued: 0, running: 0, finished: 2,
+    });
+  });
+
+  it("rejects a reviewer terminal whose agent id disagrees with the spawn reply", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(terminalFor(input, `forged-${agentId}`));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(result.routeResults.every(({ status }) => status === "errored")).toBe(true);
+    expect(result.routeResults[0].error).toContain("does not match spawn reply agent");
+    expect(runtime.stops.sort()).toEqual([
+      "agent-0", "agent-1", "forged-agent-0", "forged-agent-1",
+    ]);
   });
 
   it("preserves invalid output and effective-route mismatch as separate route failures", async () => {

@@ -13,6 +13,8 @@ export interface ParsedReviewCommand {
   reqdoc?: string;
   focus?: string;
   gating: GatingMode;
+  refute: boolean;
+  refuterSpec?: string;
 }
 
 export interface ScopedModelEntry {
@@ -82,6 +84,24 @@ export interface ReviewerRouteResult {
   usage?: { input?: number; output?: number; total?: number };
 }
 
+export interface VerifyReport {
+  refuted: boolean;
+  reason: string;
+  evidence: string[];
+}
+
+export interface RefuteRouteResult {
+  findingIndex: number;
+  route: ReviewerRoute;
+  status: ReviewerRouteStatus;
+  agentId?: string;
+  report?: VerifyReport;
+  rawOutput?: string;
+  error?: string;
+  durationMs?: number;
+  usage?: { input?: number; output?: number; total?: number };
+}
+
 export interface ReviewTarget {
   mode: ReviewTargetRequest["mode"];
   description: string;
@@ -128,6 +148,14 @@ export interface MergedFinding {
   sourceFindingIndexes: Array<{ routeKey: string; findingIndex: number }>;
 }
 
+export interface ContestedFinding {
+  findingIndex: number;
+  finding: MergedFinding;
+  refuterRoute: ReviewerRoute;
+  reason: string;
+  evidence: string[];
+}
+
 export interface MergedReviewReport {
   version: 1;
   runId: string;
@@ -155,7 +183,15 @@ export interface MergedReviewReport {
     | "failed";
   blocking: MergedFinding[];
   advisory: MergedFinding[];
-  contested: never[];
+  refuteRequested: boolean;
+  refuterRoute?: ReviewerRoute;
+  refuteRuntime?: {
+    protocolVersion: 3;
+    maxConcurrent: number;
+    waves: number;
+  };
+  refuteResults: RefuteRouteResult[];
+  contested: ContestedFinding[];
   stale: boolean;
   limitedContext: string[];
   startedAt: string;

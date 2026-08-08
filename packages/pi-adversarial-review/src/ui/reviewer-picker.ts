@@ -9,7 +9,10 @@ import {
   type SettingItem,
 } from "@earendil-works/pi-tui";
 import { ReviewCommandError } from "../command/parse-args.ts";
-import { resolveReviewerRoutes } from "../command/resolve-routes.ts";
+import {
+  resolveRefuterRoute,
+  resolveReviewerRoutes,
+} from "../command/resolve-routes.ts";
 import type { ScopedModelEntry } from "../types.ts";
 
 const RUN_ITEM_ID = "__adversarial_review_run__";
@@ -27,6 +30,12 @@ export interface ReviewerPickerOptions {
   ctx: ExtensionCommandContext;
   maxConcurrent: number;
   previousSpecs?: readonly string[];
+  signal?: AbortSignal;
+}
+
+export interface RefuterPickerOptions {
+  ctx: ExtensionCommandContext;
+  previousSpec?: string;
   signal?: AbortSignal;
 }
 
@@ -101,7 +110,15 @@ export function retainValidReviewerSpecs(
   return selectedSpecs(rows, values);
 }
 
-function pickerItems(rows: readonly PickerRow[]): SettingItem[] {
+export function retainValidRefuterSpec(
+  spec: string | undefined,
+  scopedModels: readonly ScopedModelEntry[],
+): string | undefined {
+  return retainValidReviewerSpecs(spec ? [spec] : [], scopedModels)[0];
+}
+
+function pickerItems(rows: readonly PickerRow[], mode: "reviewer" | "refuter"): SettingItem[] {
+  const refuter = mode === "refuter";
   return [
     ...rows.map((row): SettingItem => {
       const pinned = row.entry.thinkingLevel !== undefined;
@@ -120,10 +137,12 @@ function pickerItems(rows: readonly PickerRow[]): SettingItem[] {
     }),
     {
       id: RUN_ITEM_ID,
-      label: "▶ Run selected reviewers",
+      label: refuter ? "▶ Use selected refuter" : "▶ Run selected reviewers",
       currentValue: "confirm",
       values: ["confirm"],
-      description: "Start with 2–8 distinct scoped models. No reviewer starts before confirmation.",
+      description: refuter
+        ? "Use exactly one independent scoped route for every blocking cluster."
+        : "Start with 2–8 distinct scoped models. No reviewer starts before confirmation.",
     },
   ];
 }
@@ -132,14 +151,25 @@ function pickerItems(rows: readonly PickerRow[]): SettingItem[] {
  * Pick reviewer routes from the current scoped-model snapshot.
  * Returns undefined on Escape or abort and never starts runtime work itself.
  */
-export async function pickReviewerSpecs({
-  ctx,
-  maxConcurrent,
-  previousSpecs,
-  signal,
-}: ReviewerPickerOptions): Promise<string[] | undefined> {
+async function pickScopedSpecs(
+  {
+    ctx,
+    maxConcurrent,
+    previousSpecs,
+    signal,
+  }: ReviewerPickerOptions,
+  mode: "reviewer" | "refuter",
+): Promise<string[] | undefined> {
   if (signal?.aborted) return undefined;
   const rows = pickerRows(ctx.scopedModels, previousSpecs);
+  if (mode === "refuter") {
+    let keptRemembered = false;
+    for (const row of rows) {
+      if (row.remembered === undefined) continue;
+      if (keptRemembered) delete row.remembered;
+      else keptRemembered = true;
+    }
+  }
   if (rows.length === 0) {
     throw new ReviewCommandError(
       "No scoped models are configured. Use /scoped-models before adversarial review.",
@@ -149,7 +179,7 @@ export async function pickReviewerSpecs({
   let removeAbortListener = () => {};
   try {
     return await ctx.ui.custom<string[] | undefined>((tui, theme, _keybindings, done) => {
-      const items = pickerItems(rows);
+      const items = pickerItems(rows, mode);
       const values = new Map(items.slice(0, rows.length).map((item) => [item.id, item.currentValue]));
       let validationError: string | undefined;
       let settled = false;
@@ -167,7 +197,8 @@ export async function pickReviewerSpecs({
         if (signal.aborted) finish(undefined);
       }
 
-      const list = new SettingsList(
+      let list: SettingsList;
+      list = new SettingsList(
         items,
         Math.min(Math.max(rows.length + 1, 4), 14),
         getSettingsListTheme(),
@@ -175,7 +206,16 @@ export async function pickReviewerSpecs({
           if (id === RUN_ITEM_ID) {
             const specs = selectedSpecs(rows, values);
             try {
-              resolveReviewerRoutes(specs, ctx.scopedModels);
+              if (mode === "reviewer") {
+                resolveReviewerRoutes(specs, ctx.scopedModels);
+              } else {
+                if (specs.length !== 1) {
+                  throw new ReviewCommandError(
+                    "Adversarial refute requires exactly one refuter model.",
+                  );
+                }
+                resolveRefuterRoute(specs[0], ctx.scopedModels);
+              }
               finish(specs);
             } catch (error) {
               validationError = error instanceof Error ? error.message : String(error);
@@ -184,6 +224,13 @@ export async function pickReviewerSpecs({
             return;
           }
           values.set(id, newValue);
+          if (mode === "refuter" && newValue !== DISABLED) {
+            for (const row of rows) {
+              if (row.id === id) continue;
+              values.set(row.id, DISABLED);
+              list.updateValue(row.id, DISABLED);
+            }
+          }
           validationError = undefined;
           tui.requestRender();
         },
@@ -197,11 +244,15 @@ export async function pickReviewerSpecs({
           const count = selectedSpecs(rows, values).length;
           const concurrency = Math.max(1, Math.floor(maxConcurrent));
           const waves = count === 0 ? 0 : Math.ceil(count / concurrency);
-          const title = theme.fg("accent", theme.bold("Adversarial review fleet"));
-          const summary = theme.fg(
-            count >= 2 && count <= 8 ? "muted" : "warning",
-            `${count} selected · max concurrent ${concurrency} · ${waves} wave${waves === 1 ? "" : "s"}`,
+          const title = theme.fg(
+            "accent",
+            theme.bold(mode === "reviewer" ? "Adversarial review fleet" : "Adversarial refuter"),
           );
+          const validCount = mode === "reviewer" ? count >= 2 && count <= 8 : count === 1;
+          const summaryText = mode === "reviewer"
+            ? `${count} selected · max concurrent ${concurrency} · ${waves} wave${waves === 1 ? "" : "s"}`
+            : `${count} selected · one fresh session per blocking cluster`;
+          const summary = theme.fg(validCount ? "muted" : "warning", summaryText);
           const lines = [truncateToWidth(`${title}  ${summary}`, safeWidth, "")];
           if (validationError) {
             lines.push(truncateToWidth(theme.fg("error", validationError), safeWidth, ""));
@@ -225,4 +276,24 @@ export async function pickReviewerSpecs({
   } finally {
     removeAbortListener();
   }
+}
+
+/** Pick 2–8 reviewer routes from the current scoped-model snapshot. */
+export function pickReviewerSpecs(options: ReviewerPickerOptions): Promise<string[] | undefined> {
+  return pickScopedSpecs(options, "reviewer");
+}
+
+/** Pick exactly one independent refuter route from the same scope snapshot. */
+export async function pickRefuterSpec({
+  ctx,
+  previousSpec,
+  signal,
+}: RefuterPickerOptions): Promise<string | undefined> {
+  const specs = await pickScopedSpecs({
+    ctx,
+    maxConcurrent: 1,
+    ...(previousSpec ? { previousSpecs: [previousSpec] } : {}),
+    signal,
+  }, "refuter");
+  return specs?.[0];
 }

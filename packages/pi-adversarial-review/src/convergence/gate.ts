@@ -63,6 +63,8 @@ export interface BuildMergedReviewReportOptions {
     protocolVersion: 3;
     maxConcurrent: number;
   };
+  refuteRequested: boolean;
+  refuterRoute?: ReviewerRoute;
   gating: GatingMode;
   stale: boolean;
   cancelled: boolean;
@@ -84,6 +86,9 @@ export function buildMergedReviewReport(
     options.runtimeCapabilities.maxConcurrent < 1
   ) {
     throw new Error("Invalid review runtime capabilities.");
+  }
+  if (options.refuteRequested !== (options.refuterRoute !== undefined)) {
+    throw new Error("Refute requests require exactly one resolved refuter route.");
   }
   const successful = options.routeResults.filter((result) => (
     result.status === "completed" && result.report !== undefined
@@ -138,6 +143,9 @@ export function buildMergedReviewReport(
     overall,
     blocking,
     advisory,
+    refuteRequested: options.refuteRequested,
+    ...(options.refuterRoute ? { refuterRoute: options.refuterRoute } : {}),
+    refuteResults: [],
     contested: [],
     stale: options.stale,
     limitedContext: options.limitedContext,

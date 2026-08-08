@@ -15,7 +15,7 @@ function unwrapSingleJsonFence(input: string): string {
   return match ? match[1].trim() : input;
 }
 
-function balancedObjectCandidate(input: string): string {
+function balancedObjectCandidate(input: string, actor: string): string {
   const candidates: Array<{ start: number; end: number }> = [];
   let start = -1;
   let depth = 0;
@@ -52,41 +52,44 @@ function balancedObjectCandidate(input: string): string {
   }
 
   if (start >= 0 || inString) {
-    throw new InvalidReviewOutputError("Reviewer output contains truncated JSON.");
+    throw new InvalidReviewOutputError(`${actor} output contains truncated JSON.`);
   }
   if (candidates.length !== 1) {
     throw new InvalidReviewOutputError(
       candidates.length === 0
-        ? "Reviewer output does not contain a JSON object."
-        : "Reviewer output contains multiple JSON objects.",
+        ? `${actor} output does not contain a JSON object.`
+        : `${actor} output contains multiple JSON objects.`,
     );
   }
   const [candidate] = candidates;
   if (input.slice(candidate.end).trim()) {
-    throw new InvalidReviewOutputError("Reviewer output contains trailing commentary after JSON.");
+    throw new InvalidReviewOutputError(`${actor} output contains trailing commentary after JSON.`);
   }
   return input.slice(candidate.start, candidate.end);
 }
 
-function parseJsonObject(rawOutput: string): unknown {
+export function parseJsonObject(rawOutput: string, actor = "Reviewer"): unknown {
   const trimmed = rawOutput.trim();
-  if (!trimmed) throw new InvalidReviewOutputError("Reviewer output is empty.");
+  if (!trimmed) throw new InvalidReviewOutputError(`${actor} output is empty.`);
   const candidate = unwrapSingleJsonFence(trimmed);
   try {
     return JSON.parse(candidate);
   } catch {
-    const balanced = balancedObjectCandidate(candidate);
+    const balanced = balancedObjectCandidate(candidate, actor);
     try {
       return JSON.parse(balanced);
     } catch {
-      throw new InvalidReviewOutputError("Reviewer output is not valid JSON.");
+      throw new InvalidReviewOutputError(`${actor} output is not valid JSON.`);
     }
   }
 }
 
-function requiredText(value: string, field: string): string {
+export function requiredText(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new InvalidReviewOutputError(`${field} must not be blank.`);
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/u.test(trimmed)) {
+    throw new InvalidReviewOutputError(`${field} must not contain control characters.`);
+  }
   return trimmed;
 }
 
@@ -127,7 +130,7 @@ function normalizeFinding(finding: Finding, index: number): Finding {
 }
 
 export function parseReviewReport(rawOutput: string): ReviewReport {
-  const value = parseJsonObject(rawOutput);
+  const value = parseJsonObject(rawOutput, "Reviewer");
   if (!Value.Check(ReviewReportSchema, value)) {
     const firstError = [...Value.Errors(ReviewReportSchema, value)][0];
     throw new InvalidReviewOutputError(

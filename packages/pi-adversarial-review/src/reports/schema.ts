@@ -34,3 +34,9 @@ export const ReviewReportSchema = Type.Object({
   summary: Type.String({ minLength: 1 }),
   findings: Type.Array(FindingSchema),
 }, { additionalProperties: false });
+
+export const VerifyReportSchema = Type.Object({
+  refuted: Type.Boolean(),
+  reason: Type.String({ minLength: 1 }),
+  evidence: Type.Array(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });

@@ -64,6 +64,7 @@ describe("PiSubagentRpcV3Client", () => {
     const runtime = new PiSubagentRpcV3Client(bus);
 
     await expect(runtime.spawn({
+      role: "reviewer",
       prompt: "review input",
       systemPrompt: "review only",
       cwd: "/repo",
@@ -100,6 +101,94 @@ describe("PiSubagentRpcV3Client", () => {
     await runtime.stop("agent-1");
     expect(bus.emitted.find(({ event }) => event === "subagents:rpc:stop")!.data)
       .toMatchObject({ agentId: "agent-1" });
+  });
+
+  it("uses an independent inline identity for refuter sessions", async () => {
+    const bus = new FakeBus();
+    replyToRequests(bus, () => ({ success: true, data: { id: "refuter-1" } }));
+    const runtime = new PiSubagentRpcV3Client(bus);
+
+    await runtime.spawn({
+      role: "refuter",
+      prompt: "falsify one finding",
+      systemPrompt: "refute only",
+      cwd: "/repo",
+      model: model(),
+      thinking: "high",
+      maxTurns: 12,
+      correlationId: "run:refuter:0",
+      description: "Refute #1",
+    });
+
+    expect(bus.emitted.find(({ event }) => event === "subagents:rpc:spawn")?.data).toMatchObject({
+      type: "adversarial-refuter",
+      options: {
+        correlationId: "run:refuter:0",
+        maxTurns: 12,
+        inlineAgentConfig: {
+          name: "adversarial-refuter",
+          displayName: "Adversarial Refuter",
+          description: "Independent adversarial finding refuter",
+          builtinToolNames: ["read", "grep", "find", "ls"],
+        },
+      },
+    });
+  });
+
+  it("reaps a late started agent after a failed spawn reply", async () => {
+    const bus = new FakeBus();
+    replyToRequests(bus, (event) => event.endsWith(":spawn")
+      ? { success: false, error: "reply lost" }
+      : { success: true });
+    const runtime = new PiSubagentRpcV3Client(bus);
+
+    await expect(runtime.spawn({
+      role: "refuter",
+      prompt: "falsify",
+      systemPrompt: "refute only",
+      cwd: "/repo",
+      model: model(),
+      thinking: "high",
+      maxTurns: 12,
+      correlationId: "run:refuter:late",
+      description: "Refute late",
+    })).rejects.toThrow("reply lost");
+    expect(bus.listenerCount()).toBe(3);
+
+    bus.emit("subagents:started", {
+      id: "late-agent",
+      correlationId: "run:refuter:late",
+    });
+
+    expect(bus.emitted.find(({ event }) => event === "subagents:rpc:stop")?.data)
+      .toMatchObject({ agentId: "late-agent" });
+    expect(bus.listenerCount()).toBe(0);
+  });
+
+  it("cleans the reaper when a malformed spawn reply is followed by terminal lifecycle", async () => {
+    const bus = new FakeBus();
+    replyToRequests(bus, () => ({ success: true, data: {} }));
+    const runtime = new PiSubagentRpcV3Client(bus);
+
+    await expect(runtime.spawn({
+      role: "reviewer",
+      prompt: "review",
+      systemPrompt: "review only",
+      cwd: "/repo",
+      model: model(),
+      thinking: "high",
+      maxTurns: 25,
+      correlationId: "run:reviewer:malformed",
+      description: "Review malformed",
+    })).rejects.toThrow("returned no agent id");
+    expect(bus.listenerCount()).toBe(3);
+
+    bus.emit("subagents:failed", {
+      id: "already-terminal",
+      correlationId: "run:reviewer:malformed",
+      status: "failed",
+    });
+    expect(bus.listenerCount()).toBe(0);
   });
 
   it("normalizes correlated started and terminal lifecycle events", () => {

@@ -6,7 +6,9 @@ import {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  pickRefuterSpec,
   pickReviewerSpecs,
+  retainValidRefuterSpec,
   retainValidReviewerSpecs,
 } from "../src/ui/reviewer-picker.ts";
 
@@ -161,6 +163,52 @@ describe("reviewer picker", () => {
     );
 
     await expect(pickReviewerSpecs({ ctx, maxConcurrent: 2 })).resolves.toBeUndefined();
+  });
+
+  it("selects exactly one refuter and replaces a remembered route", async () => {
+    let afterReplacement = "";
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a"), thinkingLevel: "high" },
+        { model: model("provider-b", "model-b", false) },
+      ],
+      (component) => {
+        expect(component.render(120).join("\n")).toContain("Adversarial refuter");
+        expect(component.render(120).join("\n")).toContain("1 selected");
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // model-b -> off, model-a -> disabled
+        afterReplacement = component.render(120).join("\n");
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // Use selected refuter
+      },
+    );
+
+    await expect(pickRefuterSpec({
+      ctx,
+      previousSpec: "provider-a/model-a@high",
+    })).resolves.toBe("provider-b/model-b@off");
+    expect(afterReplacement).toContain("1 selected");
+    expect(retainValidRefuterSpec("removed/model@high", ctx.scopedModels)).toBeUndefined();
+  });
+
+  it("keeps the refuter picker open until exactly one route is selected", async () => {
+    let invalid = "";
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a") },
+        { model: model("provider-b", "model-b") },
+      ],
+      (component) => {
+        component.handleInput?.(DOWN);
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // confirm zero
+        invalid = component.render(120).join("\n");
+        component.handleInput?.(ESCAPE);
+      },
+    );
+
+    await expect(pickRefuterSpec({ ctx })).resolves.toBeUndefined();
+    expect(invalid).toContain("requires exactly one refuter model");
   });
 
   it("aborts a pending picker through the shared run signal", async () => {

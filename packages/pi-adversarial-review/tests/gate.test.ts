@@ -57,6 +57,8 @@ function build(options: {
   gating?: "weighted" | "strict";
   stale?: boolean;
   cancelled?: boolean;
+  refuteRequested?: boolean;
+  refuterRoute?: ReviewerRoute;
 }) {
   return buildMergedReviewReport({
     runId: "run",
@@ -74,6 +76,8 @@ function build(options: {
     requestedRoutes: Array.from({ length: options.requested }, (_, index) => route(index)),
     routeResults: options.results,
     runtimeCapabilities: { protocolVersion: 3, maxConcurrent: 2 },
+    refuteRequested: options.refuteRequested ?? false,
+    refuterRoute: options.refuterRoute,
     gating: options.gating ?? "weighted",
     stale: options.stale ?? false,
     cancelled: options.cancelled ?? false,
@@ -169,6 +173,27 @@ describe("buildMergedReviewReport", () => {
   it("returns candidate-approve only after a healthy clean fleet", () => {
     const report = build({ requested: 2, results: [completed(0), completed(1)] });
     expect(report.overall).toBe("candidate-approve");
+  });
+
+  it("records refute intent only with one resolved route and starts with no refute result", () => {
+    const refuterRoute = route(9);
+    const report = build({
+      requested: 2,
+      results: [completed(0), completed(1)],
+      refuteRequested: true,
+      refuterRoute,
+    });
+    expect(report).toMatchObject({
+      refuteRequested: true,
+      refuterRoute,
+      refuteResults: [],
+      contested: [],
+    });
+    expect(() => build({
+      requested: 2,
+      results: [completed(0), completed(1)],
+      refuteRequested: true,
+    })).toThrow("require exactly one resolved refuter route");
   });
 
   it("lets stale and cancelled states override gating", () => {

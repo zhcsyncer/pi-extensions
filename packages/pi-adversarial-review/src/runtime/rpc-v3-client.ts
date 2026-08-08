@@ -8,7 +8,20 @@ import type {
 } from "./types.ts";
 
 const PROTOCOL_VERSION = 3;
-const REVIEWER_AGENT_TYPE = "adversarial-reviewer";
+const LATE_START_REAPER_MS = 20 * 60_000;
+
+const INLINE_AGENT = {
+  reviewer: {
+    name: "adversarial-reviewer",
+    displayName: "Adversarial Reviewer",
+    description: "Isolated adversarial code reviewer",
+  },
+  refuter: {
+    name: "adversarial-refuter",
+    displayName: "Adversarial Refuter",
+    description: "Independent adversarial finding refuter",
+  },
+} as const;
 
 export interface PiEventBus {
   emit(event: string, data: unknown): void;
@@ -29,6 +42,8 @@ export class ReviewRuntimeError extends Error {
 }
 
 export class PiSubagentRpcV3Client implements ReviewSubagentRuntime {
+  private readonly lateStartReapers = new Map<string, () => void>();
+
   constructor(
     private readonly events: PiEventBus,
     private readonly requestTimeoutMs = 5_000,
@@ -78,35 +93,78 @@ export class PiSubagentRpcV3Client implements ReviewSubagentRuntime {
     return { protocolVersion: PROTOCOL_VERSION, maxConcurrent: data.maxConcurrent as number };
   }
 
-  async spawn(input: SpawnReviewAgentInput): Promise<{ agentId: string }> {
-    const data = await this.request<{ id?: unknown }>("subagents:rpc:spawn", {
-      type: REVIEWER_AGENT_TYPE,
-      prompt: input.prompt,
-      options: {
-        description: input.description,
-        model: input.model,
-        thinkingLevel: input.thinking,
-        maxTurns: input.maxTurns,
-        cwd: input.cwd,
-        isolated: true,
-        inheritContext: false,
-        isBackground: true,
-        inlineAgentConfig: {
-          name: REVIEWER_AGENT_TYPE,
-          displayName: "Adversarial Reviewer",
-          description: "Isolated adversarial code reviewer",
-          builtinToolNames: ["read", "grep", "find", "ls"],
-          extensions: false,
-          skills: false,
-          systemPrompt: input.systemPrompt,
-          promptMode: "replace",
-          persistSession: false,
-        },
-        completionOwner: "caller",
-        correlationId: input.correlationId,
-      },
+  private armLateStartReaper(correlationId: string): void {
+    this.lateStartReapers.get(correlationId)?.();
+    let timer: ReturnType<typeof setTimeout>;
+    let offStarted = () => {};
+    let offCompleted = () => {};
+    let offFailed = () => {};
+    const cleanup = () => {
+      clearTimeout(timer);
+      offStarted();
+      offCompleted();
+      offFailed();
+      if (this.lateStartReapers.get(correlationId) === cleanup) {
+        this.lateStartReapers.delete(correlationId);
+      }
+    };
+    offStarted = this.events.on("subagents:started", (event: any) => {
+      if (event?.correlationId !== correlationId || typeof event?.id !== "string") return;
+      cleanup();
+      void this.stop(event.id).catch(() => {
+        // The original spawn already failed; best-effort reaping must not create
+        // a second unhandled failure path.
+      });
     });
+    const onTerminal = (event: any) => {
+      if (event?.correlationId === correlationId) cleanup();
+    };
+    offCompleted = this.events.on("subagents:completed", onTerminal);
+    offFailed = this.events.on("subagents:failed", onTerminal);
+    timer = setTimeout(cleanup, LATE_START_REAPER_MS);
+    timer.unref?.();
+    this.lateStartReapers.set(correlationId, cleanup);
+  }
+
+  async spawn(input: SpawnReviewAgentInput): Promise<{ agentId: string }> {
+    const inlineAgent = INLINE_AGENT[input.role];
+    let data: { id?: unknown };
+    try {
+      data = await this.request<{ id?: unknown }>("subagents:rpc:spawn", {
+        type: inlineAgent.name,
+        prompt: input.prompt,
+        options: {
+          description: input.description,
+          model: input.model,
+          thinkingLevel: input.thinking,
+          maxTurns: input.maxTurns,
+          cwd: input.cwd,
+          isolated: true,
+          inheritContext: false,
+          isBackground: true,
+          inlineAgentConfig: {
+            name: inlineAgent.name,
+            displayName: inlineAgent.displayName,
+            description: inlineAgent.description,
+            builtinToolNames: ["read", "grep", "find", "ls"],
+            extensions: false,
+            skills: false,
+            systemPrompt: input.systemPrompt,
+            promptMode: "replace",
+            persistSession: false,
+          },
+          completionOwner: "caller",
+          correlationId: input.correlationId,
+        },
+      });
+    } catch (error) {
+      // A lost/malformed reply may still have created a queued agent. Keep a
+      // bounded correlation watcher so a later started event is stopped.
+      this.armLateStartReaper(input.correlationId);
+      throw error;
+    }
     if (!data || typeof data.id !== "string" || !data.id) {
+      this.armLateStartReaper(input.correlationId);
       throw new ReviewRuntimeError("subagents:rpc:spawn returned no agent id.");
     }
     return { agentId: data.id };

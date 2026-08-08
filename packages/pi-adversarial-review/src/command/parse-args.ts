@@ -84,6 +84,8 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   let reqdoc: string | undefined;
   let focus: string | undefined;
   let gating: GatingMode = "weighted";
+  let refute = false;
+  let refuterSpec: string | undefined;
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
@@ -122,8 +124,16 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
         index++;
         break;
       case "--refute":
+        if (refute) throw new ReviewCommandError("--refute may be provided only once.");
+        refute = true;
+        break;
       case "--refuter":
-        throw new ReviewCommandError(`${token} is not available in the no-UI core phase.`);
+        if (refuterSpec !== undefined) {
+          throw new ReviewCommandError("--refuter may be provided only once.");
+        }
+        refuterSpec = requireValue(tokens, index, token);
+        index++;
+        break;
       default:
         throw new ReviewCommandError(
           token.startsWith("--") ? `Unknown option: ${token}` : `Unexpected argument: ${token}`,
@@ -134,12 +144,17 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   if (baseRef !== undefined && range !== undefined) {
     throw new ReviewCommandError("--base and --range are mutually exclusive.");
   }
+  if (refuterSpec !== undefined && !refute) {
+    throw new ReviewCommandError("--refuter requires --refute.");
+  }
 
   const target: ReviewTargetRequest = range ?? (baseRef ? { mode: "base", baseRef } : { mode: "local" });
   return {
     target,
     reviewerSpecs,
     gating,
+    refute,
+    ...(refuterSpec !== undefined ? { refuterSpec } : {}),
     ...(reqdoc !== undefined ? { reqdoc } : {}),
     ...(focus !== undefined ? { focus } : {}),
   };

@@ -6,6 +6,7 @@ export interface ReviewRuntimeCapabilities {
 }
 
 export interface ReviewerFleetProgress {
+  phase: "review" | "refute";
   total: number;
   queued: number;
   running: number;
@@ -13,6 +14,7 @@ export interface ReviewerFleetProgress {
 }
 
 export interface SpawnReviewAgentInput {
+  role: "reviewer" | "refuter";
   prompt: string;
   systemPrompt: string;
   cwd: string;

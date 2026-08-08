@@ -10,6 +10,7 @@ describe("parseReviewCommand", () => {
       reviewerSpecs: ["provider/a@high", "provider/b@xhigh"],
       focus: "concurrency and retries",
       gating: "strict",
+      refute: false,
     });
   });
 
@@ -34,8 +35,28 @@ describe("parseReviewCommand", () => {
     );
   });
 
-  it("rejects unsupported phase options and unknown input", () => {
-    expect(() => parseReviewCommand("--refute")).toThrow("not available in the no-UI core phase");
+  it("parses refute with one explicit refuter", () => {
+    expect(parseReviewCommand(
+      "--refute --refuter provider/refuter@high --reviewer provider/a@off --reviewer provider/b@low",
+    )).toMatchObject({
+      refute: true,
+      refuterSpec: "provider/refuter@high",
+    });
+  });
+
+  it("requires --refute for refuter and rejects duplicate refute options", () => {
+    expect(() => parseReviewCommand("--refuter provider/model@high")).toThrow(
+      "--refuter requires --refute",
+    );
+    expect(() => parseReviewCommand("--refute --refute")).toThrow(
+      "--refute may be provided only once",
+    );
+    expect(() => parseReviewCommand(
+      "--refute --refuter provider/a@high --refuter provider/b@high",
+    )).toThrow("--refuter may be provided only once");
+  });
+
+  it("rejects unknown input", () => {
     expect(() => parseReviewCommand("--mystery value")).toThrow("Unknown option: --mystery");
     expect(() => parseReviewCommand("positional")).toThrow("Unexpected argument: positional");
   });

@@ -77,5 +77,11 @@ describe("parseReviewReport", () => {
     const blankEvidence = report();
     (blankEvidence.findings as Array<Record<string, unknown>>)[0].evidence = "   ";
     expect(() => parseReviewReport(JSON.stringify(blankEvidence))).toThrow("evidence must not be blank");
+
+    const terminalEscape = report();
+    (terminalEscape.findings as Array<Record<string, unknown>>)[0].issue = "unsafe\u001b[31mred";
+    expect(() => parseReviewReport(JSON.stringify(terminalEscape))).toThrow(
+      "issue must not contain control characters",
+    );
   });
 });

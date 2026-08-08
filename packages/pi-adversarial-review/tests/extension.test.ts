@@ -126,13 +126,17 @@ afterEach(async () => {
 });
 
 describe("adversarial review extension", () => {
-  it("registers only the slash command and shutdown lifecycle", () => {
+  it("registers only the slash command, report renderer, and shutdown lifecycle", () => {
     const fake = new FakePi();
     adversarialReviewExtension(fake.api());
 
     expect([...fake.commands.keys()]).toEqual([ADVERSARIAL_REVIEW_COMMAND]);
     expect(fake.registerTool).not.toHaveBeenCalled();
-    expect(fake.registerMessageRenderer).not.toHaveBeenCalled();
+    expect(fake.registerMessageRenderer).toHaveBeenCalledOnce();
+    expect(fake.registerMessageRenderer).toHaveBeenCalledWith(
+      "adversarial-review-report",
+      expect.any(Function),
+    );
     expect(fake.handlers.get("session_shutdown")).toHaveLength(1);
   });
 
@@ -150,7 +154,7 @@ describe("adversarial review extension", () => {
     expect(preflight.command.target).toEqual({ mode: "local" });
   });
 
-  it("runs the local two-route command and publishes one non-triggering merged report", async () => {
+  it("runs the local two-route command and triggers one audited adjudication follow-up", async () => {
     const root = await changedRepo();
     const fake = new FakePi();
     const frozenPaths: string[] = [];
@@ -208,9 +212,9 @@ describe("adversarial review extension", () => {
         customType: "adversarial-review-report",
         details: { overall: "candidate-approve", successfulReviewerCount: 2 },
       },
-      options: { deliverAs: "nextTurn" },
+      options: { deliverAs: "followUp", triggerTurn: true },
     });
-    expect(fake.sentMessages[0].options).not.toHaveProperty("triggerTurn");
+    expect(fake.sentMessages[0].message.content).toContain("final adjudicator");
     expect(JSON.stringify(fake.sentMessages[0].message.details)).not.toContain('"model":');
     expect(notifications.at(-1)).toEqual({
       message: "Adversarial review: candidate-approve (2/2 valid).",
@@ -218,6 +222,155 @@ describe("adversarial review extension", () => {
     });
     expect(frozenPaths).toHaveLength(2);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
+  });
+
+  it("runs one fresh refuter per blocking cluster and keeps refuted findings blocking", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `agent-${nextAgent++}`;
+      const refuter = data.options.inlineAgentConfig.name === "adversarial-refuter";
+      const result = refuter
+        ? {
+            refuted: true,
+            reason: "The caller awaits persistence before returning.",
+            evidence: ["src/caller.ts:8 awaits save"],
+          }
+        : {
+            verdict: "needs-attention",
+            summary: "material durability regression",
+            findings: [{
+              file: "example.ts",
+              lineStart: 1,
+              lineEnd: 1,
+              severity: "high",
+              category: "data-integrity",
+              confidence: 0.9,
+              invariant: "Writes are durable before success",
+              issue: "The save returns success before data persistence completes",
+              evidence: "example.ts:1 returns the new value",
+              recommendation: "Await persistence before returning success",
+            }],
+          };
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify(result),
+        requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, {
+        success: true,
+        data: { id: agentId },
+      });
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+    (ctx.scopedModels as any).push({ model: model("provider-c", "refuter") });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high " +
+        "--reviewer provider-b/model-b@high " +
+        "--refute --refuter provider-c/refuter@high",
+      ctx,
+    );
+
+    const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
+    expect(spawns).toHaveLength(3);
+    expect(spawns.at(-1)?.data).toMatchObject({
+      type: "adversarial-refuter",
+      options: {
+        maxTurns: 12,
+        correlationId: expect.stringContaining(":refuter:0"),
+        inlineAgentConfig: { builtinToolNames: ["read", "grep", "find", "ls"] },
+      },
+    });
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "needs-adjudication",
+      blocking: [{ issue: "The save returns success before data persistence completes" }],
+      refuteRequested: true,
+      refuteResults: [{ findingIndex: 0, status: "completed", report: { refuted: true } }],
+      contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
+    });
+    expect(fake.entries[0]?.data.blocking).toHaveLength(1);
+    expect(fake.sentMessages[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+    expect(JSON.stringify(fake.sentMessages[0]?.message.details)).not.toContain('"model":');
+  });
+
+  it("uses a second TUI picker for refuter but spends no refute route on a clean review", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `clean-agent-${nextAgent++}`;
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+        requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx, tui, theme } = context(root);
+    let customCall = 0;
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      if (customCall++ === 0) {
+        const picker = component;
+        if (!picker) throw new Error("Refuter picker component was not created.");
+        picker.handleInput("\r"); // first scoped model -> off
+        picker.handleInput("\x1b[B");
+        picker.handleInput("\x1b[B");
+        picker.handleInput("\r"); // Use selected refuter
+      }
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high --refute",
+      ctx,
+    );
+
+    const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
+    expect(spawns).toHaveLength(2);
+    expect(spawns.every((item) => item.data.type === "adversarial-reviewer")).toBe(true);
+    expect(fake.emitted.filter((item) => item.event === "subagents:rpc:ping")).toHaveLength(1);
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "candidate-approve",
+      blocking: [],
+      refuteRequested: true,
+      refuterRoute: { key: "provider-a/model-a@off" },
+      refuteResults: [],
+      contested: [],
+    });
   });
 
   it("runs routes selected by the TUI picker without requiring reviewer flags", async () => {
@@ -364,6 +517,22 @@ describe("adversarial review extension", () => {
 
     expect(notifications[0]).toMatchObject({ type: "error" });
     expect(notifications[0].message).toContain("Outside TUI, pass at least two --reviewer");
+    expect(fake.emitted).toHaveLength(0);
+  });
+
+  it("requires an explicit refuter outside TUI mode", async () => {
+    const fake = new FakePi();
+    adversarialReviewExtension(fake.api());
+    const { ctx, notifications } = context();
+    Object.assign(ctx, { mode: "json" });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high --refute",
+      ctx,
+    );
+
+    expect(notifications[0]).toMatchObject({ type: "error" });
+    expect(notifications[0].message).toContain("Outside TUI, pass --refuter");
     expect(fake.emitted).toHaveLength(0);
   });
 
