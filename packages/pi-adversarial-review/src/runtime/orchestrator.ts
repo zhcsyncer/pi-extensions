@@ -1,5 +1,6 @@
 import type { FrozenReviewInput, ReviewerRoute, ReviewerRouteResult } from "../types.ts";
 import { InvalidReviewOutputError, parseReviewReport } from "../reports/parse-review-report.ts";
+import { truncateRawOutput } from "./raw-output.ts";
 import type {
   ReviewAgentStartedEvent,
   ReviewAgentTerminalEvent,
@@ -11,7 +12,6 @@ import type {
 const DEFAULT_ROUTE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_OVERALL_TIMEOUT_MS = 20 * 60_000;
 const DEFAULT_MAX_TURNS = 25;
-const MAX_RAW_OUTPUT_BYTES = 64 * 1024;
 
 export interface RunReviewerFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -46,12 +46,6 @@ interface RouteState {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function truncateRawOutput(value: string): string {
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= MAX_RAW_OUTPUT_BYTES) return value;
-  return `${bytes.subarray(0, MAX_RAW_OUTPUT_BYTES).toString("utf8")}\n...[truncated]`;
 }
 
 function identityMatches(

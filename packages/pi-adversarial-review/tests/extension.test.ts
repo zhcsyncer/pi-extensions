@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -122,6 +122,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(tempRepos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -471,6 +472,10 @@ describe("adversarial review extension", () => {
 
   it("turns loader Escape into a cancelled audited run and clears footer status", async () => {
     const root = await changedRepo();
+    const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout;
     const fake = new FakePi();
     fake.eventResponder = (event, data) => {
       if (event === "subagents:rpc:ping") {
@@ -505,6 +510,200 @@ describe("adversarial review extension", () => {
     });
     expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
     expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout).toBe(before);
+  });
+
+  it("marks the final report stale when the target drifts during reviewer execution", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `stale-agent-${nextAgent++}`;
+      const complete = () => {
+        fake.events.emit("subagents:completed", {
+          id: agentId,
+          correlationId: data.options.correlationId,
+          status: "completed",
+          result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+          requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+          requestedThinkingLevel: data.options.thinkingLevel,
+          effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+          effectiveThinkingLevel: data.options.thinkingLevel,
+        });
+        fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
+      };
+      if (nextAgent === 2) void appendFile(path.join(root, "example.ts"), "// drift\n").then(complete);
+      else complete();
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "stale",
+      stale: true,
+      successfulReviewerCount: 2,
+    });
+    expect(fake.sentMessages[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+  });
+
+  it("preserves provider-error and invalid-JSON routes in a failed e2e report", async () => {
+    const root = await changedRepo();
+    const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout;
+    const fake = new FakePi();
+    let spawnIndex = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      if (spawnIndex++ === 0) {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: false,
+          error: "provider unavailable",
+        });
+        return;
+      }
+      const agentId = "invalid-agent";
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: "not-json",
+        requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+    Object.assign(ctx, { mode: "json" });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "failed",
+      successfulReviewerCount: 0,
+      routeResults: [
+        { status: "errored", error: expect.stringContaining("provider unavailable") },
+        { status: "invalid-output", rawOutput: "not-json" },
+      ],
+    });
+    expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout).toBe(before);
+  });
+
+  it("times out running reviewers, stops both, and publishes every route", async () => {
+    const root = await changedRepo();
+    const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout;
+    const fake = new FakePi();
+    let spawnCount = 0;
+    let resolveAllSpawned!: () => void;
+    const allSpawned = new Promise<void>((resolve) => { resolveAllSpawned = resolve; });
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event === "subagents:rpc:spawn") {
+        const agentId = `timeout-${data.options.correlationId.split(":").at(-1)}`;
+        spawnCount++;
+        fake.events.emit("subagents:started", {
+          id: agentId,
+          correlationId: data.options.correlationId,
+        });
+        fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
+        if (spawnCount === 2) resolveAllSpawned();
+        return;
+      }
+      if (event === "subagents:rpc:stop") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, { success: true });
+      }
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+    Object.assign(ctx, { mode: "json" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await allSpawned;
+    expect(fake.emitted.filter((item) => item.event === "subagents:rpc:spawn")).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    await command;
+
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "failed",
+      routeResults: [{ status: "timed-out" }, { status: "timed-out" }],
+    });
+    expect(fake.emitted.filter((item) => item.event === "subagents:rpc:stop")).toHaveLength(2);
+    expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout).toBe(before);
+  });
+
+  it("fails oversized input before runtime work and leaves Git status unchanged", async () => {
+    const root = await changedRepo();
+    await appendFile(path.join(root, "example.ts"), "x".repeat(210 * 1024));
+    const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout;
+    const fake = new FakePi();
+    adversarialReviewExtension(fake.api());
+    const { ctx, notifications } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(notifications.at(-1)).toMatchObject({ type: "error" });
+    expect(notifications.at(-1)?.message).toContain("Frozen review input is too large");
+    expect(fake.emitted).toEqual([]);
+    expect(fake.entries).toEqual([]);
+    expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: root,
+      encoding: "utf8",
+    })).stdout).toBe(before);
   });
 
   it("requires explicit reviewer routes outside TUI mode", async () => {

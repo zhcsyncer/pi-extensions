@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertFrozenInputWithinLimits,
   EmptyReviewInputError,
+  MAX_FROZEN_INPUT_BYTES,
+  MAX_FROZEN_INPUT_LINES,
   measureFrozenInput,
   OversizedReviewInputError,
   prepareFrozenReviewInput,
@@ -99,6 +101,69 @@ describe("prepareFrozenReviewInput", () => {
     expect(await exists(runDir)).toBe(false);
   });
 
+  it("freezes rename, delete, and binary changes without mutating the worktree", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "rename-old.txt"), "stable content for rename detection\n".repeat(8));
+    await writeFile(path.join(root, "deleted.txt"), "delete me\n");
+    await writeFile(path.join(root, "binary.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
+    await commitAll(root, "base special files");
+
+    await git(root, "mv", "rename-old.txt", "rename-new.txt");
+    await rm(path.join(root, "deleted.txt"));
+    await writeFile(path.join(root, "binary.bin"), Buffer.from([0, 9, 8, 7, 6, 5]));
+    const before = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "local" },
+      runId: randomUUID(),
+    });
+    try {
+      const content = await readFile(frozen.inputPath, "utf8");
+      expect(frozen.target.changedFiles).toEqual(expect.arrayContaining([
+        "binary.bin", "deleted.txt", "rename-new.txt",
+      ]));
+      expect(content).toContain("rename from rename-old.txt");
+      expect(content).toContain("rename to rename-new.txt");
+      expect(content).toContain("deleted file mode");
+      expect(content).toContain("GIT binary patch");
+      expect(frozen.limitedContext).toContain(
+        "Binary file content is not directly inspectable from the frozen patch.",
+      );
+    } finally {
+      await frozen.cleanup();
+    }
+    expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
+      .toBe(before);
+  });
+
+  it("never executes configured textconv, content filters, or fsmonitor while freezing", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, ".gitattributes"), "*.txt diff=a=b filter=a=b\n");
+    await writeFile(path.join(root, "tracked.txt"), "base\n");
+    await commitAll(root, "textconv base");
+    const marker = path.join(root, ".git", "textconv-ran");
+    const script = path.join(root, ".git", "evil-textconv.sh");
+    await writeFile(
+      script,
+      `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nif [ "$#" -gt 0 ]; then cat "$1"; else cat; fi\n`,
+    );
+    await chmod(script, 0o700);
+    await git(root, "config", "diff.a=b.textconv", script);
+    await git(root, "config", "filter.a=b.clean", script);
+    await git(root, "config", "filter.a=b.process", script);
+    await git(root, "config", "core.fsmonitor", script);
+    await appendFile(path.join(root, "tracked.txt"), "change\n");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "local" },
+      runId: randomUUID(),
+    });
+    await frozen.cleanup();
+    expect(await exists(marker)).toBe(false);
+  });
+
   it("includes committed and working-tree changes for a base target", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "app.ts"), "export const value = 1;\n");
@@ -131,6 +196,7 @@ describe("prepareFrozenReviewInput", () => {
     const fromSha = await commitAll(root, "A");
     await writeFile(path.join(root, "version.txt"), "B\n");
     await writeFile(path.join(root, "added.txt"), "at B\n");
+    await writeFile(path.join(root, "..foo.txt"), "legal dot-dot prefix\n");
     await writeFile(path.join(root, "exported-secret.txt"), "must remain in exact snapshot\n");
     const toSha = await commitAll(root, "B");
     await writeFile(path.join(root, "version.txt"), "C\n");
@@ -146,12 +212,112 @@ describe("prepareFrozenReviewInput", () => {
       expect(await readFile(path.join(frozen.reviewerCwd, "version.txt"), "utf8")).toBe("B\n");
       expect(await readFile(path.join(frozen.reviewerCwd, "exported-secret.txt"), "utf8"))
         .toBe("must remain in exact snapshot\n");
+      expect(await readFile(path.join(frozen.reviewerCwd, "..foo.txt"), "utf8"))
+        .toBe("legal dot-dot prefix\n");
       expect(await readFile(path.join(root, "version.txt"), "utf8")).toBe("C\n");
       expect((await stat(frozen.reviewerCwd)).mode & 0o777).toBe(0o555);
       expect((await stat(path.join(frozen.reviewerCwd, "version.txt"))).mode & 0o777).toBe(0o444);
-      expect(frozen.target.changedFiles).toEqual(["added.txt", "exported-secret.txt", "version.txt"]);
+      expect(frozen.target.changedFiles).toEqual([
+        "..foo.txt", "added.txt", "exported-secret.txt", "version.txt",
+      ]);
     } finally {
       await frozen.cleanup();
+    }
+  });
+
+  it("preserves raw non-UTF-8 symlink target bytes in range snapshots", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "symlink base");
+    const rawTarget = Buffer.from([0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2d, 0xff]);
+    await symlink(rawTarget, path.join(root, "raw-link"));
+    const toSha = await commitAll(root, "raw symlink target");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(await readlink(path.join(frozen.reviewerCwd, "raw-link"), { encoding: "buffer" }))
+        .toEqual(rawTarget);
+    } finally {
+      await frozen.cleanup();
+    }
+  });
+
+  it("ignores Git replace refs when freezing the requested commit and blobs", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "value.txt"), "before\n");
+    const fromSha = await commitAll(root, "before replacement target");
+    await writeFile(path.join(root, "value.txt"), "original committed value\n");
+    const toSha = await commitAll(root, "target value");
+    const originalBlob = await git(root, "rev-parse", `${toSha}:value.txt`);
+    const replacementFile = path.join(root, ".git", "replacement-content");
+    await writeFile(replacementFile, "forged replacement value\n");
+    const replacementBlob = await git(root, "hash-object", "-w", replacementFile);
+    await git(root, "replace", originalBlob, replacementBlob);
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(await readFile(path.join(frozen.reviewerCwd, "value.txt"), "utf8"))
+        .toBe("original committed value\n");
+      expect(await readFile(frozen.inputPath, "utf8")).toContain("original committed value");
+      expect(await readFile(frozen.inputPath, "utf8")).not.toContain("forged replacement value");
+    } finally {
+      await frozen.cleanup();
+    }
+  });
+
+  it("extracts committed LFS pointers without running configured smudge filters", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, ".gitattributes"), "*.lfs filter=demo\n");
+    await git(root, "config", "filter.demo.clean", "cat");
+    await git(root, "config", "filter.demo.smudge", "sed s/version/SMUDGED/");
+    const fromSha = await commitAll(root, "attributes");
+    const pointer = [
+      "version https://git-lfs.github.com/spec/v1",
+      "oid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size 123",
+      "",
+    ].join("\n");
+    await writeFile(path.join(root, "asset.lfs"), pointer);
+    const toSha = await commitAll(root, "add lfs pointer");
+    const before = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(await readFile(path.join(frozen.reviewerCwd, "asset.lfs"), "utf8")).toBe(pointer);
+      expect(frozen.limitedContext).toContain(
+        "Git LFS object content is not materialized; only the committed pointer is available.",
+      );
+    } finally {
+      await frozen.cleanup();
+    }
+    expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
+      .toBe(before);
+
+    await git(root, "mv", "asset.lfs", "renamed-asset.lfs");
+    const renamedSha = await commitAll(root, "rename lfs pointer only");
+    const renamed = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: toSha, toRef: renamedSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(renamed.limitedContext).toContain(
+        "Git LFS object content is not materialized; only the committed pointer is available.",
+      );
+    } finally {
+      await renamed.cleanup();
     }
   });
 
@@ -243,6 +409,50 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
+  it("marks range submodules limited and materializes only an empty gitlink directory", async () => {
+    const source = await initRepo();
+    await writeFile(path.join(source, "sub.txt"), "submodule content\n");
+    await commitAll(source, "submodule base");
+
+    const root = await initRepo();
+    await writeFile(path.join(root, "root.txt"), "root\n");
+    const fromSha = await commitAll(root, "root base");
+    await exec("git", ["-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "vendor/sub"], {
+      cwd: root,
+    });
+    const toSha = await commitAll(root, "add range submodule");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(frozen.limitedContext).toContain(
+        "Git submodule object content is not embedded in the frozen review context.",
+      );
+      expect(await readdir(path.join(frozen.reviewerCwd, "vendor/sub"))).toEqual([]);
+    } finally {
+      await frozen.cleanup();
+    }
+
+    await writeFile(path.join(root, "root.txt"), "root changed while gitlink stays fixed\n");
+    const nextSha = await commitAll(root, "change root only");
+    const unchangedGitlink = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: toSha, toRef: nextSha },
+      runId: randomUUID(),
+    });
+    try {
+      expect(unchangedGitlink.limitedContext).toContain(
+        "Git submodule object content is not embedded in the frozen review context.",
+      );
+      expect(await readdir(path.join(unchangedGitlink.reviewerCwd, "vendor/sub"))).toEqual([]);
+    } finally {
+      await unchangedGitlink.cleanup();
+    }
+  });
+
   it("never uses caller-provided runId as a filesystem path", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "tracked.txt"), "base\n");
@@ -271,6 +481,7 @@ describe("prepareFrozenReviewInput", () => {
     await writeFile(path.join(root, "tracked.txt"), "base\n");
     await commitAll(root, "base");
     await appendFile(path.join(root, "tracked.txt"), "x".repeat(4_096));
+    const oversizedStatus = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
 
     await expect(prepareFrozenReviewInput({
       cwd: root,
@@ -279,11 +490,14 @@ describe("prepareFrozenReviewInput", () => {
       maxBytes: 1_024,
       maxLines: 5_000,
     })).rejects.toBeInstanceOf(OversizedReviewInputError);
+    expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
+      .toBe(oversizedStatus);
 
     await writeFile(path.join(root, "tracked.txt"), "base\nsmall\n");
     await writeFile(path.join(root, "requirements.md"), "r".repeat(4_096));
     await commitAll(root, "add large requirement");
     await appendFile(path.join(root, "tracked.txt"), "review change\n");
+    const reqdocStatus = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
     await expect(prepareFrozenReviewInput({
       cwd: root,
       target: { mode: "local" },
@@ -292,6 +506,27 @@ describe("prepareFrozenReviewInput", () => {
       maxBytes: 2_048,
       maxLines: 5_000,
     })).rejects.toBeInstanceOf(OversizedReviewInputError);
+    expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
+      .toBe(reqdocStatus);
+  });
+
+  it("fails loud on non-UTF-8 Git paths instead of aliasing snapshot names", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "utf8 base");
+    const invalidPath = Buffer.concat([
+      Buffer.from(`${root}${path.sep}bad-`),
+      Buffer.from([0xff]),
+      Buffer.from(".txt"),
+    ]);
+    await writeFile(invalidPath, "invalid path bytes\n");
+    const toSha = await commitAll(root, "non utf8 path");
+
+    await expect(prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    })).rejects.toThrow("Git paths must be valid UTF-8");
   });
 
   it("rejects invalid refs, non-repositories, and reqdocs outside the repository", async () => {
@@ -325,6 +560,32 @@ describe("frozen input limits", () => {
     expect(assertFrozenInputWithinLimits("a\nb\n", 4, 2)).toEqual({ bytes: 4, lines: 2 });
     expect(() => assertFrozenInputWithinLimits("a\nb\n!", 4, 3)).toThrow(OversizedReviewInputError);
     expect(() => assertFrozenInputWithinLimits("a\nb\nc", 5, 2)).toThrow(OversizedReviewInputError);
+  });
+
+  it("enforces the production 200 KiB and 5000-line boundaries exactly", () => {
+    const exactBytes = "x".repeat(MAX_FROZEN_INPUT_BYTES);
+    expect(assertFrozenInputWithinLimits(
+      exactBytes,
+      MAX_FROZEN_INPUT_BYTES,
+      MAX_FROZEN_INPUT_LINES,
+    ).bytes).toBe(MAX_FROZEN_INPUT_BYTES);
+    expect(() => assertFrozenInputWithinLimits(
+      `${exactBytes}x`,
+      MAX_FROZEN_INPUT_BYTES,
+      MAX_FROZEN_INPUT_LINES,
+    )).toThrow(OversizedReviewInputError);
+
+    const exactLines = Array.from({ length: MAX_FROZEN_INPUT_LINES }, () => "x").join("\n");
+    expect(assertFrozenInputWithinLimits(
+      exactLines,
+      MAX_FROZEN_INPUT_BYTES,
+      MAX_FROZEN_INPUT_LINES,
+    ).lines).toBe(MAX_FROZEN_INPUT_LINES);
+    expect(() => assertFrozenInputWithinLimits(
+      `${exactLines}\nx`,
+      MAX_FROZEN_INPUT_BYTES,
+      MAX_FROZEN_INPUT_LINES,
+    )).toThrow(OversizedReviewInputError);
   });
 
   it("measures UTF-8 bytes independently from logical lines", () => {

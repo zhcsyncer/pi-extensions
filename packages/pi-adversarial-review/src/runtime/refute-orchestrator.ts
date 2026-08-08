@@ -8,6 +8,7 @@ import {
   InvalidReviewOutputError,
 } from "../reports/parse-review-report.ts";
 import { parseVerifyReport } from "../reports/parse-verify-report.ts";
+import { truncateRawOutput } from "./raw-output.ts";
 import type {
   ReviewAgentStartedEvent,
   ReviewAgentTerminalEvent,
@@ -19,7 +20,6 @@ import type {
 const DEFAULT_REFUTER_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_REFUTE_RUN_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_REFUTER_MAX_TURNS = 12;
-const MAX_RAW_OUTPUT_BYTES = 64 * 1024;
 
 export interface RunRefuteFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -57,12 +57,6 @@ interface RefuteState {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function truncateRawOutput(value: string): string {
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= MAX_RAW_OUTPUT_BYTES) return value;
-  return `${bytes.subarray(0, MAX_RAW_OUTPUT_BYTES).toString("utf8")}\n...[truncated]`;
 }
 
 function identityMatches(

@@ -51,13 +51,33 @@ Supported targets are the current local changes, `--base <ref>`, or `--range <re
 
 ## Output
 
-Each reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid JSON. The report also records requested routes, runtime concurrency, execution waves, and contested evidence. Conservative clustering prioritizes never merging distinct issues into false consensus; if multiple reviewers raise unclustered advisories, the run still requires adjudication. The deterministic gate produces `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed`; it never claims final approval.
+Each reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid JSON. Stored raw output is valid UTF-8 capped at 64 KiB including its truncation marker. The report also records requested routes, runtime concurrency, execution waves, and contested evidence. Conservative clustering prioritizes never merging distinct issues into false consensus; if multiple reviewers raise unclustered advisories, the run still requires adjudication. The deterministic gate produces `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed`; it never claims final approval.
 
 Print mode writes the merged report directly and does not start a model turn. Other modes persist the full audit report and send a fixed follow-up to the current main model. Repository/model text is encoded as untrusted data; if the handoff exceeds 128 KiB, the audit is preserved but the model turn fails loud instead of silently truncating findings. The main model must inspect actual code, mark every blocking finding valid or invalid with evidence, ask before resolving design trade-offs, and must not edit, fix, or commit automatically.
 
 ## Safety
 
-Reviewers and refuters do not inherit the parent conversation and receive only `read`, `grep`, `find`, and `ls`. They cannot edit, fix, or commit. Tool restriction is not an operating-system sandbox; repository content remains untrusted input.
+Reviewers and refuters do not inherit the parent conversation and receive only `read`, `grep`, `find`, and `ls`. They cannot edit, fix, or commit. Range snapshots stream committed raw blobs, ignore replace refs, and freezing never executes configured textconv, clean/smudge/process filters, or fsmonitor; binary, LFS, and submodule limits are reported explicitly. Temporary workspaces are mode-restricted, normally removed in `finally`, and same-UID non-symlink crash remnants older than 24 hours are atomically quarantined before scavenging on the next run. Tool restriction is not an operating-system sandbox; repository content remains untrusted input.
+
+## Compatibility
+
+| Component | Requirement |
+|---|---|
+| Pi | `>=0.84.0 <1` with `ctx.scopedModels` and custom message renderers |
+| Subagents | A build whose `subagents:rpc:ping` reports protocol `3` and `maxConcurrent >= 1` |
+| Node.js | `>=22.19.0` |
+
+The command fails before spawning when protocol 3 or an explicit scoped model is unavailable. Pair this package with the Subagents release carrying the same protocol-v3 changeset; the final package version is assigned by the Changesets version PR.
+
+## Rollback
+
+Press Escape and wait for the run status to clear, then remove only this standalone extension:
+
+```bash
+pi remove npm:@zhcsyncer/pi-adversarial-review
+```
+
+Keep `@zhcsyncer/pi-subagents` if other workflows use it. Removing the extension does not modify the repository or delete existing session audit entries. This package is not part of the root bundle, so root `@zhcsyncer/pi-extensions` installations need no rollback.
 
 ## Development
 

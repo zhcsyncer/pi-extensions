@@ -233,6 +233,56 @@ describe("runRefuteFleet", () => {
     });
   });
 
+  it("preserves refuter spawn/provider failure as an errored attempt", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      throw new Error("refuter provider unavailable");
+    };
+
+    const result = await runRefuteFleet({
+      runtime,
+      refuterRoute: route(),
+      blocking: [finding(0)],
+      frozenInput: frozen(),
+      refuterSystemPrompt: "refute only",
+    });
+
+    expect(result.routeResults[0]).toMatchObject({
+      status: "errored",
+      error: "Spawn failed: refuter provider unavailable",
+    });
+    expect(runtime.stops).toEqual(["refuter-0"]);
+  });
+
+  it("times out a refuter, stops it, and ignores a late refuted=true terminal", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      return { agentId };
+    };
+
+    const result = await runRefuteFleet({
+      runtime,
+      refuterRoute: route(),
+      blocking: [finding(0)],
+      frozenInput: frozen(),
+      refuterSystemPrompt: "refute only",
+      routeTimeoutMs: 10,
+      overallTimeoutMs: 100,
+    });
+
+    expect(result.routeResults[0].status).toBe("timed-out");
+    expect(runtime.stops).toEqual(["refuter-0"]);
+    runtime.emitTerminal(terminalFor(
+      runtime.spawnInputs[0],
+      "refuter-0",
+      JSON.stringify({ refuted: true, reason: "late", evidence: ["late:1"] }),
+    ));
+    expect(result.routeResults[0].status).toBe("timed-out");
+    expect(result.routeResults[0].report).toBeUndefined();
+  });
+
   it("cancels active and queued refuters through the shared signal and stops each once", async () => {
     const runtime = new FakeRuntime();
     const controller = new AbortController();

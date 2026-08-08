@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { runReviewerFleet } from "../src/runtime/orchestrator.ts";
+import { MAX_RAW_OUTPUT_BYTES } from "../src/runtime/raw-output.ts";
 import type {
   ReviewAgentStartedEvent,
   ReviewAgentTerminalEvent,
@@ -225,6 +226,29 @@ describe("runReviewerFleet", () => {
       status: "errored",
       error: expect.stringContaining("effective route does not match"),
     });
+  });
+
+  it("stores invalid raw reviewer output within the 64 KiB audit cap", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(terminalFor(input, agentId, {
+        result: "你".repeat(MAX_RAW_OUTPUT_BYTES),
+      }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(1),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(result.routeResults[0].status).toBe("invalid-output");
+    expect(Buffer.byteLength(result.routeResults[0].rawOutput ?? "", "utf8"))
+      .toBeLessThanOrEqual(MAX_RAW_OUTPUT_BYTES);
+    expect(result.routeResults[0].rawOutput).toMatch(/\.\.\.\[truncated\]$/u);
+    expect(result.routeResults[0].rawOutput).not.toContain("�");
   });
 
   it("times out a running route, stops it, and ignores late terminal success", async () => {
