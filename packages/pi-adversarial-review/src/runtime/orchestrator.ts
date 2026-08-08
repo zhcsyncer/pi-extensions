@@ -3,6 +3,7 @@ import { InvalidReviewOutputError, parseReviewReport } from "../reports/parse-re
 import type {
   ReviewAgentStartedEvent,
   ReviewAgentTerminalEvent,
+  ReviewerFleetProgress,
   ReviewRuntimeCapabilities,
   ReviewSubagentRuntime,
 } from "./types.ts";
@@ -21,6 +22,8 @@ export interface RunReviewerFleetOptions {
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
   maxTurns?: number;
+  capabilities?: ReviewRuntimeCapabilities;
+  onProgress?: (progress: ReviewerFleetProgress) => void;
 }
 
 export interface ReviewerFleetResult {
@@ -90,7 +93,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
   validateTimeout(overallTimeoutMs, "overallTimeoutMs");
   if (!Number.isInteger(maxTurns) || maxTurns < 1) throw new Error("maxTurns must be a positive integer.");
 
-  const capabilities = await options.runtime.getCapabilities();
+  const capabilities = options.capabilities ?? await options.runtime.getCapabilities();
   const states = new Map<string, RouteState>();
   const stopPromises: Promise<void>[] = [];
 
@@ -109,6 +112,26 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
     });
   }
 
+  const emitProgress = () => {
+    let queued = 0;
+    let running = 0;
+    for (const state of states.values()) {
+      if (state.result.status === "queued") queued++;
+      else if (state.result.status === "running") running++;
+    }
+    const progress: ReviewerFleetProgress = {
+      total: states.size,
+      queued,
+      running,
+      finished: states.size - queued - running,
+    };
+    try {
+      options.onProgress?.(progress);
+    } catch {
+      // UI observers must never change review lifecycle or gating.
+    }
+  };
+
   const settle = (
     state: RouteState,
     status: ReviewerRouteResult["status"],
@@ -118,9 +141,12 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
     state.terminal = true;
     if (state.routeTimer) clearTimeout(state.routeTimer);
     state.result = { ...state.result, ...fields, status };
+    emitProgress();
     state.resolveDone();
     return true;
   };
+
+  emitProgress();
 
   const requestStop = (state: RouteState) => {
     state.stopNeeded = true;
@@ -143,6 +169,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
       return;
     }
     state.result.status = "running";
+    emitProgress();
     if (!state.routeTimer) {
       state.routeTimer = setTimeout(() => {
         if (settle(state, "timed-out", { error: `Reviewer exceeded ${routeTimeoutMs}ms.` })) {

@@ -5,6 +5,13 @@ export interface ReviewRuntimeCapabilities {
   maxConcurrent: number;
 }
 
+export interface ReviewerFleetProgress {
+  total: number;
+  queued: number;
+  running: number;
+  finished: number;
+}
+
 export interface SpawnReviewAgentInput {
   prompt: string;
   systemPrompt: string;

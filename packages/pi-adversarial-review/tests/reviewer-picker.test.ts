@@ -1,0 +1,182 @@
+import type { Model } from "@earendil-works/pi-ai";
+import {
+  initTheme,
+  type ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  pickReviewerSpecs,
+  retainValidReviewerSpecs,
+} from "../src/ui/reviewer-picker.ts";
+
+function model(provider: string, id: string, reasoning = true): Model<any> {
+  return {
+    provider,
+    id,
+    name: id,
+    reasoning,
+  } as Model<any>;
+}
+
+function pickerContext(
+  scopedModels: ExtensionCommandContext["scopedModels"],
+  drive: (component: { render(width: number): string[]; handleInput?(data: string): void }) => void,
+): ExtensionCommandContext {
+  return {
+    mode: "tui",
+    scopedModels,
+    ui: {
+      custom: vi.fn(async (factory: any) => new Promise((resolve) => {
+        const component = factory(
+          { requestRender: vi.fn() },
+          {
+            bold: (text: string) => text,
+            fg: (_color: string, text: string) => text,
+          },
+          {},
+          resolve,
+        );
+        drive(component);
+      })),
+    },
+  } as unknown as ExtensionCommandContext;
+}
+
+const ENTER = "\r";
+const ESCAPE = "\x1b";
+const DOWN = "\x1b[B";
+
+beforeAll(() => {
+  initTheme("dark", false);
+});
+
+describe("reviewer picker", () => {
+  it("selects two scoped routes and reports concurrency waves", async () => {
+    let initial = "";
+    let selected = "";
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a") },
+        { model: model("provider-b", "model-b") },
+      ],
+      (component) => {
+        initial = component.render(120).join("\n");
+        component.handleInput?.(ENTER); // model-a: disabled -> off
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // model-b: disabled -> off
+        selected = component.render(120).join("\n");
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // Run
+      },
+    );
+
+    await expect(pickReviewerSpecs({ ctx, maxConcurrent: 1 })).resolves.toEqual([
+      "provider-a/model-a@off",
+      "provider-b/model-b@off",
+    ]);
+    expect(initial).toContain("0 selected · max concurrent 1 · 0 waves");
+    expect(selected).toContain("2 selected · max concurrent 1 · 2 waves");
+  });
+
+  it("restores only still-valid session choices and honors scope-pinned thinking", async () => {
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a"), thinkingLevel: "high" },
+        { model: model("provider-b", "model-b", false) },
+      ],
+      (component) => {
+        const rendered = component.render(120).join("\n");
+        expect(rendered).toContain("2 selected");
+        expect(rendered).toContain("Scope-pinned thinking: high");
+        component.handleInput?.(DOWN);
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // Run remembered choices
+      },
+    );
+
+    await expect(pickReviewerSpecs({
+      ctx,
+      maxConcurrent: 4,
+      previousSpecs: [
+        "provider-a/model-a@high",
+        "provider-b/model-b@off",
+        "removed/model@high",
+      ],
+    })).resolves.toEqual([
+      "provider-a/model-a@high",
+      "provider-b/model-b@off",
+    ]);
+  });
+
+  it("keeps the picker open on an invalid fleet and Escape cancels without a result", async () => {
+    let afterInvalid = "";
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a") },
+        { model: model("provider-b", "model-b") },
+      ],
+      (component) => {
+        component.handleInput?.(DOWN);
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // Run with zero selected
+        afterInvalid = component.render(120).join("\n");
+        component.handleInput?.(ESCAPE);
+      },
+    );
+
+    await expect(pickReviewerSpecs({ ctx, maxConcurrent: 2 })).resolves.toBeUndefined();
+    expect(afterInvalid).toContain("requires at least 2 distinct reviewer models");
+  });
+
+  it("permanently prunes removed routes even if a reduced-scope picker is cancelled", () => {
+    const firstScope = [
+      { model: model("provider-a", "model-a") },
+    ];
+    const pruned = retainValidReviewerSpecs([
+      "provider-a/model-a@high",
+      "provider-b/model-b@off",
+    ], firstScope);
+    expect(pruned).toEqual(["provider-a/model-a@high"]);
+
+    expect(retainValidReviewerSpecs(pruned, [
+      ...firstScope,
+      { model: model("provider-b", "model-b") },
+    ])).toEqual(["provider-a/model-a@high"]);
+  });
+
+  it("keeps long provider/model rows within an extremely narrow terminal width", async () => {
+    const width = 3;
+    const ctx = pickerContext(
+      [
+        { model: model("provider-with-a-very-long-name", "model-with-a-very-long-identifier-a") },
+        { model: model("provider-with-a-very-long-name", "model-with-a-very-long-identifier-b") },
+      ],
+      (component) => {
+        for (const line of component.render(width)) {
+          expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+        }
+        component.handleInput?.(ESCAPE);
+      },
+    );
+
+    await expect(pickReviewerSpecs({ ctx, maxConcurrent: 2 })).resolves.toBeUndefined();
+  });
+
+  it("aborts a pending picker through the shared run signal", async () => {
+    const controller = new AbortController();
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a") },
+        { model: model("provider-b", "model-b") },
+      ],
+      () => controller.abort(),
+    );
+
+    await expect(pickReviewerSpecs({
+      ctx,
+      maxConcurrent: 2,
+      signal: controller.signal,
+    })).resolves.toBeUndefined();
+  });
+});

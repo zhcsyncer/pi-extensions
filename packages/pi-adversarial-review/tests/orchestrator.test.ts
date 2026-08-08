@@ -142,6 +142,32 @@ describe("runReviewerFleet", () => {
     },
   );
 
+  it("emits aggregate queued/running/finished progress without trusting observer code", async () => {
+    const runtime = new FakeRuntime();
+    const progress: Array<{ total: number; queued: number; running: number; finished: number }> = [];
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      runtime.emitTerminal(terminalFor(input, agentId));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(2),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+      onProgress: (snapshot) => {
+        progress.push(snapshot);
+        if (snapshot.running > 0) throw new Error("UI observer failed");
+      },
+    });
+
+    expect(result.routeResults.every(({ status }) => status === "completed")).toBe(true);
+    expect(progress[0]).toEqual({ total: 2, queued: 2, running: 0, finished: 0 });
+    expect(progress).toContainEqual({ total: 2, queued: 1, running: 1, finished: 0 });
+    expect(progress.at(-1)).toEqual({ total: 2, queued: 0, running: 0, finished: 2 });
+  });
+
   it("preserves invalid output and effective-route mismatch as separate route failures", async () => {
     const runtime = new FakeRuntime();
     runtime.spawnImpl = async (input, agentId) => {

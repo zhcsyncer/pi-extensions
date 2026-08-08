@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  initTheme,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import adversarialReviewExtension, {
   ADVERSARIAL_REVIEW_COMMAND,
   preflightReviewCommand,
@@ -84,6 +88,23 @@ async function changedRepo(): Promise<string> {
 
 function context(cwd = process.cwd()) {
   const notifications: Array<{ message: string; type?: string }> = [];
+  const statuses: Array<{ key: string; value: string | undefined }> = [];
+  const tui = { requestRender: vi.fn() };
+  const theme = {
+    bold: (text: string) => text,
+    fg: (_color: string, text: string) => text,
+  };
+  const ui = {
+    notify: (message: string, type?: string) => notifications.push({ message, type }),
+    setStatus: (key: string, value: string | undefined) => statuses.push({ key, value }),
+    custom: async (factory: any) => new Promise((resolve) => {
+      let component: { dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+    }),
+  };
   const ctx = {
     cwd,
     mode: "tui",
@@ -91,12 +112,14 @@ function context(cwd = process.cwd()) {
       { model: model("provider-a", "model-a") },
       { model: model("provider-b", "model-b") },
     ],
-    ui: {
-      notify: (message: string, type?: string) => notifications.push({ message, type }),
-    },
+    ui,
   } as unknown as ExtensionCommandContext;
-  return { ctx, notifications };
+  return { ctx, notifications, statuses, tui, theme };
 }
+
+beforeAll(() => {
+  initTheme("dark", false);
+});
 
 afterEach(async () => {
   await Promise.all(tempRepos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -195,6 +218,153 @@ describe("adversarial review extension", () => {
     });
     expect(frozenPaths).toHaveLength(2);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
+  });
+
+  it("runs routes selected by the TUI picker without requiring reviewer flags", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 1 },
+        });
+        return;
+      }
+      if (event === "subagents:rpc:spawn") {
+        const agentId = `picked-agent-${nextAgent++}`;
+        fake.events.emit("subagents:completed", {
+          id: agentId,
+          correlationId: data.options.correlationId,
+          status: "completed",
+          result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+          requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+          requestedThinkingLevel: data.options.thinkingLevel,
+          effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+          effectiveThinkingLevel: data.options.thinkingLevel,
+        });
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { id: agentId },
+        });
+      }
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx, tui, theme } = context(root);
+    let customCall = 0;
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      if (customCall++ === 0) {
+        const picker = component;
+        if (!picker) throw new Error("Picker component was not created.");
+        picker.handleInput("\r"); // first model -> off
+        picker.handleInput("\x1b[B");
+        picker.handleInput("\r"); // second model -> off
+        picker.handleInput("\x1b[B");
+        picker.handleInput("\r"); // Run
+      }
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler("", ctx);
+
+    const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
+    expect(spawns).toHaveLength(2);
+    expect(spawns.map((item) => item.data.options.thinkingLevel)).toEqual(["off", "off"]);
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "candidate-approve",
+      successfulReviewerCount: 2,
+      runtime: { maxConcurrent: 1, waves: 2 },
+    });
+    expect(fake.emitted.filter((item) => item.event === "subagents:rpc:ping")).toHaveLength(1);
+  });
+
+  it("does not start or publish when shutdown races immediately after picker confirmation", async () => {
+    const fake = new FakePi();
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+      }
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx, notifications, statuses, tui, theme } = context();
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      const component = factory(tui, theme, {}, (value: unknown) => {
+        resolve(value);
+        for (const shutdown of fake.handlers.get("session_shutdown") ?? []) void shutdown();
+      });
+      component.handleInput("\r");
+      component.handleInput("\x1b[B");
+      component.handleInput("\r");
+      component.handleInput("\x1b[B");
+      component.handleInput("\r");
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler("", ctx);
+
+    expect(fake.entries).toEqual([]);
+    expect(fake.sentMessages).toEqual([]);
+    expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
+    expect(statuses).toEqual([]);
+    expect(notifications).toEqual([]);
+  });
+
+  it("turns loader Escape into a cancelled audited run and clears footer status", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+      }
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx, statuses, tui, theme } = context(root);
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      queueMicrotask(() => component?.handleInput("\x1b"));
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "cancelled",
+      routeResults: [
+        { status: "cancelled" },
+        { status: "cancelled" },
+      ],
+    });
+    expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
+    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+  });
+
+  it("requires explicit reviewer routes outside TUI mode", async () => {
+    const fake = new FakePi();
+    adversarialReviewExtension(fake.api());
+    const { ctx, notifications } = context();
+    Object.assign(ctx, { mode: "json" });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler("", ctx);
+
+    expect(notifications[0]).toMatchObject({ type: "error" });
+    expect(notifications[0].message).toContain("Outside TUI, pass at least two --reviewer");
+    expect(fake.emitted).toHaveLength(0);
   });
 
   it("fails before runtime work when reviewer selection is invalid", async () => {

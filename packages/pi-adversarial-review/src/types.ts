@@ -136,6 +136,11 @@ export interface MergedReviewReport {
   charterSha256: string;
   requestedRoutes: ReviewerRoute[];
   routeResults: ReviewerRouteResult[];
+  runtime: {
+    protocolVersion: 3;
+    maxConcurrent: number;
+    waves: number;
+  };
   successfulReviewerCount: number;
   minSuccessfulReviewerCount: number;
   consensusThreshold: number;

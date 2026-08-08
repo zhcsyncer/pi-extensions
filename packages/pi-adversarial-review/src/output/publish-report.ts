@@ -30,6 +30,8 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     `Adversarial review: ${report.overall}`,
     `Reviewers: ${report.successfulReviewerCount}/${report.requestedRoutes.length} valid ` +
       `(minimum ${report.minSuccessfulReviewerCount})`,
+    `Routes: ${report.requestedRoutes.length} · max concurrent: ${report.runtime.maxConcurrent} · ` +
+      `waves: ${report.runtime.waves}`,
     `Target: ${report.target.description}`,
   ];
 

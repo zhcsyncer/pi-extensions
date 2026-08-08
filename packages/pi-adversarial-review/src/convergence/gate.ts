@@ -59,6 +59,10 @@ export interface BuildMergedReviewReportOptions {
   charterSha256: string;
   requestedRoutes: ReviewerRoute[];
   routeResults: ReviewerRouteResult[];
+  runtimeCapabilities: {
+    protocolVersion: 3;
+    maxConcurrent: number;
+  };
   gating: GatingMode;
   stale: boolean;
   cancelled: boolean;
@@ -74,6 +78,13 @@ export function buildMergedReviewReport(
 ): MergedReviewReport {
   const config = options.gatingConfig ?? DEFAULT_GATING_CONFIG;
   validateConfig(config);
+  if (
+    options.runtimeCapabilities.protocolVersion !== 3 ||
+    !Number.isInteger(options.runtimeCapabilities.maxConcurrent) ||
+    options.runtimeCapabilities.maxConcurrent < 1
+  ) {
+    throw new Error("Invalid review runtime capabilities.");
+  }
   const successful = options.routeResults.filter((result) => (
     result.status === "completed" && result.report !== undefined
   ));
@@ -115,6 +126,10 @@ export function buildMergedReviewReport(
     charterSha256: options.charterSha256,
     requestedRoutes: options.requestedRoutes,
     routeResults: options.routeResults,
+    runtime: {
+      ...options.runtimeCapabilities,
+      waves: Math.ceil(options.requestedRoutes.length / options.runtimeCapabilities.maxConcurrent),
+    },
     successfulReviewerCount: successfulCount,
     minSuccessfulReviewerCount: minSuccessful,
     consensusThreshold,

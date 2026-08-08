@@ -44,6 +44,7 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
     charterSha256: "charter",
     requestedRoutes: [reviewer],
     routeResults: [{ route: reviewer, status: "completed", report: { verdict: "approve", summary: "clean", findings: [] } }],
+    runtime: { protocolVersion: 3, maxConcurrent: 1, waves: 1 },
     successfulReviewerCount: 1,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
@@ -62,8 +63,9 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
 }
 
 describe("merged report output", () => {
-  it("explains inconclusive and candidate results in plain text", () => {
+  it("explains inconclusive, runtime waves, and candidate results in plain text", () => {
     expect(buildMergedReportText(report())).toContain("Too few reviewers completed successfully");
+    expect(buildMergedReportText(report())).toContain("Routes: 1 · max concurrent: 1 · waves: 1");
     expect(buildMergedReportText(report({
       overall: "candidate-approve",
       successfulReviewerCount: 2,
