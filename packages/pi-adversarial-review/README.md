@@ -6,11 +6,16 @@ Deterministic multi-model adversarial code review orchestration for Pi.
 
 ## Status
 
-The package is under active development. Its no-UI core uses explicit reviewer routes and the in-process protocol-v3 contract from `@zhcsyncer/pi-subagents`. It is published independently and is not loaded by the root `@zhcsyncer/pi-extensions` bundle.
+The Phase 1 no-UI core is complete. It uses explicit reviewer routes and the in-process protocol-v3 contract from `@zhcsyncer/pi-subagents`. The package is published independently and is not loaded by the root `@zhcsyncer/pi-extensions` bundle. Model picker, refutation, and automatic main-model adjudication remain later phases.
 
 ## Usage
 
-Load both standalone extensions, scope the models that may participate, then invoke the command with at least two exact routes:
+Install/load both standalone extensions, scope the models that may participate, then invoke the command with at least two exact routes:
+
+```bash
+pi install npm:@zhcsyncer/pi-subagents
+pi install npm:@zhcsyncer/pi-adversarial-review
+```
 
 ```text
 /adversarial-review \
@@ -18,7 +23,11 @@ Load both standalone extensions, scope the models that may participate, then inv
   --reviewer provider-b/model-b@xhigh
 ```
 
-Supported targets are the current local changes, `--base <ref>`, or `--range <refA>..<refB>`. The core fails closed when no explicit model scope is configured. Phase 1 does not open a picker or automatically wake the main model after producing the merged report.
+Supported targets are the current local changes, `--base <ref>`, or `--range <refA>..<refB>`. Optional arguments include `--reqdoc <path>`, `--focus <text>`, and `--gating weighted|strict`. The core fails closed when no explicit model scope is configured.
+
+## Output
+
+Each reviewer is retained as a route result, including provider errors, timeouts, cancellation, and invalid JSON. A deterministic gate produces `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed`; it never claims final approval. Print mode writes the merged report directly. Other modes persist an audit entry and queue the report for the next user turn without waking the main model automatically.
 
 ## Safety
 

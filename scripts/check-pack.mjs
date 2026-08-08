@@ -19,6 +19,7 @@ const packagePaths = [
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
 	"./packages/pi-meter",
+	"./packages/pi-adversarial-review",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -236,6 +237,21 @@ const requiredPackFiles = new Map([
 		"CHANGELOG.md",
 		"LICENSE",
 	]],
+	["./packages/pi-adversarial-review", [
+		"extensions/adversarial-review.ts",
+		"src/index.ts",
+		"src/input/freeze-input.ts",
+		"src/runtime/rpc-v3-client.ts",
+		"src/runtime/orchestrator.ts",
+		"src/convergence/gate.ts",
+		"src/output/publish-report.ts",
+		"assets/adversarial-charter.md",
+		"assets/adversarial-reviewer.md",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+	]],
 	["./providers/pi-provider-volcengine-agent-plan", [
 		"index.ts",
 		"README.md",
@@ -267,6 +283,8 @@ const maintainedReadmes = [
 	"packages/pi-fast-mode/README.zh-CN.md",
 	"packages/pi-meter/README.md",
 	"packages/pi-meter/README.zh-CN.md",
+	"packages/pi-adversarial-review/README.md",
+	"packages/pi-adversarial-review/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"providers/pi-provider-cursor-ask/README.md",
@@ -336,6 +354,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-meter/README.md",
 	"packages/pi-meter/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-adversarial-review/README.md",
+	"packages/pi-adversarial-review/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",

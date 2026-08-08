@@ -110,37 +110,37 @@ function terminalFor(input: SpawnReviewAgentInput, agentId: string, overrides: P
 }
 
 describe("runReviewerFleet", () => {
-  it("does not lose terminal events that arrive before spawn replies and sorts by route ordinal", async () => {
-    const runtime = new FakeRuntime();
-    runtime.spawnImpl = async (input, agentId) => {
-      runtime.emitTerminal(terminalFor(input, agentId, {
-        status: input.correlationId.endsWith(":0") ? "steered" : "completed",
-      }));
-      return { agentId };
-    };
+  it.each([2, 4, 6])(
+    "does not lose early terminal events and preserves %i-route ordinal order",
+    async (routeCount) => {
+      const runtime = new FakeRuntime();
+      runtime.spawnImpl = async (input, agentId) => {
+        runtime.emitTerminal(terminalFor(input, agentId, {
+          status: input.correlationId.endsWith(":0") ? "steered" : "completed",
+        }));
+        return { agentId };
+      };
 
-    const result = await runReviewerFleet({
-      runtime,
-      routes: routes(4),
-      frozenInput: frozen(),
-      reviewerSystemPrompt: "review only",
-    });
+      const result = await runReviewerFleet({
+        runtime,
+        routes: routes(routeCount),
+        frozenInput: frozen(),
+        reviewerSystemPrompt: "review only",
+      });
 
-    expect(result.capabilities.maxConcurrent).toBe(2);
-    expect(result.routeResults.map(({ status, route }) => [route.ordinal, status])).toEqual([
-      [0, "completed"],
-      [1, "completed"],
-      [2, "completed"],
-      [3, "completed"],
-    ]);
-    expect(runtime.spawnInputs).toHaveLength(4);
-    expect(runtime.spawnInputs[0]).toMatchObject({
-      cwd: "/repo",
-      maxTurns: 25,
-      correlationId: "run-1:reviewer:0",
-    });
-    expect(runtime.listenerCount()).toBe(0);
-  });
+      expect(result.capabilities.maxConcurrent).toBe(2);
+      expect(result.routeResults.map(({ status, route }) => [route.ordinal, status])).toEqual(
+        Array.from({ length: routeCount }, (_, ordinal) => [ordinal, "completed"]),
+      );
+      expect(runtime.spawnInputs).toHaveLength(routeCount);
+      expect(runtime.spawnInputs[0]).toMatchObject({
+        cwd: "/repo",
+        maxTurns: 25,
+        correlationId: "run-1:reviewer:0",
+      });
+      expect(runtime.listenerCount()).toBe(0);
+    },
+  );
 
   it("preserves invalid output and effective-route mismatch as separate route failures", async () => {
     const runtime = new FakeRuntime();

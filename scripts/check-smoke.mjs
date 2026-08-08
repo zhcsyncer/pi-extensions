@@ -45,6 +45,7 @@ const packagePaths = [
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
 	"./packages/pi-meter",
+	"./packages/pi-adversarial-review",
 	"./providers/pi-provider-volcengine-agent-plan",
 	"./providers/pi-provider-cursor-ask",
 ];

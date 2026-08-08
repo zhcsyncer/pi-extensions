@@ -104,7 +104,8 @@
     "packages/pi-subagents/UPSTREAM_CHANGELOG.md",
     "packages/pi-subagents/UPSTREAM_SOURCE.md",
     "!packages/pi-subagents/**/*.test.ts",
-    "!packages/pi-subagents/test/**"
+    "!packages/pi-subagents/test/**",
+    "!packages/pi-adversarial-review/**"
   ],
   "publishConfig": {
     "access": "public"
@@ -113,10 +114,11 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:fast-mode && pnpm check:smoke && pnpm check:pack",
+    "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:fast-mode && pnpm check:adversarial-review && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs scripts/npm-bootstrap.test.mjs scripts/check-smoke.test.mjs scripts/ci-scope.test.mjs && node scripts/check-release-policy.mjs",
     "check:recap": "pnpm --filter @zhcsyncer/pi-recap check",
     "check:fast-mode": "pnpm --filter @zhcsyncer/pi-fast-mode check",
+    "check:adversarial-review": "pnpm --filter @zhcsyncer/pi-adversarial-review check",
     "check:smoke": "node scripts/check-smoke.mjs",
     "check:pack": "node scripts/check-pack.mjs"
   },
