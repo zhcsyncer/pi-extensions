@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { parseReviewCommand, ReviewCommandError } from "./command/parse-args.ts";
 import { resolveReviewerRoutes } from "./command/resolve-routes.ts";
+import { buildMergedReviewReport } from "./convergence/gate.ts";
 import { EmptyReviewInputError, prepareFrozenReviewInput } from "./input/freeze-input.ts";
+import { publishMergedReviewReport } from "./output/publish-report.ts";
 import { runReviewerFleet } from "./runtime/orchestrator.ts";
 import { loadReviewerSystemPrompt } from "./runtime/reviewer-assets.ts";
 import { PiSubagentRpcV3Client, type PiEventBus } from "./runtime/rpc-v3-client.ts";
@@ -43,6 +45,7 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
       try {
         const { command, routes } = preflightReviewCommand(args, ctx);
         activeRun = controller;
+        const startedAt = new Date();
         frozenInput = await prepareFrozenReviewInput({
           cwd: ctx.cwd,
           target: command.target,
@@ -58,35 +61,32 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
           signal: controller.signal,
         });
         const drift = await frozenInput.recheck();
-        const completed = fleet.routeResults.filter((result) => result.status === "completed").length;
-        const safeRouteResults = fleet.routeResults.map((result) => ({
-          route: result.route.key,
-          status: result.status,
-          report: result.report,
-          error: result.error,
-          durationMs: result.durationMs,
-          usage: result.usage,
-          rawOutput: result.rawOutput,
-        }));
-        pi.sendMessage({
-          customType: "adversarial-review-route-report",
-          content:
-            `Adversarial review collected ${completed}/${routes.length} valid reviewer reports. ` +
-            `${drift.stale ? "The target changed during review." : "The frozen target is still current."}`,
-          display: true,
-          details: {
-            runId: frozenInput.runId,
-            target: frozenInput.target,
-            maxConcurrent: fleet.capabilities.maxConcurrent,
-            routeResults: safeRouteResults,
-            stale: drift.stale,
-            drift: drift.changed,
-          },
-        }, { deliverAs: "nextTurn" });
-        ctx.ui.notify(`Adversarial review collected ${completed}/${routes.length} valid reports.`, "info");
+        const report = buildMergedReviewReport({
+          runId: frozenInput.runId,
+          target: frozenInput.target,
+          charterSource: frozenInput.charterSource,
+          charterSha256: frozenInput.charterSha256,
+          requestedRoutes: routes,
+          routeResults: fleet.routeResults,
+          gating: command.gating,
+          stale: drift.stale,
+          cancelled: controller.signal.aborted,
+          limitedContext: frozenInput.limitedContext,
+          startedAt,
+        });
+        const published = publishMergedReviewReport(pi, report, ctx.mode);
+        ctx.ui.notify(
+          published.deliveryWarning ??
+            `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`,
+          published.deliveryWarning
+            ? "warning"
+            : report.overall === "candidate-approve" ? "info" : "warning",
+        );
       } catch (error) {
         const type = error instanceof EmptyReviewInputError ? "info" : "error";
-        const prefix = error instanceof ReviewCommandError ? "Adversarial review" : "Adversarial review failed";
+        const prefix = error instanceof ReviewCommandError || error instanceof EmptyReviewInputError
+          ? "Adversarial review"
+          : "Adversarial review failed";
         ctx.ui.notify(`${prefix}: ${errorMessage(error)}`, type);
       } finally {
         if (frozenInput) {
