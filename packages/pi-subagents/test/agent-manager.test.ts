@@ -113,6 +113,104 @@ describe("AgentManager — Bug 1 race condition (resultConsumed vs onComplete)",
   });
 });
 
+describe("AgentManager — caller-owned cross-extension runs", () => {
+  let manager: AgentManager;
+
+  afterEach(() => manager?.dispose());
+
+  it("forwards inline config and records requested/effective route metadata", async () => {
+    const inlineAgentConfig = {
+      name: "reviewer",
+      description: "Inline reviewer",
+      builtinToolNames: ["read"],
+      extensions: false as const,
+      skills: false as const,
+      systemPrompt: "Review.",
+      promptMode: "replace" as const,
+    };
+    const model = { provider: "test-provider", id: "test-model" } as any;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
+      const session = {
+        ...mockSession(),
+        model,
+        thinkingLevel: "off",
+      } as any;
+      opts.onSessionCreated?.(session);
+      return { responseText: "done", session, aborted: false, steered: false };
+    });
+    manager = new AgentManager();
+
+    const id = manager.spawn(mockPi, mockCtx, "reviewer", "review", {
+      description: "Inline reviewer",
+      model,
+      thinkingLevel: "off",
+      inlineAgentConfig,
+      completionOwner: "caller",
+      correlationId: "route-1",
+      isBackground: true,
+    });
+    await manager.getRecord(id)!.promise;
+
+    expect(runAgent).toHaveBeenCalledWith(
+      mockCtx,
+      "reviewer",
+      "review",
+      expect.objectContaining({ inlineAgentConfig, thinkingLevel: "off" }),
+    );
+    expect(manager.getRecord(id)).toMatchObject({
+      completionOwner: "caller",
+      correlationId: "route-1",
+      inlineDisplayName: "reviewer",
+      inlinePromptMode: "replace",
+      requestedModel: { provider: "test-provider", modelId: "test-model" },
+      requestedThinkingLevel: "off",
+      effectiveModel: { provider: "test-provider", modelId: "test-model" },
+      effectiveThinkingLevel: "off",
+    });
+  });
+
+  it("emits completion for a caller-owned agent stopped while queued", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
+    manager.spawn(mockPi, mockCtx, "general-purpose", "first", {
+      description: "first",
+      isBackground: true,
+    });
+    const queuedId = manager.spawn(mockPi, mockCtx, "reviewer", "second", {
+      description: "second",
+      completionOwner: "caller",
+      correlationId: "route-2",
+      isBackground: true,
+    });
+
+    expect(manager.getRecord(queuedId)?.status).toBe("queued");
+    expect(manager.abort(queuedId)).toBe(true);
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+      id: queuedId,
+      status: "stopped",
+      completionOwner: "caller",
+    }));
+  });
+
+  it("preserves the old no-callback behavior for ordinary queued stops", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
+    manager.spawn(mockPi, mockCtx, "general-purpose", "first", {
+      description: "first",
+      isBackground: true,
+    });
+    const queuedId = manager.spawn(mockPi, mockCtx, "general-purpose", "second", {
+      description: "second",
+      isBackground: true,
+    });
+
+    expect(manager.abort(queuedId)).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+});
+
 describe("AgentManager — spawnAndWait onSpawned + foreground output file wiring (#105)", () => {
   let manager: AgentManager;
   afterEach(() => manager?.dispose());

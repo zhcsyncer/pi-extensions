@@ -13,7 +13,7 @@ This package publishes on its own and is also embedded in the aggregate `@zhcsyn
 
 ## Differences from upstream (read this first)
 
-This fork keeps upstream spawn, steer, resume, FleetView, schedule, and RPC behavior, but it now changes how manually launched background completion is delivered so current-task results cannot be starved behind a long parent tool loop. Most other differences remain focused on **how progress and tool results are shown** in the TUI.
+This fork keeps upstream's ordinary **Agent runtime** behavior, while changing how manually launched background completion is delivered so current-task results cannot be starved behind a long parent tool loop. Most other changes improve how progress and tool results are shown in the TUI; the fork also exposes an opt-in in-process spawn contract for orchestrator extensions.
 
 | Area | Upstream (`@tintinweb/pi-subagents`) | This fork (`@zhcsyncer/pi-subagents`) |
 | --- | --- | --- |
@@ -27,6 +27,7 @@ This fork keeps upstream spawn, steer, resume, FleetView, schedule, and RPC beha
 | Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details + `tool_result` → Pi `isError` (error shell); undetailed success paths never heuristic-red |
 | Background completion delivery | Manual Agent-tool, scheduled, and RPC completions all use `followUp`, which can starve current-task results during a long parent tool loop | Manual Agent-tool background completion uses `steer`; scheduled/RPC detached completion remains `followUp`; `triggerTurn: true` is retained |
 | Orchestration guidance | Foreground/background ownership is easy to blur | Prerequisite results must run foreground; background is only for genuinely disjoint work; the parent synthesizes and uses targeted verification without repeating delegated evidence collection |
+| Cross-extension orchestration | Named-agent spawn RPC | Protocol v3 adds optional inline role config, caller-owned completion, route correlation, effective route metadata, and max-concurrency discovery |
 | Packaging | Standalone npm package | Standalone `@zhcsyncer/pi-subagents` **and** embedded/registered in root `@zhcsyncer/pi-extensions` |
 
 ### What did *not* change
@@ -34,9 +35,20 @@ This fork keeps upstream spawn, steer, resume, FleetView, schedule, and RPC beha
 - Tool names and public parameters: `Agent`, `get_subagent_result`, `steer_subagent`
 - `triggerTurn: true` completion notifications; scheduled/RPC detached completion still uses `followUp`
 - FleetView list navigation, Enter steer, `x` `x` stop, Esc/q close
-- Custom agents, worktrees, schedules, settings menus, RPC
+- Custom agents, worktrees, schedules, and settings menus
+- Existing cross-extension spawn behavior when the new protocol-v3 fields are omitted
 
-Upstream remains the source of truth for those behaviors — start from [`UPSTREAM_README.md`](./UPSTREAM_README.md).
+Upstream remains the source of truth for ordinary Agent behavior — start from [`UPSTREAM_README.md`](./UPSTREAM_README.md).
+
+### Cross-extension spawn protocol v3
+
+“RPC” here is an in-process call between Pi extensions over `pi.events`, not a network service. The existing `subagents:rpc:spawn` request accepts three additional optional fields:
+
+- `inlineAgentConfig`: use the supplied role prompt/tools without named-agent discovery or fallback;
+- `completionOwner: "caller"`: keep queue, stop, FleetView, lifecycle events, and history, but suppress the per-agent parent-conversation nudge;
+- `correlationId`: echo an orchestrator-owned route key in started/terminal events.
+
+Caller-owned completion requires `isBackground: true` and a non-empty `correlationId`. `subagents:rpc:ping` returns protocol version `3` plus `maxConcurrent`; correlated terminal events include requested/effective model and thinking. Omitting all new fields preserves the historical named-agent and notification path.
 
 ### Foreground vs background contract
 

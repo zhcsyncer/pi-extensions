@@ -156,8 +156,8 @@ export class ConversationViewer implements Component {
 
     // Header
     lines.push(hrTop);
-    const name = getDisplayName(this.record.type);
-    const modeLabel = getPromptModeLabel(this.record.type);
+    const name = getDisplayName(this.record.type, this.record.inlineDisplayName);
+    const modeLabel = getPromptModeLabel(this.record.type, this.record.inlinePromptMode);
     const modeTag = modeLabel ? ` ${th.fg("dim", `(${modeLabel})`)}` : "";
     const statusIcon = headerStatusIcon(this.record.status, th);
     const duration = styleDuration(

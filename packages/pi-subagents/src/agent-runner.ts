@@ -24,7 +24,7 @@ import { detectEnv } from "./env.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
-import type { SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentConfig, InlineAgentConfig, SubagentType, ThinkingLevel } from "./types.js";
 import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 /**
@@ -363,6 +363,12 @@ export interface RunOptions {
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Caller-supplied role definition. When present, bypasses the named-agent
+   * registry entirely; when absent, the historical registry/fallback path is
+   * unchanged.
+   */
+  inlineAgentConfig?: InlineAgentConfig;
   /** Override working directory (e.g. for worktree isolation). */
   cwd?: string;
   /**
@@ -508,8 +514,19 @@ export async function runAgent(
   prompt: string,
   options: RunOptions,
 ): Promise<RunResult> {
-  const config = getConfig(type);
-  const agentConfig = getAgentConfig(type);
+  const inlineAgentConfig = options.inlineAgentConfig;
+  const agentConfig: AgentConfig | undefined = inlineAgentConfig ?? getAgentConfig(type);
+  const config = inlineAgentConfig
+    ? {
+        displayName: inlineAgentConfig.displayName ?? inlineAgentConfig.name,
+        description: inlineAgentConfig.description,
+        builtinToolNames: inlineAgentConfig.builtinToolNames ?? BUILTIN_TOOL_NAMES,
+        extensions: inlineAgentConfig.extensions,
+        excludeExtensions: inlineAgentConfig.excludeExtensions,
+        skills: inlineAgentConfig.skills,
+        promptMode: inlineAgentConfig.promptMode,
+      }
+    : getConfig(type);
 
   // Resolve working directory: worktree override > parent cwd
   const effectiveCwd = options.cwd ?? ctx.cwd;
@@ -540,7 +557,9 @@ export async function runAgent(
     }
   }
 
-  let toolNames = getToolNamesForType(type);
+  let toolNames = inlineAgentConfig
+    ? (inlineAgentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES])
+    : getToolNamesForType(type);
 
   // Persistent memory: detect write capability and branch accordingly.
   // Account for disallowedTools — a tool in the base set but on the denylist is not truly available.

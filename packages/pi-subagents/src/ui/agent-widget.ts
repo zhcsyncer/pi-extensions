@@ -8,7 +8,7 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentManager } from "../agent-manager.js";
 import { getConfig } from "../agent-types.js";
-import type { AgentInvocation, SubagentType, WidgetMode } from "../types.js";
+import type { AgentInvocation, AgentRecord, SubagentType, WidgetMode } from "../types.js";
 import { getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "../usage.js";
 import { sanitizeDisplayText } from "./display-safety.js";
 
@@ -268,14 +268,17 @@ function styleStatsWithDuration(parts: string[], duration: string, theme: Theme)
 }
 
 /** Get display name for any agent type (built-in or custom). */
-export function getDisplayName(type: SubagentType): string {
-  return getConfig(type).displayName;
+export function getDisplayName(type: SubagentType, inlineDisplayName?: string): string {
+  return inlineDisplayName ?? getConfig(type).displayName;
 }
 
 /** Short label for prompt mode: "twin" for append, nothing for replace (the default). */
-export function getPromptModeLabel(type: SubagentType): string | undefined {
-  const config = getConfig(type);
-  return config.promptMode === "append" ? "twin" : undefined;
+export function getPromptModeLabel(
+  type: SubagentType,
+  inlinePromptMode?: "replace" | "append",
+): string | undefined {
+  const promptMode = inlinePromptMode ?? getConfig(type).promptMode;
+  return promptMode === "append" ? "twin" : undefined;
 }
 
 /** Short model label for TUI (strips leading "Claude ", lowercases). */
@@ -679,10 +682,15 @@ export class AgentWidget {
     }
   }
 
+  /** Hide a caller-owned terminal row immediately; its orchestrator owns summary UI. */
+  dismissFinished(agentId: string) {
+    this.finishedTurnAge.set(agentId, Number.POSITIVE_INFINITY);
+  }
+
   /** Render a finished agent line. */
-  private renderFinishedLine(a: { id: string; type: SubagentType; status: string; description: string; toolUses: number; startedAt: number; completedAt?: number; error?: string }, theme: Theme): string {
-    const name = getDisplayName(a.type);
-    const modeLabel = getPromptModeLabel(a.type);
+  private renderFinishedLine(a: AgentRecord, theme: Theme): string {
+    const name = getDisplayName(a.type, a.inlineDisplayName);
+    const modeLabel = getPromptModeLabel(a.type, a.inlinePromptMode);
     const duration = formatMs((a.completedAt ?? Date.now()) - a.startedAt);
 
     let icon: string;
@@ -751,8 +759,8 @@ export class AgentWidget {
 
     const runningLines: string[][] = []; // each entry is [header, activity]
     for (const a of running) {
-      const name = getDisplayName(a.type);
-      const modeLabel = getPromptModeLabel(a.type);
+      const name = getDisplayName(a.type, a.inlineDisplayName);
+      const modeLabel = getPromptModeLabel(a.type, a.inlinePromptMode);
       const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
       const elapsed = formatMs(Date.now() - a.startedAt);
 

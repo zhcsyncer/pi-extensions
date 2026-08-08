@@ -13,7 +13,7 @@
 
 ## 与上游的差异（先看这里）
 
-本 fork 保留上游 spawn / steer / resume、FleetView、调度与 RPC 行为，但现在会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余差异仍主要集中在 **TUI 如何呈现进展与 tool 结果**。
+本 fork 保留上游日常 **Agent 运行时行为**，但会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余改动主要优化 TUI 中的进展与 tool 结果呈现；此外提供一条显式启用的进程内 spawn 契约，供编排型扩展调用。
 
 | 区域 | 上游 `@tintinweb/pi-subagents` | 本 fork `@zhcsyncer/pi-subagents` |
 | --- | --- | --- |
@@ -27,6 +27,7 @@
 | 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
 | 后台完成投递 | 手动 Agent-tool、schedule 与 RPC 都使用 `followUp`；主 agent 长工具循环可能饿死当前任务结果 | 手动 Agent-tool 后台完成使用 `steer`；schedule / RPC 等脱离当前推理链的任务保留 `followUp`；继续使用 `triggerTurn: true` |
 | 编排合同 | foreground / background 的工作所有权容易混淆 | 后续步骤依赖结果时必须 foreground；background 只用于真正互不重叠的工作；主 agent 负责综合和定向验证，但不得重复已委派的证据收集 |
+| 跨扩展编排 | named-agent spawn RPC | protocol v3 增加可选 inline 角色、调用方收口、route 关联、实际 route 元数据与并发上限查询 |
 | 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
 
 ### 未改动的部分
@@ -34,9 +35,20 @@
 - 工具名与公开参数：`Agent`、`get_subagent_result`、`steer_subagent`
 - 完成通知继续使用 `triggerTurn: true`；schedule / RPC 等 detached 任务仍使用 `followUp`
 - FleetView 导航、Enter steer、`x` `x` stop、Esc/q 关闭
-- 自定义 agent、worktree、调度、设置菜单、RPC
+- 自定义 agent、worktree、调度和设置菜单
+- 不传 protocol-v3 新字段时，原有跨扩展 spawn 行为不变
 
-行为细节仍以上游文档为准：[`UPSTREAM_README.md`](./UPSTREAM_README.md)。
+日常 Agent 行为细节仍以上游文档为准：[`UPSTREAM_README.md`](./UPSTREAM_README.md)。
+
+### 跨扩展 spawn protocol v3
+
+这里的“RPC”只是 Pi 扩展之间通过 `pi.events` 做的进程内调用，不是网络服务。现有 `subagents:rpc:spawn` request 新增三个可选字段：
+
+- `inlineAgentConfig`：直接使用调用方给出的角色 prompt/tools，不查找 named agent，也不 fallback；
+- `completionOwner: "caller"`：保留 queue、stop、FleetView、lifecycle event 与 history，但不向主会话发送单 agent 完成通知；
+- `correlationId`：在 started/terminal event 中原样带回编排方的 route key。
+
+调用方收口要求 `isBackground: true` 且 `correlationId` 非空。`subagents:rpc:ping` 返回 protocol version `3` 和 `maxConcurrent`；关联后的 terminal event 会给出请求与实际生效的 model/thinking。不传任何新字段时，仍走原来的 named-agent 与完成通知路径。
 
 ### Foreground / background 合同
 

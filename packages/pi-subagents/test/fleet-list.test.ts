@@ -368,6 +368,19 @@ describe("FleetList rendering", () => {
     h.fleet.dispose();
   });
 
+  it("uses inline display metadata instead of registry fallback", () => {
+    const record = makeRecord({
+      type: "reviewer",
+      description: "inline review",
+      inlineDisplayName: "Adversarial Reviewer",
+      inlinePromptMode: "replace",
+    });
+    const agentLine = harness([record]).render(120).find((line) => line.includes("inline review"))!;
+
+    expect(agentLine).toContain("Adversarial Reviewer");
+    expect(agentLine).not.toContain(getDisplayName("reviewer"));
+  });
+
   it("orders agents earliest-launched first (top)", () => {
     const agents = [
       makeRecord({ id: "new", description: "newest", startedAt: 2000 }),

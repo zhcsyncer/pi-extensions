@@ -99,13 +99,15 @@ function detailBaseFromRecord(record: {
   type: string;
   description: string;
   invocation?: AgentInvocation;
+  inlineDisplayName?: string;
+  inlinePromptMode?: "replace" | "append";
 }): Pick<
   AgentDetails,
   "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags"
 > {
-  const displayName = getDisplayName(record.type);
+  const displayName = getDisplayName(record.type, record.inlineDisplayName);
   const invMeta = detailsFromInvocation(record.invocation);
-  const modeLabel = getPromptModeLabel(record.type);
+  const modeLabel = getPromptModeLabel(record.type, record.inlinePromptMode);
   const tags = invMeta.tags ? [...invMeta.tags] : [];
   if (modeLabel) tags.unshift(modeLabel);
   return {
@@ -244,8 +246,8 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
 }
 
 /**
- * Advertised thinking levels, ordered to mirror pi-ai's EXTENDED_THINKING_LEVELS
- * (`off` + every `ThinkingLevel`). Single source for the Agent tool description,
+ * Advertised thinking levels, ordered to mirror pi-ai's full ModelThinkingLevel
+ * domain. Single source for the Agent tool description,
  * the generated-agent template, and the `/agents` wizard so these lists can't
  * drift behind pi again (#147). Availability of any level still depends on the
  * host pi version and the selected model — pi clamps unsupported levels down.
@@ -522,6 +524,18 @@ export default function (pi: ExtensionAPI) {
     30_000,
   );
 
+  /** Correlated route metadata is added only for opt-in cross-extension runs. */
+  function buildCorrelatedEventData(record: AgentRecord) {
+    if (!record.correlationId) return {};
+    return {
+      correlationId: record.correlationId,
+      requestedModel: record.requestedModel,
+      requestedThinkingLevel: record.requestedThinkingLevel,
+      effectiveModel: record.effectiveModel,
+      effectiveThinkingLevel: record.effectiveThinkingLevel,
+    };
+  }
+
   /** Helper: build event data for lifecycle events from an AgentRecord. */
   function buildEventData(record: AgentRecord) {
     const durationMs = record.completedAt ? record.completedAt - record.startedAt : Date.now() - record.startedAt;
@@ -544,6 +558,7 @@ export default function (pi: ExtensionAPI) {
       toolUses: record.toolUses,
       durationMs,
       tokens,
+      ...buildCorrelatedEventData(record),
     };
   }
 
@@ -563,9 +578,21 @@ export default function (pi: ExtensionAPI) {
       id: record.id, type: record.type, description: record.description,
       status: record.status, result: record.result, error: record.error,
       startedAt: record.startedAt, completedAt: record.completedAt,
+      ...buildCorrelatedEventData(record),
     });
 
-    // Skip notification if result was already consumed via get_subagent_result
+    // Caller-owned runs are collected by the invoking extension. Keep lifecycle,
+    // history, and Fleet updates, but do not nudge the parent conversation or
+    // leave the fast widget timer alive waiting for a parent turn that will not fire.
+    if (record.completionOwner === "caller") {
+      agentActivity.delete(record.id);
+      widget.dismissFinished(record.id);
+      fleet.onAgentFinished(record.id);
+      widget.update();
+      return;
+    }
+
+    // Skip notification if result was already consumed via get_subagent_result.
     if (record.resultConsumed) {
       agentActivity.delete(record.id);
       widget.markFinished(record.id);
@@ -594,6 +621,7 @@ export default function (pi: ExtensionAPI) {
       id: record.id,
       type: record.type,
       description: record.description,
+      ...buildCorrelatedEventData(record),
     });
   }, (record, info) => {
     // Emit compacted event when agent's session compacts (preserves count on record).
@@ -675,6 +703,17 @@ export default function (pi: ExtensionAPI) {
         pi,
         getCtx: () => currentCtx,
         manager,
+        onSpawned: ({ options, ctx }) => {
+          if (options.completionOwner !== "caller") return;
+          const extensionCtx = ctx as ExtensionContext;
+          if (!extensionCtx.hasUI) return;
+          widget.setUICtx(extensionCtx.ui as UICtx);
+          fleet.setUICtx(extensionCtx.ui as unknown as FleetUICtx);
+          widget.ensureTimer();
+          widget.update();
+          fleet.ensureTimer();
+          fleet.update();
+        },
       });
       // Broadcast readiness so extensions loaded alongside us can discover us.
       // Emitting after all factories have run (rather than at factory time)
@@ -1586,7 +1625,7 @@ Terse command-style prompts produce shallow, generic work.
         if (record.promise) await abortable(record.promise, signal);
       }
 
-      const displayName = getDisplayName(record.type);
+      const displayName = getDisplayName(record.type, record.inlineDisplayName);
       const duration = formatDuration(record.startedAt, record.completedAt);
       const tokens = formatLifetimeTokens(record);
       const contextPercent = getSessionContextPercent(record.session);
@@ -1900,7 +1939,7 @@ Terse command-style prompts produce shallow, generic work.
     }
 
     const options = agents.map(a => {
-      const dn = getDisplayName(a.type);
+      const dn = getDisplayName(a.type, a.inlineDisplayName);
       const dur = formatDuration(a.startedAt, a.completedAt);
       return `${dn} (${a.description}) · ${a.toolUses} tools · ${a.status} · ${dur}`;
     });

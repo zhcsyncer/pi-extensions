@@ -117,6 +117,7 @@ import {
   runAgent,
   SUBAGENT_TOOL_NAMES,
 } from "../src/agent-runner.js";
+import { buildAgentPrompt } from "../src/prompts.js";
 
 /** The most recent session built by `createSession` — read by `lastToolsPassed()`. */
 let lastSession: ReturnType<typeof createSession>["session"] | undefined;
@@ -184,6 +185,10 @@ beforeEach(() => {
   settingsManagerGetSessionDir.mockReturnValue(undefined);
   settingsManagerCreate.mockClear();
   loaderExtensionsRef.current = { extensions: [], errors: [], runtime: {} };
+  vi.mocked(getAgentConfig).mockClear();
+  vi.mocked(getConfig).mockClear();
+  vi.mocked(getToolNamesForType).mockClear();
+  vi.mocked(buildAgentPrompt).mockClear();
   lastSession = undefined;
 });
 
@@ -305,6 +310,42 @@ describe("agent-runner final output capture", () => {
     await runAgent(ctx, "Explore", "go", { pi, agentId: "a1b2c3d4e5f6" });
 
     expect(session.setSessionName).toHaveBeenCalledWith("Explore#a1b2c3d4");
+  });
+
+  it("uses inline config without consulting the named-agent registry", async () => {
+    const { session } = createSession("INLINE");
+    createAgentSession.mockResolvedValue({ session });
+    const inlineAgentConfig = {
+      name: "reviewer",
+      description: "Inline reviewer",
+      builtinToolNames: ["read", "grep"],
+      extensions: false as const,
+      skills: false as const,
+      systemPrompt: "Review only the supplied input.",
+      promptMode: "replace" as const,
+    };
+
+    await runAgent(ctx, "reviewer", "go", { pi, inlineAgentConfig });
+
+    expect(getAgentConfig).not.toHaveBeenCalled();
+    expect(getConfig).not.toHaveBeenCalled();
+    expect(getToolNamesForType).not.toHaveBeenCalled();
+    expect(buildAgentPrompt).toHaveBeenCalledWith(
+      inlineAgentConfig,
+      "/tmp",
+      expect.any(Object),
+      "parent prompt",
+      expect.any(Object),
+    );
+    expect(defaultResourceLoaderCtor).toHaveBeenCalledWith(expect.objectContaining({
+      noExtensions: true,
+      noSkills: true,
+      noContextFiles: true,
+    }));
+    expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
+      tools: ["read", "grep"],
+    }));
+    expect(session.setSessionName).toHaveBeenCalledWith("reviewer");
   });
 });
 

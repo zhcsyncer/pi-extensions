@@ -12,7 +12,16 @@ import { isAbsolute } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
-import type { AgentInvocation, AgentRecord, CompletionDelivery, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
+import type {
+  AgentInvocation,
+  AgentRecord,
+  CompletionDelivery,
+  CompletionOwner,
+  InlineAgentConfig,
+  IsolationMode,
+  SubagentType,
+  ThinkingLevel,
+} from "./types.js";
 import { addUsage, createLifetimeUsage, type LifetimeUsage } from "./usage.js";
 import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
 
@@ -54,13 +63,19 @@ interface SpawnArgs {
   options: SpawnOptions;
 }
 
-interface SpawnOptions {
+export interface SpawnOptions {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /** Optional role definition supplied directly by another extension. */
+  inlineAgentConfig?: InlineAgentConfig;
+  /** Defaults to runtime when omitted, preserving ordinary completion nudges. */
+  completionOwner?: CompletionOwner;
+  /** Opaque caller correlation key echoed through lifecycle events. */
+  correlationId?: string;
   isBackground?: boolean;
   /** How completion is delivered to the parent. Defaults to detached follow-up delivery. */
   completionDelivery?: CompletionDelivery;
@@ -176,7 +191,27 @@ export class AgentManager {
       // only filter excludes only explicit `false`, so undefined agents — which
       // have no inline surface — stay visible instead of vanishing.
       isBackground: options.isBackground,
-      invocation: options.invocation,
+      invocation: options.invocation ?? (options.correlationId ? {
+        modelName: options.model?.id,
+        thinking: options.thinkingLevel,
+        maxTurns: options.maxTurns,
+        isolated: options.isolated,
+        inheritContext: options.inheritContext,
+        runInBackground: options.isBackground,
+        isolation: options.isolation,
+      } : undefined),
+      ...(options.inlineAgentConfig ? {
+        inlineDisplayName: options.inlineAgentConfig.displayName ?? options.inlineAgentConfig.name,
+        inlinePromptMode: options.inlineAgentConfig.promptMode,
+      } : {}),
+      ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+      ...(options.completionOwner ? { completionOwner: options.completionOwner } : {}),
+      ...(options.correlationId && options.model ? {
+        requestedModel: { provider: options.model.provider, modelId: options.model.id },
+      } : {}),
+      ...(options.correlationId && options.thinkingLevel ? {
+        requestedThinkingLevel: options.thinkingLevel,
+      } : {}),
     };
     this.agents.set(id, record);
 
@@ -255,6 +290,7 @@ export class AgentManager {
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
+      ...(options.inlineAgentConfig ? { inlineAgentConfig: options.inlineAgentConfig } : {}),
       // Worktree wins for the working dir (the agent must run in the copy —
       // which, with a custom cwd, was created from that target). Config stays
       // with the parent project when a caller-supplied cwd is in play; it must
@@ -280,6 +316,13 @@ export class AgentManager {
       },
       onSessionCreated: (session) => {
         record.session = session;
+        if (record.correlationId) {
+          const effectiveModel = session.model;
+          if (effectiveModel) {
+            record.effectiveModel = { provider: effectiveModel.provider, modelId: effectiveModel.id };
+          }
+          record.effectiveThinkingLevel = session.thinkingLevel;
+        }
         // Flush any steers that arrived before the session was ready
         if (record.pendingSteers?.length) {
           for (const msg of record.pendingSteers) {
@@ -528,6 +571,12 @@ export class AgentManager {
       this.queue = this.queue.filter(q => q.id !== id);
       record.status = "stopped";
       record.completedAt = Date.now();
+      // Caller-owned orchestration waits on terminal lifecycle events even for
+      // work that was cancelled before it started. Preserve the historical
+      // no-completion-callback behavior for ordinary queued agents.
+      if (record.completionOwner === "caller") {
+        try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+      }
       return true;
     }
 
