@@ -34,7 +34,7 @@ The aggregate `@zhcsyncer/pi-extensions` package embeds the source for release c
 
 The extension captures `HERDR_ENV`, caller pane/tab/workspace IDs, and the socket path once at extension load. Every `before_agent_start` turn receives the same short block, avoiding repeated environment or focused-pane probes.
 
-Inside Herdr it tells the model to use `herdr_process` for dev/preview/watch commands and explains `/btw` merge semantics. Outside Herdr it says that Herdr launch features are unavailable and recommends tmux rather than `nohup`, `&`, or `disown`.
+Inside a complete Herdr caller it tells the model to use `herdr_process` for dev/preview/watch commands and explains `/btw` merge semantics. Outside Herdr it says that Herdr launch features are unavailable and recommends tmux rather than `nohup`, `&`, or `disown`. If `HERDR_ENV=1` but caller pane or socket identity is missing, the block reports `degraded/unavailable` and does not advertise the unregistered process tool.
 
 Set `runtime.injectSystemPrompt` to `false` to disable only this prompt block.
 
@@ -44,7 +44,7 @@ Set `runtime.injectSystemPrompt` to `false` to disable only this prompt block.
 
 - `start`: split down by default, keep focus on the caller, run a command, optionally wait for literal or regex readiness, then persist ownership
 - `list`: reconcile the persisted registry with live Herdr panes
-- `logs`: read recent unwrapped output from an owned pane; tail-truncated to Pi's 2,000-line / 50KB limits
+- `logs`: merge bounded `recent-unwrapped` scrollback with the current `visible` viewport, removing their largest exact line overlap before Pi's final 2,000-line / 50KB tail truncation. This preserves short output that Herdr 0.8 may expose only through `visible`; one non-missing source failure falls back to the other
 - `stop`: close only a companion-created, registered pane
 
 Example calls:
@@ -56,15 +56,19 @@ Example calls:
 {"action":"stop","target":"dev"}
 ```
 
-Start defaults are direction `down`, ratio `0.35`, readiness timeout 60 seconds, cwd equal to Pi's cwd, no focus change, and lifetime `session`. `readyMatch` and `readyRegex` are mutually exclusive.
+Start defaults are direction `down`, ratio `0.35`, readiness timeout 60 seconds, cwd equal to Pi's cwd, no focus change, and lifetime `session`. `readyMatch` and `readyRegex` are mutually exclusive. Because Herdr `wait-output` can see shell command echo, a literal `readyMatch` that occurs in `command` is rejected before splitting. Use a marker absent from the command, or an anchored `readyRegex` such as `^READY$` whose pattern text cannot match the echoed command line.
 
-Ownership is session-persisted and rebuilt after reload/compaction. The tool never closes the caller or an unregistered pane. Lifecycle behavior is:
+Ownership is session-persisted and rebuilt after reload/compaction. `/tree` navigation first merges the runtime's current ownership with branch-only records bound to the exact session and caller, persists that conservative union on the selected branch, and only then reconciles live pane/process state. A transient pane-list failure therefore loses neither current nor valid branch ownership; missing or unreliable process information remains non-destructive. The tool never closes the caller or an unregistered pane. Lifecycle behavior is:
 
 | Event | `session` process | `persistent` process |
 | --- | --- | --- |
 | `/reload` | Preserve and reconcile | Preserve and reconcile |
+| `/tree` | Preserve live runtime ownership and rebind it to the selected branch | Same |
 | quit, `/new`, `/resume`, `/fork` | Close on normal teardown | Preserve |
-| manual pane close/process loss | Remove stale ownership on reconciliation | Remove stale ownership on reconciliation |
+| manual pane close | Remove stale ownership on reconciliation | Remove stale ownership on reconciliation |
+| command returns to its shell | Keep owned as `exited`; close on normal teardown or explicit `stop` | Keep owned as `exited` until explicit `stop` |
+
+Reconciliation uses typed `pane process-info --pane` data to distinguish a foreground command from the pane's interactive shell. After the short launch grace, a reliable returned-shell result is shown as `exited` but remains in the registry. This preserves crash/exit logs, explicit `stop`, duplicate-label protection, and session-lifetime cleanup instead of creating an unmanaged pane. Only a pane absent from the live pane list loses stale ownership. Missing or unreliable process information—including older Herdr behavior—is reported as `unknown` and never authorizes removal. Replacement-session cleanup is attempted from persisted ownership before a potentially transient `pane list` probe.
 
 A host/Pi hard crash cannot guarantee pane cleanup. Resume the owning session and call `herdr_process list`/`stop`, or close the known pane in Herdr.
 
@@ -91,11 +95,15 @@ Child commands:
 
 A launch snapshots the parent's active branch with Pi's compaction-aware session builder and inherits cwd, model, thinking level, and active tools by default. The question opens in the child editor unless `auto-submit` is enabled. The child is an independent, visible Pi process: its transcript does not enter the parent until explicit merge.
 
-A merge contains only child user/assistant text, excludes thinking/tool payloads/images, and keeps the newest content within a 48KiB transcript budget. The parent waits until idle, appends one visible context-participating merge message, submits the child-authored follow-up, and durably advances through `message_appended`, `prompt_submitted`, and `acked`. A private file lock, request capability, exact parent-session binding, dispatch lease, and session evidence prevent duplicate delivery across concurrent scans and reload recovery. The child refocuses the parent and closes only after an accepted acknowledgement.
+A merge contains only child user/assistant text, excludes thinking/tool payloads/images, and keeps the newest content within a 48KiB transcript budget. Once the parent is idle, it sends one visible custom message that combines the transcript and child-authored follow-up, carries durable `requestId`/`launchId` details, participates in context, bypasses user-input transforms, and triggers the parent turn. Pi 0.84's `sendMessage` wrapper is fire-and-forget, so a dispatch return is never treated as proof of delivery: the parent writes an accepted acknowledgement only after a later scan observes that exact custom message in session evidence.
 
-When model, thinking, tools, and effective system prompt exactly match the parent, the child replays the native parent prefix for provider prompt-cache reuse. Any override or unavailable exact system prompt selects a portable flattened snapshot and records the cache-break reason in the child prompt.
+Recovery is durable and request-deduplicated for **one active Pi owner of a parent session**. The private lock serializes scans and a dispatch lease delays recovery when a crash may have happened around the fire-and-forget call. This is not strict exactly-once delivery across two simultaneously open Pi instances for the same session. A crash or unusually delayed append beyond the lease can cause a request-tagged retry; session evidence deduplicates normal reload recovery, but the residual dispatch/append window cannot be eliminated by ExtensionAPI 0.84.
 
-Launch payloads and mailboxes live under the global Pi agent directory in a socket-specific private state root. Directories are `0700`, files are `0600`, writes use atomic rename, and capability/context values never appear in CLI argv. Stale cleanup conservatively preserves launches with a live/unknown pane or unacknowledged merge.
+The child persists the first side-thread Pi session ID in private launch state. `/reload` with that same ID continues normally. `/new`, `/resume`, or `/fork` into another session disables parent-context replay, merge, ack polling/cleanup, and launch-draft submission, with a visible warning; the new session continues independently instead of merging an unrelated transcript into the old parent.
+
+Native replay is only a best-effort prompt-cache optimization. It requires inherited model/thinking, a known parent system prompt with a matching fingerprint, and an exact ordered fingerprint of every active tool's name, description, parameters, and prompt guidelines. Missing first-turn evidence, any override, or any schema mismatch selects a portable flattened snapshot and records the cache-break reason. Later `before_agent_start` handlers and provider-level request rewrites can still alter the eventual payload after companion's check, so native mode does not promise final provider-payload equivalence or a cache hit.
+
+Launch payloads and mailboxes live under the global Pi agent directory in a socket-specific private state root. Directories are `0700`, files are `0600`, writes use atomic rename, and capability/context values never appear in CLI argv. Delivery-lock timeout recovery checks that the recorded owner PID is dead, then re-reads token, inode/device, and mtime immediately before unlink; uncertainty times out rather than deleting a replacement lock. Side-agent names are persisted and resolved through `agent get`, so pane moves do not make an old pane ID look stale. Stale cleanup conservatively preserves launches without reliable agent/pane resolution, with a live/unknown pane, or with an unacknowledged merge.
 
 ### Blocked adapters
 
@@ -176,9 +184,11 @@ BTW shortcuts:
 - Process and BTW ownership registries are separate state machines; one cannot close the other's panes.
 - `/btw` shares cwd with the parent. Concurrent file/Git edits, dev servers, and ports can conflict.
 - Parent snapshots are static; later parent activity is visible to the child only if the user explains it.
-- Merge is bound to the exact parent session ID. If that session is unavailable, the request remains pending and diagnosable.
-- Normal failure paths remove private payloads and best-effort close any identified orphan pane. A hard process/host crash or an ambiguous split with no recoverable pane ID cannot offer absolute cleanup guarantees.
-- Herdr 0.7.5+ is the compatibility floor; advanced layout operations are intentionally out of scope.
+- Merge is bound to the exact parent session ID, and the child is bound to its first side-thread session ID. If the parent is unavailable, the request remains pending and diagnosable; if the child switches session, side-thread behavior is disabled.
+- After accepted ack, the child resolves its current pane by persisted Herdr agent name, focuses the exact parent, and only then closes. Failed focus or unreliable pane resolution leaves the side pane open with a warning.
+- Normal failure paths remove private payloads and best-effort close only a pane ID explicitly returned by split success/failure. A split failure without an explicit ID reports a possible orphan and deliberately leaves unidentified panes untouched. Hard process/host crashes cannot offer absolute cleanup guarantees.
+- POSIX filesystems do not expose a portable unlink-if-inode-matches operation. Lock identity is rechecked immediately before deletion, but an irreducible final check/unlink race remains; conservative timeout is used whenever replacement is observed or ownership is uncertain.
+- Herdr 0.7.5+ is the compatibility floor; `process-info` absence degrades to non-destructive `unknown`, and advanced layout operations are intentionally out of scope.
 
 ## Development
 

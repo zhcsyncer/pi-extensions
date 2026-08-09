@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { PROCESS_TOOL_NAME, type ProcessRegistrySnapshot } from "./registry.ts";
-import type { ProcessManager } from "./manager.ts";
+import type { ProcessListResult, ProcessManager, ProcessRuntimeState } from "./manager.ts";
 
 export const herdrProcessSchema = Type.Object({
 	action: StringEnum(["start", "list", "logs", "stop"] as const, {
@@ -39,6 +39,7 @@ export interface HerdrProcessDetails {
 	paneId?: string;
 	label?: string;
 	stalePaneIds?: string[];
+	processStates?: Record<string, ProcessRuntimeState>;
 	truncated?: boolean;
 }
 
@@ -54,11 +55,19 @@ function result(text: string, details: HerdrProcessDetails) {
 	};
 }
 
+export function formatProcessList(listed: ProcessListResult): string {
+	return listed.entries.length === 0
+		? "No companion-owned process panes are live."
+		: listed.entries.map((entry) =>
+			`${entry.label}\t${entry.paneId}\t${listed.states[entry.paneId] ?? "unknown"}\t${entry.lifetime}\t${entry.cwd}\t${entry.command}`,
+		).join("\n");
+}
+
 export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManager): void {
 	pi.registerTool({
 		name: PROCESS_TOOL_NAME,
 		label: "Herdr Process",
-		description: "Start, list, read logs from, or stop companion-owned long-running commands in visible Herdr panes. Output is tail-truncated to 2000 lines or 50KB. It never closes the caller or unowned panes.",
+		description: "Start, list, read logs from, or stop companion-owned long-running commands in visible Herdr panes. Commands that return to the shell remain owned as exited until stop or lifecycle cleanup, preserving logs and safe cleanup. Output is tail-truncated to 2000 lines or 50KB. It never closes the caller or unowned panes.",
 		promptSnippet: "Manage visible long-running dev, preview, and watch processes in Herdr panes",
 		promptGuidelines: [
 			"Use herdr_process for dev servers, previews, watchers, and other long-running commands instead of nohup, shell backgrounding, or disown.",
@@ -88,14 +97,10 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 				}
 				case "list": {
 					const listed = await manager.list(signal);
-					const text = listed.entries.length === 0
-						? "No companion-owned process panes are live."
-						: listed.entries.map((entry) =>
-							`${entry.label}\t${entry.paneId}\t${entry.lifetime}\t${entry.cwd}\t${entry.command}`,
-						).join("\n");
-					return result(text, {
+					return result(formatProcessList(listed), {
 						action: "list",
 						registry: manager.registry.snapshot(),
+						processStates: listed.states,
 						...(listed.stale.length ? { stalePaneIds: listed.stale.map((entry) => entry.paneId) } : {}),
 					});
 				}

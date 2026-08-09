@@ -45,6 +45,7 @@ function fakePi() {
 		},
 		exec: async (): Promise<ExecResult> => ({ stdout: "", stderr: "", code: 0, killed: false }),
 		getActiveTools: () => [],
+		getAllTools: () => [],
 		getThinkingLevel: () => "off",
 		sendMessage() {},
 		sendUserMessage() {},
@@ -63,6 +64,18 @@ describe.sequential("extension registration gates", () => {
 		const before = h.handlers.get("before_agent_start") ?? [];
 		const result = await before[0]?.({ systemPrompt: "base" }, {});
 		expect(result).toMatchObject({ systemPrompt: expect.stringContaining("inside: false") });
+	});
+
+	it("inside an incomplete Herdr caller advertises degraded runtime and no nonexistent process tool", async () => {
+		for (const key of ENV_KEYS) delete process.env[key];
+		Object.assign(process.env, { HERDR_ENV: "1", HERDR_PANE_ID: "w1:p1" });
+		const h = fakePi();
+		await extension(h.pi);
+		expect(h.tools).toEqual([]);
+		const before = h.handlers.get("before_agent_start") ?? [];
+		const result = await before[0]?.({ systemPrompt: "base" }, {});
+		expect(result).toMatchObject({ systemPrompt: expect.stringContaining("degraded/unavailable") });
+		expect((result as { systemPrompt: string }).systemPrompt).not.toContain("herdr_process");
 	});
 
 	it("inside a complete Herdr caller registers exactly herdr_process and no /btw tool schema", async () => {

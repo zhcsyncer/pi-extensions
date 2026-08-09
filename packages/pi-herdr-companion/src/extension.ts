@@ -69,7 +69,10 @@ export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise
 		});
 		pi.on("session_tree", async (_event, ctx) => {
 			try {
-				await processManager.rehydrate(restoreProcessRegistry(ctx.sessionManager.getBranch()), "startup");
+				await processManager.rebindTree(
+					restoreProcessRegistry(ctx.sessionManager.getBranch()),
+					ctx.sessionManager.getSessionId(),
+				);
 			} catch (error) {
 				ctx.ui.notify(`Could not reconcile Herdr process ownership after tree navigation: ${error instanceof Error ? error.message : String(error)}`, "warning");
 			}

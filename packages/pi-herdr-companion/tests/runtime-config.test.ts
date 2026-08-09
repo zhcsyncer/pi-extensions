@@ -58,8 +58,13 @@ describe("runtime snapshot", () => {
 		expect(once.match(/## Runtime: Herdr companion/g)).toHaveLength(1);
 	});
 
-	it("does not call a partial Herdr identity usable", () => {
-		expect(hasUsableHerdrRuntime(captureRuntimeSnapshot({ HERDR_ENV: "1", HERDR_PANE_ID: "w1:p1" }))).toBe(false);
+	it("renders partial Herdr identity as degraded without advertising an unregistered tool", () => {
+		const snapshot = captureRuntimeSnapshot({ HERDR_ENV: "1", HERDR_PANE_ID: "w1:p1" });
+		expect(hasUsableHerdrRuntime(snapshot)).toBe(false);
+		const prompt = buildRuntimePrompt(snapshot);
+		expect(prompt).toContain("availability: degraded/unavailable");
+		expect(prompt).toContain("socket path");
+		expect(prompt).not.toContain("herdr_process");
 	});
 });
 

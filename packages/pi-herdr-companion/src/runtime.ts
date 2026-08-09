@@ -36,6 +36,19 @@ export function buildRuntimePrompt(snapshot: RuntimeSnapshot): string {
 			"Herdr tools and /btw launch are unavailable. Use tmux for long-running processes; never nohup/&/disown.",
 		].join("\n");
 	}
+	if (!hasUsableHerdrRuntime(snapshot)) {
+		const missing = [
+			...(snapshot.paneId ? [] : ["caller pane ID"]),
+			...(snapshot.socketPath ? [] : ["socket path"]),
+		].join(" and ");
+		return [
+			"## Runtime: Herdr companion",
+			"inside: true",
+			"availability: degraded/unavailable",
+			`missing: ${missing || "reliable caller identity"}`,
+			"Managed Herdr process and /btw launch features are unavailable in this session. Use tmux for long-running processes; never nohup/&/disown.",
+		].join("\n");
+	}
 
 	return [
 		"## Runtime: Herdr companion",

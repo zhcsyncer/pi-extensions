@@ -39,7 +39,27 @@ const MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_MAILBOX_BYTES = 256 * 1024;
 const LOCK_WAIT_MS = 2_000;
 const STALE_LOCK_MS = 30_000;
+const MAX_LOCK_BYTES = 4 * 1024;
 export const DEFAULT_STALE_LAUNCH_MS = 24 * 60 * 60 * 1_000;
+
+interface DeliveryLockRecord {
+	token: string;
+	pid: number;
+}
+
+interface DeliveryLockIdentity extends DeliveryLockRecord {
+	dev: number;
+	ino: number;
+	mtimeMs: number;
+}
+
+export interface BtwContextStoreOptions {
+	lockWaitMs?: number;
+	staleLockMs?: number;
+	isProcessAlive?(pid: number): boolean | "unknown" | Promise<boolean | "unknown">;
+	/** Test seam immediately before the stale candidate is re-read. */
+	beforeStaleLockRecheck?(): void | Promise<void>;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,14 +102,14 @@ export type PaneLiveness = true | false | "unknown";
 export interface StaleCleanupOptions {
 	maxAgeMs?: number;
 	now?: number;
-	isPaneLive(paneId: string): Promise<PaneLiveness>;
+	isPaneLive(paneId: string, agentName?: string): Promise<PaneLiveness>;
 }
 
 export class BtwContextStore {
 	readonly root: string;
 	private canonicalRoot?: string;
 
-	constructor(root: string) {
+	constructor(root: string, private readonly options: BtwContextStoreOptions = {}) {
 		this.root = resolve(root);
 	}
 
@@ -195,26 +215,27 @@ export class BtwContextStore {
 		const launchDir = await this.validateLaunchDir(payloadPath, false);
 		if (!launchDir) throw new Error("Missing /btw launch directory");
 		const lockPath = join(launchDir, DELIVERY_LOCK_FILE);
-		const deadline = Date.now() + LOCK_WAIT_MS;
+		const deadline = Date.now() + (this.options.lockWaitMs ?? LOCK_WAIT_MS);
 		const token = randomUUID();
 		let handle: Awaited<ReturnType<typeof open>> | undefined;
+		let ownedIdentity: DeliveryLockIdentity | undefined;
 		while (!handle) {
 			try {
-				handle = await open(lockPath, "wx", 0o600);
-				await handle.writeFile(`${JSON.stringify({ token, pid: process.pid, createdAt: new Date().toISOString() })}\n`);
-				await handle.sync();
+				const candidate = await open(lockPath, "wx", 0o600);
+				try {
+					await candidate.writeFile(`${JSON.stringify({ token, pid: process.pid, createdAt: new Date().toISOString() })}\n`);
+					await candidate.sync();
+					const info = await candidate.stat();
+					ownedIdentity = { token, pid: process.pid, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs };
+					handle = candidate;
+				} catch (error) {
+					await candidate.close().catch(() => undefined);
+					await rm(lockPath, { force: true }).catch(() => undefined);
+					throw error;
+				}
 			} catch (error) {
 				if (!isRecord(error) || error.code !== "EEXIST") throw error;
-				const info = await lstat(lockPath).catch(() => undefined);
-				if (info) {
-					if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Refusing unsafe /btw delivery lock: ${lockPath}`);
-					assertOwner(info.uid, lockPath);
-					assertPrivate(info.mode, lockPath);
-					if (Date.now() - info.mtimeMs > STALE_LOCK_MS) {
-						await rm(lockPath, { force: true });
-						continue;
-					}
-				}
+				if (await this.reclaimStaleDeliveryLock(lockPath)) continue;
 				if (Date.now() >= deadline) throw new Error("Timed out waiting for /btw delivery lock");
 				await new Promise((resolve) => setTimeout(resolve, 25));
 			}
@@ -224,8 +245,10 @@ export class BtwContextStore {
 		} finally {
 			await handle.close();
 			try {
-				const current = JSON.parse(await readFile(lockPath, "utf8")) as unknown;
-				if (isRecord(current) && current.token === token) await rm(lockPath, { force: true });
+				const current = await this.readDeliveryLockIdentity(lockPath);
+				if (ownedIdentity && current && this.sameDeliveryLock(ownedIdentity, current)) {
+					await rm(lockPath, { force: true });
+				}
 			} catch (error) {
 				if (!isMissing(error)) throw error;
 			}
@@ -267,8 +290,10 @@ export class BtwContextStore {
 				const ack = await this.readMergeAck(payloadPath).catch(() => undefined);
 				if (request !== undefined && !ackMatchesRequest(ack, request)) continue;
 				const launchState = await this.readLaunchState(payloadPath).catch(() => undefined);
+				if (launchState?.agentName && !launchState.paneId) continue;
 				if (launchState?.paneId) {
-					const live = await options.isPaneLive(launchState.paneId).catch(() => "unknown" as const);
+					const live = await options.isPaneLive(launchState.paneId, launchState.agentName)
+						.catch(() => "unknown" as const);
 					if (live !== false) continue;
 				}
 				await rm(launchDir, { recursive: true, force: true });
@@ -278,6 +303,70 @@ export class BtwContextStore {
 			}
 		}
 		return removed;
+	}
+
+	private async reclaimStaleDeliveryLock(lockPath: string): Promise<boolean> {
+		const observed = await this.readDeliveryLockIdentity(lockPath);
+		if (!observed) return false;
+		if (Date.now() - observed.mtimeMs <= (this.options.staleLockMs ?? STALE_LOCK_MS)) return false;
+		const alive = await (this.options.isProcessAlive?.(observed.pid) ?? this.isProcessAlive(observed.pid));
+		// EPERM/unknown and a live PID are both conservative no-reclaim outcomes.
+		if (alive !== false) return false;
+		await this.options.beforeStaleLockRecheck?.();
+		const current = await this.readDeliveryLockIdentity(lockPath);
+		if (!current || !this.sameDeliveryLock(observed, current)) return false;
+		// There is no portable unlink-if-inode-matches primitive. Re-reading token,
+		// inode/dev, and mtime immediately before unlink narrows the unavoidable race;
+		// uncertainty always times out instead of deleting a replacement lock.
+		await rm(lockPath);
+		return true;
+	}
+
+	private isProcessAlive(pid: number): boolean | "unknown" {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch (error) {
+			if (isRecord(error) && error.code === "ESRCH") return false;
+			if (isRecord(error) && error.code === "EPERM") return true;
+			return "unknown";
+		}
+	}
+
+	private sameDeliveryLock(left: DeliveryLockIdentity, right: DeliveryLockIdentity): boolean {
+		return left.token === right.token && left.pid === right.pid && left.dev === right.dev &&
+			left.ino === right.ino && left.mtimeMs === right.mtimeMs;
+	}
+
+	private async readDeliveryLockIdentity(lockPath: string): Promise<DeliveryLockIdentity | undefined> {
+		let before;
+		try {
+			before = await lstat(lockPath);
+		} catch (error) {
+			if (isMissing(error)) return undefined;
+			throw error;
+		}
+		if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Refusing unsafe /btw delivery lock: ${lockPath}`);
+		assertOwner(before.uid, lockPath);
+		assertPrivate(before.mode, lockPath);
+		if (before.size > MAX_LOCK_BYTES) throw new Error(`Refusing oversized /btw delivery lock: ${lockPath}`);
+		let raw: unknown;
+		try {
+			raw = JSON.parse(await readFile(lockPath, "utf8")) as unknown;
+		} catch {
+			return undefined;
+		}
+		const after = await lstat(lockPath).catch(() => undefined);
+		if (!after || before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs) return undefined;
+		if (!isRecord(raw) || typeof raw.token !== "string" || !raw.token ||
+			!Number.isSafeInteger(raw.pid) || (raw.pid as number) <= 0) return undefined;
+		return {
+			token: raw.token,
+			pid: raw.pid as number,
+			dev: after.dev,
+			ino: after.ino,
+			mtimeMs: after.mtimeMs,
+		};
 	}
 
 	private async writeLaunchJson(payloadPath: string, fileName: string, value: unknown): Promise<void> {

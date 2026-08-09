@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { buildSessionContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HerdrClient } from "../herdr-client.ts";
 import type { RuntimeSnapshot } from "../runtime.ts";
-import { decideCacheMode, type CacheMode } from "./cache-mode.ts";
+import { decideCacheMode, fingerprintActiveToolSchemas, type CacheMode } from "./cache-mode.ts";
 import {
 	SIDE_PANE_INSTRUCTIONS,
 	buildContextDocument,
@@ -17,6 +17,7 @@ import {
 	ackMatchesRequest,
 	buildMergeTranscript,
 	isMergePromptWithinBounds,
+	type LaunchState,
 	type MergeRequest,
 } from "./protocol.ts";
 import { BTW_HELP, parseBtwCommand } from "./router.ts";
@@ -25,25 +26,89 @@ import { BTW_LAUNCH_DRAFT_ARG, type BtwPayload } from "./types.ts";
 export type ChildStorePort = Pick<
 	BtwContextStore,
 	| "read"
+	| "readLaunchState"
+	| "writeLaunchState"
 	| "readMergeRequest"
 	| "readMergeAck"
 	| "createMergeRequest"
 	| "removeIfNoPendingMerge"
 >;
-export type ChildHerdrClient = Pick<HerdrClient, "focusAgent" | "closePane">;
+export type ChildHerdrClient = Pick<HerdrClient, "getAgent" | "focusAgent" | "closePane">;
+
+export interface ChildSessionBinding {
+	bound: boolean;
+	reason?: string;
+	state?: LaunchState;
+}
+
+/** Bind exactly the first Pi session that consumes this private launch. */
+export async function bindChildSession(
+	store: Pick<BtwContextStore, "readLaunchState" | "writeLaunchState">,
+	payloadPath: string,
+	payload: Pick<BtwPayload, "launchId">,
+	childSessionId: string,
+	now: () => Date = () => new Date(),
+): Promise<ChildSessionBinding> {
+	const state = await store.readLaunchState(payloadPath).catch(() => undefined);
+	if (!state) return { bound: false, reason: "private launch binding state is missing or unreadable" };
+	if (state.launchId !== payload.launchId) return { bound: false, reason: "private launch binding belongs to another launch" };
+	if (state.childSessionId && state.childSessionId !== childSessionId) {
+		return {
+			bound: false,
+			reason: `this side thread is bound to Pi session ${state.childSessionId}; the current session ${childSessionId} is unrelated`,
+			state,
+		};
+	}
+	if (state.childSessionId === childSessionId) return { bound: true, state };
+	const bound = { ...state, childSessionId, updatedAt: now().toISOString() } satisfies LaunchState;
+	await store.writeLaunchState(payloadPath, bound);
+	return { bound: true, state: bound };
+}
 
 export async function focusParentAndCloseChild(
 	client: ChildHerdrClient,
-	runtime: RuntimeSnapshot,
 	payload: Pick<BtwPayload, "parentPaneId">,
-): Promise<{ closed: boolean; closeError?: string }> {
-	await client.focusAgent(payload.parentPaneId).catch(() => undefined);
-	if (!runtime.paneId || runtime.paneId === payload.parentPaneId) return { closed: false };
+	launchState: Pick<LaunchState, "agentName">,
+): Promise<{
+	closed: boolean;
+	childPaneId?: string;
+	resolutionError?: string;
+	focusError?: string;
+	closeError?: string;
+}> {
+	if (!launchState.agentName) {
+		return { closed: false, resolutionError: "the launch has no durable Herdr agent name" };
+	}
+	let childPaneId: string;
 	try {
-		await client.closePane(runtime.paneId);
-		return { closed: true };
+		childPaneId = (await client.getAgent(launchState.agentName)).paneId;
 	} catch (error) {
-		return { closed: false, closeError: error instanceof Error ? error.message : String(error) };
+		return {
+			closed: false,
+			resolutionError: error instanceof Error ? error.message : String(error),
+		};
+	}
+	if (!childPaneId || childPaneId === payload.parentPaneId) {
+		return { closed: false, childPaneId, resolutionError: "Herdr did not resolve a distinct child pane" };
+	}
+	try {
+		await client.focusAgent(payload.parentPaneId);
+	} catch (error) {
+		return {
+			closed: false,
+			childPaneId,
+			focusError: error instanceof Error ? error.message : String(error),
+		};
+	}
+	try {
+		await client.closePane(childPaneId);
+		return { closed: true, childPaneId };
+	} catch (error) {
+		return {
+			closed: false,
+			childPaneId,
+			closeError: error instanceof Error ? error.message : String(error),
+		};
 	}
 }
 
@@ -74,6 +139,8 @@ export async function registerBtwChild(
 	let sessionUi: { notify(message: string, type: "info" | "warning" | "error"): void } | undefined;
 	let ackTimer: ReturnType<typeof setInterval> | undefined;
 	let closing = false;
+	let sideThreadEnabled = false;
+	let bindingReason = "the side-thread session binding has not been established";
 	let lastRejectedRequestId: string | undefined;
 
 	function stopAckPolling(): void {
@@ -82,20 +149,29 @@ export async function registerBtwChild(
 	}
 
 	async function acceptAndClose(acceptedPayload: BtwPayload): Promise<void> {
-		if (closing) return;
+		if (closing || !sideThreadEnabled) return;
 		closing = true;
 		stopAckPolling();
-		sessionUi?.notify("BTW merge accepted; returning focus to the parent.", "info");
-		const returned = await focusParentAndCloseChild(client, runtime, acceptedPayload);
+		const launchState = await store.readLaunchState(payloadPath).catch(() => undefined);
+		if (!launchState) {
+			sessionUi?.notify("Merge was accepted, but child pane identity is unavailable; this pane was kept open.", "warning");
+			closing = false;
+			return;
+		}
+		const returned = await focusParentAndCloseChild(client, acceptedPayload, launchState);
 		if (returned.closed) return;
-		if (returned.closeError) {
-			sessionUi?.notify(`Merge succeeded, but the side pane could not close: ${returned.closeError}`, "warning");
+		if (returned.focusError) {
+			sessionUi?.notify(`Merge was accepted, but parent focus failed; this side pane was kept open: ${returned.focusError}`, "warning");
+		} else if (returned.resolutionError) {
+			sessionUi?.notify(`Merge was accepted, but the current child pane could not be resolved; it was kept open: ${returned.resolutionError}`, "warning");
+		} else if (returned.closeError) {
+			sessionUi?.notify(`Merge was accepted and parent focus succeeded, but the side pane could not close: ${returned.closeError}`, "warning");
 		}
 		closing = false;
 	}
 
 	async function pollAck(): Promise<void> {
-		if (!payload || closing) return;
+		if (!payload || closing || !sideThreadEnabled) return;
 		const request = await store.readMergeRequest(payloadPath).catch(() => undefined);
 		if (request === undefined) return;
 		const ack = await store.readMergeAck(payloadPath).catch(() => undefined);
@@ -112,17 +188,19 @@ export async function registerBtwChild(
 	}
 
 	function startAckPolling(): void {
-		if (ackTimer) return;
+		if (ackTimer || !sideThreadEnabled) return;
 		ackTimer = setInterval(() => void pollAck(), ACK_POLL_INTERVAL_MS);
 		ackTimer.unref?.();
 		void pollAck();
 	}
 
 	pi.on("before_agent_start", (event, ctx) => {
-		if (!payload) return;
+		if (!payload || !sideThreadEnabled) return;
+		const activeTools = pi.getActiveTools();
 		cacheMode = decideCacheMode(payload, {
 			model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
-			activeTools: pi.getActiveTools(),
+			activeTools,
+			toolSchemaFingerprint: fingerprintActiveToolSchemas(activeTools, pi.getAllTools()),
 			thinkingLevel: pi.getThinkingLevel(),
 		});
 		if (cacheMode.mode === "native") return { systemPrompt: payload.parentSystemPrompt as string };
@@ -132,7 +210,7 @@ export async function registerBtwChild(
 	});
 
 	pi.on("context", (event) => {
-		if (!payload) return;
+		if (!payload || !sideThreadEnabled) return;
 		return cacheMode.mode === "native"
 			? { messages: [...payload.messages, buildNativeBridgeMessage(runtime), ...event.messages] }
 			: { messages: [buildParentContextMessage(document), ...event.messages] };
@@ -149,6 +227,10 @@ export async function registerBtwChild(
 	pi.registerCommand("btw", {
 		description: "Side thread: merge into the exact parent session, or show help",
 		handler: async (args, ctx) => {
+			if (!sideThreadEnabled) {
+				ctx.ui.notify(`BTW side-thread behavior is disabled: ${bindingReason}. Continue as an independent Pi session.`, "warning");
+				return;
+			}
 			if (args.trim() === BTW_LAUNCH_DRAFT_ARG) {
 				if (launchDraftPending && payload) {
 					launchDraftPending = false;
@@ -208,7 +290,7 @@ export async function registerBtwChild(
 			};
 			try {
 				await store.createMergeRequest(payloadPath, request);
-				ctx.ui.notify("BTW merge is pending; this pane will close after the parent durably accepts it.", "info");
+				ctx.ui.notify("BTW merge is pending; this pane will close only after parent session evidence and accepted ack.", "info");
 				startAckPolling();
 			} catch (error) {
 				ctx.ui.notify(`/btw merge failed: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -216,23 +298,46 @@ export async function registerBtwChild(
 		},
 	});
 
-	pi.on("session_start", (event, ctx) => {
-		if (ctx.mode !== "tui") return;
+	pi.on("session_start", async (_event, ctx) => {
 		sessionUi = ctx.ui;
-		ctx.ui.setTitle("pi /btw — Herdr side thread");
+		if (ctx.mode === "tui") ctx.ui.setTitle("pi /btw — Herdr side thread");
 		if (!payload) {
-			ctx.ui.setWidget("herdr-companion-btw", [
-				ctx.ui.theme.fg("error", "BTW payload unavailable; prompts are blocked."),
-				ctx.ui.theme.fg("dim", payloadError ?? "unknown payload error"),
-			]);
+			if (ctx.mode === "tui") {
+				ctx.ui.setWidget("herdr-companion-btw", [
+					ctx.ui.theme.fg("error", "BTW payload unavailable; prompts are blocked."),
+					ctx.ui.theme.fg("dim", payloadError ?? "unknown payload error"),
+				]);
+			}
 			return;
 		}
-		ctx.ui.setWidget("herdr-companion-btw", [
-			ctx.ui.theme.fg("accent", `BTW side thread · tools ${payload.config.tools}`),
-			ctx.ui.theme.fg("dim", "Shared cwd; explicit /btw merge required"),
-		]);
-		if (event.reason === "startup" && payload.draftQuestion.trim() && !payload.config.autoSubmit) {
-			ctx.ui.setEditorText(payload.draftQuestion);
+		const binding = await bindChildSession(
+			store,
+			payloadPath,
+			payload,
+			ctx.sessionManager.getSessionId(),
+		);
+		sideThreadEnabled = binding.bound;
+		bindingReason = binding.reason ?? "bound";
+		if (!binding.bound) {
+			launchDraftPending = false;
+			stopAckPolling();
+			ctx.ui.notify(`BTW side-thread behavior is disabled: ${bindingReason}. Parent context will not be replayed or merged.`, "warning");
+			if (ctx.mode === "tui") {
+				ctx.ui.setWidget("herdr-companion-btw", [
+					ctx.ui.theme.fg("warning", "BTW disabled for this unrelated Pi session"),
+					ctx.ui.theme.fg("dim", bindingReason),
+				]);
+			}
+			return;
+		}
+		if (ctx.mode === "tui") {
+			ctx.ui.setWidget("herdr-companion-btw", [
+				ctx.ui.theme.fg("accent", `BTW side thread · tools ${payload.config.tools}`),
+				ctx.ui.theme.fg("dim", "Shared cwd; explicit /btw merge required"),
+			]);
+			if (_event.reason === "startup" && payload.draftQuestion.trim() && !payload.config.autoSubmit) {
+				ctx.ui.setEditorText(payload.draftQuestion);
+			}
 		}
 		startAckPolling();
 	});
@@ -240,6 +345,9 @@ export async function registerBtwChild(
 	pi.on("session_shutdown", async (event) => {
 		stopAckPolling();
 		sessionUi = undefined;
-		if (event.reason === "quit") await store.removeIfNoPendingMerge(payloadPath).catch(() => undefined);
+		if (sideThreadEnabled && event.reason === "quit") {
+			await store.removeIfNoPendingMerge(payloadPath).catch(() => undefined);
+		}
+		sideThreadEnabled = false;
 	});
 }

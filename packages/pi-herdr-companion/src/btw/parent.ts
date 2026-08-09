@@ -14,8 +14,9 @@ import {
 import type { RuntimeSnapshot } from "../runtime.ts";
 import { hasUsableHerdrRuntime } from "../runtime.ts";
 import type { BtwContextStore } from "./context-store.ts";
+import { fingerprintActiveToolSchemas, fingerprintSystemPrompt } from "./cache-mode.ts";
 import { MergeCoordinator } from "./merge.ts";
-import { MERGE_MESSAGE_CUSTOM_TYPE, MERGE_PHASE_CUSTOM_TYPE } from "./protocol.ts";
+import { MERGE_MESSAGE_CUSTOM_TYPE } from "./protocol.ts";
 import { BTW_HELP, parseBtwCommand } from "./router.ts";
 import { createBtwPayload } from "./types.ts";
 import type { BtwLauncher } from "./launch.ts";
@@ -107,11 +108,12 @@ export function registerBtwParent(
 		getSessionId: () => sessionCtx?.sessionManager.getSessionId() ?? "",
 		isIdle: () => sessionCtx?.isIdle() ?? false,
 		getEntries: () => sessionCtx?.sessionManager.getEntries() ?? [],
-		appendMergeMessage: (content, details) => {
-			pi.sendMessage({ customType: MERGE_MESSAGE_CUSTOM_TYPE, content, display: true, details }, { triggerTurn: false });
+		dispatchMergeMessage: (content, details) => {
+			pi.sendMessage(
+				{ customType: MERGE_MESSAGE_CUSTOM_TYPE, content, display: true, details },
+				{ triggerTurn: true, deliverAs: "followUp" },
+			);
 		},
-		submitPrompt: (prompt) => pi.sendUserMessage(prompt),
-		persistPhase: (data) => pi.appendEntry(MERGE_PHASE_CUSTOM_TYPE, data),
 		notify: (message, type) => notify?.(message, type),
 	});
 
@@ -128,7 +130,9 @@ export function registerBtwParent(
 
 	async function cleanupStale(): Promise<void> {
 		if (!hasUsableHerdrRuntime(runtime)) return;
-		await store.removeStale({ isPaneLive: (paneId) => launcher.isPaneLive(paneId) }).catch(() => undefined);
+		await store.removeStale({
+			isPaneLive: (paneId, agentName) => launcher.isPaneLive(paneId, agentName),
+		}).catch(() => undefined);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -139,7 +143,7 @@ export function registerBtwParent(
 		await coordinator.scan();
 	});
 	pi.on("agent_start", async () => {
-		// The extension-submitted user message is durable by this event; advance prompt_submitted/acked.
+		// A later event may now observe the asynchronously appended custom message.
 		await coordinator.scan();
 	});
 	pi.on("agent_settled", async () => {
@@ -218,6 +222,8 @@ export function registerBtwParent(
 				} catch {
 					// Flattened mode remains portable when an exact prompt is unavailable.
 				}
+				const activeTools = pi.getActiveTools();
+				const toolSchemaFingerprint = fingerprintActiveToolSchemas(activeTools, pi.getAllTools());
 				const payload = createBtwPayload({
 					createdAt,
 					parentSessionId: ctx.sessionManager.getSessionId(),
@@ -229,7 +235,9 @@ export function registerBtwParent(
 						model,
 					},
 					parentSystemPrompt: systemPrompt,
-					parentActiveTools: pi.getActiveTools(),
+					parentSystemPromptFingerprint: systemPrompt === null ? null : fingerprintSystemPrompt(systemPrompt),
+					parentActiveTools: activeTools,
+					parentToolSchemaFingerprint: toolSchemaFingerprint,
 					parentThinkingLevel: pi.getThinkingLevel(),
 					messages: context.messages,
 					draftQuestion: route.kind === "ask" ? route.question : "",

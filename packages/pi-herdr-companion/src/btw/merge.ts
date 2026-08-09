@@ -3,16 +3,12 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { BtwContextStore } from "./context-store.ts";
 import {
 	MERGE_MESSAGE_CUSTOM_TYPE,
-	MERGE_PHASE_CUSTOM_TYPE,
 	MERGE_PROTOCOL_VERSION,
 	ackMatchesRequest,
 	buildMergeMessageContent,
 	isMergeRequest,
-	isMergeState,
-	textOfUserMessage,
 	validateRequestAgainstPayload,
 	type MergeAck,
-	type MergePhase,
 	type MergeRequest,
 	type MergeState,
 } from "./protocol.ts";
@@ -34,9 +30,7 @@ export interface ParentMergePort {
 	getSessionId(): string;
 	isIdle(): boolean;
 	getEntries(): SessionEntry[];
-	appendMergeMessage(content: string, details: { requestId: string; launchId: string }): void;
-	submitPrompt(prompt: string): void;
-	persistPhase(data: { requestId: string; launchId: string; phase: MergePhase; prompt: string; updatedAt: string }): void;
+	dispatchMergeMessage(content: string, details: { requestId: string; launchId: string }): void;
 	notify(message: string, type: "info" | "warning" | "error"): void;
 }
 
@@ -46,12 +40,6 @@ export interface MergeScanResult {
 	rejected: number;
 }
 
-const PHASE_RANK: Record<MergePhase, number> = {
-	message_appended: 1,
-	prompt_submitted: 2,
-	acked: 3,
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -60,49 +48,23 @@ function requestIdOf(value: unknown): string {
 	return isRecord(value) && typeof value.requestId === "string" && value.requestId ? value.requestId : "unknown";
 }
 
-function findMergeMessage(entries: readonly SessionEntry[], requestId: string): Extract<SessionEntry, { type: "custom_message" }> | undefined {
+function findMergeEvidence(
+	entries: readonly SessionEntry[],
+	requestId: string,
+): Extract<SessionEntry, { type: "custom_message" }> | undefined {
 	return entries.find((entry): entry is Extract<SessionEntry, { type: "custom_message" }> =>
 		entry.type === "custom_message" &&
 		entry.customType === MERGE_MESSAGE_CUSTOM_TYPE &&
 		isRecord(entry.details) && entry.details.requestId === requestId);
 }
 
-function findPersistedPhase(entries: readonly SessionEntry[], requestId: string): MergePhase | undefined {
-	let phase: MergePhase | undefined;
-	for (const entry of entries) {
-		if (entry.type !== "custom" || entry.customType !== MERGE_PHASE_CUSTOM_TYPE || !isRecord(entry.data)) continue;
-		if (entry.data.requestId !== requestId) continue;
-		const candidate = entry.data.phase;
-		if (candidate !== "message_appended" && candidate !== "prompt_submitted" && candidate !== "acked") continue;
-		if (!phase || PHASE_RANK[candidate] > PHASE_RANK[phase]) phase = candidate;
-	}
-	return phase;
-}
-
-function hasSubmittedPrompt(
-	entries: readonly SessionEntry[],
-	mergeEntryId: string,
-	prompt: string,
-): boolean {
-	const byId = new Map(entries.map((entry) => [entry.id, entry]));
-	for (const entry of entries) {
-		if (entry.type !== "message" || textOfUserMessage(entry.message) !== prompt.trim()) continue;
-		let parentId = entry.parentId;
-		const visited = new Set<string>();
-		while (parentId && !visited.has(parentId)) {
-			if (parentId === mergeEntryId) return true;
-			visited.add(parentId);
-			parentId = byId.get(parentId)?.parentId ?? null;
-		}
-	}
-	return false;
-}
-
-function maxPhase(...phases: Array<MergePhase | undefined>): MergePhase | undefined {
-	return phases.reduce<MergePhase | undefined>((latest, phase) =>
-		phase && (!latest || PHASE_RANK[phase] > PHASE_RANK[latest]) ? phase : latest, undefined);
-}
-
+/**
+ * Single-owner recovery coordinator.
+ *
+ * Pi 0.84's ExtensionAPI sendMessage is fire-and-forget. A dispatch call is
+ * therefore never treated as delivery evidence: only the request-tagged custom
+ * message observed in the parent session can advance to acknowledgement.
+ */
 export class MergeCoordinator {
 	private scanning = false;
 
@@ -146,7 +108,7 @@ export class MergeCoordinator {
 		const ack = await this.store.readMergeAck(path).catch(() => undefined);
 		if (ackMatchesRequest(ack, rawRequest)) {
 			if (ack?.status === "accepted" && isMergeRequest(rawRequest)) {
-				await this.writeMailboxPhase(path, rawRequest, "acked").catch(() => undefined);
+				await this.writeMailboxState(path, rawRequest, "acked").catch(() => undefined);
 			}
 			return;
 		}
@@ -163,97 +125,56 @@ export class MergeCoordinator {
 			return;
 		}
 
-		const entries = this.session.getEntries();
-		const mergeMessage = findMergeMessage(entries, rawRequest.requestId);
-		const promptSubmitted = mergeMessage
-			? hasSubmittedPrompt(entries, mergeMessage.id, rawRequest.prompt)
-			: false;
-		const mailbox = await this.store.readMergeState(path).catch(() => undefined);
-		const mailboxPhase = mailbox?.requestId === rawRequest.requestId ? mailbox.phase : undefined;
-		let phase = maxPhase(
-			mailboxPhase,
-			findPersistedPhase(entries, rawRequest.requestId),
-			mergeMessage ? "message_appended" : undefined,
-			promptSubmitted ? "prompt_submitted" : undefined,
-		);
-
-		if (mergeMessage && (!phase || PHASE_RANK[phase] < PHASE_RANK.message_appended)) {
-			phase = "message_appended";
-		}
-		if (promptSubmitted) phase = "prompt_submitted";
-
-		if (phase === "prompt_submitted" || phase === "acked") {
-			// Persist the observed user-message boundary before acknowledging it.
-			// A crash after this point recovers without resubmitting the prompt.
-			await this.persistPhase(path, rawRequest, "prompt_submitted");
+		const evidence = findMergeEvidence(this.session.getEntries(), rawRequest.requestId);
+		if (evidence) {
+			await this.writeMailboxState(path, rawRequest, "evidence_observed");
 			await this.accept(path, rawRequest);
 			result.delivered += 1;
 			return;
 		}
 
-		if (!mergeMessage) {
-			if (!this.session.isIdle()) {
-				result.deferred += 1;
-				return;
-			}
-			this.session.appendMergeMessage(buildMergeMessageContent(rawRequest.summary), {
-				requestId: rawRequest.requestId,
-				launchId: rawRequest.launchId,
-			});
-			await this.persistPhase(path, rawRequest, "message_appended");
-			phase = "message_appended";
-		}
-
-		const currentState = await this.store.readMergeState(path).catch(() => undefined);
-		if (currentState?.requestId === rawRequest.requestId && currentState.dispatch) {
-			const started = Date.parse(currentState.dispatch.startedAt);
+		const state = await this.store.readMergeState(path).catch(() => undefined);
+		if (state?.requestId === rawRequest.requestId && state.dispatch) {
+			const started = Date.parse(state.dispatch.startedAt);
 			if (Number.isFinite(started) && this.now().getTime() - started < this.dispatchLeaseMs) {
 				result.deferred += 1;
 				return;
 			}
 		}
-
 		if (!this.session.isIdle()) {
 			result.deferred += 1;
 			return;
 		}
 
-		const dispatch: MergeState = {
+		const startedAt = this.now().toISOString();
+		await this.store.writeMergeState(path, {
 			protocolVersion: MERGE_PROTOCOL_VERSION,
 			requestId: rawRequest.requestId,
-			phase: "message_appended",
-			updatedAt: this.now().toISOString(),
-			dispatch: { id: randomUUID(), startedAt: this.now().toISOString() },
-		};
-		await this.store.writeMergeState(path, dispatch);
+			phase: "dispatched",
+			updatedAt: startedAt,
+			dispatch: { id: randomUUID(), startedAt },
+		});
 		try {
-			this.session.submitPrompt(rawRequest.prompt.trim());
+			this.session.dispatchMergeMessage(
+				buildMergeMessageContent(rawRequest.summary, rawRequest.prompt),
+				{ requestId: rawRequest.requestId, launchId: rawRequest.launchId },
+			);
 		} catch (error) {
-			await this.writeMailboxPhase(path, rawRequest, "message_appended");
-			this.session.notify(`Could not submit a /btw follow-up yet: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			// This catches only a synchronous wrapper failure. It does not prove that
+			// an otherwise successful call reached the session; the lease still gates recovery.
+			this.session.notify(
+				`Could not queue a /btw merge yet; recovery will retry after its lease: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
 		}
-		// Ack only after a later scan observes the durable user-message entry.
 		result.deferred += 1;
 	}
 
-	private async persistPhase(path: string, request: MergeRequest, phase: MergePhase): Promise<void> {
-		const updatedAt = this.now().toISOString();
-		this.session.persistPhase({
-			requestId: request.requestId,
-			launchId: request.launchId,
-			phase,
-			prompt: request.prompt,
-			updatedAt,
-		});
-		await this.store.writeMergeState(path, {
-			protocolVersion: MERGE_PROTOCOL_VERSION,
-			requestId: request.requestId,
-			phase,
-			updatedAt,
-		});
-	}
-
-	private async writeMailboxPhase(path: string, request: MergeRequest, phase: MergePhase): Promise<void> {
+	private async writeMailboxState(
+		path: string,
+		request: MergeRequest,
+		phase: MergeState["phase"],
+	): Promise<void> {
 		await this.store.writeMergeState(path, {
 			protocolVersion: MERGE_PROTOCOL_VERSION,
 			requestId: request.requestId,
@@ -269,11 +190,11 @@ export class MergeCoordinator {
 			status: "accepted",
 			processedAt: this.now().toISOString(),
 		};
-		// Persist the final phase before exposing the acknowledgement to the child;
-		// once the ack is visible the child may immediately close and remove launch state.
-		await this.persistPhase(path, request, "acked");
+		// Evidence is already in the session. Persist final mailbox state before
+		// exposing the acknowledgement, because the child may close immediately.
+		await this.writeMailboxState(path, request, "acked");
 		await this.store.writeMergeAck(path, ack);
-		this.session.notify("Merged a /btw side thread; continuing with its follow-up prompt.", "info");
+		this.session.notify("Merged a /btw side thread and started its parent follow-up turn.", "info");
 	}
 
 	private async reject(path: string, rawRequest: unknown, reason: string): Promise<void> {

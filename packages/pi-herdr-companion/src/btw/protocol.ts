@@ -6,13 +6,12 @@ export const MERGE_STATE_FILE = "merge-state.json";
 export const MERGE_ACK_FILE = "merge-ack.json";
 export const LAUNCH_STATE_FILE = "launch-state.json";
 export const MERGE_MESSAGE_CUSTOM_TYPE = "pi-herdr-companion.btw-merge";
-export const MERGE_PHASE_CUSTOM_TYPE = "pi-herdr-companion.btw-merge-phase";
 export const MAX_MERGE_SUMMARY_BYTES = 64 * 1024;
 export const MAX_MERGE_PROMPT_BYTES = 16 * 1024;
 export const MERGE_TRANSCRIPT_BUDGET_BYTES = 48 * 1024;
 export const TRANSCRIPT_TRUNCATION_NOTE = "[earlier side-thread turns omitted to fit the merge budget]";
 
-export type MergePhase = "message_appended" | "prompt_submitted" | "acked";
+export type MergePhase = "dispatched" | "evidence_observed" | "acked";
 
 export interface MergeRequest {
 	protocolVersion: typeof MERGE_PROTOCOL_VERSION;
@@ -50,6 +49,10 @@ export interface LaunchState {
 	version: 1;
 	launchId: string;
 	paneId?: string;
+	/** Stable Herdr identity used to resolve the pane after pane move. */
+	agentName?: string;
+	/** The first Pi session created for this side thread; reload must retain this ID. */
+	childSessionId?: string;
 	status: "payload_created" | "pane_created" | "child_ready";
 	updatedAt: string;
 }
@@ -82,7 +85,7 @@ export function isMergeRequest(value: unknown): value is MergeRequest {
 export function isMergeState(value: unknown): value is MergeState {
 	if (!isRecord(value) || value.protocolVersion !== MERGE_PROTOCOL_VERSION) return false;
 	if (typeof value.requestId !== "string" || !value.requestId) return false;
-	if (value.phase !== "message_appended" && value.phase !== "prompt_submitted" && value.phase !== "acked") return false;
+	if (value.phase !== "dispatched" && value.phase !== "evidence_observed" && value.phase !== "acked") return false;
 	if (typeof value.updatedAt !== "string") return false;
 	if (value.dispatch !== undefined) {
 		if (!isRecord(value.dispatch) || typeof value.dispatch.id !== "string" || typeof value.dispatch.startedAt !== "string") return false;
@@ -101,7 +104,9 @@ export function isMergeAck(value: unknown): value is MergeAck {
 export function isLaunchState(value: unknown): value is LaunchState {
 	return isRecord(value) && value.version === 1 &&
 		typeof value.launchId === "string" && value.launchId.length > 0 &&
-		(value.paneId === undefined || typeof value.paneId === "string") &&
+		(value.paneId === undefined || (typeof value.paneId === "string" && value.paneId.length > 0)) &&
+		(value.agentName === undefined || (typeof value.agentName === "string" && value.agentName.length > 0)) &&
+		(value.childSessionId === undefined || (typeof value.childSessionId === "string" && value.childSessionId.length > 0)) &&
 		(value.status === "payload_created" || value.status === "pane_created" || value.status === "child_ready") &&
 		typeof value.updatedAt === "string";
 }
@@ -119,8 +124,12 @@ export function validateRequestAgainstPayload(request: MergeRequest, payload: Bt
 	return undefined;
 }
 
-export function buildMergeMessageContent(summary: string): string {
-	return `Merged from /btw (side-thread transcript)\n\n<btw-merge>\n${summary.trim()}\n</btw-merge>`;
+export function buildMergeMessageContent(summary: string, prompt: string): string {
+	return [
+		"Merged from /btw. Treat the transcript as context and answer the child-authored follow-up below.",
+		`<btw-merge>\n${summary.trim()}\n</btw-merge>`,
+		`<btw-follow-up>\n${prompt.trim()}\n</btw-follow-up>`,
+	].join("\n\n");
 }
 
 function textContent(content: unknown): string {

@@ -1,7 +1,12 @@
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG, type CompanionConfig } from "../src/config.ts";
 import { applyBtwConfigCommand } from "../src/btw/parent.ts";
-import { decideCacheMode } from "../src/btw/cache-mode.ts";
+import {
+	decideCacheMode,
+	fingerprintActiveToolSchemas,
+	fingerprintSystemPrompt,
+} from "../src/btw/cache-mode.ts";
 import {
 	MERGE_TRANSCRIPT_BUDGET_BYTES,
 	TRANSCRIPT_TRUNCATION_NOTE,
@@ -48,7 +53,9 @@ function payload(overrides: Partial<BtwPayload> = {}): BtwPayload {
 		parentPaneId: "w1:p1",
 		metadata: { generatedAt: "2026-08-09T12:00:00.000Z", cwd: "/work", session: "/session.jsonl", model: "openai/gpt" },
 		parentSystemPrompt: "exact system",
+		parentSystemPromptFingerprint: fingerprintSystemPrompt("exact system"),
 		parentActiveTools: ["read", "herdr_process"],
+		parentToolSchemaFingerprint: "ordered-schema-v1",
 		parentThinkingLevel: "high",
 		messages: [user("parent")],
 		draftQuestion: "side question",
@@ -95,19 +102,40 @@ describe("BTW payload and cache path", () => {
 		expect(args).toContain("read,herdr_process");
 	});
 
-	it("uses native replay only for exact model/tools/thinking/system-prompt inheritance", () => {
+	it("uses native replay only for exact model/tool-schema/thinking and a known parent prompt", () => {
 		const value = payload();
-		expect(decideCacheMode(value, {
+		const actual = {
 			model: "openai/gpt",
 			activeTools: ["read", "herdr_process"],
+			toolSchemaFingerprint: "ordered-schema-v1",
 			thinkingLevel: "high",
-		})).toEqual({ mode: "native" });
-		expect(decideCacheMode({ ...value, config: { ...value.config, tools: "read-only" } }, {
-			model: "openai/gpt", activeTools: ["read", "herdr_process"], thinkingLevel: "high",
-		})).toMatchObject({ mode: "flattened", reason: expect.stringContaining("tools") });
-		expect(decideCacheMode({ ...value, parentSystemPrompt: null }, {
-			model: "openai/gpt", activeTools: ["read", "herdr_process"], thinkingLevel: "high",
-		})).toEqual({ mode: "flattened", reason: "parent system prompt unavailable" });
+		};
+		expect(decideCacheMode(value, actual)).toEqual({ mode: "native" });
+		expect(decideCacheMode({ ...value, config: { ...value.config, tools: "read-only" } }, actual))
+			.toMatchObject({ mode: "flattened", reason: expect.stringContaining("tools") });
+		expect(decideCacheMode(value, { ...actual, toolSchemaFingerprint: "changed" }))
+			.toMatchObject({ mode: "flattened", reason: expect.stringContaining("schemas") });
+		expect(decideCacheMode({ ...value, parentToolSchemaFingerprint: null }, actual))
+			.toMatchObject({ mode: "flattened", reason: expect.stringContaining("fingerprint unavailable") });
+		expect(decideCacheMode({ ...value, parentSystemPrompt: null }, actual))
+			.toEqual({ mode: "flattened", reason: "parent system prompt or fingerprint unavailable" });
+		expect(decideCacheMode({ ...value, parentSystemPrompt: "mutated" }, actual))
+			.toEqual({ mode: "flattened", reason: "parent system prompt fingerprint mismatch" });
+	});
+
+	it("fingerprints ordered active schemas including descriptions, parameters, and guidelines", () => {
+		const base = [{
+			name: "read",
+			description: "Read a file",
+			parameters: { type: "object", properties: { path: { type: "string" } } },
+			promptGuidelines: ["Use read for files."],
+			sourceInfo: { path: "<builtin:read>", source: "builtin", scope: "temporary", origin: "top-level" },
+		}] as unknown as ToolInfo[];
+		const fingerprint = fingerprintActiveToolSchemas(["read"], base);
+		expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
+		expect(fingerprintActiveToolSchemas(["read"], [{ ...(base[0] as ToolInfo), description: "Changed" }]))
+			.not.toBe(fingerprint);
+		expect(fingerprintActiveToolSchemas(["missing"], base)).toBeNull();
 	});
 });
 

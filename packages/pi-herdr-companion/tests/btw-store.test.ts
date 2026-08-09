@@ -1,4 +1,4 @@
-import { access, chmod, mkdtemp, rm, stat, utimes } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +20,7 @@ function payload(id: string): BtwPayload {
 		metadata: { generatedAt: "2026-08-09T12:00:00.000Z", cwd: "/work", session: "s", model: "openai/gpt" },
 		parentSystemPrompt: "system",
 		parentActiveTools: ["read"],
+		parentToolSchemaFingerprint: "tools-v1",
 		parentThinkingLevel: "high",
 		messages: [{ role: "user", content: [{ type: "text", text: "parent" }], timestamp: 0 } as never],
 		draftQuestion: "question",
@@ -97,6 +98,45 @@ describe("private BTW state store", () => {
 		expect(order).toEqual(["first-enter", "first-exit", "second-enter"]);
 	});
 
+	it("never reclaims a stale-looking lock while its owner PID is alive", async () => {
+		const { store } = await makeStore();
+		const path = await store.create(payload("launch-a"));
+		const lockPath = join(dirname(path), ".delivery.lock");
+		await writeFile(lockPath, `${JSON.stringify({ token: "live-token", pid: 123, createdAt: "old" })}\n`, { mode: 0o600 });
+		const old = new Date("2026-08-01T00:00:00.000Z");
+		await utimes(lockPath, old, old);
+		const guarded = new BtwContextStore(store.root, {
+			lockWaitMs: 40,
+			staleLockMs: 1,
+			isProcessAlive: async (pid) => pid === 123,
+		});
+		await expect(guarded.withDeliveryLock(path, async () => undefined)).rejects.toThrow(/Timed out/);
+		expect(JSON.parse(await readFile(lockPath, "utf8"))).toMatchObject({ token: "live-token" });
+	});
+
+	it("does not delete a replacement lock after observing an older stale inode", async () => {
+		const { store } = await makeStore();
+		const path = await store.create(payload("launch-a"));
+		const lockPath = join(dirname(path), ".delivery.lock");
+		await writeFile(lockPath, `${JSON.stringify({ token: "old-token", pid: 123, createdAt: "old" })}\n`, { mode: 0o600 });
+		const old = new Date("2026-08-01T00:00:00.000Z");
+		await utimes(lockPath, old, old);
+		let replaced = false;
+		const guarded = new BtwContextStore(store.root, {
+			lockWaitMs: 60,
+			staleLockMs: 1,
+			isProcessAlive: async (pid) => pid === process.pid,
+			beforeStaleLockRecheck: async () => {
+				if (replaced) return;
+				replaced = true;
+				await rm(lockPath, { force: true });
+				await writeFile(lockPath, `${JSON.stringify({ token: "replacement-token", pid: process.pid, createdAt: "new" })}\n`, { mode: 0o600 });
+			},
+		});
+		await expect(guarded.withDeliveryLock(path, async () => undefined)).rejects.toThrow(/Timed out/);
+		expect(JSON.parse(await readFile(lockPath, "utf8"))).toMatchObject({ token: "replacement-token", pid: process.pid });
+	});
+
 	it("does not overwrite an unacknowledged request but allows a new request after ack", async () => {
 		const { store } = await makeStore();
 		const value = payload("launch-a");
@@ -132,6 +172,7 @@ describe("private BTW state store", () => {
 				version: 1,
 				launchId: value.launchId,
 				paneId,
+				agentName: `btw-${value.launchId}`,
 				status: "child_ready",
 				updatedAt: "2026-08-09T12:00:00.000Z",
 			});
@@ -142,7 +183,10 @@ describe("private BTW state store", () => {
 		const removed = await store.removeStale({
 			now: new Date("2026-08-09T00:00:00.000Z").getTime(),
 			maxAgeMs: 60_000,
-			isPaneLive: async (paneId) => paneId === "w1:p2" ? true : false,
+			isPaneLive: async (paneId, agentName) => {
+				expect(agentName).toBeDefined();
+				return paneId === "w1:p2" ? true : false;
+			},
 		});
 		expect(removed).toEqual([dead]);
 		await expect(access(live)).resolves.toBeUndefined();

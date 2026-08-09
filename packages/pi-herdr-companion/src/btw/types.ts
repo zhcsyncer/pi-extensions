@@ -32,16 +32,24 @@ export interface BtwPayload {
 	parentPaneId: string;
 	metadata: ParentContextMetadata;
 	parentSystemPrompt: string | null;
+	parentSystemPromptFingerprint?: string | null;
 	parentActiveTools: string[];
+	/** Missing only on pre-fingerprint private payloads; those always use flattened replay. */
+	parentToolSchemaFingerprint?: string | null;
 	parentThinkingLevel: string;
 	messages: AgentMessage[];
 	draftQuestion: string;
 	config: BtwConfig;
 }
 
-export interface CreateBtwPayloadOptions extends Omit<BtwPayload, "version" | "launchId" | "capability"> {
+export interface CreateBtwPayloadOptions extends Omit<
+	BtwPayload,
+	"version" | "launchId" | "capability" | "parentSystemPromptFingerprint" | "parentToolSchemaFingerprint"
+> {
 	launchId?: string;
 	capability?: string;
+	parentSystemPromptFingerprint?: string | null;
+	parentToolSchemaFingerprint?: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,7 +66,9 @@ export function createBtwPayload(options: CreateBtwPayloadOptions): BtwPayload {
 		parentPaneId: options.parentPaneId,
 		metadata: { ...options.metadata },
 		parentSystemPrompt: options.parentSystemPrompt,
+		parentSystemPromptFingerprint: options.parentSystemPromptFingerprint ?? null,
 		parentActiveTools: [...options.parentActiveTools],
+		parentToolSchemaFingerprint: options.parentToolSchemaFingerprint ?? null,
 		parentThinkingLevel: options.parentThinkingLevel,
 		messages: options.messages,
 		draftQuestion: options.draftQuestion,
@@ -79,7 +89,11 @@ export function isBtwPayload(value: unknown): value is BtwPayload {
 		typeof value.metadata.session !== "string" ||
 		typeof value.metadata.model !== "string") return false;
 	if (value.parentSystemPrompt !== null && typeof value.parentSystemPrompt !== "string") return false;
+	if (value.parentSystemPromptFingerprint !== undefined && value.parentSystemPromptFingerprint !== null &&
+		typeof value.parentSystemPromptFingerprint !== "string") return false;
 	if (!Array.isArray(value.parentActiveTools) || !value.parentActiveTools.every((item) => typeof item === "string")) return false;
+	if (value.parentToolSchemaFingerprint !== undefined && value.parentToolSchemaFingerprint !== null &&
+		typeof value.parentToolSchemaFingerprint !== "string") return false;
 	if (typeof value.parentThinkingLevel !== "string") return false;
 	if (!Array.isArray(value.messages) || !value.messages.every((message) => isRecord(message) && typeof message.role === "string")) return false;
 	if (typeof value.draftQuestion !== "string") return false;
