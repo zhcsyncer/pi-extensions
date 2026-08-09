@@ -10,6 +10,7 @@ PACKAGES=(
   "@zhcsyncer/pi-plan-mode|packages/pi-plan-mode/package.json|packages/pi-plan-mode/CHANGELOG.md|pi-plan-mode|child"
   "@zhcsyncer/pi-context7|packages/pi-context7/package.json|packages/pi-context7/CHANGELOG.md|pi-context7|child"
   "@zhcsyncer/pi-ask-user-question|packages/pi-ask-user-question/package.json|packages/pi-ask-user-question/CHANGELOG.md|pi-ask-user-question|child"
+  "@zhcsyncer/pi-herdr-companion|packages/pi-herdr-companion/package.json|packages/pi-herdr-companion/CHANGELOG.md|pi-herdr-companion|child"
   "@zhcsyncer/pi-subagents|packages/pi-subagents/package.json|packages/pi-subagents/CHANGELOG.md|pi-subagents|child"
   "@zhcsyncer/pi-fast-mode|packages/pi-fast-mode/package.json|packages/pi-fast-mode/CHANGELOG.md|pi-fast-mode|child"
   "@zhcsyncer/pi-meter|packages/pi-meter/package.json|packages/pi-meter/CHANGELOG.md|pi-meter|child"

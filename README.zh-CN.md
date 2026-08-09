@@ -24,6 +24,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
+- [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — standalone Herdr companion，提供稳定 runtime 上下文、owned process pane、durable `/btw` 侧线与 blocked 状态适配；根 bundle 刻意不自动启用。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
 
@@ -103,6 +104,12 @@ pi install npm:@zhcsyncer/pi-context7
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
+安装 standalone Herdr companion（根 bundle 不自动启用）：
+
+```bash
+pi install npm:@zhcsyncer/pi-herdr-companion
+```
+
 仅安装 Subagents：
 
 ```bash
@@ -148,3 +155,5 @@ MIT
 `pi-ask-user-question` fork 自 MIT 许可的 [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0。准确 revision 和保留声明见 [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-ask-user-question/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE)。
 
 `pi-subagents` fork 自 MIT 许可的 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3（`c10b1836256e760da75296ccd4e57a77ada1325e`）。准确 revision、本地 UI 差异与保留声明见 [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-subagents/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE)。
+
+`pi-herdr-companion` 改编了 MIT 许可 [`pi-herdr-btw`](https://github.com/oscabriel/pi-herdr-btw) 0.3.0 的 `/btw` 行为与私有 mailbox 模式。准确 tarball 来源与保留声明见 [`packages/pi-herdr-companion/UPSTREAM_SOURCE.md`](./packages/pi-herdr-companion/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-herdr-companion/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-herdr-companion/UPSTREAM_LICENSE)。
