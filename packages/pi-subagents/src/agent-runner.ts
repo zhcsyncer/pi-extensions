@@ -25,6 +25,7 @@ import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
 import type { SubagentType, ThinkingLevel } from "./types.js";
+import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 /**
  * Tool names registered by THIS extension. Single source of truth so the
@@ -390,7 +391,7 @@ export interface RunOptions {
    * Lets callers maintain a lifetime accumulator that survives compaction
    * (which replaces session.state.messages and resets stats-derived sums).
    */
-  onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
+  onAssistantUsage?: (usage: LifetimeUsage) => void;
   /**
    * Called when the session successfully compacts. `tokensBefore` is upstream's
    * pre-compaction context size estimate. Aborted compactions don't fire.
@@ -894,12 +895,8 @@ export async function runAgent(
       });
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
-      const u = (event.message as any).usage;
-      if (u) options.onAssistantUsage?.({
-        input: u.input ?? 0,
-        output: u.output ?? 0,
-        cacheWrite: u.cacheWrite ?? 0,
-      });
+      const usage = event.message.usage;
+      if (usage) options.onAssistantUsage?.(toLifetimeUsage(usage));
     }
     if (event.type === "compaction_end" && !event.aborted && event.result) {
       options.onCompaction?.({ reason: event.reason, tokensBefore: event.result.tokensBefore });
@@ -941,7 +938,7 @@ export async function resumeAgent(
   prompt: string,
   options: {
     onToolActivity?: (activity: ToolActivity) => void;
-    onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
+    onAssistantUsage?: (usage: LifetimeUsage) => void;
     onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
     signal?: AbortSignal;
   } = {},
@@ -971,12 +968,8 @@ export async function resumeAgent(
           });
         }
         if (event.type === "message_end" && event.message.role === "assistant") {
-          const u = (event.message as any).usage;
-          if (u) options.onAssistantUsage?.({
-            input: u.input ?? 0,
-            output: u.output ?? 0,
-            cacheWrite: u.cacheWrite ?? 0,
-          });
+          const usage = event.message.usage;
+          if (usage) options.onAssistantUsage?.(toLifetimeUsage(usage));
         }
         if (event.type === "compaction_end" && !event.aborted && event.result) {
           options.onCompaction?.({ reason: event.reason, tokensBefore: event.result.tokensBefore });

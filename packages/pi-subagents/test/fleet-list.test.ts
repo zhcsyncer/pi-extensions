@@ -15,7 +15,13 @@ const ENTER = "\r";
 // Kitty-protocol key-RELEASE for ↓ (event type 3) — listeners receive these too.
 const DOWN_RELEASE = "\x1b[1;1:3B";
 
-const theme = { fg: (c: string, s: string) => `<${c}>${s}</${c}>`, bold: (s: string) => `*${s}*` };
+const theme = {
+  fg: (color: string, text: string) => {
+    const codes: Record<string, string> = { accent: "35", dim: "2", muted: "90" };
+    return `\x1b[${codes[color] ?? "37"}m${text}\x1b[39m`;
+  },
+  bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+};
 
 /** A no-op session so a record is "openable" by default (the list hides session-less agents). */
 const FAKE_SESSION = { subscribe: () => () => {}, messages: [] };
@@ -29,7 +35,7 @@ function makeRecord(over: Partial<AgentRecord> = {}): AgentRecord {
     toolUses: 0,
     startedAt: Date.now(),
     session: FAKE_SESSION as any,
-    lifetimeUsage: { input: 13100, output: 0, cacheWrite: 0 },
+    lifetimeUsage: { input: 13100, output: 0, cacheRead: 50_000, cacheWrite: 0 },
     compactionCount: 0,
     ...over,
   } as AgentRecord;
@@ -113,22 +119,22 @@ function harness(agents: AgentRecord[]): Harness {
 }
 
 describe("formatFleetElapsed", () => {
-  it("renders integer seconds (no decimal, no suffix)", () => {
+  it("uses the shared friendly duration format at every boundary", () => {
+    expect(formatFleetElapsed(-500)).toBe("0s");
     expect(formatFleetElapsed(0)).toBe("0s");
     expect(formatFleetElapsed(11_000)).toBe("11s");
-    expect(formatFleetElapsed(11_400)).toBe("11s");
-    expect(formatFleetElapsed(11_600)).toBe("12s");
-  });
-  it("floors negatives to 0s", () => {
-    expect(formatFleetElapsed(-500)).toBe("0s");
+    expect(formatFleetElapsed(11_400)).toBe("11.4s");
+    expect(formatFleetElapsed(60_000)).toBe("1 min 0s");
+    expect(formatFleetElapsed(613_000)).toBe("10 min 13s");
+    expect(formatFleetElapsed(3_600_000)).toBe("1 hr 0 min 0s");
   });
 });
 
 describe("formatFleetTokens", () => {
-  it("prefixes a down-arrow and uses plural 'tokens'", () => {
-    expect(formatFleetTokens(13_100)).toBe("↓ 13.1k tokens");
-    expect(formatFleetTokens(950)).toBe("↓ 950 tokens");
-    expect(formatFleetTokens(1_200_000)).toBe("↓ 1.2M tokens");
+  it("labels the compact total as lifetime without including cacheRead", () => {
+    expect(formatFleetTokens(13_100)).toBe("↓ lifetime 13.1k tokens");
+    expect(formatFleetTokens(950)).toBe("↓ lifetime 950 tokens");
+    expect(formatFleetTokens(1_200_000)).toBe("↓ lifetime 1.2M tokens");
   });
 });
 
@@ -301,8 +307,24 @@ describe("FleetList rendering", () => {
     const agentLine = lines.find(l => l.includes("Sleep then report 1"))!;
     expect(agentLine).toContain("○");
     expect(agentLine).toContain(getDisplayName("general-purpose"));
-    expect(agentLine).toContain("↓ 13.1k tokens");
-    expect(agentLine).toMatch(/\d+s · ↓/); // "<seconds>s · ↓ ..." (timing-agnostic)
+    expect(agentLine).toContain("↓ lifetime 13.1k tokens");
+    expect(agentLine).toMatch(/\x1b\[35m[\d.]+s\x1b\[39m/);
+    expect(agentLine).toContain("\x1b[2m↓ lifetime 13.1k tokens\x1b[39m");
+  });
+
+  it("renders a long elapsed time in accent without brightening the token metric", () => {
+    const now = Date.now();
+    const record = makeRecord({
+      status: "completed",
+      startedAt: now - 613_000,
+      completedAt: now,
+    });
+    const h = harness([record]);
+    const line = h.render(120).find((candidate) => candidate.includes(record.description))!;
+    expect(line).toContain("\x1b[35m10 min 13s\x1b[39m");
+    expect(line).toContain("\x1b[2m↓ lifetime 13.1k tokens\x1b[39m");
+    expect(line).not.toContain("\x1b[35m↓ lifetime");
+    h.fleet.dispose();
   });
 
   it("orders agents earliest-launched first (top)", () => {

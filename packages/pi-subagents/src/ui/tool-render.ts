@@ -11,7 +11,7 @@
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, type Component } from "@earendil-works/pi-tui";
 import type { AgentDetails, Theme } from "./agent-widget.js";
-import { fgPreservingNestedStyles, formatMs, formatTurns, SPINNER } from "./agent-widget.js";
+import { fgPreservingNestedStyles, formatMs, formatTurns, SPINNER, styleDuration } from "./agent-widget.js";
 import { sanitizeDisplayText } from "./display-safety.js";
 
 /** Collapsed preview: first non-empty line, hard-capped. */
@@ -223,7 +223,7 @@ function statusHeaderLine(
   theme: Theme,
 ): string {
   let line = icon + (stats ? " " + stats : "");
-  if (duration) line += " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+  if (duration) line += " " + theme.fg("dim", "·") + " " + styleDuration(theme, duration);
   return line;
 }
 
@@ -256,9 +256,9 @@ export function renderUndetailedResult(
 /**
  * Shared Agent / get_subagent_result result chrome — Claude Code transcript shape:
  *
- *   ⠹ ↻3 · 3 tool uses · 12.4k token
+ *   ⠹ ↻3 · 3 tool uses · lifetime 12.4k token
  *     ⎿  searching…
- *   ✓ ↻8 · 5 tool uses · 33.8k token · 12.3s
+ *   ✓ ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s
  *     ⎿  Done
  *
  * Collapsed never dumps the model-facing body; expanded adds Markdown under the chrome.
@@ -279,11 +279,11 @@ export function renderAgentLikeResult(
   if (opts.isPartial || isActiveStatus(details.status)) {
     const frame = SPINNER[details.spinnerFrame ?? 0] ?? SPINNER[0];
     const top = theme.fg("accent", frame!) + (s ? " " + s : "");
-    // Queued must never show thinking… even if a stale activity string was attached.
+    // Queued must never show a generic working fallback, even if stale activity was attached.
     const activity =
       details.status === "queued"
         ? "queued…"
-        : (details.activity ?? "thinking…");
+        : (details.activity ?? "working…");
     return new Text(top + "\n" + formatClerkLine(theme, activity), 0, 0);
   }
 

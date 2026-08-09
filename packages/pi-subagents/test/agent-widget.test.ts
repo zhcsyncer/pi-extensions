@@ -7,8 +7,11 @@ import {
   describeActivity,
   fgPreservingNestedStyles,
   formatActiveToolSummary,
+  formatLifetimeUsageBreakdown,
+  formatMs,
   formatSessionTokens,
   formatSubagentsStatusText,
+  styleDuration,
 } from "../src/ui/agent-widget.js";
 
 describe("formatSessionTokens", () => {
@@ -21,43 +24,95 @@ describe("formatSessionTokens", () => {
     bold: (s: string) => s,
   };
 
-  it("applies threshold colors (<70 dim, 70–85 warning, ≥85 error)", () => {
-    expect(formatSessionTokens(1234, null, theme)).toBe("1.2k token");
-    expect(formatSessionTokens(1234, 50, theme)).toBe("1.2k token (<dim>50%</dim>)");
-    expect(formatSessionTokens(1234, 70, theme)).toBe("1.2k token (<warning>70%</warning>)");
-    expect(formatSessionTokens(1234, 84, theme)).toBe("1.2k token (<warning>84%</warning>)");
-    expect(formatSessionTokens(1234, 85, theme)).toBe("1.2k token (<error>85%</error>)");
-    expect(formatSessionTokens(1234, 99, theme)).toBe("1.2k token (<error>99%</error>)");
+  it("labels lifetime total separately from current context and applies thresholds", () => {
+    expect(formatSessionTokens(1234, null, theme)).toBe("lifetime 1.2k token");
+    expect(formatSessionTokens(1234, 50, theme)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 50%</dim>)",
+    );
+    expect(formatSessionTokens(1234, 70, theme)).toBe(
+      "lifetime 1.2k token (<warning>current ctx 70%</warning>)",
+    );
+    expect(formatSessionTokens(1234, 84, theme)).toBe(
+      "lifetime 1.2k token (<warning>current ctx 84%</warning>)",
+    );
+    expect(formatSessionTokens(1234, 85, theme)).toBe(
+      "lifetime 1.2k token (<error>current ctx 85%</error>)",
+    );
+    expect(formatSessionTokens(1234, 99, theme)).toBe(
+      "lifetime 1.2k token (<error>current ctx 99%</error>)",
+    );
   });
 
   it("annotates compaction count alongside percent", () => {
     // compactions only (e.g. immediately post-compaction, percent null)
-    expect(formatSessionTokens(1234, null, theme, 1)).toBe("1.2k token (<dim>⇊1</dim>)");
-    expect(formatSessionTokens(1234, null, theme, 3)).toBe("1.2k token (<dim>⇊3</dim>)");
+    expect(formatSessionTokens(1234, null, theme, 1)).toBe(
+      "lifetime 1.2k token (<dim>⇊1</dim>)",
+    );
+    expect(formatSessionTokens(1234, null, theme, 3)).toBe(
+      "lifetime 1.2k token (<dim>⇊3</dim>)",
+    );
     // percent + compactions, joined with ` · `
-    expect(formatSessionTokens(1234, 45, theme, 2)).toBe("1.2k token (<dim>45%</dim> · <dim>⇊2</dim>)");
-    expect(formatSessionTokens(1234, 88, theme, 4)).toBe("1.2k token (<error>88%</error> · <dim>⇊4</dim>)");
+    expect(formatSessionTokens(1234, 45, theme, 2)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 45%</dim> · <dim>⇊2</dim>)",
+    );
+    expect(formatSessionTokens(1234, 88, theme, 4)).toBe(
+      "lifetime 1.2k token (<error>current ctx 88%</error> · <dim>⇊4</dim>)",
+    );
     // compactions=0 omitted
-    expect(formatSessionTokens(1234, 45, theme, 0)).toBe("1.2k token (<dim>45%</dim>)");
+    expect(formatSessionTokens(1234, 45, theme, 0)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 45%</dim>)",
+    );
   });
 
   it("preserves the outer style after nested annotation styles reset", () => {
     const tokenText = formatSessionTokens(1234, 70, ansiTheme);
 
     expect(fgPreservingNestedStyles(ansiTheme, "accent", tokenText)).toBe(
-      "\u001b[35m1.2k token (\u001b[33m70%\u001b[39m\u001b[35m)\u001b[39m",
+      "\u001b[35mlifetime 1.2k token (\u001b[33mcurrent ctx 70%\u001b[39m\u001b[35m)\u001b[39m",
     );
+  });
+});
+
+describe("lifetime usage and duration formatters", () => {
+  it("formats the full usage breakdown and optional cost", () => {
+    expect(formatLifetimeUsageBreakdown({
+      input: 1_200,
+      output: 345,
+      cacheRead: 98_700,
+      cacheWrite: 40,
+      cost: 0.042,
+    })).toBe("Lifetime usage: input 1.2k · output 345 · cache read 98.7k · cache write 40 · cost $0.042");
+    expect(formatLifetimeUsageBreakdown({
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    })).not.toContain("cost");
+  });
+
+  it("formats sub-minute, minute, and hour boundaries without long-second counts", () => {
+    expect(formatMs(-500)).toBe("0s");
+    expect(formatMs(0)).toBe("0s");
+    expect(formatMs(999)).toBe("0.9s");
+    expect(formatMs(11_000)).toBe("11s");
+    expect(formatMs(59_999)).toBe("59.9s");
+    expect(formatMs(60_000)).toBe("1 min 0s");
+    expect(formatMs(613_000)).toBe("10 min 13s");
+    expect(formatMs(3_600_000)).toBe("1 hr 0 min 0s");
+    expect(formatMs(3_661_000)).toBe("1 hr 1 min 1s");
+  });
+
+  it("uses only the semantic accent color for the duration fragment", () => {
+    const semanticTheme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` };
+    expect(styleDuration(semanticTheme, "10 min 13s")).toBe("<accent>10 min 13s</accent>");
   });
 });
 
 describe("renderRunningAgentStatus", () => {
   it("renders running status as separate component lines", () => {
     const theme = { fg: (_c: string, s: string) => s };
-    const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "thinking…", theme);
+    const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "working…", theme);
 
     expect(component.render(120).map((line) => line.trimEnd())).toEqual([
       "⠋ effort: xhigh · 4 tool uses",
-      "  ⎿  thinking…",
+      "  ⎿  working…",
     ]);
   });
 });
@@ -219,7 +274,7 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(summary).not.toContain("evil.invalid");
   });
 
-  it("describeActivity prefers in-flight step summaries over thinking…", () => {
+  it("describeActivity prefers tool/body summaries over the working fallback", () => {
     const tools = new Map<string, string>([
       ["c1", "reading src/a.ts"],
       ["c2", "running rg auth"],
@@ -227,6 +282,6 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(describeActivity(tools)).toBe("reading src/a.ts, running rg auth…");
     expect(describeActivity(new Map([["c1", "searching \"x\""]]))).toBe('searching "x"…');
     expect(describeActivity(new Map(), " partial answer ")).toBe("partial answer");
-    expect(describeActivity(new Map())).toBe("thinking…");
+    expect(describeActivity(new Map())).toBe("working…");
   });
 });

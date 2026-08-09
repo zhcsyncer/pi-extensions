@@ -380,7 +380,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     });
     const record = manager.getRecord(id)!;
 
-    expect(record.lifetimeUsage).toEqual({ input: 0, output: 0, cacheWrite: 0 });
+    expect(record.lifetimeUsage).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     expect(record.compactionCount).toBe(0);
 
     manager.abort(id);
@@ -394,8 +394,8 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
       captured = opts;
       // Two assistant messages with usage
-      opts.onAssistantUsage?.({ input: 100, output: 50, cacheWrite: 10 });
-      opts.onAssistantUsage?.({ input: 200, output: 80, cacheWrite: 20 });
+      opts.onAssistantUsage?.({ input: 100, output: 50, cacheRead: 1_000, cacheWrite: 10, cost: 0.1 });
+      opts.onAssistantUsage?.({ input: 200, output: 80, cacheRead: 2_000, cacheWrite: 20, cost: 0.2 });
       return { responseText: "done", session: mockSession(), aborted: false, steered: false };
     });
 
@@ -407,7 +407,11 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
 
     expect(captured).toBeDefined();
     expect(manager.getRecord(id)!.lifetimeUsage).toEqual({
-      input: 300, output: 130, cacheWrite: 30,
+      input: 300,
+      output: 130,
+      cacheRead: 3_000,
+      cacheWrite: 30,
+      cost: 0.30000000000000004,
     });
   });
 
@@ -443,13 +447,18 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
   it("resume() also accumulates usage and increments compactions on the same record", async () => {
     manager = new AgentManager();
 
-    // First, spawn with a session that resume can latch onto
+    // First, spawn with a session that resume can latch onto and non-zero usage.
     const session = { ...mockSession() };
-    vi.mocked(runAgent).mockResolvedValue({
-      responseText: "first",
-      session: session as any,
-      aborted: false,
-      steered: false,
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
+      opts.onAssistantUsage?.({
+        input: 40, output: 10, cacheRead: 100, cacheWrite: 2, cost: 0.1,
+      });
+      return {
+        responseText: "first",
+        session: session as any,
+        aborted: false,
+        steered: false,
+      };
     });
 
     const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
@@ -458,21 +467,30 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     });
     await manager.getRecord(id)!.promise;
 
-    // Pre-resume: lifetimeUsage from spawn was zero (mock didn't call onAssistantUsage)
-    expect(manager.getRecord(id)!.lifetimeUsage).toEqual({ input: 0, output: 0, cacheWrite: 0 });
+    expect(manager.getRecord(id)!.lifetimeUsage).toEqual({
+      input: 40, output: 10, cacheRead: 100, cacheWrite: 2, cost: 0.1,
+    });
     expect(manager.getRecord(id)!.compactionCount).toBe(0);
 
     // Now resume — drive callbacks via the mocked resumeAgent
     const { resumeAgent: resumeMock } = await import("../src/agent-runner.js");
     vi.mocked(resumeMock).mockImplementation(async (_session, _prompt, opts: any) => {
-      opts.onAssistantUsage?.({ input: 70, output: 30, cacheWrite: 5 });
+      opts.onAssistantUsage?.({
+        input: 70, output: 30, cacheRead: 300, cacheWrite: 5, cost: 0.2,
+      });
       opts.onCompaction?.({ reason: "overflow", tokensBefore: 999 });
       return { text: "second" };
     });
 
     await manager.resume(id, "more");
 
-    expect(manager.getRecord(id)!.lifetimeUsage).toEqual({ input: 70, output: 30, cacheWrite: 5 });
+    expect(manager.getRecord(id)!.lifetimeUsage).toEqual({
+      input: 110,
+      output: 40,
+      cacheRead: 400,
+      cacheWrite: 7,
+      cost: 0.30000000000000004,
+    });
     expect(manager.getRecord(id)!.compactionCount).toBe(1);
   });
 });

@@ -31,13 +31,20 @@ function theme() {
   } as any;
 }
 
+function taggedTheme() {
+  return {
+    fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+    bold: (text: string) => text,
+  } as any;
+}
+
 function completedDetails(overrides: Partial<AgentDetails> = {}): AgentDetails {
   return {
     displayName: "Explore",
     description: "find auth",
     subagentType: "Explore",
     toolUses: 3,
-    tokens: "1.2k token",
+    tokens: "lifetime 1.2k token",
     durationMs: 4200,
     status: "completed",
     agentId: "abc123",
@@ -120,6 +127,32 @@ describe("renderAgentLikeResult", () => {
     expect(out).toMatch(/⎿/);
     expect(out).toContain("2 tool uses");
     expect(out).not.toContain("abc123"); // id stays off the running chrome (CC)
+  });
+
+  it("uses working when a running result has no tool or body activity", () => {
+    const out = plain(
+      renderAgentLikeResult(
+        completedDetails({ status: "running", durationMs: 0, activity: undefined }),
+        "",
+        { expanded: false },
+        theme(),
+      ),
+    );
+    expect(out).toContain("working…");
+    expect(out).not.toContain("thinking…");
+  });
+
+  it("renders only the terminal duration fragment in semantic accent", () => {
+    const component = renderAgentLikeResult(
+      completedDetails({ durationMs: 613_000 }),
+      "done",
+      { expanded: false },
+      taggedTheme(),
+    );
+    const out = plain(component, 160);
+    expect(out).toContain("<accent>10 min 13s</accent>");
+    expect(out).toContain("<dim>lifetime 1.2k token</dim>");
+    expect(out).not.toContain("<accent>lifetime 1.2k token</accent>");
   });
 
   it("error collapsed shows error line without full dump", () => {

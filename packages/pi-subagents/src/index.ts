@@ -47,6 +47,7 @@ import {
   getPromptModeLabel,
   shortModelLabel,
   SPINNER,
+  styleDuration,
   type Theme,
   type UICtx,
 } from "./ui/agent-widget.js";
@@ -63,7 +64,7 @@ import {
   renderUndetailedResult,
   toolResultText,
 } from "./ui/tool-render.js";
-import { addUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
+import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
 
 // ---- Shared helpers ----
 
@@ -161,10 +162,10 @@ export function renderRunningAgentStatus(
   return container;
 }
 
-/** Format an agent's lifetime token total, or "" when zero. */
+/** Format the legacy compact lifetime total, or "" when zero. */
 function formatLifetimeTokens(o: { lifetimeUsage: LifetimeUsage }): string {
   const t = getLifetimeTotal(o.lifetimeUsage);
-  return t > 0 ? formatTokens(t) : "";
+  return t > 0 ? `lifetime ${formatTokens(t)}` : "";
 }
 
 /**
@@ -179,7 +180,7 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
     maxTurns,
     responseText: "",
     session: undefined,
-    lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
+    lifetimeUsage: createLifetimeUsage(),
   };
 
   const callbacks = {
@@ -192,7 +193,7 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
       if (activity.type === "start") {
         const id = activity.toolCallId ?? `${activity.toolName}_${Date.now()}`;
         // Store a one-line step summary (not bare tool name) so the widget
-        // last line shows e.g. "reading src/a.ts" instead of only "thinking…".
+        // last line shows e.g. "reading src/a.ts" instead of only "working…".
         state.activeTools.set(id, formatActiveToolSummary(activity.toolName, activity.args));
       } else {
         if (activity.toolCallId && state.activeTools.has(activity.toolCallId)) {
@@ -222,7 +223,7 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
     onSessionCreated: (session: any) => {
       state.session = session;
     },
-    onAssistantUsage: (usage: { input: number; output: number; cacheWrite: number }) => {
+    onAssistantUsage: (usage: LifetimeUsage) => {
       addUsage(state.lifetimeUsage, usage);
       onStreamUpdate?.();
     },
@@ -379,12 +380,14 @@ export default function (pi: ExtensionAPI) {
 
         // Line 2: stats
         const parts: string[] = [];
-        if (d.turnCount > 0) parts.push(formatTurns(d.turnCount, d.maxTurns));
-        if (d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
-        if (d.totalTokens > 0) parts.push(formatTokens(d.totalTokens));
-        if (d.durationMs > 0) parts.push(formatMs(d.durationMs));
+        if (d.turnCount > 0) parts.push(theme.fg("dim", formatTurns(d.turnCount, d.maxTurns)));
+        if (d.toolUses > 0) {
+          parts.push(theme.fg("dim", `${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`));
+        }
+        if (d.totalTokens > 0) parts.push(theme.fg("dim", `lifetime ${formatTokens(d.totalTokens)}`));
+        if (d.durationMs > 0) parts.push(styleDuration(theme, formatMs(d.durationMs)));
         if (parts.length) {
-          line += "\n  " + parts.map(p => theme.fg("dim", p)).join(" " + theme.fg("dim", "·") + " ");
+          line += "\n  " + parts.join(" " + theme.fg("dim", "·") + " ");
         }
 
         // Line 3: result preview (collapsed) or full (expanded)
@@ -1083,7 +1086,7 @@ Terse command-style prompts produce shallow, generic work.
       if (isPartial || details.status === "running") {
         const frame = SPINNER[details.spinnerFrame ?? 0];
         const s = formatAgentDetailsStats(details, theme);
-        return renderRunningAgentStatus(frame, s, details.activity ?? "thinking…", theme);
+        return renderRunningAgentStatus(frame, s, details.activity ?? "working…", theme);
       }
 
       return renderAgentLikeResult(details, text, { expanded, isPartial }, theme);
@@ -1570,7 +1573,7 @@ Terse command-style prompts produce shallow, generic work.
       const contextPercent = getSessionContextPercent(record.session);
       const statsParts = [`Tool uses: ${record.toolUses}`];
       if (tokens) statsParts.push(tokens);
-      if (contextPercent !== null) statsParts.push(`Context: ${Math.round(contextPercent)}%`);
+      if (contextPercent !== null) statsParts.push(`Current context: ${Math.round(contextPercent)}%`);
       if (record.compactionCount) statsParts.push(`Compactions: ${record.compactionCount}`);
       statsParts.push(`Duration: ${duration}`);
 
@@ -1605,7 +1608,7 @@ Terse command-style prompts produce shallow, generic work.
 
       const activity = agentActivity.get(record.id);
       const invMeta = detailsFromInvocation(record.invocation);
-      // Queued must force "queued…" — never let an empty activity map become thinking…
+      // Queued must force "queued…" — never let an empty activity map become working…
       const activityText =
         record.status === "queued"
           ? "queued…"
@@ -1695,7 +1698,7 @@ Terse command-style prompts produce shallow, generic work.
         const stateParts: string[] = [];
         if (tokens) stateParts.push(tokens);
         stateParts.push(`${record.toolUses} tool ${record.toolUses === 1 ? "use" : "uses"}`);
-        if (contextPercent !== null) stateParts.push(`context ${Math.round(contextPercent)}% full`);
+        if (contextPercent !== null) stateParts.push(`current context ${Math.round(contextPercent)}% full`);
         if (record.compactionCount) stateParts.push(`${record.compactionCount} compaction${record.compactionCount === 1 ? "" : "s"}`);
         return textResult(
           `Steering message sent to agent ${record.id}. The agent will process it after its current tool execution.\n` +

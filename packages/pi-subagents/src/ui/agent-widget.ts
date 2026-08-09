@@ -112,22 +112,46 @@ export function fgPreservingNestedStyles(theme: Theme, color: string, text: stri
   return theme.fg(color, text.replace(/\u001b\[(?:0|39)m/g, reset => `${reset}${styleStart}`));
 }
 
+/** Format a token count magnitude without a unit: "33.8k", "1.2M". */
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return `${count}`;
+}
+
 /** Format a token count compactly: "33.8k token", "1.2M token". */
 export function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M token`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k token`;
-  return `${count} token`;
+  return `${formatTokenCount(count)} token`;
+}
+
+/** Format provider-reported USD cost with the same precision policy as pi-glance. */
+export function formatUsageCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return "$0.000";
+  if (cost < 0.001) return "<$0.001";
+  if (cost < 1) return `$${cost.toFixed(3)}`;
+  if (cost < 10) return `$${cost.toFixed(2)}`;
+  return `$${cost.toFixed(1)}`;
+}
+
+/** Clear, fully additive lifetime breakdown for the conversation detail overlay. */
+export function formatLifetimeUsageBreakdown(usage: LifetimeUsage): string {
+  const parts = [
+    `input ${formatTokenCount(usage.input ?? 0)}`,
+    `output ${formatTokenCount(usage.output ?? 0)}`,
+    `cache read ${formatTokenCount(usage.cacheRead ?? 0)}`,
+    `cache write ${formatTokenCount(usage.cacheWrite ?? 0)}`,
+  ];
+  if (usage.cost !== undefined && Number.isFinite(usage.cost)) {
+    parts.push(`cost ${formatUsageCost(usage.cost)}`);
+  }
+  return `Lifetime usage: ${parts.join(" · ")}`;
 }
 
 /**
- * Token count with optional context-fill % and compaction-count annotations.
+ * Compact lifetime total with optional *current* context-fill % and compaction
+ * annotations. The labels deliberately make the two windows explicit: lifetime
+ * usage is cumulative, while context % describes only the current context.
  * Thresholds for percent: <70% dim, 70–85% warning, ≥85% error.
- * Compaction count rendered as `⇊N` in dim.
- *
- *   "12.3k token"               — no annotations
- *   "12.3k token (45%)"         — percent only
- *   "12.3k token (⇊2)"          — compactions only (e.g. right after compact)
- *   "12.3k token (45% · ⇊2)"    — both
  */
 export function formatSessionTokens(
   tokens: number,
@@ -135,11 +159,11 @@ export function formatSessionTokens(
   theme: Theme,
   compactions = 0,
 ): string {
-  const tokenStr = formatTokens(tokens);
+  const tokenStr = `lifetime ${formatTokens(tokens)}`;
   const annot: string[] = [];
   if (percent !== null) {
     const color = percent >= 85 ? "error" : percent >= 70 ? "warning" : "dim";
-    annot.push(theme.fg(color, `${Math.round(percent)}%`));
+    annot.push(theme.fg(color, `current ctx ${Math.round(percent)}%`));
   }
   if (compactions > 0) {
     annot.push(theme.fg("dim", `⇊${compactions}`));
@@ -153,15 +177,44 @@ export function formatTurns(turnCount: number, maxTurns?: number | null): string
   return maxTurns != null ? `↻${turnCount}≤${maxTurns}` : `↻${turnCount}`;
 }
 
-/** Format milliseconds as human-readable duration. */
+/**
+ * Format milliseconds as a stable human duration.
+ * Sub-minute values retain tenths; longer values use minute/hour units instead
+ * of growing into unreadable long-second counts.
+ */
 export function formatMs(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`;
+  const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  if (safeMs < 60_000) {
+    const seconds = Math.floor(safeMs / 100) / 10;
+    return `${Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes} min ${seconds}s`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hr ${minutes} min ${seconds}s`;
+}
+
+/** Apply the shared semantic duration color without brightening surrounding stats. */
+export function styleDuration(theme: Pick<Theme, "fg">, duration: string): string {
+  return theme.fg("accent", duration);
 }
 
 /** Format duration from start/completed timestamps. */
 export function formatDuration(startedAt: number, completedAt?: number): string {
-  if (completedAt) return formatMs(completedAt - startedAt);
+  if (completedAt !== undefined) return formatMs(completedAt - startedAt);
   return `${formatMs(Date.now() - startedAt)} (running)`;
+}
+
+function styleStatsWithDuration(parts: string[], duration: string, theme: Theme): string {
+  return [
+    ...parts.map((part) => fgPreservingNestedStyles(theme, "dim", part)),
+    styleDuration(theme, duration),
+  ].join(" " + theme.fg("dim", "·") + " ");
 }
 
 /** Get display name for any agent type (built-in or custom). */
@@ -286,7 +339,7 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
 
 /**
  * Build the widget's last-line activity string.
- * Prefer in-flight tool step summaries; else streaming assistant text; else "thinking…".
+ * Prefer in-flight tool step summaries; else streaming assistant text; else "working…".
  */
 export function describeActivity(activeTools: Map<string, string>, responseText?: string): string {
   if (activeTools.size > 0) {
@@ -309,7 +362,7 @@ export function describeActivity(activeTools: Map<string, string>, responseText?
     return truncateLine(responseText);
   }
 
-  return "thinking…";
+  return "working…";
 }
 
 // ---- Widget manager ----
@@ -438,10 +491,10 @@ export class AgentWidget {
     const activity = this.agentActivity.get(a.id);
     if (activity) parts.push(formatTurns(activity.turnCount, activity.maxTurns));
     if (a.toolUses > 0) parts.push(`${a.toolUses} tool use${a.toolUses === 1 ? "" : "s"}`);
-    parts.push(duration);
+    const statsText = styleStatsWithDuration(parts, duration, theme);
 
     const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
-    return `${icon} ${theme.fg("dim", name)}${modeTag}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", parts.join(" · "))}${statusText}`;
+    return `${icon} ${theme.fg("dim", name)}${modeTag}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${statsText}${statusText}`;
   }
 
   /**
@@ -486,21 +539,20 @@ export class AgentWidget {
 
       const bg = this.agentActivity.get(a.id);
       const toolUses = bg?.toolUses ?? a.toolUses;
-      const tokens = getLifetimeTotal(bg?.lifetimeUsage);
-      const contextPercent = getSessionContextPercent(bg?.session);
+      const tokens = getLifetimeTotal(bg?.lifetimeUsage ?? a.lifetimeUsage);
+      const contextPercent = getSessionContextPercent(bg?.session ?? a.session);
       const tokenText = tokens > 0 ? formatSessionTokens(tokens, contextPercent, theme, a.compactionCount) : "";
 
       const parts: string[] = [];
       if (bg) parts.push(formatTurns(bg.turnCount, bg.maxTurns));
       if (toolUses > 0) parts.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
       if (tokenText) parts.push(tokenText);
-      parts.push(elapsed);
-      const statsText = parts.join(" · ");
+      const statsText = styleStatsWithDuration(parts, elapsed, theme);
 
-      const activity = bg ? describeActivity(bg.activeTools, bg.responseText) : "thinking…";
+      const activity = bg ? describeActivity(bg.activeTools, bg.responseText) : "working…";
 
       runningLines.push([
-        truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${fgPreservingNestedStyles(theme, "dim", statsText)}`),
+        truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${statsText}`),
         truncate(theme.fg("dim", "│  ") + theme.fg("dim", `  ⎿  ${activity}`)),
       ]);
     }

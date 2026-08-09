@@ -34,12 +34,15 @@ function mockTui(rows = 40, columns = 80) {
   } as any;
 }
 
-function mockSession(messages: any[] = []) {
+function mockSession(
+  messages: any[] = [],
+  stats: any = { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+) {
   return {
     messages,
     subscribe: vi.fn(() => vi.fn()),
     dispose: vi.fn(),
-    getSessionStats: () => ({ tokens: { input: 0, output: 0, cacheWrite: 0 } }),
+    getSessionStats: () => stats,
   } as any;
 }
 
@@ -51,6 +54,8 @@ function mockRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
     status: "running",
     toolUses: 0,
     startedAt: Date.now(),
+    lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    compactionCount: 0,
     ...overrides,
   } as AgentRecord;
 }
@@ -197,8 +202,16 @@ describe("ConversationViewer", () => {
     it("no line exceeds width with running activity indicator", () => {
       const activity = {
         activeTools: new Map([["c1", "reading file.ts"], ["c2", "searching pattern"]]),
-        toolUses: 5, tokens: "10k", responseText: "R".repeat(400),
-        session: { getSessionStats: () => ({ tokens: { total: 50000 } }) },
+        toolUses: 5,
+        turnCount: 2,
+        lifetimeUsage: { input: 10_000, output: 500, cacheRead: 50_000, cacheWrite: 100 },
+        responseText: "R".repeat(400),
+        session: {
+          getSessionStats: () => ({
+            tokens: { input: 10_000, output: 500, cacheRead: 50_000, cacheWrite: 100 },
+            contextUsage: { percent: 25 },
+          }),
+        },
       };
       const messages = [
         { role: "user", content: "do the thing" },
@@ -525,12 +538,72 @@ describe("ConversationViewer brief layout (scheme A)", () => {
     const out = viewer.render(W).join("\n");
     expect(out).toContain("Prompt");
     expect(out).toContain("Dispatch me to find auth");
+    expect(out).toContain("Usage");
     expect(out).toContain("Steps");
     expect(out).toMatch(/grep/);
     expect(out).toContain("Result");
     expect(out).toContain("All done with auth search.");
     // Default view must not dump the huge tool body.
     expect(out).not.toContain("LINE_SHOULD_NOT_APPEAR_IN_DEFAULT_VIEW");
+  });
+
+  it("shows a record-backed lifetime usage breakdown and separate current context", () => {
+    const messages = [
+      { role: "user", content: "measure this run" },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ];
+    const session = mockSession(messages, {
+      tokens: { input: 1_200, output: 300, cacheRead: 500_000, cacheWrite: 50 },
+      contextUsage: { percent: 25 },
+    });
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      session,
+      mockRecord({
+        status: "completed",
+        lifetimeUsage: {
+          input: 1_200,
+          output: 300,
+          cacheRead: 500_000,
+          cacheWrite: 50,
+          cost: 0.042,
+        },
+        compactionCount: 2,
+      }),
+      undefined,
+      ansiTheme(),
+      vi.fn(),
+    );
+
+    const out = viewer.render(W).join("\n");
+    expect(out).toContain("Lifetime usage:");
+    expect(out).toContain("input 1.2k");
+    expect(out).toContain("output 300");
+    expect(out).toContain("cache read 500.0k");
+    expect(out).toContain("cache write 50");
+    expect(out).toContain("cost $0.042");
+    expect(out).toContain("Current context: 25%");
+    expect(out).toContain("2 compactions");
+    // Compact total remains input + output + cacheWrite; cacheRead is breakdown-only.
+    expect(out).toContain("lifetime 1.6k token");
+    expect(out).not.toContain("lifetime 501.6k token");
+  });
+
+  it("uses working for an idle run but preserves queued priority", () => {
+    const messages = [{ role: "user", content: "wait" }];
+    const running = new ConversationViewer(
+      mockTui(40, W), mockSession(messages), mockRecord({ status: "running" }),
+      undefined, ansiTheme(), vi.fn(),
+    ).render(W).join("\n");
+    expect(running).toContain("working…");
+    expect(running).not.toContain("thinking…");
+
+    const queued = new ConversationViewer(
+      mockTui(40, W), mockSession(messages), mockRecord({ status: "queued" }),
+      undefined, ansiTheme(), vi.fn(),
+    ).render(W).join("\n");
+    expect(queued).toContain("queued…");
+    expect(queued).not.toContain("working…");
   });
 
   it("o toggles expanded tool detail that reveals folded multi-line result text", () => {
