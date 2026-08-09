@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { HerdrCommandError } from "../src/herdr-client.ts";
 import { bindChildSession, focusParentAndCloseChild } from "../src/btw/child.ts";
-import { BtwLauncher, type BtwLaunchClient, type BtwLaunchStore } from "../src/btw/launch.ts";
+import {
+	BtwLauncher,
+	type BtwLaunchClient,
+	type BtwLaunchStore,
+	type BtwLaunchTiming,
+} from "../src/btw/launch.ts";
 import { createBtwPayload } from "../src/btw/types.ts";
 import type { LaunchState } from "../src/btw/protocol.ts";
 
@@ -27,6 +32,15 @@ function payload() {
 
 const runtime = { inside: true, paneId: "w1:p1", tabId: "w1:t1", workspaceId: "w1", socketPath: "/tmp/herdr" } as const;
 
+function herdrError(code: string): HerdrCommandError {
+	return new HerdrCommandError(["agent", "start"], {
+		stdout: "",
+		stderr: JSON.stringify({ error: { code, message: "agent start failed" } }),
+		code: 1,
+		killed: false,
+	});
+}
+
 class FakeStore implements BtwLaunchStore {
 	states: LaunchState[] = [];
 	removed: string[] = [];
@@ -35,12 +49,25 @@ class FakeStore implements BtwLaunchStore {
 	async remove(path: string) { this.removed.push(path); }
 }
 
+class FakeTiming implements BtwLaunchTiming {
+	elapsedMs = 0;
+	waits: number[] = [];
+	nowMs() { return this.elapsedMs; }
+	async wait(delayMs: number, signal?: AbortSignal) {
+		signal?.throwIfAborted();
+		this.waits.push(delayMs);
+		this.elapsedMs += delayMs;
+		signal?.throwIfAborted();
+	}
+}
+
 class FakeClient implements BtwLaunchClient {
 	calls: Array<{ name: string; args: unknown[] }> = [];
 	panes = new Set(["w1:p1"]);
 	agents = new Map<string, string>();
 	splitError?: Error;
 	startError?: Error;
+	startErrors: Error[] = [];
 	splitPaneId = "w1:p2";
 	async splitPane(options: unknown) {
 		this.calls.push({ name: "split", args: [options] });
@@ -52,9 +79,11 @@ class FakeClient implements BtwLaunchClient {
 		this.calls.push({ name: "close", args: [paneId] });
 		this.panes.delete(paneId);
 	}
-	async startAgent(options: unknown) {
+	async startAgent(options: unknown, signal?: AbortSignal) {
 		this.calls.push({ name: "start-agent", args: [options] });
-		if (this.startError) throw this.startError;
+		signal?.throwIfAborted();
+		const error = this.startErrors.shift() ?? this.startError;
+		if (error) throw error;
 		const typed = options as { name: string; paneId: string };
 		this.agents.set(typed.name, typed.paneId);
 	}
@@ -78,9 +107,114 @@ class FakeClient implements BtwLaunchClient {
 	}
 }
 
-function launch(client = new FakeClient(), store = new FakeStore()) {
-	return { launcher: new BtwLauncher(client, store, () => new Date("2026-08-09T12:00:01.000Z")), client, store };
+function launch(
+	client = new FakeClient(),
+	store = new FakeStore(),
+	timing: BtwLaunchTiming = new FakeTiming(),
+) {
+	return {
+		launcher: new BtwLauncher(client, store, () => new Date("2026-08-09T12:00:01.000Z"), timing),
+		client,
+		store,
+	};
 }
+
+describe("BTW fresh-pane agent startup", () => {
+	it("retries typed busy failures and succeeds within one shared deadline", async () => {
+		const client = new FakeClient();
+		client.startErrors.push(herdrError("agent_pane_busy"), herdrError("agent_pane_busy"));
+		const store = new FakeStore();
+		const timing = new FakeTiming();
+		const { launcher } = launch(client, store, timing);
+
+		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
+			.resolves.toEqual({ paneId: "w1:p2", agentName: "btw-sessio-abcdef" });
+		const starts = client.calls.filter((call) => call.name === "start-agent");
+		expect(starts).toHaveLength(3);
+		expect(starts.map((call) => (call.args[0] as { timeoutMs: number }).timeoutMs))
+			.toEqual([40_000, 39_750, 39_250]);
+		expect(timing.waits).toEqual([250, 500]);
+		expect(store.states.map((state) => state.status)).toEqual(["pane_created", "child_ready"]);
+		expect(store.removed).toEqual([]);
+	});
+
+	it("does not retry a typed non-busy Herdr failure", async () => {
+		const client = new FakeClient();
+		const failure = herdrError("agent_start_failed");
+		client.startError = failure;
+		const store = new FakeStore();
+		const timing = new FakeTiming();
+		const { launcher } = launch(client, store, timing);
+
+		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
+			.rejects.toBe(failure);
+		expect(client.calls.filter((call) => call.name === "start-agent")).toHaveLength(1);
+		expect(timing.waits).toEqual([]);
+		expect(client.calls.filter((call) => call.name === "close"))
+			.toEqual([{ name: "close", args: ["w1:p2"] }]);
+		expect(store.removed).toEqual(["/private/payload.json"]);
+	});
+
+	it("bounds persistent busy retries and clears only the fresh pane state", async () => {
+		const client = new FakeClient();
+		const failure = herdrError("agent_pane_busy");
+		client.startError = failure;
+		const store = new FakeStore();
+		const timing = new FakeTiming();
+		const { launcher } = launch(client, store, timing);
+
+		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
+			.rejects.toBe(failure);
+		const starts = client.calls.filter((call) => call.name === "start-agent");
+		expect(starts).toHaveLength(5);
+		expect(starts.map((call) => (call.args[0] as { timeoutMs: number }).timeoutMs))
+			.toEqual([40_000, 39_750, 39_250, 38_250, 37_250]);
+		expect(timing.waits).toEqual([250, 500, 1_000, 1_000]);
+		expect(client.calls.filter((call) => call.name === "close"))
+			.toEqual([{ name: "close", args: ["w1:p2"] }]);
+		expect(store.states.map((state) => state.status)).toEqual(["pane_created"]);
+		expect(store.removed).toEqual(["/private/payload.json"]);
+	});
+
+	it("aborts during backoff without another start and clears the fresh pane state", async () => {
+		const client = new FakeClient();
+		client.startError = herdrError("agent_pane_busy");
+		const store = new FakeStore();
+		const controller = new AbortController();
+		let markWaitStarted!: () => void;
+		const waitStarted = new Promise<void>((resolve) => { markWaitStarted = resolve; });
+		let waitingSignal: AbortSignal | undefined;
+		const timing: BtwLaunchTiming = {
+			nowMs: () => 0,
+			async wait(_delayMs, signal) {
+				waitingSignal = signal;
+				await new Promise<void>((_resolve, reject) => {
+					if (!signal) return reject(new Error("retry wait did not receive AbortSignal"));
+					signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+					markWaitStarted();
+				});
+			},
+		};
+		const { launcher } = launch(client, store, timing);
+		const pending = launcher.launch({
+			payload: payload(),
+			payloadPath: "/private/payload.json",
+			runtime,
+			signal: controller.signal,
+		});
+
+		await waitStarted;
+		expect(waitingSignal).toBe(controller.signal);
+		const reason = new Error("cancelled while fresh shell was starting");
+		controller.abort(reason);
+		await expect(pending).rejects.toBe(reason);
+		expect(client.calls.filter((call) => call.name === "start-agent")).toHaveLength(1);
+		expect(client.calls.filter((call) => call.name === "close"))
+			.toEqual([{ name: "close", args: ["w1:p2"] }]);
+		expect(store.states.map((state) => state.status)).toEqual(["pane_created"]);
+		expect(store.removed).toEqual(["/private/payload.json"]);
+	});
+});
 
 describe("BTW launch cleanup", () => {
 	it("splits focused with a path-only env capability and records durable child identity", async () => {
@@ -106,12 +240,13 @@ describe("BTW launch cleanup", () => {
 		expect(store.removed).toEqual([]);
 	});
 
-	it("closes the known owned pane and clears payload when agent startup fails", async () => {
+	it("does not retry a busy-shaped untyped startup failure and clears its owned pane", async () => {
 		const client = new FakeClient();
-		client.startError = new Error("Pi did not become ready");
+		client.startError = Object.assign(new Error("Pi did not become ready"), { herdrCode: "agent_pane_busy" });
 		const store = new FakeStore();
 		const { launcher } = launch(client, store);
 		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime })).rejects.toThrow(/did not become ready/);
+		expect(client.calls.filter((call) => call.name === "start-agent")).toHaveLength(1);
 		expect(client.calls.at(-1)).toEqual({ name: "close", args: ["w1:p2"] });
 		expect(store.removed).toEqual(["/private/payload.json"]);
 	});

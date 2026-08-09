@@ -95,6 +95,8 @@ Ownership 写入 session，并在 reload/compaction 后重建。`/tree` 导航�
 
 Launch 使用 Pi 的 compaction-aware session builder 快照 parent active branch，默认继承 cwd、model、thinking level 与 active tools。除非开启 `auto-submit`，问题会先进入 child editor。Child 是独立且可见的 Pi 进程；显式 merge 前，它的 transcript 不进入 parent。
 
+Herdr 0.8.0 在刚 split 出、由 companion 持有的 pane 中，可能因 fresh shell 尚未完全就绪而短暂返回 typed `agent_pane_busy` code。仅此 typed failure 会重试：最多执行 4 次非阻塞 backoff 等待（合计 2.75 秒），与同一个 40 秒 agent-start deadline 共用预算，每次 attempt 只获得当时剩余的 timeout。Abort 会阻止下一次 start attempt。重试耗尽或出现其他错误时，仍只关闭刚创建的精确 pane，并清除其私有 launch state。
+
 Merge 只包含 child 的 user/assistant 文本，排除 thinking、tool payload 与 image，并在 48KiB transcript 预算内保留最新内容。Parent idle 后会发送一条 custom message：它把 transcript 与 child 编写的 follow-up 合在一起，携带 durable `requestId`/`launchId` details，参与 context、绕过 user input transform，并触发 parent turn。Pi 0.84 的 `sendMessage` wrapper 是 fire-and-forget，因此 dispatch 返回值绝不作为投递证据；只有后续扫描在 session 中观察到该精确 custom message，parent 才写 accepted ack。
 
 Recovery 在**同一 parent session 只有一个 active Pi owner**的前提下提供 durable、按 request 去重的恢复。私有锁会串行化扫描，dispatch lease 会在 fire-and-forget 调用附近可能崩溃时延迟恢复。它不承诺两个同时打开同一 session 的 Pi 实例之间严格 exactly-once。若 crash 或异常延迟的 append 超过 lease，可能发生携带同一 request tag 的重试；session evidence 能去重正常 reload recovery，但 ExtensionAPI 0.84 无法消除 dispatch/append 的残余窗口。
