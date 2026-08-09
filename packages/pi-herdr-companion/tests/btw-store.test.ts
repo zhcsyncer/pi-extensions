@@ -155,6 +155,45 @@ describe("private BTW state store", () => {
 		expect(await store.readMergeAck(path)).toBeUndefined();
 	});
 
+	it("removes a private launch only after its request has a matching acknowledgement", async () => {
+		const { store } = await makeStore();
+		const value = payload("launch-a");
+		const path = await store.create(value);
+		const pending = request(value, "request-1");
+		await store.createMergeRequest(path, pending);
+		expect(await store.removeIfNoPendingMerge(path)).toBe(false);
+		await expect(access(path)).resolves.toBeUndefined();
+
+		await store.writeMergeAck(path, {
+			protocolVersion: 1,
+			requestId: "request-other",
+			status: "accepted",
+			processedAt: new Date().toISOString(),
+		});
+		expect(await store.removeIfNoPendingMerge(path)).toBe(false);
+		await expect(access(path)).resolves.toBeUndefined();
+
+		await store.writeMergeAck(path, {
+			protocolVersion: 1,
+			requestId: pending.requestId,
+			status: "accepted",
+			processedAt: new Date().toISOString(),
+		});
+		expect(await store.removeIfNoPendingMerge(path)).toBe(true);
+		await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("preserves private launch evidence when mailbox confirmation is unreadable", async () => {
+		const { store } = await makeStore();
+		const value = payload("launch-a");
+		const path = await store.create(value);
+		await store.createMergeRequest(path, request(value, "request-1"));
+		await writeFile(join(dirname(path), "merge-request.json"), "{", { mode: 0o600 });
+
+		await expect(store.removeIfNoPendingMerge(path)).rejects.toThrow();
+		await expect(access(path)).resolves.toBeUndefined();
+	});
+
 	it("stale cleanup preserves live panes and pending merges, deleting only confirmed-dead settled launches", async () => {
 		const { store } = await makeStore();
 		const liveValue = payload("launch-live");

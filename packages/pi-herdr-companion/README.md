@@ -107,6 +107,8 @@ Native replay is only a best-effort prompt-cache optimization. It requires inher
 
 Launch payloads and mailboxes live under the global Pi agent directory in a socket-specific private state root. Directories are `0700`, files are `0600`, writes use atomic rename, and capability/context values never appear in CLI argv. Delivery-lock timeout recovery checks that the recorded owner PID is dead, then re-reads token, inode/device, and mtime immediately before unlink; uncertainty times out rather than deleting a replacement lock. Side-agent names are persisted and resolved through `agent get`, so pane moves do not make an old pane ID look stale. Stale cleanup conservatively preserves launches without reliable agent/pane resolution, with a live/unknown pane, or with an unacknowledged merge.
 
+Accepted completion does not depend on Pi's asynchronous shutdown cleanup. The child re-resolves its current pane by persisted agent name, focuses the exact parent, verifies that the request has a matching acknowledgement while removing the whole private launch directory, and only then closes the exact child pane. Failed resolution, focus, or mailbox cleanup keeps both the pane and recovery evidence. If cleanup succeeds but pane close fails, the warning states that the mailbox is already gone and the pane must be closed manually.
+
 ### Blocked adapters
 
 The package listens for:
@@ -187,7 +189,7 @@ BTW shortcuts:
 - `/btw` shares cwd with the parent. Concurrent file/Git edits, dev servers, and ports can conflict.
 - Parent snapshots are static; later parent activity is visible to the child only if the user explains it.
 - Merge is bound to the exact parent session ID, and the child is bound to its first side-thread session ID. If the parent is unavailable, the request remains pending and diagnosable; if the child switches session, side-thread behavior is disabled.
-- After accepted ack, the child resolves its current pane by persisted Herdr agent name, focuses the exact parent, and only then closes. Failed focus or unreliable pane resolution leaves the side pane open with a warning.
+- After accepted ack, the child resolves its current pane by persisted Herdr agent name, focuses the exact parent, removes private launch state only after confirming a matching request/ack, and only then closes. Resolution, focus, or cleanup failure leaves both state and pane available for recovery; a later close failure requires manual pane close because state has already been removed.
 - Normal failure paths remove private payloads and best-effort close only a pane ID explicitly returned by split success/failure. A split failure without an explicit ID reports a possible orphan and deliberately leaves unidentified panes untouched. Hard process/host crashes cannot offer absolute cleanup guarantees.
 - POSIX filesystems do not expose a portable unlink-if-inode-matches operation. Lock identity is rechecked immediately before deletion, but an irreducible final check/unlink race remains; conservative timeout is used whenever replacement is observed or ownership is uncertain.
 - Herdr 0.7.5+ is the compatibility floor; `process-info` absence degrades to non-destructive `unknown`, and advanced layout operations are intentionally out of scope.

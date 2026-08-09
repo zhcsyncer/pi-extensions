@@ -256,9 +256,9 @@ export class BtwContextStore {
 	}
 
 	async removeIfNoPendingMerge(payloadPath: string): Promise<boolean> {
-		const request = await this.readMergeRequest(payloadPath).catch(() => undefined);
+		const request = await this.readMergeRequest(payloadPath);
 		if (request !== undefined) {
-			const ack = await this.readMergeAck(payloadPath).catch(() => undefined);
+			const ack = await this.readMergeAck(payloadPath);
 			if (!ackMatchesRequest(ack, request)) return false;
 		}
 		await this.remove(payloadPath);

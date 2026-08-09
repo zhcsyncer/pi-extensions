@@ -315,7 +315,7 @@ describe("BTW child identity and session binding", () => {
 		expect(store.states.at(-1)?.childSessionId).toBe("child-session-1");
 	});
 
-	it("resolves a moved child by agent name before focus and close", async () => {
+	it("orders resolve, parent focus, accepted-mailbox cleanup, then exact child close", async () => {
 		const calls: string[] = [];
 		const client = {
 			async getAgent(target: string) { calls.push(`get:${target}`); return { paneId: "w2:p9" }; },
@@ -326,35 +326,99 @@ describe("BTW child identity and session binding", () => {
 			client,
 			{ parentPaneId: "w1:p1" },
 			{ agentName: "btw-sessio-abcdef" },
-		)).toEqual({ closed: true, childPaneId: "w2:p9" });
-		expect(calls).toEqual(["get:btw-sessio-abcdef", "focus:w1:p1", "close:w2:p9"]);
+			async () => { calls.push("cleanup"); return true; },
+		)).toEqual({ closed: true, childPaneId: "w2:p9", preCloseStatus: "completed" });
+		expect(calls).toEqual(["get:btw-sessio-abcdef", "focus:w1:p1", "cleanup", "close:w2:p9"]);
 	});
 
-	it("keeps the child open when parent focus fails or agent resolution is unreliable", async () => {
+	it("does not clean the mailbox or close the child when parent focus fails", async () => {
 		const calls: string[] = [];
-		const focusFailure = {
-			async getAgent() { return { paneId: "w1:p2" }; },
+		const client = {
+			async getAgent() { calls.push("resolve"); return { paneId: "w1:p2" }; },
 			async focusAgent() { calls.push("focus"); throw new Error("focus unavailable"); },
 			async closePane() { calls.push("close"); },
 		};
 		expect(await focusParentAndCloseChild(
-			focusFailure,
+			client,
 			{ parentPaneId: "w1:p1" },
 			{ agentName: "btw" },
+			async () => { calls.push("cleanup"); return true; },
 		)).toMatchObject({ closed: false, focusError: "focus unavailable" });
-		expect(calls).toEqual(["focus"]);
+		expect(calls).toEqual(["resolve", "focus"]);
+	});
 
-		const unresolved = {
-			async getAgent() { throw new Error("agent unavailable"); },
-			async focusAgent() { calls.push("unexpected-focus"); },
-			async closePane() { calls.push("unexpected-close"); },
+	it("does not focus, clean, or close when agent resolution is unreliable", async () => {
+		const calls: string[] = [];
+		const client = {
+			async getAgent() { calls.push("resolve"); throw new Error("agent unavailable"); },
+			async focusAgent() { calls.push("focus"); },
+			async closePane() { calls.push("close"); },
 		};
 		expect(await focusParentAndCloseChild(
-			unresolved,
+			client,
 			{ parentPaneId: "w1:p1" },
 			{ agentName: "btw" },
+			async () => { calls.push("cleanup"); return true; },
 		)).toMatchObject({ closed: false, resolutionError: "agent unavailable" });
-		expect(calls).toEqual(["focus"]);
+		expect(calls).toEqual(["resolve"]);
+	});
+
+	it("does not close when accepted-mailbox cleanup cannot confirm removal", async () => {
+		const calls: string[] = [];
+		const client = {
+			async getAgent() { calls.push("resolve"); return { paneId: "w1:p2" }; },
+			async focusAgent() { calls.push("focus"); },
+			async closePane() { calls.push("close"); },
+		};
+		expect(await focusParentAndCloseChild(
+			client,
+			{ parentPaneId: "w1:p1" },
+			{ agentName: "btw" },
+			async () => { calls.push("cleanup"); return false; },
+		)).toEqual({ closed: false, childPaneId: "w1:p2", preCloseStatus: "blocked" });
+		expect(calls).toEqual(["resolve", "focus", "cleanup"]);
+	});
+
+	it("does not close when accepted-mailbox cleanup throws", async () => {
+		const calls: string[] = [];
+		const client = {
+			async getAgent() { calls.push("resolve"); return { paneId: "w1:p2" }; },
+			async focusAgent() { calls.push("focus"); },
+			async closePane() { calls.push("close"); },
+		};
+		expect(await focusParentAndCloseChild(
+			client,
+			{ parentPaneId: "w1:p1" },
+			{ agentName: "btw" },
+			async () => { calls.push("cleanup"); throw new Error("disk unavailable"); },
+		)).toEqual({
+			closed: false,
+			childPaneId: "w1:p2",
+			preCloseStatus: "failed",
+			preCloseError: "disk unavailable",
+		});
+		expect(calls).toEqual(["resolve", "focus", "cleanup"]);
+	});
+
+	it("reports close failure only after accepted-mailbox cleanup completed", async () => {
+		const calls: string[] = [];
+		const client = {
+			async getAgent() { calls.push("resolve"); return { paneId: "w1:p2" }; },
+			async focusAgent() { calls.push("focus"); },
+			async closePane() { calls.push("close"); throw new Error("close unavailable"); },
+		};
+		expect(await focusParentAndCloseChild(
+			client,
+			{ parentPaneId: "w1:p1" },
+			{ agentName: "btw" },
+			async () => { calls.push("cleanup"); return true; },
+		)).toEqual({
+			closed: false,
+			childPaneId: "w1:p2",
+			preCloseStatus: "completed",
+			closeError: "close unavailable",
+		});
+		expect(calls).toEqual(["resolve", "focus", "cleanup", "close"]);
 	});
 
 	it("treats absent agent identity as unknown and follows the moved agent pane", async () => {

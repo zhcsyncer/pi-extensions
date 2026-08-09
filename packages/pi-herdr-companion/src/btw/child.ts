@@ -65,17 +65,24 @@ export async function bindChildSession(
 	return { bound: true, state: bound };
 }
 
+export type ChildPreCloseStatus = "completed" | "blocked" | "failed";
+
+export interface ChildCloseResult {
+	closed: boolean;
+	childPaneId?: string;
+	preCloseStatus?: ChildPreCloseStatus;
+	resolutionError?: string;
+	focusError?: string;
+	preCloseError?: string;
+	closeError?: string;
+}
+
 export async function focusParentAndCloseChild(
 	client: ChildHerdrClient,
 	payload: Pick<BtwPayload, "parentPaneId">,
 	launchState: Pick<LaunchState, "agentName">,
-): Promise<{
-	closed: boolean;
-	childPaneId?: string;
-	resolutionError?: string;
-	focusError?: string;
-	closeError?: string;
-}> {
+	beforeClose: () => Promise<boolean>,
+): Promise<ChildCloseResult> {
 	if (!launchState.agentName) {
 		return { closed: false, resolutionError: "the launch has no durable Herdr agent name" };
 	}
@@ -101,12 +108,25 @@ export async function focusParentAndCloseChild(
 		};
 	}
 	try {
-		await client.closePane(childPaneId);
-		return { closed: true, childPaneId };
+		if (!await beforeClose()) {
+			return { closed: false, childPaneId, preCloseStatus: "blocked" };
+		}
 	} catch (error) {
 		return {
 			closed: false,
 			childPaneId,
+			preCloseStatus: "failed",
+			preCloseError: error instanceof Error ? error.message : String(error),
+		};
+	}
+	try {
+		await client.closePane(childPaneId);
+		return { closed: true, childPaneId, preCloseStatus: "completed" };
+	} catch (error) {
+		return {
+			closed: false,
+			childPaneId,
+			preCloseStatus: "completed",
 			closeError: error instanceof Error ? error.message : String(error),
 		};
 	}
@@ -139,8 +159,11 @@ export async function registerBtwChild(
 	let sessionUi: { notify(message: string, type: "info" | "warning" | "error"): void } | undefined;
 	let ackTimer: ReturnType<typeof setInterval> | undefined;
 	let closing = false;
+	let acceptedMailboxCleaned = false;
 	let sideThreadEnabled = false;
 	let bindingReason = "the side-thread session binding has not been established";
+	let lastAcceptedWarning: string | undefined;
+	let lastPollingWarning: string | undefined;
 	let lastRejectedRequestId: string | undefined;
 
 	function stopAckPolling(): void {
@@ -148,33 +171,77 @@ export async function registerBtwChild(
 		ackTimer = undefined;
 	}
 
+	function warnAcceptedOnce(message: string): void {
+		if (lastAcceptedWarning === message) return;
+		lastAcceptedWarning = message;
+		sessionUi?.notify(message, "warning");
+	}
+
+	function warnPollingOnce(message: string): void {
+		if (lastPollingWarning === message) return;
+		lastPollingWarning = message;
+		sessionUi?.notify(message, "warning");
+	}
+
 	async function acceptAndClose(acceptedPayload: BtwPayload): Promise<void> {
-		if (closing || !sideThreadEnabled) return;
+		if (closing || acceptedMailboxCleaned || !sideThreadEnabled) return;
 		closing = true;
-		stopAckPolling();
-		const launchState = await store.readLaunchState(payloadPath).catch(() => undefined);
-		if (!launchState) {
-			sessionUi?.notify("Merge was accepted, but child pane identity is unavailable; this pane was kept open.", "warning");
+		let launchState: LaunchState | undefined;
+		try {
+			launchState = await store.readLaunchState(payloadPath);
+		} catch (error) {
+			warnAcceptedOnce(`Merge was accepted, but child pane identity could not be read; this pane was kept open and recovery will retry: ${error instanceof Error ? error.message : String(error)}`);
 			closing = false;
 			return;
 		}
-		const returned = await focusParentAndCloseChild(client, acceptedPayload, launchState);
+		if (!launchState) {
+			warnAcceptedOnce("Merge was accepted, but child pane identity is unavailable; this pane was kept open and recovery will retry.");
+			closing = false;
+			return;
+		}
+		const returned = await focusParentAndCloseChild(client, acceptedPayload, launchState, async () => {
+			const removed = await store.removeIfNoPendingMerge(payloadPath);
+			if (removed) {
+				// Herdr may terminate this Pi before closePane resolves, so stop all
+				// mailbox work after confirmed cleanup and before invoking pane close.
+				acceptedMailboxCleaned = true;
+				stopAckPolling();
+			}
+			return removed;
+		});
 		if (returned.closed) return;
-		if (returned.focusError) {
-			sessionUi?.notify(`Merge was accepted, but parent focus failed; this side pane was kept open: ${returned.focusError}`, "warning");
-		} else if (returned.resolutionError) {
-			sessionUi?.notify(`Merge was accepted, but the current child pane could not be resolved; it was kept open: ${returned.resolutionError}`, "warning");
-		} else if (returned.closeError) {
-			sessionUi?.notify(`Merge was accepted and parent focus succeeded, but the side pane could not close: ${returned.closeError}`, "warning");
+		if (returned.focusError !== undefined) {
+			warnAcceptedOnce(`Merge was accepted, but parent focus failed; this side pane was kept open and recovery will retry: ${returned.focusError}`);
+		} else if (returned.resolutionError !== undefined) {
+			warnAcceptedOnce(`Merge was accepted, but the current child pane could not be resolved; it was kept open and recovery will retry: ${returned.resolutionError}`);
+		} else if (returned.preCloseStatus === "blocked") {
+			warnAcceptedOnce("Merge was accepted and parent focus succeeded, but private mailbox cleanup could not confirm a matching acknowledgement; this side pane was kept open and launch evidence was preserved. Recovery will retry.");
+		} else if (returned.preCloseStatus === "failed") {
+			warnAcceptedOnce(`Merge was accepted and parent focus succeeded, but private mailbox cleanup failed; this side pane was kept open and launch evidence was preserved. Recovery will retry: ${returned.preCloseError ?? "unknown cleanup error"}`);
+		} else if (returned.closeError !== undefined) {
+			warnAcceptedOnce(`Merge was accepted, parent focus succeeded, and private mailbox state was cleared, but side pane ${returned.childPaneId ?? "(unknown)"} could not close. Close it manually; automatic retry is unavailable: ${returned.closeError}`);
 		}
 		closing = false;
 	}
 
 	async function pollAck(): Promise<void> {
-		if (!payload || closing || !sideThreadEnabled) return;
-		const request = await store.readMergeRequest(payloadPath).catch(() => undefined);
+		if (!payload || closing || acceptedMailboxCleaned || !sideThreadEnabled) return;
+		let request: unknown;
+		try {
+			request = await store.readMergeRequest(payloadPath);
+		} catch (error) {
+			warnPollingOnce(`BTW merge recovery could not read its private request; polling remains active: ${error instanceof Error ? error.message : String(error)}`);
+			return;
+		}
 		if (request === undefined) return;
-		const ack = await store.readMergeAck(payloadPath).catch(() => undefined);
+		let ack;
+		try {
+			ack = await store.readMergeAck(payloadPath);
+		} catch (error) {
+			warnPollingOnce(`BTW merge recovery could not read the parent acknowledgement; polling remains active: ${error instanceof Error ? error.message : String(error)}`);
+			return;
+		}
+		lastPollingWarning = undefined;
 		if (!ackMatchesRequest(ack, request)) return;
 		if (ack?.status === "accepted") {
 			await acceptAndClose(payload);
@@ -188,7 +255,7 @@ export async function registerBtwChild(
 	}
 
 	function startAckPolling(): void {
-		if (ackTimer || !sideThreadEnabled) return;
+		if (ackTimer || acceptedMailboxCleaned || !sideThreadEnabled) return;
 		ackTimer = setInterval(() => void pollAck(), ACK_POLL_INTERVAL_MS);
 		ackTimer.unref?.();
 		void pollAck();
@@ -252,8 +319,31 @@ export async function registerBtwChild(
 				return;
 			}
 
-			const existingRequest = await store.readMergeRequest(payloadPath).catch(() => undefined);
-			const existingAck = await store.readMergeAck(payloadPath).catch(() => undefined);
+			if (acceptedMailboxCleaned) {
+				ctx.ui.notify("This merge was already accepted and its private mailbox was cleared. Close this side pane manually; automatic retry is unavailable.", "warning");
+				return;
+			}
+			let existingRequest: unknown;
+			try {
+				existingRequest = await store.readMergeRequest(payloadPath);
+			} catch (error) {
+				ctx.ui.notify(`/btw merge recovery could not read its private request; no new request was created: ${error instanceof Error ? error.message : String(error)}`, "warning");
+				startAckPolling();
+				return;
+			}
+			let existingAck;
+			try {
+				existingAck = await store.readMergeAck(payloadPath);
+			} catch (error) {
+				ctx.ui.notify(`/btw merge recovery could not read the parent acknowledgement; no new request was created: ${error instanceof Error ? error.message : String(error)}`, "warning");
+				startAckPolling();
+				return;
+			}
+			if (existingRequest !== undefined && ackMatchesRequest(existingAck, existingRequest) && existingAck?.status === "accepted") {
+				ctx.ui.notify("The parent already accepted this merge; retrying safe mailbox cleanup and pane close.", "info");
+				await acceptAndClose(payload);
+				return;
+			}
 			if (existingRequest !== undefined && !ackMatchesRequest(existingAck, existingRequest)) {
 				ctx.ui.notify("A merge is already pending for this side thread.", "warning");
 				startAckPolling();

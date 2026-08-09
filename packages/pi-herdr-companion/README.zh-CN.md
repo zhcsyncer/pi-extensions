@@ -107,6 +107,8 @@ Native replay 只是 best-effort 的 prompt-cache 优化。它要求 model/think
 
 Launch payload 与 mailbox 位于全局 Pi agent dir 下按 socket 隔离的私有 state root。目录权限为 `0700`，文件为 `0600`，写入使用 atomic rename，capability/context 不进入 CLI argv。Delivery lock 超时回收会先确认 owner PID 已死亡，并在 unlink 前立即重读 token、inode/device 与 mtime；有疑点时宁可 timeout，也不删除 replacement lock。Side agent name 会持久化并通过 `agent get` 解析，因此 pane move 不会让旧 pane ID 被误判 stale。Stale cleanup 会保守保留无法可靠解析 agent/pane、pane 仍 live/unknown 或 merge 尚未 ack 的 launch。
 
+Accepted 完成不依赖 Pi 的异步 shutdown cleanup。Child 会先按持久化 agent name 重新解析当前 pane、聚焦精确 parent，再验证 request 已有 matching ack 并删除整个私有 launch 目录，最后才关闭精确 child pane。解析、聚焦或 mailbox cleanup 失败时，pane 与恢复证据都会保留。如果 cleanup 成功但 pane close 失败，warning 会明确说明 mailbox 已清，必须手工关闭 pane。
+
 ### Blocked 适配器
 
 本包监听：
@@ -187,7 +189,7 @@ BTW 快捷配置：
 - `/btw` 与 parent 共享 cwd。并发文件/Git 修改、dev server 与端口可能冲突。
 - Parent snapshot 是静态的；后续 parent 活动不会自动同步到 child。
 - Merge 绑定精确 parent session ID，child 也绑定首个 side-thread session ID。Parent 不可用时，请求保持 pending 且可诊断；child 切换 session 后会禁用 side-thread 行为。
-- 收到 accepted ack 后，child 先用持久化 Herdr agent name 解析当前 pane，再聚焦精确 parent，最后才关闭自身。Parent focus 失败或 pane 无法可靠解析时会保留 side pane 并 warning。
+- 收到 accepted ack 后，child 先用持久化 Herdr agent name 解析当前 pane，聚焦精确 parent，确认 request 有 matching ack 后删除私有 launch state，最后才关闭自身。解析、聚焦或 cleanup 失败时会保留 state 与 pane 供恢复；若 state 已删但 close 失败，则必须手工关闭 pane。
 - 正常失败路径会清私有 payload，并且只会尽力关闭 split 成功/失败响应明确返回的 pane ID。Split 失败无明确 ID 时会报告可能 orphan，并刻意不碰无法识别的 pane。进程/主机硬崩仍无法提供绝对 cleanup 保证。
 - POSIX filesystem 没有 portable 的 unlink-if-inode-matches 原语。实现会在删除前立即复核 lock identity，但最后一次 check/unlink 之间仍有不可消除的竞态；观察到 replacement 或 ownership 不确定时采用保守 timeout。
 - Herdr 0.7.5+ 是兼容下限；缺 `process-info` 时降级为不删除的 `unknown`，高级 layout 操作刻意不在范围内。
