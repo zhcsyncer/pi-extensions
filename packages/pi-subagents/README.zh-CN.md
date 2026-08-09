@@ -18,7 +18,7 @@
 | 区域 | 上游 `@tintinweb/pi-subagents` | 本 fork `@zhcsyncer/pi-subagents` |
 | --- | --- | --- |
 | **对话 overlay**（FleetView / 列表 → Enter） | 全文 dump：user / assistant / toolResult 墙（tool 体约 500 字截断仍很大） | **方案 A 摘要视图**：**Prompt** → **Usage** → **Steps**（一行一步）→ **Result**；tool 体默认折叠 |
-| 运行状态 / 指标 | 空闲进度 fallback 为 `thinking…`；长任务一直显示大秒数；紧凑 token 与 context 容易被看成同一指标 | 语义诚实的 `working…` fallback；分钟/小时友好时长且只高亮时长片段；紧凑 **lifetime** 总量与 **current context** 明确分开，overlay 提供完整 usage breakdown |
+| 运行状态 / 指标 | 空闲进度 fallback 为 `thinking…`；长任务一直显示大秒数；紧凑 token 与 context 容易被看成同一指标 | 语义诚实的 `working…` fallback，并仅延迟展示稳定的粗粒度阶段；分钟/小时友好时长且只高亮时长片段；紧凑 **lifetime** 总量与 **current context** 明确分开，overlay 提供完整 usage breakdown |
 | Overlay 步骤详情 | 无（全摊开） | **`o`** 展开/折叠 tool 参数与结果 |
 | Overlay 在 agent **error / aborted / stopped / steered** | 仍以消息流为主 | **Result 优先 `record.error`**；`steered` 标明 turn-limit；头部图标对齐 chrome；终态收敛悬空 running step |
 | Overlay **bashExecution** | 命令 + 输出 dump | 一步一行；**`exitCode` / `cancelled`** → `✗`（不会误标 ✓） |
@@ -89,7 +89,7 @@ FleetView / agent 列表选中子 agent 后回车：
 ```text
 ▸ Explore  Find auth files
 ⠹ haiku · effort: high · ↻3 · 3 tool uses · lifetime 12.4k token
-  ⎿  working…
+  ⎿  exploring…
 ✓ haiku · effort: high · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s
   ⎿  Done
 ```
@@ -97,11 +97,13 @@ FleetView / agent 列表选中子 agent 后回车：
 | 状态 | 呈现 |
 | --- | --- |
 | **调用行** | `▸ Type  description`（仅当 args 显式带 model/thinking/bg 时附加 dim 芯片） |
-| **运行中** | `⠹` + stats / `⎿` tool 或正文 activity；两者都没有时显示 `working…` |
+| **运行中** | `⠹` + stats / `⎿` 稳定的粗粒度阶段（`exploring…`、`editing…`、`running commands…` 或 `delegating…`）；否则显示 `working…` |
 | **完成** | `✓` + stats · 友好时长 / `⎿ Done`（或 Wrapped up / Stopped / Error） |
 | **展开**（`Ctrl+O`） | 同上 chrome + **Markdown** 正文 |
 
 `effort` 对应 `thinking`。有效 **model**（含继承）在**结果** stats 中展示。
+
+紧凑运行界面不会流式展示文件路径、命令或 assistant 正文。快速步骤与未知工作保持 `working…`；已知粗粒度阶段持续约 0.8 秒后才出现，并至少保持 1.5 秒以避免闪烁。逐 tool 的精确步骤仍可在 conversation overlay 中查看。
 
 紧凑 **lifetime** token 数刻意保留原有的 `input + output + cache write` 语义；`cache read` 会被保留并显示在 Usage breakdown 中，但不会悄悄加回这个总量（见[上游 issue #38](https://github.com/tintinweb/pi-subagents/issues/38)）。**Current ctx** 表示当前 context window 的占用率，不是 lifetime 总量的百分比。时长不足一分钟时仍显示秒数，之后切换为 `10 min 13s`、`1 hr 2 min 3s` 等易读的分钟/小时格式。
 

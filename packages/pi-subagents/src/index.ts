@@ -36,7 +36,7 @@ import {
   type AgentDetails,
   AgentWidget,
   buildInvocationTags,
-  describeActivity,
+  describeCompactActivity,
   detailsFromInvocation,
   formatActiveToolSummary,
   formatDuration,
@@ -49,6 +49,8 @@ import {
   SPINNER,
   styleDuration,
   type Theme,
+  trackActivityPhaseEnd,
+  trackActivityPhaseStart,
   type UICtx,
 } from "./ui/agent-widget.js";
 import { sanitizeDisplayText } from "./ui/display-safety.js";
@@ -175,6 +177,8 @@ function formatLifetimeTokens(o: { lifetimeUsage: LifetimeUsage }): string {
 function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
   const state: AgentActivity = {
     activeTools: new Map(),
+    activeToolPhases: new Map(),
+    phaseSummary: {},
     toolUses: 0,
     turnCount: 1,
     maxTurns,
@@ -190,23 +194,30 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
       toolCallId?: string;
       args?: unknown;
     }) => {
+      const now = Date.now();
       if (activity.type === "start") {
-        const id = activity.toolCallId ?? `${activity.toolName}_${Date.now()}`;
-        // Store a one-line step summary (not bare tool name) so the widget
-        // last line shows e.g. "reading src/a.ts" instead of only "working…".
+        const id = activity.toolCallId ?? `${activity.toolName}_${now}`;
+        // Exact step detail remains available to the conversation overlay; the
+        // compact widget derives only a delayed coarse phase from the tool name.
         state.activeTools.set(id, formatActiveToolSummary(activity.toolName, activity.args));
+        trackActivityPhaseStart(state, id, activity.toolName, now);
       } else {
+        let endedId: string | undefined;
         if (activity.toolCallId && state.activeTools.has(activity.toolCallId)) {
-          state.activeTools.delete(activity.toolCallId);
+          endedId = activity.toolCallId;
         } else {
-          // Fallback: drop one entry whose summary starts with this tool's action/name.
+          // Fallback: find one entry whose summary starts with this tool's action/name.
           const action = formatActiveToolSummary(activity.toolName);
           for (const [key, summary] of state.activeTools) {
             if (summary === action || summary.startsWith(`${action} `) || summary.startsWith(activity.toolName)) {
-              state.activeTools.delete(key);
+              endedId = key;
               break;
             }
           }
+        }
+        if (endedId) {
+          state.activeTools.delete(endedId);
+          trackActivityPhaseEnd(state, endedId, now);
         }
         state.toolUses++;
       }
@@ -1385,7 +1396,7 @@ Terse command-style prompts produce shallow, generic work.
           maxTurns: fgState.maxTurns,
           durationMs: Date.now() - startedAt,
           status: "running",
-          activity: describeActivity(fgState.activeTools, fgState.responseText),
+          activity: describeCompactActivity(fgState),
           spinnerFrame: spinnerFrame % SPINNER.length,
         };
         onUpdate?.({
@@ -1613,7 +1624,7 @@ Terse command-style prompts produce shallow, generic work.
         record.status === "queued"
           ? "queued…"
           : activity
-            ? describeActivity(activity.activeTools, activity.responseText)
+            ? describeCompactActivity(activity)
             : undefined;
       const details: AgentDetails = {
         displayName,

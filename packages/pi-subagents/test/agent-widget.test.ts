@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import { renderRunningAgentStatus } from "../src/index.js";
 import type { WidgetMode } from "../src/types.js";
 import {
+  ACTIVITY_PHASE_MIN_HOLD_MS,
+  ACTIVITY_PHASE_PROMOTION_MS,
   type AgentActivity,
   AgentWidget,
   describeActivity,
+  describeCompactActivity,
   fgPreservingNestedStyles,
   formatActiveToolSummary,
   formatLifetimeUsageBreakdown,
   formatMs,
   formatSessionTokens,
   formatSubagentsStatusText,
+  getToolActivityPhase,
   styleDuration,
+  trackActivityPhaseEnd,
+  trackActivityPhaseStart,
 } from "../src/ui/agent-widget.js";
 
 describe("formatSessionTokens", () => {
@@ -123,6 +129,8 @@ describe("AgentWidget", () => {
   function makeActivity(): AgentActivity {
     return {
       activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
       toolUses: 0,
       responseText: "",
       turnCount: 1,
@@ -257,14 +265,14 @@ describe("AgentWidget status bar policy", () => {
 });
 
 describe("formatActiveToolSummary / describeActivity", () => {
-  it("summarizes read/bash/grep args into a step line", () => {
+  it("summarizes read/bash/grep args into a detailed step line", () => {
     expect(formatActiveToolSummary("read", { path: "src/a.ts" })).toBe("reading src/a.ts");
     expect(formatActiveToolSummary("bash", { command: 'rg "auth" -n' })).toBe('running rg "auth" -n');
     expect(formatActiveToolSummary("grep", { pattern: "foo", glob: "*.ts" })).toBe('searching "foo" *.ts');
     expect(formatActiveToolSummary("edit", {})).toBe("editing");
   });
 
-  it("strips terminal controls from parent widget activity", () => {
+  it("strips terminal controls from detailed overlay activity", () => {
     const summary = formatActiveToolSummary("bash", {
       command: "echo \u001b[31mred\u001b[0m \u001b]8;;https://evil.invalid/?token=x\u0007link\u001b]8;;\u0007 中文",
     });
@@ -274,7 +282,7 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(summary).not.toContain("evil.invalid");
   });
 
-  it("describeActivity prefers tool/body summaries over the working fallback", () => {
+  it("keeps exact tool/body summaries available to the conversation overlay", () => {
     const tools = new Map<string, string>([
       ["c1", "reading src/a.ts"],
       ["c2", "running rg auth"],
@@ -283,5 +291,85 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(describeActivity(new Map([["c1", "searching \"x\""]]))).toBe('searching "x"…');
     expect(describeActivity(new Map(), " partial answer ")).toBe("partial answer");
     expect(describeActivity(new Map())).toBe("working…");
+  });
+});
+
+describe("describeCompactActivity", () => {
+  function activity(responseText = ""): AgentActivity {
+    return {
+      activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
+      toolUses: 0,
+      responseText,
+      turnCount: 1,
+      lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+  }
+
+  it("classifies only known tools into coarse, non-sensitive phases", () => {
+    expect(getToolActivityPhase("read")).toBe("exploring");
+    expect(getToolActivityPhase("web_search")).toBe("exploring");
+    expect(getToolActivityPhase("edit")).toBe("editing");
+    expect(getToolActivityPhase("bash")).toBe("runningCommands");
+    expect(getToolActivityPhase("Agent")).toBe("delegating");
+    expect(getToolActivityPhase("custom_private_tool")).toBeUndefined();
+  });
+
+  it("keeps fast exact steps hidden until a coarse phase is stable", () => {
+    const state = activity();
+    state.activeTools.set("r1", "reading secret/customer-file.ts");
+    trackActivityPhaseStart(state, "r1", "read", 0);
+
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS - 1)).toBe("working…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).toBe("exploring…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).not.toContain("customer-file");
+  });
+
+  it("treats short same-phase gaps as continuous and holds a promoted label", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    trackActivityPhaseEnd(state, "r1", 400);
+    trackActivityPhaseStart(state, "g1", "grep", 550);
+
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).toBe("exploring…");
+    trackActivityPhaseEnd(state, "g1", 900);
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS + ACTIVITY_PHASE_MIN_HOLD_MS - 1))
+      .toBe("exploring…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS + ACTIVITY_PHASE_MIN_HOLD_MS))
+      .toBe("working…");
+  });
+
+  it("holds the old phase before switching to a stable new phase", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    expect(describeCompactActivity(state, 800)).toBe("exploring…");
+
+    trackActivityPhaseEnd(state, "r1", 850);
+    trackActivityPhaseStart(state, "b1", "bash", 900);
+    expect(describeCompactActivity(state, 1600)).toBe("exploring…");
+    expect(describeCompactActivity(state, 2300)).toBe("running commands…");
+  });
+
+  it("does not reuse a stale same-named phase after rendering was paused", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    expect(describeCompactActivity(state, 800)).toBe("exploring…");
+    trackActivityPhaseEnd(state, "r1", 900);
+
+    // No render occurs while compact UI is hidden. A later read is a new phase,
+    // even though the old visible label was never ticked away.
+    trackActivityPhaseStart(state, "r2", "read", 5000);
+    expect(describeCompactActivity(state, 5000)).toBe("working…");
+    expect(describeCompactActivity(state, 5799)).toBe("working…");
+    expect(describeCompactActivity(state, 5800)).toBe("exploring…");
+  });
+
+  it("uses working for unknown tools and streaming body text on compact surfaces", () => {
+    const state = activity("partial answer with implementation details");
+    trackActivityPhaseStart(state, "x1", "custom_private_tool", 0);
+
+    expect(describeCompactActivity(state, 5000)).toBe("working…");
+    expect(describeActivity(new Map(), state.responseText)).toBe("partial answer with implementation details");
   });
 });

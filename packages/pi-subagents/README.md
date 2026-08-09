@@ -18,7 +18,7 @@ This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView w
 | Area | Upstream (`@tintinweb/pi-subagents`) | This fork (`@zhcsyncer/pi-subagents`) |
 | --- | --- | --- |
 | **Conversation overlay** (FleetView / agent list → Enter) | Full conversation dump: user / assistant / toolResult walls (tool bodies truncated ~500 chars but still large) | **Scheme A brief view**: **Prompt** → **Usage** → **Steps** (one line per tool) → **Result**; tool bodies folded by default |
-| Runtime status / metrics | Idle progress falls back to `thinking…`; long runs remain long second counts; compact tokens and context can look like one metric | Honest `working…` fallback; friendly minute/hour durations with only the duration fragment highlighted; compact **lifetime** total is distinct from **current context**, with a full usage breakdown in the overlay |
+| Runtime status / metrics | Idle progress falls back to `thinking…`; long runs remain long second counts; compact tokens and context can look like one metric | Honest `working…` fallback with delayed, stable coarse phases; friendly minute/hour durations with only the duration fragment highlighted; compact **lifetime** total is distinct from **current context**, with a full usage breakdown in the overlay |
 | Overlay step detail | N/A (everything dumped) | Press **`o`** to expand/fold tool args + results |
 | Overlay on agent **error / aborted / stopped / steered** | Last messages still dominate the dump | **Result** prefers `record.error`; `steered` shows turn-limit; header icons match chrome; terminal records settle dangling running steps |
 | Overlay **bashExecution** | Shown as command + output dump | One step line; **`exitCode` / `cancelled`** → `✗` (not a false `✓`) |
@@ -89,7 +89,7 @@ Matches upstream’s documented shape ([UPSTREAM_README](./UPSTREAM_README.md) �
 ```text
 ▸ Explore  Find auth files
 ⠹ haiku · effort: high · ↻3 · 3 tool uses · lifetime 12.4k token
-  ⎿  working…
+  ⎿  exploring…
 ✓ haiku · effort: high · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s
   ⎿  Done
 ```
@@ -97,11 +97,13 @@ Matches upstream’s documented shape ([UPSTREAM_README](./UPSTREAM_README.md) �
 | State | What you see |
 | --- | --- |
 | **Call** | `▸ Type  description` (+ dim chips only if call args set `model` / `thinking` / `bg`) |
-| **Running** | `⠹` + stats / `⎿` tool or body activity; otherwise `working…` |
+| **Running** | `⠹` + stats / `⎿` stable coarse phase (`exploring…`, `editing…`, `running commands…`, or `delegating…`); otherwise `working…` |
 | **Completed** | `✓` + stats · friendly duration / `⎿ Done` (or Wrapped up / Stopped / Error) |
 | **Expanded** (`Ctrl+O`) | Same chrome + **Markdown** body (no default dump) |
 
 `effort` is display wording for the existing `thinking` parameter/frontmatter field. Effective **model** (including parent inherit) is always on the **result** stats line when known.
+
+Compact running surfaces do not stream file paths, commands, or assistant body text. Fast and unknown work stays `working…`; a known coarse phase appears only after about 0.8 seconds and then remains visible for at least 1.5 seconds to avoid flicker. Exact per-tool steps remain available in the conversation overlay.
 
 The compact **lifetime** token figure deliberately keeps its existing `input + output + cache write` meaning; `cache read` is retained and shown in the Usage breakdown but is not silently added back into that total ([upstream issue #38](https://github.com/tintinweb/pi-subagents/issues/38)). **Current ctx** is current context-window utilization, not a percentage of the lifetime total. Durations remain seconds below one minute, then switch to readable minute/hour forms such as `10 min 13s` and `1 hr 2 min 3s`.
 

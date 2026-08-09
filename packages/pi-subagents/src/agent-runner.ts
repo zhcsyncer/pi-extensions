@@ -348,7 +348,7 @@ export interface ToolActivity {
   toolName: string;
   /** Stable id for pairing start/end (preferred over toolName). */
   toolCallId?: string;
-  /** Tool-call arguments at start — used for widget step summaries. */
+  /** Tool-call arguments at start — retained for detailed conversation step summaries. */
   args?: unknown;
 }
 

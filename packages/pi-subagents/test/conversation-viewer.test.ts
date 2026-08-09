@@ -223,6 +223,12 @@ describe("ConversationViewer", () => {
         );
         assertAllLinesFit(viewer.render(w), w);
       }
+
+      const detailed = new ConversationViewer(
+        mockTui(30, 120), mockSession(messages), mockRecord({ status: "running" }), activity as any, ansiTheme(), vi.fn(),
+      ).render(120).join("\n");
+      expect(detailed).toContain("reading file.ts");
+      expect(detailed).toContain("searching pattern");
     });
 
     it("no line exceeds width with tool calls", () => {

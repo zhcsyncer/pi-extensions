@@ -115,15 +115,16 @@ describe("renderAgentLikeResult", () => {
     expect(out).toContain("Report");
   });
 
-  it("running status is spinner + ⎿ activity (Claude Code shape)", () => {
+  it("running status is spinner + ⎿ coarse activity (Claude Code shape)", () => {
     const component = renderAgentLikeResult(
-      completedDetails({ status: "running", durationMs: 0, activity: "reading src/a.ts", toolUses: 2 }),
+      completedDetails({ status: "running", durationMs: 0, activity: "exploring…", toolUses: 2 }),
       "",
       { expanded: false },
       theme(),
     );
     const out = plain(component, 100);
-    expect(out).toMatch(/reading src\/a\.ts/);
+    expect(out).toContain("exploring…");
+    expect(out).not.toContain("src/a.ts");
     expect(out).toMatch(/⎿/);
     expect(out).toContain("2 tool uses");
     expect(out).not.toContain("abc123"); // id stays off the running chrome (CC)

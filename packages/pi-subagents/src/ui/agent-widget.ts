@@ -23,7 +23,17 @@ export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 /** Statuses that indicate an error/non-success outcome (used for linger behavior and icon rendering). */
 export const ERROR_STATUSES = new Set(["error", "aborted", "steered", "stopped"]);
 
-/** Tool name → human-readable action for activity descriptions. */
+/** Stable, coarse phases allowed on compact running surfaces. */
+export type ActivityPhase = "exploring" | "editing" | "runningCommands" | "delegating";
+
+/** A phase must remain active this long before compact UI promotes it above `working…`. */
+export const ACTIVITY_PHASE_PROMOTION_MS = 800;
+/** Once promoted, keep a phase visible long enough to avoid flashing between labels. */
+export const ACTIVITY_PHASE_MIN_HOLD_MS = 1500;
+/** Same-phase tools separated by only this gap count as one continuous phase. */
+export const ACTIVITY_PHASE_GAP_MS = 200;
+
+/** Tool name → human-readable action for detailed activity descriptions. */
 const TOOL_DISPLAY: Record<string, string> = {
   read: "reading",
   bash: "running",
@@ -35,6 +45,26 @@ const TOOL_DISPLAY: Record<string, string> = {
   Agent: "spawning",
   get_subagent_result: "awaiting",
   steer_subagent: "steering",
+};
+
+/** Conservative classification: unknown/custom tools stay on the honest generic fallback. */
+const TOOL_ACTIVITY_PHASE: Readonly<Record<string, ActivityPhase>> = {
+  read: "exploring",
+  grep: "exploring",
+  find: "exploring",
+  ls: "exploring",
+  web_search: "exploring",
+  web_read: "exploring",
+  ollama_web_search: "exploring",
+  ollama_web_fetch: "exploring",
+  "resolve-library-id": "exploring",
+  "query-docs": "exploring",
+  edit: "editing",
+  write: "editing",
+  bash: "runningCommands",
+  agent: "delegating",
+  get_subagent_result: "delegating",
+  steer_subagent: "delegating",
 };
 
 // ---- Types ----
@@ -53,14 +83,28 @@ export type UICtx = {
   ): void;
 };
 
+/** Mutable debounce state for the compact phase summary. */
+export interface ActivityPhaseSummaryState {
+  candidate?: ActivityPhase;
+  candidateSince?: number;
+  inactiveSince?: number;
+  visible?: ActivityPhase;
+  visibleSince?: number;
+}
+
 /** Per-agent live activity state. */
 export interface AgentActivity {
   /**
    * In-flight tools: key = toolCallId (or synthetic), value = one-line step summary
-   * e.g. "reading src/a.ts", "running rg auth".
+   * e.g. "reading src/a.ts", "running rg auth". Kept for the detailed overlay.
    */
   activeTools: Map<string, string>;
+  /** Matching coarse phase for each in-flight tool; undefined means generic work. */
+  activeToolPhases: Map<string, ActivityPhase | undefined>;
+  /** Debounce/minimum-hold state used only by compact running surfaces. */
+  phaseSummary: ActivityPhaseSummaryState;
   toolUses: number;
+  /** Streaming assistant body retained for the detailed conversation overlay only. */
   responseText: string;
   session?: SessionLike;
   /** Current turn count. */
@@ -80,7 +124,7 @@ export interface AgentDetails {
   tokens: string;
   durationMs: number;
   status: "queued" | "running" | "completed" | "steered" | "aborted" | "stopped" | "error" | "background";
-  /** Human-readable description of what the agent is currently doing. */
+  /** Compact activity label: a stable coarse phase, `working…`, or queued status. */
   activity?: string;
   /** Current spinner frame index (for animated running indicator). */
   spinnerFrame?: number;
@@ -294,7 +338,7 @@ export function formatSubagentsStatusText(runningCount: number, queuedCount: num
 }
 
 /**
- * One-line summary for an in-flight tool (widget / tool-result activity row).
+ * One-line summary for an in-flight tool in the detailed conversation overlay.
  * Prefers path/command/pattern from args when present.
  */
 export function formatActiveToolSummary(toolName: string, args?: unknown): string {
@@ -337,9 +381,142 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
   return action;
 }
 
+/** Map a known tool onto a deliberately coarse compact-UI phase. */
+export function getToolActivityPhase(toolName: string): ActivityPhase | undefined {
+  const normalized = sanitizeDisplayText(toolName).trim().toLowerCase();
+  return TOOL_ACTIVITY_PHASE[normalized];
+}
+
+function observeActivePhase(state: ActivityPhaseSummaryState, phase: ActivityPhase | undefined, now: number): void {
+  if (phase === undefined) {
+    state.candidate = undefined;
+    state.candidateSince = undefined;
+    state.inactiveSince = undefined;
+    return;
+  }
+
+  const continuesCandidate = state.candidate === phase
+    && (state.inactiveSince === undefined || now - state.inactiveSince <= ACTIVITY_PHASE_GAP_MS);
+  if (!continuesCandidate || state.candidateSince === undefined) {
+    state.candidateSince = now;
+  }
+  state.candidate = phase;
+  state.inactiveSince = undefined;
+}
+
+/** Record a tool start for compact phase debouncing; detailed args never enter this state. */
+export function trackActivityPhaseStart(
+  activity: AgentActivity,
+  toolCallId: string,
+  toolName: string,
+  now = Date.now(),
+): void {
+  const phase = getToolActivityPhase(toolName);
+  activity.activeToolPhases.set(toolCallId, phase);
+  observeActivePhase(activity.phaseSummary, phase, now);
+}
+
+/** Record a tool end while allowing a very short same-phase gap to remain continuous. */
+export function trackActivityPhaseEnd(
+  activity: AgentActivity,
+  toolCallId: string,
+  now = Date.now(),
+): void {
+  activity.activeToolPhases.delete(toolCallId);
+  if (activity.activeToolPhases.size === 0) {
+    activity.phaseSummary.inactiveSince = now;
+    return;
+  }
+  const remainingPhase = [...activity.activeToolPhases.values()].at(-1);
+  observeActivePhase(activity.phaseSummary, remainingPhase, now);
+}
+
+function phaseLabel(phase: ActivityPhase): string {
+  switch (phase) {
+    case "exploring": return "exploring…";
+    case "editing": return "editing…";
+    case "runningCommands": return "running commands…";
+    case "delegating": return "delegating…";
+  }
+}
+
 /**
- * Build the widget's last-line activity string.
- * Prefer in-flight tool step summaries; else streaming assistant text; else "working…".
+ * Stable activity for compact surfaces. Fast/unknown tools and streaming body
+ * text deliberately stay `working…`; only a durable coarse phase is promoted.
+ */
+export function describeCompactActivity(activity: AgentActivity, now = Date.now()): string {
+  const state = activity.phaseSummary;
+  const hasActiveTools = activity.activeToolPhases.size > 0;
+  const activePhase = hasActiveTools ? [...activity.activeToolPhases.values()].at(-1) : undefined;
+
+  if (!hasActiveTools || activePhase === undefined) {
+    if (hasActiveTools) {
+      // An unknown/custom tool is real work, but not a phase we can label honestly.
+      state.candidate = undefined;
+      state.candidateSince = undefined;
+      state.inactiveSince = undefined;
+    } else if (state.inactiveSince === undefined) {
+      state.inactiveSince = now;
+    }
+
+    if (
+      state.visible !== undefined
+      && state.visibleSince !== undefined
+      && now - state.visibleSince < ACTIVITY_PHASE_MIN_HOLD_MS
+    ) {
+      return phaseLabel(state.visible);
+    }
+
+    state.visible = undefined;
+    state.visibleSince = undefined;
+    if (
+      !hasActiveTools
+      && state.inactiveSince !== undefined
+      && now - state.inactiveSince >= ACTIVITY_PHASE_GAP_MS
+    ) {
+      state.candidate = undefined;
+      state.candidateSince = undefined;
+    }
+    return "working…";
+  }
+
+  if (
+    state.candidate !== activePhase
+    || state.candidateSince === undefined
+    || state.inactiveSince !== undefined
+  ) {
+    observeActivePhase(state, activePhase, now);
+  }
+
+  // A same-named phase is immediately reusable only when it is the same
+  // continuous candidate that originally promoted the visible label. After a
+  // long unrendered idle gap, candidateSince is newer and must earn 800ms again.
+  const visibleBelongsToCandidate = state.visible === activePhase
+    && state.visibleSince !== undefined
+    && state.candidateSince !== undefined
+    && state.candidateSince <= state.visibleSince;
+  if (visibleBelongsToCandidate) return phaseLabel(activePhase);
+  if (
+    state.visible !== undefined
+    && state.visibleSince !== undefined
+    && now - state.visibleSince < ACTIVITY_PHASE_MIN_HOLD_MS
+  ) {
+    return phaseLabel(state.visible);
+  }
+
+  state.visible = undefined;
+  state.visibleSince = undefined;
+  if (state.candidateSince !== undefined && now - state.candidateSince >= ACTIVITY_PHASE_PROMOTION_MS) {
+    state.visible = activePhase;
+    state.visibleSince = now;
+    return phaseLabel(activePhase);
+  }
+  return "working…";
+}
+
+/**
+ * Detailed live activity for the conversation overlay.
+ * Prefer exact in-flight tool steps; else streaming assistant text; else `working…`.
  */
 export function describeActivity(activeTools: Map<string, string>, responseText?: string): string {
   if (activeTools.size > 0) {
@@ -549,7 +726,7 @@ export class AgentWidget {
       if (tokenText) parts.push(tokenText);
       const statsText = styleStatsWithDuration(parts, elapsed, theme);
 
-      const activity = bg ? describeActivity(bg.activeTools, bg.responseText) : "working…";
+      const activity = bg ? describeCompactActivity(bg) : "working…";
 
       runningLines.push([
         truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${statsText}`),
