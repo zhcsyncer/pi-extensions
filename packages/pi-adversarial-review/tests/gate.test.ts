@@ -75,7 +75,7 @@ function build(options: {
     charterSha256: "charter",
     requestedRoutes: Array.from({ length: options.requested }, (_, index) => route(index)),
     routeResults: options.results,
-    runtimeCapabilities: { protocolVersion: 3, maxConcurrent: 2 },
+    runtimeCapabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
     refuteRequested: options.refuteRequested ?? false,
     refuterRoute: options.refuterRoute,
     gating: options.gating ?? "weighted",
@@ -104,7 +104,7 @@ describe("buildMergedReviewReport", () => {
     const report = build({ requested: 2, results: [completed(0, [finding()]), completed(1, [finding()])] });
     expect(report).toMatchObject({
       overall: "needs-adjudication",
-      runtime: { protocolVersion: 3, maxConcurrent: 2, waves: 1 },
+      runtime: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3", waves: 1 },
       successfulReviewerCount: 2,
       minSuccessfulReviewerCount: 2,
       consensusThreshold: 2,

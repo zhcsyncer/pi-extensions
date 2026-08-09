@@ -7,6 +7,12 @@ import {
 import { buildMergedReviewReport } from "./convergence/gate.ts";
 import { attachRefuteResults } from "./convergence/refute.ts";
 import { EmptyReviewInputError, prepareFrozenReviewInput } from "./input/freeze-input.ts";
+import { ReviewInputError } from "./input/errors.ts";
+import {
+  emitHeadlessDiagnostic,
+  publishReviewFailure,
+  safeReviewDiagnosticText,
+} from "./output/headless-output.ts";
 import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
   publishMergedReviewReport,
@@ -18,7 +24,12 @@ import {
   loadRefuterSystemPrompt,
   loadReviewerSystemPrompt,
 } from "./runtime/reviewer-assets.ts";
-import { PiSubagentRpcV3Client, type PiEventBus } from "./runtime/rpc-v3-client.ts";
+import {
+  resolveReviewRuntime,
+  type ResolvedReviewRuntime,
+  type ResolveReviewRuntimeOptions,
+} from "./runtime/resolve-runtime.ts";
+import type { PiEventBus } from "./runtime/rpc-v3-client.ts";
 import type { ReviewRuntimeCapabilities } from "./runtime/types.ts";
 import type { ParsedReviewCommand, ReviewerRoute } from "./types.ts";
 import {
@@ -53,8 +64,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export default function adversarialReviewExtension(pi: ExtensionAPI): void {
+export interface AdversarialReviewExtensionOptions {
+  resolveRuntime?: (
+    options: ResolveReviewRuntimeOptions,
+  ) => Promise<ResolvedReviewRuntime>;
+}
+
+export default function adversarialReviewExtension(
+  pi: ExtensionAPI,
+  extensionOptions: AdversarialReviewExtensionOptions = {},
+): void {
   let activeRun: AbortController | undefined;
+  let activeRunCompletion: Promise<void> | undefined;
   let previousPickedReviewerSpecs: string[] | undefined;
   let previousPickedRefuterSpec: string | undefined;
   let sessionShuttingDown = false;
@@ -67,17 +88,39 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
     description: "Run deterministic multi-model adversarial code review",
     handler: async (args, ctx) => {
       if (activeRun) {
-        ctx.ui.notify("Adversarial review: another review run is already active.", "error");
+        const message = "Adversarial review: another review run is already active.";
+        publishReviewFailure({ pi, mode: ctx.mode, kind: "runtime", message });
+        ctx.ui.notify(message, "error");
         return;
       }
 
       let frozenInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>> | undefined;
+      let resolvedRuntime: ResolvedReviewRuntime | undefined;
       const controller = new AbortController();
+      let resolveRunCompletion!: () => void;
+      const runCompletion = new Promise<void>((resolve) => { resolveRunCompletion = resolve; });
       activeRun = controller;
+      activeRunCompletion = runCompletion;
       try {
         const command = parseReviewCommand(args);
-        const runtime = new PiSubagentRpcV3Client(pi.events as PiEventBus);
         let capabilities: ReviewRuntimeCapabilities | undefined;
+        const ensureRuntime = async () => {
+          if (resolvedRuntime) return resolvedRuntime;
+          resolvedRuntime = await (extensionOptions.resolveRuntime ?? resolveReviewRuntime)({
+            pi,
+            ctx,
+            events: pi.events as PiEventBus,
+          });
+          capabilities = resolvedRuntime.capabilities;
+          if (resolvedRuntime.warning) {
+            const warning = safeReviewDiagnosticText(
+              `Adversarial review: ${resolvedRuntime.warning}`,
+            );
+            emitHeadlessDiagnostic(ctx.mode, warning);
+            ctx.ui.notify(warning, "warning");
+          }
+          return resolvedRuntime;
+        };
         let reviewerSpecs = command.reviewerSpecs;
 
         if (reviewerSpecs.length === 0) {
@@ -93,7 +136,7 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
             previousPickedReviewerSpecs,
             ctx.scopedModels,
           );
-          capabilities = await runtime.getCapabilities();
+          capabilities = (await ensureRuntime()).capabilities;
           const picked = await pickReviewerSpecs({
             ctx,
             maxConcurrent: capabilities.maxConcurrent,
@@ -123,7 +166,7 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
             previousPickedRefuterSpec,
             ctx.scopedModels,
           );
-          capabilities ??= await runtime.getCapabilities();
+          capabilities ??= (await ensureRuntime()).capabilities;
           const picked = await pickRefuterSpec({
             ctx,
             previousSpec: previousPickedRefuterSpec,
@@ -158,6 +201,9 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
             reqdoc: command.reqdoc,
             focus: command.focus,
           });
+          const selectedRuntime = await ensureRuntime();
+          const runtime = selectedRuntime.runtime;
+          capabilities = selectedRuntime.capabilities;
           const reviewerSystemPrompt = await loadReviewerSystemPrompt();
           const fleet = await runReviewerFleet({
             runtime,
@@ -220,9 +266,15 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
           }
 
           const published = publishMergedReviewReport(pi, report, ctx.mode);
-          ctx.ui.notify(
+          const completionMessage = safeReviewDiagnosticText(
             published.deliveryWarning ??
               `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`,
+          );
+          if (published.deliveryWarning) {
+            emitHeadlessDiagnostic(ctx.mode, completionMessage);
+          }
+          ctx.ui.notify(
+            completionMessage,
             published.deliveryWarning
               ? "warning"
               : report.overall === "candidate-approve" ? "info" : "warning",
@@ -244,24 +296,61 @@ export default function adversarialReviewExtension(pi: ExtensionAPI): void {
         const prefix = error instanceof ReviewCommandError || error instanceof EmptyReviewInputError
           ? "Adversarial review"
           : "Adversarial review failed";
-        ctx.ui.notify(`${prefix}: ${errorMessage(error)}`, type);
+        const message = safeReviewDiagnosticText(`${prefix}: ${errorMessage(error)}`);
+        publishReviewFailure({
+          pi,
+          mode: ctx.mode,
+          kind: error instanceof EmptyReviewInputError
+            ? "empty-input"
+            : error instanceof ReviewCommandError
+              ? "command"
+              : error instanceof ReviewInputError ? "input" : "runtime",
+          message,
+        });
+        ctx.ui.notify(message, type);
       } finally {
-        if (frozenInput) {
+        // The frozen snapshot must remain readable until every reviewer/refuter
+        // has actually terminated. Runtime disposal is therefore the first barrier.
+        let runtimeCleanupComplete = true;
+        if (resolvedRuntime) {
+          try {
+            await resolvedRuntime.dispose();
+          } catch (error) {
+            runtimeCleanupComplete = false;
+            if (!sessionShuttingDown) {
+              const warning = safeReviewDiagnosticText(
+                `Adversarial review runtime cleanup warning: ${errorMessage(error)} ` +
+                  "Frozen input retained for safety.",
+              );
+              emitHeadlessDiagnostic(ctx.mode, warning);
+              ctx.ui.notify(warning, "warning");
+            }
+          }
+        }
+        if (frozenInput && runtimeCleanupComplete) {
           try {
             await frozenInput.cleanup();
           } catch (error) {
             if (!sessionShuttingDown) {
-              ctx.ui.notify(`Adversarial review cleanup warning: ${errorMessage(error)}`, "warning");
+              const warning = safeReviewDiagnosticText(
+                `Adversarial review cleanup warning: ${errorMessage(error)}`,
+              );
+              emitHeadlessDiagnostic(ctx.mode, warning);
+              ctx.ui.notify(warning, "warning");
             }
           }
         }
         if (activeRun === controller) activeRun = undefined;
+        if (activeRunCompletion === runCompletion) activeRunCompletion = undefined;
+        resolveRunCompletion();
       }
     },
   });
 
   pi.on("session_shutdown", async () => {
     sessionShuttingDown = true;
+    const completion = activeRunCompletion;
     activeRun?.abort(new Error("Pi session shut down"));
+    await completion;
   });
 }

@@ -48,6 +48,9 @@
       "./extensions/adversarial-review.ts"
     ]
   },
+  "dependencies": {
+    "@zhcsyncer/pi-subagents": "^0.1.2"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.84.0 <1",
     "@earendil-works/pi-coding-agent": ">=0.84.0 <1",

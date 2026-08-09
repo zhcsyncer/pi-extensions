@@ -46,6 +46,10 @@ importers:
         version: 0.84.0
 
   packages/pi-adversarial-review:
+    dependencies:
+      '@zhcsyncer/pi-subagents':
+        specifier: ^0.1.2
+        version: link:../pi-subagents
     devDependencies:
       '@earendil-works/pi-ai':
         specifier: 0.84.0

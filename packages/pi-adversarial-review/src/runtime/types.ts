@@ -1,8 +1,12 @@
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 
+export type ReviewRuntimeBackend = "external-v3" | "embedded";
+
 export interface ReviewRuntimeCapabilities {
   protocolVersion: 3;
   maxConcurrent: number;
+  backend: ReviewRuntimeBackend;
+  fallbackReason?: "unavailable" | "incompatible";
 }
 
 export interface ReviewerFleetProgress {

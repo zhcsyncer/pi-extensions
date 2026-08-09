@@ -165,6 +165,40 @@ describe("caller-owned cross-extension spawn", () => {
     }
   });
 
+  it("emits queued caller-owned terminal after shutdown unbinds stop RPC", async () => {
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+    const { pi, lifecycle, busHandlers } = makePi();
+    subagentsExtension(pi);
+    const extensionCtx = ctx(tmpDir);
+    await lifecycle.get("session_start")?.({}, extensionCtx);
+    const spawn = [...(busHandlers.get("subagents:rpc:spawn") ?? [])][0];
+
+    for (let index = 0; index < 5; index++) {
+      await spawn({
+        requestId: `req-shutdown-${index}`,
+        type: "reviewer",
+        prompt: "review",
+        options: {
+          inlineAgentConfig: inlineReviewer,
+          completionOwner: "caller",
+          correlationId: `route-shutdown-${index}`,
+          isBackground: true,
+        },
+      });
+    }
+
+    await lifecycle.get("session_shutdown")?.({}, extensionCtx);
+
+    expect(busHandlers.get("subagents:rpc:stop")?.size ?? 0).toBe(0);
+    expect(pi.events.emit.mock.calls).toContainEqual([
+      "subagents:failed",
+      expect.objectContaining({
+        correlationId: "route-shutdown-4",
+        status: "stopped",
+      }),
+    ]);
+  });
+
   it("runs caller-owned orchestration without touching TUI in headless mode", async () => {
     const { pi, lifecycle, busHandlers } = makePi();
     subagentsExtension(pi);

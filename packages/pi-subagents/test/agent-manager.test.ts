@@ -991,6 +991,32 @@ describe("AgentManager — abortAll", () => {
     expect(manager.hasRunning()).toBe(false);
   });
 
+  it("emits terminal completion for queued caller-owned work during shutdown", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+
+    manager.spawn(mockPi, mockCtx, "X", "running", {
+      description: "running",
+      isBackground: true,
+    });
+    const queued = manager.spawn(mockPi, mockCtx, "Y", "queued", {
+      description: "queued caller",
+      isBackground: true,
+      completionOwner: "caller",
+      correlationId: "review:queued",
+    });
+
+    manager.abortAll();
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+      id: queued,
+      correlationId: "review:queued",
+      status: "stopped",
+    }));
+  });
+
   it("returns 0 when there are no running or queued agents", () => {
     manager = new AgentManager();
     expect(manager.abortAll()).toBe(0);

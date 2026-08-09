@@ -62,6 +62,8 @@
 - schedule 与跨扩展 RPC：`followUp`
 - foreground：结果 inline 返回，不发送后台完成 nudge
 
+需要复用同一执行语义、但不希望激活完整扩展的依赖包，可以导入 `@zhcsyncer/pi-subagents/runtime`。只导入该子路径不会注册 Agent 工具、命令、调度、widget 或 FleetView；构造和释放由调用方负责。
+
 ---
 
 ## 安装

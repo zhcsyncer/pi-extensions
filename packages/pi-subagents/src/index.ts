@@ -26,6 +26,11 @@ import { GroupJoinManager } from "./group-join.js";
 import { resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "./output-file.js";
+import {
+  buildAgentEventData,
+  buildCorrelatedEventData,
+  isAgentFailureStatus,
+} from "./runtime-events.js";
 import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
 import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.js";
@@ -524,50 +529,11 @@ export default function (pi: ExtensionAPI) {
     30_000,
   );
 
-  /** Correlated route metadata is added only for opt-in cross-extension runs. */
-  function buildCorrelatedEventData(record: AgentRecord) {
-    if (!record.correlationId) return {};
-    return {
-      correlationId: record.correlationId,
-      requestedModel: record.requestedModel,
-      requestedThinkingLevel: record.requestedThinkingLevel,
-      effectiveModel: record.effectiveModel,
-      effectiveThinkingLevel: record.effectiveThinkingLevel,
-    };
-  }
-
-  /** Helper: build event data for lifecycle events from an AgentRecord. */
-  function buildEventData(record: AgentRecord) {
-    const durationMs = record.completedAt ? record.completedAt - record.startedAt : Date.now() - record.startedAt;
-    // All three fields are lifetime-accumulated (Σ over every assistant message_end),
-    // so they survive compaction together — input + output ≤ total always.
-    // tokens is omitted when nothing was ever produced (e.g. agent errored before
-    // any message_end fired), preserving prior payload shape.
-    const u = record.lifetimeUsage;
-    const total = getLifetimeTotal(u);
-    const tokens = total > 0
-      ? { input: u.input, output: u.output, total }
-      : undefined;
-    return {
-      id: record.id,
-      type: record.type,
-      description: record.description,
-      result: record.result,
-      error: record.error,
-      status: record.status,
-      toolUses: record.toolUses,
-      durationMs,
-      tokens,
-      ...buildCorrelatedEventData(record),
-    };
-  }
-
   // Background completion: route through group join or send individual nudge
   const manager = new AgentManager((record) => {
-    // Emit lifecycle event based on terminal status
-    const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
-    const eventData = buildEventData(record);
-    if (isError) {
+    // Emit lifecycle event based on terminal status.
+    const eventData = buildAgentEventData(record);
+    if (isAgentFailureStatus(record.status)) {
       pi.events.emit("subagents:failed", eventData);
     } else {
       pi.events.emit("subagents:completed", eventData);

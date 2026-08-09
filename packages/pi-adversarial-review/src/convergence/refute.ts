@@ -22,6 +22,8 @@ export interface AttachRefuteResultsOptions {
 export function attachRefuteResults(options: AttachRefuteResultsOptions): MergedReviewReport {
   if (
     options.capabilities.protocolVersion !== 3 ||
+    (options.capabilities.backend !== "external-v3" &&
+      options.capabilities.backend !== "embedded") ||
     !Number.isInteger(options.capabilities.maxConcurrent) ||
     options.capabilities.maxConcurrent < 1
   ) {

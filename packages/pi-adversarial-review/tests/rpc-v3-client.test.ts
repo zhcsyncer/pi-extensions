@@ -44,6 +44,7 @@ describe("PiSubagentRpcV3Client", () => {
     await expect(new PiSubagentRpcV3Client(bus).getCapabilities()).resolves.toEqual({
       protocolVersion: 3,
       maxConcurrent: 4,
+      backend: "external-v3",
     });
     expect(bus.listenerCount()).toBe(0);
   });
@@ -58,9 +59,17 @@ describe("PiSubagentRpcV3Client", () => {
 
   it("sends caller-owned inline reviewer config through the existing spawn RPC", async () => {
     const bus = new FakeBus();
-    replyToRequests(bus, (event) => event.endsWith(":spawn")
-      ? { success: true, data: { id: "agent-1" } }
-      : { success: true });
+    replyToRequests(bus, (event) => {
+      if (event.endsWith(":spawn")) return { success: true, data: { id: "agent-1" } };
+      if (event.endsWith(":stop")) {
+        bus.emit("subagents:completed", {
+          id: "agent-1",
+          correlationId: "run:reviewer:0",
+          status: "stopped",
+        });
+      }
+      return { success: true };
+    });
     const runtime = new PiSubagentRpcV3Client(bus);
 
     await expect(runtime.spawn({
@@ -103,6 +112,26 @@ describe("PiSubagentRpcV3Client", () => {
       .toMatchObject({ agentId: "agent-1" });
   });
 
+  it("does not treat a legacy protocol-v3 stop ACK as terminal", async () => {
+    const bus = new FakeBus();
+    replyToRequests(bus, () => ({ success: true }));
+    const runtime = new PiSubagentRpcV3Client(bus);
+
+    let stopped = false;
+    const stopping = runtime.stop("legacy-agent").then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    bus.emit("subagents:completed", {
+      id: "legacy-agent",
+      correlationId: "run:legacy",
+      status: "stopped",
+    });
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(bus.listenerCount()).toBe(0);
+  });
+
   it("uses an independent inline identity for refuter sessions", async () => {
     const bus = new FakeBus();
     replyToRequests(bus, () => ({ success: true, data: { id: "refuter-1" } }));
@@ -137,9 +166,13 @@ describe("PiSubagentRpcV3Client", () => {
 
   it("reaps a late started agent after a failed spawn reply", async () => {
     const bus = new FakeBus();
-    replyToRequests(bus, (event) => event.endsWith(":spawn")
-      ? { success: false, error: "reply lost" }
-      : { success: true });
+    replyToRequests(bus, (event, data) => {
+      if (event.endsWith(":spawn")) return { success: false, error: "reply lost" };
+      if (event.endsWith(":stop")) {
+        bus.emit("subagents:completed", { id: data.agentId, status: "stopped" });
+      }
+      return { success: true };
+    });
     const runtime = new PiSubagentRpcV3Client(bus);
 
     await expect(runtime.spawn({
@@ -154,6 +187,9 @@ describe("PiSubagentRpcV3Client", () => {
       description: "Refute late",
     })).rejects.toThrow("reply lost");
     expect(bus.listenerCount()).toBe(3);
+    expect(() => runtime.assertNoUnsettledStops()).toThrow(
+      "pending spawn correlations: run:refuter:late",
+    );
 
     bus.emit("subagents:started", {
       id: "late-agent",
@@ -162,7 +198,8 @@ describe("PiSubagentRpcV3Client", () => {
 
     expect(bus.emitted.find(({ event }) => event === "subagents:rpc:stop")?.data)
       .toMatchObject({ agentId: "late-agent" });
-    expect(bus.listenerCount()).toBe(0);
+    await vi.waitFor(() => expect(bus.listenerCount()).toBe(0));
+    expect(() => runtime.assertNoUnsettledStops()).not.toThrow();
   });
 
   it("cleans the reaper when a malformed spawn reply is followed by terminal lifecycle", async () => {

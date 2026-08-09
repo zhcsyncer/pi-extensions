@@ -44,12 +44,15 @@ export function serializeMergedReviewReport(report: MergedReviewReport) {
 }
 
 export function buildMergedReportText(report: MergedReviewReport): string {
+  // Reports persisted before embedded fallback existed were necessarily external v3.
+  const reviewBackend = report.runtime.backend ?? "external-v3";
   const lines = [
     `Adversarial review: ${report.overall}`,
     `Reviewers: ${report.successfulReviewerCount}/${report.requestedRoutes.length} valid ` +
       `(minimum ${report.minSuccessfulReviewerCount})`,
-    `Routes: ${report.requestedRoutes.length} · max concurrent: ${report.runtime.maxConcurrent} · ` +
-      `waves: ${report.runtime.waves}`,
+    `Routes: ${report.requestedRoutes.length} · runtime: ${reviewBackend}` +
+      `${report.runtime.fallbackReason ? ` (${report.runtime.fallbackReason})` : ""}` +
+      ` · max concurrent: ${report.runtime.maxConcurrent} · waves: ${report.runtime.waves}`,
     `Target: ${safeDisplayText(report.target.description)}`,
   ];
 
@@ -58,7 +61,8 @@ export function buildMergedReportText(report: MergedReviewReport): string {
       const valid = report.refuteResults.filter((result) => result.status === "completed").length;
       lines.push(
         `Refute: ${valid}/${report.refuteResults.length} valid · ` +
-          `${report.contested.length} contested · waves: ${report.refuteRuntime.waves}`,
+          `${report.contested.length} contested · runtime: ${report.refuteRuntime.backend ?? "external-v3"} · ` +
+          `waves: ${report.refuteRuntime.waves}`,
       );
     } else if (report.blocking.length === 0) {
       lines.push("Refute: skipped because no blocking finding was produced.");

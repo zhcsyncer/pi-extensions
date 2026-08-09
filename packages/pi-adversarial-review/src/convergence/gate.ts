@@ -1,3 +1,4 @@
+import type { ReviewRuntimeCapabilities } from "../runtime/types.ts";
 import type {
   GatingMode,
   MergedFinding,
@@ -59,10 +60,7 @@ export interface BuildMergedReviewReportOptions {
   charterSha256: string;
   requestedRoutes: ReviewerRoute[];
   routeResults: ReviewerRouteResult[];
-  runtimeCapabilities: {
-    protocolVersion: 3;
-    maxConcurrent: number;
-  };
+  runtimeCapabilities: ReviewRuntimeCapabilities;
   refuteRequested: boolean;
   refuterRoute?: ReviewerRoute;
   gating: GatingMode;
@@ -82,6 +80,8 @@ export function buildMergedReviewReport(
   validateConfig(config);
   if (
     options.runtimeCapabilities.protocolVersion !== 3 ||
+    (options.runtimeCapabilities.backend !== "external-v3" &&
+      options.runtimeCapabilities.backend !== "embedded") ||
     !Number.isInteger(options.runtimeCapabilities.maxConcurrent) ||
     options.runtimeCapabilities.maxConcurrent < 1
   ) {

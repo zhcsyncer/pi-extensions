@@ -139,7 +139,7 @@ function createSession(finalText: string) {
         content: [{ type: "text", text: finalText }],
       });
     }),
-    abort: vi.fn(),
+    abort: vi.fn(async () => {}),
     steer: vi.fn(),
     // Stateful, so the active set reflects what the scope installer actually did
     // and `renarrow`'s no-op guard behaves as it does against real pi.
@@ -216,6 +216,29 @@ describe("agent-runner final output capture", () => {
     const bindOrder = session.bindExtensions.mock.invocationCallOrder[0];
     const promptOrder = session.prompt.mock.invocationCallOrder[0];
     expect(bindOrder).toBeLessThan(promptOrder);
+  });
+
+  it("does not prompt when cancellation arrives during session initialization", async () => {
+    const { session } = createSession("MUST NOT RUN");
+    let releaseBind!: () => void;
+    session.bindExtensions.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { releaseBind = resolve; });
+    });
+    createAgentSession.mockResolvedValue({ session });
+    const controller = new AbortController();
+
+    const running = runAgent(ctx, "Explore", "Do not send", {
+      pi,
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(session.bindExtensions).toHaveBeenCalledOnce());
+    controller.abort();
+    releaseBind();
+    const result = await running;
+
+    expect(session.abort).toHaveBeenCalledOnce();
+    expect(session.prompt).not.toHaveBeenCalled();
+    expect(result.aborted).toBe(true);
   });
 
   it("passes effective cwd and agentDir to the loader and settings manager", async () => {

@@ -21,7 +21,7 @@ class FakeRuntime implements ReviewSubagentRuntime {
   spawnImpl?: (input: SpawnReviewAgentInput, agentId: string) => Promise<{ agentId: string }>;
 
   async getCapabilities() {
-    return { protocolVersion: 3 as const, maxConcurrent: 2 };
+    return { protocolVersion: 3 as const, maxConcurrent: 2, backend: "external-v3" as const };
   }
 
   async spawn(input: SpawnReviewAgentInput): Promise<{ agentId: string }> {

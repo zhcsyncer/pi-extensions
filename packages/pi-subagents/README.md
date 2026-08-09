@@ -62,6 +62,8 @@ Delivery policy is fixed at spawn time:
 - Scheduled and cross-extension RPC runs: `followUp`
 - Foreground runs: result returned inline; no background completion nudge
 
+Dependent packages that need the same execution semantics without activating this extension can import `@zhcsyncer/pi-subagents/runtime`. Importing that subpath alone does not register Agent tools, commands, schedules, widgets, or FleetView; the caller owns construction and disposal.
+
 ---
 
 ## Install

@@ -58,6 +58,7 @@ export interface SpawnRpcRequest {
 export interface SpawnCapable {
   spawn(pi: unknown, ctx: unknown, type: string, prompt: string, options: SpawnOptions): string;
   abort(id: string): boolean;
+  abortAndWait?(id: string): Promise<boolean>;
   getMaxConcurrent(): number;
 }
 
@@ -284,8 +285,11 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
   );
 
   const unsubStop = handleRpc<{ requestId: string; agentId: string }>(
-    events, "subagents:rpc:stop", ({ agentId }) => {
-      if (!manager.abort(agentId)) throw new Error("Agent not found");
+    events, "subagents:rpc:stop", async ({ agentId }) => {
+      const stopped = manager.abortAndWait
+        ? await manager.abortAndWait(agentId)
+        : manager.abort(agentId);
+      if (!stopped) throw new Error("Agent not found");
     },
   );
 

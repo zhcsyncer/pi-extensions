@@ -64,7 +64,7 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
     charterSha256: "charter",
     requestedRoutes: [reviewer],
     routeResults: [{ route: reviewer, status: "completed", report: { verdict: "approve", summary: "clean", findings: [] } }],
-    runtime: { protocolVersion: 3, maxConcurrent: 1, waves: 1 },
+    runtime: { protocolVersion: 3, maxConcurrent: 1, backend: "external-v3", waves: 1 },
     successfulReviewerCount: 1,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
@@ -87,7 +87,9 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
 describe("merged report output", () => {
   it("explains inconclusive, runtime waves, and candidate results in plain text", () => {
     expect(buildMergedReportText(report())).toContain("Too few reviewers completed successfully");
-    expect(buildMergedReportText(report())).toContain("Routes: 1 · max concurrent: 1 · waves: 1");
+    expect(buildMergedReportText(report())).toContain(
+      "Routes: 1 · runtime: external-v3 · max concurrent: 1 · waves: 1",
+    );
     expect(buildMergedReportText(report({
       overall: "candidate-approve",
       successfulReviewerCount: 2,
@@ -149,6 +151,7 @@ describe("merged report output", () => {
     const restored = JSON.parse(JSON.stringify(serializeMergedReviewReport(report({
       routeResults: [{ route: route(), status: "errored", error: "provider unavailable" }],
     }))));
+    delete restored.runtime.backend;
     const theme = { fg: (_color: string, text: string) => text } as any;
     const collapsed = renderMergedReviewMessage(
       restored,
@@ -162,6 +165,7 @@ describe("merged report output", () => {
     ).render(120).join("\n");
     expect(collapsed).toContain("Review 1/1 valid");
     expect(collapsed).not.toContain("provider unavailable");
+    expect(expanded).toContain("runtime: external-v3");
     expect(expanded).toContain("Reviewer route failures");
     expect(expanded).toContain("provider unavailable");
   });
@@ -234,5 +238,6 @@ describe("merged report output", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Adversarial review: inconclusive"));
     expect(appendEntry).toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 });

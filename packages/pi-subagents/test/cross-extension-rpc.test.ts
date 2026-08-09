@@ -306,6 +306,27 @@ describe("cross-extension RPC", () => {
       expect(manager.abort).toHaveBeenCalledWith("agent-42");
     });
 
+    it("delays the stop reply until abortAndWait reaches terminal", async () => {
+      let release!: () => void;
+      const terminal = new Promise<void>((resolve) => { release = resolve; });
+      manager.abortAndWait = vi.fn(async () => {
+        await terminal;
+        return true;
+      });
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:stop:reply:req-wait", reply);
+
+      events.emit("subagents:rpc:stop", { requestId: "req-wait", agentId: "agent-42" });
+      await Promise.resolve();
+      expect(reply).not.toHaveBeenCalled();
+
+      release();
+      await vi.waitFor(() => expect(reply).toHaveBeenCalledWith({ success: true }));
+      expect(manager.abortAndWait).toHaveBeenCalledWith("agent-42");
+      expect(manager.abort).not.toHaveBeenCalled();
+    });
+
     it("returns error when agent not found", async () => {
       (manager.abort as ReturnType<typeof vi.fn>).mockReturnValue(false);
       registerRpcHandlers(deps);

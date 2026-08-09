@@ -167,6 +167,8 @@ export interface MergedReviewReport {
   runtime: {
     protocolVersion: 3;
     maxConcurrent: number;
+    backend: "external-v3" | "embedded";
+    fallbackReason?: "unavailable" | "incompatible";
     waves: number;
   };
   successfulReviewerCount: number;
@@ -188,6 +190,8 @@ export interface MergedReviewReport {
   refuteRuntime?: {
     protocolVersion: 3;
     maxConcurrent: number;
+    backend: "external-v3" | "embedded";
+    fallbackReason?: "unavailable" | "incompatible";
     waves: number;
   };
   refuteResults: RefuteRouteResult[];

@@ -496,8 +496,13 @@ function finalTurnError(session: AgentSession, startIndex = 0): string | undefin
  */
 function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
   if (!signal) return () => {};
-  const onAbort = () => session.abort();
-  signal.addEventListener("abort", onAbort, { once: true });
+  const onAbort = () => {
+    void session.abort().catch(() => {
+      // The manager still owns terminal/error reporting; abort cleanup is best-effort.
+    });
+  };
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
 }
 
@@ -938,7 +943,14 @@ export async function runAgent(
   // on counts as this run's output (a fresh session, so usually 0).
   const startLen = session.messages.length;
   try {
-    await session.prompt(effectivePrompt);
+    // Abort can arrive while the loader/session/extensions are still initializing,
+    // before forwardAbortSignal is installed. Never start a model request after
+    // that cancellation has already happened.
+    if (options.signal?.aborted) {
+      aborted = true;
+    } else {
+      await session.prompt(effectivePrompt);
+    }
   } finally {
     unsubTurns();
     collector.unsubscribe();

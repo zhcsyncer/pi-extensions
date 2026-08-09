@@ -14,6 +14,7 @@ import adversarialReviewExtension, {
   ADVERSARIAL_REVIEW_COMMAND,
   preflightReviewCommand,
 } from "../src/index.ts";
+import { PiSubagentRpcV3Client } from "../src/runtime/rpc-v3-client.ts";
 
 class FakePi {
   readonly commands = new Map<string, any>();
@@ -68,6 +69,7 @@ function model(provider: string, id: string): Model<any> {
 
 const exec = promisify(execFile);
 const tempRepos: string[] = [];
+const originalExitCode = process.exitCode;
 
 async function git(root: string, ...args: string[]): Promise<void> {
   await exec("git", args, { cwd: root });
@@ -123,6 +125,7 @@ beforeAll(() => {
 
 afterEach(async () => {
   vi.useRealTimers();
+  process.exitCode = originalExitCode;
   await Promise.all(tempRepos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -223,6 +226,117 @@ describe("adversarial review extension", () => {
     });
     expect(frozenPaths).toHaveLength(2);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
+  });
+
+  it("runs through an embedded backend without requiring a Subagents ping handler", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const dispose = vi.fn(async () => {});
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `embedded-${nextAgent++}`;
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+        requestedModel: {
+          provider: data.options.model.provider,
+          modelId: data.options.model.id,
+        },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: {
+          provider: data.options.model.provider,
+          modelId: data.options.model.id,
+        },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, {
+        success: true,
+        data: { id: agentId },
+      });
+    };
+    adversarialReviewExtension(fake.api(), {
+      resolveRuntime: async ({ events }) => ({
+        runtime: new PiSubagentRpcV3Client(events),
+        capabilities: {
+          protocolVersion: 3,
+          maxConcurrent: 2,
+          backend: "embedded",
+          fallbackReason: "unavailable",
+        },
+        dispose,
+      }),
+    });
+    const { ctx } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:ping")).toBe(false);
+    expect(fake.entries[0]).toMatchObject({
+      customType: "adversarial-review-report",
+      data: {
+        overall: "candidate-approve",
+        runtime: {
+          backend: "embedded",
+          fallbackReason: "unavailable",
+        },
+      },
+    });
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("retains the frozen input while malformed spawn replies have late-start reapers", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let frozenInputPath: string | undefined;
+    const correlations: string[] = [];
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      frozenInputPath ??= /^Frozen input file: (.+)$/mu.exec(data.prompt)?.[1];
+      correlations.push(data.options.correlationId);
+      // The runtime may still have accepted the spawn; only its reply identity
+      // was lost, so cleanup must preserve input until the reaper closes.
+      fake.events.emit(`${event}:reply:${data.requestId}`, {
+        success: true,
+        data: {},
+      });
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx, notifications } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(correlations).toHaveLength(2);
+    expect(frozenInputPath).toBeDefined();
+    await expect(access(frozenInputPath!)).resolves.toBeUndefined();
+    tempRepos.push(path.dirname(frozenInputPath!));
+    expect(notifications.at(-1)).toMatchObject({
+      type: "warning",
+      message: expect.stringContaining("Frozen input retained for safety"),
+    });
+
+    for (const [index, correlationId] of correlations.entries()) {
+      fake.events.emit("subagents:failed", {
+        id: `malformed-terminal-${index}`,
+        correlationId,
+        status: "failed",
+      });
+    }
   });
 
   it("runs one fresh refuter per blocking cluster and keeps refuted findings blocking", async () => {
@@ -470,6 +584,81 @@ describe("adversarial review extension", () => {
     expect(notifications).toEqual([]);
   });
 
+  it("keeps the frozen input and shutdown pending until stopped agents reach terminal", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const agents = new Map<string, { correlationId: string; stopRequest?: any }>();
+    const frozenPaths: string[] = [];
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event === "subagents:rpc:spawn") {
+        const agentId = `shutdown-agent-${nextAgent++}`;
+        const inputPath = /^Frozen input file: (.+)$/mu.exec(data.prompt)?.[1];
+        if (inputPath) frozenPaths.push(inputPath);
+        agents.set(agentId, { correlationId: data.options.correlationId });
+        fake.events.emit("subagents:started", {
+          id: agentId,
+          correlationId: data.options.correlationId,
+          requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+          requestedThinkingLevel: data.options.thinkingLevel,
+        });
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { id: agentId },
+        });
+        return;
+      }
+      if (event === "subagents:rpc:stop") {
+        const agent = agents.get(data.agentId);
+        if (agent) agent.stopRequest = data;
+      }
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await vi.waitFor(() => expect(frozenPaths).toHaveLength(2));
+
+    let shutdownResolved = false;
+    const shutdown = Promise.all(
+      (fake.handlers.get("session_shutdown") ?? []).map((handler) => handler()),
+    ).then(() => { shutdownResolved = true; });
+    await vi.waitFor(() => {
+      expect([...agents.values()].every((agent) => agent.stopRequest)).toBe(true);
+    });
+
+    expect(shutdownResolved).toBe(false);
+    await expect(access(frozenPaths[0]!)).resolves.toBeUndefined();
+
+    for (const [agentId, agent] of agents) {
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: agent.correlationId,
+        status: "stopped",
+        result: "",
+      });
+      fake.events.emit(`subagents:rpc:stop:reply:${agent.stopRequest.requestId}`, {
+        success: true,
+      });
+    }
+
+    await Promise.all([shutdown, command]);
+    expect(shutdownResolved).toBe(true);
+    for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
+    expect(fake.entries).toEqual([]);
+    expect(fake.sentMessages).toEqual([]);
+  });
+
   it("turns loader Escape into a cancelled audited run and clears footer status", async () => {
     const root = await changedRepo();
     const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
@@ -652,6 +841,7 @@ describe("adversarial review extension", () => {
         return;
       }
       if (event === "subagents:rpc:stop") {
+        fake.events.emit("subagents:completed", { id: data.agentId, status: "stopped" });
         fake.events.emit(`${event}:reply:${data.requestId}`, { success: true });
       }
     };
@@ -707,6 +897,7 @@ describe("adversarial review extension", () => {
   });
 
   it("requires explicit reviewer routes outside TUI mode", async () => {
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
     const fake = new FakePi();
     adversarialReviewExtension(fake.api());
     const { ctx, notifications } = context();
@@ -717,6 +908,13 @@ describe("adversarial review extension", () => {
     expect(notifications[0]).toMatchObject({ type: "error" });
     expect(notifications[0].message).toContain("Outside TUI, pass at least two --reviewer");
     expect(fake.emitted).toHaveLength(0);
+    expect(fake.entries[0]).toMatchObject({
+      customType: "adversarial-review-error",
+      data: { kind: "command", mode: "json" },
+    });
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Outside TUI"));
+    expect(process.exitCode).toBe(1);
+    stderr.mockRestore();
   });
 
   it("requires an explicit refuter outside TUI mode", async () => {
