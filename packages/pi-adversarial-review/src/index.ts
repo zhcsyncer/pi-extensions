@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { parseReviewCommand, ReviewCommandError } from "./command/parse-args.ts";
 import {
   resolveRefuterRoute,
@@ -18,6 +19,12 @@ import {
   publishMergedReviewReport,
   renderMergedReviewMessage,
 } from "./output/publish-report.ts";
+import {
+  resolveReviewPreflight,
+  revalidateReviewPreflight,
+  type ResolvedReviewPreflight,
+  type ResolveReviewPreflightOptions,
+} from "./preflight/resolve-preflight.ts";
 import { runReviewerFleet } from "./runtime/orchestrator.ts";
 import { runRefuteFleet } from "./runtime/refute-orchestrator.ts";
 import {
@@ -68,6 +75,10 @@ export interface AdversarialReviewExtensionOptions {
   resolveRuntime?: (
     options: ResolveReviewRuntimeOptions,
   ) => Promise<ResolvedReviewRuntime>;
+  resolvePreflight?: (
+    options: ResolveReviewPreflightOptions,
+  ) => Promise<ResolvedReviewPreflight | undefined>;
+  revalidatePreflight?: typeof revalidateReviewPreflight;
 }
 
 export default function adversarialReviewExtension(
@@ -103,6 +114,60 @@ export default function adversarialReviewExtension(
       activeRunCompletion = runCompletion;
       try {
         const command = parseReviewCommand(args);
+        if (command.reviewerSpecs.length === 0 && ctx.mode !== "tui") {
+          throw new ReviewCommandError(
+            "Reviewer selection requires TUI mode. Outside TUI, pass at least two " +
+              "--reviewer <provider/model>@<thinking> options.",
+          );
+        }
+        if (command.reviewerSpecs.length === 0 && ctx.scopedModels.length === 0) {
+          throw new ReviewCommandError(
+            "No scoped models are configured. Use /scoped-models before adversarial review.",
+          );
+        }
+        if (command.refute && command.refuterSpec === undefined && ctx.mode !== "tui") {
+          throw new ReviewCommandError(
+            "Refuter selection requires TUI mode. Outside TUI, pass " +
+              "--refuter <provider/model>@<thinking> with --refute.",
+          );
+        }
+        const preResolvedRoutes = command.reviewerSpecs.length > 0
+          ? resolveReviewerRoutes(command.reviewerSpecs, ctx.scopedModels)
+          : undefined;
+        const preResolvedRefuterRoute = command.refuterSpec
+          ? resolveRefuterRoute(command.refuterSpec, ctx.scopedModels)
+          : undefined;
+        const runTargetPreflight = async (): Promise<ResolvedReviewPreflight | undefined> => {
+          let removePreflightInput = () => {};
+          if (ctx.mode === "tui") {
+            ctx.ui.setStatus("adversarial-review", "Adversarial review · checking Git target…");
+            removePreflightInput = ctx.ui.onTerminalInput((data) => {
+              if (matchesKey(data, "escape")) {
+                controller.abort(new Error("Adversarial review preflight cancelled by user"));
+              }
+            });
+          }
+          try {
+            return await (extensionOptions.resolvePreflight ?? resolveReviewPreflight)({
+              ctx,
+              target: command.target,
+              targetExplicit: command.targetExplicit,
+              signal: controller.signal,
+            });
+          } finally {
+            removePreflightInput();
+            if (ctx.mode === "tui") ctx.ui.setStatus("adversarial-review", undefined);
+          }
+        };
+        let targetPreflight = await runTargetPreflight();
+        if (!targetPreflight) {
+          if (!controller.signal.aborted) {
+            ctx.ui.notify("Adversarial review: target selection cancelled.", "info");
+          }
+          return;
+        }
+        if (controller.signal.aborted) return;
+        ctx.ui.notify(targetPreflight.summary, "info");
         let capabilities: ReviewRuntimeCapabilities | undefined;
         const ensureRuntime = async () => {
           if (resolvedRuntime) return resolvedRuntime;
@@ -124,12 +189,6 @@ export default function adversarialReviewExtension(
         let reviewerSpecs = command.reviewerSpecs;
 
         if (reviewerSpecs.length === 0) {
-          if (ctx.mode !== "tui") {
-            throw new ReviewCommandError(
-              "Reviewer selection requires TUI mode. Outside TUI, pass at least two " +
-                "--reviewer <provider/model>@<thinking> options.",
-            );
-          }
           // Prune memory as soon as this scope snapshot is observed. Cancelling the
           // picker must not let a removed route resurrect if it is re-added later.
           previousPickedReviewerSpecs = retainValidReviewerSpecs(
@@ -156,12 +215,6 @@ export default function adversarialReviewExtension(
 
         let refuterSpec = command.refuterSpec;
         if (command.refute && refuterSpec === undefined) {
-          if (ctx.mode !== "tui") {
-            throw new ReviewCommandError(
-              "Refuter selection requires TUI mode. Outside TUI, pass " +
-                "--refuter <provider/model>@<thinking> with --refute.",
-            );
-          }
           previousPickedRefuterSpec = retainValidRefuterSpec(
             previousPickedRefuterSpec,
             ctx.scopedModels,
@@ -183,28 +236,84 @@ export default function adversarialReviewExtension(
           previousPickedRefuterSpec = picked;
         }
 
+        // The picker can remain open while another process changes HEAD/status
+        // or starts a Git operation. Re-run preflight rather than applying the
+        // old decision/audit to a different repository state.
+        if (controller.signal.aborted) return;
+        const revalidate = extensionOptions.revalidatePreflight ?? revalidateReviewPreflight;
+        if (!await revalidate(targetPreflight, { signal: controller.signal })) {
+          if (ctx.mode !== "tui") {
+            throw new ReviewInputError(
+              "Git state changed after adversarial review preflight. Retry with an explicit target.",
+            );
+          }
+          ctx.ui.notify(
+            "Adversarial review: Git changed while selecting models; running preflight again.",
+            "warning",
+          );
+          const refreshed = await runTargetPreflight();
+          if (!refreshed) {
+            if (!controller.signal.aborted) {
+              ctx.ui.notify("Adversarial review: target selection cancelled.", "info");
+            }
+            return;
+          }
+          targetPreflight = refreshed;
+          ctx.ui.notify(targetPreflight.summary, "info");
+        }
+
         // Shutdown can race with picker confirmation or explicit preflight. Do
         // not freeze input, remember routes, or publish into a closing session.
         if (controller.signal.aborted) return;
-        const routes = resolveReviewerRoutes(reviewerSpecs, ctx.scopedModels);
-        const refuterRoute = refuterSpec
+        const routes = preResolvedRoutes ?? resolveReviewerRoutes(reviewerSpecs, ctx.scopedModels);
+        const refuterRoute = preResolvedRefuterRoute ?? (refuterSpec
           ? resolveRefuterRoute(refuterSpec, ctx.scopedModels)
-          : undefined;
+          : undefined);
         const startedAt = new Date();
         const runStatus = ctx.mode === "tui"
           ? createReviewRunStatus(ctx, routes.length, startedAt.getTime())
           : undefined;
         const executeReview = async () => {
-          frozenInput = await prepareFrozenReviewInput({
+          const candidateInput = await prepareFrozenReviewInput({
             cwd: ctx.cwd,
-            target: command.target,
+            target: targetPreflight.target,
+            preflight: targetPreflight.audit,
             reqdoc: command.reqdoc,
             focus: command.focus,
           });
-          const selectedRuntime = await ensureRuntime();
-          const runtime = selectedRuntime.runtime;
-          capabilities = selectedRuntime.capabilities;
-          const reviewerSystemPrompt = await loadReviewerSystemPrompt();
+          let runtime: ResolvedReviewRuntime["runtime"];
+          let reviewerSystemPrompt: string;
+          try {
+            // Resolve backend/assets before the final guard so its comparison
+            // remains immediately adjacent to the first possible spawn.
+            const selectedRuntime = await ensureRuntime();
+            runtime = selectedRuntime.runtime;
+            capabilities = selectedRuntime.capabilities;
+            reviewerSystemPrompt = await loadReviewerSystemPrompt();
+            // Once the run loader is visible, Escape must still produce a
+            // durable cancelled report. Finish the bounded freeze, but skip
+            // guard failure and all reviewer spawns through the aborted signal.
+            let stable = true;
+            if (!controller.signal.aborted) {
+              try {
+                stable = await revalidate(targetPreflight, {
+                  signal: controller.signal,
+                  frozenTarget: candidateInput.target,
+                });
+              } catch (error) {
+                if (!controller.signal.aborted) throw error;
+              }
+            }
+            if (!controller.signal.aborted && !stable) {
+              throw new ReviewInputError(
+                "Git state changed while freezing adversarial review input. Retry the review.",
+              );
+            }
+            frozenInput = candidateInput;
+          } catch (error) {
+            await candidateInput.cleanup();
+            throw error;
+          }
           const fleet = await runReviewerFleet({
             runtime,
             routes,
@@ -292,6 +401,10 @@ export default function adversarialReviewExtension(
         }
       } catch (error) {
         if (sessionShuttingDown) return;
+        if (controller.signal.aborted && error === controller.signal.reason) {
+          ctx.ui.notify("Adversarial review: Git preflight cancelled.", "info");
+          return;
+        }
         const type = error instanceof EmptyReviewInputError ? "info" : "error";
         const prefix = error instanceof ReviewCommandError || error instanceof EmptyReviewInputError
           ? "Adversarial review"

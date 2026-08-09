@@ -6,6 +6,7 @@ import type {
   FrozenReviewInput,
   ReviewInputDrift,
   ReviewTarget,
+  ReviewTargetPreflight,
   ReviewTargetRequest,
 } from "../types.ts";
 import {
@@ -41,6 +42,8 @@ export interface PrepareFrozenReviewInputOptions {
   target: ReviewTargetRequest;
   reqdoc?: string;
   focus?: string;
+  preflight?: ReviewTargetPreflight;
+  signal?: AbortSignal;
   runId?: string;
   maxBytes?: number;
   maxLines?: number;
@@ -48,6 +51,13 @@ export interface PrepareFrozenReviewInputOptions {
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function assertFreezeActive(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Adversarial review input freezing cancelled.");
 }
 
 async function readRequirement(
@@ -104,6 +114,7 @@ function toReviewTarget(
   root: string,
   resolved: ResolvedReviewTarget,
   capture: TargetCapture,
+  preflight?: ReviewTargetPreflight,
 ): ReviewTarget {
   return {
     mode: resolved.mode,
@@ -113,6 +124,7 @@ function toReviewTarget(
     statusSha256: capture.statusSha256,
     targetSha256: capture.targetSha256,
     changedFiles: capture.changedFiles,
+    ...(preflight ? { preflight } : {}),
     ...(resolved.mode === "base" ? { baseSha: resolved.baseSha } : {}),
     ...(resolved.mode === "range" ? { fromSha: resolved.fromSha, toSha: resolved.toSha } : {}),
   };
@@ -192,6 +204,76 @@ function hasReviewChanges(capture: TargetCapture): boolean {
   return capture.changedFiles.length > 0 && capture.sections.some(({ patch }) => patch.length > 0);
 }
 
+export interface ReviewTargetFingerprint {
+  root: string;
+  headSha: string;
+  statusSha256: string;
+  targetSha256: string;
+  targetRefs: Array<{ ref: string; sha: string }>;
+}
+
+function resolvedTargetIdentity(target: ResolvedReviewTarget): string {
+  return JSON.stringify(target);
+}
+
+function captureIdentity(capture: TargetCapture): string {
+  return JSON.stringify({
+    headSha: capture.headSha,
+    statusSha256: capture.statusSha256,
+    targetSha256: capture.targetSha256,
+  });
+}
+
+export async function fingerprintReviewTarget(options: {
+  cwd: string;
+  target: ReviewTargetRequest;
+  signal?: AbortSignal;
+  maxBytes?: number;
+  maxLines?: number;
+}): Promise<ReviewTargetFingerprint> {
+  const maxBytes = options.maxBytes ?? MAX_FROZEN_INPUT_BYTES;
+  const maxLines = options.maxLines ?? MAX_FROZEN_INPUT_LINES;
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0 || !Number.isInteger(maxLines) || maxLines <= 0) {
+    throw new ReviewInputError("Frozen input limits must be positive integers.");
+  }
+  const root = await resolveGitRoot(options.cwd, options.signal);
+  const captureOptions = { maxBytes, maxLines, signal: options.signal };
+  const firstResolved = await resolveReviewTarget(root, options.target, options.signal);
+  const firstCapture = await captureReviewTarget(root, firstResolved, captureOptions);
+  const secondResolved = await resolveReviewTarget(root, options.target, options.signal);
+  if (resolvedTargetIdentity(firstResolved) !== resolvedTargetIdentity(secondResolved)) {
+    throw new ReviewInputError(
+      "Git target refs changed while fingerprinting adversarial review input. Retry the review.",
+    );
+  }
+  const secondCapture = await captureReviewTarget(root, secondResolved, captureOptions);
+  const finalResolved = await resolveReviewTarget(root, options.target, options.signal);
+  if (
+    resolvedTargetIdentity(secondResolved) !== resolvedTargetIdentity(finalResolved) ||
+    captureIdentity(firstCapture) !== captureIdentity(secondCapture)
+  ) {
+    throw new ReviewInputError(
+      "Git content changed while fingerprinting adversarial review input. Retry the review.",
+    );
+  }
+  if (!hasReviewChanges(secondCapture)) throw new EmptyReviewInputError();
+  const targetRefs = options.target.mode === "base" && finalResolved.mode === "base"
+    ? [{ ref: options.target.baseRef, sha: finalResolved.baseSha }]
+    : options.target.mode === "range" && finalResolved.mode === "range"
+      ? [
+          { ref: options.target.fromRef, sha: finalResolved.fromSha },
+          { ref: options.target.toRef, sha: finalResolved.toSha },
+        ]
+      : [];
+  return {
+    root,
+    headSha: secondCapture.headSha,
+    statusSha256: secondCapture.statusSha256,
+    targetSha256: secondCapture.targetSha256,
+    targetRefs,
+  };
+}
+
 async function detectDrift(
   root: string,
   request: ReviewTargetRequest,
@@ -220,18 +302,24 @@ export async function prepareFrozenReviewInput(
   if (!Number.isInteger(maxBytes) || maxBytes <= 0 || !Number.isInteger(maxLines) || maxLines <= 0) {
     throw new ReviewInputError("Frozen input limits must be positive integers.");
   }
-  const root = await resolveGitRoot(options.cwd);
-  const resolved = await resolveReviewTarget(root, options.target);
-  const capture = await captureReviewTarget(root, resolved, { maxBytes, maxLines });
+  const root = await resolveGitRoot(options.cwd, options.signal);
+  const resolved = await resolveReviewTarget(root, options.target, options.signal);
+  const capture = await captureReviewTarget(root, resolved, {
+    maxBytes,
+    maxLines,
+    signal: options.signal,
+  });
   if (!hasReviewChanges(capture)) throw new EmptyReviewInputError();
+  assertFreezeActive(options.signal);
 
   const [charter, requirement] = await Promise.all([
     readFile(CHARTER_PATH, "utf8"),
     readRequirement(root, options.reqdoc, maxBytes, maxLines),
   ]);
+  assertFreezeActive(options.signal);
   const charterSha256 = sha256(charter);
   const runId = options.runId ?? randomUUID();
-  const target = toReviewTarget(root, resolved, capture);
+  const target = toReviewTarget(root, resolved, capture, options.preflight);
   const content = buildInputBundle({
     runId,
     target,
@@ -247,10 +335,16 @@ export async function prepareFrozenReviewInput(
   try {
     let reviewerCwd = root;
     if (resolved.mode === "range") {
-      await extractRangeSnapshot(root, resolved.toSha, workspace.snapshotDir);
+      await extractRangeSnapshot(
+        root,
+        resolved.toSha,
+        workspace.snapshotDir,
+        options.signal,
+      );
       await workspace.makeSnapshotReadOnly();
       reviewerCwd = workspace.snapshotDir;
     }
+    assertFreezeActive(options.signal);
     await workspace.writeInput(content);
 
     return {

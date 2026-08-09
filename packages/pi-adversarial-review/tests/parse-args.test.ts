@@ -7,6 +7,7 @@ describe("parseReviewCommand", () => {
       '--reviewer provider/a@high --reviewer provider/b@xhigh --focus "concurrency and retries" --gating strict',
     )).toEqual({
       target: { mode: "local" },
+      targetExplicit: false,
       reviewerSpecs: ["provider/a@high", "provider/b@xhigh"],
       focus: "concurrency and retries",
       gating: "strict",
@@ -14,7 +15,11 @@ describe("parseReviewCommand", () => {
     });
   });
 
-  it("parses base and range targets", () => {
+  it("parses explicit local, base, and range targets", () => {
+    expect(parseReviewCommand("--local")).toMatchObject({
+      target: { mode: "local" },
+      targetExplicit: true,
+    });
     expect(parseReviewCommand("--base origin/main").target).toEqual({
       mode: "base",
       baseRef: "origin/main",
@@ -28,7 +33,10 @@ describe("parseReviewCommand", () => {
 
   it("rejects mutually exclusive and malformed targets", () => {
     expect(() => parseReviewCommand("--base main --range main..feature")).toThrow(
-      "--base and --range are mutually exclusive",
+      "--local, --base, and --range are mutually exclusive",
+    );
+    expect(() => parseReviewCommand("--local --base main")).toThrow(
+      "--local, --base, and --range are mutually exclusive",
     );
     expect(() => parseReviewCommand("--range main...feature")).toThrow(
       '--range must use exactly "<refA>..<refB>"',

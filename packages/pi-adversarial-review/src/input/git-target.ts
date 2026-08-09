@@ -17,9 +17,35 @@ const LFS_LIMIT = "Git LFS object content is not materialized; only the committe
 interface RunOptions {
   allowedExitCodes?: number[];
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
   maxOutputBytes?: number;
   maxOutputLines?: number;
   unsetEnv?: readonly string[];
+}
+
+function captureAbortError(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error
+    ? signal.reason
+    : new Error("Adversarial review Git capture cancelled.");
+}
+
+function assertCaptureActive(signal?: AbortSignal): void {
+  if (signal?.aborted) throw captureAbortError(signal);
+}
+
+function killCaptureProcessTree(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+): void {
+  if (child.pid && process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct process when its group has already exited.
+    }
+  }
+  try { child.kill(signal); } catch { /* process already exited */ }
 }
 
 async function run(
@@ -28,6 +54,7 @@ async function run(
   cwd: string,
   options: RunOptions = {},
 ): Promise<Buffer> {
+  assertCaptureActive(options.signal);
   const allowed = new Set(options.allowedExitCodes ?? [0]);
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_PROCESS_OUTPUT;
   return await new Promise((resolve, reject) => {
@@ -36,24 +63,36 @@ async function run(
     const child = spawn(command, args, {
       cwd,
       env,
+      detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let outputSize = 0;
     let settled = false;
+    let aborted = false;
+    let overflowError: OversizedReviewInputError | undefined;
+    const cleanup = () => options.signal?.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      aborted = true;
+      killCaptureProcessTree(child, "SIGKILL");
+    };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
 
     const collect = (target: Buffer[], chunk: Buffer) => {
       outputSize += chunk.length;
-      if (outputSize > maxOutputBytes && !settled) {
-        settled = true;
-        child.kill("SIGKILL");
-        reject(new OversizedReviewInputError(
-          outputSize,
-          0,
-          maxOutputBytes,
-          options.maxOutputLines ?? Number.MAX_SAFE_INTEGER,
-        ));
+      if (outputSize > maxOutputBytes) {
+        if (!overflowError) {
+          overflowError = new OversizedReviewInputError(
+            outputSize,
+            0,
+            maxOutputBytes,
+            options.maxOutputLines ?? Number.MAX_SAFE_INTEGER,
+          );
+          killCaptureProcessTree(child, "SIGKILL");
+        }
         return;
       }
       target.push(chunk);
@@ -64,11 +103,23 @@ async function run(
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
-      reject(new ReviewInputError(`Failed to run ${command}: ${error.message}`));
+      cleanup();
+      reject(aborted
+        ? captureAbortError(options.signal)
+        : overflowError ?? new ReviewInputError(`Failed to run ${command}: ${error.message}`));
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
+      cleanup();
+      if (aborted) {
+        reject(captureAbortError(options.signal));
+        return;
+      }
+      if (overflowError) {
+        reject(overflowError);
+        return;
+      }
       if (code !== null && allowed.has(code)) {
         resolve(Buffer.concat(stdout));
         return;
@@ -79,7 +130,10 @@ async function run(
   });
 }
 
-async function neutralizedGitConfig(root: string): Promise<NodeJS.ProcessEnv> {
+export async function neutralizedGitConfigEnv(
+  root: string,
+  signal?: AbortSignal,
+): Promise<NodeJS.ProcessEnv> {
   const output = await run(
     "git",
     [
@@ -92,7 +146,13 @@ async function neutralizedGitConfig(root: string): Promise<NodeJS.ProcessEnv> {
     root,
     {
       allowedExitCodes: [0, 1],
-      env: { GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
+      env: {
+        GIT_CONFIG_COUNT: "0",
+        GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_OPTIONAL_LOCKS: "0",
+      },
+      signal,
+      unsetEnv: ["GIT_CONFIG_PARAMETERS"],
     },
   );
   const drivers = new Set<string>();
@@ -125,7 +185,7 @@ async function neutralizedGitConfig(root: string): Promise<NodeJS.ProcessEnv> {
 }
 
 async function git(root: string, args: string[], options: RunOptions = {}): Promise<Buffer> {
-  const safeConfigEnv = await neutralizedGitConfig(root);
+  const safeConfigEnv = await neutralizedGitConfigEnv(root, options.signal);
   return run("git", args, root, {
     ...options,
     env: {
@@ -171,18 +231,33 @@ function decodeNulList(buffer: Buffer): string[] {
   return splitNulRecords(buffer).map(decodeGitPath);
 }
 
-async function resolveCommit(root: string, ref: string): Promise<string> {
+async function resolveCommit(
+  root: string,
+  ref: string,
+  signal?: AbortSignal,
+): Promise<string> {
   try {
-    return (await git(root, ["rev-parse", "--verify", `${ref}^{commit}`])).toString("utf8").trim();
-  } catch {
+    return (await git(
+      root,
+      ["rev-parse", "--verify", `${ref}^{commit}`],
+      { signal },
+    )).toString("utf8").trim();
+  } catch (error) {
+    if (signal?.aborted) throw captureAbortError(signal);
     throw new ReviewInputError(`Git ref "${ref}" does not resolve to a commit.`);
   }
 }
 
-export async function resolveGitRoot(cwd: string): Promise<string> {
+export async function resolveGitRoot(cwd: string, signal?: AbortSignal): Promise<string> {
   try {
-    return (await run("git", ["rev-parse", "--show-toplevel"], cwd)).toString("utf8").trim();
-  } catch {
+    return (await run(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      cwd,
+      { signal },
+    )).toString("utf8").trim();
+  } catch (error) {
+    if (signal?.aborted) throw captureAbortError(signal);
     throw new ReviewInputError(`Not inside a Git repository: ${cwd}`);
   }
 }
@@ -195,21 +270,22 @@ export type ResolvedReviewTarget =
 export async function resolveReviewTarget(
   root: string,
   request: ReviewTargetRequest,
+  signal?: AbortSignal,
 ): Promise<ResolvedReviewTarget> {
   if (request.mode === "local") return request;
   if (request.mode === "base") {
     return {
       mode: "base",
       baseRef: request.baseRef,
-      baseSha: await resolveCommit(root, request.baseRef),
+      baseSha: await resolveCommit(root, request.baseRef, signal),
     };
   }
   return {
     mode: "range",
     fromRef: request.fromRef,
     toRef: request.toRef,
-    fromSha: await resolveCommit(root, request.fromRef),
-    toSha: await resolveCommit(root, request.toRef),
+    fromSha: await resolveCommit(root, request.fromRef, signal),
+    toSha: await resolveCommit(root, request.toRef, signal),
   };
 }
 
@@ -221,6 +297,7 @@ export interface FrozenPatchSection {
 export interface CaptureLimits {
   maxBytes: number;
   maxLines: number;
+  signal?: AbortSignal;
 }
 
 export interface TargetCapture {
@@ -237,7 +314,11 @@ async function untrackedFiles(root: string, limits: CaptureLimits): Promise<stri
   return decodeNulList(await git(
     root,
     ["ls-files", "--others", "--exclude-standard", "-z"],
-    { maxOutputBytes: limits.maxBytes, maxOutputLines: limits.maxLines },
+    {
+      maxOutputBytes: limits.maxBytes,
+      maxOutputLines: limits.maxLines,
+      signal: limits.signal,
+    },
   ));
 }
 
@@ -248,6 +329,7 @@ async function syntheticUntrackedPatches(
 ): Promise<string> {
   const patches: string[] = [];
   for (const file of files) {
+    assertCaptureActive(limits.signal);
     const output = await git(
       root,
       ["diff", "--no-index", ...DIFF_FLAGS, "--", "/dev/null", file],
@@ -255,6 +337,7 @@ async function syntheticUntrackedPatches(
         allowedExitCodes: [0, 1],
         maxOutputBytes: limits.maxBytes,
         maxOutputLines: limits.maxLines,
+        signal: limits.signal,
       },
     );
     if (output.length > 0) {
@@ -265,15 +348,19 @@ async function syntheticUntrackedPatches(
   return patches.join("\n");
 }
 
-async function currentHead(root: string): Promise<string> {
-  return resolveCommit(root, "HEAD");
+async function currentHead(root: string, signal?: AbortSignal): Promise<string> {
+  return resolveCommit(root, "HEAD", signal);
 }
 
 async function statusFingerprint(root: string, limits: CaptureLimits): Promise<string> {
   return sha256(await git(
     root,
     ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"],
-    { maxOutputBytes: limits.maxBytes, maxOutputLines: limits.maxLines },
+    {
+      maxOutputBytes: limits.maxBytes,
+      maxOutputLines: limits.maxLines,
+      signal: limits.signal,
+    },
   ));
 }
 
@@ -281,7 +368,11 @@ async function diff(root: string, args: string[], limits: CaptureLimits): Promis
   return (await git(
     root,
     ["diff", ...DIFF_FLAGS, "--ignore-submodules=none", ...args, "--"],
-    { maxOutputBytes: limits.maxBytes, maxOutputLines: limits.maxLines },
+    {
+      maxOutputBytes: limits.maxBytes,
+      maxOutputLines: limits.maxLines,
+      signal: limits.signal,
+    },
   )).toString("utf8");
 }
 
@@ -289,7 +380,11 @@ async function diffNames(root: string, args: string[], limits: CaptureLimits): P
   return decodeNulList(await git(
     root,
     ["diff", "--name-only", "-z", "--ignore-submodules=none", ...args, "--"],
-    { maxOutputBytes: limits.maxBytes, maxOutputLines: limits.maxLines },
+    {
+      maxOutputBytes: limits.maxBytes,
+      maxOutputLines: limits.maxLines,
+      signal: limits.signal,
+    },
   ));
 }
 
@@ -306,7 +401,11 @@ async function rangeLimitedContext(
   const raw = (await git(
     root,
     ["diff", "--raw", "--ignore-submodules=none", `${fromSha}...${toSha}`, "--"],
-    { maxOutputBytes: limits.maxBytes, maxOutputLines: limits.maxLines },
+    {
+      maxOutputBytes: limits.maxBytes,
+      maxOutputLines: limits.maxLines,
+      signal: limits.signal,
+    },
   )).toString("utf8");
   return raw.split("\n").some((line) => /^:160000\s|\s160000\s/u.test(line))
     ? [SUBMODULE_LIMIT]
@@ -339,17 +438,32 @@ function classifyContentPrefix(content: Buffer): string[] {
   return limited;
 }
 
-async function readGitBlobPrefix(root: string, objectId: string): Promise<Buffer> {
+async function readGitBlobPrefix(
+  root: string,
+  objectId: string,
+  signal?: AbortSignal,
+): Promise<Buffer> {
+  assertCaptureActive(signal);
   return await new Promise((resolve, reject) => {
     const child = spawn("git", ["cat-file", "blob", objectId], {
       cwd: root,
       env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
+      detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
     const stderr: Buffer[] = [];
     let captured = 0;
     let settled = false;
+    let aborted = false;
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      aborted = true;
+      killCaptureProcessTree(child, "SIGKILL");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     child.stdout.on("data", (chunk: Buffer) => {
       if (captured >= CLASSIFY_PREFIX_BYTES) return;
       const take = chunk.subarray(0, CLASSIFY_PREFIX_BYTES - captured);
@@ -360,12 +474,17 @@ async function readGitBlobPrefix(root: string, objectId: string): Promise<Buffer
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
-      reject(new ReviewInputError(`Failed to inspect Git blob ${objectId}: ${error.message}`));
+      cleanup();
+      reject(aborted
+        ? captureAbortError(signal)
+        : new ReviewInputError(`Failed to inspect Git blob ${objectId}: ${error.message}`));
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
-      if (code === 0) resolve(Buffer.concat(chunks));
+      cleanup();
+      if (aborted) reject(captureAbortError(signal));
+      else if (code === 0) resolve(Buffer.concat(chunks));
       else reject(new ReviewInputError(
         Buffer.concat(stderr).toString("utf8").trim() || `git cat-file exited ${code}.`,
       ));
@@ -377,16 +496,20 @@ async function rangeObjectLimitedContext(
   root: string,
   toSha: string,
   changedFiles: readonly string[],
+  limits: CaptureLimits,
 ): Promise<string[]> {
-  const entries = await listRawTree(root, toSha);
+  const entries = await listRawTree(root, toSha, limits.signal);
   const byFile = new Map(entries.map((entry) => [entry.file, entry]));
   const limited = entries.some((entry) => entry.type === "commit" || entry.mode === "160000")
     ? [SUBMODULE_LIMIT]
     : [];
   for (const file of changedFiles) {
+    assertCaptureActive(limits.signal);
     const entry = byFile.get(file);
     if (!entry || entry.type !== "blob" || entry.mode === "120000") continue;
-    limited.push(...classifyContentPrefix(await readGitBlobPrefix(root, entry.objectId)));
+    limited.push(...classifyContentPrefix(
+      await readGitBlobPrefix(root, entry.objectId, limits.signal),
+    ));
   }
   return limited;
 }
@@ -394,9 +517,11 @@ async function rangeObjectLimitedContext(
 async function workingObjectLimitedContext(
   root: string,
   changedFiles: readonly string[],
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const limited: string[] = [];
   for (const file of changedFiles) {
+    assertCaptureActive(signal);
     const target = path.resolve(root, file);
     const relative = path.relative(root, target);
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -430,7 +555,7 @@ export async function captureReviewTarget(
   target: ResolvedReviewTarget,
   limits: CaptureLimits,
 ): Promise<TargetCapture> {
-  const headSha = await currentHead(root);
+  const headSha = await currentHead(root, limits.signal);
   const untracked = target.mode === "range" ? [] : await untrackedFiles(root, limits);
   const untrackedPatch = target.mode === "range"
     ? ""
@@ -471,8 +596,8 @@ export async function captureReviewTarget(
 
   const changedFiles = uniqueSorted([...trackedNames, ...untracked]);
   const objectLimitedContext = target.mode === "range"
-    ? await rangeObjectLimitedContext(root, target.toSha, changedFiles)
-    : await workingObjectLimitedContext(root, changedFiles);
+    ? await rangeObjectLimitedContext(root, target.toSha, changedFiles, limits)
+    : await workingObjectLimitedContext(root, changedFiles, limits.signal);
   limitedContext = uniqueSorted([
     ...limitedContext,
     ...patchLimitedContext(sections),
@@ -530,10 +655,15 @@ function parseRawTree(buffer: Buffer): RawTreeEntry[] {
   });
 }
 
-async function listRawTree(root: string, toSha: string): Promise<RawTreeEntry[]> {
+async function listRawTree(
+  root: string,
+  toSha: string,
+  signal?: AbortSignal,
+): Promise<RawTreeEntry[]> {
   return parseRawTree(await git(
     root,
     ["ls-tree", "-rz", "--full-tree", "-r", toSha],
+    { signal },
   ));
 }
 
@@ -556,28 +686,47 @@ async function writeRawBlob(
   objectId: string,
   target: string,
   mode: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  assertCaptureActive(signal);
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const child = spawn("git", ["cat-file", "blob", objectId], {
     cwd: root,
     env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stderr: Buffer[] = [];
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
   const output = createWriteStream(target, { flags: "wx", mode });
+  let aborted = false;
+  const onAbort = () => {
+    aborted = true;
+    killCaptureProcessTree(child, "SIGKILL");
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   const exited = new Promise<void>((resolve, reject) => {
-    child.on("error", (error) => reject(error));
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    child.on("error", (error) => {
+      cleanup();
+      reject(aborted ? captureAbortError(signal) : error);
+    });
     child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(Buffer.concat(stderr).toString("utf8").trim() || `git cat-file exited ${code}.`));
+      cleanup();
+      if (aborted) reject(captureAbortError(signal));
+      else if (code === 0) resolve();
+      else reject(new Error(
+        Buffer.concat(stderr).toString("utf8").trim() || `git cat-file exited ${code}.`,
+      ));
     });
   });
   try {
     await Promise.all([pipeline(child.stdout, output), exited]);
   } catch (error) {
-    child.kill("SIGKILL");
+    killCaptureProcessTree(child, "SIGKILL");
     await rm(target, { force: true });
+    if (signal?.aborted) throw captureAbortError(signal);
     throw new ReviewInputError(
       `Failed to extract Git blob ${objectId}: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -585,9 +734,15 @@ async function writeRawBlob(
 }
 
 /** Extract committed blobs directly, bypassing export-ignore and all smudge filters. */
-export async function extractRangeSnapshot(root: string, toSha: string, destination: string): Promise<void> {
-  const entries = await listRawTree(root, toSha);
+export async function extractRangeSnapshot(
+  root: string,
+  toSha: string,
+  destination: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const entries = await listRawTree(root, toSha, signal);
   for (const entry of entries) {
+    assertCaptureActive(signal);
     const target = safeSnapshotPath(destination, entry.file);
     if (entry.type === "commit" || entry.mode === "160000") {
       await mkdir(target, { recursive: true, mode: 0o700 });
@@ -597,6 +752,7 @@ export async function extractRangeSnapshot(root: string, toSha: string, destinat
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       const linkTarget = await git(root, ["cat-file", "blob", entry.objectId], {
         maxOutputBytes: 1024 * 1024,
+        signal,
       });
       if (linkTarget.includes(0)) {
         throw new ReviewInputError(
@@ -606,6 +762,12 @@ export async function extractRangeSnapshot(root: string, toSha: string, destinat
       await symlink(linkTarget, target);
       continue;
     }
-    await writeRawBlob(root, entry.objectId, target, entry.mode === "100755" ? 0o700 : 0o600);
+    await writeRawBlob(
+      root,
+      entry.objectId,
+      target,
+      entry.mode === "100755" ? 0o700 : 0o600,
+      signal,
+    );
   }
 }

@@ -79,6 +79,7 @@ function parseRange(value: string): Extract<ReviewTargetRequest, { mode: "range"
 export function parseReviewCommand(input: string): ParsedReviewCommand {
   const tokens = tokenize(input);
   const reviewerSpecs: string[] = [];
+  let localExplicit = false;
   let baseRef: string | undefined;
   let range: Extract<ReviewTargetRequest, { mode: "range" }> | undefined;
   let reqdoc: string | undefined;
@@ -90,6 +91,10 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
     switch (token) {
+      case "--local":
+        if (localExplicit) throw new ReviewCommandError("--local may be provided only once.");
+        localExplicit = true;
+        break;
       case "--base":
         if (baseRef !== undefined) throw new ReviewCommandError("--base may be provided only once.");
         baseRef = requireValue(tokens, index, token);
@@ -141,8 +146,9 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
     }
   }
 
-  if (baseRef !== undefined && range !== undefined) {
-    throw new ReviewCommandError("--base and --range are mutually exclusive.");
+  const targetOptionCount = Number(localExplicit) + Number(baseRef !== undefined) + Number(range !== undefined);
+  if (targetOptionCount > 1) {
+    throw new ReviewCommandError("--local, --base, and --range are mutually exclusive.");
   }
   if (refuterSpec !== undefined && !refute) {
     throw new ReviewCommandError("--refuter requires --refute.");
@@ -151,6 +157,7 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   const target: ReviewTargetRequest = range ?? (baseRef ? { mode: "base", baseRef } : { mode: "local" });
   return {
     target,
+    targetExplicit: targetOptionCount === 1,
     reviewerSpecs,
     gating,
     refute,

@@ -10,10 +10,27 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/preflight/resolve-preflight.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/preflight/resolve-preflight.ts")>();
+  return {
+    ...actual,
+    resolveReviewPreflight: vi.fn(async ({ target }: { target: any }) => ({
+      target,
+      audit: { selection: "explicit", fetchStatus: "not-needed" },
+      summary: "Adversarial review target: test-local.",
+      guard: {},
+    })),
+    revalidateReviewPreflight: vi.fn(async () => true),
+  };
+});
+
 import adversarialReviewExtension, {
   ADVERSARIAL_REVIEW_COMMAND,
   preflightReviewCommand,
 } from "../src/index.ts";
+import { ReviewInputError } from "../src/input/errors.ts";
+import type { ResolvedReviewPreflight } from "../src/preflight/resolve-preflight.ts";
 import { PiSubagentRpcV3Client } from "../src/runtime/rpc-v3-client.ts";
 
 class FakePi {
@@ -88,6 +105,39 @@ async function changedRepo(): Promise<string> {
   return root;
 }
 
+function resolvedLocalPreflight(
+  root: string,
+  summary: string,
+  selection: "explicit" | "inferred" | "interactive" = "inferred",
+): ResolvedReviewPreflight {
+  return {
+    target: { mode: "local" },
+    audit: {
+      selection,
+      fetchStatus: "succeeded",
+      branch: "feature/review",
+      remote: "origin",
+      fetchedRemotes: ["origin"],
+      defaultBranchRef: "origin/main",
+      ahead: 2,
+      behind: 0,
+    },
+    summary,
+    guard: {
+      root,
+      headSha: "a".repeat(40),
+      statusSha256: "b".repeat(64),
+      branch: "feature/review",
+      remote: "origin",
+      defaultBranchRef: "origin/main",
+      defaultBranchSha: "c".repeat(40),
+      unmerged: false,
+      targetSha256: "d".repeat(64),
+      targetRefs: [],
+    },
+  };
+}
+
 function context(cwd = process.cwd()) {
   const notifications: Array<{ message: string; type?: string }> = [];
   const statuses: Array<{ key: string; value: string | undefined }> = [];
@@ -98,6 +148,7 @@ function context(cwd = process.cwd()) {
   };
   const ui = {
     notify: (message: string, type?: string) => notifications.push({ message, type }),
+    onTerminalInput: vi.fn(() => () => {}),
     setStatus: (key: string, value: string | undefined) => statuses.push({ key, value }),
     custom: async (factory: any) => new Promise((resolve) => {
       let component: { dispose?: () => void } | undefined;
@@ -142,6 +193,303 @@ describe("adversarial review extension", () => {
       expect.any(Function),
     );
     expect(fake.handlers.get("session_shutdown")).toHaveLength(1);
+  });
+
+  it("completes target preflight before runtime selection and persists its audit", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const order: string[] = [];
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event !== "subagents:rpc:spawn") return;
+      order.push("spawn");
+      const agentId = `preflight-agent-${nextAgent++}`;
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, {
+        success: true,
+        data: { id: agentId },
+      });
+    };
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async ({ target }) => {
+        order.push("preflight");
+        return {
+          target,
+          audit: {
+            selection: "inferred",
+            fetchStatus: "succeeded",
+            branch: "feature/preflight",
+            remote: "origin",
+            fetchedRemotes: ["origin"],
+            defaultBranchRef: "origin/main",
+            ahead: 2,
+            behind: 1,
+          },
+          summary: "Adversarial review target: inferred feature branch.",
+          guard: {
+            root,
+            headSha: "a".repeat(40),
+            statusSha256: "b".repeat(64),
+            branch: "feature/preflight",
+            remote: "origin",
+            defaultBranchRef: "origin/main",
+            defaultBranchSha: "c".repeat(40),
+            unmerged: false,
+            targetSha256: "d".repeat(64),
+            targetRefs: [],
+          },
+        };
+      },
+      resolveRuntime: async ({ events }) => {
+        order.push("runtime");
+        return {
+          runtime: new PiSubagentRpcV3Client(events),
+          capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+          dispose: async () => {},
+        };
+      },
+    });
+    const { ctx, notifications } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(order[0]).toBe("preflight");
+    expect(order.indexOf("runtime")).toBeGreaterThan(order.indexOf("preflight"));
+    expect(order.indexOf("spawn")).toBeGreaterThan(order.indexOf("runtime"));
+    expect(notifications[0]).toEqual({
+      message: "Adversarial review target: inferred feature branch.",
+      type: "info",
+    });
+    expect(fake.entries[0]?.data.target.preflight).toEqual({
+      selection: "inferred",
+      fetchStatus: "succeeded",
+      branch: "feature/preflight",
+      remote: "origin",
+      fetchedRemotes: ["origin"],
+      defaultBranchRef: "origin/main",
+      ahead: 2,
+      behind: 1,
+    });
+  });
+
+  it("reruns target preflight when Git changes while the reviewer picker is open", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `guard-agent-${nextAgent++}`;
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+        requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, {
+        success: true,
+        data: { id: agentId },
+      });
+    };
+    let preflightCount = 0;
+    const resolvePreflight = vi.fn(async () => {
+      preflightCount++;
+      return resolvedLocalPreflight(
+        root,
+        `Adversarial review target: pass ${preflightCount}.`,
+        preflightCount === 1 ? "inferred" : "interactive",
+      );
+    });
+    const revalidatePreflight = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight,
+      revalidatePreflight,
+      resolveRuntime: async ({ events }) => ({
+        runtime: new PiSubagentRpcV3Client(events),
+        capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+        dispose: async () => {},
+      }),
+    });
+    const { ctx, notifications, tui, theme } = context(root);
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      const picker = component;
+      if (!picker) throw new Error("Reviewer picker was not created.");
+      picker.handleInput("\r");
+      picker.handleInput("\x1b[B");
+      picker.handleInput("\r");
+      picker.handleInput("\x1b[B");
+      picker.handleInput("\r");
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler("", ctx);
+
+    expect(resolvePreflight).toHaveBeenCalledTimes(2);
+    expect(revalidatePreflight).toHaveBeenCalledTimes(2);
+    expect(notifications).toContainEqual({
+      message: "Adversarial review: Git changed while selecting models; running preflight again.",
+      type: "warning",
+    });
+    expect(fake.entries[0]?.data.target.preflight.selection).toBe("interactive");
+    expect(fake.entries[0]?.data.overall).toBe("candidate-approve");
+  });
+
+  it("cleans a frozen candidate and prevents runtime spawn when the guard changes during freeze", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const resolveRuntime = vi.fn(async () => ({
+      runtime: new PiSubagentRpcV3Client(fake.events),
+      capabilities: { protocolVersion: 3 as const, maxConcurrent: 2, backend: "external-v3" as const },
+      dispose: async () => {},
+    }));
+    const revalidatePreflight = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async () => resolvedLocalPreflight(
+        root,
+        "Adversarial review target: guarded local.",
+      ),
+      revalidatePreflight,
+      resolveRuntime,
+    });
+    const { ctx, notifications } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(revalidatePreflight).toHaveBeenCalledTimes(2);
+    expect(resolveRuntime).toHaveBeenCalledTimes(1);
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    expect(fake.entries).toEqual([]);
+    expect(notifications.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("Git state changed while freezing"),
+    });
+  });
+
+  it("makes session shutdown wait for an in-flight Git preflight cancellation", async () => {
+    const fake = new FakePi();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const resolveRuntime = vi.fn();
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async ({ signal }) => {
+        markStarted();
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) resolve();
+          else signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return undefined;
+      },
+      resolveRuntime,
+    });
+    const { ctx, statuses, notifications } = context();
+
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await started;
+    const shutdown = Promise.all(
+      (fake.handlers.get("session_shutdown") ?? []).map((handler) => handler()),
+    );
+    await Promise.all([command, shutdown]);
+
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect(notifications).toEqual([]);
+  });
+
+  it("lets TUI Escape cancel an in-flight Git preflight before runtime selection", async () => {
+    const fake = new FakePi();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const resolveRuntime = vi.fn();
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async ({ signal }) => {
+        markStarted();
+        await new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) reject(signal.reason);
+          else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        return undefined;
+      },
+      resolveRuntime,
+    });
+    const { ctx, notifications, statuses } = context();
+    let terminalInput: ((data: string) => void) | undefined;
+    (ctx.ui.onTerminalInput as any).mockImplementation((handler: (data: string) => void) => {
+      terminalInput = handler;
+      return () => { terminalInput = undefined; };
+    });
+
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await started;
+    terminalInput?.("\x1b");
+    await command;
+
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect(notifications.at(-1)).toEqual({
+      message: "Adversarial review: Git preflight cancelled.",
+      type: "info",
+    });
+  });
+
+  it("publishes a stable headless input error when automatic fetch preflight fails", async () => {
+    const fake = new FakePi();
+    const resolveRuntime = vi.fn();
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async () => {
+        throw new ReviewInputError(
+          "Automatic Git fetch failed for remote \"origin\". Pass --local for an explicit offline review.",
+        );
+      },
+      resolveRuntime,
+    });
+    const { ctx } = context();
+    Object.assign(ctx, { mode: "json" });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.entries).toContainEqual({
+      customType: "adversarial-review-error",
+      data: expect.objectContaining({
+        kind: "input",
+        mode: "json",
+        message: expect.stringContaining("Automatic Git fetch failed"),
+      }),
+    });
+    expect(process.exitCode).toBe(1);
   });
 
   it("validates explicit routes without doing runtime work", () => {
@@ -580,8 +928,13 @@ describe("adversarial review extension", () => {
     expect(fake.entries).toEqual([]);
     expect(fake.sentMessages).toEqual([]);
     expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
-    expect(statuses).toEqual([]);
-    expect(notifications).toEqual([]);
+    expect(statuses).toEqual([
+      { key: "adversarial-review", value: "Adversarial review · checking Git target…" },
+      { key: "adversarial-review", value: undefined },
+    ]);
+    expect(notifications).toEqual([
+      { message: "Adversarial review target: test-local.", type: "info" },
+    ]);
   });
 
   it("keeps the frozen input and shutdown pending until stopped agents reach terminal", async () => {
@@ -703,6 +1056,55 @@ describe("adversarial review extension", () => {
       cwd: root,
       encoding: "utf8",
     })).stdout).toBe(before);
+  });
+
+  it("keeps the cancelled audit when Escape interrupts the final Git guard", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+      }
+    };
+    let markFinalGuard!: () => void;
+    const finalGuardStarted = new Promise<void>((resolve) => { markFinalGuard = resolve; });
+    let validationCount = 0;
+    adversarialReviewExtension(fake.api(), {
+      revalidatePreflight: async (_preflight, { signal } = {}) => {
+        validationCount++;
+        if (validationCount === 1) return true;
+        markFinalGuard();
+        await new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) reject(signal.reason);
+          else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        return true;
+      },
+    });
+    const { ctx, tui, theme } = context(root);
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      void finalGuardStarted.then(() => component?.handleInput("\x1b"));
+    });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(validationCount).toBe(2);
+    expect(fake.entries[0]?.data).toMatchObject({
+      overall: "cancelled",
+      routeResults: [{ status: "cancelled" }, { status: "cancelled" }],
+    });
+    expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
   });
 
   it("marks the final report stale when the target drifts during reviewer execution", async () => {

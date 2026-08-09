@@ -4,10 +4,11 @@ import { access, appendFile, chmod, mkdir, mkdtemp, readFile, readdir, readlink,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertFrozenInputWithinLimits,
   EmptyReviewInputError,
+  fingerprintReviewTarget,
   MAX_FROZEN_INPUT_BYTES,
   MAX_FROZEN_INPUT_LINES,
   measureFrozenInput,
@@ -47,6 +48,15 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 afterEach(async () => {
   await Promise.all(repos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -70,12 +80,32 @@ describe("prepareFrozenReviewInput", () => {
     const frozen = await prepareFrozenReviewInput({
       cwd: nested,
       target: { mode: "local" },
+      preflight: {
+        selection: "inferred",
+        fetchStatus: "succeeded",
+        branch: "feature/review",
+        remote: "origin",
+        fetchedRemotes: ["origin"],
+        defaultBranchRef: "origin/main",
+        ahead: 2,
+        behind: 0,
+      },
       focus: "failure recovery",
       runId: randomUUID(),
     });
 
     const content = await readFile(frozen.inputPath, "utf8");
     expect(frozen.target.root).toBe(root);
+    expect(frozen.target.preflight).toEqual({
+      selection: "inferred",
+      fetchStatus: "succeeded",
+      branch: "feature/review",
+      remote: "origin",
+      fetchedRemotes: ["origin"],
+      defaultBranchRef: "origin/main",
+      ahead: 2,
+      behind: 0,
+    });
     expect(frozen.target.changedFiles).toEqual([
       "staged.txt",
       "unstaged.txt",
@@ -99,6 +129,119 @@ describe("prepareFrozenReviewInput", () => {
     await frozen.cleanup();
     await frozen.cleanup();
     expect(await exists(runDir)).toBe(false);
+  });
+
+  it("cancels an in-flight fingerprint command and leaves no SIGTERM-ignoring descendant", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "tracked.ts"), "export const value = 1;\n");
+    await commitAll(root, "base");
+    await writeFile(path.join(root, "tracked.ts"), "export const value = 2;\n");
+    const bin = path.join(root, "bin");
+    const parentFile = path.join(root, "fake-git.pid");
+    const childFile = path.join(root, "fake-git-child.pid");
+    await mkdir(bin);
+    const fakeGit = path.join(bin, "git");
+    await writeFile(
+      fakeGit,
+      `#!/bin/sh\necho $$ > ${JSON.stringify(parentFile)}\nsh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 1; done' child ${JSON.stringify(childFile)} &\ntrap '' TERM\nwait\n`,
+    );
+    await chmod(fakeGit, 0o700);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+    const controller = new AbortController();
+    const running = fingerprintReviewTarget({
+      cwd: root,
+      target: { mode: "local" },
+      signal: controller.signal,
+    });
+    let childPid = 0;
+    try {
+      await vi.waitFor(async () => {
+        expect(await exists(parentFile)).toBe(true);
+        expect(await exists(childFile)).toBe(true);
+      });
+      childPid = Number((await readFile(childFile, "utf8")).trim());
+      controller.abort(new Error("cancel fingerprint"));
+      await expect(running).rejects.toThrow("cancel fingerprint");
+      await vi.waitFor(() => expect(processAlive(childPid)).toBe(false), { timeout: 2_000 });
+    } finally {
+      controller.abort(new Error("fingerprint test cleanup"));
+      await running.catch(() => {});
+      process.env.PATH = previousPath;
+      if (childPid > 0 && processAlive(childPid)) {
+        try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ }
+      }
+    }
+  });
+
+  it("changes targetSha256 when modified content changes but porcelain status stays identical", async () => {
+    const root = await initRepo();
+    const file = path.join(root, "tracked.ts");
+    await writeFile(file, "export const value = 'base';\n");
+    await commitAll(root, "base");
+    await writeFile(file, "export const value = 'first';\n");
+    const first = await fingerprintReviewTarget({ cwd: root, target: { mode: "local" } });
+
+    await writeFile(file, "export const value = 'other';\n");
+    const second = await fingerprintReviewTarget({ cwd: root, target: { mode: "local" } });
+
+    expect(second.headSha).toBe(first.headSha);
+    expect(second.statusSha256).toBe(first.statusSha256);
+    expect(second.targetSha256).not.toBe(first.targetSha256);
+  });
+
+  it("rejects content that changes between patch capture and final status", async () => {
+    const root = await initRepo();
+    const file = path.join(root, "tracked.ts");
+    await writeFile(file, "export const value = 'base';\n");
+    await commitAll(root, "base");
+    await writeFile(file, "export const value = 'first';\n");
+    const tools = await mkdtemp(path.join(tmpdir(), "pi-adversarial-git-wrapper-"));
+    repos.push(tools);
+    const marker = path.join(tools, "mutated");
+    const realGit = (await exec("which", ["git"], { encoding: "utf8" })).stdout.trim();
+    const wrapper = path.join(tools, "git");
+    await writeFile(wrapper, `#!/bin/sh\nif [ "$1" = status ] && [ ! -e ${JSON.stringify(marker)} ]; then\n  printf '%s\\n' ${JSON.stringify("export const value = 'other';")} > ${JSON.stringify(file)}\n  touch ${JSON.stringify(marker)}\nfi\nexec ${JSON.stringify(realGit)} "$@"\n`);
+    await chmod(wrapper, 0o700);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${tools}${path.delimiter}${previousPath ?? ""}`;
+    try {
+      await expect(fingerprintReviewTarget({
+        cwd: root,
+        target: { mode: "local" },
+      })).rejects.toThrow("Git content changed while fingerprinting");
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("rejects a target ref that moves during fingerprint capture", async () => {
+    const root = await initRepo();
+    const file = path.join(root, "tracked.ts");
+    await writeFile(file, "export const value = 'base';\n");
+    const base = await commitAll(root, "base");
+    await writeFile(file, "export const value = 'future';\n");
+    const future = await commitAll(root, "future");
+    await git(root, "reset", "--hard", base);
+    await git(root, "update-ref", "refs/remotes/origin/main", base);
+    await writeFile(file, "export const value = 'local';\n");
+    const tools = await mkdtemp(path.join(tmpdir(), "pi-adversarial-ref-wrapper-"));
+    repos.push(tools);
+    const marker = path.join(tools, "moved");
+    const realGit = (await exec("which", ["git"], { encoding: "utf8" })).stdout.trim();
+    const wrapper = path.join(tools, "git");
+    await writeFile(wrapper, `#!/bin/sh\nif [ "$1" = status ] && [ ! -e ${JSON.stringify(marker)} ]; then\n  ${JSON.stringify(realGit)} -C ${JSON.stringify(root)} update-ref refs/remotes/origin/main ${JSON.stringify(future)}\n  touch ${JSON.stringify(marker)}\nfi\nexec ${JSON.stringify(realGit)} "$@"\n`);
+    await chmod(wrapper, 0o700);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${tools}${path.delimiter}${previousPath ?? ""}`;
+    try {
+      await expect(fingerprintReviewTarget({
+        cwd: root,
+        target: { mode: "base", baseRef: "origin/main" },
+      })).rejects.toThrow("Git target refs changed while fingerprinting");
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 
   it("freezes rename, delete, and binary changes without mutating the worktree", async () => {

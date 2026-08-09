@@ -9,6 +9,7 @@ export type ReviewTargetRequest =
 
 export interface ParsedReviewCommand {
   target: ReviewTargetRequest;
+  targetExplicit: boolean;
   reviewerSpecs: string[];
   reqdoc?: string;
   focus?: string;
@@ -102,6 +103,20 @@ export interface RefuteRouteResult {
   usage?: { input?: number; output?: number; total?: number };
 }
 
+export interface ReviewTargetPreflight {
+  selection: "explicit" | "inferred" | "interactive";
+  fetchStatus: "succeeded" | "failed-used-local" | "not-needed";
+  branch?: string;
+  remote?: string;
+  attemptedRemotes?: string[];
+  fetchedRemotes?: string[];
+  defaultBranchRef?: string;
+  ahead?: number;
+  behind?: number;
+  operation?: string;
+  unmerged?: boolean;
+}
+
 export interface ReviewTarget {
   mode: ReviewTargetRequest["mode"];
   description: string;
@@ -113,6 +128,7 @@ export interface ReviewTarget {
   statusSha256: string;
   targetSha256: string;
   changedFiles: string[];
+  preflight?: ReviewTargetPreflight;
 }
 
 export interface ReviewInputDrift {
