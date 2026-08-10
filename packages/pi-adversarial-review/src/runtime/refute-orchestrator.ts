@@ -17,8 +17,10 @@ import type {
   ReviewSubagentRuntime,
 } from "./types.ts";
 
-const DEFAULT_REFUTER_TIMEOUT_MS = 5 * 60_000;
-const DEFAULT_REFUTE_RUN_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_REFUTER_ROUTE_TIMEOUT_MS = 5 * 60_000;
+export const DEFAULT_REFUTER_OVERALL_TIMEOUT_MS = 15 * 60_000;
+export const LARGE_REFUTER_ROUTE_TIMEOUT_MS = 10 * 60_000;
+export const LARGE_REFUTER_OVERALL_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_REFUTER_MAX_TURNS = 12;
 export const LARGE_REFUTER_MAX_TURNS = 20;
 
@@ -106,8 +108,8 @@ function validateTimeout(value: number, name: string): void {
 }
 
 export async function runRefuteFleet(options: RunRefuteFleetOptions): Promise<RefuteFleetResult> {
-  const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_REFUTER_TIMEOUT_MS;
-  const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_REFUTE_RUN_TIMEOUT_MS;
+  const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
+  const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
   const maxTurns = options.maxTurns ?? DEFAULT_REFUTER_MAX_TURNS;
   validateTimeout(routeTimeoutMs, "routeTimeoutMs");
   validateTimeout(overallTimeoutMs, "overallTimeoutMs");

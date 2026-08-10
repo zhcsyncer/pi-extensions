@@ -1,6 +1,9 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
   buildAdjudicationPrompt,
@@ -10,6 +13,17 @@ import {
   serializeMergedReviewReport,
 } from "../src/output/publish-report.ts";
 import type { MergedReviewReport, ReviewerRoute } from "../src/types.ts";
+
+let agentDir: string;
+
+beforeEach(() => {
+  agentDir = mkdtempSync(join(tmpdir(), "pi-review-publish-audit-"));
+});
+
+afterEach(() => {
+  rmSync(agentDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
 
 function route(): ReviewerRoute {
   return {
@@ -64,7 +78,15 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
     charterSha256: "charter",
     requestedRoutes: [reviewer],
     routeResults: [{ route: reviewer, status: "completed", report: { verdict: "approve", summary: "clean", findings: [] } }],
-    runtime: { protocolVersion: 3, maxConcurrent: 1, backend: "external-v3", waves: 1, maxTurns: 25 },
+    runtime: {
+      protocolVersion: 3,
+      maxConcurrent: 1,
+      backend: "external-v3",
+      waves: 1,
+      maxTurns: 25,
+      routeTimeoutMs: 600_000,
+      overallTimeoutMs: 1_200_000,
+    },
     successfulReviewerCount: 1,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
@@ -224,19 +246,40 @@ describe("merged report output", () => {
     expect(sendMessage.mock.calls[0][0].content).toContain("final adjudicator");
   });
 
+  it("renders persisted version-1 reports that predate timeout audit fields", () => {
+    const current = report();
+    const {
+      routeTimeoutMs: _routeTimeoutMs,
+      overallTimeoutMs: _overallTimeoutMs,
+      ...legacyRuntime
+    } = current.runtime;
+    const legacy = { ...current, runtime: legacyRuntime } as unknown as MergedReviewReport;
+
+    expect(buildMergedReportText(legacy)).toContain("timeout: 10/20m");
+    expect(buildMergedReportText(legacy)).not.toContain("NaN");
+  });
+
   it("prints directly without queuing an unusable next-turn message in print mode", () => {
     const sendMessage = vi.fn();
     const appendEntry = vi.fn();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    publishMergedReviewReport(
+    const published = publishMergedReviewReport(
       { sendMessage, appendEntry } as unknown as ExtensionAPI,
       report(),
       "print",
+      { agentDir },
     );
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Adversarial review: inconclusive"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("timeout: 10/20m"));
     expect(appendEntry).toHaveBeenCalled();
+    expect(published.auditPath).toContain(agentDir);
+    expect(JSON.parse(readFileSync(published.auditPath!, "utf8"))).toMatchObject({
+      kind: "report",
+      mode: "print",
+      payload: { overall: "inconclusive" },
+    });
     expect(sendMessage).not.toHaveBeenCalled();
     log.mockRestore();
   });

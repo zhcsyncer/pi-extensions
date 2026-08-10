@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -165,6 +165,24 @@ export function runSmokeChecks() {
 		if (!headlessReview.stderr.includes("Outside TUI, pass at least two --reviewer")) {
 			process.stderr.write(headlessReview.stderr);
 			throw new Error("headless adversarial review failure must explain the missing reviewer routes");
+		}
+		const reviewAuditDir = join(
+			environment.PI_CODING_AGENT_DIR,
+			"extension-data",
+			"pi-adversarial-review",
+			"audit",
+		);
+		const reviewAuditFiles = readdirSync(reviewAuditDir);
+		if (reviewAuditFiles.length !== 1) {
+			throw new Error("headless adversarial review failure must persist exactly one standalone audit");
+		}
+		const reviewAudit = JSON.parse(readFileSync(join(reviewAuditDir, reviewAuditFiles[0]), "utf8"));
+		if (
+			reviewAudit.kind !== "error" ||
+			reviewAudit.mode !== "print" ||
+			reviewAudit.payload?.kind !== "command"
+		) {
+			throw new Error("headless adversarial review audit must retain the failure contract");
 		}
 		console.log("./packages/pi-adversarial-review: headless failure contract smoke passed");
 

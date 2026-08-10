@@ -27,12 +27,20 @@ import {
 } from "./preflight/resolve-preflight.ts";
 import {
   DEFAULT_REVIEWER_MAX_TURNS,
+  DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
   LARGE_REVIEWER_MAX_TURNS,
+  LARGE_REVIEWER_OVERALL_TIMEOUT_MS,
+  LARGE_REVIEWER_ROUTE_TIMEOUT_MS,
   runReviewerFleet,
 } from "./runtime/orchestrator.ts";
 import {
   DEFAULT_REFUTER_MAX_TURNS,
+  DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
   LARGE_REFUTER_MAX_TURNS,
+  LARGE_REFUTER_OVERALL_TIMEOUT_MS,
+  LARGE_REFUTER_ROUTE_TIMEOUT_MS,
   runRefuteFleet,
 } from "./runtime/refute-orchestrator.ts";
 import {
@@ -108,7 +116,14 @@ export default function adversarialReviewExtension(
     handler: async (args, ctx) => {
       if (activeRun) {
         const message = "Adversarial review: another review run is already active.";
-        publishReviewFailure({ pi, mode: ctx.mode, kind: "runtime", message });
+        publishReviewFailure({
+          pi,
+          mode: ctx.mode,
+          kind: "runtime",
+          message,
+          sessionId: ctx.sessionManager.getSessionId(),
+          cwd: ctx.cwd,
+        });
         ctx.ui.notify(message, "error");
         return;
       }
@@ -331,6 +346,18 @@ export default function adversarialReviewExtension(
           const refuterMaxTurns = targetPreflight.largeInput
             ? LARGE_REFUTER_MAX_TURNS
             : DEFAULT_REFUTER_MAX_TURNS;
+          const reviewerRouteTimeoutMs = targetPreflight.largeInput
+            ? LARGE_REVIEWER_ROUTE_TIMEOUT_MS
+            : DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
+          const reviewerOverallTimeoutMs = targetPreflight.largeInput
+            ? LARGE_REVIEWER_OVERALL_TIMEOUT_MS
+            : DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS;
+          const refuterRouteTimeoutMs = targetPreflight.largeInput
+            ? LARGE_REFUTER_ROUTE_TIMEOUT_MS
+            : DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
+          const refuterOverallTimeoutMs = targetPreflight.largeInput
+            ? LARGE_REFUTER_OVERALL_TIMEOUT_MS
+            : DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
           const fleet = await runReviewerFleet({
             runtime,
             routes,
@@ -339,6 +366,8 @@ export default function adversarialReviewExtension(
             signal: controller.signal,
             capabilities,
             maxTurns: reviewerMaxTurns,
+            routeTimeoutMs: reviewerRouteTimeoutMs,
+            overallTimeoutMs: reviewerOverallTimeoutMs,
             onProgress: (progress) => runStatus?.update(progress),
           });
           if (sessionShuttingDown) return;
@@ -353,6 +382,8 @@ export default function adversarialReviewExtension(
             routeResults: fleet.routeResults,
             runtimeCapabilities: fleet.capabilities,
             maxTurns: reviewerMaxTurns,
+            routeTimeoutMs: reviewerRouteTimeoutMs,
+            overallTimeoutMs: reviewerOverallTimeoutMs,
             refuteRequested: command.refute,
             refuterRoute,
             gating: command.gating,
@@ -379,6 +410,8 @@ export default function adversarialReviewExtension(
               capabilities: fleet.capabilities,
               signal: controller.signal,
               maxTurns: refuterMaxTurns,
+              routeTimeoutMs: refuterRouteTimeoutMs,
+              overallTimeoutMs: refuterOverallTimeoutMs,
               onProgress: (progress) => runStatus?.update(progress),
             });
             if (sessionShuttingDown) return;
@@ -390,18 +423,29 @@ export default function adversarialReviewExtension(
               routeResults: refuteFleet.routeResults,
               capabilities: refuteFleet.capabilities,
               maxTurns: refuterMaxTurns,
+              routeTimeoutMs: refuterRouteTimeoutMs,
+              overallTimeoutMs: refuterOverallTimeoutMs,
               stale: finalDrift.stale,
               cancelled: controller.signal.aborted,
             });
           }
 
-          const published = publishMergedReviewReport(pi, report, ctx.mode);
+          const published = publishMergedReviewReport(pi, report, ctx.mode, {
+            sessionId: ctx.sessionManager.getSessionId(),
+            cwd: ctx.cwd,
+          });
           const completionMessage = safeReviewDiagnosticText(
             published.deliveryWarning ??
               `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`,
           );
           if (published.deliveryWarning) {
             emitHeadlessDiagnostic(ctx.mode, completionMessage);
+            if (
+              (ctx.mode === "print" || ctx.mode === "json") &&
+              (process.exitCode === undefined || process.exitCode === 0)
+            ) {
+              process.exitCode = 1;
+            }
           }
           ctx.ui.notify(
             completionMessage,
@@ -440,6 +484,8 @@ export default function adversarialReviewExtension(
               ? "command"
               : error instanceof ReviewInputError ? "input" : "runtime",
           message,
+          sessionId: ctx.sessionManager.getSessionId(),
+          cwd: ctx.cwd,
         });
         ctx.ui.notify(message, type);
       } finally {

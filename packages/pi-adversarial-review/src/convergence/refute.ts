@@ -3,6 +3,10 @@ import type {
   RefuteRouteResult,
   ReviewerRoute,
 } from "../types.ts";
+import {
+  DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
+} from "../runtime/refute-orchestrator.ts";
 import type { ReviewRuntimeCapabilities } from "../runtime/types.ts";
 
 export interface AttachRefuteResultsOptions {
@@ -11,6 +15,8 @@ export interface AttachRefuteResultsOptions {
   routeResults: readonly RefuteRouteResult[];
   capabilities: ReviewRuntimeCapabilities;
   maxTurns: number;
+  routeTimeoutMs?: number;
+  overallTimeoutMs?: number;
   stale: boolean;
   cancelled: boolean;
   completedAt?: Date;
@@ -79,6 +85,8 @@ export function attachRefuteResults(options: AttachRefuteResultsOptions): Merged
       ...options.capabilities,
       waves: Math.ceil(options.report.blocking.length / options.capabilities.maxConcurrent),
       maxTurns: options.maxTurns,
+      routeTimeoutMs: options.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
+      overallTimeoutMs: options.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
     },
     refuteResults: routeResults,
     contested,

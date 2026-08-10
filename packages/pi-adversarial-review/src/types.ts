@@ -200,6 +200,8 @@ export interface MergedReviewReport {
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
     maxTurns: number;
+    routeTimeoutMs: number;
+    overallTimeoutMs: number;
   };
   successfulReviewerCount: number;
   minSuccessfulReviewerCount: number;
@@ -224,6 +226,8 @@ export interface MergedReviewReport {
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
     maxTurns: number;
+    routeTimeoutMs: number;
+    overallTimeoutMs: number;
   };
   refuteResults: RefuteRouteResult[];
   contested: ContestedFinding[];

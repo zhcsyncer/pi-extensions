@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { persistStandaloneAudit } from "./audit-store.ts";
 
 export const ADVERSARIAL_REVIEW_ERROR_TYPE = "adversarial-review-error";
 
@@ -22,25 +23,47 @@ export function publishReviewFailure(options: {
   mode: "tui" | "rpc" | "json" | "print";
   kind: ReviewFailureKind;
   message: string;
+  sessionId?: string;
+  cwd?: string;
   now?: Date;
+  agentDir?: string;
 }): void {
   const message = safeReviewDiagnosticText(options.message);
+  const occurredAt = options.now ?? new Date();
+  let auditError: string | undefined;
   if (options.mode !== "tui") {
+    const details = {
+      version: 1,
+      kind: options.kind,
+      message,
+      mode: options.mode,
+      occurredAt: occurredAt.toISOString(),
+    };
     try {
-      options.pi.appendEntry(ADVERSARIAL_REVIEW_ERROR_TYPE, {
-        version: 1,
-        kind: options.kind,
-        message,
+      persistStandaloneAudit({
+        kind: "error",
         mode: options.mode,
-        occurredAt: (options.now ?? new Date()).toISOString(),
+        payload: details,
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        now: occurredAt,
+        ...(options.agentDir ? { agentDir: options.agentDir } : {}),
       });
+    } catch (error) {
+      auditError = safeReviewDiagnosticText(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      options.pi.appendEntry(ADVERSARIAL_REVIEW_ERROR_TYPE, details);
     } catch {
-      // The original failure remains authoritative even if audit persistence fails.
+      // The original failure remains authoritative even if the live entry fails.
     }
   }
 
   if (options.mode === "print" || options.mode === "json") {
     console.error(message);
+    if (auditError) console.error(`Adversarial review audit persistence failed: ${auditError}`);
     if (process.exitCode === undefined || process.exitCode === 0) process.exitCode = 1;
   }
 }

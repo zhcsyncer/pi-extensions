@@ -1,3 +1,7 @@
+import {
+  DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
+} from "../runtime/orchestrator.ts";
 import type { ReviewRuntimeCapabilities } from "../runtime/types.ts";
 import type {
   GatingMode,
@@ -62,6 +66,8 @@ export interface BuildMergedReviewReportOptions {
   routeResults: ReviewerRouteResult[];
   runtimeCapabilities: ReviewRuntimeCapabilities;
   maxTurns: number;
+  routeTimeoutMs?: number;
+  overallTimeoutMs?: number;
   refuteRequested: boolean;
   refuterRoute?: ReviewerRoute;
   gating: GatingMode;
@@ -139,6 +145,8 @@ export function buildMergedReviewReport(
       ...options.runtimeCapabilities,
       waves: Math.ceil(options.requestedRoutes.length / options.runtimeCapabilities.maxConcurrent),
       maxTurns: options.maxTurns,
+      routeTimeoutMs: options.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
+      overallTimeoutMs: options.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
     },
     successfulReviewerCount: successfulCount,
     minSuccessfulReviewerCount: minSuccessful,

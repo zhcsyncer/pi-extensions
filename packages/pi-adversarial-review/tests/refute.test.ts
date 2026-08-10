@@ -56,7 +56,15 @@ function report(): MergedReviewReport {
     charterSha256: "charter",
     requestedRoutes: [route(), { ...route(), key: "provider/reviewer@high", ordinal: 1 }],
     routeResults: [],
-    runtime: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3", waves: 1, maxTurns: 25 },
+    runtime: {
+      protocolVersion: 3,
+      maxConcurrent: 2,
+      backend: "external-v3",
+      waves: 1,
+      maxTurns: 25,
+      routeTimeoutMs: 600_000,
+      overallTimeoutMs: 1_200_000,
+    },
     successfulReviewerCount: 2,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
@@ -112,6 +120,8 @@ describe("attachRefuteResults", () => {
       backend: "external-v3",
       waves: 2,
       maxTurns: 12,
+      routeTimeoutMs: 300_000,
+      overallTimeoutMs: 900_000,
     });
     expect(merged.contested).toEqual([{
       findingIndex: 0,

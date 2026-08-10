@@ -105,7 +105,15 @@ describe("buildMergedReviewReport", () => {
     const report = build({ requested: 2, results: [completed(0, [finding()]), completed(1, [finding()])] });
     expect(report).toMatchObject({
       overall: "needs-adjudication",
-      runtime: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3", waves: 1 },
+      runtime: {
+        protocolVersion: 3,
+        maxConcurrent: 2,
+        backend: "external-v3",
+        waves: 1,
+        maxTurns: 25,
+        routeTimeoutMs: 600_000,
+        overallTimeoutMs: 1_200_000,
+      },
       successfulReviewerCount: 2,
       minSuccessfulReviewerCount: 2,
       consensusThreshold: 2,

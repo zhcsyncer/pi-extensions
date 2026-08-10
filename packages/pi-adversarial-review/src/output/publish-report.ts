@@ -5,6 +5,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
 import type { MergedReviewReport, ReviewerRoute } from "../types.ts";
+import {
+  DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
+} from "../runtime/orchestrator.ts";
+import {
+  DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
+  DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
+} from "../runtime/refute-orchestrator.ts";
+import { persistStandaloneAudit } from "./audit-store.ts";
 
 export const ADVERSARIAL_REVIEW_MESSAGE_TYPE = "adversarial-review-report";
 
@@ -46,23 +55,29 @@ export function serializeMergedReviewReport(report: MergedReviewReport) {
 export function buildMergedReportText(report: MergedReviewReport): string {
   // Reports persisted before embedded fallback existed were necessarily external v3.
   const reviewBackend = report.runtime.backend ?? "external-v3";
+  const reviewerRouteTimeoutMs = report.runtime.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
+  const reviewerOverallTimeoutMs = report.runtime.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS;
   const lines = [
     `Adversarial review: ${report.overall}`,
     `Reviewers: ${report.successfulReviewerCount}/${report.requestedRoutes.length} valid ` +
       `(minimum ${report.minSuccessfulReviewerCount})`,
     `Routes: ${report.requestedRoutes.length} · runtime: ${reviewBackend}` +
       `${report.runtime.fallbackReason ? ` (${report.runtime.fallbackReason})` : ""}` +
-      ` · max concurrent: ${report.runtime.maxConcurrent} · waves: ${report.runtime.waves}`,
+      ` · max concurrent: ${report.runtime.maxConcurrent} · waves: ${report.runtime.waves}` +
+      ` · timeout: ${reviewerRouteTimeoutMs / 60_000}/${reviewerOverallTimeoutMs / 60_000}m`,
     `Target: ${safeDisplayText(report.target.description)}`,
   ];
 
   if (report.refuteRequested) {
     if (report.refuteResults.length > 0 && report.refuteRuntime) {
       const valid = report.refuteResults.filter((result) => result.status === "completed").length;
+      const refuterRouteTimeoutMs = report.refuteRuntime.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
+      const refuterOverallTimeoutMs = report.refuteRuntime.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
       lines.push(
         `Refute: ${valid}/${report.refuteResults.length} valid · ` +
           `${report.contested.length} contested · runtime: ${report.refuteRuntime.backend ?? "external-v3"} · ` +
-          `waves: ${report.refuteRuntime.waves}`,
+          `waves: ${report.refuteRuntime.waves} · ` +
+          `timeout: ${refuterRouteTimeoutMs / 60_000}/${refuterOverallTimeoutMs / 60_000}m`,
       );
     } else if (report.blocking.length === 0) {
       lines.push("Refute: skipped because no blocking finding was produced.");
@@ -267,21 +282,47 @@ export function renderMergedReviewMessage(
 
 export interface PublishReportResult {
   deliveryWarning?: string;
+  auditPath?: string;
 }
 
 export function publishMergedReviewReport(
   pi: ExtensionAPI,
   report: MergedReviewReport,
   mode: "tui" | "rpc" | "json" | "print",
+  audit?: { sessionId?: string; cwd?: string; agentDir?: string },
 ): PublishReportResult {
   const displayContent = buildMergedReportText(report);
   const details = serializeMergedReviewReport(report);
-  // Durable audit/output channel. Unlike sendMessage this never enters LLM context.
+  let auditPath: string | undefined;
+  let auditWarning: string | undefined;
+  if (mode !== "tui") {
+    try {
+      auditPath = persistStandaloneAudit({
+        kind: "report",
+        mode,
+        payload: details,
+        id: report.runId,
+        ...(audit?.sessionId ? { sessionId: audit.sessionId } : {}),
+        cwd: audit?.cwd ?? report.target.root,
+        ...(audit?.agentDir ? { agentDir: audit.agentDir } : {}),
+      });
+    } catch (error) {
+      auditWarning = `Merged report completed but its standalone audit could not be persisted: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
+
+  // Live session/display channel. Standalone audit above covers fresh non-TUI
+  // commands that Pi intentionally does not flush without an assistant message.
   pi.appendEntry(ADVERSARIAL_REVIEW_MESSAGE_TYPE, details);
 
   if (mode === "print") {
     console.log(displayContent);
-    return {};
+    return {
+      ...(auditWarning ? { deliveryWarning: auditWarning } : {}),
+      ...(auditPath ? { auditPath } : {}),
+    };
   }
   try {
     pi.sendMessage({
@@ -290,12 +331,17 @@ export function publishMergedReviewReport(
       display: true,
       details,
     }, { deliverAs: "followUp", triggerTurn: true });
-    return {};
-  } catch (error) {
     return {
-      deliveryWarning: `Merged report was persisted but could not be handed to the main model: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      ...(auditWarning ? { deliveryWarning: auditWarning } : {}),
+      ...(auditPath ? { auditPath } : {}),
+    };
+  } catch (error) {
+    const handoffWarning = `Merged report was persisted but could not be handed to the main model: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    return {
+      deliveryWarning: [auditWarning, handoffWarning].filter(Boolean).join(" "),
+      ...(auditPath ? { auditPath } : {}),
     };
   }
 }

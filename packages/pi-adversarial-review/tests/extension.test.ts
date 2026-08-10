@@ -170,6 +170,7 @@ function context(cwd = process.cwd()) {
       { model: model("provider-a", "model-a") },
       { model: model("provider-b", "model-b") },
     ],
+    sessionManager: { getSessionId: () => "test-session" },
     ui,
   } as unknown as ExtensionCommandContext;
   return { ctx, notifications, statuses, tui, theme };
@@ -771,10 +772,18 @@ describe("adversarial review extension", () => {
     });
     expect(fake.entries[0]?.data).toMatchObject({
       overall: "needs-adjudication",
-      runtime: { maxTurns: 40 },
+      runtime: {
+        maxTurns: 40,
+        routeTimeoutMs: 1_200_000,
+        overallTimeoutMs: 1_800_000,
+      },
       blocking: [{ issue: "The save returns success before data persistence completes" }],
       refuteRequested: true,
-      refuteRuntime: { maxTurns: 20 },
+      refuteRuntime: {
+        maxTurns: 20,
+        routeTimeoutMs: 600_000,
+        overallTimeoutMs: 1_800_000,
+      },
       refuteResults: [{ findingIndex: 0, status: "completed", report: { refuted: true } }],
       contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
     });

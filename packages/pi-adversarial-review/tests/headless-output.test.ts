@@ -1,5 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ADVERSARIAL_REVIEW_ERROR_TYPE,
   emitHeadlessDiagnostic,
@@ -7,10 +10,16 @@ import {
 } from "../src/output/headless-output.ts";
 
 const originalExitCode = process.exitCode;
+let agentDir: string;
+
+beforeEach(() => {
+  agentDir = mkdtempSync(join(tmpdir(), "pi-review-headless-audit-"));
+});
 
 afterEach(() => {
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
+  rmSync(agentDir, { recursive: true, force: true });
 });
 
 describe("headless review output", () => {
@@ -24,6 +33,7 @@ describe("headless review output", () => {
       kind: "runtime",
       message: "provider failed\u001b[2Jclear",
       now: new Date("2026-01-01T00:00:00.000Z"),
+      agentDir,
     });
 
     expect(appendEntry).toHaveBeenCalledWith(ADVERSARIAL_REVIEW_ERROR_TYPE, {
@@ -34,6 +44,14 @@ describe("headless review output", () => {
       occurredAt: "2026-01-01T00:00:00.000Z",
     });
     expect(error).toHaveBeenCalledWith("provider failed�[2Jclear");
+    const auditDir = join(agentDir, "extension-data", "pi-adversarial-review", "audit");
+    const [auditFile] = readdirSync(auditDir);
+    expect(auditFile).toBeDefined();
+    expect(JSON.parse(readFileSync(join(auditDir, auditFile!), "utf8"))).toMatchObject({
+      kind: "error",
+      mode: "print",
+      payload: { kind: "runtime", message: "provider failed�[2Jclear" },
+    });
     expect(process.exitCode).toBe(1);
   });
 
@@ -46,6 +64,7 @@ describe("headless review output", () => {
       mode: "rpc",
       kind: "command",
       message: "bad arguments",
+      agentDir,
     });
 
     expect(appendEntry).toHaveBeenCalledWith(

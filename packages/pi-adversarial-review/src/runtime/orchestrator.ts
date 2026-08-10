@@ -9,8 +9,10 @@ import type {
   ReviewSubagentRuntime,
 } from "./types.ts";
 
-const DEFAULT_ROUTE_TIMEOUT_MS = 10 * 60_000;
-const DEFAULT_OVERALL_TIMEOUT_MS = 20 * 60_000;
+export const DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS = 10 * 60_000;
+export const DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS = 20 * 60_000;
+export const LARGE_REVIEWER_ROUTE_TIMEOUT_MS = 20 * 60_000;
+export const LARGE_REVIEWER_OVERALL_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_REVIEWER_MAX_TURNS = 25;
 export const LARGE_REVIEWER_MAX_TURNS = 40;
 
@@ -82,8 +84,8 @@ function validateTimeout(value: number, name: string): void {
 }
 
 export async function runReviewerFleet(options: RunReviewerFleetOptions): Promise<ReviewerFleetResult> {
-  const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS;
-  const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_OVERALL_TIMEOUT_MS;
+  const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
+  const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS;
   const maxTurns = options.maxTurns ?? DEFAULT_REVIEWER_MAX_TURNS;
   validateTimeout(routeTimeoutMs, "routeTimeoutMs");
   validateTimeout(overallTimeoutMs, "overallTimeoutMs");
