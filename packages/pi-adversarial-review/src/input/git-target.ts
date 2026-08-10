@@ -19,7 +19,6 @@ interface RunOptions {
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   maxOutputBytes?: number;
-  maxOutputLines?: number;
   unsetEnv?: readonly string[];
 }
 
@@ -85,12 +84,9 @@ async function run(
       outputSize += chunk.length;
       if (outputSize > maxOutputBytes) {
         if (!overflowError) {
-          overflowError = new OversizedReviewInputError(
-            outputSize,
-            0,
-            maxOutputBytes,
-            options.maxOutputLines ?? Number.MAX_SAFE_INTEGER,
-          );
+          overflowError = new OversizedReviewInputError({
+            bytes: { limit: maxOutputBytes },
+          });
           killCaptureProcessTree(child, "SIGKILL");
         }
         return;
@@ -264,7 +260,7 @@ export async function resolveGitRoot(cwd: string, signal?: AbortSignal): Promise
 
 export type ResolvedReviewTarget =
   | { mode: "local" }
-  | { mode: "base"; baseSha: string; baseRef: string }
+  | { mode: "base"; baseSha: string; baseRef: string; headSha: string }
   | { mode: "range"; fromSha: string; toSha: string; fromRef: string; toRef: string };
 
 export async function resolveReviewTarget(
@@ -274,10 +270,15 @@ export async function resolveReviewTarget(
 ): Promise<ResolvedReviewTarget> {
   if (request.mode === "local") return request;
   if (request.mode === "base") {
+    const [baseSha, headSha] = await Promise.all([
+      resolveCommit(root, request.baseRef, signal),
+      resolveCommit(root, "HEAD", signal),
+    ]);
     return {
       mode: "base",
       baseRef: request.baseRef,
-      baseSha: await resolveCommit(root, request.baseRef, signal),
+      baseSha,
+      headSha,
     };
   }
   return {
@@ -316,7 +317,6 @@ async function untrackedFiles(root: string, limits: CaptureLimits): Promise<stri
     ["ls-files", "--others", "--exclude-standard", "-z"],
     {
       maxOutputBytes: limits.maxBytes,
-      maxOutputLines: limits.maxLines,
       signal: limits.signal,
     },
   ));
@@ -336,7 +336,6 @@ async function syntheticUntrackedPatches(
       {
         allowedExitCodes: [0, 1],
         maxOutputBytes: limits.maxBytes,
-        maxOutputLines: limits.maxLines,
         signal: limits.signal,
       },
     );
@@ -358,7 +357,6 @@ async function statusFingerprint(root: string, limits: CaptureLimits): Promise<s
     ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"],
     {
       maxOutputBytes: limits.maxBytes,
-      maxOutputLines: limits.maxLines,
       signal: limits.signal,
     },
   ));
@@ -370,7 +368,6 @@ async function diff(root: string, args: string[], limits: CaptureLimits): Promis
     ["diff", ...DIFF_FLAGS, "--ignore-submodules=none", ...args, "--"],
     {
       maxOutputBytes: limits.maxBytes,
-      maxOutputLines: limits.maxLines,
       signal: limits.signal,
     },
   )).toString("utf8");
@@ -382,7 +379,6 @@ async function diffNames(root: string, args: string[], limits: CaptureLimits): P
     ["diff", "--name-only", "-z", "--ignore-submodules=none", ...args, "--"],
     {
       maxOutputBytes: limits.maxBytes,
-      maxOutputLines: limits.maxLines,
       signal: limits.signal,
     },
   ));
@@ -390,6 +386,64 @@ async function diffNames(root: string, args: string[], limits: CaptureLimits): P
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+export interface CommittedReviewPath {
+  startSha: string;
+  headSha: string;
+  commits: string[];
+}
+
+export interface RangeSizingCapture {
+  patch: string;
+  changedFiles: string[];
+}
+
+function decodeCommitList(output: Buffer): string[] {
+  const text = output.toString("utf8").trim();
+  if (!text) return [];
+  const commits = text.split("\n");
+  if (commits.some((commit) => !/^[0-9a-f]{40,64}$/u.test(commit))) {
+    throw new ReviewInputError("Git commit path contains malformed object IDs.");
+  }
+  return commits;
+}
+
+export async function resolveCommittedReviewPath(
+  root: string,
+  target: ResolvedReviewTarget,
+  signal?: AbortSignal,
+): Promise<CommittedReviewPath | undefined> {
+  if (target.mode === "local") return undefined;
+  const headSha = target.mode === "base" ? target.headSha : target.toSha;
+  const fromSha = target.mode === "base" ? target.baseSha : target.fromSha;
+  const toSha = target.mode === "base" ? target.headSha : target.toSha;
+  const startSha = (await git(
+    root,
+    ["merge-base", fromSha, toSha],
+    { signal },
+  )).toString("utf8").trim();
+  if (!/^[0-9a-f]{40,64}$/u.test(startSha)) {
+    throw new ReviewInputError("Git review target has no unambiguous merge base.");
+  }
+  const commits = decodeCommitList(await git(
+    root,
+    ["rev-list", "--first-parent", "--reverse", "--ancestry-path", `${startSha}..${toSha}`],
+    { maxOutputBytes: 4 * 1024 * 1024, signal },
+  ));
+  return { startSha, headSha, commits };
+}
+
+export async function captureRangeForSizing(
+  root: string,
+  fromSha: string,
+  toSha: string,
+  limits: CaptureLimits,
+): Promise<RangeSizingCapture> {
+  const rangeSpec = `${fromSha}...${toSha}`;
+  const patch = await diff(root, [rangeSpec], limits);
+  const changedFiles = await diffNames(root, [rangeSpec], limits);
+  return { patch, changedFiles: uniqueSorted(changedFiles) };
 }
 
 async function rangeLimitedContext(
@@ -403,7 +457,6 @@ async function rangeLimitedContext(
     ["diff", "--raw", "--ignore-submodules=none", `${fromSha}...${toSha}`, "--"],
     {
       maxOutputBytes: limits.maxBytes,
-      maxOutputLines: limits.maxLines,
       signal: limits.signal,
     },
   )).toString("utf8");
@@ -555,7 +608,9 @@ export async function captureReviewTarget(
   target: ResolvedReviewTarget,
   limits: CaptureLimits,
 ): Promise<TargetCapture> {
-  const headSha = await currentHead(root, limits.signal);
+  const headSha = target.mode === "base"
+    ? target.headSha
+    : await currentHead(root, limits.signal);
   const untracked = target.mode === "range" ? [] : await untrackedFiles(root, limits);
   const untrackedPatch = target.mode === "range"
     ? ""

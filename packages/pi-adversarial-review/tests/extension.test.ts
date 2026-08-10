@@ -15,10 +15,12 @@ vi.mock("../src/preflight/resolve-preflight.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/preflight/resolve-preflight.ts")>();
   return {
     ...actual,
-    resolveReviewPreflight: vi.fn(async ({ target }: { target: any }) => ({
+    resolveReviewPreflight: vi.fn(async ({ target, allowLarge }: { target: any; allowLarge?: boolean }) => ({
       target,
       audit: { selection: "explicit", fetchStatus: "not-needed" },
       summary: "Adversarial review target: test-local.",
+      inputSize: allowLarge ? { bytes: 300 * 1024, lines: 6_000 } : { bytes: 1024, lines: 20 },
+      largeInput: allowLarge === true,
       guard: {},
     })),
     revalidateReviewPreflight: vi.fn(async () => true),
@@ -123,6 +125,8 @@ function resolvedLocalPreflight(
       behind: 0,
     },
     summary,
+    inputSize: { bytes: 1024, lines: 20 },
+    largeInput: false,
     guard: {
       root,
       headSha: "a".repeat(40),
@@ -133,6 +137,7 @@ function resolvedLocalPreflight(
       defaultBranchSha: "c".repeat(40),
       unmerged: false,
       targetSha256: "d".repeat(64),
+      inputSha256: "e".repeat(64),
       targetRefs: [],
     },
   };
@@ -231,6 +236,8 @@ describe("adversarial review extension", () => {
             behind: 1,
           },
           summary: "Adversarial review target: inferred feature branch.",
+          inputSize: { bytes: 1024, lines: 20 },
+          largeInput: false,
           guard: {
             root,
             headSha: "a".repeat(40),
@@ -241,6 +248,7 @@ describe("adversarial review extension", () => {
             defaultBranchSha: "c".repeat(40),
             unmerged: false,
             targetSha256: "d".repeat(64),
+            inputSha256: "e".repeat(64),
             targetRefs: [],
           },
         };
@@ -746,24 +754,27 @@ describe("adversarial review extension", () => {
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
       "--reviewer provider-a/model-a@high " +
         "--reviewer provider-b/model-b@high " +
-        "--refute --refuter provider-c/refuter@high",
+        "--allow-large --refute --refuter provider-c/refuter@high",
       ctx,
     );
 
     const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
     expect(spawns).toHaveLength(3);
+    expect(spawns.slice(0, 2).every(({ data }) => data.options.maxTurns === 40)).toBe(true);
     expect(spawns.at(-1)?.data).toMatchObject({
       type: "adversarial-refuter",
       options: {
-        maxTurns: 12,
+        maxTurns: 20,
         correlationId: expect.stringContaining(":refuter:0"),
         inlineAgentConfig: { builtinToolNames: ["read", "grep", "find", "ls"] },
       },
     });
     expect(fake.entries[0]?.data).toMatchObject({
       overall: "needs-adjudication",
+      runtime: { maxTurns: 40 },
       blocking: [{ issue: "The save returns success before data persistence completes" }],
       refuteRequested: true,
+      refuteRuntime: { maxTurns: 20 },
       refuteResults: [{ findingIndex: 0, status: "completed", report: { refuted: true } }],
       contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
     });
@@ -1274,7 +1285,7 @@ describe("adversarial review extension", () => {
 
   it("fails oversized input before runtime work and leaves Git status unchanged", async () => {
     const root = await changedRepo();
-    await appendFile(path.join(root, "example.ts"), "x".repeat(210 * 1024));
+    await appendFile(path.join(root, "example.ts"), "x".repeat(1100 * 1024));
     const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: root,
       encoding: "utf8",
@@ -1284,12 +1295,12 @@ describe("adversarial review extension", () => {
     const { ctx, notifications } = context(root);
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
-      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      "--allow-large --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
       ctx,
     );
 
     expect(notifications.at(-1)).toMatchObject({ type: "error" });
-    expect(notifications.at(-1)?.message).toContain("Frozen review input is too large");
+    expect(notifications.at(-1)?.message).toContain("Frozen review input exceeds the 1048576-byte limit");
     expect(fake.emitted).toEqual([]);
     expect(fake.entries).toEqual([]);
     expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {

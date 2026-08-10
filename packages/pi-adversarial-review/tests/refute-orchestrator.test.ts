@@ -99,6 +99,8 @@ function frozen(): FrozenReviewInput {
       targetSha256: "target",
       changedFiles: ["src/file-0.ts"],
     },
+    inputSize: { bytes: 1024, lines: 20 },
+    inputSha256: "input",
     reviewerCwd: "/repo",
     inputPath: "/tmp/input.md",
     charterSource: "builtin",
@@ -138,7 +140,7 @@ describe("runRefuteFleet", () => {
         refuted: index === 0,
         reason: index === 0 ? "Concrete contradiction" : "Finding survives",
         evidence: index === 0 ? ["src/file-0.ts:30 proves ordering"] : [],
-      })));
+      }), { status: index === 0 ? "steered" : "completed" }));
       return { agentId };
     };
 
@@ -161,6 +163,8 @@ describe("runRefuteFleet", () => {
       { findingIndex: 0, status: "completed", refuted: true },
       { findingIndex: 1, status: "completed", refuted: false },
     ]);
+    expect(result.routeResults[0].turnLimited).toBe(true);
+    expect(result.routeResults[1].turnLimited).toBeUndefined();
     expect(runtime.spawnInputs).toHaveLength(2);
     expect(runtime.spawnInputs.every((input) => input.role === "refuter" && input.maxTurns === 12)).toBe(true);
     expect(runtime.spawnInputs[0].prompt).toContain("Material issue 0");

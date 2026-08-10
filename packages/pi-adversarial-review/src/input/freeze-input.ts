@@ -10,8 +10,10 @@ import type {
   ReviewTargetRequest,
 } from "../types.ts";
 import {
+  captureRangeForSizing,
   captureReviewTarget,
   extractRangeSnapshot,
+  resolveCommittedReviewPath,
   resolveGitRoot,
   resolveReviewTarget,
   type CaptureLimits,
@@ -24,6 +26,8 @@ import {
   MAX_FROZEN_INPUT_BYTES,
   MAX_FROZEN_INPUT_LINES,
   measureFrozenInput,
+  RECOMMENDED_FROZEN_INPUT_BYTES,
+  RECOMMENDED_FROZEN_INPUT_LINES,
 } from "./limits.ts";
 import { createReviewTempWorkspace } from "./temp-workspace.ts";
 
@@ -33,6 +37,8 @@ export {
   MAX_FROZEN_INPUT_BYTES,
   MAX_FROZEN_INPUT_LINES,
   measureFrozenInput,
+  RECOMMENDED_FROZEN_INPUT_BYTES,
+  RECOMMENDED_FROZEN_INPUT_LINES,
 } from "./limits.ts";
 
 const CHARTER_PATH = fileURLToPath(new URL("../../assets/adversarial-charter.md", import.meta.url));
@@ -87,7 +93,11 @@ async function readRequirement(
     throw new ReviewInputError(`Requirement document is not a regular file: ${requestedPath}`);
   }
   if (fileInfo.size > maxBytes) {
-    throw new OversizedReviewInputError(fileInfo.size, 0, maxBytes, maxLines);
+    throw new OversizedReviewInputError({
+      bytes: { limit: maxBytes, actual: fileInfo.size },
+      subject: "Frozen requirement document",
+      canSuggestRanges: false,
+    });
   }
 
   const handle = await open(canonical, "r");
@@ -103,7 +113,10 @@ async function readRequirement(
       total += bytesRead;
     }
     const content = Buffer.concat(chunks).toString("utf8");
-    assertFrozenInputWithinLimits(content, maxBytes, maxLines);
+    assertFrozenInputWithinLimits(content, maxBytes, maxLines, {
+      subject: "Frozen requirement document",
+      canSuggestRanges: false,
+    });
     return content;
   } finally {
     await handle.close();
@@ -204,11 +217,219 @@ function hasReviewChanges(capture: TargetCapture): boolean {
   return capture.changedFiles.length > 0 && capture.sections.some(({ patch }) => patch.length > 0);
 }
 
+const RANGE_SUGGESTION_RUN_ID = "00000000-0000-4000-8000-000000000000";
+const MAX_RANGE_SUGGESTIONS = 8;
+const MAX_RANGE_SUGGESTION_COMMITS = 128;
+
+export interface ReviewRangeSuggestionResult {
+  commands: string[];
+  note?: string;
+}
+
+export interface SuggestReviewRangesOptions {
+  root: string;
+  target: ReviewTargetRequest;
+  resolvedTarget: ResolvedReviewTarget;
+  reqdoc?: string;
+  focus?: string;
+  preflight?: ReviewTargetPreflight;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxLines: number;
+}
+
+type SuggestedRangeProbe = "fits" | "empty" | "oversized";
+
+async function probeSuggestedRange(options: {
+  root: string;
+  fromSha: string;
+  toSha: string;
+  headSha: string;
+  charter: string;
+  charterSha256: string;
+  requirement?: string;
+  focus?: string;
+  preflight?: ReviewTargetPreflight;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxLines: number;
+}): Promise<SuggestedRangeProbe> {
+  try {
+    const sizing = await captureRangeForSizing(
+      options.root,
+      options.fromSha,
+      options.toSha,
+      {
+        maxBytes: options.maxBytes,
+        maxLines: options.maxLines,
+        signal: options.signal,
+      },
+    );
+    if (sizing.changedFiles.length === 0 || sizing.patch.length === 0) return "empty";
+    const resolved: ResolvedReviewTarget = {
+      mode: "range",
+      fromRef: options.fromSha,
+      toRef: options.toSha,
+      fromSha: options.fromSha,
+      toSha: options.toSha,
+    };
+    const capture: TargetCapture = {
+      headSha: options.headSha,
+      statusSha256: "0".repeat(64),
+      targetSha256: "0".repeat(64),
+      changedFiles: sizing.changedFiles,
+      sections: [{ title: "Committed range patch", patch: sizing.patch }],
+      limitedContext: [],
+      description: `range ${options.fromSha} (${options.fromSha}) .. ${options.toSha} (${options.toSha})`,
+    };
+    const target = toReviewTarget(options.root, resolved, capture, options.preflight);
+    const content = buildInputBundle({
+      runId: RANGE_SUGGESTION_RUN_ID,
+      target,
+      capture,
+      charter: options.charter,
+      charterSha256: options.charterSha256,
+      ...(options.requirement !== undefined ? { requirement: options.requirement } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+    });
+    assertFrozenInputWithinLimits(content, options.maxBytes, options.maxLines);
+    return "fits";
+  } catch (error) {
+    if (error instanceof OversizedReviewInputError) return "oversized";
+    throw error;
+  }
+}
+
+export async function suggestReviewRanges(
+  options: SuggestReviewRangesOptions,
+): Promise<ReviewRangeSuggestionResult> {
+  if (options.target.mode === "local" || options.resolvedTarget.mode === "local") {
+    return { commands: [] };
+  }
+  const path = await resolveCommittedReviewPath(
+    options.root,
+    options.resolvedTarget,
+    options.signal,
+  );
+  if (!path || path.commits.length === 0) return { commands: [] };
+  const [charter, requirement] = await Promise.all([
+    readFile(CHARTER_PATH, "utf8"),
+    readRequirement(options.root, options.reqdoc, options.maxBytes, options.maxLines),
+  ]);
+  const charterSha256 = sha256(charter);
+  const commits = path.commits.slice(0, MAX_RANGE_SUGGESTION_COMMITS);
+  const commands: string[] = [];
+  const oversizedCommits: string[] = [];
+  let startSha = path.startSha;
+  let commitIndex = 0;
+
+  while (commitIndex < commits.length && commands.length < MAX_RANGE_SUGGESTIONS) {
+    let lastFit = -1;
+    let firstOversized = -1;
+    for (let candidateIndex = commitIndex; candidateIndex < commits.length; candidateIndex++) {
+      assertFreezeActive(options.signal);
+      const result = await probeSuggestedRange({
+        root: options.root,
+        fromSha: startSha,
+        toSha: commits[candidateIndex],
+        headSha: path.headSha,
+        charter,
+        charterSha256,
+        ...(requirement !== undefined ? { requirement } : {}),
+        ...(options.focus !== undefined ? { focus: options.focus } : {}),
+        ...(options.preflight ? { preflight: options.preflight } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+        maxBytes: options.maxBytes,
+        maxLines: options.maxLines,
+      });
+      if (result === "oversized") {
+        firstOversized = candidateIndex;
+        break;
+      }
+      if (result === "fits") lastFit = candidateIndex;
+    }
+
+    if (lastFit >= commitIndex) {
+      const toSha = commits[lastFit];
+      commands.push(`--range ${startSha}..${toSha}`);
+      startSha = toSha;
+      commitIndex = lastFit + 1;
+      continue;
+    }
+
+    if (firstOversized > commitIndex) {
+      startSha = commits[firstOversized - 1];
+      commitIndex = firstOversized;
+      continue;
+    }
+    if (firstOversized < 0) {
+      commitIndex = commits.length;
+      break;
+    }
+
+    oversizedCommits.push(commits[commitIndex]);
+    startSha = commits[commitIndex];
+    commitIndex++;
+  }
+
+  const notes: string[] = [];
+  if (options.target.mode === "base") {
+    notes.push(
+      "These ranges cover committed changes only; review any uncommitted changes separately with /adversarial-review --local.",
+    );
+  }
+  if (oversizedCommits.length > 0) {
+    notes.push(
+      `Single-commit ranges still over the limit: ${oversizedCommits.map((sha) => sha.slice(0, 12)).join(", ")}. Reduce attached context if present, or split those commits before review.`,
+    );
+  }
+  if (path.commits.length > commits.length || commitIndex < commits.length) {
+    notes.push(
+      `Automatic suggestions stop at ${startSha.slice(0, 12)}; continue with another smaller range from that commit.`,
+    );
+  }
+  return {
+    commands,
+    ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
+  };
+}
+
+async function enrichOversizedInputError(
+  error: unknown,
+  options: SuggestReviewRangesOptions,
+): Promise<unknown> {
+  if (
+    !(error instanceof OversizedReviewInputError) ||
+    !error.canSuggestRanges ||
+    error.rangeSuggestions.length > 0 ||
+    options.target.mode === "local"
+  ) {
+    return error;
+  }
+  try {
+    const suggestions = await suggestReviewRanges({
+      ...options,
+      maxBytes: Math.min(options.maxBytes, RECOMMENDED_FROZEN_INPUT_BYTES),
+      maxLines: Math.min(options.maxLines, RECOMMENDED_FROZEN_INPUT_LINES),
+    });
+    if (suggestions.commands.length > 0 || suggestions.note) {
+      error.addRangeSuggestions(suggestions.commands, suggestions.note);
+    }
+  } catch (suggestionError) {
+    if (options.signal?.aborted) throw suggestionError;
+    // Range advice is best-effort; the original bounded-input failure remains authoritative.
+  }
+  return error;
+}
+
 export interface ReviewTargetFingerprint {
   root: string;
   headSha: string;
   statusSha256: string;
   targetSha256: string;
+  inputSize: { bytes: number; lines: number };
+  inputSha256: string;
+  resolvedTarget: ResolvedReviewTarget;
   targetRefs: Array<{ ref: string; sha: string }>;
 }
 
@@ -227,6 +448,8 @@ function captureIdentity(capture: TargetCapture): string {
 export async function fingerprintReviewTarget(options: {
   cwd: string;
   target: ReviewTargetRequest;
+  reqdoc?: string;
+  focus?: string;
   signal?: AbortSignal;
   maxBytes?: number;
   maxLines?: number;
@@ -237,41 +460,80 @@ export async function fingerprintReviewTarget(options: {
     throw new ReviewInputError("Frozen input limits must be positive integers.");
   }
   const root = await resolveGitRoot(options.cwd, options.signal);
-  const captureOptions = { maxBytes, maxLines, signal: options.signal };
-  const firstResolved = await resolveReviewTarget(root, options.target, options.signal);
-  const firstCapture = await captureReviewTarget(root, firstResolved, captureOptions);
-  const secondResolved = await resolveReviewTarget(root, options.target, options.signal);
-  if (resolvedTargetIdentity(firstResolved) !== resolvedTargetIdentity(secondResolved)) {
-    throw new ReviewInputError(
-      "Git target refs changed while fingerprinting adversarial review input. Retry the review.",
-    );
+  let resolvedForSuggestions: ResolvedReviewTarget | undefined;
+  try {
+    const captureOptions = { maxBytes, maxLines, signal: options.signal };
+    const firstResolved = await resolveReviewTarget(root, options.target, options.signal);
+    resolvedForSuggestions = firstResolved;
+    const firstCapture = await captureReviewTarget(root, firstResolved, captureOptions);
+    const secondResolved = await resolveReviewTarget(root, options.target, options.signal);
+    if (resolvedTargetIdentity(firstResolved) !== resolvedTargetIdentity(secondResolved)) {
+      throw new ReviewInputError(
+        "Git target refs changed while fingerprinting adversarial review input. Retry the review.",
+      );
+    }
+    resolvedForSuggestions = secondResolved;
+    const secondCapture = await captureReviewTarget(root, secondResolved, captureOptions);
+    const finalResolved = await resolveReviewTarget(root, options.target, options.signal);
+    if (
+      resolvedTargetIdentity(secondResolved) !== resolvedTargetIdentity(finalResolved) ||
+      captureIdentity(firstCapture) !== captureIdentity(secondCapture)
+    ) {
+      throw new ReviewInputError(
+        "Git content changed while fingerprinting adversarial review input. Retry the review.",
+      );
+    }
+    if (!hasReviewChanges(secondCapture)) throw new EmptyReviewInputError();
+    const [charter, requirement] = await Promise.all([
+      readFile(CHARTER_PATH, "utf8"),
+      readRequirement(root, options.reqdoc, maxBytes, maxLines),
+    ]);
+    const charterSha256 = sha256(charter);
+    const measuredTarget = toReviewTarget(root, finalResolved, secondCapture);
+    const measuredContent = buildInputBundle({
+      runId: RANGE_SUGGESTION_RUN_ID,
+      target: measuredTarget,
+      capture: secondCapture,
+      charter,
+      charterSha256,
+      ...(requirement !== undefined ? { requirement } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+    });
+    const inputSize = assertFrozenInputWithinLimits(measuredContent, maxBytes, maxLines);
+    const targetRefs = options.target.mode === "base" && finalResolved.mode === "base"
+      ? [{ ref: options.target.baseRef, sha: finalResolved.baseSha }]
+      : options.target.mode === "range" && finalResolved.mode === "range"
+        ? [
+            { ref: options.target.fromRef, sha: finalResolved.fromSha },
+            { ref: options.target.toRef, sha: finalResolved.toSha },
+          ]
+        : [];
+    return {
+      root,
+      headSha: secondCapture.headSha,
+      statusSha256: secondCapture.statusSha256,
+      targetSha256: secondCapture.targetSha256,
+      inputSize,
+      inputSha256: sha256(measuredContent),
+      resolvedTarget: finalResolved,
+      targetRefs,
+    };
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason instanceof Error ? options.signal.reason : error;
+    }
+    if (!resolvedForSuggestions) throw error;
+    throw await enrichOversizedInputError(error, {
+      root,
+      target: options.target,
+      resolvedTarget: resolvedForSuggestions,
+      ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      maxBytes,
+      maxLines,
+    });
   }
-  const secondCapture = await captureReviewTarget(root, secondResolved, captureOptions);
-  const finalResolved = await resolveReviewTarget(root, options.target, options.signal);
-  if (
-    resolvedTargetIdentity(secondResolved) !== resolvedTargetIdentity(finalResolved) ||
-    captureIdentity(firstCapture) !== captureIdentity(secondCapture)
-  ) {
-    throw new ReviewInputError(
-      "Git content changed while fingerprinting adversarial review input. Retry the review.",
-    );
-  }
-  if (!hasReviewChanges(secondCapture)) throw new EmptyReviewInputError();
-  const targetRefs = options.target.mode === "base" && finalResolved.mode === "base"
-    ? [{ ref: options.target.baseRef, sha: finalResolved.baseSha }]
-    : options.target.mode === "range" && finalResolved.mode === "range"
-      ? [
-          { ref: options.target.fromRef, sha: finalResolved.fromSha },
-          { ref: options.target.toRef, sha: finalResolved.toSha },
-        ]
-      : [];
-  return {
-    root,
-    headSha: secondCapture.headSha,
-    statusSha256: secondCapture.statusSha256,
-    targetSha256: secondCapture.targetSha256,
-    targetRefs,
-  };
 }
 
 async function detectDrift(
@@ -304,11 +566,27 @@ export async function prepareFrozenReviewInput(
   }
   const root = await resolveGitRoot(options.cwd, options.signal);
   const resolved = await resolveReviewTarget(root, options.target, options.signal);
-  const capture = await captureReviewTarget(root, resolved, {
+  const suggestionOptions: SuggestReviewRangesOptions = {
+    root,
+    target: options.target,
+    resolvedTarget: resolved,
+    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+    ...(options.focus !== undefined ? { focus: options.focus } : {}),
+    ...(options.preflight ? { preflight: options.preflight } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
     maxBytes,
     maxLines,
-    signal: options.signal,
-  });
+  };
+  let capture: TargetCapture;
+  try {
+    capture = await captureReviewTarget(root, resolved, {
+      maxBytes,
+      maxLines,
+      signal: options.signal,
+    });
+  } catch (error) {
+    throw await enrichOversizedInputError(error, suggestionOptions);
+  }
   if (!hasReviewChanges(capture)) throw new EmptyReviewInputError();
   assertFreezeActive(options.signal);
 
@@ -329,7 +607,24 @@ export async function prepareFrozenReviewInput(
     ...(requirement !== undefined ? { requirement } : {}),
     ...(options.focus !== undefined ? { focus: options.focus } : {}),
   });
-  assertFrozenInputWithinLimits(content, maxBytes, maxLines);
+  let inputSize: { bytes: number; lines: number };
+  try {
+    inputSize = assertFrozenInputWithinLimits(content, maxBytes, maxLines);
+  } catch (error) {
+    throw await enrichOversizedInputError(error, suggestionOptions);
+  }
+  const measuredContent = runId === RANGE_SUGGESTION_RUN_ID
+    ? content
+    : buildInputBundle({
+        runId: RANGE_SUGGESTION_RUN_ID,
+        target,
+        capture,
+        charter,
+        charterSha256,
+        ...(requirement !== undefined ? { requirement } : {}),
+        ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      });
+  const inputSha256 = sha256(measuredContent);
 
   const workspace = await createReviewTempWorkspace(runId);
   try {
@@ -350,6 +645,8 @@ export async function prepareFrozenReviewInput(
     return {
       runId,
       target,
+      inputSize,
+      inputSha256,
       reviewerCwd,
       inputPath: workspace.inputPath,
       charterSource: "builtin",

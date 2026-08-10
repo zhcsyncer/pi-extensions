@@ -14,6 +14,7 @@ export interface ParsedReviewCommand {
   reqdoc?: string;
   focus?: string;
   gating: GatingMode;
+  allowLarge: boolean;
   refute: boolean;
   refuterSpec?: string;
 }
@@ -81,6 +82,7 @@ export interface ReviewerRouteResult {
   report?: ReviewReport;
   rawOutput?: string;
   error?: string;
+  turnLimited?: boolean;
   durationMs?: number;
   usage?: { input?: number; output?: number; total?: number };
 }
@@ -99,6 +101,7 @@ export interface RefuteRouteResult {
   report?: VerifyReport;
   rawOutput?: string;
   error?: string;
+  turnLimited?: boolean;
   durationMs?: number;
   usage?: { input?: number; output?: number; total?: number };
 }
@@ -113,6 +116,9 @@ export interface ReviewTargetPreflight {
   defaultBranchRef?: string;
   ahead?: number;
   behind?: number;
+  inputBytes?: number;
+  inputLines?: number;
+  largeInput?: boolean;
   operation?: string;
   unmerged?: boolean;
 }
@@ -136,9 +142,16 @@ export interface ReviewInputDrift {
   changed: Array<"head" | "status" | "target">;
 }
 
+export interface FrozenInputSize {
+  bytes: number;
+  lines: number;
+}
+
 export interface FrozenReviewInput {
   runId: string;
   target: ReviewTarget;
+  inputSize: FrozenInputSize;
+  inputSha256: string;
   reviewerCwd: string;
   inputPath: string;
   charterSource: "builtin";
@@ -186,6 +199,7 @@ export interface MergedReviewReport {
     backend: "external-v3" | "embedded";
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
+    maxTurns: number;
   };
   successfulReviewerCount: number;
   minSuccessfulReviewerCount: number;
@@ -209,6 +223,7 @@ export interface MergedReviewReport {
     backend: "external-v3" | "embedded";
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
+    maxTurns: number;
   };
   refuteResults: RefuteRouteResult[];
   contested: ContestedFinding[];

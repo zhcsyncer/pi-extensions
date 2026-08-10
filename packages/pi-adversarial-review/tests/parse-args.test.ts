@@ -11,6 +11,7 @@ describe("parseReviewCommand", () => {
       reviewerSpecs: ["provider/a@high", "provider/b@xhigh"],
       focus: "concurrency and retries",
       gating: "strict",
+      allowLarge: false,
       refute: false,
     });
   });
@@ -40,6 +41,13 @@ describe("parseReviewCommand", () => {
     );
     expect(() => parseReviewCommand("--range main...feature")).toThrow(
       '--range must use exactly "<refA>..<refB>"',
+    );
+  });
+
+  it("parses one explicit large-target acknowledgement", () => {
+    expect(parseReviewCommand("--allow-large")).toMatchObject({ allowLarge: true });
+    expect(() => parseReviewCommand("--allow-large --allow-large")).toThrow(
+      "--allow-large may be provided only once",
     );
   });
 

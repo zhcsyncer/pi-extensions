@@ -56,7 +56,7 @@ function report(): MergedReviewReport {
     charterSha256: "charter",
     requestedRoutes: [route(), { ...route(), key: "provider/reviewer@high", ordinal: 1 }],
     routeResults: [],
-    runtime: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3", waves: 1 },
+    runtime: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3", waves: 1, maxTurns: 25 },
     successfulReviewerCount: 2,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,
@@ -97,6 +97,7 @@ describe("attachRefuteResults", () => {
       refuterRoute: route(),
       routeResults: [completed(1, false), completed(0, true)],
       capabilities: { protocolVersion: 3, maxConcurrent: 1, backend: "external-v3" },
+      maxTurns: 12,
       stale: false,
       cancelled: false,
       completedAt: new Date("2026-01-01T00:02:00.000Z"),
@@ -110,6 +111,7 @@ describe("attachRefuteResults", () => {
       maxConcurrent: 1,
       backend: "external-v3",
       waves: 2,
+      maxTurns: 12,
     });
     expect(merged.contested).toEqual([{
       findingIndex: 0,
@@ -131,6 +133,7 @@ describe("attachRefuteResults", () => {
         { findingIndex: 1, route: route(), status: "invalid-output", error: "bad JSON" },
       ],
       capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+      maxTurns: 12,
       stale: false,
       cancelled: false,
     });
@@ -146,6 +149,7 @@ describe("attachRefuteResults", () => {
       refuterRoute: route(),
       routeResults: [completed(0, true)],
       capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+      maxTurns: 12,
       stale: true,
       cancelled: false,
     });
@@ -157,6 +161,7 @@ describe("attachRefuteResults", () => {
       refuterRoute: route(),
       routeResults: [completed(0, true)],
       capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+      maxTurns: 12,
       stale: true,
       cancelled: true,
     });
@@ -170,6 +175,7 @@ describe("attachRefuteResults", () => {
       refuterRoute: route(),
       routeResults: [completed(0, true), completed(0, false)],
       capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+      maxTurns: 12,
       stale: false,
       cancelled: false,
     })).toThrow("Duplicate refute finding index");
@@ -178,6 +184,7 @@ describe("attachRefuteResults", () => {
       refuterRoute: route(),
       routeResults: [completed(2, true)],
       capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+      maxTurns: 12,
       stale: false,
       cancelled: false,
     })).toThrow("Invalid refute finding index");

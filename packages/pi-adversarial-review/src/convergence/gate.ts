@@ -61,6 +61,7 @@ export interface BuildMergedReviewReportOptions {
   requestedRoutes: ReviewerRoute[];
   routeResults: ReviewerRouteResult[];
   runtimeCapabilities: ReviewRuntimeCapabilities;
+  maxTurns: number;
   refuteRequested: boolean;
   refuterRoute?: ReviewerRoute;
   gating: GatingMode;
@@ -86,6 +87,9 @@ export function buildMergedReviewReport(
     options.runtimeCapabilities.maxConcurrent < 1
   ) {
     throw new Error("Invalid review runtime capabilities.");
+  }
+  if (!Number.isInteger(options.maxTurns) || options.maxTurns < 1) {
+    throw new Error("Review maxTurns must be a positive integer.");
   }
   if (options.refuteRequested !== (options.refuterRoute !== undefined)) {
     throw new Error("Refute requests require exactly one resolved refuter route.");
@@ -134,6 +138,7 @@ export function buildMergedReviewReport(
     runtime: {
       ...options.runtimeCapabilities,
       waves: Math.ceil(options.requestedRoutes.length / options.runtimeCapabilities.maxConcurrent),
+      maxTurns: options.maxTurns,
     },
     successfulReviewerCount: successfulCount,
     minSuccessfulReviewerCount: minSuccessful,

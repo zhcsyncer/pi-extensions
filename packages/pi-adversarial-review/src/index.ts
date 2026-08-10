@@ -25,8 +25,16 @@ import {
   type ResolvedReviewPreflight,
   type ResolveReviewPreflightOptions,
 } from "./preflight/resolve-preflight.ts";
-import { runReviewerFleet } from "./runtime/orchestrator.ts";
-import { runRefuteFleet } from "./runtime/refute-orchestrator.ts";
+import {
+  DEFAULT_REVIEWER_MAX_TURNS,
+  LARGE_REVIEWER_MAX_TURNS,
+  runReviewerFleet,
+} from "./runtime/orchestrator.ts";
+import {
+  DEFAULT_REFUTER_MAX_TURNS,
+  LARGE_REFUTER_MAX_TURNS,
+  runRefuteFleet,
+} from "./runtime/refute-orchestrator.ts";
 import {
   loadRefuterSystemPrompt,
   loadReviewerSystemPrompt,
@@ -152,6 +160,9 @@ export default function adversarialReviewExtension(
               ctx,
               target: command.target,
               targetExplicit: command.targetExplicit,
+              allowLarge: command.allowLarge,
+              ...(command.reqdoc ? { reqdoc: command.reqdoc } : {}),
+              ...(command.focus !== undefined ? { focus: command.focus } : {}),
               signal: controller.signal,
             });
           } finally {
@@ -298,7 +309,7 @@ export default function adversarialReviewExtension(
               try {
                 stable = await revalidate(targetPreflight, {
                   signal: controller.signal,
-                  frozenTarget: candidateInput.target,
+                  frozenInput: candidateInput,
                 });
               } catch (error) {
                 if (!controller.signal.aborted) throw error;
@@ -314,6 +325,12 @@ export default function adversarialReviewExtension(
             await candidateInput.cleanup();
             throw error;
           }
+          const reviewerMaxTurns = targetPreflight.largeInput
+            ? LARGE_REVIEWER_MAX_TURNS
+            : DEFAULT_REVIEWER_MAX_TURNS;
+          const refuterMaxTurns = targetPreflight.largeInput
+            ? LARGE_REFUTER_MAX_TURNS
+            : DEFAULT_REFUTER_MAX_TURNS;
           const fleet = await runReviewerFleet({
             runtime,
             routes,
@@ -321,6 +338,7 @@ export default function adversarialReviewExtension(
             reviewerSystemPrompt,
             signal: controller.signal,
             capabilities,
+            maxTurns: reviewerMaxTurns,
             onProgress: (progress) => runStatus?.update(progress),
           });
           if (sessionShuttingDown) return;
@@ -334,6 +352,7 @@ export default function adversarialReviewExtension(
             requestedRoutes: routes,
             routeResults: fleet.routeResults,
             runtimeCapabilities: fleet.capabilities,
+            maxTurns: reviewerMaxTurns,
             refuteRequested: command.refute,
             refuterRoute,
             gating: command.gating,
@@ -359,6 +378,7 @@ export default function adversarialReviewExtension(
               refuterSystemPrompt,
               capabilities: fleet.capabilities,
               signal: controller.signal,
+              maxTurns: refuterMaxTurns,
               onProgress: (progress) => runStatus?.update(progress),
             });
             if (sessionShuttingDown) return;
@@ -369,6 +389,7 @@ export default function adversarialReviewExtension(
               refuterRoute,
               routeResults: refuteFleet.routeResults,
               capabilities: refuteFleet.capabilities,
+              maxTurns: refuterMaxTurns,
               stale: finalDrift.stale,
               cancelled: controller.signal.aborted,
             });

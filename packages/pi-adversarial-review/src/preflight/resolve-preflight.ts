@@ -1,12 +1,22 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { ReviewCommandError } from "../command/parse-args.ts";
-import { EmptyReviewInputError, ReviewInputError } from "../input/errors.ts";
+import {
+  EmptyReviewInputError,
+  OversizedReviewInputError,
+  ReviewInputError,
+} from "../input/errors.ts";
 import {
   fingerprintReviewTarget,
+  MAX_FROZEN_INPUT_BYTES,
+  MAX_FROZEN_INPUT_LINES,
+  RECOMMENDED_FROZEN_INPUT_BYTES,
+  RECOMMENDED_FROZEN_INPUT_LINES,
+  suggestReviewRanges,
   type ReviewTargetFingerprint,
 } from "../input/freeze-input.ts";
 import { safeReviewDiagnosticText } from "../output/headless-output.ts";
 import type {
+  FrozenReviewInput,
   ReviewTarget,
   ReviewTargetPreflight,
   ReviewTargetRequest,
@@ -29,6 +39,8 @@ const RETRY_FETCH = "Retry fetch";
 const USE_LOCAL_REF = "Use existing local remote-tracking ref";
 const CANCEL_REVIEW = "Cancel review";
 const ENTER_CUSTOM_BASE = "Enter a custom base ref…";
+const REVIEW_WHOLE_TARGET = "Review the whole target";
+const SHOW_RANGE_SUGGESTIONS = "Show smaller range suggestions and cancel";
 
 export interface ReviewPreflightGuard {
   root: string;
@@ -41,6 +53,7 @@ export interface ReviewPreflightGuard {
   operation?: string;
   unmerged: boolean;
   targetSha256: string;
+  inputSha256: string;
   targetRefs: ResolvedPreflightRef[];
 }
 
@@ -48,6 +61,10 @@ export interface ResolvedReviewPreflight {
   target: ReviewTargetRequest;
   audit: ReviewTargetPreflight;
   summary: string;
+  inputSize: { bytes: number; lines: number };
+  largeInput: boolean;
+  reqdoc?: string;
+  focus?: string;
   guard: ReviewPreflightGuard;
 }
 
@@ -55,12 +72,16 @@ export interface ResolveReviewPreflightOptions {
   ctx: ExtensionCommandContext;
   target: ReviewTargetRequest;
   targetExplicit: boolean;
+  allowLarge?: boolean;
+  reqdoc?: string;
+  focus?: string;
   signal?: AbortSignal;
   runner?: PreflightCommandRunner;
   fetchTimeoutMs?: number;
   inspect?: typeof inspectGitPreflight;
   fetch?: typeof fetchReviewRemote;
   fingerprintTarget?: typeof fingerprintReviewTarget;
+  suggestRanges?: typeof suggestReviewRanges;
 }
 
 function display(value: string): string {
@@ -118,10 +139,15 @@ function summaryText(
   );
 }
 
+type ReviewTargetGitFingerprint = Pick<
+  ReviewTargetFingerprint,
+  "root" | "headSha" | "statusSha256" | "targetSha256" | "targetRefs"
+>;
+
 function fingerprintFromFrozenTarget(
   request: ReviewTargetRequest,
   target: ReviewTarget,
-): ReviewTargetFingerprint {
+): ReviewTargetGitFingerprint {
   if (target.mode !== request.mode) {
     throw new ReviewInputError("Frozen target mode does not match adversarial review preflight.");
   }
@@ -147,18 +173,116 @@ function fingerprintFromFrozenTarget(
   };
 }
 
+function exceedsRecommendedInput(size: { bytes: number; lines: number }): boolean {
+  return size.bytes > RECOMMENDED_FROZEN_INPUT_BYTES ||
+    size.lines > RECOMMENDED_FROZEN_INPUT_LINES;
+}
+
+function recommendedExcessText(size: { bytes: number; lines: number }): string {
+  return [
+    ...(size.bytes > RECOMMENDED_FROZEN_INPUT_BYTES
+      ? [`${size.bytes} bytes > ${RECOMMENDED_FROZEN_INPUT_BYTES} bytes`]
+      : []),
+    ...(size.lines > RECOMMENDED_FROZEN_INPUT_LINES
+      ? [`${size.lines} lines > ${RECOMMENDED_FROZEN_INPUT_LINES} lines`]
+      : []),
+  ].join("; ");
+}
+
+function recommendedLimitError(size: { bytes: number; lines: number }): OversizedReviewInputError {
+  return new OversizedReviewInputError({
+    ...(size.bytes > RECOMMENDED_FROZEN_INPUT_BYTES
+      ? { bytes: { limit: RECOMMENDED_FROZEN_INPUT_BYTES, actual: size.bytes } }
+      : {}),
+    ...(size.lines > RECOMMENDED_FROZEN_INPUT_LINES
+      ? { lines: { limit: RECOMMENDED_FROZEN_INPUT_LINES, actual: size.lines } }
+      : {}),
+  });
+}
+
+async function approveLargeInput(options: {
+  ctx: ExtensionCommandContext;
+  target: ReviewTargetRequest;
+  fingerprint: ReviewTargetFingerprint;
+  allowLarge?: boolean;
+  reqdoc?: string;
+  focus?: string;
+  signal?: AbortSignal;
+  suggestRanges?: typeof suggestReviewRanges;
+}): Promise<boolean | undefined> {
+  if (!exceedsRecommendedInput(options.fingerprint.inputSize)) return false;
+  if (options.allowLarge) return true;
+  const { bytes, lines } = options.fingerprint.inputSize;
+  if (options.ctx.mode !== "tui") {
+    throw new ReviewCommandError(
+      `Frozen review input exceeds the recommended threshold (${recommendedExcessText(options.fingerprint.inputSize)}). ` +
+        "Pass --allow-large to review it whole, or use a smaller --range target.",
+    );
+  }
+
+  const choices = [
+    REVIEW_WHOLE_TARGET,
+    ...(options.target.mode === "local" ? [] : [SHOW_RANGE_SUGGESTIONS]),
+    CANCEL_REVIEW,
+  ];
+  const choice = await options.ctx.ui.select(
+    `Frozen review input is ${bytes} bytes / ${lines} lines. ` +
+      "Large targets use more reviewer turns and may reduce review precision.",
+    choices,
+    options.signal ? { signal: options.signal } : undefined,
+  );
+  if (choice === REVIEW_WHOLE_TARGET) return true;
+  if (choice === SHOW_RANGE_SUGGESTIONS) {
+    let suggestions: string[] = [];
+    let suggestionNote: string | undefined;
+    try {
+      const result = await (options.suggestRanges ?? suggestReviewRanges)({
+        root: options.fingerprint.root,
+        target: options.target,
+        resolvedTarget: options.fingerprint.resolvedTarget,
+        ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+        ...(options.focus !== undefined ? { focus: options.focus } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+        maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+        maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+      });
+      suggestions = result.commands;
+      suggestionNote = result.note;
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      // The original size warning remains authoritative if range advice fails.
+    }
+    const policyNote =
+      `This is the recommended whole-target threshold; the absolute limit remains ` +
+      `${MAX_FROZEN_INPUT_BYTES} bytes / ${MAX_FROZEN_INPUT_LINES} lines.`;
+    throw recommendedLimitError(options.fingerprint.inputSize)
+      .addRangeSuggestions(
+        suggestions,
+        [policyNote, suggestionNote].filter(Boolean).join(" "),
+      );
+  }
+  return undefined;
+}
+
 async function finalizePreflight(options: {
+  ctx: ExtensionCommandContext;
   state: GitPreflightState;
   target: ReviewTargetRequest;
   audit: ReviewTargetPreflight;
   summary: string;
+  allowLarge?: boolean;
+  reqdoc?: string;
+  focus?: string;
   signal?: AbortSignal;
   fingerprintTarget?: typeof fingerprintReviewTarget;
-}): Promise<ResolvedReviewPreflight> {
+  suggestRanges?: typeof suggestReviewRanges;
+}): Promise<ResolvedReviewPreflight | undefined> {
   if (options.signal?.aborted) throw options.signal.reason;
   const fingerprint = await (options.fingerprintTarget ?? fingerprintReviewTarget)({
     cwd: options.state.root,
     target: options.target,
+    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+    ...(options.focus !== undefined ? { focus: options.focus } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
   if (options.signal?.aborted) throw options.signal.reason;
@@ -176,10 +300,33 @@ async function finalizePreflight(options: {
   ) {
     throw new ReviewInputError("Git state changed during adversarial review preflight. Retry the review.");
   }
+  const largeInput = await approveLargeInput({
+    ctx: options.ctx,
+    target: options.target,
+    fingerprint,
+    ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
+    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+    ...(options.focus !== undefined ? { focus: options.focus } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
+  });
+  if (largeInput === undefined) return undefined;
+  const sizeSummary = largeInput
+    ? ` Large input approved: ${fingerprint.inputSize.bytes} bytes / ${fingerprint.inputSize.lines} lines.`
+    : "";
   return {
     target: options.target,
-    audit: options.audit,
-    summary: options.summary,
+    audit: {
+      ...options.audit,
+      inputBytes: fingerprint.inputSize.bytes,
+      inputLines: fingerprint.inputSize.lines,
+      ...(largeInput ? { largeInput: true } : {}),
+    },
+    summary: `${options.summary}${sizeSummary}`,
+    inputSize: fingerprint.inputSize,
+    largeInput,
+    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+    ...(options.focus !== undefined ? { focus: options.focus } : {}),
     guard: {
       root: fingerprint.root,
       headSha: fingerprint.headSha,
@@ -195,6 +342,7 @@ async function finalizePreflight(options: {
       ...(options.state.operation ? { operation: options.state.operation } : {}),
       unmerged: options.state.workingTree.unmerged,
       targetSha256: fingerprint.targetSha256,
+      inputSha256: fingerprint.inputSha256,
       targetRefs: fingerprint.targetRefs,
     },
   };
@@ -208,6 +356,7 @@ export async function revalidateReviewPreflight(
     inspect?: typeof inspectGitPreflight;
     fingerprintTarget?: typeof fingerprintReviewTarget;
     frozenTarget?: ReviewTarget;
+    frozenInput?: Pick<FrozenReviewInput, "target" | "inputSha256">;
   } = {},
 ): Promise<boolean> {
   try {
@@ -223,14 +372,17 @@ export async function revalidateReviewPreflight(
     )({
       cwd: state.root,
       target: preflight.target,
+      ...(preflight.reqdoc ? { reqdoc: preflight.reqdoc } : {}),
+      ...(preflight.focus !== undefined ? { focus: preflight.focus } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
-    const frozenFingerprint = options.frozenTarget
-      ? fingerprintFromFrozenTarget(preflight.target, options.frozenTarget)
+    const frozenTarget = options.frozenInput?.target ?? options.frozenTarget;
+    const frozenFingerprint = frozenTarget
+      ? fingerprintFromFrozenTarget(preflight.target, frozenTarget)
       : undefined;
     if (options.signal?.aborted) throw options.signal.reason;
     const guard = preflight.guard;
-    const fingerprintMatches = (fingerprint: ReviewTargetFingerprint) => (
+    const gitFingerprintMatches = (fingerprint: ReviewTargetGitFingerprint) => (
       fingerprint.root === guard.root &&
       fingerprint.headSha === guard.headSha &&
       fingerprint.statusSha256 === guard.statusSha256 &&
@@ -247,8 +399,10 @@ export async function revalidateReviewPreflight(
       state.defaultBranchSha === guard.defaultBranchSha &&
       state.operation === guard.operation &&
       state.workingTree.unmerged === guard.unmerged &&
-      fingerprintMatches(currentFingerprint) &&
-      (frozenFingerprint === undefined || fingerprintMatches(frozenFingerprint))
+      gitFingerprintMatches(currentFingerprint) &&
+      currentFingerprint.inputSha256 === guard.inputSha256 &&
+      (frozenFingerprint === undefined || gitFingerprintMatches(frozenFingerprint)) &&
+      (options.frozenInput === undefined || options.frozenInput.inputSha256 === guard.inputSha256)
     );
   } catch (error) {
     if (options.signal?.aborted) {
@@ -452,14 +606,19 @@ export async function resolveReviewPreflight(
       fetchedRemotes,
     });
     return finalizePreflight({
+      ctx: options.ctx,
       state,
       target: options.target,
       audit,
       summary: summaryText(options.target, audit),
+      ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
+      ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.fingerprintTarget
         ? { fingerprintTarget: options.fingerprintTarget }
         : {}),
+      ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
     });
   }
 
@@ -514,13 +673,18 @@ export async function resolveReviewPreflight(
     fetchedRemotes,
   });
   return finalizePreflight({
+    ctx: options.ctx,
     state,
     target,
     audit,
     summary: summaryText(target, audit),
+    ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
+    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+    ...(options.focus !== undefined ? { focus: options.focus } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.fingerprintTarget
       ? { fingerprintTarget: options.fingerprintTarget }
       : {}),
+    ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
   });
 }

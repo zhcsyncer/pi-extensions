@@ -14,7 +14,11 @@ import {
   measureFrozenInput,
   OversizedReviewInputError,
   prepareFrozenReviewInput,
+  RECOMMENDED_FROZEN_INPUT_BYTES,
+  RECOMMENDED_FROZEN_INPUT_LINES,
+  suggestReviewRanges,
 } from "../src/input/freeze-input.ts";
+import { resolveReviewTarget } from "../src/input/git-target.ts";
 
 const exec = promisify(execFile);
 const repos: string[] = [];
@@ -77,6 +81,11 @@ describe("prepareFrozenReviewInput", () => {
     const nested = path.join(root, "nested");
     await mkdir(nested);
 
+    const fingerprint = await fingerprintReviewTarget({
+      cwd: nested,
+      target: { mode: "local" },
+      focus: "failure recovery",
+    });
     const frozen = await prepareFrozenReviewInput({
       cwd: nested,
       target: { mode: "local" },
@@ -96,6 +105,9 @@ describe("prepareFrozenReviewInput", () => {
 
     const content = await readFile(frozen.inputPath, "utf8");
     expect(frozen.target.root).toBe(root);
+    expect(frozen.inputSize).toEqual(measureFrozenInput(content));
+    expect(frozen.inputSize).toEqual(fingerprint.inputSize);
+    expect(frozen.inputSha256).toBe(fingerprint.inputSha256);
     expect(frozen.target.preflight).toEqual({
       selection: "inferred",
       fetchStatus: "succeeded",
@@ -626,13 +638,16 @@ describe("prepareFrozenReviewInput", () => {
     await appendFile(path.join(root, "tracked.txt"), "x".repeat(4_096));
     const oversizedStatus = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
 
-    await expect(prepareFrozenReviewInput({
+    const oversizedGitError = await prepareFrozenReviewInput({
       cwd: root,
       target: { mode: "local" },
       runId: randomUUID(),
       maxBytes: 1_024,
       maxLines: 5_000,
-    })).rejects.toBeInstanceOf(OversizedReviewInputError);
+    }).catch((error: unknown) => error);
+    expect(oversizedGitError).toBeInstanceOf(OversizedReviewInputError);
+    expect((oversizedGitError as Error).message).toContain("exceeds the 1024-byte limit");
+    expect((oversizedGitError as Error).message).not.toContain("lines");
     expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
       .toBe(oversizedStatus);
 
@@ -641,16 +656,150 @@ describe("prepareFrozenReviewInput", () => {
     await commitAll(root, "add large requirement");
     await appendFile(path.join(root, "tracked.txt"), "review change\n");
     const reqdocStatus = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
-    await expect(prepareFrozenReviewInput({
+    const oversizedRequirementError = await prepareFrozenReviewInput({
       cwd: root,
       target: { mode: "local" },
       reqdoc: "requirements.md",
       runId: randomUUID(),
       maxBytes: 2_048,
       maxLines: 5_000,
-    })).rejects.toBeInstanceOf(OversizedReviewInputError);
+    }).catch((error: unknown) => error);
+    expect(oversizedRequirementError).toBeInstanceOf(OversizedReviewInputError);
+    expect((oversizedRequirementError as Error).message).toBe(
+      "Frozen requirement document exceeds the 2048-byte limit (4096 bytes). " +
+        "Reduce or split the requirement document.",
+    );
     expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
       .toBe(reqdocStatus);
+  });
+
+  it("suggests independently bounded committed ranges for an oversized target", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    const commits: string[] = [];
+    for (let index = 1; index <= 3; index++) {
+      await writeFile(path.join(root, `part-${index}.txt`), `${"x".repeat(70 * 1024)}\n`);
+      commits.push(await commitAll(root, `part ${index}`));
+    }
+
+    const error = await fingerprintReviewTarget({
+      cwd: root,
+      target: { mode: "base", baseRef: baseSha },
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OversizedReviewInputError);
+    const suggestions = (error as OversizedReviewInputError).rangeSuggestions;
+    expect(suggestions).toEqual([
+      `--range ${baseSha}..${commits[1]}`,
+      `--range ${commits[1]}..${commits[2]}`,
+    ]);
+    for (const suggestion of suggestions) {
+      const range = /--range ([0-9a-f]+)\.\.([0-9a-f]+)$/u.exec(suggestion);
+      expect(range).not.toBeNull();
+      const frozen = await prepareFrozenReviewInput({
+        cwd: root,
+        target: { mode: "range", fromRef: range![1]!, toRef: range![2]! },
+        runId: randomUUID(),
+        maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+        maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+      });
+      await frozen.cleanup();
+    }
+    expect((error as Error).message).toContain("Suggested smaller review ranges");
+    expect((error as Error).message).toContain("review any uncommitted changes separately");
+    expect((error as Error).message).not.toContain("lines");
+  });
+
+  it("sizes suggested ranges with the frozen requirement context included", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    await writeFile(path.join(root, "requirements.md"), `${"r".repeat(90 * 1024)}\n`);
+    const baseSha = await commitAll(root, "base with requirements");
+    const commits: string[] = [];
+    for (let index = 1; index <= 3; index++) {
+      await writeFile(path.join(root, `context-part-${index}.txt`), `${"x".repeat(60 * 1024)}\n`);
+      commits.push(await commitAll(root, `context part ${index}`));
+    }
+
+    const error = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "base", baseRef: baseSha },
+      reqdoc: "requirements.md",
+      runId: randomUUID(),
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OversizedReviewInputError);
+    expect((error as OversizedReviewInputError).rangeSuggestions).toEqual([
+      `--range ${baseSha}..${commits[0]}`,
+      `--range ${commits[0]}..${commits[1]}`,
+      `--range ${commits[1]}..${commits[2]}`,
+    ]);
+    expect((error as Error).message).toContain(
+      "replace only the original target and keep all other options",
+    );
+  });
+
+  it("skips empty commit ranges and does not suggest an oversized single commit", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    await git(root, "commit", "--allow-empty", "-qm", "empty commit");
+    const emptySha = await git(root, "rev-parse", "HEAD");
+    await writeFile(path.join(root, "oversized.txt"), `${"x".repeat(210 * 1024)}\n`);
+    const oversizedSha = await commitAll(root, "oversized commit");
+
+    const error = await fingerprintReviewTarget({
+      cwd: root,
+      target: { mode: "base", baseRef: baseSha },
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OversizedReviewInputError);
+    expect((error as OversizedReviewInputError).rangeSuggestions).toEqual([]);
+    expect((error as Error).message).not.toContain(emptySha.slice(0, 12));
+    expect((error as Error).message).toContain(
+      `Single-commit ranges still over the limit: ${oversizedSha.slice(0, 12)}`,
+    );
+    expect((error as Error).message).toContain("split those commits before review");
+  });
+
+  it("keeps range suggestions bound to resolved SHAs after a ref moves", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    const oldCommits: string[] = [];
+    for (let index = 1; index <= 3; index++) {
+      await writeFile(path.join(root, `old-${index}.txt`), `${"x".repeat(70 * 1024)}\n`);
+      oldCommits.push(await commitAll(root, `old part ${index}`));
+    }
+    await git(root, "branch", "topic", oldCommits[2]);
+    const request = { mode: "range" as const, fromRef: baseSha, toRef: "topic" };
+    const resolvedTarget = await resolveReviewTarget(root, request);
+
+    await git(root, "checkout", "-qb", "replacement", baseSha);
+    await writeFile(path.join(root, "replacement.txt"), "small replacement\n");
+    const replacementSha = await commitAll(root, "replacement");
+    await git(root, "branch", "-f", "topic", replacementSha);
+
+    const suggestions = await suggestReviewRanges({
+      root,
+      target: request,
+      resolvedTarget,
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    });
+
+    expect(suggestions.commands).toEqual([
+      `--range ${baseSha}..${oldCommits[1]}`,
+      `--range ${oldCommits[1]}..${oldCommits[2]}`,
+    ]);
+    expect(suggestions.commands.join("\n")).not.toContain(replacementSha);
   });
 
   it("fails loud on non-UTF-8 Git paths instead of aliasing snapshot names", async () => {
@@ -699,13 +848,38 @@ describe("prepareFrozenReviewInput", () => {
 });
 
 describe("frozen input limits", () => {
-  it("accepts exact byte/line limits and rejects one unit over", () => {
+  it("accepts exact byte/line limits and reports only exceeded dimensions", () => {
     expect(assertFrozenInputWithinLimits("a\nb\n", 4, 2)).toEqual({ bytes: 4, lines: 2 });
-    expect(() => assertFrozenInputWithinLimits("a\nb\n!", 4, 3)).toThrow(OversizedReviewInputError);
-    expect(() => assertFrozenInputWithinLimits("a\nb\nc", 5, 2)).toThrow(OversizedReviewInputError);
+
+    const capture = (content: string, maxBytes: number, maxLines: number) => {
+      try {
+        assertFrozenInputWithinLimits(content, maxBytes, maxLines);
+        throw new Error("Expected frozen input to exceed a limit.");
+      } catch (error) {
+        expect(error).toBeInstanceOf(OversizedReviewInputError);
+        return error as OversizedReviewInputError;
+      }
+    };
+    expect(capture("a\nb\n!", 4, 3).message).toBe(
+      "Frozen review input exceeds the 4-byte limit (5 bytes). Split the review target.",
+    );
+    expect(capture("a\nb\nc", 5, 2).message).toBe(
+      "Frozen review input exceeds the 2-line limit (3 lines). Split the review target.",
+    );
+    expect(capture("a\nb\nc", 4, 2).message).toBe(
+      "Frozen review input exceeds its limits: 4-byte limit (5 bytes); " +
+        "2-line limit (3 lines). Split the review target.",
+    );
   });
 
-  it("enforces the production 200 KiB and 5000-line boundaries exactly", () => {
+  it("keeps the 200 KiB / 5000-line recommendation below the absolute limits", () => {
+    expect(RECOMMENDED_FROZEN_INPUT_BYTES).toBe(200 * 1024);
+    expect(RECOMMENDED_FROZEN_INPUT_LINES).toBe(5_000);
+    expect(MAX_FROZEN_INPUT_BYTES).toBe(1024 * 1024);
+    expect(MAX_FROZEN_INPUT_LINES).toBe(25_000);
+  });
+
+  it("enforces the absolute 1 MiB and 25000-line boundaries exactly", () => {
     const exactBytes = "x".repeat(MAX_FROZEN_INPUT_BYTES);
     expect(assertFrozenInputWithinLimits(
       exactBytes,

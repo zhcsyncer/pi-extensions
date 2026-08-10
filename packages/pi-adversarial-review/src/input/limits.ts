@@ -1,11 +1,20 @@
 import { OversizedReviewInputError } from "./errors.ts";
 
-export const MAX_FROZEN_INPUT_BYTES = 200 * 1024;
-export const MAX_FROZEN_INPUT_LINES = 5_000;
+// Above the recommended threshold, users must explicitly accept whole-target
+// fan-out. The absolute limit still rejects pathological/generated input.
+export const RECOMMENDED_FROZEN_INPUT_BYTES = 200 * 1024;
+export const RECOMMENDED_FROZEN_INPUT_LINES = 5_000;
+export const MAX_FROZEN_INPUT_BYTES = 1024 * 1024;
+export const MAX_FROZEN_INPUT_LINES = 25_000;
 
 export interface InputSize {
   bytes: number;
   lines: number;
+}
+
+export interface InputLimitContext {
+  subject?: string;
+  canSuggestRanges?: boolean;
 }
 
 export function measureFrozenInput(content: string): InputSize {
@@ -19,10 +28,20 @@ export function assertFrozenInputWithinLimits(
   content: string,
   maxBytes = MAX_FROZEN_INPUT_BYTES,
   maxLines = MAX_FROZEN_INPUT_LINES,
+  context: InputLimitContext = {},
 ): InputSize {
   const size = measureFrozenInput(content);
-  if (size.bytes > maxBytes || size.lines > maxLines) {
-    throw new OversizedReviewInputError(size.bytes, size.lines, maxBytes, maxLines);
+  const bytesExceeded = size.bytes > maxBytes;
+  const linesExceeded = size.lines > maxLines;
+  if (bytesExceeded || linesExceeded) {
+    throw new OversizedReviewInputError({
+      ...(bytesExceeded ? { bytes: { limit: maxBytes, actual: size.bytes } } : {}),
+      ...(linesExceeded ? { lines: { limit: maxLines, actual: size.lines } } : {}),
+      ...(context.subject ? { subject: context.subject } : {}),
+      ...(context.canSuggestRanges !== undefined
+        ? { canSuggestRanges: context.canSuggestRanges }
+        : {}),
+    });
   }
   return size;
 }

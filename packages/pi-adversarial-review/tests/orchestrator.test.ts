@@ -82,6 +82,8 @@ function frozen(): FrozenReviewInput {
       targetSha256: "target",
       changedFiles: ["src/example.ts"],
     },
+    inputSize: { bytes: 1024, lines: 20 },
+    inputSha256: "input",
     reviewerCwd: "/repo",
     inputPath: "/tmp/input.md",
     charterSource: "builtin",
@@ -133,6 +135,8 @@ describe("runReviewerFleet", () => {
       expect(result.routeResults.map(({ status, route }) => [route.ordinal, status])).toEqual(
         Array.from({ length: routeCount }, (_, ordinal) => [ordinal, "completed"]),
       );
+      expect(result.routeResults[0].turnLimited).toBe(true);
+      expect(result.routeResults[1].turnLimited).toBeUndefined();
       expect(runtime.spawnInputs).toHaveLength(routeCount);
       expect(runtime.spawnInputs[0]).toMatchObject({
         cwd: "/repo",

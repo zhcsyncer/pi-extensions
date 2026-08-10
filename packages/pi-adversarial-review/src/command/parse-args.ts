@@ -85,6 +85,7 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   let reqdoc: string | undefined;
   let focus: string | undefined;
   let gating: GatingMode = "weighted";
+  let allowLarge = false;
   let refute = false;
   let refuterSpec: string | undefined;
 
@@ -128,6 +129,10 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
         reviewerSpecs.push(requireValue(tokens, index, token));
         index++;
         break;
+      case "--allow-large":
+        if (allowLarge) throw new ReviewCommandError("--allow-large may be provided only once.");
+        allowLarge = true;
+        break;
       case "--refute":
         if (refute) throw new ReviewCommandError("--refute may be provided only once.");
         refute = true;
@@ -160,6 +165,7 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
     targetExplicit: targetOptionCount === 1,
     reviewerSpecs,
     gating,
+    allowLarge,
     refute,
     ...(refuterSpec !== undefined ? { refuterSpec } : {}),
     ...(reqdoc !== undefined ? { reqdoc } : {}),

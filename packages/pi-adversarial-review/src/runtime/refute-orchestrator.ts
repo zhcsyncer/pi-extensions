@@ -19,7 +19,8 @@ import type {
 
 const DEFAULT_REFUTER_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_REFUTE_RUN_TIMEOUT_MS = 15 * 60_000;
-const DEFAULT_REFUTER_MAX_TURNS = 12;
+export const DEFAULT_REFUTER_MAX_TURNS = 12;
+export const LARGE_REFUTER_MAX_TURNS = 20;
 
 export interface RunRefuteFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -235,6 +236,7 @@ export async function runRefuteFleet(options: RunRefuteFleetOptions): Promise<Re
     const common = {
       durationMs: event.durationMs,
       usage: event.usage,
+      ...(event.status === "steered" ? { turnLimited: true } : {}),
       ...(event.result !== undefined ? { rawOutput: truncateRawOutput(event.result) } : {}),
     };
     if (event.status !== "completed" && event.status !== "steered") {

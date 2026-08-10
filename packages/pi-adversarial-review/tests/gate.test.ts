@@ -76,6 +76,7 @@ function build(options: {
     requestedRoutes: Array.from({ length: options.requested }, (_, index) => route(index)),
     routeResults: options.results,
     runtimeCapabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+    maxTurns: 25,
     refuteRequested: options.refuteRequested ?? false,
     refuterRoute: options.refuterRoute,
     gating: options.gating ?? "weighted",

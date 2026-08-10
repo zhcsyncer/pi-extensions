@@ -13,6 +13,24 @@ vi.mock("../src/input/freeze-input.ts", async (importOriginal) => {
       headSha: "a".repeat(40),
       statusSha256: "c".repeat(64),
       targetSha256: "d".repeat(64),
+      inputSize: { bytes: 1024, lines: 20 },
+      inputSha256: "e".repeat(64),
+      resolvedTarget: target.mode === "base"
+        ? {
+            mode: "base" as const,
+            baseRef: target.baseRef,
+            baseSha: "b".repeat(40),
+            headSha: "a".repeat(40),
+          }
+        : target.mode === "range"
+          ? {
+              mode: "range" as const,
+              fromRef: target.fromRef,
+              toRef: target.toRef,
+              fromSha: "b".repeat(40),
+              toSha: target.toRef === "HEAD" ? "a".repeat(40) : "b".repeat(40),
+            }
+          : { mode: "local" as const },
       targetRefs: target.mode === "base"
         ? [{ ref: target.baseRef, sha: "b".repeat(40) }]
         : target.mode === "range"
@@ -57,6 +75,41 @@ function state(overrides: Partial<GitPreflightState> = {}): GitPreflightState {
     shallow: false,
     ...overrides,
   };
+}
+
+function fingerprintWithSize(bytes: number, lines: number) {
+  return vi.fn(async ({ cwd, target }: { cwd: string; target: ReviewTargetRequest }) => ({
+    root: cwd,
+    headSha: "a".repeat(40),
+    statusSha256: "c".repeat(64),
+    targetSha256: "d".repeat(64),
+    inputSize: { bytes, lines },
+    inputSha256: "e".repeat(64),
+    resolvedTarget: target.mode === "base"
+      ? {
+          mode: "base" as const,
+          baseRef: target.baseRef,
+          baseSha: "b".repeat(40),
+          headSha: "a".repeat(40),
+        }
+      : target.mode === "range"
+        ? {
+            mode: "range" as const,
+            fromRef: target.fromRef,
+            toRef: target.toRef,
+            fromSha: "b".repeat(40),
+            toSha: target.toRef === "HEAD" ? "a".repeat(40) : "b".repeat(40),
+          }
+        : { mode: "local" as const },
+    targetRefs: target.mode === "base"
+      ? [{ ref: target.baseRef, sha: "b".repeat(40) }]
+      : target.mode === "range"
+        ? [
+            { ref: target.fromRef, sha: "b".repeat(40) },
+            { ref: target.toRef, sha: target.toRef === "HEAD" ? "a".repeat(40) : "b".repeat(40) },
+          ]
+        : [],
+  }));
 }
 
 function context(mode: "tui" | "json" = "tui", select?: (title: string, options: string[]) => unknown) {
@@ -359,6 +412,84 @@ describe("resolveReviewPreflight", () => {
     });
   });
 
+  it("asks TUI users before whole-target review above the recommended threshold", async () => {
+    const ctx = context("tui", async (_title, options) => (
+      options.find((option) => option.includes("whole target"))
+    ));
+    const result = await resolveReviewPreflight({
+      ctx,
+      target: { mode: "local" },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state()),
+      fingerprintTarget: fingerprintWithSize(300 * 1024, 6_000),
+    });
+
+    expect(result).toMatchObject({
+      largeInput: true,
+      inputSize: { bytes: 300 * 1024, lines: 6_000 },
+      audit: { inputBytes: 300 * 1024, inputLines: 6_000, largeInput: true },
+    });
+    expect(result?.summary).toContain("Large input approved");
+    expect(ctx.ui.select).toHaveBeenCalledWith(
+      expect.stringContaining("Large targets use more reviewer turns"),
+      expect.arrayContaining(["Review the whole target", "Cancel review"]),
+      undefined,
+    );
+  });
+
+  it("cancels a TUI large-target decision without producing a preflight", async () => {
+    const ctx = context("tui", async (_title, options) => (
+      options.find((option) => option === "Cancel review")
+    ));
+    await expect(resolveReviewPreflight({
+      ctx,
+      target: { mode: "local" },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state()),
+      fingerprintTarget: fingerprintWithSize(300 * 1024, 6_000),
+    })).resolves.toBeUndefined();
+  });
+
+  it("requires --allow-large headlessly and accepts it explicitly", async () => {
+    const base = {
+      ctx: context("json"),
+      target: { mode: "local" as const },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state()),
+      fingerprintTarget: fingerprintWithSize(300 * 1024, 100),
+    };
+    const error = await resolveReviewPreflight(base).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ReviewCommandError);
+    expect((error as Error).message).toContain("307200 bytes > 204800 bytes");
+    expect((error as Error).message).not.toContain("100 lines");
+    expect((error as Error).message).toContain("Pass --allow-large");
+    await expect(resolveReviewPreflight({ ...base, allowLarge: true })).resolves.toMatchObject({
+      largeInput: true,
+    });
+  });
+
+  it("returns soft-bounded target replacements when TUI chooses ranges", async () => {
+    const ctx = context("tui", async (_title, options) => (
+      options.find((option) => option.includes("range suggestions"))
+    ));
+    const suggestRanges = vi.fn(async () => ({
+      commands: [`--range ${"b".repeat(40)}..${"a".repeat(40)}`],
+    }));
+
+    await expect(resolveReviewPreflight({
+      ctx,
+      target: { mode: "base", baseRef: "HEAD~1" },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state()),
+      fingerprintTarget: fingerprintWithSize(300 * 1024, 6_000),
+      suggestRanges,
+    })).rejects.toThrow("Suggested smaller review ranges");
+    expect(suggestRanges).toHaveBeenCalledWith(expect.objectContaining({
+      maxBytes: 200 * 1024,
+      maxLines: 5_000,
+    }));
+  });
+
   it("binds picker-time state and rejects branch, status, or target-ref drift", async () => {
     const stable = state();
     const preflight = await resolveReviewPreflight({
@@ -387,6 +518,11 @@ describe("resolveReviewPreflight", () => {
       headSha: "a".repeat(40),
       statusSha256: "c".repeat(64),
       targetSha256: "e".repeat(64),
+      inputSize: { bytes: 1024, lines: 20 },
+      inputSha256: "e".repeat(64),
+      resolvedTarget: {
+        mode: "base", baseRef: "origin/main", baseSha: "b".repeat(40), headSha: "a".repeat(40),
+      },
       targetRefs: [{ ref: "origin/main", sha: "b".repeat(40) }],
     });
     await expect(revalidateReviewPreflight(preflight!, {
@@ -397,6 +533,11 @@ describe("resolveReviewPreflight", () => {
       headSha: "a".repeat(40),
       statusSha256: "c".repeat(64),
       targetSha256: "e".repeat(64),
+      inputSize: { bytes: 1024, lines: 20 },
+      inputSha256: "e".repeat(64),
+      resolvedTarget: {
+        mode: "base", baseRef: "origin/main", baseSha: "b".repeat(40), headSha: "a".repeat(40),
+      },
       targetRefs: [{ ref: "origin/main", sha: "b".repeat(40) }],
     });
     const frozenTarget = {
@@ -418,6 +559,11 @@ describe("resolveReviewPreflight", () => {
       headSha: "a".repeat(40),
       statusSha256: "c".repeat(64),
       targetSha256: "d".repeat(64),
+      inputSize: { bytes: 1024, lines: 20 },
+      inputSha256: "e".repeat(64),
+      resolvedTarget: {
+        mode: "base", baseRef: "origin/main", baseSha: "b".repeat(40), headSha: "a".repeat(40),
+      },
       targetRefs: [{ ref: "origin/main", sha: "f".repeat(40) }],
     });
     await expect(revalidateReviewPreflight(preflight!, {

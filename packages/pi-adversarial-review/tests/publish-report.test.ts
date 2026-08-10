@@ -64,7 +64,7 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
     charterSha256: "charter",
     requestedRoutes: [reviewer],
     routeResults: [{ route: reviewer, status: "completed", report: { verdict: "approve", summary: "clean", findings: [] } }],
-    runtime: { protocolVersion: 3, maxConcurrent: 1, backend: "external-v3", waves: 1 },
+    runtime: { protocolVersion: 3, maxConcurrent: 1, backend: "external-v3", waves: 1, maxTurns: 25 },
     successfulReviewerCount: 1,
     minSuccessfulReviewerCount: 2,
     consensusThreshold: 2,

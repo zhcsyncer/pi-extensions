@@ -10,6 +10,7 @@ export interface AttachRefuteResultsOptions {
   refuterRoute: ReviewerRoute;
   routeResults: readonly RefuteRouteResult[];
   capabilities: ReviewRuntimeCapabilities;
+  maxTurns: number;
   stale: boolean;
   cancelled: boolean;
   completedAt?: Date;
@@ -28,6 +29,10 @@ export function attachRefuteResults(options: AttachRefuteResultsOptions): Merged
     options.capabilities.maxConcurrent < 1
   ) {
     throw new Error("Invalid refute runtime capabilities.");
+  }
+
+  if (!Number.isInteger(options.maxTurns) || options.maxTurns < 1) {
+    throw new Error("Refute maxTurns must be a positive integer.");
   }
 
   const seen = new Set<number>();
@@ -73,6 +78,7 @@ export function attachRefuteResults(options: AttachRefuteResultsOptions): Merged
     refuteRuntime: {
       ...options.capabilities,
       waves: Math.ceil(options.report.blocking.length / options.capabilities.maxConcurrent),
+      maxTurns: options.maxTurns,
     },
     refuteResults: routeResults,
     contested,

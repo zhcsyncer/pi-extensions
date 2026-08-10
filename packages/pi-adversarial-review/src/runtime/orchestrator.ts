@@ -11,7 +11,8 @@ import type {
 
 const DEFAULT_ROUTE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_OVERALL_TIMEOUT_MS = 20 * 60_000;
-const DEFAULT_MAX_TURNS = 25;
+export const DEFAULT_REVIEWER_MAX_TURNS = 25;
+export const LARGE_REVIEWER_MAX_TURNS = 40;
 
 export interface RunReviewerFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -83,7 +84,7 @@ function validateTimeout(value: number, name: string): void {
 export async function runReviewerFleet(options: RunReviewerFleetOptions): Promise<ReviewerFleetResult> {
   const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS;
   const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_OVERALL_TIMEOUT_MS;
-  const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
+  const maxTurns = options.maxTurns ?? DEFAULT_REVIEWER_MAX_TURNS;
   validateTimeout(routeTimeoutMs, "routeTimeoutMs");
   validateTimeout(overallTimeoutMs, "overallTimeoutMs");
   if (!Number.isInteger(maxTurns) || maxTurns < 1) throw new Error("maxTurns must be a positive integer.");
@@ -206,6 +207,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
     const common = {
       durationMs: event.durationMs,
       usage: event.usage,
+      ...(event.status === "steered" ? { turnLimited: true } : {}),
       ...(event.result !== undefined ? { rawOutput: truncateRawOutput(event.result) } : {}),
     };
     if (event.status !== "completed" && event.status !== "steered") {
