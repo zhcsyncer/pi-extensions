@@ -92,6 +92,12 @@ export interface ActivityPhaseSummaryState {
   visibleSince?: number;
 }
 
+/** Coarse phase metadata for one in-flight tool. */
+export interface ActiveToolPhase {
+  phase?: ActivityPhase;
+  startedAt: number;
+}
+
 /** Per-agent live activity state. */
 export interface AgentActivity {
   /**
@@ -99,8 +105,8 @@ export interface AgentActivity {
    * e.g. "reading src/a.ts", "running rg auth". Kept for the detailed overlay.
    */
   activeTools: Map<string, string>;
-  /** Matching coarse phase for each in-flight tool; undefined means generic work. */
-  activeToolPhases: Map<string, ActivityPhase | undefined>;
+  /** Matching coarse phase and start time for each in-flight tool. */
+  activeToolPhases: Map<string, ActiveToolPhase>;
   /** Debounce/minimum-hold state used only by compact running surfaces. */
   phaseSummary: ActivityPhaseSummaryState;
   toolUses: number;
@@ -111,7 +117,7 @@ export interface AgentActivity {
   turnCount: number;
   /** Effective max turns for this agent (undefined = unlimited). */
   maxTurns?: number;
-  /** Lifetime usage breakdown — see LifetimeUsage docs. */
+  /** Ephemeral live usage mirror for foreground streaming; AgentRecord is authoritative when available. */
   lifetimeUsage: LifetimeUsage;
 }
 
@@ -387,7 +393,12 @@ export function getToolActivityPhase(toolName: string): ActivityPhase | undefine
   return TOOL_ACTIVITY_PHASE[normalized];
 }
 
-function observeActivePhase(state: ActivityPhaseSummaryState, phase: ActivityPhase | undefined, now: number): void {
+function observeActivePhase(
+  state: ActivityPhaseSummaryState,
+  phase: ActivityPhase | undefined,
+  now: number,
+  phaseSince = now,
+): void {
   if (phase === undefined) {
     state.candidate = undefined;
     state.candidateSince = undefined;
@@ -398,10 +409,37 @@ function observeActivePhase(state: ActivityPhaseSummaryState, phase: ActivityPha
   const continuesCandidate = state.candidate === phase
     && (state.inactiveSince === undefined || now - state.inactiveSince <= ACTIVITY_PHASE_GAP_MS);
   if (!continuesCandidate || state.candidateSince === undefined) {
-    state.candidateSince = now;
+    state.candidateSince = phaseSince;
   }
   state.candidate = phase;
   state.inactiveSince = undefined;
+}
+
+/**
+ * Pick one truthful phase without letting a short parallel tool displace stable
+ * work. Keep the visible/candidate phase while any matching tool remains;
+ * otherwise choose the oldest known in-flight phase. Unknown tools are ignored
+ * when a known phase is still active.
+ */
+function selectActivePhase(activity: AgentActivity): { phase?: ActivityPhase; since?: number } {
+  const known = [...activity.activeToolPhases.values()]
+    .filter((entry): entry is ActiveToolPhase & { phase: ActivityPhase } => entry.phase !== undefined);
+  if (known.length === 0) return {};
+
+  for (const preferred of [activity.phaseSummary.visible, activity.phaseSummary.candidate]) {
+    if (preferred === undefined) continue;
+    const matching = known.filter((entry) => entry.phase === preferred);
+    if (matching.length > 0) {
+      return {
+        phase: preferred,
+        since: Math.min(...matching.map((entry) => entry.startedAt)),
+      };
+    }
+  }
+
+  const oldest = known.reduce((selected, entry) =>
+    entry.startedAt < selected.startedAt ? entry : selected);
+  return { phase: oldest.phase, since: oldest.startedAt };
 }
 
 /** Record a tool start for compact phase debouncing; detailed args never enter this state. */
@@ -411,9 +449,12 @@ export function trackActivityPhaseStart(
   toolName: string,
   now = Date.now(),
 ): void {
-  const phase = getToolActivityPhase(toolName);
-  activity.activeToolPhases.set(toolCallId, phase);
-  observeActivePhase(activity.phaseSummary, phase, now);
+  activity.activeToolPhases.set(toolCallId, {
+    phase: getToolActivityPhase(toolName),
+    startedAt: now,
+  });
+  const selected = selectActivePhase(activity);
+  observeActivePhase(activity.phaseSummary, selected.phase, now, selected.since);
 }
 
 /** Record a tool end while allowing a very short same-phase gap to remain continuous. */
@@ -427,8 +468,8 @@ export function trackActivityPhaseEnd(
     activity.phaseSummary.inactiveSince = now;
     return;
   }
-  const remainingPhase = [...activity.activeToolPhases.values()].at(-1);
-  observeActivePhase(activity.phaseSummary, remainingPhase, now);
+  const selected = selectActivePhase(activity);
+  observeActivePhase(activity.phaseSummary, selected.phase, now, selected.since);
 }
 
 function phaseLabel(phase: ActivityPhase): string {
@@ -447,7 +488,8 @@ function phaseLabel(phase: ActivityPhase): string {
 export function describeCompactActivity(activity: AgentActivity, now = Date.now()): string {
   const state = activity.phaseSummary;
   const hasActiveTools = activity.activeToolPhases.size > 0;
-  const activePhase = hasActiveTools ? [...activity.activeToolPhases.values()].at(-1) : undefined;
+  const selected = selectActivePhase(activity);
+  const activePhase = selected.phase;
 
   if (!hasActiveTools || activePhase === undefined) {
     if (hasActiveTools) {
@@ -485,7 +527,7 @@ export function describeCompactActivity(activity: AgentActivity, now = Date.now(
     || state.candidateSince === undefined
     || state.inactiveSince !== undefined
   ) {
-    observeActivePhase(state, activePhase, now);
+    observeActivePhase(state, activePhase, now, selected.since);
   }
 
   // A same-named phase is immediately reusable only when it is the same
@@ -715,8 +757,11 @@ export class AgentWidget {
       const elapsed = formatMs(Date.now() - a.startedAt);
 
       const bg = this.agentActivity.get(a.id);
-      const toolUses = bg?.toolUses ?? a.toolUses;
-      const tokens = getLifetimeTotal(bg?.lifetimeUsage ?? a.lifetimeUsage);
+      // AgentRecord is the lifetime source of truth. The live tracker is an
+      // ephemeral mirror and can outlive a completed run during group hold,
+      // while resume updates only the record.
+      const toolUses = a.toolUses;
+      const tokens = getLifetimeTotal(a.lifetimeUsage);
       const contextPercent = getSessionContextPercent(bg?.session ?? a.session);
       const tokenText = tokens > 0 ? formatSessionTokens(tokens, contextPercent, theme, a.compactionCount) : "";
 

@@ -595,6 +595,69 @@ describe("ConversationViewer brief layout (scheme A)", () => {
     expect(out).not.toContain("lifetime 501.6k token");
   });
 
+  it("prefers record lifetime metrics over a stale activity mirror after resume", () => {
+    const now = Date.now();
+    const activity = {
+      activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
+      toolUses: 1,
+      turnCount: 1,
+      responseText: "",
+      lifetimeUsage: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+    const viewer = new ConversationViewer(
+      mockTui(40, W),
+      mockSession([{ role: "user", content: "continue" }]),
+      mockRecord({
+        status: "completed",
+        toolUses: 7,
+        startedAt: now - 1_000,
+        completedAt: now,
+        lifetimeUsage: { input: 1_200, output: 300, cacheRead: 500_000, cacheWrite: 50 },
+      }),
+      activity as any,
+      ansiTheme(),
+      vi.fn(),
+    );
+
+    const out = viewer.render(W).join("\n");
+    expect(out).toContain("7 tools");
+    expect(out).not.toContain("1 tool ·");
+    expect(out).toContain("input 1.2k");
+    expect(out).not.toContain("input 100 ·");
+    expect(out).toContain("lifetime 1.6k token");
+  });
+
+  it("accents only the elapsed value, not the running status suffix", () => {
+    const calls: Array<{ color: string; text: string }> = [];
+    const semanticTheme = {
+      fg: (color: string, text: string) => {
+        calls.push({ color, text });
+        return text;
+      },
+      bold: (text: string) => text,
+    } as any;
+    const now = vi.spyOn(Date, "now").mockReturnValue(11_000);
+    try {
+      new ConversationViewer(
+        mockTui(40, W),
+        mockSession([{ role: "user", content: "work" }]),
+        mockRecord({ status: "running", startedAt: 0 }),
+        undefined,
+        semanticTheme,
+        vi.fn(),
+      ).render(W);
+    } finally {
+      now.mockRestore();
+    }
+
+    const accentTexts = calls.filter((call) => call.color === "accent").map((call) => call.text);
+    expect(accentTexts).toContain("11s");
+    expect(accentTexts.some((text) => text.includes("(running)"))).toBe(false);
+    expect(calls).toContainEqual({ color: "dim", text: " (running)" });
+  });
+
   it("uses working for an idle run but preserves queued priority", () => {
     const messages = [{ role: "user", content: "wait" }];
     const running = new ConversationViewer(

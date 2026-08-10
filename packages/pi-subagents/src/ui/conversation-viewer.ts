@@ -10,7 +10,7 @@ import { type Component, Input, matchesKey, type TUI, truncateToWidth, visibleWi
 import type { AgentRecord } from "../types.js";
 import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent } from "../usage.js";
 import type { Theme } from "./agent-widget.js";
-import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatDuration, formatLifetimeUsageBreakdown, formatSessionTokens, getDisplayName, getPromptModeLabel, styleDuration } from "./agent-widget.js";
+import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatLifetimeUsageBreakdown, formatMs, formatSessionTokens, getDisplayName, getPromptModeLabel, styleDuration } from "./agent-widget.js";
 import {
   buildConversationBrief,
   formatStepLine,
@@ -160,12 +160,18 @@ export class ConversationViewer implements Component {
     const modeLabel = getPromptModeLabel(this.record.type);
     const modeTag = modeLabel ? ` ${th.fg("dim", `(${modeLabel})`)}` : "";
     const statusIcon = headerStatusIcon(this.record.status, th);
-    const duration = styleDuration(th, formatDuration(this.record.startedAt, this.record.completedAt));
+    const duration = styleDuration(
+      th,
+      formatMs((this.record.completedAt ?? Date.now()) - this.record.startedAt),
+    );
+    const durationText = this.record.completedAt === undefined
+      ? `${duration}${th.fg("dim", " (running)")}`
+      : duration;
 
-    const headerParts: string[] = [duration];
-    const toolUses = this.activity?.toolUses ?? this.record.toolUses;
+    const headerParts: string[] = [durationText];
+    const toolUses = this.record.toolUses;
     if (toolUses > 0) headerParts.unshift(`${toolUses} tool${toolUses === 1 ? "" : "s"}`);
-    const lifetimeUsage = this.activity?.lifetimeUsage ?? this.record.lifetimeUsage ?? createLifetimeUsage();
+    const lifetimeUsage = this.record.lifetimeUsage ?? this.activity?.lifetimeUsage ?? createLifetimeUsage();
     const tokens = getLifetimeTotal(lifetimeUsage);
     if (tokens > 0) {
       const percent = getSessionContextPercent(this.activity?.session ?? this.record.session ?? this.session);
@@ -338,7 +344,7 @@ export class ConversationViewer implements Component {
     // ── Usage ───────────────────────────────────────────────────────────
     lines.push("");
     section("Usage");
-    const lifetimeUsage = this.activity?.lifetimeUsage ?? this.record.lifetimeUsage ?? createLifetimeUsage();
+    const lifetimeUsage = this.record.lifetimeUsage ?? this.activity?.lifetimeUsage ?? createLifetimeUsage();
     for (const line of wrapTextWithAnsi(formatLifetimeUsageBreakdown(lifetimeUsage), width)) {
       lines.push(line);
     }

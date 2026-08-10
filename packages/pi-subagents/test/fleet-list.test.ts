@@ -2,7 +2,7 @@ import { Editor, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentManager } from "../src/agent-manager.js";
 import type { AgentRecord } from "../src/types.js";
-import { getDisplayName } from "../src/ui/agent-widget.js";
+import { type AgentActivity, getDisplayName } from "../src/ui/agent-widget.js";
 import { FleetList, type FleetUICtx, formatFleetElapsed, formatFleetTokens } from "../src/ui/fleet-list.js";
 
 // ---- Key sequences (see node_modules/@earendil-works/pi-tui/dist/keys.js) ----
@@ -71,7 +71,7 @@ interface Harness {
   widgetTui: { requestRender(): void; focusedComponent?: unknown };
 }
 
-function harness(agents: AgentRecord[]): Harness {
+function harness(agents: AgentRecord[], activity = new Map<string, AgentActivity>()): Harness {
   let inputHandler: ((data: string) => { consume?: boolean } | undefined) | undefined;
   let widgetFactory: ((tui: any, theme: any) => { render(w: number): string[] }) | undefined;
   let editorText = "";
@@ -99,7 +99,7 @@ function harness(agents: AgentRecord[]): Harness {
   };
 
   const manager = fakeManager(agents);
-  const fleet = new FleetList(manager, new Map());
+  const fleet = new FleetList(manager, activity);
   fleet.setUICtx(ui);
   fleet.update();
 
@@ -310,6 +310,27 @@ describe("FleetList rendering", () => {
     expect(agentLine).toContain("↓ lifetime 13.1k tokens");
     expect(agentLine).toMatch(/\x1b\[35m[\d.]+s\x1b\[39m/);
     expect(agentLine).toContain("\x1b[2m↓ lifetime 13.1k tokens\x1b[39m");
+  });
+
+  it("prefers record lifetime usage over a stale activity mirror after resume", () => {
+    const record = makeRecord({
+      id: "resumed",
+      lifetimeUsage: { input: 1_200, output: 300, cacheRead: 500_000, cacheWrite: 50 },
+    });
+    const staleActivity: AgentActivity = {
+      activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
+      toolUses: 1,
+      responseText: "",
+      turnCount: 1,
+      lifetimeUsage: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+    const h = harness([record], new Map([[record.id, staleActivity]]));
+    const line = h.render(120).find((candidate) => candidate.includes(record.description))!;
+    expect(line).toContain("↓ lifetime 1.6k tokens");
+    expect(line).not.toContain("↓ lifetime 100 tokens");
+    h.fleet.dispose();
   });
 
   it("renders a long elapsed time in accent without brightening the token metric", () => {

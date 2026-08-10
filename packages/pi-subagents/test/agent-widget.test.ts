@@ -200,6 +200,23 @@ describe("AgentWidget", () => {
     expect(renderLines(manager, "unflagged", () => "background")).toContain("unflagged description");
   });
 
+  it("prefers record lifetime metrics over a stale activity mirror after resume", () => {
+    const record = makeRecord("resumed", { isBackground: true });
+    record.toolUses = 7;
+    record.lifetimeUsage = {
+      input: 1_200,
+      output: 300,
+      cacheRead: 500_000,
+      cacheWrite: 50,
+    };
+    const manager = { listAgents: () => [record] };
+
+    const lines = renderLines(manager, "resumed", () => "background");
+    expect(lines).toContain("7 tool uses");
+    expect(lines).toContain("lifetime 1.6k token");
+    expect(lines).not.toContain("lifetime 501.6k token");
+  });
+
   // "off" hides the widget entirely — even a background agent renders nothing.
   it("renders nothing in 'off' mode", () => {
     const manager = { listAgents: () => [makeRecord("background", { isBackground: true })] };
@@ -349,6 +366,29 @@ describe("describeCompactActivity", () => {
     trackActivityPhaseStart(state, "b1", "bash", 900);
     expect(describeCompactActivity(state, 1600)).toBe("exploring…");
     expect(describeCompactActivity(state, 2300)).toBe("running commands…");
+  });
+
+  it("keeps continuous known work stable through concurrent known and unknown tools", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "b1", "bash", 0);
+    trackActivityPhaseStart(state, "r1", "read", 100);
+    trackActivityPhaseStart(state, "x1", "custom_private_tool", 200);
+
+    // Later starts do not reset the oldest candidate's promotion clock.
+    expect(describeCompactActivity(state, 799)).toBe("working…");
+    expect(describeCompactActivity(state, 800)).toBe("running commands…");
+
+    // Nor may another known phase displace a still-truthful visible phase.
+    trackActivityPhaseStart(state, "e1", "edit", 900);
+    expect(describeCompactActivity(state, 1000)).toBe("running commands…");
+    trackActivityPhaseEnd(state, "e1", 1050);
+    trackActivityPhaseEnd(state, "x1", 1100);
+
+    // Once bash ends, the continuously active read is already mature. The old
+    // label keeps its minimum hold, then switches without a working flash.
+    trackActivityPhaseEnd(state, "b1", 1200);
+    expect(describeCompactActivity(state, 2200)).toBe("running commands…");
+    expect(describeCompactActivity(state, 2300)).toBe("exploring…");
   });
 
   it("does not reuse a stale same-named phase after rendering was paused", () => {
