@@ -723,8 +723,9 @@ async function listRawTree(
 }
 
 function safeSnapshotPath(destination: string, file: string): string {
-  const target = path.resolve(destination, file);
-  const relative = path.relative(destination, target);
+  const snapshotRoot = path.resolve(destination);
+  const target = path.resolve(snapshotRoot, file);
+  const relative = path.relative(snapshotRoot, target);
   if (
     !relative ||
     relative === ".." ||
@@ -734,6 +735,131 @@ function safeSnapshotPath(destination: string, file: string): string {
     throw new ReviewInputError(`Git range tree path escapes the snapshot: ${JSON.stringify(file)}.`);
   }
   return target;
+}
+
+const MAX_SNAPSHOT_SYMLINK_EXPANSIONS = 40;
+
+function decodeSnapshotSymlinkTarget(file: string, rawTarget: Buffer): string {
+  if (rawTarget.includes(0)) {
+    throw new ReviewInputError(
+      `Git symlink target contains NUL bytes: ${JSON.stringify(file)}.`,
+    );
+  }
+  let linkTarget: string;
+  try {
+    linkTarget = new TextDecoder("utf-8", { fatal: true }).decode(rawTarget);
+  } catch {
+    throw new ReviewInputError(
+      `Git symlink target must be valid UTF-8: ${JSON.stringify(file)}.`,
+    );
+  }
+  if (!linkTarget) {
+    throw new ReviewInputError(`Git symlink target is empty: ${JSON.stringify(file)}.`);
+  }
+  if (
+    path.posix.isAbsolute(linkTarget) ||
+    path.win32.isAbsolute(linkTarget) ||
+    /^[A-Za-z]:/u.test(linkTarget)
+  ) {
+    throw new ReviewInputError(
+      `Git symlink target is absolute or drive-relative: ${JSON.stringify(file)}.`,
+    );
+  }
+  return linkTarget;
+}
+
+function snapshotPathComponents(value: string, windows: boolean): string[] {
+  return windows ? value.split(/[\\/]/u) : value.split("/");
+}
+
+function windowsPortableSnapshotKey(value: string): string {
+  // This is deliberately a conservative, locale-independent approximation of
+  // Windows path aliasing rather than a claim about the live filesystem. NFKC
+  // catches canonical/compatibility aliases, while upper-then-lower catches
+  // Unicode case pairs (including multi-code-point mappings) that ASCII-only
+  // folding would miss.
+  return value.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+}
+
+function snapshotSymlinkKey(components: readonly string[], windows: boolean): string {
+  const key = components.join("/");
+  return windows ? windowsPortableSnapshotKey(key) : key;
+}
+
+function buildSnapshotSymlinkMap(
+  targets: ReadonlyMap<string, string>,
+  windows: boolean,
+): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const [file, target] of targets) {
+    const key = snapshotSymlinkKey(snapshotPathComponents(file, windows), windows);
+    if (result.has(key)) {
+      throw new ReviewInputError(
+        `Git symlink paths are ambiguous under platform path rules: ${JSON.stringify(file)}.`,
+      );
+    }
+    result.set(key, target);
+  }
+  return result;
+}
+
+function validateSnapshotSymlinkResolution(
+  file: string,
+  symlinks: ReadonlyMap<string, string>,
+  windows: boolean,
+): void {
+  const pending = snapshotPathComponents(file, windows);
+  const resolved: string[] = [];
+  const expansionStates = new Set<string>();
+  let expansionCount = 0;
+
+  while (pending.length > 0) {
+    const component = pending.shift()!;
+    if (!component || component === ".") continue;
+    if (component === "..") {
+      if (resolved.length === 0) {
+        throw new ReviewInputError(
+          `Git symlink graph escapes the snapshot: ${JSON.stringify(file)}.`,
+        );
+      }
+      resolved.pop();
+      continue;
+    }
+
+    const candidate = snapshotSymlinkKey([...resolved, component], windows);
+    const target = symlinks.get(candidate);
+    if (target === undefined) {
+      resolved.push(component);
+      continue;
+    }
+    const state = JSON.stringify({
+      resolved: snapshotSymlinkKey(resolved, windows),
+      candidate,
+      pending: snapshotSymlinkKey(pending, windows),
+    });
+    if (expansionStates.has(state)) {
+      throw new ReviewInputError(
+        `Git symlink graph contains a cycle: ${JSON.stringify(file)}.`,
+      );
+    }
+    expansionStates.add(state);
+    expansionCount++;
+    if (expansionCount > MAX_SNAPSHOT_SYMLINK_EXPANSIONS) {
+      throw new ReviewInputError(
+        `Git symlink graph exceeds ${MAX_SNAPSHOT_SYMLINK_EXPANSIONS} expansions: ${JSON.stringify(file)}.`,
+      );
+    }
+    pending.unshift(...snapshotPathComponents(target, windows));
+  }
+}
+
+function validateSnapshotSymlinkGraph(targets: ReadonlyMap<string, string>): void {
+  for (const windows of [false, true]) {
+    const symlinks = buildSnapshotSymlinkMap(targets, windows);
+    for (const file of symlinks.keys()) {
+      validateSnapshotSymlinkResolution(file, symlinks, windows);
+    }
+  }
 }
 
 async function writeRawBlob(
@@ -796,25 +922,37 @@ export async function extractRangeSnapshot(
   signal?: AbortSignal,
 ): Promise<void> {
   const entries = await listRawTree(root, toSha, signal);
+  const targetPaths = new Map<string, string>();
+  for (const entry of entries) {
+    targetPaths.set(entry.file, safeSnapshotPath(destination, entry.file));
+  }
+
+  // Read and validate the complete link graph before creating any live link.
+  // Component-by-component expansion is required: normalizing each raw target
+  // independently misses chains where an inner link changes how later `..`
+  // components are interpreted.
+  const symlinkTargets = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.mode !== "120000") continue;
+    assertCaptureActive(signal);
+    const rawTarget = await git(root, ["cat-file", "blob", entry.objectId], {
+      maxOutputBytes: 1024 * 1024,
+      signal,
+    });
+    symlinkTargets.set(entry.file, decodeSnapshotSymlinkTarget(entry.file, rawTarget));
+  }
+  validateSnapshotSymlinkGraph(symlinkTargets);
+
   for (const entry of entries) {
     assertCaptureActive(signal);
-    const target = safeSnapshotPath(destination, entry.file);
+    const target = targetPaths.get(entry.file)!;
     if (entry.type === "commit" || entry.mode === "160000") {
       await mkdir(target, { recursive: true, mode: 0o700 });
       continue;
     }
     if (entry.mode === "120000") {
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      const linkTarget = await git(root, ["cat-file", "blob", entry.objectId], {
-        maxOutputBytes: 1024 * 1024,
-        signal,
-      });
-      if (linkTarget.includes(0)) {
-        throw new ReviewInputError(
-          `Git symlink target contains NUL bytes: ${JSON.stringify(entry.file)}.`,
-        );
-      }
-      await symlink(linkTarget, target);
+      await symlink(symlinkTargets.get(entry.file)!, target);
       continue;
     }
     await writeRawBlob(

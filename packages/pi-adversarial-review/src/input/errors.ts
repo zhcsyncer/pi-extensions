@@ -12,6 +12,21 @@ export class EmptyReviewInputError extends ReviewInputError {
   }
 }
 
+export class ReviewInputCleanupError extends ReviewInputError {
+  readonly freezeError: unknown;
+  readonly cleanupError: unknown;
+
+  constructor(freezeError: unknown, cleanupError: unknown) {
+    super(
+      "Adversarial review input freeze failed and temporary workspace cleanup also failed. " +
+        "Temporary data may remain until the same-UID 24-hour scavenger removes it.",
+    );
+    this.name = "ReviewInputCleanupError";
+    this.freezeError = freezeError;
+    this.cleanupError = cleanupError;
+  }
+}
+
 export interface ExceededInputLimit {
   limit: number;
   actual?: number;

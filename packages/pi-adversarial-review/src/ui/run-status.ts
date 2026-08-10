@@ -1,7 +1,16 @@
 import {
   BorderedLoader,
+  DynamicBorder,
   type ExtensionCommandContext,
+  getSelectListTheme,
 } from "@earendil-works/pi-coding-agent";
+import {
+  Container,
+  matchesKey,
+  type SelectItem,
+  SelectList,
+  Text,
+} from "@earendil-works/pi-tui";
 import type { ReviewerFleetProgress } from "../runtime/types.ts";
 
 const STATUS_KEY = "adversarial-review";
@@ -56,8 +65,9 @@ export function createReviewRunStatus(
 }
 
 /**
- * Keep Escape wired to the same AbortController used by freeze/fan-out/stop.
- * The loader owns only run-level cancellation; FleetView still owns route detail.
+ * Keep one running loader while Escape opens an explicit cancellation choice.
+ * External aborts (including session shutdown) bypass confirmation and close the
+ * UI immediately, while the returned promise still waits for real cleanup.
  */
 export async function runWithTuiCancellation<T>(
   ctx: ExtensionCommandContext,
@@ -72,9 +82,59 @@ export async function runWithTuiCancellation<T>(
       const loader = new BorderedLoader(
         tui,
         theme,
-        "Running adversarial review. Subagents FleetView retains per-route detail.",
+        "Running adversarial review. Esc opens cancellation options. " +
+          "Subagents FleetView retains per-route detail.",
+        { cancellable: false },
       );
+      const choices: SelectItem[] = [
+        {
+          value: "continue",
+          label: "Continue review",
+          description: "Return to the current running review.",
+        },
+        {
+          value: "cancel",
+          label: "Confirm cancellation",
+          description: "Stop freezing or all active reviewer/refuter routes.",
+        },
+      ];
+      const confirmation = new Container();
+      const borderColor = (text: string) => theme.fg("border", text);
+      confirmation.addChild(new DynamicBorder(borderColor));
+      confirmation.addChild(new Text(
+        theme.fg("warning", theme.bold("Cancel the running adversarial review?")),
+        1,
+        0,
+      ));
+      const selectList = new SelectList(choices, choices.length, getSelectListTheme());
+      confirmation.addChild(selectList);
+      confirmation.addChild(new Text(
+        theme.fg("dim", "↑↓ navigate • enter select • esc continue review"),
+        1,
+        0,
+      ));
+      confirmation.addChild(new DynamicBorder(borderColor));
+
+      let mode: "running" | "confirm" = "running";
       let closed = false;
+      const showRunning = () => {
+        mode = "running";
+        tui.requestRender();
+      };
+      const showConfirmation = () => {
+        selectList.setSelectedIndex(0);
+        mode = "confirm";
+        tui.requestRender();
+      };
+      selectList.onSelect = (item) => {
+        if (item.value === "continue") {
+          showRunning();
+          return;
+        }
+        controller.abort(new Error("Adversarial review cancelled by user"));
+      };
+      selectList.onCancel = showRunning;
+
       const close = () => {
         if (closed) return;
         closed = true;
@@ -84,14 +144,28 @@ export async function runWithTuiCancellation<T>(
       const onAbort = () => close();
       controller.signal.addEventListener("abort", onAbort, { once: true });
       removeAbortListener = () => controller.signal.removeEventListener("abort", onAbort);
-      loader.onAbort = () => {
-        controller.abort(new Error("Adversarial review cancelled by user"));
-      };
 
       workPromise = Promise.resolve().then(work);
       void workPromise.then(close, close);
       if (controller.signal.aborted) close();
-      return loader;
+      return {
+        render: (width: number) => (
+          mode === "running" ? loader.render(width) : confirmation.render(width)
+        ),
+        handleInput: (data: string) => {
+          if (mode === "running") {
+            if (matchesKey(data, "escape")) showConfirmation();
+            return;
+          }
+          selectList.handleInput(data);
+          tui.requestRender();
+        },
+        invalidate: () => {
+          loader.invalidate();
+          confirmation.invalidate();
+        },
+        dispose: () => loader.dispose(),
+      };
     });
   } catch (error) {
     controller.abort(error);

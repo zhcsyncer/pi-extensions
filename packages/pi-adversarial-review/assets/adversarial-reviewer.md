@@ -4,4 +4,4 @@ Read the supplied frozen input file completely, using offset/limit when needed. 
 
 Report only concrete, material defects introduced or exposed by the reviewed change. Every finding needs direct evidence and a practical impact. Ignore style, naming, and low-value cleanup.
 
-Your final response must contain exactly one JSON object matching the output contract in the frozen input. Do not wrap it in commentary.
+Your final response must contain exactly one JSON object matching the output contract in the frozen input. Do not use a Markdown fence or wrap it in commentary. The first non-whitespace character must be `{` and the last non-whitespace character must be `}`.

@@ -20,7 +20,12 @@ import {
   type ResolvedReviewTarget,
   type TargetCapture,
 } from "./git-target.ts";
-import { EmptyReviewInputError, OversizedReviewInputError, ReviewInputError } from "./errors.ts";
+import {
+  EmptyReviewInputError,
+  OversizedReviewInputError,
+  ReviewInputCleanupError,
+  ReviewInputError,
+} from "./errors.ts";
 import {
   assertFrozenInputWithinLimits,
   MAX_FROZEN_INPUT_BYTES,
@@ -29,7 +34,10 @@ import {
   RECOMMENDED_FROZEN_INPUT_BYTES,
   RECOMMENDED_FROZEN_INPUT_LINES,
 } from "./limits.ts";
-import { createReviewTempWorkspace } from "./temp-workspace.ts";
+import {
+  createReviewTempWorkspace,
+  type ReviewTempWorkspace,
+} from "./temp-workspace.ts";
 
 export { EmptyReviewInputError, OversizedReviewInputError } from "./errors.ts";
 export {
@@ -203,11 +211,9 @@ ${sections}
 
 ## Output contract
 
-Return exactly one JSON object and no commentary. The object must match this shape:
+Return exactly one JSON object and no commentary. Do not use a Markdown fence. The first non-whitespace character must be \`{\` and the last non-whitespace character must be \`}\`. The object must match this shape:
 
-\`\`\`json
 ${OUTPUT_CONTRACT}
-\`\`\`
 
 An approve verdict requires an empty findings array. A needs-attention verdict requires at least one finding. Report only material issues with non-empty evidence.
 `;
@@ -536,6 +542,18 @@ export async function fingerprintReviewTarget(options: {
   }
 }
 
+async function cleanupFailedFreezeWorkspace(
+  workspace: Pick<ReviewTempWorkspace, "cleanup">,
+  freezeError: unknown,
+): Promise<never> {
+  try {
+    await workspace.cleanup();
+  } catch (cleanupError) {
+    throw new ReviewInputCleanupError(freezeError, cleanupError);
+  }
+  throw freezeError;
+}
+
 async function detectDrift(
   root: string,
   request: ReviewTargetRequest,
@@ -656,7 +674,6 @@ export async function prepareFrozenReviewInput(
       cleanup: workspace.cleanup,
     };
   } catch (error) {
-    await workspace.cleanup();
-    throw error;
+    return cleanupFailedFreezeWorkspace(workspace, error);
   }
 }

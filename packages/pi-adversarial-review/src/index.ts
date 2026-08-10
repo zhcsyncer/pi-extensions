@@ -15,6 +15,12 @@ import {
   safeReviewDiagnosticText,
 } from "./output/headless-output.ts";
 import {
+  ADVERSARIAL_REVIEW_CANCELLATION_TYPE,
+  buildReviewFreezeCancellationAudit,
+  publishReviewFreezeCancellation,
+  renderReviewFreezeCancellationMessage,
+} from "./output/publish-cancellation.ts";
+import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
   publishMergedReviewReport,
   renderMergedReviewMessage,
@@ -109,6 +115,9 @@ export default function adversarialReviewExtension(
 
   pi.registerMessageRenderer(ADVERSARIAL_REVIEW_MESSAGE_TYPE, (message, options, theme) => (
     renderMergedReviewMessage(message.details, options, theme)
+  ));
+  pi.registerMessageRenderer(ADVERSARIAL_REVIEW_CANCELLATION_TYPE, (message, options, theme) => (
+    renderReviewFreezeCancellationMessage(message.details, options, theme)
   ));
 
   pi.registerCommand(ADVERSARIAL_REVIEW_COMMAND, {
@@ -300,13 +309,42 @@ export default function adversarialReviewExtension(
           ? createReviewRunStatus(ctx, routes.length, startedAt.getTime())
           : undefined;
         const executeReview = async () => {
-          const candidateInput = await prepareFrozenReviewInput({
-            cwd: ctx.cwd,
-            target: targetPreflight.target,
-            preflight: targetPreflight.audit,
-            reqdoc: command.reqdoc,
-            focus: command.focus,
-          });
+          let candidateInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>>;
+          try {
+            candidateInput = await prepareFrozenReviewInput({
+              cwd: ctx.cwd,
+              target: targetPreflight.target,
+              preflight: targetPreflight.audit,
+              reqdoc: command.reqdoc,
+              focus: command.focus,
+              signal: controller.signal,
+            });
+          } catch (error) {
+            if (!controller.signal.aborted || error !== controller.signal.reason) throw error;
+            const cancellationAudit = buildReviewFreezeCancellationAudit({
+              target: targetPreflight.target,
+              preflight: targetPreflight.audit,
+              requestedRoutes: routes,
+              refuteRequested: command.refute,
+              ...(refuterRoute ? { refuterRoute } : {}),
+              gating: command.gating,
+              startedAt,
+            });
+            const published = publishReviewFreezeCancellation({
+              pi,
+              mode: ctx.mode,
+              audit: cancellationAudit,
+              sessionId: ctx.sessionManager.getSessionId(),
+              cwd: ctx.cwd,
+            });
+            ctx.ui.notify(
+              published.deliveryWarning
+                ? `${published.message} ${published.deliveryWarning}`
+                : published.message,
+              published.deliveryWarning ? "warning" : "info",
+            );
+            return;
+          }
           let runtime: ResolvedReviewRuntime["runtime"];
           let reviewerSystemPrompt: string;
           try {
@@ -316,9 +354,9 @@ export default function adversarialReviewExtension(
             runtime = selectedRuntime.runtime;
             capabilities = selectedRuntime.capabilities;
             reviewerSystemPrompt = await loadReviewerSystemPrompt();
-            // Once the run loader is visible, Escape must still produce a
-            // durable cancelled report. Finish the bounded freeze, but skip
-            // guard failure and all reviewer spawns through the aborted signal.
+            // Once freezing succeeds, Escape must still produce the full
+            // cancelled report. Skip guard failure and all reviewer spawns
+            // through the aborted signal.
             let stable = true;
             if (!controller.signal.aborted) {
               try {

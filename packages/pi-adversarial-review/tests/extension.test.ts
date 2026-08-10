@@ -11,6 +11,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+const freezeHooks = vi.hoisted(() => ({
+  intercept: undefined as undefined | ((options: { signal?: AbortSignal }) => Promise<never>),
+}));
+
 vi.mock("../src/preflight/resolve-preflight.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/preflight/resolve-preflight.ts")>();
   return {
@@ -27,12 +31,31 @@ vi.mock("../src/preflight/resolve-preflight.ts", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/input/freeze-input.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/input/freeze-input.ts")>();
+  return {
+    ...actual,
+    prepareFrozenReviewInput: (options: Parameters<typeof actual.prepareFrozenReviewInput>[0]) =>
+      freezeHooks.intercept?.(options) ?? actual.prepareFrozenReviewInput(options),
+  };
+});
+
+vi.mock("../src/output/audit-store.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/output/audit-store.ts")>();
+  return {
+    ...actual,
+    persistStandaloneAudit: vi.fn(() => "/tmp/adversarial-review-test-audit.json"),
+  };
+});
+
 import adversarialReviewExtension, {
   ADVERSARIAL_REVIEW_COMMAND,
   preflightReviewCommand,
 } from "../src/index.ts";
-import { ReviewInputError } from "../src/input/errors.ts";
+import { ReviewInputCleanupError, ReviewInputError } from "../src/input/errors.ts";
+import { persistStandaloneAudit } from "../src/output/audit-store.ts";
 import type { ResolvedReviewPreflight } from "../src/preflight/resolve-preflight.ts";
+import { EmbeddedReviewRuntime } from "../src/runtime/embedded-runtime.ts";
 import { PiSubagentRpcV3Client } from "../src/runtime/rpc-v3-client.ts";
 
 class FakePi {
@@ -181,6 +204,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
+  freezeHooks.intercept = undefined;
   vi.useRealTimers();
   process.exitCode = originalExitCode;
   await Promise.all(tempRepos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -193,9 +217,13 @@ describe("adversarial review extension", () => {
 
     expect([...fake.commands.keys()]).toEqual([ADVERSARIAL_REVIEW_COMMAND]);
     expect(fake.registerTool).not.toHaveBeenCalled();
-    expect(fake.registerMessageRenderer).toHaveBeenCalledOnce();
+    expect(fake.registerMessageRenderer).toHaveBeenCalledTimes(2);
     expect(fake.registerMessageRenderer).toHaveBeenCalledWith(
       "adversarial-review-report",
+      expect.any(Function),
+    );
+    expect(fake.registerMessageRenderer).toHaveBeenCalledWith(
+      "adversarial-review-cancellation",
       expect.any(Function),
     );
     expect(fake.handlers.get("session_shutdown")).toHaveLength(1);
@@ -393,6 +421,225 @@ describe("adversarial review extension", () => {
     expect(notifications.at(-1)).toMatchObject({
       type: "error",
       message: expect.stringContaining("Git state changed while freezing"),
+    });
+  });
+
+  it("aborts an unfinished freeze, cleans it, and publishes a truthful cancellation audit", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const resolveRuntime = vi.fn();
+    let markFreezeStarted!: () => void;
+    const freezeStarted = new Promise<void>((resolve) => { markFreezeStarted = resolve; });
+    let temporaryWorkspace: string | undefined;
+    freezeHooks.intercept = async ({ signal }): Promise<never> => {
+      temporaryWorkspace = await mkdtemp(path.join(tmpdir(), "pi-adversarial-extension-freeze-"));
+      await writeFile(path.join(temporaryWorkspace, "partial"), "partial snapshot\n");
+      markFreezeStarted();
+      try {
+        return await new Promise<never>((_resolve, reject) => {
+          if (!signal) {
+            reject(new Error("freeze did not receive the run signal"));
+            return;
+          }
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      } finally {
+        await rm(temporaryWorkspace, { recursive: true, force: true });
+      }
+    };
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async () => resolvedLocalPreflight(
+        root,
+        "Adversarial review target: cancellable local.",
+      ),
+      revalidatePreflight: async () => true,
+      resolveRuntime,
+    });
+    const { ctx, notifications, tui, theme } = context(root);
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      void freezeStarted.then(() => {
+        component?.handleInput("\x1b");
+        component?.handleInput("\x1b[B");
+        component?.handleInput("\r");
+      });
+    });
+    vi.mocked(persistStandaloneAudit).mockClear();
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high " +
+        "--refute --refuter provider-a/model-a@high",
+      ctx,
+    );
+
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    expect(temporaryWorkspace).toBeDefined();
+    await expect(access(temporaryWorkspace!)).rejects.toThrow();
+    expect(fake.entries).toEqual([{
+      customType: "adversarial-review-cancellation",
+      data: expect.objectContaining({
+        version: 1,
+        status: "cancelled",
+        phase: "freeze",
+        target: {
+          request: { mode: "local" },
+          preflight: expect.objectContaining({ selection: "inferred", fetchStatus: "succeeded" }),
+        },
+        requestedRoutes: [
+          expect.objectContaining({ key: "provider-a/model-a@high" }),
+          expect.objectContaining({ key: "provider-b/model-b@high" }),
+        ],
+        refuteRequested: true,
+        refuterRoute: expect.objectContaining({ key: "provider-a/model-a@high" }),
+        gating: "weighted",
+        startedAt: expect.any(String),
+        cancelledAt: expect.any(String),
+      }),
+    }]);
+    expect(fake.entries[0]?.data).not.toHaveProperty("inputSha256");
+    expect(fake.entries[0]?.data).not.toHaveProperty("routeResults");
+    expect(persistStandaloneAudit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "cancellation",
+      mode: "tui",
+      payload: fake.entries[0]?.data,
+    }));
+    expect(notifications.at(-1)).toEqual({
+      message: "Adversarial review: cancelled while freezing input; no reviewer was started.",
+      type: "info",
+    });
+  });
+
+  it.each([
+    ["a concurrent non-abort input error", false, "Concurrent symlink validation failed after run abort."],
+    ["a workspace cleanup error", true, "input freeze failed and temporary workspace cleanup also failed"],
+  ])("publishes failure rather than freeze cancellation for %s", async (_label, cleanupFails, diagnostic) => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const resolveRuntime = vi.fn();
+    let markFreezeStarted!: () => void;
+    const freezeStarted = new Promise<void>((resolve) => { markFreezeStarted = resolve; });
+    freezeHooks.intercept = async ({ signal }): Promise<never> => {
+      markFreezeStarted();
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      const freezeError = new ReviewInputError(
+        "Concurrent symlink validation failed after run abort.",
+      );
+      if (cleanupFails) {
+        throw new ReviewInputCleanupError(
+          signal?.reason,
+          new Error("simulated temporary workspace cleanup failure"),
+        );
+      }
+      throw freezeError;
+    };
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async () => resolvedLocalPreflight(
+        root,
+        "Adversarial review target: error-after-abort local.",
+      ),
+      revalidatePreflight: async () => true,
+      resolveRuntime,
+    });
+    const { ctx, notifications, tui, theme } = context(root);
+    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
+      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+      component = factory(tui, theme, {}, (value: unknown) => {
+        component?.dispose?.();
+        resolve(value);
+      });
+      void freezeStarted.then(() => {
+        component?.handleInput("\x1b");
+        component?.handleInput("\x1b[B");
+        component?.handleInput("\r");
+      });
+    });
+    vi.mocked(persistStandaloneAudit).mockClear();
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    // Existing TUI failures notify without appending the headless-only error
+    // entry. The important distinction is that the abort must not publish the
+    // durable pre-freeze cancellation entry.
+    expect(fake.entries).toEqual([]);
+    expect(persistStandaloneAudit).not.toHaveBeenCalled();
+    expect(notifications.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining(diagnostic),
+    });
+  });
+
+  it("makes session shutdown wait for unfinished freeze cleanup", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let markFreezeStarted!: () => void;
+    const freezeStarted = new Promise<void>((resolve) => { markFreezeStarted = resolve; });
+    let markAbortObserved!: () => void;
+    const abortObserved = new Promise<void>((resolve) => { markAbortObserved = resolve; });
+    let allowCleanup!: () => void;
+    const cleanupAllowed = new Promise<void>((resolve) => { allowCleanup = resolve; });
+    let temporaryWorkspace: string | undefined;
+    freezeHooks.intercept = async ({ signal }): Promise<never> => {
+      temporaryWorkspace = await mkdtemp(path.join(tmpdir(), "pi-adversarial-shutdown-freeze-"));
+      markFreezeStarted();
+      let reason: unknown;
+      try {
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) resolve();
+          else signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        reason = signal?.reason;
+        markAbortObserved();
+        await cleanupAllowed;
+      } finally {
+        await rm(temporaryWorkspace, { recursive: true, force: true });
+      }
+      throw reason;
+    };
+    adversarialReviewExtension(fake.api(), {
+      resolvePreflight: async () => resolvedLocalPreflight(
+        root,
+        "Adversarial review target: shutdown local.",
+      ),
+      revalidatePreflight: async () => true,
+      resolveRuntime: vi.fn(),
+    });
+    const { ctx } = context(root);
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await freezeStarted;
+    let shutdownResolved = false;
+    const shutdown = Promise.all(
+      (fake.handlers.get("session_shutdown") ?? []).map((handler) => handler()),
+    ).then(() => { shutdownResolved = true; });
+    await abortObserved;
+
+    expect(shutdownResolved).toBe(false);
+    await expect(access(temporaryWorkspace!)).resolves.toBeUndefined();
+    allowCleanup();
+    await Promise.all([command, shutdown]);
+
+    expect(shutdownResolved).toBe(true);
+    await expect(access(temporaryWorkspace!)).rejects.toThrow();
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+    expect(fake.entries[0]).toMatchObject({
+      customType: "adversarial-review-cancellation",
+      data: { status: "cancelled", phase: "freeze" },
     });
   });
 
@@ -645,6 +892,71 @@ describe("adversarial review extension", () => {
       },
     });
     expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("bounds shutdown on embedded dispose timeout and retains frozen input", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    const startedHandlers = new Set<(event: any) => void>();
+    const terminalHandlers = new Set<(event: any) => void>();
+    let spawnCount = 0;
+    let frozenInputPath: string | undefined;
+    let markAllSpawned!: () => void;
+    const allSpawned = new Promise<void>((resolve) => { markAllSpawned = resolve; });
+    const never = new Promise<void>(() => {});
+    const core = {
+      getCapabilities: () => ({ maxConcurrent: 2 }),
+      spawn: (input: any) => {
+        const id = `embedded-stuck-${spawnCount++}`;
+        frozenInputPath ??= /^Frozen input file: (.+)$/mu.exec(input.prompt)?.[1];
+        queueMicrotask(() => {
+          for (const handler of startedHandlers) {
+            handler({ id, correlationId: input.correlationId });
+          }
+        });
+        if (spawnCount === 2) markAllSpawned();
+        return { id };
+      },
+      abort: vi.fn(() => never),
+      dispose: vi.fn(() => never),
+      onStarted: (handler: (event: any) => void) => {
+        startedHandlers.add(handler);
+        return () => startedHandlers.delete(handler);
+      },
+      onTerminal: (handler: (event: any) => void) => {
+        terminalHandlers.add(handler);
+        return () => terminalHandlers.delete(handler);
+      },
+    };
+    const embedded = new EmbeddedReviewRuntime(core as any, { terminalDeadlineMs: 10 });
+    adversarialReviewExtension(fake.api(), {
+      resolveRuntime: async () => ({
+        runtime: embedded,
+        capabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "embedded" },
+        dispose: () => embedded.dispose(),
+      }),
+    });
+    const { ctx } = context(root);
+    const command = fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--local --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+    await allSpawned;
+
+    const shutdown = Promise.all(
+      (fake.handlers.get("session_shutdown") ?? []).map((handler) => handler()),
+    );
+    await expect(Promise.race([
+      shutdown.then(() => "shutdown"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 1_000)),
+    ])).resolves.toBe("shutdown");
+    await command;
+
+    expect(core.abort).toHaveBeenCalledTimes(2);
+    expect(core.dispose).toHaveBeenCalledOnce();
+    expect(frozenInputPath).toBeDefined();
+    await expect(access(frozenInputPath!)).resolves.toBeUndefined();
+    tempRepos.push(path.dirname(frozenInputPath!));
   });
 
   it("retains the frozen input while malformed spawn replies have late-start reapers", async () => {
@@ -1032,15 +1344,18 @@ describe("adversarial review extension", () => {
     expect(fake.sentMessages).toEqual([]);
   });
 
-  it("turns loader Escape into a cancelled audited run and clears footer status", async () => {
+  it("turns confirmed loader cancellation after freezing into an audited run", async () => {
     const root = await changedRepo();
     const before = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: root,
       encoding: "utf8",
     })).stdout;
     const fake = new FakePi();
+    let markRuntimePing!: () => void;
+    const runtimePing = new Promise<void>((resolve) => { markRuntimePing = resolve; });
     fake.eventResponder = (event, data) => {
       if (event === "subagents:rpc:ping") {
+        markRuntimePing();
         fake.events.emit(`${event}:reply:${data.requestId}`, {
           success: true,
           data: { version: 3, maxConcurrent: 2 },
@@ -1055,7 +1370,11 @@ describe("adversarial review extension", () => {
         component?.dispose?.();
         resolve(value);
       });
-      queueMicrotask(() => component?.handleInput("\x1b"));
+      void runtimePing.then(() => {
+        component?.handleInput("\x1b");
+        component?.handleInput("\x1b[B");
+        component?.handleInput("\r");
+      });
     });
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
@@ -1111,7 +1430,11 @@ describe("adversarial review extension", () => {
         component?.dispose?.();
         resolve(value);
       });
-      void finalGuardStarted.then(() => component?.handleInput("\x1b"));
+      void finalGuardStarted.then(() => {
+        component?.handleInput("\x1b");
+        component?.handleInput("\x1b[B");
+        component?.handleInput("\r");
+      });
     });
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(

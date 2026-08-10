@@ -1,10 +1,30 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, appendFile, chmod, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { access, appendFile, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const workspaceHooks = vi.hoisted(() => ({
+  onCreated: undefined as undefined | ((workspace: {
+    runDir: string;
+    cleanup(): Promise<void>;
+  }) => void),
+}));
+
+vi.mock("../src/input/temp-workspace.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/input/temp-workspace.ts")>();
+  return {
+    ...actual,
+    createReviewTempWorkspace: async (...args: Parameters<typeof actual.createReviewTempWorkspace>) => {
+      const workspace = await actual.createReviewTempWorkspace(...args);
+      workspaceHooks.onCreated?.(workspace);
+      return workspace;
+    },
+  };
+});
+
 import {
   assertFrozenInputWithinLimits,
   EmptyReviewInputError,
@@ -18,7 +38,8 @@ import {
   RECOMMENDED_FROZEN_INPUT_LINES,
   suggestReviewRanges,
 } from "../src/input/freeze-input.ts";
-import { resolveReviewTarget } from "../src/input/git-target.ts";
+import { ReviewInputCleanupError } from "../src/input/errors.ts";
+import { extractRangeSnapshot, resolveReviewTarget } from "../src/input/git-target.ts";
 
 const exec = promisify(execFile);
 const repos: string[] = [];
@@ -62,6 +83,7 @@ function processAlive(pid: number): boolean {
 }
 
 afterEach(async () => {
+  workspaceHooks.onCreated = undefined;
   await Promise.all(repos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -128,6 +150,9 @@ describe("prepareFrozenReviewInput", () => {
     expect(content).toContain("untracked change");
     expect(content).not.toContain("must stay out");
     expect(content).toContain("failure recovery");
+    const outputContract = content.slice(content.indexOf("## Output contract"));
+    expect(outputContract).toContain('"verdict": "needs-attention | approve"');
+    expect(outputContract).not.toContain("```");
     expect((await stat(frozen.inputPath)).mode & 0o777).toBe(0o600);
     expect((await stat(path.dirname(frozen.inputPath))).mode & 0o777).toBe(0o700);
     await expect(frozen.recheck()).resolves.toEqual({ stale: false, changed: [] });
@@ -380,13 +405,13 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
-  it("preserves raw non-UTF-8 symlink target bytes in range snapshots", async () => {
+  it("keeps a symlink that resolves inside the snapshot from its nested parent", async () => {
     const root = await initRepo();
-    await writeFile(path.join(root, "base.txt"), "base\n");
-    const fromSha = await commitAll(root, "symlink base");
-    const rawTarget = Buffer.from([0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2d, 0xff]);
-    await symlink(rawTarget, path.join(root, "raw-link"));
-    const toSha = await commitAll(root, "raw symlink target");
+    await writeFile(path.join(root, "inside.txt"), "snapshot-only\n");
+    const fromSha = await commitAll(root, "internal symlink base");
+    await mkdir(path.join(root, "nested"));
+    await symlink("../inside.txt", path.join(root, "nested", "inside-link"));
+    const toSha = await commitAll(root, "internal symlink");
 
     const frozen = await prepareFrozenReviewInput({
       cwd: root,
@@ -394,10 +419,313 @@ describe("prepareFrozenReviewInput", () => {
       runId: randomUUID(),
     });
     try {
-      expect(await readlink(path.join(frozen.reviewerCwd, "raw-link"), { encoding: "buffer" }))
-        .toEqual(rawTarget);
+      expect(await readlink(path.join(frozen.reviewerCwd, "nested", "inside-link")))
+        .toBe("../inside.txt");
+      expect(await readFile(path.join(frozen.reviewerCwd, "nested", "inside-link"), "utf8"))
+        .toBe("snapshot-only\n");
     } finally {
       await frozen.cleanup();
+    }
+  });
+
+  it.each([
+    ["absolute", (root: string) => path.join(path.dirname(root), `outside-${randomUUID()}`), "absolute-link"],
+    ["Windows drive-relative", (_root: string) => "C:outside-secret", "drive-link"],
+    ["parent escape", (_root: string) => `../outside-${randomUUID()}`, "escape-link"],
+    ["nested parent escape", (_root: string) => `../../outside-${randomUUID()}`, "nested/escape-link"],
+    ["Windows-separator parent escape", (_root: string) => `..\\outside-${randomUUID()}`, "windows-escape-link"],
+  ])("rejects an %s symlink target without exposing an external file", async (_label, targetFor, linkFile) => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "escaping symlink base");
+    await mkdir(path.dirname(path.join(root, linkFile)), { recursive: true });
+    const linkTarget = targetFor(root);
+    const externalPath = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(path.join(root, linkFile)), linkTarget);
+    repos.push(externalPath);
+    await writeFile(externalPath, "must not be readable through snapshot\n");
+    await symlink(linkTarget, path.join(root, linkFile));
+    const toSha = await commitAll(root, "escaping symlink");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      /Git symlink (?:target is absolute or drive-relative|graph escapes the snapshot)/u,
+    );
+    await expect(readFile(path.join(destination, linkFile), "utf8")).rejects.toThrow();
+    expect(await readFile(externalPath, "utf8")).toBe("must not be readable through snapshot\n");
+    expect(fromSha).not.toBe(toSha);
+  });
+
+  it("rejects a chain whose inner symlink changes how remaining dot-dot components resolve", async () => {
+    const root = await initRepo();
+    await mkdir(path.join(root, "dir"));
+    await symlink("..", path.join(root, "dir", "a"));
+    await symlink("dir/a/../outside-secret", path.join(root, "x"));
+    const toSha = await commitAll(root, "component-order symlink escape");
+    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-chain-parent-"));
+    repos.push(snapshotParent);
+    const destination = path.join(snapshotParent, "snapshot");
+    await mkdir(destination);
+    const externalPath = path.join(snapshotParent, "outside-secret");
+    await writeFile(externalPath, "outside through chained link\n");
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink graph escapes the snapshot",
+    );
+    await expect(readFile(path.join(destination, "x"), "utf8")).rejects.toThrow();
+    await expect(lstat(path.join(destination, "dir", "a"))).rejects.toThrow();
+    expect(await readFile(externalPath, "utf8")).toBe("outside through chained link\n");
+  });
+
+  it("keeps a safe multi-link chain after component-by-component expansion", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "inside.txt"), "safe chained content\n");
+    await mkdir(path.join(root, "dir"));
+    await symlink("..", path.join(root, "dir", "a"));
+    await symlink("dir/a/inside.txt", path.join(root, "x"));
+    const toSha = await commitAll(root, "safe symlink chain");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await extractRangeSnapshot(root, toSha, destination);
+    expect(await readFile(path.join(destination, "x"), "utf8")).toBe("safe chained content\n");
+  });
+
+  it("allows a finite repeated expansion of the same safe symlink", async () => {
+    const root = await initRepo();
+    await mkdir(path.join(root, "dir"));
+    await writeFile(path.join(root, "dir", "file"), "finite repeated link\n");
+    await symlink("dir", path.join(root, "a"));
+    await symlink("a/../a/file", path.join(root, "x"));
+    const toSha = await commitAll(root, "finite repeated symlink");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await extractRangeSnapshot(root, toSha, destination);
+    expect(await readFile(path.join(destination, "x"), "utf8")).toBe("finite repeated link\n");
+  });
+
+  it("uses case-insensitive Windows graph lookup to reject a chained escape", async () => {
+    const root = await initRepo();
+    await mkdir(path.join(root, "Dir"));
+    await symlink("..", path.join(root, "Dir", "A"));
+    await symlink("dir/a/../outside-secret", path.join(root, "x"));
+    const toSha = await commitAll(root, "case-insensitive chained escape");
+    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-case-parent-"));
+    repos.push(snapshotParent);
+    const destination = path.join(snapshotParent, "snapshot");
+    await mkdir(destination);
+    const externalPath = path.join(snapshotParent, "outside-secret");
+    await writeFile(externalPath, "case-insensitive escape\n");
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink graph escapes the snapshot",
+    );
+    await expect(readFile(path.join(destination, "x"), "utf8")).rejects.toThrow();
+    await expect(lstat(path.join(destination, "Dir", "A"))).rejects.toThrow();
+    expect(await readFile(externalPath, "utf8")).toBe("case-insensitive escape\n");
+  });
+
+  it("uses Unicode case folding in the conservative Windows graph lookup", async () => {
+    const root = await initRepo();
+    await mkdir(path.join(root, "Dir"));
+    await symlink("..", path.join(root, "Dir", "Ä"));
+    await symlink("dir/ä/../outside-secret", path.join(root, "x"));
+    const toSha = await commitAll(root, "Unicode case chained escape");
+    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-unicode-parent-"));
+    repos.push(snapshotParent);
+    const destination = path.join(snapshotParent, "snapshot");
+    await mkdir(destination);
+    const externalPath = path.join(snapshotParent, "outside-secret");
+    await writeFile(externalPath, "Unicode case escape\n");
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink graph escapes the snapshot",
+    );
+    await expect(lstat(path.join(destination, "Dir", "Ä"))).rejects.toThrow();
+    expect(await readFile(externalPath, "utf8")).toBe("Unicode case escape\n");
+  });
+
+  it("rejects symlink paths with canonically ambiguous Unicode spellings", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "inside.txt"), "inside\n");
+    await symlink("inside.txt", path.join(root, "é"));
+    await symlink("inside.txt", path.join(root, "e\u0301"));
+    const toSha = await commitAll(root, "ambiguous canonical links");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink paths are ambiguous under platform path rules",
+    );
+    await expect(lstat(path.join(destination, "é"))).rejects.toThrow();
+    await expect(lstat(path.join(destination, "e\u0301"))).rejects.toThrow();
+  });
+
+  it("preserves a legal POSIX Unicode symlink target byte-for-byte", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "目标-Ä.txt"), "Unicode target\n");
+    await mkdir(path.join(root, "nested"));
+    const rawTarget = "../目标-Ä.txt";
+    await symlink(rawTarget, path.join(root, "nested", "链接"));
+    const toSha = await commitAll(root, "legal POSIX Unicode link");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await extractRangeSnapshot(root, toSha, destination);
+    expect(await readlink(path.join(destination, "nested", "链接"))).toBe(rawTarget);
+    expect(await readFile(path.join(destination, "nested", "链接"), "utf8"))
+      .toBe("Unicode target\n");
+  });
+
+  it("rejects symlink paths that differ only by Windows ASCII case", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "inside.txt"), "inside\n");
+    await symlink("inside.txt", path.join(root, "A"));
+    await symlink("inside.txt", path.join(root, "a"));
+    const toSha = await commitAll(root, "ambiguous case links");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink paths are ambiguous under platform path rules",
+    );
+    await expect(lstat(path.join(destination, "A"))).rejects.toThrow();
+    await expect(lstat(path.join(destination, "a"))).rejects.toThrow();
+  });
+
+  it("rejects cyclic and over-deep symlink graphs before materialization", async () => {
+    const cyclicRoot = await initRepo();
+    await symlink("b", path.join(cyclicRoot, "a"));
+    await symlink("a", path.join(cyclicRoot, "b"));
+    const cyclicSha = await commitAll(cyclicRoot, "cyclic links");
+    const cyclicDestination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(cyclicDestination);
+    await expect(extractRangeSnapshot(cyclicRoot, cyclicSha, cyclicDestination)).rejects.toThrow(
+      "Git symlink graph contains a cycle",
+    );
+    await expect(lstat(path.join(cyclicDestination, "a"))).rejects.toThrow();
+
+    const deepRoot = await initRepo();
+    for (let index = 0; index <= 40; index++) {
+      const target = index === 40 ? "inside.txt" : `link-${index + 1}`;
+      await symlink(target, path.join(deepRoot, `link-${index}`));
+    }
+    await writeFile(path.join(deepRoot, "inside.txt"), "inside\n");
+    const deepSha = await commitAll(deepRoot, "deep links");
+    const deepDestination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(deepDestination);
+    await expect(extractRangeSnapshot(deepRoot, deepSha, deepDestination)).rejects.toThrow(
+      "Git symlink graph exceeds 40 expansions",
+    );
+    await expect(lstat(path.join(deepDestination, "link-0"))).rejects.toThrow();
+  });
+
+  it("does not expose an external file through a chain ending in a rejected symlink", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    await commitAll(root, "symlink chain base");
+    const externalPath = path.join(path.dirname(root), `outside-${randomUUID()}`);
+    repos.push(externalPath);
+    await writeFile(externalPath, "external secret\n");
+    await symlink("z-escape", path.join(root, "a-chain"));
+    await symlink(`../${path.basename(externalPath)}`, path.join(root, "z-escape"));
+    const toSha = await commitAll(root, "escaping symlink chain");
+    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
+    repos.push(destination);
+
+    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
+      "Git symlink graph escapes the snapshot",
+    );
+    await expect(readFile(path.join(destination, "a-chain"), "utf8")).rejects.toThrow();
+    expect(await readFile(externalPath, "utf8")).toBe("external secret\n");
+  });
+
+  it("fails loud on a non-UTF-8 symlink target and cleans the partial workspace", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "symlink base");
+    const rawTarget = Buffer.from([0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2d, 0xff]);
+    await symlink(rawTarget, path.join(root, "raw-link"));
+    const toSha = await commitAll(root, "raw symlink target");
+    let workspacePath: string | undefined;
+    workspaceHooks.onCreated = (workspace) => { workspacePath = workspace.runDir; };
+
+    await expect(prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    })).rejects.toThrow("Git symlink target must be valid UTF-8");
+
+    expect(workspacePath).toBeDefined();
+    await expect(access(workspacePath!)).rejects.toThrow();
+  });
+
+  it("aborts before a range snapshot finishes and cleans the partial workspace", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "abort base");
+    await writeFile(path.join(root, "changed.txt"), "changed\n");
+    const toSha = await commitAll(root, "abort target");
+    const controller = new AbortController();
+    const reason = new Error("test freeze cancellation");
+    let workspacePath: string | undefined;
+    workspaceHooks.onCreated = (workspace) => {
+      workspacePath = workspace.runDir;
+      controller.abort(reason);
+    };
+
+    await expect(prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+
+    expect(workspacePath).toBeDefined();
+    await expect(access(workspacePath!)).rejects.toThrow();
+  });
+
+  it("classifies an abort whose partial workspace cleanup fails", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const fromSha = await commitAll(root, "cleanup failure base");
+    await writeFile(path.join(root, "changed.txt"), "changed\n");
+    const toSha = await commitAll(root, "cleanup failure target");
+    const controller = new AbortController();
+    const reason = new Error("test freeze abort before failed cleanup");
+    const cleanupFailure = new Error("simulated workspace cleanup failure");
+    let workspacePath: string | undefined;
+    let fixtureCleanup: (() => Promise<void>) | undefined;
+    workspaceHooks.onCreated = (workspace) => {
+      workspacePath = workspace.runDir;
+      fixtureCleanup = workspace.cleanup;
+      workspace.cleanup = async () => { throw cleanupFailure; };
+      controller.abort(reason);
+    };
+
+    try {
+      const error = await prepareFrozenReviewInput({
+        cwd: root,
+        target: { mode: "range", fromRef: fromSha, toRef: toSha },
+        runId: randomUUID(),
+        signal: controller.signal,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ReviewInputCleanupError);
+      expect(error).not.toBe(reason);
+      expect((error as ReviewInputCleanupError).freezeError).toBe(reason);
+      expect((error as ReviewInputCleanupError).cleanupError).toBe(cleanupFailure);
+      expect((error as Error).message).toContain(
+        "input freeze failed and temporary workspace cleanup also failed",
+      );
+      expect(workspacePath).toBeDefined();
+      await expect(access(workspacePath!)).resolves.toBeUndefined();
+    } finally {
+      await fixtureCleanup?.();
+      if (workspacePath) await rm(workspacePath, { recursive: true, force: true });
     }
   });
 

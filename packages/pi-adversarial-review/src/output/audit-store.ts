@@ -17,13 +17,13 @@ import { randomUUID } from "node:crypto";
 export const ADVERSARIAL_REVIEW_AUDIT_VERSION = 1;
 export const ADVERSARIAL_REVIEW_EXTENSION_ID = "pi-adversarial-review";
 
-export type StandaloneAuditKind = "error" | "report";
+export type StandaloneAuditKind = "cancellation" | "error" | "report";
 
 export interface StandaloneAuditRecord {
   version: typeof ADVERSARIAL_REVIEW_AUDIT_VERSION;
   kind: StandaloneAuditKind;
   recordedAt: string;
-  mode: "rpc" | "json" | "print";
+  mode: "tui" | "rpc" | "json" | "print";
   sessionId?: string;
   cwd?: string;
   payload: unknown;
@@ -65,14 +65,13 @@ function safeTimestamp(now: Date): string {
 }
 
 /**
- * Persist one non-TUI audit independently from Pi's session flush policy.
- * Pi intentionally does not create a session file for custom-entry-only print
- * commands, so appendEntry remains useful for live consumers but is not by
- * itself durable in that mode.
+ * Persist one audit independently from Pi's session flush policy. Completed
+ * reports/errors use this in non-TUI modes; pre-freeze cancellations use it in
+ * every mode so shutdown cannot erase the only cancellation record.
  */
 export function persistStandaloneAudit(options: {
   kind: StandaloneAuditKind;
-  mode: "rpc" | "json" | "print";
+  mode: "tui" | "rpc" | "json" | "print";
   payload: unknown;
   sessionId?: string;
   cwd?: string;

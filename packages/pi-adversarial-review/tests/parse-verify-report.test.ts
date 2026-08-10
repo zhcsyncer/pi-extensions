@@ -17,6 +17,18 @@ describe("parseVerifyReport", () => {
     )).toMatchObject({ refuted: false, reason: "The race remains" });
   });
 
+  it("keeps Markdown fence examples inside direct verifier strings as JSON data", () => {
+    const output = JSON.stringify({
+      refuted: true,
+      reason: "The counterexample includes:\n```json\n{\"safe\":true}\n```",
+      evidence: ["The implementation literally emits ```json after an escaped newline."],
+    });
+
+    const parsed = parseVerifyReport(output);
+    expect(parsed.reason).toContain("```json");
+    expect(parsed.evidence[0]).toContain("```json");
+  });
+
   it("requires concrete evidence before accepting refuted=true", () => {
     expect(() => parseVerifyReport(
       '{"refuted":true,"reason":"looks safe","evidence":[]}',

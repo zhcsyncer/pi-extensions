@@ -57,37 +57,120 @@ describe("review run UI", () => {
     expect(setStatus).toHaveBeenCalledTimes(calls);
   });
 
-  it("maps loader Escape to the shared controller and still awaits run cleanup", async () => {
+  it("requires explicit confirmation, keeps one work run, and awaits cleanup", async () => {
     const controller = new AbortController();
     const requestRender = vi.fn();
+    let component: {
+      render(width: number): string[];
+      handleInput(data: string): void;
+      dispose?: () => void;
+    } | undefined;
     const custom = vi.fn(async (factory: any) => new Promise((resolve) => {
-      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
       component = factory(
         { requestRender },
-        { fg: (_color: string, text: string) => text },
+        {
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
         {},
         (value: unknown) => {
           component?.dispose?.();
           resolve(value);
         },
       );
-      queueMicrotask(() => component?.handleInput("\x1b"));
     }));
     const { ctx } = runContext({ custom });
-    const cleaned = vi.fn();
-
-    const result = await runWithTuiCancellation(ctx, controller, async () => {
+    let markWorkStarted!: () => void;
+    const workStarted = new Promise<void>((resolve) => { markWorkStarted = resolve; });
+    let markCleanupStarted!: () => void;
+    const cleanupStarted = new Promise<void>((resolve) => { markCleanupStarted = resolve; });
+    let releaseCleanup!: () => void;
+    const cleanupAllowed = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const work = vi.fn(async () => {
+      markWorkStarted();
       await new Promise<void>((resolve) => {
         if (controller.signal.aborted) resolve();
         else controller.signal.addEventListener("abort", () => resolve(), { once: true });
       });
-      cleaned();
+      markCleanupStarted();
+      await cleanupAllowed;
       return "cancelled-cleanly";
     });
 
-    expect(result).toBe("cancelled-cleanly");
+    let runResolved = false;
+    const running = runWithTuiCancellation(ctx, controller, work)
+      .then((value) => {
+        runResolved = true;
+        return value;
+      });
+    await workStarted;
+
+    expect(component?.render(120).join("\n")).toContain("Esc opens cancellation options");
+    component?.handleInput("\x1b");
+    expect(controller.signal.aborted).toBe(false);
+    component?.handleInput("\r"); // default Continue review
+    expect(controller.signal.aborted).toBe(false);
+    component?.handleInput("\x1b");
+    component?.handleInput("\x1b"); // confirmation Escape also continues
+    expect(controller.signal.aborted).toBe(false);
+    component?.handleInput("\x1b");
+    component?.handleInput("\x1b[B");
+    component?.handleInput("\r");
+
     expect(controller.signal.aborted).toBe(true);
-    expect(cleaned).toHaveBeenCalledOnce();
+    expect(work).toHaveBeenCalledOnce();
+    await cleanupStarted;
+    expect(runResolved).toBe(false);
+    releaseCleanup();
+
+    await expect(running).resolves.toBe("cancelled-cleanly");
+    expect(runResolved).toBe(true);
+    expect(custom).toHaveBeenCalledOnce();
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it("lets external shutdown abort bypass confirmation but still awaits cleanup", async () => {
+    const controller = new AbortController();
+    let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
+    const custom = vi.fn(async (factory: any) => new Promise((resolve) => {
+      component = factory(
+        { requestRender: vi.fn() },
+        {
+          bold: (text: string) => text,
+          fg: (_color: string, text: string) => text,
+        },
+        {},
+        (value: unknown) => {
+          component?.dispose?.();
+          resolve(value);
+        },
+      );
+    }));
+    const { ctx } = runContext({ custom });
+    let releaseCleanup!: () => void;
+    const cleanupAllowed = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    let markAborted!: () => void;
+    const abortObserved = new Promise<void>((resolve) => { markAborted = resolve; });
+    const running = runWithTuiCancellation(ctx, controller, async () => {
+      await new Promise<void>((resolve) => {
+        if (controller.signal.aborted) resolve();
+        else controller.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      markAborted();
+      await cleanupAllowed;
+      return "shutdown-cleanly";
+    });
+    await vi.waitFor(() => expect(component).toBeDefined());
+    component?.handleInput("\x1b"); // confirmation is visible
+
+    let resolved = false;
+    void running.then(() => { resolved = true; });
+    controller.abort(new Error("Pi session shut down"));
+    await abortObserved;
+    expect(resolved).toBe(false);
+    releaseCleanup();
+
+    await expect(running).resolves.toBe("shutdown-cleanly");
     expect(custom).toHaveBeenCalledOnce();
   });
 });

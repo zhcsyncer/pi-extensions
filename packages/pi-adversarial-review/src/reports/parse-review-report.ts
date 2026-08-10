@@ -10,9 +10,34 @@ export class InvalidReviewOutputError extends Error {
   }
 }
 
-function unwrapSingleJsonFence(input: string): string {
-  const match = /^```json[\t ]*\r?\n([\s\S]*?)\r?\n```[\t ]*$/u.exec(input);
-  return match ? match[1].trim() : input;
+function unwrapSingleJsonFence(
+  input: string,
+  actor: string,
+  allowPrefix: boolean,
+): string {
+  // A framing fence must be an actual Markdown opening line. Backticks inside
+  // JSON string values (normally represented after an escaped `\\n`) are data.
+  const opening = /(^|\r?\n)[\t ]*```([^\r\n]*)\r?\n/u.exec(input);
+  if (!opening) return input;
+  const openingIndex = opening.index + opening[1].length;
+  if (openingIndex !== 0 && !allowPrefix) return input;
+  if (opening[2].trim() !== "json") {
+    throw new InvalidReviewOutputError(`${actor} output contains an unsupported Markdown fence.`);
+  }
+
+  const contentStart = opening.index + opening[0].length;
+  const remainder = input.slice(contentStart);
+  const closing = /\r?\n[\t ]*```[\t ]*(?=\r?\n|$)/u.exec(remainder);
+  if (!closing) {
+    throw new InvalidReviewOutputError(`${actor} output contains an unclosed JSON fence.`);
+  }
+  const afterClosing = remainder.slice(closing.index + closing[0].length);
+  if (afterClosing.trim()) {
+    throw new InvalidReviewOutputError(`${actor} output contains text after the closing JSON fence.`);
+  }
+  const prefix = input.slice(0, openingIndex);
+  const fencedContent = remainder.slice(0, closing.index);
+  return `${prefix}\n${fencedContent}`.trim();
 }
 
 function balancedObjectCandidate(input: string, actor: string): string {
@@ -68,10 +93,25 @@ function balancedObjectCandidate(input: string, actor: string): string {
   return input.slice(candidate.start, candidate.end);
 }
 
-export function parseJsonObject(rawOutput: string, actor = "Reviewer"): unknown {
+export function parseJsonObject(
+  rawOutput: string,
+  actor = "Reviewer",
+  options: { allowPrefixedJsonFence?: boolean } = {},
+): unknown {
   const trimmed = rawOutput.trim();
   if (!trimmed) throw new InvalidReviewOutputError(`${actor} output is empty.`);
-  const candidate = unwrapSingleJsonFence(trimmed);
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Framing compatibility is only considered after the complete output has
+    // failed direct parsing, so Markdown examples inside valid JSON stay data.
+  }
+
+  const candidate = unwrapSingleJsonFence(
+    trimmed,
+    actor,
+    options.allowPrefixedJsonFence === true,
+  );
   try {
     return JSON.parse(candidate);
   } catch {
@@ -130,7 +170,7 @@ function normalizeFinding(finding: Finding, index: number): Finding {
 }
 
 export function parseReviewReport(rawOutput: string): ReviewReport {
-  const value = parseJsonObject(rawOutput, "Reviewer");
+  const value = parseJsonObject(rawOutput, "Reviewer", { allowPrefixedJsonFence: true });
   if (!Value.Check(ReviewReportSchema, value)) {
     const firstError = [...Value.Errors(ReviewReportSchema, value)][0];
     throw new InvalidReviewOutputError(

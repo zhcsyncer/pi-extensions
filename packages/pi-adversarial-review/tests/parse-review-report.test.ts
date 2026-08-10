@@ -34,10 +34,72 @@ describe("parseReviewReport", () => {
     expect(parseReviewReport(prefixed).summary).toBe("Brace } inside string");
   });
 
+  it("keeps Markdown examples inside two real direct reviewer output styles as JSON data", () => {
+    const prettyRouteOutput = JSON.stringify(report({
+      summary: "Pretty Ollama route output",
+      findings: [{
+        ...(report().findings as Array<Record<string, unknown>>)[0],
+        evidence: "The route quoted source after an escaped newline:\n```ts\nconst prefix = input.slice(0);\n```",
+      }],
+    }), null, 2);
+    const compactRouteOutput = JSON.stringify(report({
+      summary: "Compact route mentions a ````json`` fence",
+      findings: [{
+        ...(report().findings as Array<Record<string, unknown>>)[0],
+        issue: "A string demonstrates Intro text\\n```json\\n{…}\\n``` without framing the report.",
+        evidence: "The current output contains literal ```${prefix}``` text.",
+      }],
+    }));
+
+    expect(parseReviewReport(prettyRouteOutput).findings[0].evidence).toContain("```ts");
+    expect(parseReviewReport(compactRouteOutput).summary).toContain("````json``");
+  });
+
+  it("accepts a prefixed bare object whose JSON strings contain fence text", () => {
+    const payload = JSON.stringify(report({
+      summary: "Embedded example:\n```json\n{\"example\":true}\n```",
+    }));
+    expect(parseReviewReport(`Result follows:\n${payload}`).summary).toContain("```json");
+  });
+
+  it("accepts one prefixed json fence that closes at the end", () => {
+    const payload = JSON.stringify(report({
+      verdict: "approve",
+      summary: "Qwen framed result",
+      findings: [],
+    }));
+    expect(parseReviewReport(`I will return the requested object.\n\n\`\`\`json\n${payload}\n\`\`\``))
+      .toEqual({ verdict: "approve", summary: "Qwen framed result", findings: [] });
+  });
+
   it("rejects multiple objects, trailing commentary, and truncated JSON", () => {
     expect(() => parseReviewReport(`${JSON.stringify(report())}\n{}`)).toThrow("multiple JSON objects");
     expect(() => parseReviewReport(`${JSON.stringify(report())}\nDone`)).toThrow("trailing commentary");
     expect(() => parseReviewReport('{"verdict":"approve"')).toThrow("truncated JSON");
+  });
+
+  it("keeps prefixed-fence compatibility narrow and schema-checked", () => {
+    const valid = JSON.stringify(report({ verdict: "approve", findings: [] }));
+    expect(() => parseReviewReport(
+      `{\"preface\":true}\n\`\`\`json\n${valid}\n\`\`\``,
+    )).toThrow("multiple JSON objects");
+    expect(() => parseReviewReport(
+      `Preface\n\`\`\`json\n${valid}\n{}\n\`\`\``,
+    )).toThrow("multiple JSON objects");
+    expect(() => parseReviewReport(
+      'Preface\n```json\n{"verdict":"approve"\n```',
+    )).toThrow("truncated JSON");
+    expect(() => parseReviewReport(
+      `Preface\n\`\`\`javascript\n${valid}\n\`\`\``,
+    )).toThrow("unsupported Markdown fence");
+    expect(() => parseReviewReport(
+      `Preface\n\`\`\`json\n${valid}\n\`\`\`\nDone`,
+    )).toThrow("text after the closing JSON fence");
+
+    const qwenWithoutSummary = JSON.stringify({ verdict: "approve", findings: [] });
+    expect(() => parseReviewReport(
+      `Here is the result.\n\`\`\`json\n${qwenWithoutSummary}\n\`\`\``,
+    )).toThrow("Reviewer JSON schema mismatch");
   });
 
   it("rejects schema drift and model-supplied route identity", () => {
