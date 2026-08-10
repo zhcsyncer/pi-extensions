@@ -8,9 +8,9 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { type Component, Input, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentRecord } from "../types.js";
-import { getLifetimeTotal, getSessionContextPercent } from "../usage.js";
+import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent } from "../usage.js";
 import type { Theme } from "./agent-widget.js";
-import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatDuration, formatSessionTokens, getDisplayName, getPromptModeLabel } from "./agent-widget.js";
+import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatLifetimeUsageBreakdown, formatMs, formatSessionTokens, getDisplayName, getPromptModeLabel, styleDuration } from "./agent-widget.js";
 import {
   buildConversationBrief,
   formatStepLine,
@@ -160,14 +160,21 @@ export class ConversationViewer implements Component {
     const modeLabel = getPromptModeLabel(this.record.type);
     const modeTag = modeLabel ? ` ${th.fg("dim", `(${modeLabel})`)}` : "";
     const statusIcon = headerStatusIcon(this.record.status, th);
-    const duration = formatDuration(this.record.startedAt, this.record.completedAt);
+    const duration = styleDuration(
+      th,
+      formatMs((this.record.completedAt ?? Date.now()) - this.record.startedAt),
+    );
+    const durationText = this.record.completedAt === undefined
+      ? `${duration}${th.fg("dim", " (running)")}`
+      : duration;
 
-    const headerParts: string[] = [duration];
-    const toolUses = this.activity?.toolUses ?? this.record.toolUses;
+    const headerParts: string[] = [durationText];
+    const toolUses = this.record.toolUses;
     if (toolUses > 0) headerParts.unshift(`${toolUses} tool${toolUses === 1 ? "" : "s"}`);
-    const tokens = getLifetimeTotal(this.activity?.lifetimeUsage);
+    const lifetimeUsage = this.record.lifetimeUsage ?? this.activity?.lifetimeUsage ?? createLifetimeUsage();
+    const tokens = getLifetimeTotal(lifetimeUsage);
     if (tokens > 0) {
-      const percent = getSessionContextPercent(this.activity?.session);
+      const percent = getSessionContextPercent(this.activity?.session ?? this.record.session ?? this.session);
       headerParts.push(formatSessionTokens(tokens, percent, th, this.record.compactionCount));
     }
 
@@ -334,6 +341,24 @@ export class ConversationViewer implements Component {
       }
     }
 
+    // ── Usage ───────────────────────────────────────────────────────────
+    lines.push("");
+    section("Usage");
+    const lifetimeUsage = this.record.lifetimeUsage ?? this.activity?.lifetimeUsage ?? createLifetimeUsage();
+    for (const line of wrapTextWithAnsi(formatLifetimeUsageBreakdown(lifetimeUsage), width)) {
+      lines.push(line);
+    }
+    const contextPercent = getSessionContextPercent(this.activity?.session ?? this.record.session ?? this.session);
+    const contextParts = [
+      contextPercent === null
+        ? "Current context: unavailable"
+        : `Current context: ${Math.round(contextPercent)}%`,
+    ];
+    if (this.record.compactionCount > 0) {
+      contextParts.push(`${this.record.compactionCount} compaction${this.record.compactionCount === 1 ? "" : "s"}`);
+    }
+    lines.push(th.fg("dim", contextParts.join(" · ")));
+
     // ── Steps ───────────────────────────────────────────────────────────
     lines.push("");
     section("Steps");
@@ -386,11 +411,13 @@ export class ConversationViewer implements Component {
         lines.push(line);
       }
     } else if (this.record.status === "running" || this.record.status === "queued") {
-      if (this.activity) {
+      if (this.record.status === "queued") {
+        lines.push(th.fg("dim", "queued…"));
+      } else if (this.activity) {
         const act = describeActivity(this.activity.activeTools, this.activity.responseText);
-        lines.push(truncateToWidth(th.fg("accent", "⠹ ") + th.fg("dim", act || "running…"), width));
+        lines.push(truncateToWidth(th.fg("accent", "⠹ ") + th.fg("dim", act || "working…"), width));
       } else {
-        lines.push(th.fg("dim", "(running…)"));
+        lines.push(th.fg("dim", "working…"));
       }
     } else {
       lines.push(th.fg("dim", "(no final result text)"));

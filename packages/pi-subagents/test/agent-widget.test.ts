@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 import { renderRunningAgentStatus } from "../src/index.js";
 import type { WidgetMode } from "../src/types.js";
 import {
+  ACTIVITY_PHASE_MIN_HOLD_MS,
+  ACTIVITY_PHASE_PROMOTION_MS,
   type AgentActivity,
   AgentWidget,
   describeActivity,
+  describeCompactActivity,
   fgPreservingNestedStyles,
   formatActiveToolSummary,
+  formatLifetimeUsageBreakdown,
+  formatMs,
   formatSessionTokens,
   formatSubagentsStatusText,
+  getToolActivityPhase,
+  styleDuration,
+  trackActivityPhaseEnd,
+  trackActivityPhaseStart,
 } from "../src/ui/agent-widget.js";
 
 describe("formatSessionTokens", () => {
@@ -21,43 +30,95 @@ describe("formatSessionTokens", () => {
     bold: (s: string) => s,
   };
 
-  it("applies threshold colors (<70 dim, 70–85 warning, ≥85 error)", () => {
-    expect(formatSessionTokens(1234, null, theme)).toBe("1.2k token");
-    expect(formatSessionTokens(1234, 50, theme)).toBe("1.2k token (<dim>50%</dim>)");
-    expect(formatSessionTokens(1234, 70, theme)).toBe("1.2k token (<warning>70%</warning>)");
-    expect(formatSessionTokens(1234, 84, theme)).toBe("1.2k token (<warning>84%</warning>)");
-    expect(formatSessionTokens(1234, 85, theme)).toBe("1.2k token (<error>85%</error>)");
-    expect(formatSessionTokens(1234, 99, theme)).toBe("1.2k token (<error>99%</error>)");
+  it("labels lifetime total separately from current context and applies thresholds", () => {
+    expect(formatSessionTokens(1234, null, theme)).toBe("lifetime 1.2k token");
+    expect(formatSessionTokens(1234, 50, theme)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 50%</dim>)",
+    );
+    expect(formatSessionTokens(1234, 70, theme)).toBe(
+      "lifetime 1.2k token (<warning>current ctx 70%</warning>)",
+    );
+    expect(formatSessionTokens(1234, 84, theme)).toBe(
+      "lifetime 1.2k token (<warning>current ctx 84%</warning>)",
+    );
+    expect(formatSessionTokens(1234, 85, theme)).toBe(
+      "lifetime 1.2k token (<error>current ctx 85%</error>)",
+    );
+    expect(formatSessionTokens(1234, 99, theme)).toBe(
+      "lifetime 1.2k token (<error>current ctx 99%</error>)",
+    );
   });
 
   it("annotates compaction count alongside percent", () => {
     // compactions only (e.g. immediately post-compaction, percent null)
-    expect(formatSessionTokens(1234, null, theme, 1)).toBe("1.2k token (<dim>⇊1</dim>)");
-    expect(formatSessionTokens(1234, null, theme, 3)).toBe("1.2k token (<dim>⇊3</dim>)");
+    expect(formatSessionTokens(1234, null, theme, 1)).toBe(
+      "lifetime 1.2k token (<dim>⇊1</dim>)",
+    );
+    expect(formatSessionTokens(1234, null, theme, 3)).toBe(
+      "lifetime 1.2k token (<dim>⇊3</dim>)",
+    );
     // percent + compactions, joined with ` · `
-    expect(formatSessionTokens(1234, 45, theme, 2)).toBe("1.2k token (<dim>45%</dim> · <dim>⇊2</dim>)");
-    expect(formatSessionTokens(1234, 88, theme, 4)).toBe("1.2k token (<error>88%</error> · <dim>⇊4</dim>)");
+    expect(formatSessionTokens(1234, 45, theme, 2)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 45%</dim> · <dim>⇊2</dim>)",
+    );
+    expect(formatSessionTokens(1234, 88, theme, 4)).toBe(
+      "lifetime 1.2k token (<error>current ctx 88%</error> · <dim>⇊4</dim>)",
+    );
     // compactions=0 omitted
-    expect(formatSessionTokens(1234, 45, theme, 0)).toBe("1.2k token (<dim>45%</dim>)");
+    expect(formatSessionTokens(1234, 45, theme, 0)).toBe(
+      "lifetime 1.2k token (<dim>current ctx 45%</dim>)",
+    );
   });
 
   it("preserves the outer style after nested annotation styles reset", () => {
     const tokenText = formatSessionTokens(1234, 70, ansiTheme);
 
     expect(fgPreservingNestedStyles(ansiTheme, "accent", tokenText)).toBe(
-      "\u001b[35m1.2k token (\u001b[33m70%\u001b[39m\u001b[35m)\u001b[39m",
+      "\u001b[35mlifetime 1.2k token (\u001b[33mcurrent ctx 70%\u001b[39m\u001b[35m)\u001b[39m",
     );
+  });
+});
+
+describe("lifetime usage and duration formatters", () => {
+  it("formats the full usage breakdown and optional cost", () => {
+    expect(formatLifetimeUsageBreakdown({
+      input: 1_200,
+      output: 345,
+      cacheRead: 98_700,
+      cacheWrite: 40,
+      cost: 0.042,
+    })).toBe("Lifetime usage: input 1.2k · output 345 · cache read 98.7k · cache write 40 · cost $0.042");
+    expect(formatLifetimeUsageBreakdown({
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    })).not.toContain("cost");
+  });
+
+  it("formats sub-minute, minute, and hour boundaries without long-second counts", () => {
+    expect(formatMs(-500)).toBe("0s");
+    expect(formatMs(0)).toBe("0s");
+    expect(formatMs(999)).toBe("0.9s");
+    expect(formatMs(11_000)).toBe("11s");
+    expect(formatMs(59_999)).toBe("59.9s");
+    expect(formatMs(60_000)).toBe("1 min 0s");
+    expect(formatMs(613_000)).toBe("10 min 13s");
+    expect(formatMs(3_600_000)).toBe("1 hr 0 min 0s");
+    expect(formatMs(3_661_000)).toBe("1 hr 1 min 1s");
+  });
+
+  it("uses only the semantic accent color for the duration fragment", () => {
+    const semanticTheme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` };
+    expect(styleDuration(semanticTheme, "10 min 13s")).toBe("<accent>10 min 13s</accent>");
   });
 });
 
 describe("renderRunningAgentStatus", () => {
   it("renders running status as separate component lines", () => {
     const theme = { fg: (_c: string, s: string) => s };
-    const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "thinking…", theme);
+    const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "working…", theme);
 
     expect(component.render(120).map((line) => line.trimEnd())).toEqual([
       "⠋ effort: xhigh · 4 tool uses",
-      "  ⎿  thinking…",
+      "  ⎿  working…",
     ]);
   });
 });
@@ -68,6 +129,8 @@ describe("AgentWidget", () => {
   function makeActivity(): AgentActivity {
     return {
       activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
       toolUses: 0,
       responseText: "",
       turnCount: 1,
@@ -137,6 +200,23 @@ describe("AgentWidget", () => {
     expect(renderLines(manager, "unflagged", () => "background")).toContain("unflagged description");
   });
 
+  it("prefers record lifetime metrics over a stale activity mirror after resume", () => {
+    const record = makeRecord("resumed", { isBackground: true });
+    record.toolUses = 7;
+    record.lifetimeUsage = {
+      input: 1_200,
+      output: 300,
+      cacheRead: 500_000,
+      cacheWrite: 50,
+    };
+    const manager = { listAgents: () => [record] };
+
+    const lines = renderLines(manager, "resumed", () => "background");
+    expect(lines).toContain("7 tool uses");
+    expect(lines).toContain("lifetime 1.6k token");
+    expect(lines).not.toContain("lifetime 501.6k token");
+  });
+
   // "off" hides the widget entirely — even a background agent renders nothing.
   it("renders nothing in 'off' mode", () => {
     const manager = { listAgents: () => [makeRecord("background", { isBackground: true })] };
@@ -202,14 +282,14 @@ describe("AgentWidget status bar policy", () => {
 });
 
 describe("formatActiveToolSummary / describeActivity", () => {
-  it("summarizes read/bash/grep args into a step line", () => {
+  it("summarizes read/bash/grep args into a detailed step line", () => {
     expect(formatActiveToolSummary("read", { path: "src/a.ts" })).toBe("reading src/a.ts");
     expect(formatActiveToolSummary("bash", { command: 'rg "auth" -n' })).toBe('running rg "auth" -n');
     expect(formatActiveToolSummary("grep", { pattern: "foo", glob: "*.ts" })).toBe('searching "foo" *.ts');
     expect(formatActiveToolSummary("edit", {})).toBe("editing");
   });
 
-  it("strips terminal controls from parent widget activity", () => {
+  it("strips terminal controls from detailed overlay activity", () => {
     const summary = formatActiveToolSummary("bash", {
       command: "echo \u001b[31mred\u001b[0m \u001b]8;;https://evil.invalid/?token=x\u0007link\u001b]8;;\u0007 中文",
     });
@@ -219,7 +299,7 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(summary).not.toContain("evil.invalid");
   });
 
-  it("describeActivity prefers in-flight step summaries over thinking…", () => {
+  it("keeps exact tool/body summaries available to the conversation overlay", () => {
     const tools = new Map<string, string>([
       ["c1", "reading src/a.ts"],
       ["c2", "running rg auth"],
@@ -227,6 +307,109 @@ describe("formatActiveToolSummary / describeActivity", () => {
     expect(describeActivity(tools)).toBe("reading src/a.ts, running rg auth…");
     expect(describeActivity(new Map([["c1", "searching \"x\""]]))).toBe('searching "x"…');
     expect(describeActivity(new Map(), " partial answer ")).toBe("partial answer");
-    expect(describeActivity(new Map())).toBe("thinking…");
+    expect(describeActivity(new Map())).toBe("working…");
+  });
+});
+
+describe("describeCompactActivity", () => {
+  function activity(responseText = ""): AgentActivity {
+    return {
+      activeTools: new Map(),
+      activeToolPhases: new Map(),
+      phaseSummary: {},
+      toolUses: 0,
+      responseText,
+      turnCount: 1,
+      lifetimeUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    };
+  }
+
+  it("classifies only known tools into coarse, non-sensitive phases", () => {
+    expect(getToolActivityPhase("read")).toBe("exploring");
+    expect(getToolActivityPhase("web_search")).toBe("exploring");
+    expect(getToolActivityPhase("edit")).toBe("editing");
+    expect(getToolActivityPhase("bash")).toBe("runningCommands");
+    expect(getToolActivityPhase("Agent")).toBe("delegating");
+    expect(getToolActivityPhase("custom_private_tool")).toBeUndefined();
+  });
+
+  it("keeps fast exact steps hidden until a coarse phase is stable", () => {
+    const state = activity();
+    state.activeTools.set("r1", "reading secret/customer-file.ts");
+    trackActivityPhaseStart(state, "r1", "read", 0);
+
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS - 1)).toBe("working…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).toBe("exploring…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).not.toContain("customer-file");
+  });
+
+  it("treats short same-phase gaps as continuous and holds a promoted label", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    trackActivityPhaseEnd(state, "r1", 400);
+    trackActivityPhaseStart(state, "g1", "grep", 550);
+
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS)).toBe("exploring…");
+    trackActivityPhaseEnd(state, "g1", 900);
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS + ACTIVITY_PHASE_MIN_HOLD_MS - 1))
+      .toBe("exploring…");
+    expect(describeCompactActivity(state, ACTIVITY_PHASE_PROMOTION_MS + ACTIVITY_PHASE_MIN_HOLD_MS))
+      .toBe("working…");
+  });
+
+  it("holds the old phase before switching to a stable new phase", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    expect(describeCompactActivity(state, 800)).toBe("exploring…");
+
+    trackActivityPhaseEnd(state, "r1", 850);
+    trackActivityPhaseStart(state, "b1", "bash", 900);
+    expect(describeCompactActivity(state, 1600)).toBe("exploring…");
+    expect(describeCompactActivity(state, 2300)).toBe("running commands…");
+  });
+
+  it("keeps continuous known work stable through concurrent known and unknown tools", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "b1", "bash", 0);
+    trackActivityPhaseStart(state, "r1", "read", 100);
+    trackActivityPhaseStart(state, "x1", "custom_private_tool", 200);
+
+    // Later starts do not reset the oldest candidate's promotion clock.
+    expect(describeCompactActivity(state, 799)).toBe("working…");
+    expect(describeCompactActivity(state, 800)).toBe("running commands…");
+
+    // Nor may another known phase displace a still-truthful visible phase.
+    trackActivityPhaseStart(state, "e1", "edit", 900);
+    expect(describeCompactActivity(state, 1000)).toBe("running commands…");
+    trackActivityPhaseEnd(state, "e1", 1050);
+    trackActivityPhaseEnd(state, "x1", 1100);
+
+    // Once bash ends, the continuously active read is already mature. The old
+    // label keeps its minimum hold, then switches without a working flash.
+    trackActivityPhaseEnd(state, "b1", 1200);
+    expect(describeCompactActivity(state, 2200)).toBe("running commands…");
+    expect(describeCompactActivity(state, 2300)).toBe("exploring…");
+  });
+
+  it("does not reuse a stale same-named phase after rendering was paused", () => {
+    const state = activity();
+    trackActivityPhaseStart(state, "r1", "read", 0);
+    expect(describeCompactActivity(state, 800)).toBe("exploring…");
+    trackActivityPhaseEnd(state, "r1", 900);
+
+    // No render occurs while compact UI is hidden. A later read is a new phase,
+    // even though the old visible label was never ticked away.
+    trackActivityPhaseStart(state, "r2", "read", 5000);
+    expect(describeCompactActivity(state, 5000)).toBe("working…");
+    expect(describeCompactActivity(state, 5799)).toBe("working…");
+    expect(describeCompactActivity(state, 5800)).toBe("exploring…");
+  });
+
+  it("uses working for unknown tools and streaming body text on compact surfaces", () => {
+    const state = activity("partial answer with implementation details");
+    trackActivityPhaseStart(state, "x1", "custom_private_tool", 0);
+
+    expect(describeCompactActivity(state, 5000)).toBe("working…");
+    expect(describeActivity(new Map(), state.responseText)).toBe("partial answer with implementation details");
   });
 });

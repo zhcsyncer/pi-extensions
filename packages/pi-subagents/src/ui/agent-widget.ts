@@ -23,7 +23,17 @@ export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 /** Statuses that indicate an error/non-success outcome (used for linger behavior and icon rendering). */
 export const ERROR_STATUSES = new Set(["error", "aborted", "steered", "stopped"]);
 
-/** Tool name → human-readable action for activity descriptions. */
+/** Stable, coarse phases allowed on compact running surfaces. */
+export type ActivityPhase = "exploring" | "editing" | "runningCommands" | "delegating";
+
+/** A phase must remain active this long before compact UI promotes it above `working…`. */
+export const ACTIVITY_PHASE_PROMOTION_MS = 800;
+/** Once promoted, keep a phase visible long enough to avoid flashing between labels. */
+export const ACTIVITY_PHASE_MIN_HOLD_MS = 1500;
+/** Same-phase tools separated by only this gap count as one continuous phase. */
+export const ACTIVITY_PHASE_GAP_MS = 200;
+
+/** Tool name → human-readable action for detailed activity descriptions. */
 const TOOL_DISPLAY: Record<string, string> = {
   read: "reading",
   bash: "running",
@@ -35,6 +45,26 @@ const TOOL_DISPLAY: Record<string, string> = {
   Agent: "spawning",
   get_subagent_result: "awaiting",
   steer_subagent: "steering",
+};
+
+/** Conservative classification: unknown/custom tools stay on the honest generic fallback. */
+const TOOL_ACTIVITY_PHASE: Readonly<Record<string, ActivityPhase>> = {
+  read: "exploring",
+  grep: "exploring",
+  find: "exploring",
+  ls: "exploring",
+  web_search: "exploring",
+  web_read: "exploring",
+  ollama_web_search: "exploring",
+  ollama_web_fetch: "exploring",
+  "resolve-library-id": "exploring",
+  "query-docs": "exploring",
+  edit: "editing",
+  write: "editing",
+  bash: "runningCommands",
+  agent: "delegating",
+  get_subagent_result: "delegating",
+  steer_subagent: "delegating",
 };
 
 // ---- Types ----
@@ -53,21 +83,41 @@ export type UICtx = {
   ): void;
 };
 
+/** Mutable debounce state for the compact phase summary. */
+export interface ActivityPhaseSummaryState {
+  candidate?: ActivityPhase;
+  candidateSince?: number;
+  inactiveSince?: number;
+  visible?: ActivityPhase;
+  visibleSince?: number;
+}
+
+/** Coarse phase metadata for one in-flight tool. */
+export interface ActiveToolPhase {
+  phase?: ActivityPhase;
+  startedAt: number;
+}
+
 /** Per-agent live activity state. */
 export interface AgentActivity {
   /**
    * In-flight tools: key = toolCallId (or synthetic), value = one-line step summary
-   * e.g. "reading src/a.ts", "running rg auth".
+   * e.g. "reading src/a.ts", "running rg auth". Kept for the detailed overlay.
    */
   activeTools: Map<string, string>;
+  /** Matching coarse phase and start time for each in-flight tool. */
+  activeToolPhases: Map<string, ActiveToolPhase>;
+  /** Debounce/minimum-hold state used only by compact running surfaces. */
+  phaseSummary: ActivityPhaseSummaryState;
   toolUses: number;
+  /** Streaming assistant body retained for the detailed conversation overlay only. */
   responseText: string;
   session?: SessionLike;
   /** Current turn count. */
   turnCount: number;
   /** Effective max turns for this agent (undefined = unlimited). */
   maxTurns?: number;
-  /** Lifetime usage breakdown — see LifetimeUsage docs. */
+  /** Ephemeral live usage mirror for foreground streaming; AgentRecord is authoritative when available. */
   lifetimeUsage: LifetimeUsage;
 }
 
@@ -80,7 +130,7 @@ export interface AgentDetails {
   tokens: string;
   durationMs: number;
   status: "queued" | "running" | "completed" | "steered" | "aborted" | "stopped" | "error" | "background";
-  /** Human-readable description of what the agent is currently doing. */
+  /** Compact activity label: a stable coarse phase, `working…`, or queued status. */
   activity?: string;
   /** Current spinner frame index (for animated running indicator). */
   spinnerFrame?: number;
@@ -112,22 +162,46 @@ export function fgPreservingNestedStyles(theme: Theme, color: string, text: stri
   return theme.fg(color, text.replace(/\u001b\[(?:0|39)m/g, reset => `${reset}${styleStart}`));
 }
 
+/** Format a token count magnitude without a unit: "33.8k", "1.2M". */
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return `${count}`;
+}
+
 /** Format a token count compactly: "33.8k token", "1.2M token". */
 export function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M token`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k token`;
-  return `${count} token`;
+  return `${formatTokenCount(count)} token`;
+}
+
+/** Format provider-reported USD cost with the same precision policy as pi-glance. */
+export function formatUsageCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return "$0.000";
+  if (cost < 0.001) return "<$0.001";
+  if (cost < 1) return `$${cost.toFixed(3)}`;
+  if (cost < 10) return `$${cost.toFixed(2)}`;
+  return `$${cost.toFixed(1)}`;
+}
+
+/** Clear, fully additive lifetime breakdown for the conversation detail overlay. */
+export function formatLifetimeUsageBreakdown(usage: LifetimeUsage): string {
+  const parts = [
+    `input ${formatTokenCount(usage.input ?? 0)}`,
+    `output ${formatTokenCount(usage.output ?? 0)}`,
+    `cache read ${formatTokenCount(usage.cacheRead ?? 0)}`,
+    `cache write ${formatTokenCount(usage.cacheWrite ?? 0)}`,
+  ];
+  if (usage.cost !== undefined && Number.isFinite(usage.cost)) {
+    parts.push(`cost ${formatUsageCost(usage.cost)}`);
+  }
+  return `Lifetime usage: ${parts.join(" · ")}`;
 }
 
 /**
- * Token count with optional context-fill % and compaction-count annotations.
+ * Compact lifetime total with optional *current* context-fill % and compaction
+ * annotations. The labels deliberately make the two windows explicit: lifetime
+ * usage is cumulative, while context % describes only the current context.
  * Thresholds for percent: <70% dim, 70–85% warning, ≥85% error.
- * Compaction count rendered as `⇊N` in dim.
- *
- *   "12.3k token"               — no annotations
- *   "12.3k token (45%)"         — percent only
- *   "12.3k token (⇊2)"          — compactions only (e.g. right after compact)
- *   "12.3k token (45% · ⇊2)"    — both
  */
 export function formatSessionTokens(
   tokens: number,
@@ -135,11 +209,11 @@ export function formatSessionTokens(
   theme: Theme,
   compactions = 0,
 ): string {
-  const tokenStr = formatTokens(tokens);
+  const tokenStr = `lifetime ${formatTokens(tokens)}`;
   const annot: string[] = [];
   if (percent !== null) {
     const color = percent >= 85 ? "error" : percent >= 70 ? "warning" : "dim";
-    annot.push(theme.fg(color, `${Math.round(percent)}%`));
+    annot.push(theme.fg(color, `current ctx ${Math.round(percent)}%`));
   }
   if (compactions > 0) {
     annot.push(theme.fg("dim", `⇊${compactions}`));
@@ -153,15 +227,44 @@ export function formatTurns(turnCount: number, maxTurns?: number | null): string
   return maxTurns != null ? `↻${turnCount}≤${maxTurns}` : `↻${turnCount}`;
 }
 
-/** Format milliseconds as human-readable duration. */
+/**
+ * Format milliseconds as a stable human duration.
+ * Sub-minute values retain tenths; longer values use minute/hour units instead
+ * of growing into unreadable long-second counts.
+ */
 export function formatMs(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`;
+  const safeMs = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  if (safeMs < 60_000) {
+    const seconds = Math.floor(safeMs / 100) / 10;
+    return `${Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1)}s`;
+  }
+
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes} min ${seconds}s`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hr ${minutes} min ${seconds}s`;
+}
+
+/** Apply the shared semantic duration color without brightening surrounding stats. */
+export function styleDuration(theme: Pick<Theme, "fg">, duration: string): string {
+  return theme.fg("accent", duration);
 }
 
 /** Format duration from start/completed timestamps. */
 export function formatDuration(startedAt: number, completedAt?: number): string {
-  if (completedAt) return formatMs(completedAt - startedAt);
+  if (completedAt !== undefined) return formatMs(completedAt - startedAt);
   return `${formatMs(Date.now() - startedAt)} (running)`;
+}
+
+function styleStatsWithDuration(parts: string[], duration: string, theme: Theme): string {
+  return [
+    ...parts.map((part) => fgPreservingNestedStyles(theme, "dim", part)),
+    styleDuration(theme, duration),
+  ].join(" " + theme.fg("dim", "·") + " ");
 }
 
 /** Get display name for any agent type (built-in or custom). */
@@ -241,7 +344,7 @@ export function formatSubagentsStatusText(runningCount: number, queuedCount: num
 }
 
 /**
- * One-line summary for an in-flight tool (widget / tool-result activity row).
+ * One-line summary for an in-flight tool in the detailed conversation overlay.
  * Prefers path/command/pattern from args when present.
  */
 export function formatActiveToolSummary(toolName: string, args?: unknown): string {
@@ -284,9 +387,178 @@ export function formatActiveToolSummary(toolName: string, args?: unknown): strin
   return action;
 }
 
+/** Map a known tool onto a deliberately coarse compact-UI phase. */
+export function getToolActivityPhase(toolName: string): ActivityPhase | undefined {
+  const normalized = sanitizeDisplayText(toolName).trim().toLowerCase();
+  return TOOL_ACTIVITY_PHASE[normalized];
+}
+
+function observeActivePhase(
+  state: ActivityPhaseSummaryState,
+  phase: ActivityPhase | undefined,
+  now: number,
+  phaseSince = now,
+): void {
+  if (phase === undefined) {
+    state.candidate = undefined;
+    state.candidateSince = undefined;
+    state.inactiveSince = undefined;
+    return;
+  }
+
+  const continuesCandidate = state.candidate === phase
+    && (state.inactiveSince === undefined || now - state.inactiveSince <= ACTIVITY_PHASE_GAP_MS);
+  if (!continuesCandidate || state.candidateSince === undefined) {
+    state.candidateSince = phaseSince;
+  }
+  state.candidate = phase;
+  state.inactiveSince = undefined;
+}
+
 /**
- * Build the widget's last-line activity string.
- * Prefer in-flight tool step summaries; else streaming assistant text; else "thinking…".
+ * Pick one truthful phase without letting a short parallel tool displace stable
+ * work. Keep the visible/candidate phase while any matching tool remains;
+ * otherwise choose the oldest known in-flight phase. Unknown tools are ignored
+ * when a known phase is still active.
+ */
+function selectActivePhase(activity: AgentActivity): { phase?: ActivityPhase; since?: number } {
+  const known = [...activity.activeToolPhases.values()]
+    .filter((entry): entry is ActiveToolPhase & { phase: ActivityPhase } => entry.phase !== undefined);
+  if (known.length === 0) return {};
+
+  for (const preferred of [activity.phaseSummary.visible, activity.phaseSummary.candidate]) {
+    if (preferred === undefined) continue;
+    const matching = known.filter((entry) => entry.phase === preferred);
+    if (matching.length > 0) {
+      return {
+        phase: preferred,
+        since: Math.min(...matching.map((entry) => entry.startedAt)),
+      };
+    }
+  }
+
+  const oldest = known.reduce((selected, entry) =>
+    entry.startedAt < selected.startedAt ? entry : selected);
+  return { phase: oldest.phase, since: oldest.startedAt };
+}
+
+/** Record a tool start for compact phase debouncing; detailed args never enter this state. */
+export function trackActivityPhaseStart(
+  activity: AgentActivity,
+  toolCallId: string,
+  toolName: string,
+  now = Date.now(),
+): void {
+  activity.activeToolPhases.set(toolCallId, {
+    phase: getToolActivityPhase(toolName),
+    startedAt: now,
+  });
+  const selected = selectActivePhase(activity);
+  observeActivePhase(activity.phaseSummary, selected.phase, now, selected.since);
+}
+
+/** Record a tool end while allowing a very short same-phase gap to remain continuous. */
+export function trackActivityPhaseEnd(
+  activity: AgentActivity,
+  toolCallId: string,
+  now = Date.now(),
+): void {
+  activity.activeToolPhases.delete(toolCallId);
+  if (activity.activeToolPhases.size === 0) {
+    activity.phaseSummary.inactiveSince = now;
+    return;
+  }
+  const selected = selectActivePhase(activity);
+  observeActivePhase(activity.phaseSummary, selected.phase, now, selected.since);
+}
+
+function phaseLabel(phase: ActivityPhase): string {
+  switch (phase) {
+    case "exploring": return "exploring…";
+    case "editing": return "editing…";
+    case "runningCommands": return "running commands…";
+    case "delegating": return "delegating…";
+  }
+}
+
+/**
+ * Stable activity for compact surfaces. Fast/unknown tools and streaming body
+ * text deliberately stay `working…`; only a durable coarse phase is promoted.
+ */
+export function describeCompactActivity(activity: AgentActivity, now = Date.now()): string {
+  const state = activity.phaseSummary;
+  const hasActiveTools = activity.activeToolPhases.size > 0;
+  const selected = selectActivePhase(activity);
+  const activePhase = selected.phase;
+
+  if (!hasActiveTools || activePhase === undefined) {
+    if (hasActiveTools) {
+      // An unknown/custom tool is real work, but not a phase we can label honestly.
+      state.candidate = undefined;
+      state.candidateSince = undefined;
+      state.inactiveSince = undefined;
+    } else if (state.inactiveSince === undefined) {
+      state.inactiveSince = now;
+    }
+
+    if (
+      state.visible !== undefined
+      && state.visibleSince !== undefined
+      && now - state.visibleSince < ACTIVITY_PHASE_MIN_HOLD_MS
+    ) {
+      return phaseLabel(state.visible);
+    }
+
+    state.visible = undefined;
+    state.visibleSince = undefined;
+    if (
+      !hasActiveTools
+      && state.inactiveSince !== undefined
+      && now - state.inactiveSince >= ACTIVITY_PHASE_GAP_MS
+    ) {
+      state.candidate = undefined;
+      state.candidateSince = undefined;
+    }
+    return "working…";
+  }
+
+  if (
+    state.candidate !== activePhase
+    || state.candidateSince === undefined
+    || state.inactiveSince !== undefined
+  ) {
+    observeActivePhase(state, activePhase, now, selected.since);
+  }
+
+  // A same-named phase is immediately reusable only when it is the same
+  // continuous candidate that originally promoted the visible label. After a
+  // long unrendered idle gap, candidateSince is newer and must earn 800ms again.
+  const visibleBelongsToCandidate = state.visible === activePhase
+    && state.visibleSince !== undefined
+    && state.candidateSince !== undefined
+    && state.candidateSince <= state.visibleSince;
+  if (visibleBelongsToCandidate) return phaseLabel(activePhase);
+  if (
+    state.visible !== undefined
+    && state.visibleSince !== undefined
+    && now - state.visibleSince < ACTIVITY_PHASE_MIN_HOLD_MS
+  ) {
+    return phaseLabel(state.visible);
+  }
+
+  state.visible = undefined;
+  state.visibleSince = undefined;
+  if (state.candidateSince !== undefined && now - state.candidateSince >= ACTIVITY_PHASE_PROMOTION_MS) {
+    state.visible = activePhase;
+    state.visibleSince = now;
+    return phaseLabel(activePhase);
+  }
+  return "working…";
+}
+
+/**
+ * Detailed live activity for the conversation overlay.
+ * Prefer exact in-flight tool steps; else streaming assistant text; else `working…`.
  */
 export function describeActivity(activeTools: Map<string, string>, responseText?: string): string {
   if (activeTools.size > 0) {
@@ -309,7 +581,7 @@ export function describeActivity(activeTools: Map<string, string>, responseText?
     return truncateLine(responseText);
   }
 
-  return "thinking…";
+  return "working…";
 }
 
 // ---- Widget manager ----
@@ -438,10 +710,10 @@ export class AgentWidget {
     const activity = this.agentActivity.get(a.id);
     if (activity) parts.push(formatTurns(activity.turnCount, activity.maxTurns));
     if (a.toolUses > 0) parts.push(`${a.toolUses} tool use${a.toolUses === 1 ? "" : "s"}`);
-    parts.push(duration);
+    const statsText = styleStatsWithDuration(parts, duration, theme);
 
     const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
-    return `${icon} ${theme.fg("dim", name)}${modeTag}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", parts.join(" · "))}${statusText}`;
+    return `${icon} ${theme.fg("dim", name)}${modeTag}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${statsText}${statusText}`;
   }
 
   /**
@@ -485,22 +757,24 @@ export class AgentWidget {
       const elapsed = formatMs(Date.now() - a.startedAt);
 
       const bg = this.agentActivity.get(a.id);
-      const toolUses = bg?.toolUses ?? a.toolUses;
-      const tokens = getLifetimeTotal(bg?.lifetimeUsage);
-      const contextPercent = getSessionContextPercent(bg?.session);
+      // AgentRecord is the lifetime source of truth. The live tracker is an
+      // ephemeral mirror and can outlive a completed run during group hold,
+      // while resume updates only the record.
+      const toolUses = a.toolUses;
+      const tokens = getLifetimeTotal(a.lifetimeUsage);
+      const contextPercent = getSessionContextPercent(bg?.session ?? a.session);
       const tokenText = tokens > 0 ? formatSessionTokens(tokens, contextPercent, theme, a.compactionCount) : "";
 
       const parts: string[] = [];
       if (bg) parts.push(formatTurns(bg.turnCount, bg.maxTurns));
       if (toolUses > 0) parts.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
       if (tokenText) parts.push(tokenText);
-      parts.push(elapsed);
-      const statsText = parts.join(" · ");
+      const statsText = styleStatsWithDuration(parts, elapsed, theme);
 
-      const activity = bg ? describeActivity(bg.activeTools, bg.responseText) : "thinking…";
+      const activity = bg ? describeCompactActivity(bg) : "working…";
 
       runningLines.push([
-        truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${fgPreservingNestedStyles(theme, "dim", statsText)}`),
+        truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${statsText}`),
         truncate(theme.fg("dim", "│  ") + theme.fg("dim", `  ⎿  ${activity}`)),
       ]);
     }
