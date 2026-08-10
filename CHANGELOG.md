@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.16.1
+
+### Patch Changes
+
+- a43cc4c: Improve subagent runtime UI with an honest `working…` fallback, delayed coarse activity phases that do not flicker through exact steps, readable accented durations, and lifetime input/output/cache/cost breakdowns that keep current-context utilization and the existing compact total semantics distinct.
+
 ## 0.16.0
 
 ### Minor Changes
