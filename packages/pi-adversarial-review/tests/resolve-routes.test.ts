@@ -77,6 +77,9 @@ describe("resolveReviewerRoutes", () => {
     expect(() => resolveMainSessionRefuterRoute(undefined, "medium")).toThrow(
       "current main session has no model",
     );
+    expect(() => resolveMainSessionRefuterRoute(main, undefined)).toThrow(
+      "current main session has no thinking level",
+    );
   });
 
   it("resolves one exact refuter route with the same pin and capability rules", () => {

@@ -182,7 +182,7 @@ function pickerItems(
           ? `Enabled with explicit route ${refuteControl.explicitRefuterKey}.`
           : refuteControl.mainSessionRefuterKey
             ? `Default: fresh ${refuteControl.mainSessionRefuterKey} session; choose another scoped model or disable.`
-            : "Choose one scoped refuter model; the current main session has no model.",
+            : "Choose one scoped refuter model; the current main-session route is unavailable.",
       }]
     : [];
   return [

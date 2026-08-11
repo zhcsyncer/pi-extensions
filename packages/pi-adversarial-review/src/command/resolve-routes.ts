@@ -138,7 +138,12 @@ export function resolveMainSessionRefuterRoute(
       "The current main session has no model available for default Refute.",
     );
   }
-  const effectiveThinking = thinkingLevel ?? "off";
+  if (!thinkingLevel) {
+    throw new ReviewCommandError(
+      "The current main session has no thinking level available for default Refute.",
+    );
+  }
+  const effectiveThinking = thinkingLevel;
   const supported = getSupportedThinkingLevels(model);
   if (!supported.includes(effectiveThinking)) {
     throw new ReviewCommandError(

@@ -226,11 +226,25 @@ export default function adversarialReviewExtension(
         let reviewerSpecs = command.reviewerSpecs;
         let refuteRequested = command.refute;
         let refuterSpec = command.refuterSpec;
-        let useMainSessionRefuter = ctx.mode === "tui" && command.refute && !refuterSpec;
-        let chooseRefuterInteractively = false;
-        const mainSessionRefuterRoute = ctx.mode === "tui" && ctx.model
-          ? resolveMainSessionRefuterRoute(ctx.model, ctx.thinkingLevel)
-          : undefined;
+        const mainSessionThinking = ctx.thinkingLevel ?? (
+          typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : undefined
+        );
+        let mainSessionRefuterRoute: ReviewerRoute | undefined;
+        if (ctx.mode === "tui" && ctx.model && mainSessionThinking) {
+          try {
+            mainSessionRefuterRoute = resolveMainSessionRefuterRoute(
+              ctx.model,
+              mainSessionThinking,
+            );
+          } catch {
+            // A transient or incompatible main-session route must not block the
+            // reviewer picker. The interaction falls back to a scoped refuter.
+          }
+        }
+        let useMainSessionRefuter = ctx.mode === "tui" && command.refute &&
+          !refuterSpec && mainSessionRefuterRoute !== undefined;
+        let chooseRefuterInteractively = ctx.mode === "tui" && command.refute &&
+          !refuterSpec && mainSessionRefuterRoute === undefined;
 
         if (reviewerSpecs.length === 0) {
           // Prune memory as soon as this scope snapshot is observed. Cancelling the
@@ -322,7 +336,7 @@ export default function adversarialReviewExtension(
         const refuterRoute = preResolvedRefuterRoute ?? (refuterSpec
           ? resolveRefuterRoute(refuterSpec, ctx.scopedModels)
           : useMainSessionRefuter
-            ? mainSessionRefuterRoute ?? resolveMainSessionRefuterRoute(ctx.model, ctx.thinkingLevel)
+            ? mainSessionRefuterRoute
             : undefined);
         if (ctx.mode === "tui" && refuteRequested && refuterRoute) {
           ctx.ui.notify(

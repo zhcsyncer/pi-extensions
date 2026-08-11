@@ -126,6 +126,30 @@ describe("reviewer picker", () => {
     })).resolves.toMatchObject({ refute: "disabled" });
   });
 
+  it("falls back to a required scoped refuter when the main-session route is unavailable", async () => {
+    const ctx = pickerContext(
+      [
+        { model: model("provider-a", "model-a") },
+        { model: model("provider-b", "model-b") },
+      ],
+      (component) => {
+        expect(component.render(140).join("\n")).toContain("choose model");
+        component.handleInput?.(ENTER);
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER);
+        component.handleInput?.(DOWN); // required Refute stays choose model
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER);
+      },
+    );
+
+    await expect(pickInteractiveReviewSetup({
+      ctx,
+      maxConcurrent: 2,
+      refuteRequired: true,
+    })).resolves.toMatchObject({ refute: "choose-model" });
+  });
+
   it("uses the nearest supported level when medium is unavailable", async () => {
     const fallback = {
       ...model("provider-a", "model-a"),

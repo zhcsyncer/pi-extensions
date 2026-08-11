@@ -823,6 +823,9 @@ describe("adversarial review extension", () => {
     };
     adversarialReviewExtension(fake.api());
     const { ctx, notifications } = context(root);
+    // The main model explicitly rejects the current thinking level. A review
+    // that did not request Refute must still reach the reviewer fleet.
+    (ctx.model as any).thinkingLevelMap = { medium: null };
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
       "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
@@ -832,7 +835,11 @@ describe("adversarial review extension", () => {
     expect(fake.entries).toHaveLength(1);
     expect(fake.entries[0]).toMatchObject({
       customType: "adversarial-review-report",
-      data: { overall: "candidate-approve", successfulReviewerCount: 2 },
+      data: {
+        overall: "candidate-approve",
+        successfulReviewerCount: 2,
+        refuteRequested: false,
+      },
     });
     expect(fake.sentMessages).toHaveLength(1);
     expect(fake.sentMessages[0]).toMatchObject({
