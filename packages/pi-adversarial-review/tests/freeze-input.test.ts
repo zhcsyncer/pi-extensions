@@ -39,7 +39,10 @@ import {
   suggestReviewRanges,
 } from "../src/input/freeze-input.ts";
 import { ReviewInputCleanupError } from "../src/input/errors.ts";
-import { resolveReviewTarget } from "../src/input/git-target.ts";
+import {
+  INHERITED_GIT_CONTEXT_ENV_KEYS,
+  resolveReviewTarget,
+} from "../src/input/git-target.ts";
 
 const exec = promisify(execFile);
 const repos: string[] = [];
@@ -446,6 +449,48 @@ describe("prepareFrozenReviewInput", () => {
     expect(await git(frozen.reviewerCwd, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
     expect((await git(root, "worktree", "list", "--porcelain")).split("worktree ")).toHaveLength(3);
     await frozen.cleanup();
+    expect(await git(root, "worktree", "list", "--porcelain")).toBe(registrations);
+  });
+
+  it("ignores inherited Git repository context for range capture and checkout", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "value.txt"), "A\n");
+    const fromSha = await commitAll(root, "A");
+    await writeFile(path.join(root, "value.txt"), "B\n");
+    const toSha = await commitAll(root, "B");
+    const registrations = await git(root, "worktree", "list", "--porcelain");
+    const keys = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_NAMESPACE",
+      "GIT_REPLACE_REF_BASE",
+    ] as const;
+    const previous = new Map(keys.map((key) => [key, process.env[key]]));
+    const poison = path.join(root, "missing-git-context");
+    let frozen: Awaited<ReturnType<typeof prepareFrozenReviewInput>> | undefined;
+
+    expect(INHERITED_GIT_CONTEXT_ENV_KEYS).toEqual(expect.arrayContaining([...keys]));
+    process.env.GIT_DIR = poison;
+    process.env.GIT_WORK_TREE = poison;
+    process.env.GIT_NAMESPACE = "adversarial-test";
+    process.env.GIT_REPLACE_REF_BASE = "refs/adversarial-replacements/";
+    try {
+      frozen = await prepareFrozenReviewInput({
+        cwd: root,
+        target: { mode: "range", fromRef: fromSha, toRef: toSha },
+        runId: randomUUID(),
+      });
+      expect(await readFile(path.join(frozen.reviewerCwd, "value.txt"), "utf8")).toBe("B\n");
+    } finally {
+      try {
+        await frozen?.cleanup();
+      } finally {
+        for (const [key, value] of previous) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+    }
     expect(await git(root, "worktree", "list", "--porcelain")).toBe(registrations);
   });
 

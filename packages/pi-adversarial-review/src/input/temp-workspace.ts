@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ReviewInputError } from "./errors.ts";
 import {
+  INHERITED_GIT_CONTEXT_ENV_KEYS,
   neutralizedGitConfigEnv,
   type RangeCheckoutEstimate,
 } from "./git-target.ts";
@@ -146,16 +147,6 @@ function killProcessTree(child: ReturnType<typeof spawn>): void {
   try { child.kill("SIGKILL"); } catch { /* already exited */ }
 }
 
-const INHERITED_GIT_ENV = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_COMMON_DIR",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_CONFIG_PARAMETERS",
-] as const;
-
 async function hardenedWorktreeEnv(
   root: string,
   hooksDir: string,
@@ -181,7 +172,7 @@ async function hardenedWorktreeEnv(
     GIT_LFS_SKIP_SMUDGE: "1",
     GIT_ATTR_NOSYSTEM: "1",
   };
-  for (const key of INHERITED_GIT_ENV) delete env[key];
+  for (const key of INHERITED_GIT_CONTEXT_ENV_KEYS) delete env[key];
   for (const key of Object.keys(env)) {
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key) && !(key in neutralized)) delete env[key];
   }

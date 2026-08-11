@@ -20,6 +20,24 @@ interface RunOptions {
   unsetEnv?: readonly string[];
 }
 
+export const INHERITED_GIT_CONTEXT_ENV_KEYS = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_NAMESPACE",
+] as const;
+
+function isolatedGitProcessEnv(additions: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of INHERITED_GIT_CONTEXT_ENV_KEYS) delete env[key];
+  return { ...env, ...additions };
+}
+
 function captureAbortError(signal?: AbortSignal): Error {
   return signal?.reason instanceof Error
     ? signal.reason
@@ -146,15 +164,7 @@ export async function neutralizedGitConfigEnv(
         GIT_OPTIONAL_LOCKS: "0",
       },
       signal,
-      unsetEnv: [
-        "GIT_CONFIG_PARAMETERS",
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_COMMON_DIR",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-      ],
+      unsetEnv: INHERITED_GIT_CONTEXT_ENV_KEYS,
     },
   );
   const drivers = new Set<string>();
@@ -196,7 +206,7 @@ async function git(root: string, args: string[], options: RunOptions = {}): Prom
       GIT_OPTIONAL_LOCKS: "0",
       ...safeConfigEnv,
     },
-    unsetEnv: [...(options.unsetEnv ?? []), "GIT_CONFIG_PARAMETERS"],
+    unsetEnv: [...(options.unsetEnv ?? []), ...INHERITED_GIT_CONTEXT_ENV_KEYS],
   });
 }
 
@@ -256,7 +266,7 @@ export async function resolveGitRoot(cwd: string, signal?: AbortSignal): Promise
       "git",
       ["rev-parse", "--show-toplevel"],
       cwd,
-      { signal },
+      { signal, unsetEnv: INHERITED_GIT_CONTEXT_ENV_KEYS },
     )).toString("utf8").trim();
   } catch (error) {
     if (signal?.aborted) throw captureAbortError(signal);
@@ -310,13 +320,11 @@ export async function estimateRangeCheckout(
   assertCaptureActive(signal);
   const safeConfigEnv = await neutralizedGitConfigEnv(root, signal);
   return await new Promise((resolve, reject) => {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
+    const env = isolatedGitProcessEnv({
       GIT_NO_REPLACE_OBJECTS: "1",
       GIT_OPTIONAL_LOCKS: "0",
       ...safeConfigEnv,
-    };
-    delete env.GIT_CONFIG_PARAMETERS;
+    });
     const child = spawn("git", ["ls-tree", "-rlz", "--full-tree", "-r", toSha], {
       cwd: root,
       env,
@@ -668,7 +676,10 @@ async function readGitBlobPrefix(
   return await new Promise((resolve, reject) => {
     const child = spawn("git", ["cat-file", "blob", objectId], {
       cwd: root,
-      env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
+      env: isolatedGitProcessEnv({
+        GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_OPTIONAL_LOCKS: "0",
+      }),
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });

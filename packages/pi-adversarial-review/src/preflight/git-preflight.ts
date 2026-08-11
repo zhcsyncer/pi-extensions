@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import { ReviewInputError } from "../input/errors.ts";
-import { neutralizedGitConfigEnv } from "../input/git-target.ts";
+import {
+  INHERITED_GIT_CONTEXT_ENV_KEYS,
+  neutralizedGitConfigEnv,
+} from "../input/git-target.ts";
 import type { ReviewTargetRequest } from "../types.ts";
 
 const INSPECT_TIMEOUT_MS = 10_000;
@@ -149,10 +152,13 @@ function abortedError(signal?: AbortSignal): Error {
     : new Error("Adversarial review preflight cancelled.");
 }
 
-function inheritedGitConfigEnvironmentKeys(): string[] {
-  return Object.keys(process.env).filter((key) => (
-    key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)
-  ));
+function inheritedGitEnvironmentKeys(): string[] {
+  return [
+    ...INHERITED_GIT_CONTEXT_ENV_KEYS,
+    ...Object.keys(process.env).filter((key) => (
+      key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)
+    )),
+  ];
 }
 
 async function safeFetchPath(root: string): Promise<string> {
@@ -194,7 +200,7 @@ async function runGit(
         ...options.env,
       },
       unsetEnv: [
-        "GIT_CONFIG_PARAMETERS",
+        ...inheritedGitEnvironmentKeys(),
         "GIT_EXTERNAL_DIFF",
       ],
     },
@@ -614,7 +620,7 @@ export async function fetchReviewRemote(
         "GIT_SSH_VARIANT",
         "SSH_ASKPASS",
         "SSH_ASKPASS_REQUIRE",
-        ...inheritedGitConfigEnvironmentKeys(),
+        ...inheritedGitEnvironmentKeys(),
       ],
     },
   );

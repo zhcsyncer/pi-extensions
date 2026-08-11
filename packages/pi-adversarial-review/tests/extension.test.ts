@@ -15,6 +15,22 @@ const freezeHooks = vi.hoisted(() => ({
   intercept: undefined as undefined | ((options: { signal?: AbortSignal }) => Promise<never>),
 }));
 
+const workspaceHooks = vi.hoisted(() => ({
+  created: [] as Array<{ cleanup(): Promise<void> }>,
+}));
+
+vi.mock("../src/input/temp-workspace.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/input/temp-workspace.ts")>();
+  return {
+    ...actual,
+    createReviewTempWorkspace: async (...args: Parameters<typeof actual.createReviewTempWorkspace>) => {
+      const workspace = await actual.createReviewTempWorkspace(...args);
+      workspaceHooks.created.push(workspace);
+      return workspace;
+    },
+  };
+});
+
 vi.mock("../src/preflight/resolve-preflight.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/preflight/resolve-preflight.ts")>();
   return {
@@ -207,6 +223,7 @@ afterEach(async () => {
   freezeHooks.intercept = undefined;
   vi.useRealTimers();
   process.exitCode = originalExitCode;
+  await Promise.all(workspaceHooks.created.splice(0).map((workspace) => workspace.cleanup()));
   await Promise.all(tempRepos.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
