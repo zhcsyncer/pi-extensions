@@ -341,6 +341,19 @@ describe("Git adversarial-review preflight", () => {
       remote: "origin",
       timedOut: false,
     });
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runner).mock.calls[0]?.[2]?.unsetEnv).toEqual(expect.arrayContaining([
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_INDEX_FILE",
+      "GIT_COMMON_DIR",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_REPLACE_REF_BASE",
+      "GIT_NAMESPACE",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_EXTERNAL_DIFF",
+    ]));
   });
 
   it("distinguishes timeout and respects cancellation before fetch", async () => {

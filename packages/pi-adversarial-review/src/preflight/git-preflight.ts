@@ -556,7 +556,7 @@ export async function fetchReviewRemote(
         GIT_NO_REPLACE_OBJECTS: "1",
         GIT_OPTIONAL_LOCKS: "0",
       },
-      unsetEnv: ["GIT_CONFIG_PARAMETERS", "GIT_EXTERNAL_DIFF"],
+      unsetEnv: [...inheritedGitEnvironmentKeys(), "GIT_EXTERNAL_DIFF"],
     },
   );
   if (urlResult.aborted) throw abortedError(options.signal);
