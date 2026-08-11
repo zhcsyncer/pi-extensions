@@ -6,6 +6,7 @@ import {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  pickInteractiveReviewSetup,
   pickRefuterSpec,
   pickReviewerSpecs,
   retainValidRefuterSpec,
@@ -79,6 +80,50 @@ describe("reviewer picker", () => {
     ]);
     expect(initial).toContain("0 selected · max concurrent 1 · 0 waves");
     expect(selected).toContain("2 selected · max concurrent 1 · 2 waves");
+  });
+
+  it("defaults interactive Refute to the current main session and allows disabling it", async () => {
+    const scopedModels = [
+      { model: model("provider-a", "model-a") },
+      { model: model("provider-b", "model-b") },
+    ];
+    const mainCtx = pickerContext(scopedModels, (component) => {
+      const initial = component.render(140).join("\n");
+      expect(initial).toContain("Refute on");
+      expect(initial).toContain("Refute blocking findings");
+      expect(initial).toContain("main session");
+      component.handleInput?.(ENTER); // reviewer A -> medium
+      component.handleInput?.(DOWN);
+      component.handleInput?.(ENTER); // reviewer B -> medium
+      component.handleInput?.(DOWN); // Refute remains main session
+      component.handleInput?.(DOWN);
+      component.handleInput?.(ENTER); // Run
+    });
+    await expect(pickInteractiveReviewSetup({
+      ctx: mainCtx,
+      maxConcurrent: 2,
+      mainSessionRefuterKey: "main-provider/main-model@high",
+    })).resolves.toEqual({
+      reviewerSpecs: ["provider-a/model-a@medium", "provider-b/model-b@medium"],
+      refute: "main-session",
+    });
+
+    const disabledCtx = pickerContext(scopedModels, (component) => {
+      component.handleInput?.(ENTER);
+      component.handleInput?.(DOWN);
+      component.handleInput?.(ENTER);
+      component.handleInput?.(DOWN);
+      component.handleInput?.(ENTER); // main session -> choose model
+      component.handleInput?.(ENTER); // choose model -> disabled
+      expect(component.render(140).join("\n")).toContain("Refute off");
+      component.handleInput?.(DOWN);
+      component.handleInput?.(ENTER);
+    });
+    await expect(pickInteractiveReviewSetup({
+      ctx: disabledCtx,
+      maxConcurrent: 2,
+      mainSessionRefuterKey: "main-provider/main-model@high",
+    })).resolves.toMatchObject({ refute: "disabled" });
   });
 
   it("uses the nearest supported level when medium is unavailable", async () => {

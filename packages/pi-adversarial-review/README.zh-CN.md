@@ -28,9 +28,9 @@ Reviewer picker 前会先运行 Git preflight。未显式选择 target 时，命
 
 Fetch 失败时，TUI 可选择 Retry、使用现有 local remote-tracking ref 或 Cancel；preflight/fetch 进行中也可按 Esc 取消；headless 会 fail-loud。Preflight 不会自动 merge、rebase、reset、checkout 或 prune。每次决定都会在运行前显示 target、branch、ahead/behind 和 fetch 状态。模型选择后还会复核 HEAD、branch、精确 status、选中 ref SHA 和冻结 patch hash，并与最终 frozen input 再绑定；若 Git 已变化，TUI 会重跑 preflight，或在任何 reviewer spawn 前 fail-loud。
 
-每个没有 session 记忆的 scoped model 初始都是 `disabled`。第一次启用时优先进入 `medium`；模型不支持 `medium` 时，使用 Pi AI 从 `medium` 收敛到的最近支持档位，之后仍可轮换全部支持档位。被 scope pin 的模型只能选择 `disabled` 或固定 level。选择 2–8 路后激活 **Run selected reviewers**；按 Esc 会在任何 reviewer 启动前取消。有效选择只在当前 Pi session 内记忆，已移出 scope 的 route 不会复活。
+每个没有 session 记忆的 scoped model 初始都是 `disabled`。第一次启用时优先进入 `medium`；模型不支持 `medium` 时，使用 Pi AI 从 `medium` 收敛到的最近支持档位，之后仍可轮换全部支持档位。被 scope pin 的模型只能选择 `disabled` 或固定 level。同一个 setup picker 还包含 **Refute blocking findings**，默认使用当前主 session 的 model 与精确 thinking level 创建全新 session；也可切换为 **choose model**（确认 reviewer 后再打开 scoped 单 route picker）或 `disabled`。选择 2–8 路后激活 **Run selected reviewers**；按 Esc 会在任何 reviewer 启动前取消。有效的 reviewer/refuter 模型选择只在当前 Pi session 内记忆，已移出 scope 的 route 不会复活。
 
-加入 `--refute` 会让独立 refuter 逐个挑战 blocking cluster。TUI 会再打开一个单 route picker；非交互模式必须显式传精确 `--refuter`：
+普通无 flag 的 TUI setup 默认启用 Refute，并使用当前主 session 的 model/thinking route，即使该模型不在 reviewer scope 中；选择其他模型时才打开独立单 route picker。显式 reviewer flags 会绕过这个 setup 控件，因此 TUI 中需传 `--refute` 才启用同一主 session 默认值，或再用精确 `--refuter` 覆盖。非交互模式继续保持可复现，必须同时显式传 `--refute` 与 scoped `--refuter`：
 
 ```text
 /adversarial-review --refute

@@ -1,4 +1,8 @@
-import { getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import {
+  getSupportedThinkingLevels,
+  type Model,
+  type ModelThinkingLevel,
+} from "@earendil-works/pi-ai";
 import type { ReviewerRoute, ScopedModelEntry } from "../types.ts";
 import { ReviewCommandError } from "./parse-args.ts";
 
@@ -123,4 +127,32 @@ export function resolveRefuterRoute(
     min: 1,
     max: 1,
   })[0];
+}
+
+export function resolveMainSessionRefuterRoute(
+  model: Model<any> | undefined,
+  thinkingLevel: ModelThinkingLevel | undefined,
+): ReviewerRoute {
+  if (!model) {
+    throw new ReviewCommandError(
+      "The current main session has no model available for default Refute.",
+    );
+  }
+  const effectiveThinking = thinkingLevel ?? "off";
+  const supported = getSupportedThinkingLevels(model);
+  if (!supported.includes(effectiveThinking)) {
+    throw new ReviewCommandError(
+      `Current main-session thinking "${effectiveThinking}" is not supported by ` +
+        `refuter model "${model.provider}/${model.id}". Supported: ${supported.join(", ")}.`,
+    );
+  }
+  return {
+    key: `${model.provider}/${model.id}@${effectiveThinking}`,
+    model,
+    provider: model.provider,
+    modelId: model.id,
+    thinking: effectiveThinking,
+    thinkingSource: "main-session",
+    ordinal: 0,
+  };
 }

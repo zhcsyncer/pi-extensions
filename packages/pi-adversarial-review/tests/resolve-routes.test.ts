@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
+  resolveMainSessionRefuterRoute,
   resolveRefuterRoute,
   resolveReviewerRoutes,
 } from "../src/command/resolve-routes.ts";
@@ -62,6 +63,20 @@ describe("resolveReviewerRoutes", () => {
       ["provider-a/model-a@high", "provider-c/plain@high"],
       scoped([a], [plain]),
     )).toThrow('Thinking "high" is not supported');
+  });
+
+  it("binds the default refuter to the current main-session model and thinking", () => {
+    const main = model("main-provider", "main-model");
+    expect(resolveMainSessionRefuterRoute(main, "medium")).toMatchObject({
+      key: "main-provider/main-model@medium",
+      model: main,
+      thinking: "medium",
+      thinkingSource: "main-session",
+      ordinal: 0,
+    });
+    expect(() => resolveMainSessionRefuterRoute(undefined, "medium")).toThrow(
+      "current main session has no model",
+    );
   });
 
   it("resolves one exact refuter route with the same pin and capability rules", () => {

@@ -205,6 +205,8 @@ function context(cwd = process.cwd()) {
   const ctx = {
     cwd,
     mode: "tui",
+    model: model("main-provider", "main-model"),
+    thinkingLevel: "medium",
     scopedModels: [
       { model: model("provider-a", "model-a") },
       { model: model("provider-b", "model-b") },
@@ -389,6 +391,7 @@ describe("adversarial review extension", () => {
       picker.handleInput("\r");
       picker.handleInput("\x1b[B");
       picker.handleInput("\r");
+      picker.handleInput("\x1b[B"); // Refute defaults to main session
       picker.handleInput("\x1b[B");
       picker.handleInput("\r");
     });
@@ -1124,7 +1127,7 @@ describe("adversarial review extension", () => {
     expect(JSON.stringify(fake.sentMessages[0]?.message.details)).not.toContain('"model":');
   });
 
-  it("uses a second TUI picker for refuter but spends no refute route on a clean review", async () => {
+  it("uses the current main session as default refuter but spends no route on a clean review", async () => {
     const root = await changedRepo();
     const fake = new FakePi();
     let nextAgent = 0;
@@ -1151,23 +1154,7 @@ describe("adversarial review extension", () => {
       fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
     };
     adversarialReviewExtension(fake.api());
-    const { ctx, notifications, statuses, tui, theme } = context(root);
-    let customCall = 0;
-    (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
-      let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
-      component = factory(tui, theme, {}, (value: unknown) => {
-        component?.dispose?.();
-        resolve(value);
-      });
-      if (customCall++ === 0) {
-        const picker = component;
-        if (!picker) throw new Error("Refuter picker component was not created.");
-        picker.handleInput("\r"); // first scoped model -> medium
-        picker.handleInput("\x1b[B");
-        picker.handleInput("\x1b[B");
-        picker.handleInput("\r"); // Use selected refuter
-      }
-    });
+    const { ctx, notifications, statuses } = context(root);
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
       "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high --refute",
@@ -1182,7 +1169,10 @@ describe("adversarial review extension", () => {
       overall: "candidate-approve",
       blocking: [],
       refuteRequested: true,
-      refuterRoute: { key: "provider-a/model-a@medium" },
+      refuterRoute: {
+        key: "main-provider/main-model@medium",
+        thinkingSource: "main-session",
+      },
       refuteResults: [],
       contested: [],
     });
@@ -1190,6 +1180,78 @@ describe("adversarial review extension", () => {
     expect(notifications.some(({ message }) => message.includes("Refute skipped: no blocking findings."))).toBe(true);
     expect(statuses.some(({ value }) => value?.includes("refute armed"))).toBe(true);
     expect(statuses.some(({ value }) => value?.startsWith("Adversarial review · refute "))).toBe(false);
+  });
+
+  it("spawns a blocking refuter with the current main-session route", async () => {
+    const root = await changedRepo();
+    const fake = new FakePi();
+    let nextAgent = 0;
+    fake.eventResponder = (event, data) => {
+      if (event === "subagents:rpc:ping") {
+        fake.events.emit(`${event}:reply:${data.requestId}`, {
+          success: true,
+          data: { version: 3, maxConcurrent: 2 },
+        });
+        return;
+      }
+      if (event !== "subagents:rpc:spawn") return;
+      const agentId = `main-refuter-agent-${nextAgent++}`;
+      const refuter = data.options.inlineAgentConfig.name === "adversarial-refuter";
+      const result = refuter
+        ? { refuted: false, reason: "The durability finding holds.", evidence: [] }
+        : {
+            verdict: "needs-attention",
+            summary: "durability regression",
+            findings: [{
+              file: "example.ts",
+              lineStart: 1,
+              lineEnd: 1,
+              severity: "high",
+              category: "data-integrity",
+              confidence: 0.9,
+              invariant: "Writes are durable before success",
+              issue: "The save returns success before persistence completes",
+              evidence: "example.ts:1 returns before persistence",
+              recommendation: "Await persistence",
+            }],
+          };
+      fake.events.emit("subagents:completed", {
+        id: agentId,
+        correlationId: data.options.correlationId,
+        status: "completed",
+        result: JSON.stringify(result),
+        requestedModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        requestedThinkingLevel: data.options.thinkingLevel,
+        effectiveModel: { provider: data.options.model.provider, modelId: data.options.model.id },
+        effectiveThinkingLevel: data.options.thinkingLevel,
+      });
+      fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
+    };
+    adversarialReviewExtension(fake.api());
+    const { ctx } = context(root);
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--reviewer provider-a/model-a@high --reviewer provider-b/model-b@high --refute",
+      ctx,
+    );
+
+    const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
+    expect(spawns).toHaveLength(3);
+    expect(spawns.at(-1)?.data).toMatchObject({
+      type: "adversarial-refuter",
+      options: {
+        model: { provider: "main-provider", id: "main-model" },
+        thinkingLevel: "medium",
+      },
+    });
+    expect(fake.entries[0]?.data).toMatchObject({
+      refuterRoute: {
+        key: "main-provider/main-model@medium",
+        thinkingSource: "main-session",
+      },
+      refuteResults: [{ status: "completed", report: { refuted: false } }],
+      contested: [],
+    });
   });
 
   it("runs routes selected by the TUI picker without requiring reviewer flags", async () => {
@@ -1237,6 +1299,7 @@ describe("adversarial review extension", () => {
         picker.handleInput("\r"); // first model -> medium
         picker.handleInput("\x1b[B");
         picker.handleInput("\r"); // second model -> medium
+        picker.handleInput("\x1b[B"); // Refute defaults to main session
         picker.handleInput("\x1b[B");
         picker.handleInput("\r"); // Run
       }
@@ -1251,6 +1314,12 @@ describe("adversarial review extension", () => {
       overall: "candidate-approve",
       successfulReviewerCount: 2,
       runtime: { maxConcurrent: 1, waves: 2 },
+      refuteRequested: true,
+      refuterRoute: {
+        key: "main-provider/main-model@medium",
+        thinkingSource: "main-session",
+      },
+      refuteResults: [],
     });
     expect(fake.emitted.filter((item) => item.event === "subagents:rpc:ping")).toHaveLength(1);
   });
@@ -1275,6 +1344,7 @@ describe("adversarial review extension", () => {
       component.handleInput("\r");
       component.handleInput("\x1b[B");
       component.handleInput("\r");
+      component.handleInput("\x1b[B"); // Refute defaults to main session
       component.handleInput("\x1b[B");
       component.handleInput("\r");
     });

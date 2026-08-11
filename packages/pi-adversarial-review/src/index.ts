@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { matchesKey } from "@earendil-works/pi-tui";
 import { parseReviewCommand, ReviewCommandError } from "./command/parse-args.ts";
 import {
+  resolveMainSessionRefuterRoute,
   resolveRefuterRoute,
   resolveReviewerRoutes,
 } from "./command/resolve-routes.ts";
@@ -63,8 +64,8 @@ import type { PiEventBus } from "./runtime/rpc-v3-client.ts";
 import type { ReviewRuntimeCapabilities } from "./runtime/types.ts";
 import type { ParsedReviewCommand, ReviewerRoute } from "./types.ts";
 import {
+  pickInteractiveReviewSetup,
   pickRefuterSpec,
-  pickReviewerSpecs,
   retainValidRefuterSpec,
   retainValidReviewerSpecs,
 } from "./ui/reviewer-picker.ts";
@@ -223,6 +224,13 @@ export default function adversarialReviewExtension(
           return resolvedRuntime;
         };
         let reviewerSpecs = command.reviewerSpecs;
+        let refuteRequested = command.refute;
+        let refuterSpec = command.refuterSpec;
+        let useMainSessionRefuter = ctx.mode === "tui" && command.refute && !refuterSpec;
+        let chooseRefuterInteractively = false;
+        const mainSessionRefuterRoute = ctx.mode === "tui" && ctx.model
+          ? resolveMainSessionRefuterRoute(ctx.model, ctx.thinkingLevel)
+          : undefined;
 
         if (reviewerSpecs.length === 0) {
           // Prune memory as soon as this scope snapshot is observed. Cancelling the
@@ -232,11 +240,18 @@ export default function adversarialReviewExtension(
             ctx.scopedModels,
           );
           capabilities = (await ensureRuntime()).capabilities;
-          const picked = await pickReviewerSpecs({
+          const picked = await pickInteractiveReviewSetup({
             ctx,
             maxConcurrent: capabilities.maxConcurrent,
             previousSpecs: previousPickedReviewerSpecs,
             signal: controller.signal,
+            ...(mainSessionRefuterRoute
+              ? { mainSessionRefuterKey: mainSessionRefuterRoute.key }
+              : {}),
+            ...(preResolvedRefuterRoute
+              ? { explicitRefuterKey: preResolvedRefuterRoute.key }
+              : {}),
+            refuteRequired: command.refute,
           });
           if (picked === undefined) {
             if (!controller.signal.aborted) {
@@ -245,12 +260,14 @@ export default function adversarialReviewExtension(
             return;
           }
           if (controller.signal.aborted) return;
-          reviewerSpecs = picked;
-          previousPickedReviewerSpecs = [...picked];
+          reviewerSpecs = picked.reviewerSpecs;
+          previousPickedReviewerSpecs = [...picked.reviewerSpecs];
+          refuteRequested = picked.refute !== "disabled";
+          useMainSessionRefuter = picked.refute === "main-session";
+          chooseRefuterInteractively = picked.refute === "choose-model";
         }
 
-        let refuterSpec = command.refuterSpec;
-        if (command.refute && refuterSpec === undefined) {
+        if (chooseRefuterInteractively) {
           previousPickedRefuterSpec = retainValidRefuterSpec(
             previousPickedRefuterSpec,
             ctx.scopedModels,
@@ -304,8 +321,10 @@ export default function adversarialReviewExtension(
         const routes = preResolvedRoutes ?? resolveReviewerRoutes(reviewerSpecs, ctx.scopedModels);
         const refuterRoute = preResolvedRefuterRoute ?? (refuterSpec
           ? resolveRefuterRoute(refuterSpec, ctx.scopedModels)
-          : undefined);
-        if (ctx.mode === "tui" && command.refute && refuterRoute) {
+          : useMainSessionRefuter
+            ? mainSessionRefuterRoute ?? resolveMainSessionRefuterRoute(ctx.model, ctx.thinkingLevel)
+            : undefined);
+        if (ctx.mode === "tui" && refuteRequested && refuterRoute) {
           ctx.ui.notify(
             safeReviewDiagnosticText(
               `Adversarial refute armed: ${refuterRoute.key}. ` +
@@ -316,7 +335,7 @@ export default function adversarialReviewExtension(
         }
         const startedAt = new Date();
         const runStatus = ctx.mode === "tui"
-          ? createReviewRunStatus(ctx, routes.length, startedAt.getTime(), command.refute)
+          ? createReviewRunStatus(ctx, routes.length, startedAt.getTime(), refuteRequested)
           : undefined;
         const executeReview = async () => {
           let candidateInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>>;
@@ -335,7 +354,7 @@ export default function adversarialReviewExtension(
               target: targetPreflight.target,
               preflight: targetPreflight.audit,
               requestedRoutes: routes,
-              refuteRequested: command.refute,
+              refuteRequested,
               ...(refuterRoute ? { refuterRoute } : {}),
               gating: command.gating,
               startedAt,
@@ -432,7 +451,7 @@ export default function adversarialReviewExtension(
             maxTurns: reviewerMaxTurns,
             routeTimeoutMs: reviewerRouteTimeoutMs,
             overallTimeoutMs: reviewerOverallTimeoutMs,
-            refuteRequested: command.refute,
+            refuteRequested,
             refuterRoute,
             gating: command.gating,
             stale: drift.stale,
@@ -441,7 +460,7 @@ export default function adversarialReviewExtension(
             startedAt,
           });
 
-          const refuteEligible = command.refute &&
+          const refuteEligible = refuteRequested &&
             refuterRoute !== undefined &&
             report.blocking.length > 0 &&
             report.overall !== "cancelled" &&

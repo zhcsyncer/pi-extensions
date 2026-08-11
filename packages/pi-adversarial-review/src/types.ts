@@ -30,7 +30,7 @@ export interface ReviewerRoute {
   provider: string;
   modelId: string;
   thinking: ModelThinkingLevel;
-  thinkingSource: "scope-pinned" | "user";
+  thinkingSource: "scope-pinned" | "user" | "main-session";
   ordinal: number;
 }
 
