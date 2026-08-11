@@ -64,9 +64,9 @@ describe("reviewer picker", () => {
       ],
       (component) => {
         initial = component.render(120).join("\n");
-        component.handleInput?.(ENTER); // model-a: disabled -> off
+        component.handleInput?.(ENTER); // model-a: disabled -> medium
         component.handleInput?.(DOWN);
-        component.handleInput?.(ENTER); // model-b: disabled -> off
+        component.handleInput?.(ENTER); // model-b: disabled -> medium
         selected = component.render(120).join("\n");
         component.handleInput?.(DOWN);
         component.handleInput?.(ENTER); // Run
@@ -74,11 +74,31 @@ describe("reviewer picker", () => {
     );
 
     await expect(pickReviewerSpecs({ ctx, maxConcurrent: 1 })).resolves.toEqual([
-      "provider-a/model-a@off",
-      "provider-b/model-b@off",
+      "provider-a/model-a@medium",
+      "provider-b/model-b@medium",
     ]);
     expect(initial).toContain("0 selected · max concurrent 1 · 0 waves");
     expect(selected).toContain("2 selected · max concurrent 1 · 2 waves");
+  });
+
+  it("uses the nearest supported level when medium is unavailable", async () => {
+    const fallback = {
+      ...model("provider-a", "model-a"),
+      thinkingLevelMap: { medium: null, high: null },
+    } as Model<any>;
+    const ctx = pickerContext(
+      [{ model: fallback }],
+      (component) => {
+        const initial = component.render(120).join("\n");
+        expect(initial).toContain("0 selected");
+        expect(initial).toContain("Defaults to disabled; first enable uses medium");
+        component.handleInput?.(ENTER); // disabled -> nearest supported level (low)
+        component.handleInput?.(DOWN);
+        component.handleInput?.(ENTER); // Use selected refuter
+      },
+    );
+
+    await expect(pickRefuterSpec({ ctx })).resolves.toBe("provider-a/model-a@low");
   });
 
   it("restores only still-valid session choices and honors scope-pinned thinking", async () => {

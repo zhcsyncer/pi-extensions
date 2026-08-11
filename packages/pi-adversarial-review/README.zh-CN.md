@@ -28,7 +28,7 @@ Reviewer picker 前会先运行 Git preflight。未显式选择 target 时，命
 
 Fetch 失败时，TUI 可选择 Retry、使用现有 local remote-tracking ref 或 Cancel；preflight/fetch 进行中也可按 Esc 取消；headless 会 fail-loud。Preflight 不会自动 merge、rebase、reset、checkout 或 prune。每次决定都会在运行前显示 target、branch、ahead/behind 和 fetch 状态。模型选择后还会复核 HEAD、branch、精确 status、选中 ref SHA 和冻结 patch hash，并与最终 frozen input 再绑定；若 Git 已变化，TUI 会重跑 preflight，或在任何 reviewer spawn 前 fail-loud。
 
-每个 scoped model 可在 `disabled` 与其支持的 thinking level 之间切换；被 scope pin 的模型只能选择 `disabled` 或固定 level。选择 2–8 路后激活 **Run selected reviewers**；按 Esc 会在任何 reviewer 启动前取消。有效选择只在当前 Pi session 内记忆，已移出 scope 的 route 不会复活。
+每个没有 session 记忆的 scoped model 初始都是 `disabled`。第一次启用时优先进入 `medium`；模型不支持 `medium` 时，使用 Pi AI 从 `medium` 收敛到的最近支持档位，之后仍可轮换全部支持档位。被 scope pin 的模型只能选择 `disabled` 或固定 level。选择 2–8 路后激活 **Run selected reviewers**；按 Esc 会在任何 reviewer 启动前取消。有效选择只在当前 Pi session 内记忆，已移出 scope 的 route 不会复活。
 
 加入 `--refute` 会让独立 refuter 逐个挑战 blocking cluster。TUI 会再打开一个单 route picker；非交互模式必须显式传精确 `--refuter`：
 
@@ -42,7 +42,7 @@ Fetch 失败时，TUI 可选择 Retry、使用现有 local remote-tracking ref �
   --refuter provider-c/model-c@high
 ```
 
-每个 blocking cluster 都使用一个全新隔离 session。`refuted=true` 只会增加 contested 记录，绝不会删除或降级原 blocking finding；false、失败、超时和无效输出也都保留原 finding。
+每个 blocking cluster 都使用一个全新隔离 session。选定后，TUI 会明确提示 Refute 已 armed；review 阶段 footer 会持续显示 `refute armed`，门禁产出 blocking finding 后切换为实时 `refute` 进度。若没有 blocking finding，不会消耗 refuter 模型，完成通知与折叠/展开报告都会明确显示 Refute 已跳过。实际执行后的报告会显示有效 refuter 尝试数和 contested 数，即使 contested 为零；未传 `--refute` 的运行则明确显示 `Refute off`。`refuted=true` 只会增加 contested 记录，绝不会删除或降级原 blocking finding；false、失败、超时和无效输出也都保留原 finding。
 
 只做评审且要求可复现，或使用 RPC/JSON/print 模式时，仍须显式传至少两条精确 reviewer route：
 

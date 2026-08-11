@@ -1,4 +1,8 @@
-import { getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import {
+  clampThinkingLevel,
+  getSupportedThinkingLevels,
+  type ModelThinkingLevel,
+} from "@earendil-works/pi-ai";
 import {
   getSettingsListTheme,
   type ExtensionCommandContext,
@@ -67,8 +71,11 @@ function pickerRows(
     seen.add(ref);
 
     const supported = getSupportedThinkingLevels(entry.model);
+    const preferred = clampThinkingLevel(entry.model, "medium");
     const values = entry.thinkingLevel === undefined
-      ? supported
+      ? supported.includes(preferred)
+        ? [preferred, ...supported.filter((level) => level !== preferred)]
+        : supported
       : supported.includes(entry.thinkingLevel)
         ? [entry.thinkingLevel]
         : [];
@@ -132,7 +139,8 @@ function pickerItems(rows: readonly PickerRow[], mode: "reviewer" | "refuter"): 
           ? "The scope pins a thinking level this model does not support."
           : pinned
             ? `Scope-pinned thinking: ${row.entry.thinkingLevel}. Toggle disabled/pinned.`
-            : `${row.entry.model.name ?? row.modelRef}. Select a supported thinking level or disable.`,
+            : `${row.entry.model.name ?? row.modelRef}. ` +
+              "Defaults to disabled; first enable uses medium or the nearest supported level.",
       };
     }),
     {

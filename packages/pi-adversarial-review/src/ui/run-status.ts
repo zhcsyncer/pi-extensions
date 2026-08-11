@@ -32,16 +32,19 @@ export function createReviewRunStatus(
   ctx: ExtensionCommandContext,
   totalRoutes: number,
   startedAtMs = Date.now(),
+  refuteRequested = false,
 ): ReviewRunStatus {
   let progress: ReviewerFleetProgress | undefined;
   let disposed = false;
 
   const render = () => {
     if (disposed) return;
+    const refuteState = refuteRequested ? "refute armed" : "refute off";
     const detail = progress
       ? `${progress.phase} ${progress.finished}/${progress.total} finished · ` +
-        `${progress.running} running · ${progress.queued} queued`
-      : `preparing · ${totalRoutes} routes`;
+        `${progress.running} running · ${progress.queued} queued` +
+        `${progress.phase === "review" ? ` · ${refuteState}` : ""}`
+      : `preparing · ${totalRoutes} review routes · ${refuteState}`;
     ctx.ui.setStatus(STATUS_KEY, `Adversarial review · ${detail} · ${elapsedText(startedAtMs)}`);
   };
 

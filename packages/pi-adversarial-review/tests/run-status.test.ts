@@ -37,24 +37,47 @@ describe("review run UI", () => {
 
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · preparing · 4 routes · 0s",
+      "Adversarial review · preparing · 4 review routes · refute off · 0s",
     );
     status.update({ phase: "review", total: 4, queued: 1, running: 2, finished: 1 });
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · review 1/4 finished · 2 running · 1 queued · 0s",
+      "Adversarial review · review 1/4 finished · 2 running · 1 queued · refute off · 0s",
     );
 
     vi.advanceTimersByTime(61_000);
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · review 1/4 finished · 2 running · 1 queued · 1m01s",
+      "Adversarial review · review 1/4 finished · 2 running · 1 queued · refute off · 1m01s",
     );
     status.dispose();
     expect(setStatus).toHaveBeenLastCalledWith("adversarial-review", undefined);
     const calls = setStatus.mock.calls.length;
     vi.advanceTimersByTime(5_000);
     expect(setStatus).toHaveBeenCalledTimes(calls);
+  });
+
+  it("shows refute armed through review and switches to the refute phase", () => {
+    vi.useFakeTimers();
+    const { ctx, setStatus } = runContext();
+    const status = createReviewRunStatus(ctx, 2, Date.now(), true);
+
+    expect(setStatus).toHaveBeenLastCalledWith(
+      "adversarial-review",
+      expect.stringContaining("2 review routes · refute armed"),
+    );
+    status.update({ phase: "review", total: 2, queued: 0, running: 2, finished: 0 });
+    expect(setStatus).toHaveBeenLastCalledWith(
+      "adversarial-review",
+      expect.stringContaining("review 0/2 finished · 2 running · 0 queued · refute armed"),
+    );
+    status.update({ phase: "refute", total: 1, queued: 0, running: 1, finished: 0 });
+    expect(setStatus).toHaveBeenLastCalledWith(
+      "adversarial-review",
+      expect.stringContaining("refute 0/1 finished · 1 running · 0 queued"),
+    );
+    expect(setStatus.mock.calls.at(-1)?.[1]).not.toContain("refute armed");
+    status.dispose();
   });
 
   it("requires explicit confirmation, keeps one work run, and awaits cleanup", async () => {

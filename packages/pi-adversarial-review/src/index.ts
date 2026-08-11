@@ -24,6 +24,7 @@ import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
   publishMergedReviewReport,
   renderMergedReviewMessage,
+  summarizeRefuteStatus,
 } from "./output/publish-report.ts";
 import {
   resolveReviewPreflight,
@@ -304,9 +305,18 @@ export default function adversarialReviewExtension(
         const refuterRoute = preResolvedRefuterRoute ?? (refuterSpec
           ? resolveRefuterRoute(refuterSpec, ctx.scopedModels)
           : undefined);
+        if (ctx.mode === "tui" && command.refute && refuterRoute) {
+          ctx.ui.notify(
+            safeReviewDiagnosticText(
+              `Adversarial refute armed: ${refuterRoute.key}. ` +
+                "It will start only when blocking findings pass the gate.",
+            ),
+            "info",
+          );
+        }
         const startedAt = new Date();
         const runStatus = ctx.mode === "tui"
-          ? createReviewRunStatus(ctx, routes.length, startedAt.getTime())
+          ? createReviewRunStatus(ctx, routes.length, startedAt.getTime(), command.refute)
           : undefined;
         const executeReview = async () => {
           let candidateInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>>;
@@ -473,8 +483,9 @@ export default function adversarialReviewExtension(
             cwd: ctx.cwd,
           });
           const completionMessage = safeReviewDiagnosticText(
-            published.deliveryWarning ??
-              `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`,
+            `${published.deliveryWarning ??
+              `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`} ` +
+              summarizeRefuteStatus(report).notification,
           );
           if (published.deliveryWarning) {
             emitHeadlessDiagnostic(ctx.mode, completionMessage);

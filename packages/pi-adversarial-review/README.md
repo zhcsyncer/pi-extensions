@@ -28,7 +28,7 @@ A Git preflight runs before the reviewer picker. Without an explicit target, it 
 
 If fetch fails, TUI offers Retry, use the existing local remote-tracking ref, or Cancel; Escape also cancels an in-flight preflight/fetch, while headless modes fail loud. Preflight never merges, rebases, resets, checks out, or prunes. The chosen target, branch, ahead/behind counts, and fetch status are shown before execution. HEAD, branch, exact status, selected ref SHAs, and the frozen patch hash are revalidated after model selection and against the frozen input; a change reruns TUI preflight or fails before any reviewer spawn.
 
-Each scoped model cycles between `disabled` and its supported thinking levels. A scope-pinned model can only use `disabled` or the pinned level. Confirm 2–8 routes with **Run selected reviewers**; Escape cancels before any reviewer starts. Valid selections are remembered only for the current Pi session and removed scope entries are not restored.
+Each unremembered scoped model starts as `disabled`. Its first enabled value is `medium`, or Pi AI's nearest supported level when that model does not expose `medium`; later cycling still exposes every supported level. A scope-pinned model can only use `disabled` or the pinned level. Confirm 2–8 routes with **Run selected reviewers**; Escape cancels before any reviewer starts. Valid selections are remembered only for the current Pi session and removed scope entries are not restored.
 
 Add `--refute` to independently challenge each blocking cluster. TUI opens a second single-route picker; non-interactive modes require an exact `--refuter`:
 
@@ -42,7 +42,7 @@ Add `--refute` to independently challenge each blocking cluster. TUI opens a sec
   --refuter provider-c/model-c@high
 ```
 
-The refuter runs in a fresh isolated session for each blocking cluster. `refuted=true` adds a contested record but never removes or downgrades the blocking finding; false, failed, timed-out, and invalid results also leave it intact.
+The refuter runs in a fresh isolated session for each blocking cluster. Once selected, TUI reports that Refute is armed; the footer keeps `refute armed` visible through the review phase and switches to live `refute` progress if the gate produces blocking findings. If no blocking finding is produced, no refuter model is spent and the completion notification and collapsed/expanded report explicitly say Refute was skipped. Completed reports show valid refuter attempts and contested count even when that count is zero; runs without `--refute` explicitly show `Refute off`. `refuted=true` adds a contested record but never removes or downgrades the blocking finding; false, failed, timed-out, and invalid results also leave it intact.
 
 For reproducible review-only runs, or in RPC/JSON/print modes, pass at least two exact reviewer routes:
 

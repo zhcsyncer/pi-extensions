@@ -842,7 +842,7 @@ describe("adversarial review extension", () => {
     expect(fake.sentMessages[0].message.content).toContain("final adjudicator");
     expect(JSON.stringify(fake.sentMessages[0].message.details)).not.toContain('"model":');
     expect(notifications.at(-1)).toEqual({
-      message: "Adversarial review: candidate-approve (2/2 valid).",
+      message: "Adversarial review: candidate-approve (2/2 valid). Refute disabled.",
       type: "info",
     });
     expect(frozenPaths).toHaveLength(2);
@@ -1078,7 +1078,7 @@ describe("adversarial review extension", () => {
       });
     };
     adversarialReviewExtension(fake.api());
-    const { ctx } = context(root);
+    const { ctx, notifications, statuses } = context(root);
     (ctx.scopedModels as any).push({ model: model("provider-c", "refuter") });
 
     await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
@@ -1117,6 +1117,9 @@ describe("adversarial review extension", () => {
       contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
     });
     expect(fake.entries[0]?.data.blocking).toHaveLength(1);
+    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(true);
+    expect(notifications.some(({ message }) => message.includes("Refute 1/1 valid; 1 contested."))).toBe(true);
+    expect(statuses.some(({ value }) => value?.includes("refute 0/1 finished"))).toBe(true);
     expect(fake.sentMessages[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
     expect(JSON.stringify(fake.sentMessages[0]?.message.details)).not.toContain('"model":');
   });
@@ -1148,7 +1151,7 @@ describe("adversarial review extension", () => {
       fake.events.emit(`${event}:reply:${data.requestId}`, { success: true, data: { id: agentId } });
     };
     adversarialReviewExtension(fake.api());
-    const { ctx, tui, theme } = context(root);
+    const { ctx, notifications, statuses, tui, theme } = context(root);
     let customCall = 0;
     (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
       let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
@@ -1159,7 +1162,7 @@ describe("adversarial review extension", () => {
       if (customCall++ === 0) {
         const picker = component;
         if (!picker) throw new Error("Refuter picker component was not created.");
-        picker.handleInput("\r"); // first scoped model -> off
+        picker.handleInput("\r"); // first scoped model -> medium
         picker.handleInput("\x1b[B");
         picker.handleInput("\x1b[B");
         picker.handleInput("\r"); // Use selected refuter
@@ -1179,10 +1182,14 @@ describe("adversarial review extension", () => {
       overall: "candidate-approve",
       blocking: [],
       refuteRequested: true,
-      refuterRoute: { key: "provider-a/model-a@off" },
+      refuterRoute: { key: "provider-a/model-a@medium" },
       refuteResults: [],
       contested: [],
     });
+    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(true);
+    expect(notifications.some(({ message }) => message.includes("Refute skipped: no blocking findings."))).toBe(true);
+    expect(statuses.some(({ value }) => value?.includes("refute armed"))).toBe(true);
+    expect(statuses.some(({ value }) => value?.startsWith("Adversarial review · refute "))).toBe(false);
   });
 
   it("runs routes selected by the TUI picker without requiring reviewer flags", async () => {
@@ -1227,9 +1234,9 @@ describe("adversarial review extension", () => {
       if (customCall++ === 0) {
         const picker = component;
         if (!picker) throw new Error("Picker component was not created.");
-        picker.handleInput("\r"); // first model -> off
+        picker.handleInput("\r"); // first model -> medium
         picker.handleInput("\x1b[B");
-        picker.handleInput("\r"); // second model -> off
+        picker.handleInput("\r"); // second model -> medium
         picker.handleInput("\x1b[B");
         picker.handleInput("\r"); // Run
       }
@@ -1239,7 +1246,7 @@ describe("adversarial review extension", () => {
 
     const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
     expect(spawns).toHaveLength(2);
-    expect(spawns.map((item) => item.data.options.thinkingLevel)).toEqual(["off", "off"]);
+    expect(spawns.map((item) => item.data.options.thinkingLevel)).toEqual(["medium", "medium"]);
     expect(fake.entries[0]?.data).toMatchObject({
       overall: "candidate-approve",
       successfulReviewerCount: 2,

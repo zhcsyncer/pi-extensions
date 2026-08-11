@@ -52,6 +52,57 @@ export function serializeMergedReviewReport(report: MergedReviewReport) {
   };
 }
 
+export interface RefuteDisplaySummary {
+  compact: string;
+  detail: string;
+  notification: string;
+}
+
+export function summarizeRefuteStatus(report: {
+  refuteRequested?: boolean;
+  refuteResults: ReadonlyArray<{ status: string }>;
+  refuteRuntime?: MergedReviewReport["refuteRuntime"];
+  contested: readonly unknown[];
+  blocking: readonly unknown[];
+  overall: string;
+}): RefuteDisplaySummary {
+  if (!report.refuteRequested) {
+    return {
+      compact: "Refute off",
+      detail: "Refute: disabled for this run.",
+      notification: "Refute disabled.",
+    };
+  }
+  if (report.refuteResults.length > 0 && report.refuteRuntime) {
+    const valid = report.refuteResults.filter((result) => result.status === "completed").length;
+    const routeTimeoutMs = report.refuteRuntime.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
+    const overallTimeoutMs = report.refuteRuntime.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
+    return {
+      compact: `Refute ${valid}/${report.refuteResults.length} · ${report.contested.length} contested`,
+      detail:
+        `Refute: ${valid}/${report.refuteResults.length} valid · ` +
+        `${report.contested.length} contested · runtime: ${report.refuteRuntime.backend ?? "external-v3"} · ` +
+        `waves: ${report.refuteRuntime.waves} · ` +
+        `timeout: ${routeTimeoutMs / 60_000}/${overallTimeoutMs / 60_000}m`,
+      notification:
+        `Refute ${valid}/${report.refuteResults.length} valid; ` +
+        `${report.contested.length} contested.`,
+    };
+  }
+  if (report.blocking.length === 0) {
+    return {
+      compact: "Refute skipped · 0 blocking",
+      detail: "Refute: armed but skipped because no blocking finding was produced.",
+      notification: "Refute skipped: no blocking findings.",
+    };
+  }
+  return {
+    compact: `Refute skipped · ${report.overall}`,
+    detail: `Refute: armed but skipped because the review ended as ${report.overall}.`,
+    notification: `Refute skipped: review ended as ${report.overall}.`,
+  };
+}
+
 export function buildMergedReportText(report: MergedReviewReport): string {
   // Reports persisted before embedded fallback existed were necessarily external v3.
   const reviewBackend = report.runtime.backend ?? "external-v3";
@@ -68,23 +119,7 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     `Target: ${safeDisplayText(report.target.description)}`,
   ];
 
-  if (report.refuteRequested) {
-    if (report.refuteResults.length > 0 && report.refuteRuntime) {
-      const valid = report.refuteResults.filter((result) => result.status === "completed").length;
-      const refuterRouteTimeoutMs = report.refuteRuntime.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
-      const refuterOverallTimeoutMs = report.refuteRuntime.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
-      lines.push(
-        `Refute: ${valid}/${report.refuteResults.length} valid · ` +
-          `${report.contested.length} contested · runtime: ${report.refuteRuntime.backend ?? "external-v3"} · ` +
-          `waves: ${report.refuteRuntime.waves} · ` +
-          `timeout: ${refuterRouteTimeoutMs / 60_000}/${refuterOverallTimeoutMs / 60_000}m`,
-      );
-    } else if (report.blocking.length === 0) {
-      lines.push("Refute: skipped because no blocking finding was produced.");
-    } else {
-      lines.push(`Refute: skipped because the review ended as ${report.overall}.`);
-    }
-  }
+  lines.push(summarizeRefuteStatus(report).detail);
 
   if (report.stale) {
     lines.push("WARNING: The target changed during review. Re-run before treating findings as current.");
@@ -272,7 +307,7 @@ export function renderMergedReviewMessage(
     color,
     `Review ${details.successfulReviewerCount}/${details.requestedRoutes.length} valid · ` +
       `${details.blocking.length} blocking · ${details.advisory.length} advisory · ` +
-      `${details.contested.length} contested · ${details.gating} · ${durationSeconds}s`,
+      `${summarizeRefuteStatus(details).compact} · ${details.gating} · ${durationSeconds}s`,
   );
   if (options.expanded) {
     text += `\n\n${buildMergedReportText(details as unknown as MergedReviewReport)}`;

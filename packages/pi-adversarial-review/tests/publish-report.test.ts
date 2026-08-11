@@ -109,6 +109,7 @@ function report(overrides: Partial<MergedReviewReport> = {}): MergedReviewReport
 describe("merged report output", () => {
   it("explains inconclusive, runtime waves, and candidate results in plain text", () => {
     expect(buildMergedReportText(report())).toContain("Too few reviewers completed successfully");
+    expect(buildMergedReportText(report())).toContain("Refute: disabled for this run.");
     expect(buildMergedReportText(report())).toContain(
       "Routes: 1 · runtime: external-v3 · max concurrent: 1 · waves: 1",
     );
@@ -166,7 +167,55 @@ describe("merged report output", () => {
       { fg: (_color: string, text: string) => text } as any,
     );
     expect(component.render(120).join("\n")).toContain("Review 1/1 valid");
+    expect(component.render(120).join("\n")).toContain("Refute off");
     expect(component.render(120).join("\n")).not.toContain("Adjudication discipline");
+  });
+
+  it("makes armed-but-skipped and completed Refute outcomes visible when collapsed", () => {
+    const theme = { fg: (_color: string, text: string) => text } as any;
+    const skipped = report({
+      overall: "candidate-approve",
+      successfulReviewerCount: 2,
+      refuteRequested: true,
+    });
+    expect(buildMergedReportText(skipped)).toContain(
+      "Refute: armed but skipped because no blocking finding was produced.",
+    );
+    expect(renderMergedReviewMessage(
+      serializeMergedReviewReport(skipped),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n")).toContain("Refute skipped · 0 blocking");
+
+    const refuter = route();
+    const finding = mergedFinding();
+    const completed = report({
+      overall: "needs-adjudication",
+      blocking: [finding],
+      refuteRequested: true,
+      refuterRoute: refuter,
+      refuteRuntime: {
+        protocolVersion: 3,
+        maxConcurrent: 1,
+        backend: "external-v3",
+        waves: 1,
+        maxTurns: 12,
+        routeTimeoutMs: 300_000,
+        overallTimeoutMs: 900_000,
+      },
+      refuteResults: [{
+        findingIndex: 0,
+        route: refuter,
+        status: "completed",
+        report: { refuted: false, reason: "finding holds", evidence: [] },
+      }],
+    });
+    expect(buildMergedReportText(completed)).toContain("Refute: 1/1 valid · 0 contested");
+    expect(renderMergedReviewMessage(
+      serializeMergedReviewReport(completed),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n")).toContain("Refute 1/1 · 0 contested");
   });
 
   it("restores collapsed and expanded renderers from durable JSON details", () => {
