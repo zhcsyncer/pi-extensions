@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, appendFile, chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { access, appendFile, chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -39,7 +39,7 @@ import {
   suggestReviewRanges,
 } from "../src/input/freeze-input.ts";
 import { ReviewInputCleanupError } from "../src/input/errors.ts";
-import { extractRangeSnapshot, resolveReviewTarget } from "../src/input/git-target.ts";
+import { resolveReviewTarget } from "../src/input/git-target.ts";
 
 const exec = promisify(execFile);
 const repos: string[] = [];
@@ -369,7 +369,7 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
-  it("uses a read-only refB snapshot for range review", async () => {
+  it("uses one detached linked worktree at an older reachable refB", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "version.txt"), "A\n");
     await writeFile(path.join(root, ".gitattributes"), "exported-secret.txt export-ignore\n");
@@ -395,8 +395,8 @@ describe("prepareFrozenReviewInput", () => {
       expect(await readFile(path.join(frozen.reviewerCwd, "..foo.txt"), "utf8"))
         .toBe("legal dot-dot prefix\n");
       expect(await readFile(path.join(root, "version.txt"), "utf8")).toBe("C\n");
-      expect((await stat(frozen.reviewerCwd)).mode & 0o777).toBe(0o555);
-      expect((await stat(path.join(frozen.reviewerCwd, "version.txt"))).mode & 0o777).toBe(0o444);
+      expect(await git(frozen.reviewerCwd, "rev-parse", "HEAD")).toBe(toSha);
+      expect(await git(frozen.reviewerCwd, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
       expect(frozen.target.changedFiles).toEqual([
         "..foo.txt", "added.txt", "exported-secret.txt", "version.txt",
       ]);
@@ -405,13 +405,97 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
-  it("keeps a symlink that resolves inside the snapshot from its nested parent", async () => {
+  it("rejects detached HEAD and a range endpoint divergent from the current branch", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "value.txt"), "A\n");
+    const fromSha = await commitAll(root, "A");
+    await writeFile(path.join(root, "value.txt"), "B\n");
+    const headSha = await commitAll(root, "B");
+
+    await git(root, "checkout", "--detach", "-q", headSha);
+    await expect(resolveReviewTarget(root, {
+      mode: "range", fromRef: fromSha, toRef: headSha,
+    })).rejects.toThrow("named branch");
+
+    await git(root, "switch", "-q", "-");
+    await git(root, "branch", "other", fromSha);
+    await git(root, "switch", "-q", "other");
+    await writeFile(path.join(root, "other.txt"), "other\n");
+    const divergent = await commitAll(root, "divergent");
+    await git(root, "switch", "-q", "-");
+    await expect(resolveReviewTarget(root, {
+      mode: "range", fromRef: fromSha, toRef: divergent,
+    })).rejects.toThrow("must be reachable from current branch");
+  });
+
+  it("isolates a completely clean refB=HEAD in an extension-owned detached worktree", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "value.txt"), "A\n");
+    const fromSha = await commitAll(root, "A");
+    await writeFile(path.join(root, "value.txt"), "B\n");
+    const toSha = await commitAll(root, "B");
+    const registrations = await git(root, "worktree", "list", "--porcelain");
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    expect(frozen.reviewerCwd).not.toBe(root);
+    expect(await git(frozen.reviewerCwd, "rev-parse", "HEAD")).toBe(toSha);
+    expect(await git(frozen.reviewerCwd, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
+    expect((await git(root, "worktree", "list", "--porcelain")).split("worktree ")).toHaveLength(3);
+    await frozen.cleanup();
+    expect(await git(root, "worktree", "list", "--porcelain")).toBe(registrations);
+  });
+
+  it("uses one shared detached worktree for dirty refB=HEAD without changing original bytes", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "value.txt"), "A\n");
+    const fromSha = await commitAll(root, "A");
+    await writeFile(path.join(root, "value.txt"), "B\n");
+    const toSha = await commitAll(root, "B");
+    await writeFile(path.join(root, "value.txt"), "staged bytes\n");
+    await git(root, "add", "value.txt");
+    await writeFile(path.join(root, "value.txt"), "unstaged bytes\n");
+    await writeFile(path.join(root, "untracked.bin"), Buffer.from([0, 1, 2, 255]));
+    const before = {
+      head: await git(root, "rev-parse", "HEAD"),
+      branch: await git(root, "branch", "--show-current"),
+      status: await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"),
+      index: await git(root, "show", ":value.txt"),
+      tracked: await readFile(path.join(root, "value.txt")),
+      untracked: await readFile(path.join(root, "untracked.bin")),
+      registrations: await git(root, "worktree", "list", "--porcelain"),
+    };
+
+    const frozen = await prepareFrozenReviewInput({
+      cwd: root,
+      target: { mode: "range", fromRef: fromSha, toRef: toSha },
+      runId: randomUUID(),
+    });
+    expect(frozen.reviewerCwd).not.toBe(root);
+    expect(await git(frozen.reviewerCwd, "rev-parse", "HEAD")).toBe(toSha);
+    expect((await git(root, "worktree", "list", "--porcelain")).split("worktree ")).toHaveLength(3);
+    await frozen.cleanup();
+    await frozen.cleanup();
+
+    expect(await git(root, "rev-parse", "HEAD")).toBe(before.head);
+    expect(await git(root, "branch", "--show-current")).toBe(before.branch);
+    expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")).toBe(before.status);
+    expect(await git(root, "show", ":value.txt")).toBe(before.index);
+    expect(await readFile(path.join(root, "value.txt"))).toEqual(before.tracked);
+    expect(await readFile(path.join(root, "untracked.bin"))).toEqual(before.untracked);
+    expect(await git(root, "worktree", "list", "--porcelain")).toBe(before.registrations);
+  });
+
+  it("checks out committed symlinks as ordinary target-text files", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "inside.txt"), "snapshot-only\n");
-    const fromSha = await commitAll(root, "internal symlink base");
-    await mkdir(path.join(root, "nested"));
-    await symlink("../inside.txt", path.join(root, "nested", "inside-link"));
-    const toSha = await commitAll(root, "internal symlink");
+    const fromSha = await commitAll(root, "symlink base");
+    await symlink("inside.txt", path.join(root, "inside-link"));
+    const toSha = await commitAll(root, "symlink target");
+    await writeFile(path.join(root, "dirty.txt"), "force linked worktree\n");
 
     const frozen = await prepareFrozenReviewInput({
       cwd: root,
@@ -419,251 +503,17 @@ describe("prepareFrozenReviewInput", () => {
       runId: randomUUID(),
     });
     try {
-      expect(await readlink(path.join(frozen.reviewerCwd, "nested", "inside-link")))
-        .toBe("../inside.txt");
-      expect(await readFile(path.join(frozen.reviewerCwd, "nested", "inside-link"), "utf8"))
-        .toBe("snapshot-only\n");
+      const info = await lstat(path.join(frozen.reviewerCwd, "inside-link"));
+      expect(info.isFile()).toBe(true);
+      expect(info.isSymbolicLink()).toBe(false);
+      expect(await readFile(path.join(frozen.reviewerCwd, "inside-link"), "utf8"))
+        .toBe("inside.txt");
     } finally {
       await frozen.cleanup();
     }
   });
 
-  it.each([
-    ["absolute", (root: string) => path.join(path.dirname(root), `outside-${randomUUID()}`), "absolute-link"],
-    ["Windows drive-relative", (_root: string) => "C:outside-secret", "drive-link"],
-    ["parent escape", (_root: string) => `../outside-${randomUUID()}`, "escape-link"],
-    ["nested parent escape", (_root: string) => `../../outside-${randomUUID()}`, "nested/escape-link"],
-    ["Windows-separator parent escape", (_root: string) => `..\\outside-${randomUUID()}`, "windows-escape-link"],
-  ])("rejects an %s symlink target without exposing an external file", async (_label, targetFor, linkFile) => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "base.txt"), "base\n");
-    const fromSha = await commitAll(root, "escaping symlink base");
-    await mkdir(path.dirname(path.join(root, linkFile)), { recursive: true });
-    const linkTarget = targetFor(root);
-    const externalPath = path.isAbsolute(linkTarget)
-      ? linkTarget
-      : path.resolve(path.dirname(path.join(root, linkFile)), linkTarget);
-    repos.push(externalPath);
-    await writeFile(externalPath, "must not be readable through snapshot\n");
-    await symlink(linkTarget, path.join(root, linkFile));
-    const toSha = await commitAll(root, "escaping symlink");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      /Git symlink (?:target is absolute or drive-relative|graph escapes the snapshot)/u,
-    );
-    await expect(readFile(path.join(destination, linkFile), "utf8")).rejects.toThrow();
-    expect(await readFile(externalPath, "utf8")).toBe("must not be readable through snapshot\n");
-    expect(fromSha).not.toBe(toSha);
-  });
-
-  it("rejects a chain whose inner symlink changes how remaining dot-dot components resolve", async () => {
-    const root = await initRepo();
-    await mkdir(path.join(root, "dir"));
-    await symlink("..", path.join(root, "dir", "a"));
-    await symlink("dir/a/../outside-secret", path.join(root, "x"));
-    const toSha = await commitAll(root, "component-order symlink escape");
-    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-chain-parent-"));
-    repos.push(snapshotParent);
-    const destination = path.join(snapshotParent, "snapshot");
-    await mkdir(destination);
-    const externalPath = path.join(snapshotParent, "outside-secret");
-    await writeFile(externalPath, "outside through chained link\n");
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink graph escapes the snapshot",
-    );
-    await expect(readFile(path.join(destination, "x"), "utf8")).rejects.toThrow();
-    await expect(lstat(path.join(destination, "dir", "a"))).rejects.toThrow();
-    expect(await readFile(externalPath, "utf8")).toBe("outside through chained link\n");
-  });
-
-  it("keeps a safe multi-link chain after component-by-component expansion", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "inside.txt"), "safe chained content\n");
-    await mkdir(path.join(root, "dir"));
-    await symlink("..", path.join(root, "dir", "a"));
-    await symlink("dir/a/inside.txt", path.join(root, "x"));
-    const toSha = await commitAll(root, "safe symlink chain");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await extractRangeSnapshot(root, toSha, destination);
-    expect(await readFile(path.join(destination, "x"), "utf8")).toBe("safe chained content\n");
-  });
-
-  it("allows a finite repeated expansion of the same safe symlink", async () => {
-    const root = await initRepo();
-    await mkdir(path.join(root, "dir"));
-    await writeFile(path.join(root, "dir", "file"), "finite repeated link\n");
-    await symlink("dir", path.join(root, "a"));
-    await symlink("a/../a/file", path.join(root, "x"));
-    const toSha = await commitAll(root, "finite repeated symlink");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await extractRangeSnapshot(root, toSha, destination);
-    expect(await readFile(path.join(destination, "x"), "utf8")).toBe("finite repeated link\n");
-  });
-
-  it("uses case-insensitive Windows graph lookup to reject a chained escape", async () => {
-    const root = await initRepo();
-    await mkdir(path.join(root, "Dir"));
-    await symlink("..", path.join(root, "Dir", "A"));
-    await symlink("dir/a/../outside-secret", path.join(root, "x"));
-    const toSha = await commitAll(root, "case-insensitive chained escape");
-    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-case-parent-"));
-    repos.push(snapshotParent);
-    const destination = path.join(snapshotParent, "snapshot");
-    await mkdir(destination);
-    const externalPath = path.join(snapshotParent, "outside-secret");
-    await writeFile(externalPath, "case-insensitive escape\n");
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink graph escapes the snapshot",
-    );
-    await expect(readFile(path.join(destination, "x"), "utf8")).rejects.toThrow();
-    await expect(lstat(path.join(destination, "Dir", "A"))).rejects.toThrow();
-    expect(await readFile(externalPath, "utf8")).toBe("case-insensitive escape\n");
-  });
-
-  it("uses Unicode case folding in the conservative Windows graph lookup", async () => {
-    const root = await initRepo();
-    await mkdir(path.join(root, "Dir"));
-    await symlink("..", path.join(root, "Dir", "Ä"));
-    await symlink("dir/ä/../outside-secret", path.join(root, "x"));
-    const toSha = await commitAll(root, "Unicode case chained escape");
-    const snapshotParent = await mkdtemp(path.join(tmpdir(), "pi-adversarial-unicode-parent-"));
-    repos.push(snapshotParent);
-    const destination = path.join(snapshotParent, "snapshot");
-    await mkdir(destination);
-    const externalPath = path.join(snapshotParent, "outside-secret");
-    await writeFile(externalPath, "Unicode case escape\n");
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink graph escapes the snapshot",
-    );
-    await expect(lstat(path.join(destination, "Dir", "Ä"))).rejects.toThrow();
-    expect(await readFile(externalPath, "utf8")).toBe("Unicode case escape\n");
-  });
-
-  it("rejects symlink paths with canonically ambiguous Unicode spellings", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "inside.txt"), "inside\n");
-    await symlink("inside.txt", path.join(root, "é"));
-    await symlink("inside.txt", path.join(root, "e\u0301"));
-    const toSha = await commitAll(root, "ambiguous canonical links");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink paths are ambiguous under platform path rules",
-    );
-    await expect(lstat(path.join(destination, "é"))).rejects.toThrow();
-    await expect(lstat(path.join(destination, "e\u0301"))).rejects.toThrow();
-  });
-
-  it("preserves a legal POSIX Unicode symlink target byte-for-byte", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "目标-Ä.txt"), "Unicode target\n");
-    await mkdir(path.join(root, "nested"));
-    const rawTarget = "../目标-Ä.txt";
-    await symlink(rawTarget, path.join(root, "nested", "链接"));
-    const toSha = await commitAll(root, "legal POSIX Unicode link");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await extractRangeSnapshot(root, toSha, destination);
-    expect(await readlink(path.join(destination, "nested", "链接"))).toBe(rawTarget);
-    expect(await readFile(path.join(destination, "nested", "链接"), "utf8"))
-      .toBe("Unicode target\n");
-  });
-
-  it("rejects symlink paths that differ only by Windows ASCII case", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "inside.txt"), "inside\n");
-    await symlink("inside.txt", path.join(root, "A"));
-    await symlink("inside.txt", path.join(root, "a"));
-    const toSha = await commitAll(root, "ambiguous case links");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink paths are ambiguous under platform path rules",
-    );
-    await expect(lstat(path.join(destination, "A"))).rejects.toThrow();
-    await expect(lstat(path.join(destination, "a"))).rejects.toThrow();
-  });
-
-  it("rejects cyclic and over-deep symlink graphs before materialization", async () => {
-    const cyclicRoot = await initRepo();
-    await symlink("b", path.join(cyclicRoot, "a"));
-    await symlink("a", path.join(cyclicRoot, "b"));
-    const cyclicSha = await commitAll(cyclicRoot, "cyclic links");
-    const cyclicDestination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(cyclicDestination);
-    await expect(extractRangeSnapshot(cyclicRoot, cyclicSha, cyclicDestination)).rejects.toThrow(
-      "Git symlink graph contains a cycle",
-    );
-    await expect(lstat(path.join(cyclicDestination, "a"))).rejects.toThrow();
-
-    const deepRoot = await initRepo();
-    for (let index = 0; index <= 40; index++) {
-      const target = index === 40 ? "inside.txt" : `link-${index + 1}`;
-      await symlink(target, path.join(deepRoot, `link-${index}`));
-    }
-    await writeFile(path.join(deepRoot, "inside.txt"), "inside\n");
-    const deepSha = await commitAll(deepRoot, "deep links");
-    const deepDestination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(deepDestination);
-    await expect(extractRangeSnapshot(deepRoot, deepSha, deepDestination)).rejects.toThrow(
-      "Git symlink graph exceeds 40 expansions",
-    );
-    await expect(lstat(path.join(deepDestination, "link-0"))).rejects.toThrow();
-  });
-
-  it("does not expose an external file through a chain ending in a rejected symlink", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "base.txt"), "base\n");
-    await commitAll(root, "symlink chain base");
-    const externalPath = path.join(path.dirname(root), `outside-${randomUUID()}`);
-    repos.push(externalPath);
-    await writeFile(externalPath, "external secret\n");
-    await symlink("z-escape", path.join(root, "a-chain"));
-    await symlink(`../${path.basename(externalPath)}`, path.join(root, "z-escape"));
-    const toSha = await commitAll(root, "escaping symlink chain");
-    const destination = await mkdtemp(path.join(tmpdir(), "pi-adversarial-snapshot-"));
-    repos.push(destination);
-
-    await expect(extractRangeSnapshot(root, toSha, destination)).rejects.toThrow(
-      "Git symlink graph escapes the snapshot",
-    );
-    await expect(readFile(path.join(destination, "a-chain"), "utf8")).rejects.toThrow();
-    expect(await readFile(externalPath, "utf8")).toBe("external secret\n");
-  });
-
-  it("fails loud on a non-UTF-8 symlink target and cleans the partial workspace", async () => {
-    const root = await initRepo();
-    await writeFile(path.join(root, "base.txt"), "base\n");
-    const fromSha = await commitAll(root, "symlink base");
-    const rawTarget = Buffer.from([0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x2d, 0xff]);
-    await symlink(rawTarget, path.join(root, "raw-link"));
-    const toSha = await commitAll(root, "raw symlink target");
-    let workspacePath: string | undefined;
-    workspaceHooks.onCreated = (workspace) => { workspacePath = workspace.runDir; };
-
-    await expect(prepareFrozenReviewInput({
-      cwd: root,
-      target: { mode: "range", fromRef: fromSha, toRef: toSha },
-      runId: randomUUID(),
-    })).rejects.toThrow("Git symlink target must be valid UTF-8");
-
-    expect(workspacePath).toBeDefined();
-    await expect(access(workspacePath!)).rejects.toThrow();
-  });
-
-  it("aborts before a range snapshot finishes and cleans the partial workspace", async () => {
+  it("aborts before linked-worktree creation and cleans the partial workspace", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "base.txt"), "base\n");
     const fromSha = await commitAll(root, "abort base");
@@ -719,7 +569,7 @@ describe("prepareFrozenReviewInput", () => {
       expect((error as ReviewInputCleanupError).freezeError).toBe(reason);
       expect((error as ReviewInputCleanupError).cleanupError).toBe(cleanupFailure);
       expect((error as Error).message).toContain(
-        "input freeze failed and temporary workspace cleanup also failed",
+        "input freeze failed and temporary review workspace cleanup also failed",
       );
       expect(workspacePath).toBeDefined();
       await expect(access(workspacePath!)).resolves.toBeUndefined();
@@ -740,6 +590,7 @@ describe("prepareFrozenReviewInput", () => {
     await writeFile(replacementFile, "forged replacement value\n");
     const replacementBlob = await git(root, "hash-object", "-w", replacementFile);
     await git(root, "replace", originalBlob, replacementBlob);
+    await writeFile(path.join(root, ".force-linked"), "dirty\n");
 
     const frozen = await prepareFrozenReviewInput({
       cwd: root,
@@ -756,11 +607,11 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
-  it("extracts committed LFS pointers without running configured smudge filters", async () => {
+  it("checks out LFS pointers without running hooks or configured filter drivers", async () => {
     const root = await initRepo();
-    await writeFile(path.join(root, ".gitattributes"), "*.lfs filter=demo\n");
-    await git(root, "config", "filter.demo.clean", "cat");
-    await git(root, "config", "filter.demo.smudge", "sed s/version/SMUDGED/");
+    await writeFile(path.join(root, ".gitattributes"), "*.lfs filter=lfs\n");
+    await git(root, "config", "filter.lfs.clean", "cat");
+    await git(root, "config", "filter.lfs.smudge", "cat");
     const fromSha = await commitAll(root, "attributes");
     const pointer = [
       "version https://git-lfs.github.com/spec/v1",
@@ -770,7 +621,17 @@ describe("prepareFrozenReviewInput", () => {
     ].join("\n");
     await writeFile(path.join(root, "asset.lfs"), pointer);
     const toSha = await commitAll(root, "add lfs pointer");
+    const sideEffect = path.join(root, ".git", "checkout-side-effect");
+    const script = path.join(root, ".git", "side-effect.sh");
+    await writeFile(path.join(root, ".force-linked"), "dirty\n");
     const before = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all");
+    await writeFile(script, `#!/bin/sh\ntouch ${JSON.stringify(sideEffect)}\ncat\n`);
+    await chmod(script, 0o700);
+    await git(root, "config", "filter.lfs.smudge", script);
+    await git(root, "config", "filter.lfs.process", script);
+    await git(root, "config", "filter.lfs.required", "true");
+    await writeFile(path.join(root, ".git", "hooks", "post-checkout"), `#!/bin/sh\ntouch ${JSON.stringify(sideEffect)}\n`);
+    await chmod(path.join(root, ".git", "hooks", "post-checkout"), 0o700);
 
     const frozen = await prepareFrozenReviewInput({
       cwd: root,
@@ -779,17 +640,23 @@ describe("prepareFrozenReviewInput", () => {
     });
     try {
       expect(await readFile(path.join(frozen.reviewerCwd, "asset.lfs"), "utf8")).toBe(pointer);
+      expect(await exists(sideEffect)).toBe(false);
       expect(frozen.limitedContext).toContain(
         "Git LFS object content is not materialized; only the committed pointer is available.",
       );
     } finally {
       await frozen.cleanup();
     }
+    await git(root, "config", "--unset-all", "filter.lfs.process");
+    await git(root, "config", "filter.lfs.required", "false");
     expect(await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
       .toBe(before);
 
+    await rm(path.join(root, ".force-linked"));
     await git(root, "mv", "asset.lfs", "renamed-asset.lfs");
     const renamedSha = await commitAll(root, "rename lfs pointer only");
+    await rm(sideEffect, { force: true });
+    await writeFile(path.join(root, ".force-linked"), "dirty again\n");
     const renamed = await prepareFrozenReviewInput({
       cwd: root,
       target: { mode: "range", fromRef: toSha, toRef: renamedSha },
@@ -892,7 +759,7 @@ describe("prepareFrozenReviewInput", () => {
     }
   });
 
-  it("marks range submodules limited and materializes only an empty gitlink directory", async () => {
+  it("marks range submodules limited without recursively populating a linked checkout", async () => {
     const source = await initRepo();
     await writeFile(path.join(source, "sub.txt"), "submodule content\n");
     await commitAll(source, "submodule base");
@@ -904,6 +771,7 @@ describe("prepareFrozenReviewInput", () => {
       cwd: root,
     });
     const toSha = await commitAll(root, "add range submodule");
+    await writeFile(path.join(root, ".force-linked"), "dirty\n");
 
     const frozen = await prepareFrozenReviewInput({
       cwd: root,
@@ -919,8 +787,10 @@ describe("prepareFrozenReviewInput", () => {
       await frozen.cleanup();
     }
 
+    await rm(path.join(root, ".force-linked"));
     await writeFile(path.join(root, "root.txt"), "root changed while gitlink stays fixed\n");
     const nextSha = await commitAll(root, "change root only");
+    await writeFile(path.join(root, ".force-linked"), "dirty again\n");
     const unchangedGitlink = await prepareFrozenReviewInput({
       cwd: root,
       target: { mode: "range", fromRef: toSha, toRef: nextSha },
@@ -1130,7 +1000,7 @@ describe("prepareFrozenReviewInput", () => {
     expect(suggestions.commands.join("\n")).not.toContain(replacementSha);
   });
 
-  it("fails loud on non-UTF-8 Git paths instead of aliasing snapshot names", async () => {
+  it("fails loud on non-UTF-8 Git paths during range capture", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "base.txt"), "base\n");
     const fromSha = await commitAll(root, "utf8 base");

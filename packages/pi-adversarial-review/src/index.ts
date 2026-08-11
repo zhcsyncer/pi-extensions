@@ -527,8 +527,8 @@ export default function adversarialReviewExtension(
         });
         ctx.ui.notify(message, type);
       } finally {
-        // The frozen snapshot must remain readable until every reviewer/refuter
-        // has actually terminated. Runtime disposal is therefore the first barrier.
+        // Frozen input and any detached review worktree must remain readable until every
+        // reviewer/refuter has terminated. Runtime disposal is therefore the first barrier.
         let runtimeCleanupComplete = true;
         if (resolvedRuntime) {
           try {
@@ -538,7 +538,7 @@ export default function adversarialReviewExtension(
             if (!sessionShuttingDown) {
               const warning = safeReviewDiagnosticText(
                 `Adversarial review runtime cleanup warning: ${errorMessage(error)} ` +
-                  "Frozen input retained for safety.",
+                  "Frozen input and any detached review worktree were retained for safety.",
               );
               emitHeadlessDiagnostic(ctx.mode, warning);
               ctx.ui.notify(warning, "warning");

@@ -12,7 +12,6 @@ import type {
 import {
   captureRangeForSizing,
   captureReviewTarget,
-  extractRangeSnapshot,
   resolveCommittedReviewPath,
   resolveGitRoot,
   resolveReviewTarget,
@@ -278,6 +277,9 @@ async function probeSuggestedRange(options: {
       toRef: options.toSha,
       fromSha: options.fromSha,
       toSha: options.toSha,
+      currentHeadSha: options.headSha,
+      currentBranch: "range-suggestion",
+      checkoutEstimate: { entries: 0, logicalBytes: "0" },
     };
     const capture: TargetCapture = {
       headSha: options.headSha,
@@ -648,14 +650,12 @@ export async function prepareFrozenReviewInput(
   try {
     let reviewerCwd = root;
     if (resolved.mode === "range") {
-      await extractRangeSnapshot(
+      reviewerCwd = await workspace.createRangeWorktree({
         root,
-        resolved.toSha,
-        workspace.snapshotDir,
-        options.signal,
-      );
-      await workspace.makeSnapshotReadOnly();
-      reviewerCwd = workspace.snapshotDir;
+        toSha: resolved.toSha,
+        estimate: resolved.checkoutEstimate,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
     }
     assertFreezeActive(options.signal);
     await workspace.writeInput(content);

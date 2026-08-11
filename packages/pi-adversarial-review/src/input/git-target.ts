@@ -1,9 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { lstat, mkdir, open, rm, symlink } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import type { ReviewTargetRequest } from "../types.ts";
 import { OversizedReviewInputError, ReviewInputError } from "./errors.ts";
 import { assertFrozenInputWithinLimits } from "./limits.ts";
@@ -148,7 +146,15 @@ export async function neutralizedGitConfigEnv(
         GIT_OPTIONAL_LOCKS: "0",
       },
       signal,
-      unsetEnv: ["GIT_CONFIG_PARAMETERS"],
+      unsetEnv: [
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      ],
     },
   );
   const drivers = new Set<string>();
@@ -258,10 +264,147 @@ export async function resolveGitRoot(cwd: string, signal?: AbortSignal): Promise
   }
 }
 
+export interface RangeCheckoutEstimate {
+  entries: number;
+  /** Decimal raw logical blob-byte count; checkout expansion is guarded by a live free-space floor. */
+  logicalBytes: string;
+}
+
 export type ResolvedReviewTarget =
   | { mode: "local" }
   | { mode: "base"; baseSha: string; baseRef: string; headSha: string }
-  | { mode: "range"; fromSha: string; toSha: string; fromRef: string; toRef: string };
+  | {
+      mode: "range";
+      fromSha: string;
+      toSha: string;
+      fromRef: string;
+      toRef: string;
+      currentHeadSha: string;
+      currentBranch: string;
+      checkoutEstimate: RangeCheckoutEstimate;
+    };
+
+function sizedTreeBlobBytes(record: Buffer): bigint | undefined {
+  const tab = record.indexOf(0x09);
+  const metadata = tab < 0 ? [] : record.subarray(0, tab).toString("ascii").split(/\s+/u);
+  if (
+    metadata.length !== 4 ||
+    (metadata[1] !== "blob" && metadata[1] !== "commit") ||
+    !/^[0-9a-f]{40,64}$/u.test(metadata[2]) ||
+    !metadata[3] ||
+    (metadata[1] === "blob" && !/^\d+$/u.test(metadata[3])) ||
+    (metadata[1] === "commit" && metadata[3] !== "-") ||
+    tab < 0 ||
+    tab === record.length - 1
+  ) {
+    throw new ReviewInputError("Git range tree contains a malformed sized entry.");
+  }
+  return metadata[1] === "blob" ? BigInt(metadata[3]) : undefined;
+}
+
+export async function estimateRangeCheckout(
+  root: string,
+  toSha: string,
+  signal?: AbortSignal,
+): Promise<RangeCheckoutEstimate> {
+  assertCaptureActive(signal);
+  const safeConfigEnv = await neutralizedGitConfigEnv(root, signal);
+  return await new Promise((resolve, reject) => {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      ...safeConfigEnv,
+    };
+    delete env.GIT_CONFIG_PARAMETERS;
+    const child = spawn("git", ["ls-tree", "-rlz", "--full-tree", "-r", toSha], {
+      cwd: root,
+      env,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let entries = 0;
+    let logicalBytes = 0n;
+    const stderr: Buffer[] = [];
+    let stderrBytes = 0;
+    let settled = false;
+    let aborted = false;
+    let parseError: unknown;
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      aborted = true;
+      killCaptureProcessTree(child, "SIGKILL");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (parseError) return;
+      try {
+        pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
+        let start = 0;
+        for (;;) {
+          const end = pending.indexOf(0, start);
+          if (end < 0) break;
+          if (end > start) {
+            const blobBytes = sizedTreeBlobBytes(pending.subarray(start, end));
+            entries++;
+            if (blobBytes !== undefined) logicalBytes += blobBytes;
+          }
+          start = end + 1;
+        }
+        pending = start === 0 ? pending : pending.subarray(start);
+      } catch (error) {
+        parseError = error;
+        killCaptureProcessTree(child, "SIGKILL");
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBytes >= 64 * 1024) return;
+      const kept = chunk.subarray(0, 64 * 1024 - stderrBytes);
+      stderr.push(kept);
+      stderrBytes += kept.length;
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(aborted
+        ? captureAbortError(signal)
+        : parseError ?? new ReviewInputError(`Failed to estimate range checkout: ${error.message}`));
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (aborted) reject(captureAbortError(signal));
+      else if (parseError) reject(parseError);
+      else if (code !== 0) reject(new ReviewInputError(
+        Buffer.concat(stderr).toString("utf8").trim() || `git ls-tree exited ${code}.`,
+      ));
+      else if (pending.length !== 0) reject(new ReviewInputError(
+        "Git range tree contains an unterminated sized entry.",
+      ));
+      else resolve({ entries, logicalBytes: logicalBytes.toString() });
+    });
+  });
+}
+
+async function currentNamedBranch(root: string, signal?: AbortSignal): Promise<string> {
+  try {
+    const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      signal,
+    })).toString("utf8").trim();
+    if (!branch) throw new Error("empty branch");
+    return branch;
+  } catch {
+    if (signal?.aborted) throw captureAbortError(signal);
+    throw new ReviewInputError(
+      "--range requires the current worktree to be on a named branch; detached HEAD is not supported.",
+    );
+  }
+}
 
 export async function resolveReviewTarget(
   root: string,
@@ -281,12 +424,37 @@ export async function resolveReviewTarget(
       headSha,
     };
   }
+  const [fromSha, toSha, currentHeadSha, currentBranch] = await Promise.all([
+    resolveCommit(root, request.fromRef, signal),
+    resolveCommit(root, request.toRef, signal),
+    resolveCommit(root, "HEAD", signal),
+    currentNamedBranch(root, signal),
+  ]);
+  let mergeBase: string;
+  try {
+    mergeBase = (await git(root, ["merge-base", toSha, currentHeadSha], { signal }))
+      .toString("utf8").trim();
+  } catch {
+    if (signal?.aborted) throw captureAbortError(signal);
+    throw new ReviewInputError(
+      `Range endpoint ${request.toRef} (${toSha}) is unrelated to current branch ${currentBranch} HEAD (${currentHeadSha}).`,
+    );
+  }
+  if (mergeBase !== toSha) {
+    throw new ReviewInputError(
+      `Range endpoint ${request.toRef} (${toSha}) must be reachable from current branch ${currentBranch} HEAD (${currentHeadSha}).`,
+    );
+  }
+  const checkoutEstimate = await estimateRangeCheckout(root, toSha, signal);
   return {
     mode: "range",
     fromRef: request.fromRef,
     toRef: request.toRef,
-    fromSha: await resolveCommit(root, request.fromRef, signal),
-    toSha: await resolveCommit(root, request.toRef, signal),
+    fromSha,
+    toSha,
+    currentHeadSha,
+    currentBranch,
+    checkoutEstimate,
   };
 }
 
@@ -610,7 +778,9 @@ export async function captureReviewTarget(
 ): Promise<TargetCapture> {
   const headSha = target.mode === "base"
     ? target.headSha
-    : await currentHead(root, limits.signal);
+    : target.mode === "range"
+      ? target.currentHeadSha
+      : await currentHead(root, limits.signal);
   const untracked = target.mode === "range" ? [] : await untrackedFiles(root, limits);
   const untrackedPatch = target.mode === "range"
     ? ""
@@ -720,247 +890,4 @@ async function listRawTree(
     ["ls-tree", "-rz", "--full-tree", "-r", toSha],
     { signal },
   ));
-}
-
-function safeSnapshotPath(destination: string, file: string): string {
-  const snapshotRoot = path.resolve(destination);
-  const target = path.resolve(snapshotRoot, file);
-  const relative = path.relative(snapshotRoot, target);
-  if (
-    !relative ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  ) {
-    throw new ReviewInputError(`Git range tree path escapes the snapshot: ${JSON.stringify(file)}.`);
-  }
-  return target;
-}
-
-const MAX_SNAPSHOT_SYMLINK_EXPANSIONS = 40;
-
-function decodeSnapshotSymlinkTarget(file: string, rawTarget: Buffer): string {
-  if (rawTarget.includes(0)) {
-    throw new ReviewInputError(
-      `Git symlink target contains NUL bytes: ${JSON.stringify(file)}.`,
-    );
-  }
-  let linkTarget: string;
-  try {
-    linkTarget = new TextDecoder("utf-8", { fatal: true }).decode(rawTarget);
-  } catch {
-    throw new ReviewInputError(
-      `Git symlink target must be valid UTF-8: ${JSON.stringify(file)}.`,
-    );
-  }
-  if (!linkTarget) {
-    throw new ReviewInputError(`Git symlink target is empty: ${JSON.stringify(file)}.`);
-  }
-  if (
-    path.posix.isAbsolute(linkTarget) ||
-    path.win32.isAbsolute(linkTarget) ||
-    /^[A-Za-z]:/u.test(linkTarget)
-  ) {
-    throw new ReviewInputError(
-      `Git symlink target is absolute or drive-relative: ${JSON.stringify(file)}.`,
-    );
-  }
-  return linkTarget;
-}
-
-function snapshotPathComponents(value: string, windows: boolean): string[] {
-  return windows ? value.split(/[\\/]/u) : value.split("/");
-}
-
-function windowsPortableSnapshotKey(value: string): string {
-  // This is deliberately a conservative, locale-independent approximation of
-  // Windows path aliasing rather than a claim about the live filesystem. NFKC
-  // catches canonical/compatibility aliases, while upper-then-lower catches
-  // Unicode case pairs (including multi-code-point mappings) that ASCII-only
-  // folding would miss.
-  return value.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
-}
-
-function snapshotSymlinkKey(components: readonly string[], windows: boolean): string {
-  const key = components.join("/");
-  return windows ? windowsPortableSnapshotKey(key) : key;
-}
-
-function buildSnapshotSymlinkMap(
-  targets: ReadonlyMap<string, string>,
-  windows: boolean,
-): Map<string, string> {
-  const result = new Map<string, string>();
-  for (const [file, target] of targets) {
-    const key = snapshotSymlinkKey(snapshotPathComponents(file, windows), windows);
-    if (result.has(key)) {
-      throw new ReviewInputError(
-        `Git symlink paths are ambiguous under platform path rules: ${JSON.stringify(file)}.`,
-      );
-    }
-    result.set(key, target);
-  }
-  return result;
-}
-
-function validateSnapshotSymlinkResolution(
-  file: string,
-  symlinks: ReadonlyMap<string, string>,
-  windows: boolean,
-): void {
-  const pending = snapshotPathComponents(file, windows);
-  const resolved: string[] = [];
-  const expansionStates = new Set<string>();
-  let expansionCount = 0;
-
-  while (pending.length > 0) {
-    const component = pending.shift()!;
-    if (!component || component === ".") continue;
-    if (component === "..") {
-      if (resolved.length === 0) {
-        throw new ReviewInputError(
-          `Git symlink graph escapes the snapshot: ${JSON.stringify(file)}.`,
-        );
-      }
-      resolved.pop();
-      continue;
-    }
-
-    const candidate = snapshotSymlinkKey([...resolved, component], windows);
-    const target = symlinks.get(candidate);
-    if (target === undefined) {
-      resolved.push(component);
-      continue;
-    }
-    const state = JSON.stringify({
-      resolved: snapshotSymlinkKey(resolved, windows),
-      candidate,
-      pending: snapshotSymlinkKey(pending, windows),
-    });
-    if (expansionStates.has(state)) {
-      throw new ReviewInputError(
-        `Git symlink graph contains a cycle: ${JSON.stringify(file)}.`,
-      );
-    }
-    expansionStates.add(state);
-    expansionCount++;
-    if (expansionCount > MAX_SNAPSHOT_SYMLINK_EXPANSIONS) {
-      throw new ReviewInputError(
-        `Git symlink graph exceeds ${MAX_SNAPSHOT_SYMLINK_EXPANSIONS} expansions: ${JSON.stringify(file)}.`,
-      );
-    }
-    pending.unshift(...snapshotPathComponents(target, windows));
-  }
-}
-
-function validateSnapshotSymlinkGraph(targets: ReadonlyMap<string, string>): void {
-  for (const windows of [false, true]) {
-    const symlinks = buildSnapshotSymlinkMap(targets, windows);
-    for (const file of symlinks.keys()) {
-      validateSnapshotSymlinkResolution(file, symlinks, windows);
-    }
-  }
-}
-
-async function writeRawBlob(
-  root: string,
-  objectId: string,
-  target: string,
-  mode: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  assertCaptureActive(signal);
-  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const child = spawn("git", ["cat-file", "blob", objectId], {
-    cwd: root,
-    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const stderr: Buffer[] = [];
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  const output = createWriteStream(target, { flags: "wx", mode });
-  let aborted = false;
-  const onAbort = () => {
-    aborted = true;
-    killCaptureProcessTree(child, "SIGKILL");
-  };
-  signal?.addEventListener("abort", onAbort, { once: true });
-  if (signal?.aborted) onAbort();
-  const exited = new Promise<void>((resolve, reject) => {
-    const cleanup = () => signal?.removeEventListener("abort", onAbort);
-    child.on("error", (error) => {
-      cleanup();
-      reject(aborted ? captureAbortError(signal) : error);
-    });
-    child.on("close", (code) => {
-      cleanup();
-      if (aborted) reject(captureAbortError(signal));
-      else if (code === 0) resolve();
-      else reject(new Error(
-        Buffer.concat(stderr).toString("utf8").trim() || `git cat-file exited ${code}.`,
-      ));
-    });
-  });
-  try {
-    await Promise.all([pipeline(child.stdout, output), exited]);
-  } catch (error) {
-    killCaptureProcessTree(child, "SIGKILL");
-    await rm(target, { force: true });
-    if (signal?.aborted) throw captureAbortError(signal);
-    throw new ReviewInputError(
-      `Failed to extract Git blob ${objectId}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-/** Extract committed blobs directly, bypassing export-ignore and all smudge filters. */
-export async function extractRangeSnapshot(
-  root: string,
-  toSha: string,
-  destination: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  const entries = await listRawTree(root, toSha, signal);
-  const targetPaths = new Map<string, string>();
-  for (const entry of entries) {
-    targetPaths.set(entry.file, safeSnapshotPath(destination, entry.file));
-  }
-
-  // Read and validate the complete link graph before creating any live link.
-  // Component-by-component expansion is required: normalizing each raw target
-  // independently misses chains where an inner link changes how later `..`
-  // components are interpreted.
-  const symlinkTargets = new Map<string, string>();
-  for (const entry of entries) {
-    if (entry.mode !== "120000") continue;
-    assertCaptureActive(signal);
-    const rawTarget = await git(root, ["cat-file", "blob", entry.objectId], {
-      maxOutputBytes: 1024 * 1024,
-      signal,
-    });
-    symlinkTargets.set(entry.file, decodeSnapshotSymlinkTarget(entry.file, rawTarget));
-  }
-  validateSnapshotSymlinkGraph(symlinkTargets);
-
-  for (const entry of entries) {
-    assertCaptureActive(signal);
-    const target = targetPaths.get(entry.file)!;
-    if (entry.type === "commit" || entry.mode === "160000") {
-      await mkdir(target, { recursive: true, mode: 0o700 });
-      continue;
-    }
-    if (entry.mode === "120000") {
-      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      await symlink(symlinkTargets.get(entry.file)!, target);
-      continue;
-    }
-    await writeRawBlob(
-      root,
-      entry.objectId,
-      target,
-      entry.mode === "100755" ? 0o700 : 0o600,
-      signal,
-    );
-  }
 }

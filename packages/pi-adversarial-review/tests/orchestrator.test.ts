@@ -143,6 +143,7 @@ describe("runReviewerFleet", () => {
         maxTurns: 25,
         correlationId: "run-1:reviewer:0",
       });
+      expect(runtime.spawnInputs.every((input) => input.cwd === "/repo")).toBe(true);
       expect(runtime.listenerCount()).toBe(0);
     },
   );

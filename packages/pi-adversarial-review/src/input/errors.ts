@@ -18,8 +18,8 @@ export class ReviewInputCleanupError extends ReviewInputError {
 
   constructor(freezeError: unknown, cleanupError: unknown) {
     super(
-      "Adversarial review input freeze failed and temporary workspace cleanup also failed. " +
-        "Temporary data may remain until the same-UID 24-hour scavenger removes it.",
+      "Adversarial review input freeze failed and temporary review workspace cleanup also failed. " +
+        "Temporary data and a detached review worktree may remain until marker-proven same-UID recovery removes them.",
     );
     this.name = "ReviewInputCleanupError";
     this.freezeError = freezeError;

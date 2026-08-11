@@ -29,6 +29,9 @@ vi.mock("../src/input/freeze-input.ts", async (importOriginal) => {
               toRef: target.toRef,
               fromSha: "b".repeat(40),
               toSha: target.toRef === "HEAD" ? "a".repeat(40) : "b".repeat(40),
+              currentHeadSha: "a".repeat(40),
+              currentBranch: "feature/review",
+              checkoutEstimate: { entries: 1, logicalBytes: "1" },
             }
           : { mode: "local" as const },
       targetRefs: target.mode === "base"
@@ -99,6 +102,9 @@ function fingerprintWithSize(bytes: number, lines: number) {
             toRef: target.toRef,
             fromSha: "b".repeat(40),
             toSha: target.toRef === "HEAD" ? "a".repeat(40) : "b".repeat(40),
+            currentHeadSha: "a".repeat(40),
+            currentBranch: "feature/review",
+            checkoutEstimate: { entries: 1, logicalBytes: "1" },
           }
         : { mode: "local" as const },
     targetRefs: target.mode === "base"

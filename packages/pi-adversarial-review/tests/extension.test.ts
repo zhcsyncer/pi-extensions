@@ -433,7 +433,7 @@ describe("adversarial review extension", () => {
     let temporaryWorkspace: string | undefined;
     freezeHooks.intercept = async ({ signal }): Promise<never> => {
       temporaryWorkspace = await mkdtemp(path.join(tmpdir(), "pi-adversarial-extension-freeze-"));
-      await writeFile(path.join(temporaryWorkspace, "partial"), "partial snapshot\n");
+      await writeFile(path.join(temporaryWorkspace, "partial"), "partial workspace\n");
       markFreezeStarted();
       try {
         return await new Promise<never>((_resolve, reject) => {
@@ -516,8 +516,8 @@ describe("adversarial review extension", () => {
   });
 
   it.each([
-    ["a concurrent non-abort input error", false, "Concurrent symlink validation failed after run abort."],
-    ["a workspace cleanup error", true, "input freeze failed and temporary workspace cleanup also failed"],
+    ["a concurrent non-abort input error", false, "Concurrent linked-worktree setup failed after run abort."],
+    ["a workspace cleanup error", true, "input freeze failed and temporary review workspace cleanup also failed"],
   ])("publishes failure rather than freeze cancellation for %s", async (_label, cleanupFails, diagnostic) => {
     const root = await changedRepo();
     const fake = new FakePi();
@@ -531,7 +531,7 @@ describe("adversarial review extension", () => {
         else signal?.addEventListener("abort", () => resolve(), { once: true });
       });
       const freezeError = new ReviewInputError(
-        "Concurrent symlink validation failed after run abort.",
+        "Concurrent linked-worktree setup failed after run abort.",
       );
       if (cleanupFails) {
         throw new ReviewInputCleanupError(
@@ -996,7 +996,7 @@ describe("adversarial review extension", () => {
     tempRepos.push(path.dirname(frozenInputPath!));
     expect(notifications.at(-1)).toMatchObject({
       type: "warning",
-      message: expect.stringContaining("Frozen input retained for safety"),
+      message: expect.stringContaining("Frozen input and any detached review worktree were retained for safety"),
     });
 
     for (const [index, correlationId] of correlations.entries()) {
