@@ -8,13 +8,21 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { PROCESS_TOOL_NAME, type ProcessRegistrySnapshot } from "./registry.ts";
-import type { ProcessListResult, ProcessManager, ProcessRuntimeState } from "./manager.ts";
+import type {
+	ProcessListResult,
+	ProcessManager,
+	ProcessPaneState,
+	ProcessRuntimeState,
+} from "./manager.ts";
 
 export const herdrProcessSchema = Type.Object({
 	action: StringEnum(["start", "list", "logs", "stop"] as const, {
 		description: "Process operation to perform.",
 	}),
-	command: Type.Optional(Type.String({ minLength: 1, description: "Shell command for start." })),
+	command: Type.Optional(Type.String({ minLength: 1, description: "Command for start; interpreted by a private Bash script when shell=bash." })),
+	shell: Type.Optional(StringEnum(["bash", "pane"] as const, {
+		description: "bash uses a private non-interactive Bash script on POSIX; pane sends the command to the pane's interactive shell.",
+	})),
 	cwd: Type.Optional(Type.String({ minLength: 1, description: "Working directory for start; defaults to Pi's cwd." })),
 	label: Type.Optional(Type.String({ minLength: 1, description: "Short owned process label for start." })),
 	direction: Type.Optional(StringEnum(["down", "right"] as const, {
@@ -40,6 +48,7 @@ export interface HerdrProcessDetails {
 	label?: string;
 	stalePaneIds?: string[];
 	processStates?: Record<string, ProcessRuntimeState>;
+	processPanes?: Record<string, ProcessPaneState>;
 	truncated?: boolean;
 }
 
@@ -59,7 +68,7 @@ export function formatProcessList(listed: ProcessListResult): string {
 	return listed.entries.length === 0
 		? "No companion-owned process panes are live."
 		: listed.entries.map((entry) =>
-			`${entry.label}\t${entry.paneId}\t${listed.states[entry.paneId] ?? "unknown"}\t${entry.lifetime}\t${entry.cwd}\t${entry.command}`,
+			`${entry.label}\t${entry.paneId}\t${listed.states[entry.paneId] ?? "unknown"}\t${entry.lifetime}\t${entry.shell ?? "pane"}\t${entry.cwd}\t${entry.command}`,
 		).join("\n");
 }
 
@@ -67,10 +76,11 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 	pi.registerTool({
 		name: PROCESS_TOOL_NAME,
 		label: "Herdr Process",
-		description: "Start, list, read logs from, or stop companion-owned long-running commands in visible Herdr panes. Commands that return to the shell remain owned as exited until stop or lifecycle cleanup, preserving logs and safe cleanup. Output is tail-truncated to 2000 lines or 50KB. It never closes the caller or unowned panes.",
+		description: "Start, list, read logs from, or stop companion-owned long-running commands in visible Herdr panes. On POSIX, start uses a private non-interactive Bash script by default so commands do not inherit Fish or another pane shell dialect; shell=pane is the explicit raw-shell escape hatch. Windows defaults to shell=pane. Commands that return to the shell remain owned as exited until stop or lifecycle cleanup, preserving logs and safe cleanup. Output is tail-truncated to 2000 lines or 50KB. It never closes the caller or unowned panes.",
 		promptSnippet: "Manage visible long-running dev, preview, and watch processes in Herdr panes",
 		promptGuidelines: [
 			"Use herdr_process for dev servers, previews, watchers, and other long-running commands instead of nohup, shell backgrounding, or disown.",
+			"On POSIX, write start commands as Bash and keep the default shell=bash unless the command intentionally targets the pane's interactive shell. Windows uses shell=pane.",
 			"Use herdr_process stop only for panes returned by herdr_process; it cannot close caller or user-owned panes.",
 		],
 		parameters: herdrProcessSchema,
@@ -89,9 +99,10 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 						...(params.readyRegex === undefined ? {} : { readyRegex: params.readyRegex }),
 						...(params.readyTimeoutMs === undefined ? {} : { readyTimeoutMs: params.readyTimeoutMs }),
 						...(params.lifetime === undefined ? {} : { lifetime: params.lifetime }),
+						...(params.shell === undefined ? {} : { shell: params.shell }),
 					}, { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() }, signal);
 					return result(
-						`Started ${entry.label} in ${entry.paneId} (${entry.lifetime}, cwd ${entry.cwd}).`,
+						`Started ${entry.label} in ${entry.paneId} (${entry.shell ?? "pane"}, ${entry.lifetime}, cwd ${entry.cwd}).`,
 						{ action: "start", registry: manager.registry.snapshot(), paneId: entry.paneId, label: entry.label },
 					);
 				}
@@ -101,6 +112,7 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 						action: "list",
 						registry: manager.registry.snapshot(),
 						processStates: listed.states,
+						processPanes: listed.panes,
 						...(listed.stale.length ? { stalePaneIds: listed.stale.map((entry) => entry.paneId) } : {}),
 					});
 				}

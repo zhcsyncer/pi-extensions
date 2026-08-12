@@ -17,11 +17,15 @@ function ok(stdout = '{"id":"test","result":{"type":"ok"}}'): ExecResult {
 function pane(id = "w1:p2") {
 	return {
 		pane_id: id,
+		terminal_id: "term-managed",
 		tab_id: "w1:t1",
 		workspace_id: "w1",
 		cwd: "/work",
 		label: "dev",
 		focused: false,
+		agent: "pi",
+		agent_status: "idle",
+		agent_session: { agent: "pi", kind: "id", source: "herdr:pi", value: "session-1" },
 	};
 }
 
@@ -45,7 +49,15 @@ describe("HerdrClient argv and response contracts", () => {
 			focus: false,
 			environment: { PI_HERDR_COMPANION_BTW_PAYLOAD: "/private/a b/payload.json" },
 		});
-		expect(result.paneId).toBe("w1:p2");
+		expect(result).toMatchObject({
+			paneId: "w1:p2",
+			terminalId: "term-managed",
+			workspaceId: "w1",
+			tabId: "w1:t1",
+			agent: "pi",
+			agentStatus: "idle",
+			agentSession: { agent: "pi", kind: "id", value: "session-1" },
+		});
 		expect(calls).toEqual([{
 			command: "herdr",
 			args: [
@@ -180,10 +192,26 @@ describe("HerdrClient argv and response contracts", () => {
 				? ok(JSON.stringify({ result: { pane: pane() } }))
 				: ok());
 		await client.renamePane("w1:p2", "dev", controller.signal);
+		await client.focusPane("w2:p7", controller.signal);
 		await client.closePane("w1:p2", controller.signal);
 		await client.focusAgent("w1:p1", controller.signal);
 		expect(calls.every((call) => call.options.signal === controller.signal)).toBe(true);
-		expect(calls.map((call) => call.options.timeout)).toEqual([5000, 5000, 5000]);
+		expect(calls.map((call) => call.options.timeout)).toEqual([5000, 5000, 5000, 5000]);
+		expect(calls[1]?.args).toEqual(["pane", "focus", "w2:p7"]);
+	});
+
+	it("preserves exact pane-focus operation and exit code for upgrade guidance", async () => {
+		const { client } = capture(() => ({
+			stdout: "",
+			stderr: "usage: herdr pane focus --direction ...",
+			code: 2,
+			killed: false,
+		}));
+
+		await expect(client.focusPane("w2:p7")).rejects.toMatchObject({
+			operation: "pane focus",
+			exitCode: 2,
+		});
 	});
 
 	it("does not invoke the executor when the signal was already aborted", async () => {
@@ -200,7 +228,13 @@ describe("HerdrClient argv and response contracts", () => {
 	});
 
 	it("rejects malformed success JSON instead of trusting guessed pane IDs", async () => {
-		for (const stdout of ["not-json", '{"result":{"pane":{"pane_id":7}}}', '{"result":{"panes":"wrong"}}']) {
+		for (const stdout of [
+			"not-json",
+			'{"result":{"pane":{"pane_id":7}}}',
+			'{"result":{"pane":{"pane_id":"w1:p2","terminal_id":7}}}',
+			'{"result":{"pane":{"pane_id":"w1:p2","agent_session":"wrong"}}}',
+			'{"result":{"panes":"wrong"}}',
+		]) {
 			const { client } = capture(() => ok(stdout));
 			if (stdout.includes("panes")) await expect(client.listPanes()).rejects.toBeInstanceOf(HerdrProtocolError);
 			else await expect(client.getPane("w1:p2")).rejects.toBeInstanceOf(HerdrProtocolError);

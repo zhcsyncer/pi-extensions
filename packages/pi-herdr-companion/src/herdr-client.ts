@@ -7,13 +7,24 @@ import type { SplitDirection } from "./config.ts";
 
 export type HerdrExecutor = (command: string, args: string[], options: ExecOptions) => Promise<ExecResult>;
 
+export interface HerdrAgentSession {
+	agent?: string;
+	kind?: string;
+	source?: string;
+	value?: string;
+}
+
 export interface HerdrPane {
 	paneId: string;
+	terminalId?: string;
 	tabId?: string;
 	workspaceId?: string;
 	cwd?: string;
 	label?: string;
 	focused?: boolean;
+	agent?: string;
+	agentStatus?: string;
+	agentSession?: HerdrAgentSession;
 }
 
 export interface HerdrAgent {
@@ -109,6 +120,7 @@ const SAFE_OPERATIONS = new Set([
 	"pane read",
 	"pane close",
 	"pane process-info",
+	"pane focus",
 	"agent start",
 	"agent get",
 	"agent focus",
@@ -168,10 +180,13 @@ function parsePane(value: unknown, operation: string): HerdrPane {
 		throw new HerdrProtocolError(operation, "an invalid pane object");
 	}
 	for (const [field, candidate] of [
+		["terminal_id", value.terminal_id],
 		["tab_id", value.tab_id],
 		["workspace_id", value.workspace_id],
 		["cwd", value.cwd],
 		["label", value.label],
+		["agent", value.agent],
+		["agent_status", value.agent_status],
 	] as const) {
 		if (candidate !== undefined && candidate !== null && typeof candidate !== "string") {
 			throw new HerdrProtocolError(operation, `an invalid pane.${field}`);
@@ -180,13 +195,39 @@ function parsePane(value: unknown, operation: string): HerdrPane {
 	if (value.focused !== undefined && typeof value.focused !== "boolean") {
 		throw new HerdrProtocolError(operation, "an invalid pane.focused");
 	}
+	let agentSession: HerdrAgentSession | undefined;
+	if (value.agent_session !== undefined && value.agent_session !== null) {
+		if (!isRecord(value.agent_session)) {
+			throw new HerdrProtocolError(operation, "an invalid pane.agent_session");
+		}
+		for (const [field, candidate] of [
+			["agent", value.agent_session.agent],
+			["kind", value.agent_session.kind],
+			["source", value.agent_session.source],
+			["value", value.agent_session.value],
+		] as const) {
+			if (candidate !== undefined && candidate !== null && typeof candidate !== "string") {
+				throw new HerdrProtocolError(operation, `an invalid pane.agent_session.${field}`);
+			}
+		}
+		agentSession = {
+			...(typeof value.agent_session.agent === "string" ? { agent: value.agent_session.agent } : {}),
+			...(typeof value.agent_session.kind === "string" ? { kind: value.agent_session.kind } : {}),
+			...(typeof value.agent_session.source === "string" ? { source: value.agent_session.source } : {}),
+			...(typeof value.agent_session.value === "string" ? { value: value.agent_session.value } : {}),
+		};
+	}
 	return {
 		paneId: value.pane_id,
+		...(typeof value.terminal_id === "string" ? { terminalId: value.terminal_id } : {}),
 		...(typeof value.tab_id === "string" ? { tabId: value.tab_id } : {}),
 		...(typeof value.workspace_id === "string" ? { workspaceId: value.workspace_id } : {}),
 		...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
 		...(typeof value.label === "string" ? { label: value.label } : {}),
 		...(typeof value.focused === "boolean" ? { focused: value.focused } : {}),
+		...(typeof value.agent === "string" ? { agent: value.agent } : {}),
+		...(typeof value.agent_status === "string" ? { agentStatus: value.agent_status } : {}),
+		...(agentSession ? { agentSession } : {}),
 	};
 }
 
@@ -435,6 +476,10 @@ export class HerdrClient {
 		return mergePaneOutput(recent ?? "", visible ?? "");
 	}
 
+	async focusPane(paneId: string, signal?: AbortSignal): Promise<void> {
+		await this.executeJson(["pane", "focus", paneId], 5_000, "pane focus", signal);
+	}
+
 	async closePane(paneId: string, signal?: AbortSignal): Promise<void> {
 		await this.executeJson(["pane", "close", paneId], 5_000, "pane close", signal);
 	}
@@ -459,6 +504,7 @@ export class HerdrClient {
 		const result = await this.executeJson(["agent", "get", target], 5_000, "agent get", signal);
 		return parseAgent(result.agent, "agent get");
 	}
+
 
 	async focusAgent(target: string, signal?: AbortSignal): Promise<void> {
 		await this.executeJson(["agent", "focus", target], 5_000, "agent focus", signal);
