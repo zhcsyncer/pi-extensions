@@ -185,6 +185,28 @@ describe("HerdrClient argv and response contracts", () => {
 		expect(calls[0]?.options.timeout).toBe(45_000);
 	});
 
+	it("builds typed agent rename and non-waiting prompt argv without exposing prompt text in errors", async () => {
+		const { client, calls } = capture((args) => ok(JSON.stringify({ result: { agent: {
+			pane_id: "w1:p1",
+			name: args[1] === "rename" ? args[3] : "worker-one",
+			agent: "pi",
+			agent_status: "working",
+		} } })));
+		await expect(client.renameAgent("w1:p1", "parent-one")).resolves.toMatchObject({
+			paneId: "w1:p1",
+			name: "parent-one",
+		});
+		await expect(client.promptAgent("worker-one", "[secret task prompt]")).resolves.toMatchObject({
+			paneId: "w1:p1",
+			name: "worker-one",
+		});
+		expect(calls).toEqual([
+			{ command: "herdr", args: ["agent", "rename", "w1:p1", "parent-one"], options: { timeout: 5_000 } },
+			{ command: "herdr", args: ["agent", "prompt", "worker-one", "[secret task prompt]"], options: { timeout: 5_000 } },
+		]);
+		expect(calls[1]?.args).not.toContain("--wait");
+	});
+
 	it("propagates AbortSignal and gives every mutating primitive a finite timeout", async () => {
 		const controller = new AbortController();
 		const { client, calls } = capture((args) =>
@@ -263,6 +285,7 @@ describe("HerdrClient argv and response contracts", () => {
 			["pane", "run", "w1:p2", `echo ${secret}`],
 			["pane", "wait-output", "w1:p2", "--regex", secret],
 			["agent", "start", "btw", "--", "--system-prompt", secret],
+			["agent", "prompt", "worker", secret],
 		]) {
 			const error = new HerdrCommandError(args, { stdout: "", stderr: huge, code: 1, killed: false });
 			expect(String(error)).not.toContain(secret);

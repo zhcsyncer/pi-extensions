@@ -123,6 +123,8 @@ const SAFE_OPERATIONS = new Set([
 	"pane focus",
 	"agent start",
 	"agent get",
+	"agent rename",
+	"agent prompt",
 	"agent focus",
 ]);
 
@@ -505,6 +507,15 @@ export class HerdrClient {
 		return parseAgent(result.agent, "agent get");
 	}
 
+	async renameAgent(target: string, name: string, signal?: AbortSignal): Promise<HerdrAgent> {
+		const result = await this.executeJson(["agent", "rename", target, name], 5_000, "agent rename", signal);
+		return parseAgent(result.agent, "agent rename");
+	}
+
+	async promptAgent(target: string, prompt: string, signal?: AbortSignal): Promise<HerdrAgent> {
+		const result = await this.executeJson(["agent", "prompt", target, prompt], 5_000, "agent prompt", signal);
+		return parseAgent(result.agent, "agent prompt");
+	}
 
 	async focusAgent(target: string, signal?: AbortSignal): Promise<void> {
 		await this.executeJson(["agent", "focus", target], 5_000, "agent focus", signal);

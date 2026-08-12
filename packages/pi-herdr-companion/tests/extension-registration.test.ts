@@ -141,7 +141,7 @@ describe.sequential("extension registration gates", () => {
 		expect([...h.handlers.keys()]).toEqual(["session_start"]);
 		const ctx = sessionContext(mode);
 		await emitSnapshot(h.handlers, "session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(h.tools).toEqual(["herdr_process"]);
+		expect(h.tools).toEqual(["herdr_process", "herdr_worker"]);
 		expect(h.commands).toEqual([]);
 		expect(h.handlers.get("context")).toBeUndefined();
 		const before = h.handlers.get("before_agent_start") ?? [];
@@ -182,7 +182,7 @@ describe.sequential("extension registration gates", () => {
 
 		const ctx = sessionContext("tui");
 		await emitSnapshot(h.handlers, "session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(h.tools).toEqual(["herdr_process"]);
+		expect(h.tools).toEqual(["herdr_process", "herdr_worker"]);
 		expect(h.commands).toEqual(expect.arrayContaining(["btw", "herdr-config"]));
 		expect(h.tools).not.toContain("btw");
 		expect(h.tools).not.toContain("herdr_blocked");
