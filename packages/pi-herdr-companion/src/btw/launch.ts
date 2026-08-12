@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { setTimeout as sleep } from "node:timers/promises";
+import type { SplitDirection } from "../config.ts";
 import type { HerdrClient, StartAgentOptions } from "../herdr-client.ts";
 import { HerdrCommandError, isMissingPaneError } from "../herdr-client.ts";
 import type { RuntimeSnapshot } from "../runtime.ts";
@@ -11,12 +12,13 @@ export type BtwLaunchClient = Pick<
 	HerdrClient,
 	"splitPane" | "closePane" | "startAgent" | "getPane" | "getAgent"
 >;
-export type BtwLaunchStore = Pick<BtwContextStore, "writeLaunchState" | "readLaunchState" | "remove">;
+export type BtwLaunchStore = Pick<BtwContextStore, "mutateLaunchState" | "remove">;
 
 export interface LaunchBtwOptions {
 	payload: BtwPayload;
 	payloadPath: string;
 	runtime: RuntimeSnapshot;
+	direction: SplitDirection;
 	signal?: AbortSignal;
 }
 
@@ -59,7 +61,7 @@ export class BtwLauncher {
 	) {}
 
 	async launch(options: LaunchBtwOptions): Promise<LaunchBtwResult> {
-		const { payload, payloadPath, runtime, signal } = options;
+		const { payload, payloadPath, runtime, direction, signal } = options;
 		let paneId: string | undefined;
 		let unidentifiedSplitFailure = false;
 		const agentName = sideAgentName(payload);
@@ -67,7 +69,7 @@ export class BtwLauncher {
 			try {
 				const pane = await this.client.splitPane({
 					target: "current",
-					direction: payload.config.split,
+					direction,
 					cwd: payload.metadata.cwd,
 					focus: true,
 					environment: { [BTW_PAYLOAD_ENV]: payloadPath },
@@ -82,34 +84,51 @@ export class BtwLauncher {
 			}
 
 			if (!paneId || paneId === runtime.paneId) throw new Error("Refusing invalid /btw side pane identity");
-			await this.store.writeLaunchState(
+			await this.store.mutateLaunchState(
 				payloadPath,
-				this.launchState(payload, "pane_created", { paneId, agentName }),
+				() => this.launchState(payload, "pane_created", { paneId, agentName }),
 			);
-			const model = payload.config.model === "inherit" ? payload.metadata.model : payload.config.model;
-			const thinking = payload.config.thinking === "inherit" ? payload.parentThinkingLevel : payload.config.thinking;
 			await this.startAgentInFreshPane({
 				name: agentName,
 				kind: "pi",
 				paneId,
-				args: buildChildPiArgs(payload, model, thinking),
+				args: buildChildPiArgs(payload, payload.metadata.model, payload.parentThinkingLevel),
 			}, signal);
-			// The child may bind its first Pi session while agent start is waiting.
-			// Preserve that binding rather than overwriting it with a stale snapshot.
-			const current = await this.store.readLaunchState(payloadPath).catch(() => undefined);
-			await this.store.writeLaunchState(payloadPath, {
-				...this.launchState(payload, "child_ready", { paneId, agentName }),
-				...(current?.launchId === payload.launchId && current.childSessionId
-					? { childSessionId: current.childSessionId }
-					: {}),
-			});
+			// The same cross-process lock also protects a child session that binds
+			// while agent start is returning; mutateLaunchState preserves that identity.
+			await this.store.mutateLaunchState(
+				payloadPath,
+				() => this.launchState(payload, "child_ready", { paneId, agentName }),
+			);
 			return { paneId, agentName };
 		} catch (error) {
-			if (paneId && paneId !== runtime.paneId) await this.client.closePane(paneId).catch(() => undefined);
-			await this.store.remove(payloadPath).catch(() => undefined);
+			let closeFailure: unknown;
+			if (paneId && paneId !== runtime.paneId) {
+				// Persist the explicit split result before cleanup. If close is uncertain,
+				// retaining the launch files is more useful than pretending cleanup won.
+				await this.store.mutateLaunchState(
+					payloadPath,
+					(current) => current?.paneId
+						? undefined
+						: this.launchState(payload, "pane_created", { paneId, agentName }),
+				).catch(() => undefined);
+				try {
+					await this.client.closePane(paneId);
+				} catch (candidate) {
+					if (!isMissingPaneError(candidate)) closeFailure = candidate;
+				}
+			}
+			if (closeFailure === undefined) await this.store.remove(payloadPath).catch(() => undefined);
+			const message = error instanceof Error ? error.message : String(error);
 			if (unidentifiedSplitFailure) {
-				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(`${message}. The split response had no pane ID; a possible orphan pane was left untouched.`);
+			}
+			if (closeFailure !== undefined && paneId) {
+				const closeMessage = closeFailure instanceof Error ? closeFailure.message : String(closeFailure);
+				throw new Error(
+					`${message}. Could not confirm closure of owned side pane ${paneId} (${closeMessage}); private launch files were preserved at ${payloadPath}.`,
+					{ cause: error },
+				);
 			}
 			throw error;
 		}

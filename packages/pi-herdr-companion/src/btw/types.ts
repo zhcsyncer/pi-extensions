@@ -1,12 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { SessionContext } from "@earendil-works/pi-coding-agent";
-import {
-	BTW_TOOL_MODES,
-	THINKING_LEVELS,
-	isModelName,
-	type CompanionConfig,
-	type ThinkingLevel,
-} from "../config.ts";
 
 export const BTW_PAYLOAD_VERSION = 1 as const;
 export const BTW_PAYLOAD_ENV = "PI_HERDR_COMPANION_BTW_PAYLOAD";
@@ -14,7 +7,6 @@ export const BTW_LAUNCH_DRAFT_ARG = "--launch-draft";
 export const BTW_LAUNCH_DRAFT_COMMAND = `/btw ${BTW_LAUNCH_DRAFT_ARG}`;
 
 export type AgentMessage = SessionContext["messages"][number];
-export type BtwConfig = CompanionConfig["btw"];
 
 export interface ParentContextMetadata {
 	generatedAt: string;
@@ -39,7 +31,6 @@ export interface BtwPayload {
 	parentThinkingLevel: string;
 	messages: AgentMessage[];
 	draftQuestion: string;
-	config: BtwConfig;
 }
 
 export interface CreateBtwPayloadOptions extends Omit<
@@ -72,7 +63,6 @@ export function createBtwPayload(options: CreateBtwPayloadOptions): BtwPayload {
 		parentThinkingLevel: options.parentThinkingLevel,
 		messages: options.messages,
 		draftQuestion: options.draftQuestion,
-		config: { ...options.config },
 	};
 }
 
@@ -96,31 +86,16 @@ export function isBtwPayload(value: unknown): value is BtwPayload {
 		typeof value.parentToolSchemaFingerprint !== "string") return false;
 	if (typeof value.parentThinkingLevel !== "string") return false;
 	if (!Array.isArray(value.messages) || !value.messages.every((message) => isRecord(message) && typeof message.role === "string")) return false;
-	if (typeof value.draftQuestion !== "string") return false;
-	if (!isRecord(value.config) || typeof value.config.autoSubmit !== "boolean") return false;
-	if (value.config.model !== "inherit" && (typeof value.config.model !== "string" || !isModelName(value.config.model))) return false;
-	if (value.config.thinking !== "inherit" && !THINKING_LEVELS.includes(value.config.thinking as ThinkingLevel)) return false;
-	if (!BTW_TOOL_MODES.includes(value.config.tools as BtwConfig["tools"])) return false;
-	return value.config.split === "down" || value.config.split === "right";
+	return typeof value.draftQuestion === "string";
 }
 
 export function buildChildPiArgs(payload: BtwPayload, model: string, thinking: string): string[] {
-	const toolArgs = payload.config.tools === "inherit"
-		? payload.parentActiveTools.length > 0
-			? ["--tools", payload.parentActiveTools.join(",")]
-			: ["--no-tools"]
-		: payload.config.tools === "read-only"
-			? ["--tools", "read,grep,find,ls"]
-			: payload.config.tools === "none"
-				? ["--no-tools"]
-				: [];
 	return [
 		"--no-session",
 		"--model",
 		model,
 		"--thinking",
 		thinking,
-		...toolArgs,
-		...(payload.config.autoSubmit && payload.draftQuestion.trim() ? [BTW_LAUNCH_DRAFT_COMMAND] : []),
+		...(payload.draftQuestion.trim() ? [BTW_LAUNCH_DRAFT_COMMAND] : []),
 	];
 }

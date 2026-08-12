@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.ts";
 import { BtwContextStore } from "../src/btw/context-store.ts";
 import { MergeCoordinator, type ParentMergePort } from "../src/btw/merge.ts";
 import {
@@ -30,7 +29,6 @@ function payload(overrides: Partial<BtwPayload> = {}): BtwPayload {
 		parentThinkingLevel: "high",
 		messages: [{ role: "user", content: [{ type: "text", text: "parent" }], timestamp: 0 } as never],
 		draftQuestion: "question",
-		config: { ...DEFAULT_CONFIG.btw },
 		launchId: "launch-1",
 		capability: "c".repeat(64),
 		...overrides,

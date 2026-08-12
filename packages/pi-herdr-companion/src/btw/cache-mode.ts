@@ -40,6 +40,14 @@ export function fingerprintSystemPrompt(systemPrompt: string): string {
 	return createHash("sha256").update(systemPrompt).digest("hex");
 }
 
+/** Keep the exact parent prompt as the cache prefix without discarding child handlers. */
+export function composeNativeSystemPrompt(parentSystemPrompt: string, currentSystemPrompt: string): string {
+	if (currentSystemPrompt === parentSystemPrompt || currentSystemPrompt.startsWith(`${parentSystemPrompt}\n`)) {
+		return currentSystemPrompt;
+	}
+	return `${parentSystemPrompt}\n\n## Current side-session system context\n${currentSystemPrompt}`;
+}
+
 /** Fingerprint the ordered active provider schema, not only its tool names. */
 export function fingerprintActiveToolSchemas(
 	activeToolNames: readonly string[],
@@ -86,16 +94,16 @@ export function decideCacheMode(
 	if (!payload.parentToolSchemaFingerprint) {
 		return { mode: "flattened", reason: "parent active-tool schema fingerprint unavailable" };
 	}
-	if (payload.config.model !== "inherit" || actual.model !== payload.metadata.model) {
-		return { mode: "flattened", reason: "model override changed the provider cache prefix" };
+	if (actual.model !== payload.metadata.model) {
+		return { mode: "flattened", reason: "model differs from the parent" };
 	}
-	if (payload.config.tools !== "inherit" || !sameStrings(actual.activeTools, payload.parentActiveTools)) {
+	if (!sameStrings(actual.activeTools, payload.parentActiveTools)) {
 		return { mode: "flattened", reason: "active tools differ from the parent" };
 	}
 	if (!actual.toolSchemaFingerprint || actual.toolSchemaFingerprint !== payload.parentToolSchemaFingerprint) {
 		return { mode: "flattened", reason: "ordered active-tool schemas differ from the parent" };
 	}
-	if (payload.config.thinking !== "inherit" || actual.thinkingLevel !== payload.parentThinkingLevel) {
+	if (actual.thinkingLevel !== payload.parentThinkingLevel) {
 		return { mode: "flattened", reason: "thinking level differs from the parent" };
 	}
 	return { mode: "native" };

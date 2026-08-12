@@ -28,27 +28,13 @@ export function hasUsableHerdrRuntime(snapshot: RuntimeSnapshot): boolean {
 	return snapshot.inside && Boolean(snapshot.paneId && snapshot.socketPath);
 }
 
-export function buildRuntimePrompt(snapshot: RuntimeSnapshot): string {
-	if (!snapshot.inside) {
-		return [
-			"## Runtime: Herdr companion",
-			"inside: false",
-			"Herdr tools and /btw launch are unavailable. Use tmux for long-running processes; never nohup/&/disown.",
-		].join("\n");
-	}
-	if (!hasUsableHerdrRuntime(snapshot)) {
-		const missing = [
-			...(snapshot.paneId ? [] : ["caller pane ID"]),
-			...(snapshot.socketPath ? [] : ["socket path"]),
-		].join(" and ");
-		return [
-			"## Runtime: Herdr companion",
-			"inside: true",
-			"availability: degraded/unavailable",
-			`missing: ${missing || "reliable caller identity"}`,
-			"Managed Herdr process and /btw launch features are unavailable in this session. Use tmux for long-running processes; never nohup/&/disown.",
-		].join("\n");
-	}
+export function buildRuntimePrompt(
+	snapshot: RuntimeSnapshot,
+	options: { includeTuiFeatures?: boolean } = {},
+): string {
+	// Unusable runtimes are strict no-ops: returning an empty block makes prompt
+	// injection safe even if a caller forgets the extension-level activation gate.
+	if (!hasUsableHerdrRuntime(snapshot)) return "";
 
 	return [
 		"## Runtime: Herdr companion",
@@ -57,11 +43,13 @@ export function buildRuntimePrompt(snapshot: RuntimeSnapshot): string {
 		`tab: ${snapshot.tabId ?? "unknown"}`,
 		`workspace: ${snapshot.workspaceId ?? "unknown"}`,
 		"For dev/preview/watch use herdr_process; do not probe HERDR_ENV or use nohup/&/disown.",
-		"/btw opens an independent Herdr Pi side thread; it enters the parent context only after explicit merge.",
+		...(options.includeTuiFeatures
+			? ["/btw is session-scoped: in a parent session, /btw <question> opens an independent side thread; in a side pane, /btw merge <follow-up> requests an explicit merge back to the parent."]
+			: []),
 	].join("\n");
 }
 
 export function appendRuntimePrompt(systemPrompt: string, runtimePrompt: string): string {
-	if (systemPrompt.includes(runtimePrompt)) return systemPrompt;
+	if (!runtimePrompt || systemPrompt.includes(runtimePrompt)) return systemPrompt;
 	return systemPrompt ? `${systemPrompt}\n\n${runtimePrompt}` : runtimePrompt;
 }

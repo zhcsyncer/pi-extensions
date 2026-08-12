@@ -1,6 +1,5 @@
 import type { ExecResult } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.ts";
 import { HerdrCommandError } from "../src/herdr-client.ts";
 import { bindChildSession, focusParentAndCloseChild } from "../src/btw/child.ts";
 import {
@@ -8,8 +7,9 @@ import {
 	type BtwLaunchClient,
 	type BtwLaunchStore,
 	type BtwLaunchTiming,
+	type LaunchBtwOptions,
 } from "../src/btw/launch.ts";
-import { createBtwPayload } from "../src/btw/types.ts";
+import { BTW_LAUNCH_DRAFT_COMMAND, createBtwPayload } from "../src/btw/types.ts";
 import type { LaunchState } from "../src/btw/protocol.ts";
 
 function payload() {
@@ -24,7 +24,6 @@ function payload() {
 		parentThinkingLevel: "high",
 		messages: [{ role: "user", content: [{ type: "text", text: "parent" }], timestamp: 0 } as never],
 		draftQuestion: "question",
-		config: { ...DEFAULT_CONFIG.btw },
 		launchId: "abcdef123456",
 		capability: "c".repeat(64),
 	});
@@ -44,8 +43,12 @@ function herdrError(code: string): HerdrCommandError {
 class FakeStore implements BtwLaunchStore {
 	states: LaunchState[] = [];
 	removed: string[] = [];
-	async writeLaunchState(_path: string, state: LaunchState) { this.states.push(state); }
-	async readLaunchState(_path: string) { return this.states.at(-1); }
+	async mutateLaunchState(_path: string, mutate: (current: LaunchState | undefined) => LaunchState | undefined) {
+		const current = this.states.at(-1);
+		const next = mutate(current);
+		if (next) this.states.push(next);
+		return next ?? current;
+	}
 	async remove(path: string) { this.removed.push(path); }
 }
 
@@ -68,6 +71,7 @@ class FakeClient implements BtwLaunchClient {
 	splitError?: Error;
 	startError?: Error;
 	startErrors: Error[] = [];
+	closeError?: Error;
 	splitPaneId = "w1:p2";
 	async splitPane(options: unknown) {
 		this.calls.push({ name: "split", args: [options] });
@@ -77,6 +81,7 @@ class FakeClient implements BtwLaunchClient {
 	}
 	async closePane(paneId: string) {
 		this.calls.push({ name: "close", args: [paneId] });
+		if (this.closeError) throw this.closeError;
 		this.panes.delete(paneId);
 	}
 	async startAgent(options: unknown, signal?: AbortSignal) {
@@ -112,8 +117,14 @@ function launch(
 	store = new FakeStore(),
 	timing: BtwLaunchTiming = new FakeTiming(),
 ) {
+	const implementation = new BtwLauncher(client, store, () => new Date("2026-08-09T12:00:01.000Z"), timing);
 	return {
-		launcher: new BtwLauncher(client, store, () => new Date("2026-08-09T12:00:01.000Z"), timing),
+		launcher: {
+			launch(options: Omit<LaunchBtwOptions, "direction"> & { direction?: LaunchBtwOptions["direction"] }) {
+				return implementation.launch({ direction: "down", ...options });
+			},
+			isPaneLive: implementation.isPaneLive.bind(implementation),
+		},
 		client,
 		store,
 	};
@@ -220,19 +231,25 @@ describe("BTW launch cleanup", () => {
 	it("splits focused with a path-only env capability and records durable child identity", async () => {
 		const { launcher, client, store } = launch();
 		const value = payload();
-		const launched = await launcher.launch({ payload: value, payloadPath: "/private/launch/payload.json", runtime });
+		const launched = await launcher.launch({ payload: value, payloadPath: "/private/launch/payload.json", runtime, direction: "right" });
 		expect(launched).toEqual({ paneId: "w1:p2", agentName: "btw-sessio-abcdef" });
 		expect(client.calls[0]).toMatchObject({
 			name: "split",
 			args: [{
 				target: "current",
-				direction: "down",
+				direction: "right",
 				cwd: "/work",
 				focus: true,
 				environment: { PI_HERDR_COMPANION_BTW_PAYLOAD: "/private/launch/payload.json" },
 			}],
 		});
 		const agent = client.calls.find((call) => call.name === "start-agent")?.args[0] as { args: string[] };
+		expect(agent.args).toEqual([
+			"--no-session",
+			"--model", "openai/gpt",
+			"--thinking", "high",
+			BTW_LAUNCH_DRAFT_COMMAND,
+		]);
 		expect(agent.args.join(" ")).not.toContain(value.capability);
 		expect(agent.args.join(" ")).not.toContain(value.draftQuestion);
 		expect(store.states.map((state) => state.status)).toEqual(["pane_created", "child_ready"]);
@@ -265,6 +282,25 @@ describe("BTW launch cleanup", () => {
 		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime })).rejects.toBeInstanceOf(HerdrCommandError);
 		expect(client.calls.some((call) => call.name === "close" && call.args[0] === "w1:p7")).toBe(true);
 		expect(store.removed).toEqual(["/private/payload.json"]);
+	});
+
+	it("preserves launch files when closing an explicitly owned failed split is uncertain", async () => {
+		const client = new FakeClient();
+		client.splitError = new HerdrCommandError(["pane", "split"], {
+			stdout: JSON.stringify({ result: { pane: { pane_id: "w1:p7" } } }),
+			stderr: "",
+			code: 0,
+			killed: true,
+		});
+		client.closeError = new Error("close unavailable");
+		client.panes.add("w1:p7");
+		const store = new FakeStore();
+		const { launcher } = launch(client, store);
+		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
+			.rejects.toThrow(/w1:p7.*preserved/);
+		expect(store.states.at(-1)).toMatchObject({ paneId: "w1:p7", status: "pane_created" });
+		expect(store.removed).toEqual([]);
+		expect(client.panes.has("w1:p7")).toBe(true);
 	});
 
 	it("never guesses a same-cwd pane when split failure has no explicit pane ID", async () => {

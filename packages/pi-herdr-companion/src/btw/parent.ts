@@ -3,14 +3,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-	BTW_TOOL_MODES,
-	THINKING_LEVELS,
-	isModelName,
-	parseCompanionConfig,
-	type CompanionConfig,
-	type ThinkingLevel,
-} from "../config.ts";
+import type { SplitDirection } from "../config.ts";
 import type { RuntimeSnapshot } from "../runtime.ts";
 import { hasUsableHerdrRuntime } from "../runtime.ts";
 import type { BtwContextStore } from "./context-store.ts";
@@ -23,17 +16,14 @@ import type { BtwLauncher } from "./launch.ts";
 
 const MERGE_POLL_INTERVAL_MS = 2_000;
 
-export interface BtwConfigController {
-	path: string;
-	get(): CompanionConfig;
-	save(config: CompanionConfig): Promise<CompanionConfig>;
-	reset(): Promise<CompanionConfig>;
+export interface BtwParentRegistration {
+	/** Initialize the current TUI session when registration occurs during session_start. */
+	startSession(ctx: ExtensionContext): Promise<void>;
 }
 
 export type ParentBtwStore = Pick<
 	BtwContextStore,
 	| "create"
-	| "remove"
 	| "removeStale"
 	| "listLaunchPayloadPaths"
 	| "read"
@@ -45,61 +35,17 @@ export type ParentBtwStore = Pick<
 	| "withDeliveryLock"
 >;
 
-export function formatBtwConfig(config: CompanionConfig): string {
-	return [
-		`auto-submit: ${config.btw.autoSubmit ? "on" : "off"}`,
-		`model: ${config.btw.model}`,
-		`thinking: ${config.btw.thinking}`,
-		`tools: ${config.btw.tools}`,
-		`split: ${config.btw.split}`,
-	].join(" · ");
-}
-
-export const BTW_CONFIG_USAGE = "/btw config [auto-submit on|off | model inherit|provider/model | thinking inherit|off|minimal|low|medium|high|xhigh|max | tools inherit|all|read-only|none | split down|right | reset]";
-
-export function applyBtwConfigCommand(current: CompanionConfig, input: string): { action: "show" | "save"; config: CompanionConfig } {
-	const trimmed = input.trim();
-	if (!trimmed || trimmed === "show") return { action: "show", config: current };
-	const [key, value, ...extra] = trimmed.split(/\s+/);
-	if (!key || !value || extra.length > 0) throw new Error(BTW_CONFIG_USAGE);
-	const next = parseCompanionConfig(JSON.parse(JSON.stringify(current)) as unknown);
-	switch (key) {
-		case "auto-submit":
-			if (value !== "on" && value !== "off") throw new Error(BTW_CONFIG_USAGE);
-			next.btw.autoSubmit = value === "on";
-			break;
-		case "model":
-			if (value !== "inherit" && !isModelName(value)) throw new Error(BTW_CONFIG_USAGE);
-			next.btw.model = value;
-			break;
-		case "thinking":
-			if (value !== "inherit" && !THINKING_LEVELS.includes(value as ThinkingLevel)) throw new Error(BTW_CONFIG_USAGE);
-			next.btw.thinking = value as "inherit" | ThinkingLevel;
-			break;
-		case "tools":
-			if (!BTW_TOOL_MODES.includes(value as CompanionConfig["btw"]["tools"])) throw new Error(BTW_CONFIG_USAGE);
-			next.btw.tools = value as CompanionConfig["btw"]["tools"];
-			break;
-		case "split":
-			if (value !== "down" && value !== "right") throw new Error(BTW_CONFIG_USAGE);
-			next.btw.split = value;
-			break;
-		default:
-			throw new Error(BTW_CONFIG_USAGE);
-	}
-	return { action: "save", config: next };
-}
-
 export function registerBtwParent(
 	pi: ExtensionAPI,
 	options: {
 		runtime: RuntimeSnapshot;
 		store: ParentBtwStore;
 		launcher: BtwLauncher;
-		config: BtwConfigController;
+		getDirection(): SplitDirection;
 	},
-): void {
-	const { runtime, store, launcher, config } = options;
+): BtwParentRegistration {
+	const { runtime, store, launcher, getDirection } = options;
+	let activeSessionContext: ExtensionContext | undefined;
 	let sessionCtx: Pick<ExtensionContext, "sessionManager" | "isIdle"> | undefined;
 	let notify: ((message: string, type: "info" | "warning" | "error") => void) | undefined;
 	let pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -135,12 +81,19 @@ export function registerBtwParent(
 		}).catch(() => undefined);
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
+	async function startSession(ctx: ExtensionContext): Promise<void> {
+		if (activeSessionContext === ctx) return;
+		activeSessionContext = ctx;
 		sessionCtx = ctx;
 		notify = (message, type) => ctx.ui.notify(message, type);
 		ensurePolling();
 		await cleanupStale();
 		await coordinator.scan();
+	}
+
+	pi.on("session_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		await startSession(ctx);
 	});
 	pi.on("agent_start", async () => {
 		// A later event may now observe the asynchronously appended custom message.
@@ -151,6 +104,7 @@ export function registerBtwParent(
 	});
 	pi.on("session_shutdown", () => {
 		stopPolling();
+		activeSessionContext = undefined;
 		sessionCtx = undefined;
 		notify = undefined;
 	});
@@ -163,24 +117,6 @@ export function registerBtwParent(
 			const route = parseBtwCommand(args);
 			if (route.kind === "help") {
 				ctx.ui.notify(BTW_HELP, "info");
-				return;
-			}
-			if (route.kind === "config") {
-				try {
-					if (route.args.trim() === "reset") {
-						const reset = await config.reset();
-						ctx.ui.notify(`BTW config — ${formatBtwConfig(reset)}\n${config.path}`, "info");
-						return;
-					}
-					const result = applyBtwConfigCommand(config.get(), route.args);
-					const resolved = result.action === "save" ? await config.save(result.config) : result.config;
-					ctx.ui.notify(
-						`BTW config — ${formatBtwConfig(resolved)}\n${config.path}${result.action === "show" ? `\n${BTW_CONFIG_USAGE}` : ""}`,
-						"info",
-					);
-				} catch (error) {
-					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-				}
 				return;
 			}
 			if (route.kind === "merge") {
@@ -211,7 +147,6 @@ export function registerBtwParent(
 				return;
 			}
 
-			let payloadPath: string | undefined;
 			try {
 				await cleanupStale();
 				const createdAt = new Date().toISOString();
@@ -241,15 +176,15 @@ export function registerBtwParent(
 					parentThinkingLevel: pi.getThinkingLevel(),
 					messages: context.messages,
 					draftQuestion: route.kind === "ask" ? route.question : "",
-					config: { ...config.get().btw },
 				});
-				payloadPath = await store.create(payload);
-				await launcher.launch({ payload, payloadPath, runtime });
+				const payloadPath = await store.create(payload);
+				await launcher.launch({ payload, payloadPath, runtime, direction: getDirection() });
 				ensurePolling();
 			} catch (error) {
-				if (payloadPath) await store.remove(payloadPath).catch(() => undefined);
 				ctx.ui.notify(`/btw launch failed: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});
+
+	return { startSession };
 }

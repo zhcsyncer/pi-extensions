@@ -1,9 +1,8 @@
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG } from "../src/config.ts";
 import { registerBtwChild, type ChildStorePort } from "../src/btw/child.ts";
 import { fingerprintActiveToolSchemas, fingerprintSystemPrompt } from "../src/btw/cache-mode.ts";
-import { createBtwPayload, type BtwPayload } from "../src/btw/types.ts";
+import { BTW_LAUNCH_DRAFT_ARG, createBtwPayload, type BtwPayload } from "../src/btw/types.ts";
 import type { LaunchState, MergeAck, MergeRequest } from "../src/btw/protocol.ts";
 
 const tools = [{
@@ -14,7 +13,7 @@ const tools = [{
 	sourceInfo: { path: "<builtin:read>", source: "builtin", scope: "temporary", origin: "top-level" },
 }] as unknown as ToolInfo[];
 
-function payload(): BtwPayload {
+function payload(overrides: Partial<BtwPayload> = {}): BtwPayload {
 	return createBtwPayload({
 		createdAt: "2026-08-09T12:00:00.000Z",
 		parentSessionId: "parent-session",
@@ -27,9 +26,9 @@ function payload(): BtwPayload {
 		parentThinkingLevel: "high",
 		messages: [{ role: "user", content: [{ type: "text", text: "parent context" }], timestamp: 0 } as never],
 		draftQuestion: "",
-		config: { ...DEFAULT_CONFIG.btw },
 		launchId: "launch-child",
 		capability: "c".repeat(64),
+		...overrides,
 	});
 }
 
@@ -44,7 +43,14 @@ class FakeStore implements ChildStorePort {
 	constructor(readonly value: BtwPayload, public state: LaunchState) {}
 	async read() { return this.value; }
 	async readLaunchState() { return this.state; }
-	async writeLaunchState(_path: string, state: LaunchState) { this.state = state; this.writes.push(state); }
+	async mutateLaunchState(_path: string, mutate: (current: LaunchState | undefined) => LaunchState | undefined) {
+		const next = mutate(this.state);
+		if (next) {
+			this.state = next;
+			this.writes.push(next);
+		}
+		return next ?? this.state;
+	}
 	async readMergeRequest() { return this.request; }
 	async readMergeAck() { return this.ack; }
 	async createMergeRequest(_path: string, request: MergeRequest) { this.request = request; }
@@ -163,6 +169,34 @@ async function registerAcceptedChild(
 }
 
 describe("BTW child session lifecycle", () => {
+	it("auto-submits a non-empty launch question exactly once", async () => {
+		const value = payload({ draftQuestion: "investigate the failure" });
+		const store = new FakeStore(value, {
+			version: 1,
+			launchId: value.launchId,
+			paneId: "w1:p2",
+			agentName: "btw-child",
+			status: "child_ready",
+			updatedAt: value.createdAt,
+		});
+		const h = harness();
+		await registerBtwChild(h.pi, {
+			store,
+			client: {
+				async getAgent() { return { paneId: "w1:p2" }; },
+				async focusAgent() {},
+				async closePane() {},
+			},
+			payloadPath: "/private/payload.json",
+			runtime: { inside: true, paneId: "w1:p2", socketPath: "/tmp/herdr" },
+		});
+		const { ctx } = context("first-child-session");
+		await emit(h.handlers, "session_start", { reason: "startup" }, ctx);
+		await h.commands.get("btw")?.handler(BTW_LAUNCH_DRAFT_ARG, ctx);
+		await h.commands.get("btw")?.handler(BTW_LAUNCH_DRAFT_ARG, ctx);
+		expect(h.sentUserMessages).toEqual(["investigate the failure"]);
+	});
+
 	it("disables replay, merge, ack cleanup, and launch draft after /new changes the session ID", async () => {
 		const value = payload();
 		const store = new FakeStore(value, {
@@ -223,7 +257,8 @@ describe("BTW child session lifecycle", () => {
 		const { ctx } = context("first-child-session");
 		await emit(h.handlers, "session_start", { reason: "reload" }, ctx);
 		const promptResult = (await emit(h.handlers, "before_agent_start", { systemPrompt: "child" }, ctx))[0];
-		expect(promptResult).toEqual({ systemPrompt: "parent system" });
+		expect(promptResult.systemPrompt).toContain("parent system");
+		expect(promptResult.systemPrompt).toContain("child");
 		const contextResult = (await emit(h.handlers, "context", { messages: [] }, ctx))[0] as { messages: unknown[] };
 		expect(contextResult.messages.length).toBeGreaterThan(1);
 		expect(store.writes).toEqual([]);

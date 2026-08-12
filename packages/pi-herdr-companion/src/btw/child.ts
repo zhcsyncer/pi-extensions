@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { buildSessionContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	buildSessionContext,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import type { HerdrClient } from "../herdr-client.ts";
 import type { RuntimeSnapshot } from "../runtime.ts";
-import { decideCacheMode, fingerprintActiveToolSchemas, type CacheMode } from "./cache-mode.ts";
+import {
+	composeNativeSystemPrompt,
+	decideCacheMode,
+	fingerprintActiveToolSchemas,
+	type CacheMode,
+} from "./cache-mode.ts";
 import {
 	SIDE_PANE_INSTRUCTIONS,
 	buildContextDocument,
@@ -27,7 +37,7 @@ export type ChildStorePort = Pick<
 	BtwContextStore,
 	| "read"
 	| "readLaunchState"
-	| "writeLaunchState"
+	| "mutateLaunchState"
 	| "readMergeRequest"
 	| "readMergeAck"
 	| "createMergeRequest"
@@ -41,28 +51,45 @@ export interface ChildSessionBinding {
 	state?: LaunchState;
 }
 
+export interface BtwChildRegistration {
+	/** Initialize the current TUI session when registration occurs during session_start. */
+	startSession(event: SessionStartEvent, ctx: ExtensionContext): Promise<void>;
+}
+
 /** Bind exactly the first Pi session that consumes this private launch. */
 export async function bindChildSession(
-	store: Pick<BtwContextStore, "readLaunchState" | "writeLaunchState">,
+	store: Pick<BtwContextStore, "mutateLaunchState">,
 	payloadPath: string,
 	payload: Pick<BtwPayload, "launchId">,
 	childSessionId: string,
 	now: () => Date = () => new Date(),
 ): Promise<ChildSessionBinding> {
-	const state = await store.readLaunchState(payloadPath).catch(() => undefined);
-	if (!state) return { bound: false, reason: "private launch binding state is missing or unreadable" };
-	if (state.launchId !== payload.launchId) return { bound: false, reason: "private launch binding belongs to another launch" };
-	if (state.childSessionId && state.childSessionId !== childSessionId) {
-		return {
-			bound: false,
-			reason: `this side thread is bound to Pi session ${state.childSessionId}; the current session ${childSessionId} is unrelated`,
-			state,
-		};
+	let reason: string | undefined;
+	let conflicting: LaunchState | undefined;
+	let state: LaunchState | undefined;
+	try {
+		state = await store.mutateLaunchState(payloadPath, (current) => {
+			if (!current) {
+				reason = "private launch binding state is missing or unreadable";
+				return undefined;
+			}
+			if (current.launchId !== payload.launchId) {
+				reason = "private launch binding belongs to another launch";
+				return undefined;
+			}
+			if (current.childSessionId && current.childSessionId !== childSessionId) {
+				reason = `this side thread is bound to Pi session ${current.childSessionId}; the current session ${childSessionId} is unrelated`;
+				conflicting = current;
+				return undefined;
+			}
+			if (current.childSessionId === childSessionId) return undefined;
+			return { ...current, childSessionId, updatedAt: now().toISOString() } satisfies LaunchState;
+		});
+	} catch {
+		return { bound: false, reason: "private launch binding state is missing or unreadable" };
 	}
-	if (state.childSessionId === childSessionId) return { bound: true, state };
-	const bound = { ...state, childSessionId, updatedAt: now().toISOString() } satisfies LaunchState;
-	await store.writeLaunchState(payloadPath, bound);
-	return { bound: true, state: bound };
+	if (reason) return { bound: false, reason, ...(conflicting ? { state: conflicting } : {}) };
+	return state ? { bound: true, state } : { bound: false, reason: "private launch binding state is missing or unreadable" };
 }
 
 export type ChildPreCloseStatus = "completed" | "blocked" | "failed";
@@ -142,7 +169,7 @@ export async function registerBtwChild(
 		payloadPath: string;
 		runtime: RuntimeSnapshot;
 	},
-): Promise<void> {
+): Promise<BtwChildRegistration> {
 	const { store, client, payloadPath, runtime } = options;
 	let payload: BtwPayload | undefined;
 	let payloadError: string | undefined;
@@ -156,6 +183,7 @@ export async function registerBtwChild(
 		? buildContextDocument(payload.metadata, serializeParentContext(payload.messages))
 		: "";
 	let cacheMode: CacheMode = { mode: "flattened", reason: "not negotiated" };
+	let activeSessionContext: ExtensionContext | undefined;
 	let sessionUi: { notify(message: string, type: "info" | "warning" | "error"): void } | undefined;
 	let ackTimer: ReturnType<typeof setInterval> | undefined;
 	let closing = false;
@@ -270,7 +298,11 @@ export async function registerBtwChild(
 			toolSchemaFingerprint: fingerprintActiveToolSchemas(activeTools, pi.getAllTools()),
 			thinkingLevel: pi.getThinkingLevel(),
 		});
-		if (cacheMode.mode === "native") return { systemPrompt: payload.parentSystemPrompt as string };
+		if (cacheMode.mode === "native") {
+			return {
+				systemPrompt: composeNativeSystemPrompt(payload.parentSystemPrompt as string, event.systemPrompt),
+			};
+		}
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${SIDE_PANE_INSTRUCTIONS}\n\nPrompt-cache fallback: ${cacheMode.reason}.`,
 		};
@@ -290,7 +322,7 @@ export async function registerBtwChild(
 		});
 	}
 
-	let launchDraftPending = Boolean(payload?.config.autoSubmit && payload.draftQuestion.trim());
+	let launchDraftPending = Boolean(payload?.draftQuestion.trim());
 	pi.registerCommand("btw", {
 		description: "Side thread: merge into the exact parent session, or show help",
 		handler: async (args, ctx) => {
@@ -388,16 +420,16 @@ export async function registerBtwChild(
 		},
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	async function startSession(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
+		if (ctx.mode !== "tui" || activeSessionContext === ctx) return;
+		activeSessionContext = ctx;
 		sessionUi = ctx.ui;
-		if (ctx.mode === "tui") ctx.ui.setTitle("pi /btw — Herdr side thread");
+		ctx.ui.setTitle("pi /btw — Herdr side thread");
 		if (!payload) {
-			if (ctx.mode === "tui") {
-				ctx.ui.setWidget("herdr-companion-btw", [
-					ctx.ui.theme.fg("error", "BTW payload unavailable; prompts are blocked."),
-					ctx.ui.theme.fg("dim", payloadError ?? "unknown payload error"),
-				]);
-			}
+			ctx.ui.setWidget("herdr-companion-btw", [
+				ctx.ui.theme.fg("error", "BTW payload unavailable; prompts are blocked."),
+				ctx.ui.theme.fg("dim", payloadError ?? "unknown payload error"),
+			]);
 			return;
 		}
 		const binding = await bindChildSession(
@@ -412,32 +444,30 @@ export async function registerBtwChild(
 			launchDraftPending = false;
 			stopAckPolling();
 			ctx.ui.notify(`BTW side-thread behavior is disabled: ${bindingReason}. Parent context will not be replayed or merged.`, "warning");
-			if (ctx.mode === "tui") {
-				ctx.ui.setWidget("herdr-companion-btw", [
-					ctx.ui.theme.fg("warning", "BTW disabled for this unrelated Pi session"),
-					ctx.ui.theme.fg("dim", bindingReason),
-				]);
-			}
+			ctx.ui.setWidget("herdr-companion-btw", [
+				ctx.ui.theme.fg("warning", "BTW disabled for this unrelated Pi session"),
+				ctx.ui.theme.fg("dim", bindingReason),
+			]);
 			return;
 		}
-		if (ctx.mode === "tui") {
-			ctx.ui.setWidget("herdr-companion-btw", [
-				ctx.ui.theme.fg("accent", `BTW side thread · tools ${payload.config.tools}`),
-				ctx.ui.theme.fg("dim", "Shared cwd; explicit /btw merge required"),
-			]);
-			if (_event.reason === "startup" && payload.draftQuestion.trim() && !payload.config.autoSubmit) {
-				ctx.ui.setEditorText(payload.draftQuestion);
-			}
-		}
+		ctx.ui.setWidget("herdr-companion-btw", [
+			ctx.ui.theme.fg("accent", "BTW side thread · Pi default tools"),
+			ctx.ui.theme.fg("dim", "Shared cwd; explicit /btw merge required"),
+		]);
 		startAckPolling();
-	});
+	}
+
+	pi.on("session_start", startSession);
 
 	pi.on("session_shutdown", async (event) => {
 		stopAckPolling();
+		activeSessionContext = undefined;
 		sessionUi = undefined;
 		if (sideThreadEnabled && event.reason === "quit") {
 			await store.removeIfNoPendingMerge(payloadPath).catch(() => undefined);
 		}
 		sideThreadEnabled = false;
 	});
+
+	return { startSession };
 }

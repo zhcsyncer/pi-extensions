@@ -1,8 +1,8 @@
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG, type CompanionConfig } from "../src/config.ts";
-import { applyBtwConfigCommand } from "../src/btw/parent.ts";
+import { buildRuntimePrompt } from "../src/runtime.ts";
 import {
+	composeNativeSystemPrompt,
 	decideCacheMode,
 	fingerprintActiveToolSchemas,
 	fingerprintSystemPrompt,
@@ -15,7 +15,7 @@ import {
 	validateRequestAgainstPayload,
 	type MergeRequest,
 } from "../src/btw/protocol.ts";
-import { parseBtwCommand } from "../src/btw/router.ts";
+import { BTW_HELP, parseBtwCommand } from "../src/btw/router.ts";
 import {
 	BTW_LAUNCH_DRAFT_COMMAND,
 	buildChildPiArgs,
@@ -24,10 +24,6 @@ import {
 	type AgentMessage,
 	type BtwPayload,
 } from "../src/btw/types.ts";
-
-function config(): CompanionConfig {
-	return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as CompanionConfig;
-}
 
 function user(text: string): AgentMessage {
 	return { role: "user", content: [{ type: "text", text }], timestamp: 0 } as AgentMessage;
@@ -59,29 +55,20 @@ function payload(overrides: Partial<BtwPayload> = {}): BtwPayload {
 		parentThinkingLevel: "high",
 		messages: [user("parent")],
 		draftQuestion: "side question",
-		config: config().btw,
 		launchId: "launch-1",
 		capability: "c".repeat(64),
 		...overrides,
 	});
 }
 
-describe("/btw parser and config", () => {
-	it("routes only exact reserved first words and preserves ordinary questions", () => {
+describe("/btw parser", () => {
+	it("reserves only ask, merge, and help while preserving ordinary questions", () => {
 		expect(parseBtwCommand("")).toEqual({ kind: "open" });
 		expect(parseBtwCommand("why merge conflicts happen")).toEqual({ kind: "ask", question: "why merge conflicts happen" });
 		expect(parseBtwCommand("merge later?")).toEqual({ kind: "merge", prompt: "later?" });
 		expect(parseBtwCommand("ask merge later?")).toEqual({ kind: "ask", question: "merge later?" });
-		expect(parseBtwCommand("config tools none")).toEqual({ kind: "config", args: "tools none" });
-	});
-
-	it("changes only BTW defaults and validates bounded values", () => {
-		const base = config();
-		const changed = applyBtwConfigCommand(base, "tools read-only").config;
-		expect(changed.btw.tools).toBe("read-only");
-		expect(changed.process).toEqual(base.process);
-		expect(applyBtwConfigCommand(changed, "model anthropic/sonnet").config.btw.model).toBe("anthropic/sonnet");
-		expect(() => applyBtwConfigCommand(base, "thinking enormous")).toThrow(/\/btw config/);
+		expect(parseBtwCommand("config tools none")).toEqual({ kind: "ask", question: "config tools none" });
+		expect(BTW_HELP).not.toContain("/btw config");
 	});
 });
 
@@ -90,16 +77,37 @@ describe("BTW payload and cache path", () => {
 		const value = payload();
 		expect(isBtwPayload(value)).toBe(true);
 		expect(isBtwPayload({ ...value, capability: "short" })).toBe(false);
-		expect(isBtwPayload({ ...value, config: { ...value.config, tools: "write-everything" } })).toBe(false);
+		expect(isBtwPayload({ ...value, draftQuestion: 42 })).toBe(false);
 	});
 
-	it("keeps context and capability off child argv; only a launch sentinel may be submitted", () => {
-		const value = payload({ config: { ...config().btw, autoSubmit: true } });
+	it("uses Pi default tools and auto-submits only a non-empty launch question", () => {
+		const value = payload();
 		const args = buildChildPiArgs(value, "openai/gpt", "high");
 		expect(args).toContain(BTW_LAUNCH_DRAFT_COMMAND);
 		expect(args.join(" ")).not.toContain(value.capability);
 		expect(args.join(" ")).not.toContain(value.draftQuestion);
-		expect(args).toContain("read,herdr_process");
+		expect(args).not.toContain("--tools");
+		expect(args).not.toContain("--no-tools");
+		expect(buildChildPiArgs(payload({ draftQuestion: "" }), "openai/gpt", "high"))
+			.not.toContain(BTW_LAUNCH_DRAFT_COMMAND);
+	});
+
+	it("keeps the parent cache prefix without dropping child-specific prompt handlers", () => {
+		expect(composeNativeSystemPrompt("parent", "child safety rule")).toBe(
+			"parent\n\n## Current side-session system context\nchild safety rule",
+		);
+		expect(composeNativeSystemPrompt("parent", "parent\n\nchild suffix")).toBe("parent\n\nchild suffix");
+	});
+
+	it("keeps cached BTW guidance accurate for both parent and child sessions", () => {
+		const runtime = { inside: true, paneId: "w1:p1", socketPath: "/tmp/herdr.sock" };
+		const parentPrompt = buildRuntimePrompt(runtime, { includeTuiFeatures: true });
+		const childPrompt = buildRuntimePrompt(runtime);
+		const composed = composeNativeSystemPrompt(parentPrompt, childPrompt);
+		expect(parentPrompt).toContain("in a parent session");
+		expect(parentPrompt).toContain("in a side pane");
+		expect(childPrompt).not.toContain("/btw");
+		expect(composed.startsWith(parentPrompt)).toBe(true);
 	});
 
 	it("uses native replay only for exact model/tool-schema/thinking and a known parent prompt", () => {
@@ -111,7 +119,7 @@ describe("BTW payload and cache path", () => {
 			thinkingLevel: "high",
 		};
 		expect(decideCacheMode(value, actual)).toEqual({ mode: "native" });
-		expect(decideCacheMode({ ...value, config: { ...value.config, tools: "read-only" } }, actual))
+		expect(decideCacheMode(value, { ...actual, activeTools: ["read"] }))
 			.toMatchObject({ mode: "flattened", reason: expect.stringContaining("tools") });
 		expect(decideCacheMode(value, { ...actual, toolSchemaFingerprint: "changed" }))
 			.toMatchObject({ mode: "flattened", reason: expect.stringContaining("schemas") });

@@ -4,7 +4,7 @@ import type { AgentMessage, ParentContextMetadata } from "./types.ts";
 
 export const SIDE_PANE_INSTRUCTIONS = `You are running in a /btw side pane spawned from another Pi session.
 
-Use the attached static parent-context snapshot as reference, not as new work to continue. Keep answers focused unless the user asks for depth. This side conversation remains independent until the user explicitly runs /btw merge. You may use inherited tools, but do not modify files unless the user explicitly asks.
+Use the attached static parent-context snapshot as reference, not as new work to continue. Keep answers focused unless the user asks for depth. This side conversation remains independent until the user explicitly runs /btw merge. You may use the tools Pi normally enables, but do not modify files unless the user explicitly asks.
 
 The side pane shares the parent's working directory. Tool actions can conflict with the parent through files, Git state, services, and ports; this is not a sandbox.`;
 

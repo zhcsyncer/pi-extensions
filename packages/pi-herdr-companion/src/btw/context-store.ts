@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { withCandidateLock } from "../candidate-lock.ts";
 import type { RuntimeSnapshot } from "../runtime.ts";
 import {
 	LAUNCH_STATE_FILE,
@@ -34,31 +35,19 @@ import { isBtwPayload, type BtwPayload } from "./types.ts";
 
 const PAYLOAD_FILE = "payload.json";
 const LAUNCH_PREFIX = "launch-";
-const DELIVERY_LOCK_FILE = ".delivery.lock";
+const DELIVERY_LOCK_PREFIX = ".delivery.lock.";
 const MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_MAILBOX_BYTES = 256 * 1024;
 const LOCK_WAIT_MS = 2_000;
 const STALE_LOCK_MS = 30_000;
-const MAX_LOCK_BYTES = 4 * 1024;
 export const DEFAULT_STALE_LAUNCH_MS = 24 * 60 * 60 * 1_000;
-
-interface DeliveryLockRecord {
-	token: string;
-	pid: number;
-}
-
-interface DeliveryLockIdentity extends DeliveryLockRecord {
-	dev: number;
-	ino: number;
-	mtimeMs: number;
-}
 
 export interface BtwContextStoreOptions {
 	lockWaitMs?: number;
 	staleLockMs?: number;
 	isProcessAlive?(pid: number): boolean | "unknown" | Promise<boolean | "unknown">;
-	/** Test seam immediately before the stale candidate is re-read. */
-	beforeStaleLockRecheck?(): void | Promise<void>;
+	/** Test seam after publishing a unique candidate and before lock election. */
+	beforeLockElection?(): void | Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -165,6 +154,41 @@ export class BtwContextStore {
 		return value;
 	}
 
+	/** Serialize launch-state read/modify/write with mailbox delivery mutations. */
+	async mutateLaunchState(
+		payloadPath: string,
+		mutate: (current: LaunchState | undefined) => LaunchState | undefined,
+	): Promise<LaunchState | undefined> {
+		return this.withDeliveryLock(payloadPath, async () => {
+			const current = await this.readLaunchState(payloadPath);
+			const requested = mutate(current ? { ...current } : undefined);
+			if (requested === undefined) return current;
+			if (!isLaunchState(requested)) throw new Error("Invalid /btw launch state mutation");
+			if (current) {
+				if (requested.launchId !== current.launchId) throw new Error("Refusing to change /btw launch identity");
+				const rank: Record<LaunchState["status"], number> = {
+					payload_created: 0,
+					pane_created: 1,
+					child_ready: 2,
+				};
+				if (rank[requested.status] < rank[current.status]) throw new Error("Refusing to move /btw launch state backwards");
+				for (const key of ["paneId", "agentName", "childSessionId"] as const) {
+					if (current[key] && requested[key] && current[key] !== requested[key]) {
+						throw new Error(`Refusing to replace /btw launch ${key}`);
+					}
+				}
+			}
+			const next: LaunchState = {
+				...requested,
+				...(current?.paneId ? { paneId: current.paneId } : {}),
+				...(current?.agentName ? { agentName: current.agentName } : {}),
+				...(current?.childSessionId ? { childSessionId: current.childSessionId } : {}),
+			};
+			await this.writeLaunchState(payloadPath, next);
+			return next;
+		});
+	}
+
 	async createMergeRequest(payloadPath: string, request: MergeRequest): Promise<void> {
 		if (!isMergeRequest(request)) throw new Error("Invalid /btw merge request");
 		await this.withDeliveryLock(payloadPath, async () => {
@@ -214,55 +238,25 @@ export class BtwContextStore {
 	async withDeliveryLock<T>(payloadPath: string, operation: () => Promise<T>): Promise<T> {
 		const launchDir = await this.validateLaunchDir(payloadPath, false);
 		if (!launchDir) throw new Error("Missing /btw launch directory");
-		const lockPath = join(launchDir, DELIVERY_LOCK_FILE);
-		const deadline = Date.now() + (this.options.lockWaitMs ?? LOCK_WAIT_MS);
-		const token = randomUUID();
-		let handle: Awaited<ReturnType<typeof open>> | undefined;
-		let ownedIdentity: DeliveryLockIdentity | undefined;
-		while (!handle) {
-			try {
-				const candidate = await open(lockPath, "wx", 0o600);
-				try {
-					await candidate.writeFile(`${JSON.stringify({ token, pid: process.pid, createdAt: new Date().toISOString() })}\n`);
-					await candidate.sync();
-					const info = await candidate.stat();
-					ownedIdentity = { token, pid: process.pid, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs };
-					handle = candidate;
-				} catch (error) {
-					await candidate.close().catch(() => undefined);
-					await rm(lockPath, { force: true }).catch(() => undefined);
-					throw error;
-				}
-			} catch (error) {
-				if (!isRecord(error) || error.code !== "EEXIST") throw error;
-				if (await this.reclaimStaleDeliveryLock(lockPath)) continue;
-				if (Date.now() >= deadline) throw new Error("Timed out waiting for /btw delivery lock");
-				await new Promise((resolve) => setTimeout(resolve, 25));
-			}
-		}
-		try {
-			return await operation();
-		} finally {
-			await handle.close();
-			try {
-				const current = await this.readDeliveryLockIdentity(lockPath);
-				if (ownedIdentity && current && this.sameDeliveryLock(ownedIdentity, current)) {
-					await rm(lockPath, { force: true });
-				}
-			} catch (error) {
-				if (!isMissing(error)) throw error;
-			}
-		}
+		return withCandidateLock(launchDir, {
+			prefix: DELIVERY_LOCK_PREFIX,
+			waitMs: this.options.lockWaitMs ?? LOCK_WAIT_MS,
+			staleMs: this.options.staleLockMs ?? STALE_LOCK_MS,
+			isProcessAlive: this.options.isProcessAlive,
+			beforeElection: this.options.beforeLockElection,
+		}, operation);
 	}
 
 	async removeIfNoPendingMerge(payloadPath: string): Promise<boolean> {
-		const request = await this.readMergeRequest(payloadPath);
-		if (request !== undefined) {
-			const ack = await this.readMergeAck(payloadPath);
-			if (!ackMatchesRequest(ack, request)) return false;
-		}
-		await this.remove(payloadPath);
-		return true;
+		return this.withDeliveryLock(payloadPath, async () => {
+			const request = await this.readMergeRequest(payloadPath);
+			if (request !== undefined) {
+				const ack = await this.readMergeAck(payloadPath);
+				if (!ackMatchesRequest(ack, request)) return false;
+			}
+			await this.remove(payloadPath);
+			return true;
+		});
 	}
 
 	async remove(payloadPath: string): Promise<void> {
@@ -281,92 +275,38 @@ export class BtwContextStore {
 			if (!entry.name.startsWith(LAUNCH_PREFIX) || !entry.isDirectory()) continue;
 			const launchDir = join(root, entry.name);
 			const info = await lstat(launchDir).catch(() => undefined);
-			if (!info?.isDirectory() || info.isSymbolicLink() || info.mtimeMs >= now - maxAgeMs) continue;
+			if (!info?.isDirectory() || info.isSymbolicLink()) continue;
 			try {
 				assertOwner(info.uid, launchDir);
 				assertPrivate(info.mode, launchDir);
 				const payloadPath = join(launchDir, PAYLOAD_FILE);
-				const request = await this.readMergeRequest(payloadPath);
-				const ack = await this.readMergeAck(payloadPath).catch(() => undefined);
-				if (request !== undefined && !ackMatchesRequest(ack, request)) continue;
-				const launchState = await this.readLaunchState(payloadPath).catch(() => undefined);
-				if (launchState?.agentName && !launchState.paneId) continue;
-				if (launchState?.paneId) {
-					const live = await options.isPaneLive(launchState.paneId, launchState.agentName)
-						.catch(() => "unknown" as const);
-					if (live !== false) continue;
-				}
-				await rm(launchDir, { recursive: true, force: true });
-				removed.push(payloadPath);
+				const didRemove = await this.withDeliveryLock(payloadPath, async () => {
+					// Lock candidates change directory mtime, so only the explicit state
+					// transition timestamp is a meaningful launch age.
+					const launchState = await this.readLaunchState(payloadPath);
+					if (!launchState) return false;
+					const updatedAt = Date.parse(launchState.updatedAt);
+					if (!Number.isFinite(updatedAt) || updatedAt >= now - maxAgeMs) return false;
+					const request = await this.readMergeRequest(payloadPath);
+					const ack = await this.readMergeAck(payloadPath).catch(() => undefined);
+					if (request !== undefined && !ackMatchesRequest(ack, request)) return false;
+					// Missing, malformed, or unreadable launch identity is uncertainty,
+					// never evidence that a live child may be deleted.
+					if (launchState.agentName && !launchState.paneId) return false;
+					if (launchState.paneId) {
+						const live = await options.isPaneLive(launchState.paneId, launchState.agentName)
+							.catch(() => "unknown" as const);
+						if (live !== false) return false;
+					}
+					await rm(launchDir, { recursive: true, force: true });
+					return true;
+				});
+				if (didRemove) removed.push(payloadPath);
 			} catch {
 				// One unsafe/corrupt launch must not authorize deletion or abort the rest.
 			}
 		}
 		return removed;
-	}
-
-	private async reclaimStaleDeliveryLock(lockPath: string): Promise<boolean> {
-		const observed = await this.readDeliveryLockIdentity(lockPath);
-		if (!observed) return false;
-		if (Date.now() - observed.mtimeMs <= (this.options.staleLockMs ?? STALE_LOCK_MS)) return false;
-		const alive = await (this.options.isProcessAlive?.(observed.pid) ?? this.isProcessAlive(observed.pid));
-		// EPERM/unknown and a live PID are both conservative no-reclaim outcomes.
-		if (alive !== false) return false;
-		await this.options.beforeStaleLockRecheck?.();
-		const current = await this.readDeliveryLockIdentity(lockPath);
-		if (!current || !this.sameDeliveryLock(observed, current)) return false;
-		// There is no portable unlink-if-inode-matches primitive. Re-reading token,
-		// inode/dev, and mtime immediately before unlink narrows the unavoidable race;
-		// uncertainty always times out instead of deleting a replacement lock.
-		await rm(lockPath);
-		return true;
-	}
-
-	private isProcessAlive(pid: number): boolean | "unknown" {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch (error) {
-			if (isRecord(error) && error.code === "ESRCH") return false;
-			if (isRecord(error) && error.code === "EPERM") return true;
-			return "unknown";
-		}
-	}
-
-	private sameDeliveryLock(left: DeliveryLockIdentity, right: DeliveryLockIdentity): boolean {
-		return left.token === right.token && left.pid === right.pid && left.dev === right.dev &&
-			left.ino === right.ino && left.mtimeMs === right.mtimeMs;
-	}
-
-	private async readDeliveryLockIdentity(lockPath: string): Promise<DeliveryLockIdentity | undefined> {
-		let before;
-		try {
-			before = await lstat(lockPath);
-		} catch (error) {
-			if (isMissing(error)) return undefined;
-			throw error;
-		}
-		if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Refusing unsafe /btw delivery lock: ${lockPath}`);
-		assertOwner(before.uid, lockPath);
-		assertPrivate(before.mode, lockPath);
-		if (before.size > MAX_LOCK_BYTES) throw new Error(`Refusing oversized /btw delivery lock: ${lockPath}`);
-		let raw: unknown;
-		try {
-			raw = JSON.parse(await readFile(lockPath, "utf8")) as unknown;
-		} catch {
-			return undefined;
-		}
-		const after = await lstat(lockPath).catch(() => undefined);
-		if (!after || before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs) return undefined;
-		if (!isRecord(raw) || typeof raw.token !== "string" || !raw.token ||
-			!Number.isSafeInteger(raw.pid) || (raw.pid as number) <= 0) return undefined;
-		return {
-			token: raw.token,
-			pid: raw.pid as number,
-			dev: after.dev,
-			ino: after.ino,
-			mtimeMs: after.mtimeMs,
-		};
 	}
 
 	private async writeLaunchJson(payloadPath: string, fileName: string, value: unknown): Promise<void> {
