@@ -2,19 +2,33 @@
 
 [简体中文](./README.zh-CN.md)
 
-A standalone Pi package that adds a narrow, ownership-safe companion layer to [Herdr](https://herdr.dev): immutable runtime context, managed long-running process panes, complete `/btw` side threads, and blocked-state adapters.
+A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It provides visible long-running process panes, minimal asynchronous Pi Worker dispatch, temporary `/btw` side threads, configurable blocked-state reporting, and one settings UI.
 
-It does **not** depend on or embed `@ogulcancelik/pi-herdr`. Herdr itself and its managed Pi integration remain external prerequisites.
+## What it adds
 
-## Requirements
+| Capability | What you get |
+| --- | --- |
+| Herdr context | Pi receives a stable Herdr caller identity without repeatedly probing focus or environment state. |
+| Managed processes | Start, inspect, focus, and stop owned long-running commands, with a navigable TUI process widget. |
+| Pi Workers | Start one Pi Worker in an existing Herdr pane and receive its explicit final report asynchronously. |
+| `/btw` side threads | Explore a question in a temporary Pi conversation and merge it back only when you ask. |
+| Blocked reporting | Show configured tools or extension events as blocked in Herdr. |
+| Unified settings | Configure runtime guidance, process defaults, and blocked reporting through `/herdr-config`. |
+
+## Requirements and installation
 
 - Node.js 22.19+
 - Pi 0.84+
-- Herdr 0.7.5+ (developed against Herdr 0.8.0)
-- Pi running inside a Herdr-managed pane for process and `/btw` launch features
-- `herdr integration install pi` for Herdr's managed `herdr-agent-state.ts` reporter
+- Herdr 0.7.5+ for core process management (developed against Herdr 0.8.0)
+- A Herdr build whose help includes `herdr pane focus <pane_id>` for exact Process Widget focus across tabs and workspaces
+- Bash on POSIX for the default process shell; Windows uses the pane's shell
+- Herdr's Pi integration:
 
-Install this package on its own:
+```bash
+herdr integration install pi
+```
+
+Install the standalone package:
 
 ```bash
 pi install npm:@zhcsyncer/pi-herdr-companion
@@ -26,66 +40,86 @@ From a checkout:
 pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 ```
 
-The aggregate `@zhcsyncer/pi-extensions` package embeds the source for release consistency but deliberately does **not** auto-enable this extension. Install the standalone package when you want the companion.
+The aggregate `@zhcsyncer/pi-extensions` package includes these sources for release consistency but does **not** enable the companion. Install it separately or add it explicitly to Pi.
 
-## Capabilities
+The extension is silent when Pi is outside Herdr or Herdr cannot identify the calling pane. `herdr_process`, `herdr_worker`, and blocked reporting work in TUI, RPC, JSON, and print modes; `/btw` and `/herdr-config` require Pi's TUI mode.
 
-### Runtime context
+## Minimal Pi Workers
 
-The extension captures `HERDR_ENV`, caller pane/tab/workspace IDs, and the socket path once at extension load. Every `before_agent_start` turn receives the same short block, avoiding repeated environment or focused-pane probes.
-
-Inside a complete Herdr caller it tells the model to use `herdr_process` for dev/preview/watch commands and explains `/btw` merge semantics. Outside Herdr it says that Herdr launch features are unavailable and recommends tmux rather than `nohup`, `&`, or `disown`. If `HERDR_ENV=1` but caller pane or socket identity is missing, the block reports `degraded/unavailable` and does not advertise the unregistered process tool.
-
-Set `runtime.injectSystemPrompt` to `false` to disable only this prompt block.
-
-### Managed processes
-
-`herdr_process` is one Google-compatible action tool with four actions:
-
-- `start`: split down by default, keep focus on the caller, run a command, optionally wait for literal or regex readiness, then persist ownership
-- `list`: reconcile the persisted registry with live Herdr panes
-- `logs`: merge bounded `recent-unwrapped` scrollback with the current `visible` viewport, removing their largest exact line overlap before Pi's final 2,000-line / 50KB tail truncation. This preserves short output that Herdr 0.8 may expose only through `visible`; one non-missing source failure falls back to the other
-- `stop`: close only a companion-created, registered pane
-
-Example calls:
+Use `herdr_worker` when an existing Herdr pane is already at an available shell prompt and should run one asynchronous Pi task:
 
 ```json
-{"action":"start","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}
+{"paneId":"w1:p4","name":"reviewer","prompt":"Review the current diff and report only actionable findings."}
+```
+
+The Worker name must be unique among live Herdr agents and match `[a-z][a-z0-9_-]{0,31}`. On the first actual dispatch only, the caller reuses its existing Herdr agent name or lazily derives and assigns a stable name from the current Pi session ID. Merely loading the companion never renames a normal Pi session.
+
+The tool starts `pi` in the supplied pane with a short callback contract, submits the task as a normal user prompt without `--wait`, and returns after submission. The Worker must send exactly one explicit final success or confirmed-failure report beginning with `[pi-herdr-worker-report:v1]`. The parent converts that ordinary Herdr prompt input into a triggered Pi `followUp`, so a report arriving while the parent is busy does not steer the active turn. Herdr `idle` and `done` are deliberately not completion signals.
+
+This is an online, best-effort handoff rather than a durable job system. The parent and Worker must remain live in the same Herdr server long enough to exchange the report. There is no persistence, task ledger, polling, status tracking, restart recovery, retry, batching, pane/worktree creation, or automatic cleanup. A failure after Pi starts but before the task prompt is accepted can leave an idle Worker for manual inspection or cleanup.
+
+## Managed processes
+
+Use `herdr_process` for dev servers, previews, watchers, and other commands that must keep running visibly:
+
+- `start` creates an owned pane and optionally waits for readiness.
+- `list` shows owned panes and their current state.
+- `logs` reads bounded recent output.
+- `stop` closes only a pane created and recorded by the companion.
+
+Examples:
+
+```json
+{"action":"start","label":"dev","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}
 {"action":"list"}
 {"action":"logs","target":"dev","lines":300}
 {"action":"stop","target":"dev"}
 ```
 
-Start defaults are direction `down`, ratio `0.35`, readiness timeout 60 seconds, cwd equal to Pi's cwd, no focus change, and lifetime `session`. `readyMatch` and `readyRegex` are mutually exclusive. Because Herdr `wait-output` can see shell command echo, a literal `readyMatch` that occurs in `command` is rejected before splitting. Use a marker absent from the command, or an anchored `readyRegex` such as `^READY$` whose pattern text cannot match the echoed command line.
+Defaults are a downward `0.35` split, Pi's current working directory, no focus change, a 60-second readiness timeout, and `lifetime: "session"`. `/btw` uses the same configured split direction.
 
-Ownership is session-persisted and rebuilt after reload/compaction. `/tree` navigation first merges the runtime's current ownership with branch-only records bound to the exact session and caller, persists that conservative union on the selected branch, and only then reconciles live pane/process state. A transient pane-list failure therefore loses neither current nor valid branch ownership; missing or unreliable process information remains non-destructive. The tool never closes the caller or an unregistered pane. Lifecycle behavior is:
+### TUI process widget
 
-| Event | `session` process | `persistent` process |
+When at least one managed process exists, Pi TUI shows a live process list below the editor. With an empty editor:
+
+- press `→` to activate the list;
+- use `↑` / `↓` to select a process;
+- press `Enter` or `f` to focus its exact current Herdr pane;
+- press `s`, then confirm, to stop it through the same ownership checks as `herdr_process stop`;
+- press `Esc` to return to the editor.
+
+The widget marks panes containing an agent session and warns that stopping one will close that session. It deliberately has no Logs action: use `herdr_process logs` when the model needs to inspect output without changing focus. Tool rows stay compact in the transcript and reveal commands, current locations, process rows, or the bounded log body when Pi's tool output is expanded.
+
+On POSIX, commands use `shell: "bash"` by default, so Bash syntax is not reinterpreted by Fish or another interactive pane shell. Use `shell: "pane"` only when the command intentionally uses that shell's syntax. Windows defaults to `pane` and does not offer the Bash transport.
+
+`readyMatch` and `readyRegex` are mutually exclusive. A readiness marker must not be satisfiable by an echoed launch line; use a more specific marker or anchored regex when necessary.
+
+### Process lifetime
+
+| Event | `session` | `persistent` |
 | --- | --- | --- |
-| `/reload` | Preserve and reconcile | Preserve and reconcile |
-| `/tree` | Preserve live runtime ownership and rebind it to the selected branch | Same |
-| quit, `/new`, `/resume`, `/fork` | Close on normal teardown | Preserve |
-| manual pane close | Remove stale ownership on reconciliation | Remove stale ownership on reconciliation |
-| command returns to its shell | Keep owned as `exited`; close on normal teardown or explicit `stop` | Keep owned as `exited` until explicit `stop` |
+| `/reload` or `/tree` | Preserve and refresh the current pane address | Preserve and refresh the current pane address |
+| quit, `/new`, `/resume`, or `/fork` | Close on normal teardown | Keep in its owning session |
+| command exits back to the shell | Keep logs until teardown or `stop` | Keep logs until `stop` |
+| pane is closed manually | Remove it from the managed-process list when state is refreshed | Same |
 
-Reconciliation uses typed `pane process-info --pane` data to distinguish a foreground command from the pane's interactive shell. After the short launch grace, a reliable returned-shell result is shown as `exited` but remains in the registry. This preserves crash/exit logs, explicit `stop`, duplicate-label protection, and session-lifetime cleanup instead of creating an unmanaged pane. Only a pane absent from the live pane list loses stale ownership. Missing or unreliable process information—including older Herdr behavior—is reported as `unknown` and never authorizes removal. Replacement-session cleanup is attempted from persisted ownership before a potentially transient `pane list` probe.
+A start still waiting for readiness is canceled and closed when the Pi session reloads or changes. Moving an owned pane to another tab or workspace changes its public pane ID, but the companion keeps following the same live terminal within the same Herdr server.
 
-A host/Pi hard crash cannot guarantee pane cleanup. Resume the owning session and call `herdr_process list`/`stop`, or close the known pane in Herdr.
+If start or cleanup fails, the error includes the known pane ID when available. Use `herdr_process list` and `stop`, or close that pane directly in Herdr. The companion never uses process ownership to close the caller pane or an unowned pane.
 
-### `/btw` side threads
+## Temporary `/btw` side threads
 
-Parent commands:
+From a parent session:
 
 ```text
 /btw
 /btw <question>
 /btw ask <question>
-/btw config ...
 /btw merge
 /btw help
 ```
 
-Child commands:
+From the child:
 
 ```text
 /btw merge <parent follow-up prompt>
@@ -93,48 +127,43 @@ Child commands:
 /btw help
 ```
 
-A launch snapshots the parent's active branch with Pi's compaction-aware session builder and inherits cwd, model, thinking level, and active tools by default. The question opens in the child editor unless `auto-submit` is enabled. The child is an independent, visible Pi process: its transcript does not enter the parent until explicit merge.
+A launch takes a static snapshot of the current parent branch, shares its cwd, and inherits its model and thinking level. The child uses Pi's normal default tools. A supplied question is submitted immediately; bare `/btw` opens an empty child. The child is a separate visible Pi process, and its conversation does not enter the parent until an explicit merge.
 
-Herdr 0.8.0 can briefly return the typed `agent_pane_busy` code while the fresh shell in a newly split, companion-owned pane is becoming ready. Only that typed failure is retried: at most four non-blocking backoff waits (2.75 seconds total) share one 40-second agent-start deadline, and each attempt receives only the remaining timeout. An abort prevents another start attempt. Exhaustion or any other error still closes exactly the newly created pane and clears its private launch state.
+The child is **temporary and not saved as a Pi session**. Closing it before merge permanently loses the unmerged child conversation. Private coordination files may remain briefly for delivery and cleanup, but they are not a recoverable transcript.
 
-A merge contains only child user/assistant text, excludes thinking/tool payloads/images, and keeps the newest content within a 48KiB transcript budget. Once the parent is idle, it sends one visible custom message that combines the transcript and child-authored follow-up, carries durable `requestId`/`launchId` details, participates in context, bypasses user-input transforms, and triggers the parent turn. Pi 0.84's `sendMessage` wrapper is fire-and-forget, so a dispatch return is never treated as proof of delivery: the parent writes an accepted acknowledgement only after a later scan observes that exact custom message in session evidence.
+A merge sends child user/assistant text to the exact parent session. Tool calls, thinking, and images are excluded, and the newest text is kept within a 48 KiB limit. If the parent is closed or busy, the request waits; reopen the exact parent session and use `/btw merge` to scan pending requests.
 
-Recovery is durable and request-deduplicated for **one active Pi owner of a parent session**. The private lock serializes scans and a dispatch lease delays recovery when a crash may have happened around the fire-and-forget call. This is not strict exactly-once delivery across two simultaneously open Pi instances for the same session. A crash or unusually delayed append beyond the lease can cause a request-tagged retry; session evidence deduplicates normal reload recovery, but the residual dispatch/append window cannot be eliminated by ExtensionAPI 0.84.
+After the parent confirms delivery, the child normally focuses the parent and closes itself. If Herdr cannot confirm focus or cleanup, the child stays open and reports what must be closed manually.
 
-The child persists the first side-thread Pi session ID in private launch state. `/reload` with that same ID continues normally. `/new`, `/resume`, or `/fork` into another session disables parent-context replay, merge, ack polling/cleanup, and launch-draft submission, with a visible warning; the new session continues independently instead of merging an unrelated transcript into the old parent.
+`/reload` keeps a child usable when the Pi session ID is unchanged. Using `/new`, `/resume`, or `/fork` inside the child changes its identity and disconnects it from the parent; merge is then unavailable, and the child can continue only as an independent Pi session.
 
-Native replay is only a best-effort prompt-cache optimization. It requires inherited model/thinking, a known parent system prompt with a matching fingerprint, and an exact ordered fingerprint of every active tool's name, description, parameters, and prompt guidelines. Missing first-turn evidence, any override, or any schema mismatch selects a portable flattened snapshot and records the cache-break reason. Later `before_agent_start` handlers and provider-level request rewrites can still alter the eventual payload after companion's check, so native mode does not promise final provider-payload equivalence or a cache hit.
+## Blocked-state reporting
 
-Launch payloads and mailboxes live under the global Pi agent directory in a socket-specific private state root. Directories are `0700`, files are `0600`, writes use atomic rename, and capability/context values never appear in CLI argv. Delivery-lock timeout recovery checks that the recorded owner PID is dead, then re-reads token, inode/device, and mtime immediately before unlink; uncertainty times out rather than deleting a replacement lock. Side-agent names are persisted and resolved through `agent get`, so pane moves do not make an old pane ID look stale. Stale cleanup conservatively preserves launches without reliable agent/pane resolution, with a live/unknown pane, or with an unacknowledged merge.
+The companion can report two kinds of configured source as blocked in Herdr:
 
-Accepted completion does not depend on Pi's asynchronous shutdown cleanup. The child re-resolves its current pane by persisted agent name, focuses the exact parent, verifies that the request has a matching acknowledgement while removing the whole private launch directory, and only then closes the exact child pane. Failed resolution, focus, or mailbox cleanup keeps both the pane and recovery evidence. If cleanup succeeds but pane close fails, the warning states that the mailbox is already gone and the pane must be closed manually.
+- a Pi tool while that tool call is running;
+- an extension event whose payload is `{ active: true }`, cleared by `{ active: false }`.
 
-### Blocked adapters
-
-The package listens for:
-
-```text
-rpiv:ask-user:blocked { active }
-```
-
-and safely emits balanced:
-
-```text
-herdr:blocked { active, label: "question" }
-```
-
-The adapter tracks nested waits and force-clears on `agent_settled` and `session_shutdown`. Listener failures never propagate back into Ask User Question. It is enabled only for Herdr TUI sessions. Plan Mode already emits `herdr:blocked` directly and is intentionally not proxied.
+Rules use an exact source name and a display label. The default tracks `ask_user_question` as `question`; extension-event rules are empty by default.
 
 ## Configuration
 
-Only the global agent-directory file is read:
+Open the settings UI in Pi TUI mode:
 
 ```text
-$PI_CODING_AGENT_DIR/herdr-companion.json
-# default: ~/.pi/agent/herdr-companion.json
+/herdr-config
 ```
 
-Project configuration is never accepted. Missing configuration uses defaults and does not create a file. `/btw config ...` creates or updates the global file only after an explicit user command.
+Use `/herdr-config reset` to reset every companion setting.
+
+Configuration is stored only at:
+
+```text
+$PI_CODING_AGENT_DIR/extension-data/pi-herdr-companion/config.json
+# default: ~/.pi/agent/extension-data/pi-herdr-companion/config.json
+```
+
+No file is created until you save a setting.
 
 ```json
 {
@@ -145,54 +174,35 @@ Project configuration is never accepted. Missing configuration uses defaults and
     "defaultDirection": "down",
     "defaultRatio": 0.35,
     "readyTimeoutMs": 60000,
-    "defaultLifetime": "session"
-  },
-  "btw": {
-    "autoSubmit": false,
-    "model": "inherit",
-    "thinking": "inherit",
-    "tools": "inherit",
-    "split": "down"
+    "defaultLifetime": "session",
+    "defaultShell": "bash"
   },
   "blocked": {
-    "askUserQuestion": true
+    "events": [],
+    "tools": [
+      { "name": "ask_user_question", "label": "question" }
+    ]
   }
 }
 ```
 
-BTW shortcuts:
+The example shows the POSIX shell default; Windows uses `"defaultShell": "pane"`. `runtime.injectSystemPrompt` controls whether Herdr guidance is appended to each model call's system prompt; turning it off does not disable the tools themselves.
+
+In the blocked-rule editors, enter one `exact_name = Herdr label` rule per line:
 
 ```text
-/btw config
-/btw config auto-submit on|off
-/btw config model inherit|provider/model
-/btw config thinking inherit|off|minimal|low|medium|high|xhigh|max
-/btw config tools inherit|all|read-only|none
-/btw config split down|right
-/btw config reset
+review:blocked = review
+approval_tool = approval
 ```
 
-`tools: inherit` gives the best cache behavior and full parent capability, but it is not a sandbox. Use `read-only` or `none` when the side thread should not mutate shared files.
+## Operational limits
 
-## Coexistence and migration
-
-- Keep Herdr's managed `herdr-agent-state.ts`; this package emits into its reserved event bus and does not patch it.
-- Remove a separately installed `pi-herdr-btw` to avoid duplicate `/btw` commands.
-- Remove the old `herdr-blocked-bridge.ts` after validating the companion adapter, or blocked counts will be duplicated.
-- `pi-recap` may continue renaming the caller pane. Companion renames only its own process panes and Herdr names its `/btw` agent pane.
-- `@ogulcancelik/pi-herdr` is optional and not a dependency. Install it only if you need its broader layout/agent control surface; companion does not expose general layout, fleets, worktrees, pings, or pickers.
-
-## Security and limitations
-
-- Every Herdr invocation uses argv plus a finite timeout and defensive JSON parsing where the CLI promises JSON.
-- Process and BTW ownership registries are separate state machines; one cannot close the other's panes.
-- `/btw` shares cwd with the parent. Concurrent file/Git edits, dev servers, and ports can conflict.
-- Parent snapshots are static; later parent activity is visible to the child only if the user explains it.
-- Merge is bound to the exact parent session ID, and the child is bound to its first side-thread session ID. If the parent is unavailable, the request remains pending and diagnosable; if the child switches session, side-thread behavior is disabled.
-- After accepted ack, the child resolves its current pane by persisted Herdr agent name, focuses the exact parent, removes private launch state only after confirming a matching request/ack, and only then closes. Resolution, focus, or cleanup failure leaves both state and pane available for recovery; a later close failure requires manual pane close because state has already been removed.
-- Normal failure paths remove private payloads and best-effort close only a pane ID explicitly returned by split success/failure. A split failure without an explicit ID reports a possible orphan and deliberately leaves unidentified panes untouched. Hard process/host crashes cannot offer absolute cleanup guarantees.
-- POSIX filesystems do not expose a portable unlink-if-inode-matches operation. Lock identity is rechecked immediately before deletion, but an irreducible final check/unlink race remains; conservative timeout is used whenever replacement is observed or ownership is uncertain.
-- Herdr 0.7.5+ is the compatibility floor; `process-info` absence degrades to non-destructive `unknown`, and advanced layout operations are intentionally out of scope.
+- Keep Herdr's managed Pi integration installed; the companion does not replace it.
+- Do not load another extension that registers `/btw`, or Pi will expose duplicate suffixed commands.
+- Parent snapshots are static, and parent and child share a cwd. Concurrent file edits, Git operations, servers, and ports can conflict.
+- A hard process or host crash cannot guarantee pane cleanup. Resume the owning session and use `herdr_process list`/`stop`, or close the known pane in Herdr.
+- Terminal identity is scoped to one Herdr server/socket and is not preserved across a cold server restart; stale ownership is removed rather than applied to a different terminal.
+- Managed-process ownership covers only panes created by `herdr_process`. `herdr_worker` starts Pi only in the caller-supplied pane and never assumes pane ownership or cleanup; general layout, worktree, and agent controls remain Herdr CLI responsibilities.
 
 ## Development
 
@@ -205,4 +215,4 @@ npm pack --dry-run ./packages/pi-herdr-companion
 
 ## License
 
-MIT. The `/btw` product behavior and parts of the private context/mailbox implementation were adapted from MIT-licensed [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw) by Oscar Gabriel. Preserved notice and provenance are in [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) and [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md).
+MIT. The `/btw` product behavior and parts of its private coordination mechanism were adapted from MIT-licensed [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw) by Oscar Gabriel. Preserved notice and provenance are in [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) and [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md).

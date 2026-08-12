@@ -13,4 +13,4 @@ Selected `/btw` behavior and private payload/mailbox implementation patterns in 
 
 The source was inspected from the published `pi-herdr-btw@0.3.0` npm tarball. It is not a runtime dependency.
 
-The companion implementation was reorganized around separate process and BTW state machines and adds request-tagged custom-message session evidence, single-owner dispatch-lease recovery, PID/identity-checked delivery locks, conservative agent-resolved stale cleanup, explicit-ID-only launch-failure cleanup, socket-scoped state roots, and integration with the package's runtime and blocked modules.
+The companion implementation was reorganized around separate process and BTW state machines and adds request-tagged custom-message session evidence, single-owner dispatch-lease recovery, uniquely named ticket-candidate locks, lock-serialized first-session binding, conservative agent-resolved stale cleanup, explicit-ID-only launch-failure cleanup, socket-scoped state roots, and integration with the package's runtime and generic blocked modules.

@@ -2,19 +2,33 @@
 
 [English](./README.md)
 
-一个独立的 Pi package，为 [Herdr](https://herdr.dev) 提供范围收敛、所有权安全的 companion 层：不可变 runtime 上下文、托管长运行进程 pane、完整 `/btw` 侧线，以及 blocked 状态适配器。
+一个供 Pi 在 [Herdr](https://herdr.dev) 中使用的独立扩展，提供可见的长跑进程 Pane、最小异步 Pi Worker 派发、临时 `/btw` 支线、可配置的 blocked 状态上报和统一设置界面。
 
-它**不依赖、也不内嵌** `@ogulcancelik/pi-herdr`。Herdr 本体及其 managed Pi integration 仍是外部前置条件。
+## 提供的能力
 
-## 环境要求
+| 能力 | 用户获得什么 |
+| --- | --- |
+| Herdr 上下文 | Pi 获得稳定的 Herdr caller 身份，不必反复探测焦点或环境。 |
+| 托管进程 | 启动、检查、聚焦和停止 owned 长跑命令，并提供可导航的 TUI Process Widget。 |
+| Pi Worker | 在已有 Herdr Pane 启动一个 Pi Worker，并异步接收其显式最终报告。 |
+| `/btw` 支线 | 在临时 Pi 对话中探索问题，并且只在你明确要求时合回父会话。 |
+| Blocked 上报 | 让 Herdr 将已配置的工具或扩展事件显示为 blocked。 |
+| 统一设置 | 通过 `/herdr-config` 配置 runtime guidance、进程默认值和 blocked 上报。 |
+
+## 前置条件与安装
 
 - Node.js 22.19+
 - Pi 0.84+
-- Herdr 0.7.5+（基于 Herdr 0.8.0 开发）
-- process 与 `/btw` launch 功能要求 Pi 位于 Herdr managed pane 内
-- Herdr managed `herdr-agent-state.ts` reporter 要求执行过 `herdr integration install pi`
+- 核心进程管理需要 Herdr 0.7.5+（开发基于 Herdr 0.8.0）
+- 跨 Tab/Workspace 精确聚焦 Process Widget 需要 `herdr pane focus <pane_id>` 已出现在帮助中的 Herdr build
+- POSIX 默认进程 shell 需要 Bash；Windows 使用 Pane 自身的 shell
+- 安装 Herdr 的 Pi integration：
 
-单独安装本包：
+```bash
+herdr integration install pi
+```
+
+安装独立包：
 
 ```bash
 pi install npm:@zhcsyncer/pi-herdr-companion
@@ -26,66 +40,86 @@ pi install npm:@zhcsyncer/pi-herdr-companion
 pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 ```
 
-聚合包 `@zhcsyncer/pi-extensions` 为保持发版一致性会内嵌源码，但刻意**不会**自动启用这个 extension。需要 companion 时请安装 standalone 包。
+聚合包 `@zhcsyncer/pi-extensions` 为保持发版一致性包含了这些源码，但**不会**启用 Companion。请单独安装，或在 Pi 中显式添加它。
 
-## 能力
+当 Pi 不在 Herdr 中，或 Herdr 无法识别 caller Pane 时，扩展保持完全静默。`herdr_process`、`herdr_worker` 与 blocked 上报可用于 TUI、RPC、JSON 和 print mode；`/btw` 与 `/herdr-config` 只在 Pi TUI mode 中可用。
 
-### Runtime 上下文
+## 最小 Pi Worker
 
-extension 加载时只读取一次 `HERDR_ENV`、caller pane/tab/workspace ID 与 socket path。之后每个 `before_agent_start` turn 都收到相同的短块，不再反复探测环境或当前聚焦 pane。
-
-在 caller identity 完整的 Herdr 环境内，会提示模型用 `herdr_process` 运行 dev/preview/watch，并解释 `/btw` 的 merge 语义。Herdr 外会明确 launch 功能不可用，并建议使用 tmux，而不是 `nohup`、`&` 或 `disown`。如果 `HERDR_ENV=1` 但缺 caller pane 或 socket identity，prompt 会输出 `degraded/unavailable`，且不会提示实际未注册的 process tool。
-
-将 `runtime.injectSystemPrompt` 设为 `false`，可只关闭这段 prompt。
-
-### 托管进程
-
-`herdr_process` 是单个 Google-compatible action tool，包含四种 action：
-
-- `start`：默认向下 split、保持 caller focus、运行命令，可选等待 literal 或 regex readiness，成功后才持久化 ownership
-- `list`：用 Herdr live panes 对账持久化 registry
-- `logs`：合并有界的 `recent-unwrapped` scrollback 与当前 `visible` viewport，先去除两者最大的精确行重叠，再按 Pi 的 2,000 行 / 50KB 限制保留尾部。这样可保留 Herdr 0.8 可能只通过 `visible` 暴露的短输出；非 missing-pane 的单侧读取失败会 fallback 到另一侧
-- `stop`：只关闭 companion 创建且已登记的 pane
-
-调用示例：
+当一个已有 Herdr Pane 已停在可用 shell prompt，且需要它异步执行一个 Pi 任务时，使用 `herdr_worker`：
 
 ```json
-{"action":"start","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}
+{"paneId":"w1:p4","name":"reviewer","prompt":"检查当前 diff，只报告可执行的问题。"}
+```
+
+Worker name 必须在 live Herdr agent 中唯一，并匹配 `[a-z][a-z0-9_-]{0,31}`。仅在首次实际派发时，caller 才会复用已有 Herdr agent name，或根据当前 Pi session ID 懒生成并设置一个稳定 name。只加载 Companion 不会把普通 Pi session 自动改名。
+
+工具会在指定 Pane 启动带短 callback contract 的 `pi`，再把任务正文作为普通 user prompt 提交；它不使用 `--wait`，提交后即返回。Worker 必须发送一次且仅一次以 `[pi-herdr-worker-report:v1]` 开头的最终成功或确认失败报告。Parent 会把这条由 Herdr 到达的普通输入改为触发式 Pi `followUp`，因此 parent 忙碌时到达的报告不会 steer 当前 turn。Herdr `idle` 与 `done` 刻意不作为完成信号。
+
+这是在线 best-effort handoff，不是持久任务系统。Parent 与 Worker 必须在同一 Herdr server 中保持在线，直到报告完成交换。它不提供持久化、任务账本、轮询、状态跟踪、重启恢复、重试、批次、Pane/Worktree 创建或自动 cleanup。若 Pi 已启动但任务 prompt 尚未被接受就失败，可能留下需要手工检查或清理的空闲 Worker。
+
+## 托管进程
+
+开发服务器、预览、watcher 等需要持续可见的长跑命令应使用 `herdr_process`：
+
+- `start` 创建 owned Pane，并可等待 readiness。
+- `list` 显示 owned Pane 及其当前状态。
+- `logs` 读取受限的近期输出。
+- `stop` 只关闭 Companion 创建并登记的 Pane。
+
+示例：
+
+```json
+{"action":"start","label":"dev","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}
 {"action":"list"}
 {"action":"logs","target":"dev","lines":300}
 {"action":"stop","target":"dev"}
 ```
 
-`start` 默认 direction 为 `down`、ratio 为 `0.35`、ready timeout 为 60 秒、cwd 等于 Pi cwd、不改变 focus，lifetime 为 `session`。`readyMatch` 与 `readyRegex` 互斥。Herdr `wait-output` 能看到 shell 的 command echo，因此若 literal `readyMatch` 出现在 `command` 中，会在 split 前直接拒绝。请使用不出现在启动命令中的 marker，或使用 `^READY$` 这类不会匹配整行 command echo 的 anchored `readyRegex`。
+默认向下拆分 `0.35`，使用 Pi 当前工作目录，不改变焦点，readiness timeout 为 60 秒，lifetime 为 `session`。`/btw` 使用同一个默认拆分方向。
 
-Ownership 写入 session，并在 reload/compaction 后重建。`/tree` 导航会先把当前 runtime ownership 与绑定精确 session/caller 的 branch-only 记录保守合并，把 union 写入新 branch，再对账 live pane/process 状态。因此瞬时 pane-list 失败不会丢失 current 或有效 branch ownership；缺失或不可靠的 process information 仍按非破坏方式处理。工具永不关闭 caller 或未登记 pane。生命周期如下：
+### TUI Process Widget
 
-| 事件 | `session` process | `persistent` process |
+只要存在托管进程，Pi TUI 就会在 editor 下方显示实时进程列表。Editor 为空时：
+
+- 按 `→` 激活列表；
+- 用 `↑` / `↓` 选择进程；
+- 按 `Enter` 或 `f` 聚焦其当前准确的 Herdr Pane；
+- 按 `s` 并二次确认，通过与 `herdr_process stop` 相同的 ownership 检查停止进程；
+- 按 `Esc` 返回 editor。
+
+Widget 会标记包含 agent session 的 Pane，并在 Stop 前明确提示该 session 也会关闭。Widget 不重复提供 Logs：模型需要在不切换焦点时检查输出，仍使用 `herdr_process logs`。Transcript 中的 Tool row 默认保持紧凑；展开 Pi Tool 输出后可查看 command、当前位置、进程行或受限的完整日志正文。
+
+POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 Pane interactive shell 重新解释。只有命令明确使用该 shell 的语法时才选择 `shell: "pane"`。Windows 默认使用 `pane`，不提供 Bash transport。
+
+`readyMatch` 与 `readyRegex` 不能同时使用。Readiness marker 不应被启动命令本身的回显满足；必要时请使用更具体的 marker 或 anchored regex。
+
+### 进程生命周期
+
+| 事件 | `session` | `persistent` |
 | --- | --- | --- |
-| `/reload` | 保留并对账 | 保留并对账 |
-| `/tree` | 保留 live runtime ownership，并重新绑定到所选 branch | 同左 |
-| quit、`/new`、`/resume`、`/fork` | 正常 teardown 时关闭 | 保留 |
-| 用户手动关闭 pane | 对账时移除 stale ownership | 对账时移除 stale ownership |
-| command 已返回 shell | 保留 ownership 并标记 `exited`；正常 teardown 或显式 `stop` 时关闭 | 保留 ownership 并标记 `exited`，直到显式 `stop` |
+| `/reload` 或 `/tree` | 保留并刷新当前 Pane 地址 | 保留并刷新当前 Pane 地址 |
+| quit、`/new`、`/resume` 或 `/fork` | 正常 teardown 时关闭 | 保留在 owning session 中 |
+| 命令退出并返回 shell | 保留日志，直到 teardown 或 `stop` | 保留日志，直到 `stop` |
+| 手工关闭 Pane | 下次刷新状态时从托管进程列表移除 | 同左 |
 
-对账会 typed 解析 `pane process-info --pane`，区分前台 command 与 pane 的 interactive shell。超过短暂启动 grace 后，可靠的 returned-shell 结果会显示为 `exited`，但 entry 仍保留在 registry。这样 crash/exit logs、显式 `stop`、重复 label 防护与 session-lifetime cleanup 都仍可用，不会制造无人管理的 pane。只有 live pane list 中已不存在的 pane 才会移除 stale ownership。缺失或不可靠的 process information（包括旧版 Herdr 行为）会标记为 `unknown`，绝不会据此删除。替换 session 的 cleanup 会先按持久化 ownership 尝试关闭，再执行可能瞬时失败的 `pane list` 探测。
+仍在等待 readiness 的 start 会在 Pi session reload 或切换时取消并关闭。Owned Pane 移动到其他 Tab 或 Workspace 后，public Pane ID 会变化，但只要仍是同一 Herdr server 内的同一 live terminal，Companion 就会继续关联它。
 
-主机或 Pi 硬崩无法保证 pane cleanup。可恢复 owning session 后调用 `herdr_process list`/`stop`，或在 Herdr 中关闭已知 pane。
+如果启动或清理失败，错误会尽量包含已知 Pane ID。请使用 `herdr_process list` 和 `stop`，或直接在 Herdr 中关闭该 Pane。Companion 不会根据进程 ownership 关闭 caller Pane 或不属于它的 Pane。
 
-### `/btw` 侧线
+## 临时 `/btw` 支线
 
-父端命令：
+父会话命令：
 
 ```text
 /btw
 /btw <question>
 /btw ask <question>
-/btw config ...
 /btw merge
 /btw help
 ```
 
-子端命令：
+子会话命令：
 
 ```text
 /btw merge <parent follow-up prompt>
@@ -93,48 +127,43 @@ Ownership 写入 session，并在 reload/compaction 后重建。`/tree` 导航�
 /btw help
 ```
 
-Launch 使用 Pi 的 compaction-aware session builder 快照 parent active branch，默认继承 cwd、model、thinking level 与 active tools。除非开启 `auto-submit`，问题会先进入 child editor。Child 是独立且可见的 Pi 进程；显式 merge 前，它的 transcript 不进入 parent。
+Launch 会取得当前父分支的静态快照、共享 cwd，并继承 parent 的 model 与 thinking level。Child 使用 Pi 的正常默认工具。提供 question 时会立即提交；单独执行 `/btw` 则打开空白 child。Child 是独立且可见的 Pi 进程；只有显式 merge 后，它的对话才会进入父会话。
 
-Herdr 0.8.0 在刚 split 出、由 companion 持有的 pane 中，可能因 fresh shell 尚未完全就绪而短暂返回 typed `agent_pane_busy` code。仅此 typed failure 会重试：最多执行 4 次非阻塞 backoff 等待（合计 2.75 秒），与同一个 40 秒 agent-start deadline 共用预算，每次 attempt 只获得当时剩余的 timeout。Abort 会阻止下一次 start attempt。重试耗尽或出现其他错误时，仍只关闭刚创建的精确 pane，并清除其私有 launch state。
+Child 是**临时的，不会保存为 Pi session**。在 merge 前关闭它，会永久丢失尚未合回的 child 对话。用于投递和清理的私有协调文件可能短暂保留，但它们不是可恢复的 transcript。
 
-Merge 只包含 child 的 user/assistant 文本，排除 thinking、tool payload 与 image，并在 48KiB transcript 预算内保留最新内容。Parent idle 后会发送一条 custom message：它把 transcript 与 child 编写的 follow-up 合在一起，携带 durable `requestId`/`launchId` details，参与 context、绕过 user input transform，并触发 parent turn。Pi 0.84 的 `sendMessage` wrapper 是 fire-and-forget，因此 dispatch 返回值绝不作为投递证据；只有后续扫描在 session 中观察到该精确 custom message，parent 才写 accepted ack。
+Merge 会把 child 的 user/assistant 文本发送到准确的父会话。Tool call、thinking 和 image 不会合入，并且只保留 48 KiB 限制内最新的文本。如果 parent 已关闭或正忙，请求会等待；重新打开准确的父会话后，可使用 `/btw merge` 扫描 pending request。
 
-Recovery 在**同一 parent session 只有一个 active Pi owner**的前提下提供 durable、按 request 去重的恢复。私有锁会串行化扫描，dispatch lease 会在 fire-and-forget 调用附近可能崩溃时延迟恢复。它不承诺两个同时打开同一 session 的 Pi 实例之间严格 exactly-once。若 crash 或异常延迟的 append 超过 lease，可能发生携带同一 request tag 的重试；session evidence 能去重正常 reload recovery，但 ExtensionAPI 0.84 无法消除 dispatch/append 的残余窗口。
+Parent 确认投递后，child 通常会聚焦 parent 并自行关闭。如果 Herdr 无法确认 focus 或 cleanup，child 会保持打开并提示需要手工关闭的内容。
 
-Child 会把首个 side-thread Pi session ID 持久化到私有 launch state。同 ID 的 `/reload` 可继续；`/new`、`/resume` 或 `/fork` 到另一 session 后，会带清晰 warning 禁用 parent-context replay、merge、ack polling/cleanup 与 launch-draft 提交。新 session 可独立继续，但不会把无关 transcript merge 回旧 parent。
+Pi session ID 不变时，child 可以正常 `/reload`。在 child 中执行 `/new`、`/resume` 或 `/fork` 会改变其身份并断开与 parent 的关联；此后 merge 不再可用，只能把 child 作为独立 Pi session 继续使用。
 
-Native replay 只是 best-effort 的 prompt-cache 优化。它要求 model/thinking 继续 inherit、parent system prompt 已知且 fingerprint 匹配，并且所有 active tool 的 name、description、parameters、prompt guidelines 构成的有序 fingerprint 完全一致。首次缺可靠证据、任一 override 或 schema 不一致都会走 portable flattened snapshot，并记录 cache-break 原因。后续 `before_agent_start` handler 与 provider-level request rewrite 仍可能在 companion 检查后改变最终 payload，因此 native mode 不承诺最终 provider payload 等价，也不保证 cache hit。
+## Blocked 状态上报
 
-Launch payload 与 mailbox 位于全局 Pi agent dir 下按 socket 隔离的私有 state root。目录权限为 `0700`，文件为 `0600`，写入使用 atomic rename，capability/context 不进入 CLI argv。Delivery lock 超时回收会先确认 owner PID 已死亡，并在 unlink 前立即重读 token、inode/device 与 mtime；有疑点时宁可 timeout，也不删除 replacement lock。Side agent name 会持久化并通过 `agent get` 解析，因此 pane move 不会让旧 pane ID 被误判 stale。Stale cleanup 会保守保留无法可靠解析 agent/pane、pane 仍 live/unknown 或 merge 尚未 ack 的 launch。
+Companion 可以把两类已配置 source 上报为 Herdr blocked：
 
-Accepted 完成不依赖 Pi 的异步 shutdown cleanup。Child 会先按持久化 agent name 重新解析当前 pane、聚焦精确 parent，再验证 request 已有 matching ack 并删除整个私有 launch 目录，最后才关闭精确 child pane。解析、聚焦或 mailbox cleanup 失败时，pane 与恢复证据都会保留。如果 cleanup 成功但 pane close 失败，warning 会明确说明 mailbox 已清，必须手工关闭 pane。
+- Pi tool 执行期间；
+- 扩展事件 payload 为 `{ active: true }` 时，并由 `{ active: false }` 清除。
 
-### Blocked 适配器
-
-本包监听：
-
-```text
-rpiv:ask-user:blocked { active }
-```
-
-并安全发出配平的：
-
-```text
-herdr:blocked { active, label: "question" }
-```
-
-Adapter 跟踪 nested wait，并在 `agent_settled` 与 `session_shutdown` 强制清理。Listener 失败不会反向破坏 Ask User Question。它只在 Herdr TUI session 启用。Plan Mode 已直接发 `herdr:blocked`，因此刻意不代理 Plan Mode。
+每条规则使用准确 source name 和显示 label。默认把 `ask_user_question` 上报为 `question`；扩展事件规则默认为空。
 
 ## 配置
 
-只读取全局 agent-dir 文件：
+在 Pi TUI mode 中打开设置界面：
 
 ```text
-$PI_CODING_AGENT_DIR/herdr-companion.json
-# 默认：~/.pi/agent/herdr-companion.json
+/herdr-config
 ```
 
-永不接受项目配置。配置缺失时使用默认值，且不会创建文件。只有用户显式执行 `/btw config ...` 后，才会创建或更新全局文件。
+`/herdr-config reset` 会重置全部 Companion 设置。
+
+配置只保存在：
+
+```text
+$PI_CODING_AGENT_DIR/extension-data/pi-herdr-companion/config.json
+# 默认：~/.pi/agent/extension-data/pi-herdr-companion/config.json
+```
+
+只有保存设置后才会创建文件。
 
 ```json
 {
@@ -145,54 +174,35 @@ $PI_CODING_AGENT_DIR/herdr-companion.json
     "defaultDirection": "down",
     "defaultRatio": 0.35,
     "readyTimeoutMs": 60000,
-    "defaultLifetime": "session"
-  },
-  "btw": {
-    "autoSubmit": false,
-    "model": "inherit",
-    "thinking": "inherit",
-    "tools": "inherit",
-    "split": "down"
+    "defaultLifetime": "session",
+    "defaultShell": "bash"
   },
   "blocked": {
-    "askUserQuestion": true
+    "events": [],
+    "tools": [
+      { "name": "ask_user_question", "label": "question" }
+    ]
   }
 }
 ```
 
-BTW 快捷配置：
+以上示例使用 POSIX shell 默认值；Windows 使用 `"defaultShell": "pane"`。`runtime.injectSystemPrompt` 控制是否在每次模型调用的 system prompt 中追加 Herdr guidance；关闭它不会禁用工具本身。
+
+Blocked rule editor 每行填写一条 `exact_name = Herdr label`：
 
 ```text
-/btw config
-/btw config auto-submit on|off
-/btw config model inherit|provider/model
-/btw config thinking inherit|off|minimal|low|medium|high|xhigh|max
-/btw config tools inherit|all|read-only|none
-/btw config split down|right
-/btw config reset
+review:blocked = review
+approval_tool = approval
 ```
 
-`tools: inherit` 有最佳 cache 行为与完整 parent 能力，但不是 sandbox。若 side thread 不应修改共享文件，请使用 `read-only` 或 `none`。
+## 运行限制
 
-## 共存与迁移
-
-- 保留 Herdr managed `herdr-agent-state.ts`；本包只向其保留事件总线发送事件，不 patch 它。
-- 移除单独安装的 `pi-herdr-btw`，避免出现重复 `/btw` command。
-- 验证 companion adapter 后移除旧 `herdr-blocked-bridge.ts`，否则 blocked count 会重复。
-- `pi-recap` 可继续重命名 caller pane。Companion 只重命名自己的 process pane，`/btw` agent pane 由 Herdr 命名。
-- `@ogulcancelik/pi-herdr` 是可选项，不是依赖。只有需要更广泛的 layout/agent 控制面时才安装；companion 不提供通用 layout、fleet、worktree、ping 或 picker。
-
-## 安全与限制
-
-- 每次 Herdr 调用都使用 argv、有限 timeout，并对 CLI 承诺为 JSON 的响应做防御式解析。
-- Process 与 BTW ownership registry 是不同 state machine，不能互相关闭 pane。
-- `/btw` 与 parent 共享 cwd。并发文件/Git 修改、dev server 与端口可能冲突。
-- Parent snapshot 是静态的；后续 parent 活动不会自动同步到 child。
-- Merge 绑定精确 parent session ID，child 也绑定首个 side-thread session ID。Parent 不可用时，请求保持 pending 且可诊断；child 切换 session 后会禁用 side-thread 行为。
-- 收到 accepted ack 后，child 先用持久化 Herdr agent name 解析当前 pane，聚焦精确 parent，确认 request 有 matching ack 后删除私有 launch state，最后才关闭自身。解析、聚焦或 cleanup 失败时会保留 state 与 pane 供恢复；若 state 已删但 close 失败，则必须手工关闭 pane。
-- 正常失败路径会清私有 payload，并且只会尽力关闭 split 成功/失败响应明确返回的 pane ID。Split 失败无明确 ID 时会报告可能 orphan，并刻意不碰无法识别的 pane。进程/主机硬崩仍无法提供绝对 cleanup 保证。
-- POSIX filesystem 没有 portable 的 unlink-if-inode-matches 原语。实现会在删除前立即复核 lock identity，但最后一次 check/unlink 之间仍有不可消除的竞态；观察到 replacement 或 ownership 不确定时采用保守 timeout。
-- Herdr 0.7.5+ 是兼容下限；缺 `process-info` 时降级为不删除的 `unknown`，高级 layout 操作刻意不在范围内。
+- 保持 Herdr 托管的 Pi integration；Companion 不会替代它。
+- 不要同时加载另一个注册 `/btw` 的扩展，否则 Pi 会显示带后缀的重复命令。
+- Parent snapshot 是静态的，且 parent 与 child 共享 cwd；并发文件修改、Git 操作、server 和 port 可能冲突。
+- Process 或 host hard crash 无法保证 Pane cleanup。请恢复 owning session 后使用 `herdr_process list`/`stop`，或在 Herdr 中关闭已知 Pane。
+- Terminal identity 只在同一 Herdr server/socket 内有效，冷重启后不会沿用；Companion 会移除 stale ownership，而不会把它应用到另一个 terminal。
+- 托管进程 ownership 只覆盖 `herdr_process` 创建的 Pane。`herdr_worker` 只在 caller 提供的 Pane 中启动 Pi，不接管 Pane ownership 或 cleanup；通用 layout、worktree 与 agent 控制仍由 Herdr CLI 提供。
 
 ## 开发
 
@@ -205,4 +215,4 @@ npm pack --dry-run ./packages/pi-herdr-companion
 
 ## 许可证
 
-MIT。`/btw` 产品行为和部分私有 context/mailbox 实现改编自 Oscar Gabriel 的 MIT 许可 [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw)。保留的声明与来源记录见 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) 和 [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md)。
+MIT。`/btw` 产品行为和部分私有协调机制改编自 Oscar Gabriel 的 MIT 许可 [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw)。保留声明与来源记录见 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) 和 [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md)。
