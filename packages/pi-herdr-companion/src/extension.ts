@@ -22,6 +22,7 @@ import { HerdrClient } from "./herdr-client.ts";
 import { ProcessManager } from "./process/manager.ts";
 import { restoreProcessRegistry, PROCESS_STATE_CUSTOM_TYPE } from "./process/registry.ts";
 import { registerHerdrProcessTool } from "./process/tool.ts";
+import { ProcessWidgetController } from "./process/ui.ts";
 import {
 	appendRuntimePrompt,
 	buildRuntimePrompt,
@@ -46,6 +47,7 @@ export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise
 	let tuiActivation: Promise<void> | undefined;
 	let blockedAdapters: ReturnType<typeof registerBlockedAdapters> | undefined;
 	let processManager: ProcessManager | undefined;
+	let processWidget: ProcessWidgetController | undefined;
 
 	const configController: CompanionConfigController = {
 		path: configStore.path,
@@ -117,6 +119,12 @@ export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise
 
 	async function activateTui(initialEvent: SessionStartEvent, initialCtx: ExtensionContext): Promise<void> {
 		if (!processManager) throw new Error("Herdr process manager was not initialized");
+		processWidget = new ProcessWidgetController(processManager);
+		processWidget.setUICtx(initialCtx.ui);
+		pi.on("session_start", (_event, ctx) => {
+			if (ctx.mode === "tui") processWidget?.setUICtx(ctx.ui);
+		});
+		pi.on("session_shutdown", () => processWidget?.dispose());
 
 		pi.registerCommand("herdr-config", {
 			description: "Configure Herdr Companion",

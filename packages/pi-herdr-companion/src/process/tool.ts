@@ -14,6 +14,7 @@ import type {
 	ProcessPaneState,
 	ProcessRuntimeState,
 } from "./manager.ts";
+import { renderHerdrProcessCall, renderHerdrProcessResult } from "./render.ts";
 
 export const herdrProcessSchema = Type.Object({
 	action: StringEnum(["start", "list", "logs", "stop"] as const, {
@@ -140,5 +141,7 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 				}
 			}
 		},
+		renderCall: renderHerdrProcessCall,
+		renderResult: renderHerdrProcessResult,
 	});
 }
