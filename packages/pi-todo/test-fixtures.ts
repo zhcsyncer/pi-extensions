@@ -16,6 +16,7 @@ interface CapturedPi {
 	tools: Map<string, ToolDefinition>;
 	commands: Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>;
 	events: Map<string, Array<(...args: unknown[]) => unknown>>;
+	entries: Array<{ customType: string; data: unknown }>;
 }
 
 export function createMockPi(): { pi: ExtensionAPI; captured: CapturedPi } {
@@ -23,6 +24,7 @@ export function createMockPi(): { pi: ExtensionAPI; captured: CapturedPi } {
 		tools: new Map(),
 		commands: new Map(),
 		events: new Map(),
+		entries: [],
 	};
 	const pi = {
 		registerTool: vi.fn((tool: ToolDefinition) => captured.tools.set(tool.name, tool)),
@@ -34,6 +36,9 @@ export function createMockPi(): { pi: ExtensionAPI; captured: CapturedPi } {
 			const handlers = captured.events.get(event) ?? [];
 			handlers.push(handler);
 			captured.events.set(event, handlers);
+		}),
+		appendEntry: vi.fn((customType: string, data: unknown) => {
+			captured.entries.push({ customType, data });
 		}),
 	} as unknown as ExtensionAPI;
 	return { pi, captured };
@@ -75,8 +80,10 @@ export function createMockCtx(options: {
 	hasUI?: boolean;
 	mode?: "tui" | "rpc" | "json" | "print";
 	branch?: SessionEntry[];
+	entries?: SessionEntry[];
 } = {}): ExtensionContext {
 	const branch = options.branch ?? [];
+	const entries = options.entries ?? branch;
 	const hasUI = options.hasUI ?? false;
 	return {
 		hasUI,
@@ -85,7 +92,7 @@ export function createMockCtx(options: {
 		ui: createMockUI() as unknown as ExtensionUIContext,
 		sessionManager: {
 			getBranch: vi.fn(() => branch),
-			getEntries: vi.fn(() => branch),
+			getEntries: vi.fn(() => entries),
 			getLeafId: vi.fn(() => (branch.length > 0 ? branch.at(-1)?.id ?? null : null)),
 			getSessionFile: vi.fn(() => "/tmp/pi-todo-test/session.jsonl"),
 			getSessionId: vi.fn(() => "pi-todo-test"),

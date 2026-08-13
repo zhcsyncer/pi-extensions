@@ -1,7 +1,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { StatusIcons } from "../config.js";
-import type { Task, TaskAction, TaskDetails, TaskMutationParams, TaskStatus } from "../tool/types.js";
+import type {
+	LegacyTaskAction,
+	Task,
+	TaskDetailsV1,
+	TaskMutationParams,
+	TaskStatus,
+} from "../tool/types.js";
 
 // Re-export so legacy import paths continue to resolve; the canonical
 // definition lives in the i18n bridge.
@@ -42,26 +48,15 @@ function formatTaskSubject(task: Task, theme: Theme): string {
 	}
 }
 
-function formatTaskId(task: Task, theme: Theme): string {
-	return theme.fg(task.status === "in_progress" ? "accent" : "dim", `#${task.id}`);
-}
-
 /** Format a single task for the overlay with status-aware theme styling. */
 export function formatOverlayTaskLine(
 	t: Task,
 	theme: Theme,
-	showId: boolean,
 	icons: StatusIcons,
 	inProgressFrame?: string,
 ): string {
 	const glyph = statusIcon(t.status, theme, icons, inProgressFrame);
-	let line = `${glyph}`;
-	if (showId) line += ` ${formatTaskId(t, theme)}`;
-	line += ` ${formatTaskSubject(t, theme)}`;
-	if (t.blockedBy && t.blockedBy.length > 0) {
-		line += ` ${theme.fg("dim", `⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}`)}`;
-	}
-	return line;
+	return `${glyph} ${formatTaskSubject(t, theme)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +72,7 @@ export function renderHiddenTodoNode(): Text {
 	return new Text("", 0, 0);
 }
 
-type TodoCallArgs = TaskMutationParams & { action?: TaskAction };
+type TodoCallArgs = TaskMutationParams & { action?: LegacyTaskAction };
 
 function formatBatchCallOperation(operation: NonNullable<TaskMutationParams["operations"]>[number]): string {
 	switch (operation.action) {
@@ -142,9 +137,9 @@ export function renderTodoResult(
 	isError = false,
 	expanded = false,
 ): Text {
-	const details = result.details as TaskDetails | undefined;
+	const legacyDetails = result.details as Partial<TaskDetailsV1> | undefined;
 	const resultText = result.content?.find((item) => item.type === "text" && item.text)?.text;
-	const failureText = details?.error ?? (isError ? resultText ?? "Todo failed" : undefined);
+	const failureText = legacyDetails?.error ?? (isError ? resultText ?? "Todo failed" : undefined);
 	if (failureText) return new Text(theme.fg("error", `✗ ${failureText}`), 0, 0);
 	if (expanded && resultText) return new Text(theme.fg("muted", resultText), 0, 0);
 	return renderHiddenTodoNode();

@@ -1,18 +1,33 @@
 import type { Task } from "../tool/types.js";
 
 /**
- * Canonical state for the todo tool. Single source of truth — both the reducer
- * (`state/state-reducer.ts`) and the live store cell (`state/store.ts`) read
- * this shape. Replay (`state/replay.ts`) returns a fresh `TaskState`; the
- * lifecycle handlers in `index.ts` write it via `replaceState`.
- *
- * The shape is intentionally minimal — no derived caches or runtime cells.
- * Selectors in `state/selectors.ts` are pure of `TaskState` and own all
- * derivations (visible/grouped/counted/etc).
+ * Canonical V2 live state for the todo tool. Replay always normalizes legacy
+ * snapshots into this shape before lifecycle handlers publish it to the store.
  */
 export interface TaskState {
 	tasks: Task[];
 	nextId: number;
+	generation: number;
+	revision: number;
 }
 
-export const EMPTY_STATE: TaskState = { tasks: [], nextId: 1 };
+export const EMPTY_STATE: TaskState = {
+	tasks: [],
+	nextId: 1,
+	generation: 1,
+	revision: 0,
+};
+
+export function createEmptyTaskState(): TaskState {
+	return { ...EMPTY_STATE, tasks: [] };
+}
+
+/** User reset: clear live tasks without ever reusing an id. */
+export function resetTaskState(state: TaskState): TaskState {
+	return {
+		tasks: [],
+		nextId: state.nextId,
+		generation: state.generation + 1,
+		revision: state.revision + 1,
+	};
+}

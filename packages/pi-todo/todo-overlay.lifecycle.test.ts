@@ -97,8 +97,7 @@ describe("TodoOverlay — lifecycle", () => {
 		overlay.setUICtx(ui);
 		overlay.update();
 		const setWidget = ui.setWidget as ReturnType<typeof vi.fn>;
-		// Delete → then hard-remove via "clear" to leave visibility list empty.
-		await tool.execute?.("tc", { action: "clear" } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 1 } as never, undefined as never, undefined as never, {} as never);
 		overlay.update();
 		expect(setWidget).toHaveBeenCalledTimes(2);
 		expect(setWidget.mock.calls[1]).toEqual([WIDGET_KEY, undefined]);
@@ -111,7 +110,7 @@ describe("TodoOverlay — lifecycle", () => {
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
-		await tool.execute?.("tc", { action: "clear" } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 1 } as never, undefined as never, undefined as never, {} as never);
 		overlay.update();
 		await tool.execute?.(
 			"tc",

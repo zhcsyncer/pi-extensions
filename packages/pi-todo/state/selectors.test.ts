@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../tool/types.js";
-import { selectOverlayLayout } from "./selectors.js";
+import {
+	formatCurrentTodoState,
+	formatCurrentTodoStateUpdate,
+	selectOverlayLayout,
+} from "./selectors.js";
+import type { TaskState } from "./state.js";
+
+function stateWith(tasks: Task[]): TaskState {
+	return {
+		tasks,
+		nextId: Math.max(0, ...tasks.map((task) => task.id)) + 1,
+		generation: 1,
+		revision: 0,
+	};
+}
 
 function layout(tasks: Task[], budget: number) {
-	return selectOverlayLayout({ tasks, nextId: tasks.length + 1 }, budget);
+	return selectOverlayLayout(stateWith(tasks), budget);
 }
 
 describe("selectOverlayLayout overflow priority", () => {
@@ -52,5 +66,45 @@ describe("selectOverlayLayout overflow priority", () => {
 
 		expect(result.visible.map((task) => task.id)).toEqual([1, 3, 4]);
 		expect(result.hiddenCompleted).toBe(2);
+	});
+});
+
+describe("formatCurrentTodoState", () => {
+	it("includes only active ids, statuses, subjects, and completed count", () => {
+		const summary = formatCurrentTodoState(
+			stateWith([
+				{ id: 10, subject: "Implement\nchanges", status: "in_progress", description: "secret" },
+				{
+					id: 11,
+					subject: "Validate",
+					status: "pending",
+					metadata: { hidden: true },
+				},
+				{ id: 12, subject: "Done", status: "completed", description: "omit" },
+				{ id: 13, subject: "Deleted", status: "deleted" },
+			]),
+		);
+		expect(summary).toBe(
+			"Current Todo state:\n" +
+				"- #10 in_progress: Implement changes\n" +
+				"- #11 pending: Validate\n" +
+				"- 1 completed task hidden",
+		);
+		expect(summary).not.toContain("secret");
+		expect(summary).not.toContain("metadata");
+		expect(summary).not.toContain("Deleted");
+	});
+
+	it("returns undefined when no active task exists", () => {
+		const terminal = stateWith([
+			{ id: 1, subject: "done", status: "completed" },
+			{ id: 2, subject: "gone", status: "deleted" },
+		]);
+		expect(formatCurrentTodoState(terminal)).toBeUndefined();
+		expect(formatCurrentTodoStateUpdate(terminal)).toBe(
+			"Current Todo state update:\n" +
+				"- No pending or in_progress tasks\n" +
+				"- 1 completed task hidden",
+		);
 	});
 });

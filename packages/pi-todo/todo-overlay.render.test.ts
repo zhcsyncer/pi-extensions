@@ -213,25 +213,16 @@ describe("TodoOverlay — per-task formatting", () => {
 	});
 });
 
-describe("TodoOverlay — showIds gate", () => {
-	it("does NOT show #id prefix when no task has blockedBy", async () => {
+describe("TodoOverlay — ordered task rows", () => {
+	it("renders subjects in store order without dependency or id chrome", async () => {
 		const { widget } = await setup([
-			{ action: "create", subject: "a" },
-			{ action: "create", subject: "b" },
+			{ action: "create", subject: "first" },
+			{ action: "create", subject: "second" },
 		]);
 		const out = widget.render(200).join("\n");
+		expect(out.indexOf("first")).toBeLessThan(out.indexOf("second"));
 		expect(out).not.toMatch(/#\d/);
-	});
-
-	it("shows #id prefix and '⛓' dep suffix when any task has blockedBy", async () => {
-		const { widget } = await setup([
-			{ action: "create", subject: "base" },
-			{ action: "create", subject: "follow-up", blockedBy: [1] },
-		]);
-		const out = widget.render(200).join("\n");
-		expect(out).toContain("#1");
-		expect(out).toContain("#2");
-		expect(out).toContain("⛓");
+		expect(out).not.toContain("⛓");
 	});
 });
 
@@ -354,8 +345,8 @@ describe("TodoOverlay — width truncation", () => {
 	it("drops completed tasks from counts after the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
 			{ action: "create", subject: "done" },
-			...completeActions(1),
 			{ action: "create", subject: "next" },
+			...completeActions(1),
 		]);
 		expect(widget.render(200).join("\n")).toContain("Todos (1/2)");
 		const secondRender = widget.render(200).join("\n");
