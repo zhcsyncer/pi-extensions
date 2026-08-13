@@ -8,7 +8,7 @@
 
 Replace the default prompt with a rounded multiline editor and an inline glance at Git, cost, Reply speed, context, optional tokens, and model—without hiding statuses published by other extensions.
 
-This package is a maintained fork of [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. It preserves upstream behavior while adding a status-only footer, a bottom-right context progress mode, and a highlighted auto-compaction indicator.
+This package is a maintained fork of [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. It builds on upstream's input surface with a status-only footer, Follow Pi theme integration, bottom-right context and auto-compaction details, and a switchable, theme-aware Claude-inspired working indicator.
 
 [![npm](https://img.shields.io/npm/v/%40zhcsyncer%2Fpi-glance?style=flat-square&color=blue)](https://www.npmjs.com/package/@zhcsyncer/pi-glance)
 [![license](https://img.shields.io/badge/license-MIT-64748b?style=flat-square)](LICENSE)
@@ -36,7 +36,7 @@ Then restart Pi or run `/reload` after installing or changing the extension.
 
 To update installed packages/extensions, use `pi update --extensions` or `pi update --all`. `pi update` updates Pi itself by default.
 
-Compatibility: current `@zhcsyncer/pi-glance` releases target Pi packages under `@earendil-works/*`, Pi 0.80 or newer, and Node 20 or newer.
+Compatibility: current `@zhcsyncer/pi-glance` releases target Pi packages under `@earendil-works/*`, Pi 0.80.4 or newer, and Node 20 or newer. The 0.80.4 floor is required by the public `agent_settled` lifecycle event used to clean up the working indicator after retries and continuations.
 
 For development/testing:
 
@@ -74,6 +74,7 @@ That's the only command — opens a calm settings pane with a real input-surface
 | ⚙️ | **`/glance` pane** | General settings, segment order, and per-segment detail settings in a calm grid |
 | 💤 | **Dim unfocused** | Surface quiets down when you scroll the chat |
 | 🎨 | **Themes** | Follows Pi theme tokens by default, with 22 built-in Glance palettes available as an alternative/fallback |
+| ✢ | **Working indicator** | Claude-inspired spinner, shimmer, activity, current-cycle output, and elapsed time, with automatic narrow-terminal fitting |
 
 ## Notes
 
@@ -88,7 +89,29 @@ That's the only command — opens a calm settings pane with a real input-surface
 - Other extensions' `ctx.ui.setStatus()` values remain visible below the editor. Glance permanently omits Pi's two informational footer rows because the input surface already shows those primary facts; there is no setting to restore them.
 - Bottom-right details are always active and have no master switch. Turn on `/glance` → **Context** → `Progress bar` to move context text next to a bottom-right bar (the label always includes percent), then choose a standalone `track` or a progress-aware `border` plus `one third` or `remaining` width. Auto-compaction is shown when enabled and can be hidden under **Bottom details**.
 - Reply speed is enabled by default and appears between cost and context. It shows output tokens per wall time: `?` means no trusted measurement yet, `~42 tok/s` is a provisional current-run checkpoint from completed turns, and `42 tok/s` is the finalized agent-end measurement.
-- Configure `/glance` → **Reply speed** → `Precision`: `auto`, `1 digit`, or `0 digits`. Wall time includes tools, waiting, network, and thinking, so it is not a benchmark. Reply speed uses no notifications, no timers/tickers, no token estimation from text/deltas, and adds no command, footer, dashboard, history, or average view.
+- Configure `/glance` → **Reply speed** → `Precision`: `auto`, `1 digit`, or `0 digits`. Wall time includes tools, waiting, network, and thinking, so it is not a benchmark. Reply speed uses no notifications or token estimation from text/deltas and adds no command, footer, dashboard, history, or average view.
+- The Claude-inspired working indicator is a Glance component, not an official Anthropic component or a pixel-compatibility promise. It uses Pi's public display and lifecycle APIs only; it does not change the Agent, prompts, models, tools, messages, or session behavior and never adds completion notifications or transcript lines.
+- `/glance` exposes **Working indicator** directly in the first-level menu, with one `Enabled: on/off` switch. `on` is the complete automatic experience; `off` stops its animation and restores Pi's default working row. Returning from a child column preserves the parent item, and each first-level item remembers its last selected child row.
+
+## Working indicator
+
+**Fork difference:** Working indicator is provided by `@zhcsyncer/pi-glance`; upstream `pi-glance` 0.5.3 does not include it.
+
+While a high-level agent cycle is active, Glance owns Pi's working row and automatically shows a themed ping-pong star, a stable per-cycle verb, current requesting/thinking/tool activity, available thinking effort, output tokens for that cycle, and elapsed time. Parallel tools are tracked independently; retry, compaction retry, and queued continuation keep the same verb, clock, and output total until `agent_settled`.
+
+The animation combines a calm eased star with a high-contrast, grapheme-safe accent shimmer whose center is bold. During tool use the verb stays static instead of competing with the visible tool call.
+
+Elapsed time stays compact and human-readable: `47s`, `3m 08s`, and `1h 07m`. It is dim below one minute, uses normal text from one minute up to five minutes, and uses the theme warning color at five minutes or later. Only the elapsed field gains emphasis—a long cycle can still be healthy and progressing.
+
+Working output has a deliberately different window from the other Glance metrics:
+
+- **Working row — current high-level cycle output.** Completed assistant messages use provider-reported `usage.output`. The current complete partial assistant message—including text, thinking, and assembled tool-call arguments—is conservatively estimated with Pi's public `estimateTokens()`. Streaming bursts are coalesced by the existing 120ms working-row ticker, which estimates only the latest complete partial once per frame; an empty partial stays hidden instead of showing `↓ ~0 tokens`. A value such as `↓ ~42 tokens` contains an estimate; final message usage replaces that estimate and removes `~`, without double counting.
+- **Top-border Tokens — current session cumulative usage.** It includes reported assistant usage plus nested LLM tool, compaction, and branch-summary usage.
+- **Context — current context-window occupancy.** It comes from Pi's context-usage API rather than either output counter.
+
+Narrow terminals preserve the spinner and main verb first, then activity, cycle tokens, and elapsed time; once elapsed time reaches its warning state, it is retained ahead of cycle tokens. Output is grapheme- and display-width-safe. A separate stall color is used only after responding has already produced a generation delta and then makes no assistant progress for 10 seconds. Requesting, thinking, and tool execution are never marked stalled.
+
+Pi's working row is a global singleton with no owner stack. If multiple working-indicator extensions are enabled, the last writer wins. Turning this feature or Glance off restores Pi's default row; it cannot recover another extension's private previous value. Settling, shutdown, and reload perform the same cleanup.
 
 ## Themes and config
 
@@ -98,6 +121,9 @@ New installs default to:
 
 ```json
 {
+  "workingIndicator": {
+    "enabled": true
+  },
   "colorSource": "pi",
   "theme": {
     "light": "light",
@@ -106,9 +132,9 @@ New installs default to:
 }
 ```
 
-`Follow Pi` maps the frame, text, status, warning, error, title, and detail roles to Pi semantic theme tokens and updates during runtime theme switches. The normal frame uses Pi's border token rather than the thinking-level border; Bash alone uses Pi's `bashMode` token.
+`Follow Pi` maps the frame, text, status, warning, error, title, detail, and working-indicator roles to Pi semantic theme tokens and updates during runtime theme switches. The normal frame uses Pi's border token rather than the thinking-level border; Bash alone uses Pi's `bashMode` token.
 
-`Glance palette` uses the selected light/dark built-in pair for the frame, segments, and context progress. Bash uses that palette's warning color. The same pair is the fallback if no current Pi theme is available. The 22 built-ins include Light/Dark, Catppuccin, Nord, Tokyo Night, Gruvbox, Solarized, Rosé Pine, One, Kanagawa, Everforest, and High Contrast variants.
+`Glance palette` uses the selected light/dark built-in pair for the frame, segments, context progress, and working indicator. Bash uses that palette's warning color. The same pair is the fallback if no current Pi theme is available. The 22 built-ins include Light/Dark, Catppuccin, Nord, Tokyo Night, Gruvbox, Solarized, Rosé Pine, One, Kanagawa, Everforest, and High Contrast variants.
 
 Migration is conservative: schema 10 and older configs without `colorSource` use `colorSource: "glance"`, preserving their previous appearance. Explicit values are retained. Old string themes still migrate to matching light/dark slots.
 
@@ -194,9 +220,9 @@ pnpm debug:git
 ## Design
 
 - No Pi core patches — public extension APIs only
-- No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes
+- No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes; Glance owns one in-memory working-message timer while Pi animates the installed spinner frames through its public UI API
 - pi-glance never replaces Pi's native Header or resource area. Context/Skills/Prompts/Extensions keep Pi's native compact/expanded hierarchy; expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
-- Global config at `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` (schema version 12). The previous path is migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed files are preserved
+- Global config at `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` (schema version 13). The previous path is migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed files are preserved
 
 ## License and attribution
 

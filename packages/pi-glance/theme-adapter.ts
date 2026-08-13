@@ -15,6 +15,7 @@ export interface ResolvedGlanceStyles {
 	readonly label: string;
 	readonly cacheKey: string;
 	readonly text: TextStyler;
+	readonly strongTitle: TextStyler;
 	readonly dim: TextStyler;
 	readonly success: TextStyler;
 	readonly warn: TextStyler;
@@ -55,6 +56,7 @@ export interface PiThemeLike {
 	readonly name?: string;
 	readonly sourcePath?: string;
 	fg(color: PiThemeColorToken, text: string): string;
+	bold?(text: string): string;
 	getColorMode?(): string;
 }
 
@@ -90,6 +92,10 @@ function styleFromPiTokens(theme: PiThemeLike, tokens: readonly PiThemeColorToke
 	};
 }
 
+function strong(styler: TextStyler, bold?: (text: string) => string): TextStyler {
+	return (text) => styler(bold ? bold(text) : `\x1b[1m${text}\x1b[22m`);
+}
+
 function piThemeCacheKey(theme: PiThemeLike, options: PiThemeStyleOptions): string {
 	if (options.cacheKey !== undefined) return `pi:${options.cacheKey}`;
 	return `pi:${JSON.stringify([theme.name ?? "", theme.getColorMode?.() ?? "", theme.sourcePath ?? ""])}`;
@@ -114,6 +120,7 @@ export function resolveBuiltInGlanceStyles(theme: GlanceThemeName): ResolvedGlan
 		label: themeLabel(theme),
 		cacheKey: `glance:${theme}`,
 		text: styleFromRgb(palette.text),
+		strongTitle: strong(styleFromRgb(palette.title)),
 		dim: styleFromRgb(palette.dim),
 		success: styleFromRgb(palette.segments.git.fg),
 		warn: styleFromRgb(palette.warn),
@@ -133,6 +140,7 @@ export function resolvePiThemeStyles(theme: PiThemeLike, options: PiThemeStyleOp
 		label: options.label ?? theme.name ?? "Pi theme",
 		cacheKey: piThemeCacheKey(theme, options),
 		text: styleFromPiTokens(theme, ["text"]),
+		strongTitle: strong(styleFromPiTokens(theme, ["accent", "borderAccent", "text"]), theme.bold?.bind(theme)),
 		dim: styleFromPiTokens(theme, ["dim", "muted", "text"]),
 		success: styleFromPiTokens(theme, ["success", "accent", "text"]),
 		warn: styleFromPiTokens(theme, ["warning", "accent", "text"]),

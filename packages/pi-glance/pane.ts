@@ -50,14 +50,14 @@ interface PaneLayout {
 const PANE_SPACING = {
 	outerPadding: 2,
 	contentInset: 4,
-	categoryWidth: 14,
+	categoryWidth: 19,
 	settingLabelWidth: 20,
 	valueWidth: 16,
 	minValueWidth: 8,
 	asideWidth: 36,
 	minAsideWidth: 22,
-	columnGap: 4,
-	asideGap: 4,
+	columnGap: 2,
+	asideGap: 2,
 	minContentWidth: 10,
 	asideSeparator: "│",
 } as const;

@@ -1096,4 +1096,44 @@ for (const mode of ["rpc", "json", "print"] as const) {
 	assertAmbientPaneOptions(harness.showPaneOptions[0], "provider-count snapshot pane open");
 }
 
+{
+	let timerCallback: (() => void) | undefined;
+	let scheduled = 0;
+	let cleared = 0;
+	const initialConfig = defaultConfig();
+	const offConfig = JSON.parse(JSON.stringify(initialConfig)) as typeof initialConfig;
+	offConfig.workingIndicator.enabled = false;
+	const test = createContext({ uiTheme: fakePiTheme("working-runtime") });
+	const harness = createRuntimeHarness({
+		loadConfigSyncConfig: initialConfig,
+		showPaneResults: [{ action: "save", config: offConfig }],
+		git: createGitHarness(),
+		workingIndicator: {
+			nowMs: () => 1_000,
+			random: () => 0,
+			setInterval: (callback) => {
+				scheduled++;
+				timerCallback = callback;
+				return scheduled;
+			},
+			clearInterval: () => {
+				cleared++;
+				timerCallback = undefined;
+			},
+			estimateMessageTokens: () => 12,
+		},
+	});
+	harness.runtime.events.sessionStart({}, test.ctx);
+	harness.runtime.events.agentStart({}, test.ctx as ExtensionContext);
+	assert.equal(scheduled, 1, "runtime agent_start should start one working timer");
+	assert.ok(test.workingMessages.length > 0, "runtime agent_start should take working-message ownership");
+	timerCallback?.();
+	await harness.runtime.commands.openPane("", test.ctx);
+	assert.equal(cleared, 1, "saving Working indicator off should immediately stop its timer");
+	assert.equal(test.workingMessages.at(-1), undefined, "saving Working indicator off should restore Pi's default message");
+	assert.equal(test.workingIndicators.at(-1), undefined, "saving Working indicator off should restore Pi's default spinner");
+	harness.runtime.events.agentSettled({}, test.ctx as ExtensionContext);
+	assert.equal(cleared, 1, "settled after an already-disabled save should remain idempotent");
+}
+
 console.log("✓ runtime seam checks passed");

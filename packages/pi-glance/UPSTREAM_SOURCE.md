@@ -15,3 +15,4 @@ The production source and upstream tests were copied from that tag before local 
 - Preserve statuses published by other extensions while permanently replacing Pi's built-in informational footer rows.
 - Add a responsive context progress mode to the input surface bottom-right.
 - Add a plain/Nerd Font auto-compaction marker with semantic color highlighting.
+- Add a switchable, theme-aware Claude-inspired working indicator for activity, current-cycle output, and elapsed time.

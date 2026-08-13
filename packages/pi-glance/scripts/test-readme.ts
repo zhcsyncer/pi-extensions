@@ -5,6 +5,7 @@ import { GLANCE_THEMES } from "../themes.js";
 
 const readme = await readFile("README.md", "utf8");
 const readmeZh = await readFile("README.zh-CN.md", "utf8");
+const upstreamSource = await readFile("UPSTREAM_SOURCE.md", "utf8");
 
 function assertReadmeIncludes(fragment: string, message: string): void {
 	assert.ok(readme.includes(fragment), message);
@@ -16,7 +17,8 @@ function assertReadmeExcludes(fragment: string, message: string): void {
 
 assertReadmeIncludes("maintained fork", "README should identify this package as a maintained fork");
 assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should install the scoped fork package");
-assertReadmeIncludes("Pi 0.80 or newer", "README should document the supported Pi baseline");
+assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_settled-compatible Pi baseline");
+assertReadmeIncludes("public `agent_settled` lifecycle event", "README should explain the minimum Pi version");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
 assertReadmeIncludes("**Bottom details**", "README should document the remaining bottom-details settings category");
 assertReadmeIncludes("`Progress bar`", "README should document the bottom-right context progress toggle");
@@ -46,6 +48,43 @@ assertReadmeIncludes("/glance` → **General** → `Icons`", "README should poin
 assertReadmeIncludes("Nerd icons need a Nerd Font or Symbols Nerd Font fallback", "README should explain Nerd Font fallback requirement");
 assertReadmeIncludes("If icons look like boxes, choose `plain`", "README should explain the plain fallback when icons render as boxes");
 assertReadmeIncludes("does not auto-detect, install, or bundle terminal fonts", "README should avoid implying font detection/install/bundling");
+assertReadmeIncludes("Claude-inspired working indicator", "README should describe the Claude-inspired working indicator");
+assertReadmeIncludes("Fork difference:", "README should clearly mark the working indicator as a fork difference");
+assertReadmeIncludes("upstream `pi-glance` 0.5.3 does not include it", "README should distinguish the working indicator from upstream capabilities");
+assert.ok(upstreamSource.includes("switchable, theme-aware Claude-inspired working indicator"), "upstream source record should list the working indicator among local differences");
+assertReadmeIncludes("not an official Anthropic component", "README should rule out official Anthropic provenance");
+assertReadmeIncludes("does not change the Agent, prompts, models, tools, messages, or session behavior", "README should document display-only behavior");
+assertReadmeIncludes("**Working indicator** directly in the first-level menu", "README should document the first-level working-indicator entry");
+assertReadmeIncludes("one `Enabled: on/off` switch", "README should document the single working-indicator toggle");
+assertReadmeIncludes("each first-level item remembers its last selected child row", "README should document parent and child cursor preservation");
+assertReadmeIncludes("Pi's public `estimateTokens()`", "README should document Pi's public partial-token estimator");
+assertReadmeIncludes("Completed assistant messages use provider-reported `usage.output`", "README should document finalized working-output accounting");
+assertReadmeIncludes("without double counting", "README should document estimate replacement rather than addition");
+assertReadmeIncludes("existing 120ms working-row ticker", "README should document single-ticker streaming coalescing");
+assertReadmeIncludes("instead of showing `↓ ~0 tokens`", "README should document empty-partial suppression");
+assertReadmeIncludes("Top-border Tokens — current session cumulative usage", "README should distinguish session usage from working output");
+assertReadmeIncludes("Context — current context-window occupancy", "README should distinguish context occupancy from output counters");
+assertReadmeIncludes("Elapsed time stays compact and human-readable", "README should document human-readable working elapsed time");
+assertReadmeIncludes("uses the theme warning color at five minutes or later", "README should document long-cycle elapsed emphasis");
+assertReadmeIncludes("it is retained ahead of cycle tokens", "README should document warning elapsed narrow-width priority");
+assertReadmeIncludes("global singleton with no owner stack", "README should document working-row ownership limits");
+assertReadmeIncludes("schema version 13", "README should document config schema 13");
+assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README working default should stay aligned with config");
+assert.ok(readmeZh.includes("**Fork 差异：**"), "Chinese README should clearly mark the working indicator as a fork difference");
+assert.ok(readmeZh.includes("上游 `pi-glance` 0.5.3 不包含该功能"), "Chinese README should distinguish the working indicator from upstream capabilities");
+assert.ok(readmeZh.includes("不是 Anthropic 官方组件"), "Chinese README should rule out official Anthropic provenance");
+assert.ok(readmeZh.includes("一级菜单直接显示 **Working indicator**"), "Chinese README should document the first-level working entry");
+assert.ok(readmeZh.includes("只有一个 `Enabled: on/off` 开关"), "Chinese README should document the single working switch");
+assert.ok(readmeZh.includes("记住上次选中的子项"), "Chinese README should document parent and child cursor preservation");
+assert.ok(readmeZh.includes("当前高层 cycle output"), "Chinese README should document working-token scope");
+assert.ok(readmeZh.includes("现有 120ms working-row ticker 合并"), "Chinese README should document single-ticker streaming coalescing");
+assert.ok(readmeZh.includes("不显示 `↓ ~0 tokens`"), "Chinese README should document empty-partial suppression");
+assert.ok(readmeZh.includes("当前 session 累计 usage"), "Chinese README should document session-token scope");
+assert.ok(readmeZh.includes("当前 context window 占用"), "Chinese README should document context scope");
+assert.ok(readmeZh.includes("耗时保持紧凑且易读"), "Chinese README should document human-readable working elapsed time");
+assert.ok(readmeZh.includes("五分钟及以上使用主题 warning 色"), "Chinese README should document long-cycle elapsed emphasis");
+assert.ok(readmeZh.includes("优先于 cycle token 保留"), "Chinese README should document warning elapsed narrow-width priority");
+assert.ok(readmeZh.includes("当前 schema 为版本 13"), "Chinese README should document schema 13");
 
 assert.equal(GLANCE_THEMES.length, 22, "README theme copy should describe the curated 22-theme collection");
 assertReadmeIncludes("22 built-in Glance palettes", "README should describe the curated 22-theme fallback collection");
@@ -55,7 +94,7 @@ assertReadmeIncludes("Both browsers contain all 22 palettes", "README should sta
 assertReadmeIncludes("matching tone listed first", "README should document slot-aware preferred ordering without filtering");
 assertReadmeIncludes("pi-glance is not a Pi theme manager", "README should avoid implying Pi theme management");
 assertReadmeIncludes("never enumerates, switches, or installs Pi themes", "README should explicitly rule out Pi theme enumeration/switching");
-assertReadmeIncludes("maps the frame, text, status, warning, error, title, and detail roles to Pi semantic theme tokens", "README should document Follow Pi semantic styling");
+assertReadmeIncludes("maps the frame, text, status, warning, error, title, detail, and working-indicator roles to Pi semantic theme tokens", "README should document Follow Pi semantic styling including the working row");
 assertReadmeIncludes('"colorSource": "pi"', "README should document the new-install color source default");
 assertReadmeIncludes('"theme": {\n    "light": "light",\n    "dark": "dark"\n  }', "README should document the fallback theme pair default");
 assert.equal(defaultConfig().colorSource, "pi", "README color-source copy should stay aligned with defaultConfig");
@@ -66,7 +105,7 @@ assert.deepEqual(normalizeConfig({ theme: "tokyo-night" }).theme, { light: "toky
 assertReadmeIncludes("pi-glance never replaces Pi's native Header or resource area", "README should document native Header ownership");
 assertReadmeIncludes("focused frame uses the selected Color source border and does not change with thinking level", "README should document stable normal frame coloring");
 assertReadmeIncludes("Bash is the only dynamic exception", "README should document the Bash-only border exception");
-assertReadmeIncludes("Glance palette` uses the selected light/dark built-in pair for the frame, segments, and context progress", "README should document palette-wide styling");
+assertReadmeIncludes("Glance palette` uses the selected light/dark built-in pair for the frame, segments, context progress, and working indicator", "README should document palette-wide styling including the working row");
 assertReadmeIncludes("Filled and unused border colors come from the selected Color source", "README should document context progress source consistency");
 assertReadmeIncludes("the dynamic status gets width first", "README should document status-first narrow top-border behavior");
 assertReadmeIncludes("the workspace title shortens into the remaining space, then disappears", "README should document workspace-title fallback behavior");

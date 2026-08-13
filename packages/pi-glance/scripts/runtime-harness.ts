@@ -12,7 +12,7 @@ export interface RuntimeNotification {
 	type: "info" | "warning" | "error" | undefined;
 }
 
-export type RuntimeCapturedFooterFactory = (tui: { requestRender(): void }, theme: unknown, footerData: unknown) => unknown;
+export type RuntimeCapturedFooterFactory = (tui: { terminal?: { columns: number }; requestRender(): void }, theme: unknown, footerData: unknown) => unknown;
 export type RuntimeCapturedEditorFactory = (tui: { terminal: { rows: number }; requestRender(): void }, theme: unknown, keybindings: unknown) => unknown;
 
 export interface RuntimeMutableModelInfo {
@@ -46,6 +46,8 @@ export interface RuntimeTestContextOptions {
 export interface RuntimeTestContext {
 	ctx: ExtensionCommandContext;
 	surfaceCalls: string[];
+	workingMessages: Array<string | undefined>;
+	workingIndicators: Array<{ frames?: string[]; intervalMs?: number } | undefined>;
 	notifications: RuntimeNotification[];
 	footerFactories: RuntimeCapturedFooterFactory[];
 	editorFactories: RuntimeCapturedEditorFactory[];
@@ -80,6 +82,7 @@ export interface RuntimeHarnessOptions {
 	git?: RuntimeGitHarness;
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
+	workingIndicator?: GlanceRuntimeAdapters["workingIndicator"];
 }
 
 export interface RuntimeHarness {
@@ -189,6 +192,8 @@ export function createGitHarness(): RuntimeGitHarness {
 
 export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}): RuntimeTestContext {
 	const surfaceCalls: string[] = [];
+	const workingMessages: Array<string | undefined> = [];
+	const workingIndicators: Array<{ frames?: string[]; intervalMs?: number } | undefined> = [];
 	const notifications: RuntimeNotification[] = [];
 	const footerFactories: RuntimeCapturedFooterFactory[] = [];
 	const editorFactories: RuntimeCapturedEditorFactory[] = [];
@@ -207,7 +212,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	const mode = options.mode ?? "tui";
 	const hasUI = options.hasUI ?? (mode === "tui" || mode === "rpc");
 	const invokeFooterFactory = options.invokeFooterFactory ?? true;
-	const fakeTui = { requestRender: () => renderRequests++ };
+	const fakeTui = { terminal: { columns: 100 }, requestRender: () => renderRequests++ };
 	const fakeTheme = {
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
@@ -250,6 +255,8 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 				return uiTheme;
 			},
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
+			setWorkingMessage: (message?: string) => workingMessages.push(message),
+			setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => workingIndicators.push(options),
 			setFooter: (factory: unknown) => {
 				surfaceCalls.push(factory ? "setFooter:install" : "setFooter:clear");
 				if (factory) {
@@ -268,6 +275,8 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	return {
 		ctx,
 		surfaceCalls,
+		workingMessages,
+		workingIndicators,
 		notifications,
 		footerFactories,
 		editorFactories,
@@ -305,7 +314,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 export function invokeFooterFactory(test: RuntimeTestContext, index: number, requestRender: () => void): unknown {
 	const factory = test.footerFactories[index];
 	assert.ok(factory, `expected footer factory ${index}`);
-	return factory({ requestRender }, {}, {
+	return factory({ terminal: { columns: 100 }, requestRender }, {}, {
 		getGitBranch: () => null,
 		getExtensionStatuses: () => new Map<string, string>(),
 		getAvailableProviderCount: () => 1,
@@ -362,6 +371,12 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 			return result;
 		},
 		createGitRefresher: options.git?.create,
+		workingIndicator:
+			options.workingIndicator ??
+			{
+				setInterval: () => ({ kind: "test-working-timer" }),
+				clearInterval: () => undefined,
+			},
 	};
 	return {
 		runtime: createGlanceRuntime(adapters),

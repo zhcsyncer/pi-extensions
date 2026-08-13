@@ -6,7 +6,7 @@
 
 用圆角多行编辑器替换默认输入框，在边框中展示 Git、费用、回复速率、context、可选 token 和模型信息，同时不再隐藏其他扩展发布的状态。
 
-本包 fork 自 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3。它保留上游能力，并增加固定的 StatusOnlyFooter、输入框右下角 context 进度条，以及高亮的自动压缩标记。
+本包 fork 自 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3，并在上游输入界面基础上增加固定的 StatusOnlyFooter、Follow Pi 主题集成、输入框右下角 context 与自动压缩详情，以及可关闭、跟随主题的 Claude-inspired working indicator。
 
 [English](./README.md)
 
@@ -28,7 +28,7 @@ pi install npm:@zhcsyncer/pi-glance
 pi --no-extensions -e ./packages/pi-glance
 ```
 
-当前版本面向 `@earendil-works/*` 命名空间、Pi 0.80 或更高版本，以及 Node.js 20 或更高版本。
+当前版本面向 `@earendil-works/*` 命名空间、Pi 0.80.4 或更高版本，以及 Node.js 20 或更高版本。最低版本 0.80.4 来自 working indicator cleanup 所依赖的公共 `agent_settled` 生命周期事件。
 
 ## 使用
 
@@ -48,6 +48,7 @@ pi --no-extensions -e ./packages/pi-glance
 - **右下角详情**：固定启用，仅展示可选的 context 进度条和高亮自动压缩标记。
 - **Git 增强**：dirty、冲突、ahead/behind 和可选 SHA。
 - **主题**：新安装默认跟随 Pi theme tokens，也可选择 22 套 Glance 内置配色；不会切换或安装 Pi 主题。
+- **Working indicator**：Claude-inspired 星形动画、shimmer、当前活动、本 cycle 输出 token 与耗时，并自动适配窄终端。
 
 ## 说明
 
@@ -57,7 +58,29 @@ pi --no-extensions -e ./packages/pi-glance
 - 长输入最大高度、内部滚动、`↑/↓ N more`、自动补全和大段粘贴 marker 都继续使用 Pi 原生行为。
 - Reply speed 默认启用：`? tok/s` 表示未知，`~42 tok/s` 表示当前 agent run 的临时值，`42 tok/s` 表示 `agent_end` 后的最终值。
 - Reply speed 使用 output tokens / wall time；wall time 包含 thinking、网络等待、工具执行和 provider 排队，因此不是纯模型解码 benchmark。
-- 扩展不会从流式文本估算 token，也不会运行刷新 ticker。
+- Reply speed 不从流式文本估算 token，也不运行自己的刷新 ticker。
+- Claude-inspired working indicator 是 Glance 组件，不是 Anthropic 官方组件，也不承诺逐像素兼容。它只使用 Pi 公共显示与生命周期 API，不改变 Agent、prompt、模型、工具、消息或 session 行为，也不会弹完成通知或增加 transcript 行。
+- `/glance` 会在一级菜单直接显示 **Working indicator**，其中只有一个 `Enabled: on/off` 开关。`on` 代表完整自动体验；`off` 会停止动画并恢复 Pi 默认 working row。从子列返回时会保留原父项，每个一级项也会记住上次选中的子项。
+
+## Working indicator
+
+**Fork 差异：** Working indicator 由 `@zhcsyncer/pi-glance` 提供；上游 `pi-glance` 0.5.3 不包含该功能。
+
+高层 agent cycle 活跃时，Glance 会接管 Pi working row，自动显示主题化往返星形 spinner、当前 cycle 内保持稳定的趣味动词、requesting/thinking/tool 活动、可用的 thinking effort、本 cycle 输出 token 和耗时。并行工具独立跟踪；retry、压缩重试和 queued continuation 会在 `agent_settled` 前保持同一个动词、起始时间和 output 累计。
+
+动画由沉稳的缓动星形和高对比、grapheme-safe 的 accent shimmer 组成，shimmer 中心额外加粗。tool-use 阶段动词保持静态，避免与可见 tool call 争夺注意力。
+
+耗时保持紧凑且易读：`47s`、`3m 08s`、`1h 07m`。不足一分钟使用 dim，一分钟起到五分钟前使用普通文字，五分钟及以上使用主题 warning 色。只强调耗时字段——cycle 很长不代表它已经卡住。
+
+Working output 与另外两类 Glance 指标窗口不同：
+
+- **Working row——当前高层 cycle output。** 已完成 assistant message 使用 provider 上报的 `usage.output`；当前完整 partial assistant message（包括 text、thinking 和已组装的 tool-call arguments）使用 Pi 公共 `estimateTokens()` 做保守估算。流式 burst 由现有 120ms working-row ticker 合并，每帧只估算一次最新完整 partial；空 partial 保持隐藏，不显示 `↓ ~0 tokens`。`↓ ~42 tokens` 表示其中含估算；message finalized 后会用正式 usage 替换估算、移除 `~`，不会双计。
+- **顶边框 Tokens——当前 session 累计 usage。** 包含正式 assistant usage，以及嵌套 LLM tool、compaction 和 branch summary usage。
+- **Context——当前 context window 占用。** 来自 Pi context-usage API，不等同于任一 output 计数。
+
+窄终端始终优先保留 spinner 与主文案，再依次保留活动、本 cycle token 和耗时；耗时进入 warning 状态后，会优先于 cycle token 保留。输出按 grapheme 与可见列安全处理。只有 responding 已经产生过 generation delta，随后连续 10 秒没有 assistant progress，才使用独立的 stall 色；requesting、thinking 和工具执行不会误报 stall。
+
+Pi working row 是没有 owner stack 的全局单例。同时启用多个同类扩展时，最后写入者生效。关闭该功能或 Glance 时只能恢复 Pi 默认 row，无法恢复另一扩展之前的私有值；settled、shutdown 和 reload 也会执行同样的完整清理。
 
 ## 主题与配置
 
@@ -67,6 +90,9 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
 
 ```json
 {
+  "workingIndicator": {
+    "enabled": true
+  },
   "colorSource": "pi",
   "theme": {
     "light": "light",
@@ -75,9 +101,9 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
 }
 ```
 
-`Follow Pi` 会把输入框、文本、状态、warning、error、标题和详情映射到 Pi semantic theme tokens，并响应运行时主题切换。普通边框使用 Pi `border` token，不使用 thinking level 边框；只有 Bash 使用 Pi `bashMode` token。
+`Follow Pi` 会把输入框、文本、状态、warning、error、标题、详情和 working indicator 映射到 Pi semantic theme tokens，并响应运行时主题切换。普通边框使用 Pi `border` token，不使用 thinking level 边框；只有 Bash 使用 Pi `bashMode` token。
 
-选择 `Glance palette` 时，普通边框、segments 和 context 进度都使用当前 light/dark 内置配色；Bash 使用该 palette 的 warning 色。当前 Pi theme 不可用时也以它作为 fallback。22 套配色包括 Light/Dark、Catppuccin、Nord、Tokyo Night、Gruvbox、Solarized、Rosé Pine、One、Kanagawa、Everforest 和 High Contrast 变体。
+选择 `Glance palette` 时，普通边框、segments、context 进度和 working indicator 都使用当前 light/dark 内置配色；Bash 使用该 palette 的 warning 色。当前 Pi theme 不可用时也以它作为 fallback。22 套配色包括 Light/Dark、Catppuccin、Nord、Tokyo Night、Gruvbox、Solarized、Rosé Pine、One、Kanagawa、Everforest 和 High Contrast 变体。
 
 迁移保持保守：schema 10 及更早配置若缺少 `colorSource`，会使用 `colorSource: "glance"`，保留原有视觉；显式配置的新字段会保留。旧字符串主题仍会迁移到相同的 light/dark 槽。
 
@@ -122,7 +148,7 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 }
 ```
 
-配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 12；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
+配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 13；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
 
 ## 顶边框优先级
 
@@ -156,7 +182,7 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash
 
 - 仅使用 Pi 公共扩展 API，不修改 Pi core。
 - `StatusOnlyFooter` 使用公开的 `footerData.getExtensionStatuses()` 保留扩展状态。
-- Git 在后台异步缓存；Pi settings 只在生命周期刷新时读取，不在渲染阶段读取。
+- Git 在后台异步缓存；Pi settings 只在生命周期刷新时读取，不在渲染阶段读取；Glance 只维护一个内存 working-message timer，已安装 spinner frames 的动画由 Pi 公共 UI API 驱动。
 - 自定义编辑器继承 `CustomEditor`，保留 Pi 快捷键、自动补全、粘贴、最大高度和滚动行为。
 - pi-glance 不替换 Pi 原生 Header 或资源区；Context、Skills、Prompts、Extensions 继续由 Pi 负责概要、层级和展开。Extensions 展开后仍按 project/user/path 分组，并由 Pi 显示 `npm:`/`git:` 包来源和本地文件路径。
 

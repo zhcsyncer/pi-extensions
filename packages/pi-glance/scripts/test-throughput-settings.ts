@@ -35,6 +35,7 @@ assert.deepEqual(
 	categories,
 	[
 		{ id: "general", label: "General", enabled: undefined },
+		{ id: "workingIndicator", label: "Working indicator", enabled: true },
 		{ id: "git", label: "Git", enabled: true },
 		{ id: "cost", label: "Cost", enabled: true },
 		{ id: "throughput", label: "Reply speed", enabled: true },
@@ -43,7 +44,7 @@ assert.deepEqual(
 		{ id: "model", label: "Model", enabled: true },
 		{ id: "details", label: "Bottom details", enabled: undefined },
 	],
-	"settings categories should expose Reply speed between Cost and Context while keeping Bottom details after segments",
+	"settings categories should expose Working indicator at top level and Reply speed between Cost and Context while keeping Bottom details after segments",
 );
 
 const rows = getSettingsRows(config, "throughput" as never);
