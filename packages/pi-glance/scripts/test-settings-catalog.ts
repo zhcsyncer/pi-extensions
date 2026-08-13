@@ -148,6 +148,7 @@ assert.deepEqual(
 	categories,
 	[
 		{ id: "general", label: "General" },
+		{ id: "workingIndicator", label: "Working indicator", enabled: true },
 		{ id: "git", label: "Git", enabled: true },
 		{ id: "cost", label: "Cost", enabled: true },
 		{ id: "throughput", label: "Reply speed", enabled: true },
@@ -156,7 +157,7 @@ assert.deepEqual(
 		{ id: "model", label: "Model", enabled: true },
 		{ id: "details", label: "Bottom details" },
 	],
-	"categories should start with General then follow configured segment order with enabled flags",
+	"categories should start with General and Working indicator, then follow configured segment order with enabled flags",
 );
 
 const reordered: GlanceConfig = {
@@ -174,6 +175,7 @@ assert.deepEqual(
 	getSettingsCategories(reordered),
 	[
 		{ id: "general", label: "General" },
+		{ id: "workingIndicator", label: "Working indicator", enabled: true },
 		{ id: "model", label: "Model", enabled: false },
 		{ id: "tokens", label: "Tokens", enabled: true },
 		{ id: "cost", label: "Cost", enabled: false },
@@ -191,13 +193,6 @@ const generalRows = assertRows(config, "general", [
 		label: "Enabled",
 		value: "on",
 		hint: "Temporarily disable pi-glance.",
-		kind: "toggle",
-	},
-	{
-		id: "general.workingIndicator",
-		label: "Working indicator",
-		value: "on",
-		hint: "Show the complete themed working row.",
 		kind: "toggle",
 	},
 	{
@@ -252,6 +247,16 @@ const generalRows = assertRows(config, "general", [
 		value: "name",
 		hint: "Show name, smart ~/ path, or safe path.",
 		kind: "cycle",
+	},
+]);
+
+const workingIndicatorRows = assertRows(config, "workingIndicator", [
+	{
+		id: "workingIndicator.enabled",
+		label: "Enabled",
+		value: "on",
+		hint: "Show the complete themed working row.",
+		kind: "toggle",
 	},
 ]);
 
@@ -458,8 +463,9 @@ const throughputRows = assertRows(config, "throughput", [
 ]);
 
 assert.equal(rowById(generalRows, "general.enabled").apply!(config).enabled, false, "general enabled should toggle off");
-assert.equal(rowById(generalRows, "general.workingIndicator").apply!(config).workingIndicator.enabled, false, "working indicator should expose one complete-experience toggle");
-assert.equal(generalRows.filter((row) => row.id.startsWith("general.workingIndicator")).length, 1, "General should expose exactly one working indicator setting");
+assert.equal(rowById(workingIndicatorRows, "workingIndicator.enabled").apply!(config).workingIndicator.enabled, false, "top-level working indicator should expose one complete-experience toggle");
+assert.equal(generalRows.some((row) => row.id.includes("workingIndicator")), false, "General should not duplicate the top-level working indicator setting");
+assert.equal(workingIndicatorRows.length, 1, "Working indicator should expose exactly one setting");
 assert.equal(rowById(generalRows, "general.colorSource").apply!(config).colorSource, "glance", "color source should cycle Follow Pi -> Glance palette");
 assert.equal(rowById(generalRows, "general.theme.light").opensSubview, "themeBrowser", "light theme row should declare the theme browser subview as its activation target");
 assert.equal(rowById(generalRows, "general.theme.light").themeSlot, "light", "light theme row should declare its edited slot");
@@ -670,7 +676,7 @@ assertCycleUsesValues(
 	(after) => (after as unknown as { throughput: { precision: (typeof THROUGHPUT_PRECISION_VALUES)[number] } }).throughput.precision,
 );
 
-for (const categoryId of ["general", "details", "git", "context", "cost", "tokens", "model", "throughput"] as const) {
+for (const categoryId of ["general", "workingIndicator", "details", "git", "context", "cost", "tokens", "model", "throughput"] as const) {
 	assertEditableRowsArePure(config, categoryId);
 }
 

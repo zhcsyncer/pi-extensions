@@ -11,7 +11,7 @@ import type { GlanceThemeSlot } from "./theme-selection.js";
 import type { EditorTopMarginRows, GlanceConfig, GlanceThemeName, SegmentId } from "./types.js";
 export type { GlanceThemeSlot } from "./theme-selection.js";
 
-export type SettingsCategoryId = "general" | "details" | SegmentId;
+export type SettingsCategoryId = "general" | "workingIndicator" | "details" | SegmentId;
 type SettingsRowKind = "toggle" | "cycle" | "info";
 export type SettingsRowSubview = "themeBrowser";
 
@@ -160,6 +160,7 @@ function segmentDescriptorRows(config: GlanceConfig, id: SegmentId): SettingsRow
 export function getSettingsCategories(config: GlanceConfig): SettingsCategory[] {
 	return [
 		{ id: "general", label: "General" },
+		{ id: "workingIndicator", label: "Working indicator", enabled: config.workingIndicator.enabled },
 		...config.segments.map((segment) => ({
 			id: segment.id,
 			label: segmentLabel(segment.id),
@@ -176,11 +177,6 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 				toggleRow("general.enabled", "Enabled", config.enabled, "Temporarily disable pi-glance.", (draft) =>
 					withConfig(draft, (next) => {
 						next.enabled = !next.enabled;
-					}),
-				),
-				toggleRow("general.workingIndicator", "Working indicator", config.workingIndicator.enabled, "Show the complete themed working row.", (draft) =>
-					withConfig(draft, (next) => {
-						next.workingIndicator.enabled = !next.workingIndicator.enabled;
 					}),
 				),
 				cycleRow("general.colorSource", "Color source", colorSourceLabel(config.colorSource), "Follow Pi theme tokens or use Glance palettes.", (draft) =>
@@ -228,6 +224,14 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 				cycleRow("general.workspaceLabel", "Workspace label", config.display.workspaceLabel, "Show name, smart ~/ path, or safe path.", (draft) =>
 					withConfig(draft, (next) => {
 						next.display.workspaceLabel = nextIn(next.display.workspaceLabel, WORKSPACE_LABEL_MODE_VALUES);
+					}),
+				),
+			];
+		case "workingIndicator":
+			return [
+				toggleRow("workingIndicator.enabled", "Enabled", config.workingIndicator.enabled, "Show the complete themed working row.", (draft) =>
+					withConfig(draft, (next) => {
+						next.workingIndicator.enabled = !next.workingIndicator.enabled;
 					}),
 				),
 			];

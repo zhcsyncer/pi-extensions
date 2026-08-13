@@ -22,11 +22,14 @@
 
 ### 2.1 只有一个功能开关
 
-在 `/glance` → **General** 增加：
+在 `/glance` 一级菜单增加：
 
 ```text
-Working indicator: on | off
+Working indicator
+  Enabled: on | off
 ```
+
+该一级项只有这一行开关，不增加显示细项。配置 GUI 从子列返回时保留原父项，并为每个一级项记住上次选中的子项。
 
 配置形态：
 
@@ -200,7 +203,7 @@ type WorkingPhase =
 - `GlanceConfig.version`：12 → 13。
 - 新增 `workingIndicator.enabled`，默认 `true`。
 - 更新：`types.ts`、`config.ts` 的 default/clone/normalize/shape、配置测试和 README schema 文案。
-- `/glance` General 只增加一行 toggle；不要新建一整个设置分类。
+- `/glance` 一级菜单增加独立 `Working indicator` 项，其中只保留一行 `Enabled` toggle；不增加显示细项。
 - 保存配置后立即安装或移除 working controller，无需 `/reload`。
 - 不直接修改 package version；版本由 Changesets version PR 处理。
 
@@ -254,7 +257,8 @@ packages/pi-glance/
 ### 9.4 配置、文档与回归
 
 - schema 13 default/clone/normalize/drop-field/migration 测试。
-- settings catalog 只有一个 Working indicator toggle。
+- settings catalog 只有一个 Working indicator toggle，并作为独立一级项呈现。
+- pane 导航从 values → settings → 原父项逐级返回；重新进入一级项时恢复其上次选中的子项。
 - 更新 `README.md` 与 `README.zh-CN.md`，准确区分 working run estimate、session usage 和 context usage。
 - 更新根 `README.md` / `README.zh-CN.md` 的 Glance 描述。
 - 原有 Glance 全套检查继续通过。
@@ -295,13 +299,14 @@ pnpm check:pack
 
 ## 12. 验收标准
 
-1. 用户只看到一个 Working indicator 开关，没有细碎显示级别。
-2. 开启后，spinner、shimmer、活动、thinking effort、当前 run token 和 elapsed 自动工作。
-3. 关闭、顶层 disable、settled、shutdown、reload 后 Pi 默认 working UI 被恢复且无 timer 泄漏。
-4. 配色严格跟随 Glance 当前 Color source，并响应 runtime Pi theme 与 Glance config 切换。
-5. 当前 run token 的估算/正式边界可见且不与 session/context 口径混淆。
-6. 自动 retry/continuation 在 `agent_settled` 前保持同一高层 cycle；多个 turn 正确累计。
-7. 工具并行状态正确，不因事件时序漏掉 tool-use。
-8. Unicode、ANSI 和窄终端安全；working 文案不造成宽度抖动或超宽。
-9. 不新增通知、transcript 内容、prompt、工具或模型行为。
-10. 中英文包文档、根文档、changeset 和完整验证同步完成。
+1. 用户在 `/glance` 一级菜单直接看到 Working indicator，内部只有一个 Enabled 开关，没有细碎显示级别。
+2. 从子列返回时保留原父项；重新进入一级项时恢复上次选中的子项。
+3. 开启后，spinner、shimmer、活动、thinking effort、当前 run token 和 elapsed 自动工作。
+4. 关闭、顶层 disable、settled、shutdown、reload 后 Pi 默认 working UI 被恢复且无 timer 泄漏。
+5. 配色严格跟随 Glance 当前 Color source，并响应 runtime Pi theme 与 Glance config 切换。
+6. 当前 run token 的估算/正式边界可见且不与 session/context 口径混淆。
+7. 自动 retry/continuation 在 `agent_settled` 前保持同一高层 cycle；多个 turn 正确累计。
+8. 工具并行状态正确，不因事件时序漏掉 tool-use。
+9. Unicode、ANSI 和窄终端安全；working 文案不造成宽度抖动或超宽。
+10. 不新增通知、transcript 内容、prompt、工具或模型行为。
+11. 中英文包文档、根文档、changeset 和完整验证同步完成。

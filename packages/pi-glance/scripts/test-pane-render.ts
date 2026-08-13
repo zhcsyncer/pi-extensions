@@ -38,9 +38,13 @@ function press(component: Component, data: string): void {
 	component.handleInput?.(data);
 }
 
+function moveDown(component: Component, count: number): void {
+	for (let index = 0; index < count; index++) press(component, "\x1b[B");
+}
+
 function openPaletteBrowser(component: Component, slot: "light" | "dark"): void {
 	press(component, "\x1b[C");
-	const settingIndex = slot === "light" ? 3 : 4;
+	const settingIndex = slot === "light" ? 2 : 3;
 	for (let index = 0; index < settingIndex; index++) press(component, "\x1b[B");
 	press(component, "\x1b[C");
 	press(component, "\r");
@@ -196,8 +200,8 @@ assertContains(initial, "✓ Saved", "initial pane should be clean");
 assertContains(initial, "Ask pi to improve the input surface...", "preview should render");
 assertNotContains(initial, "PREVIEW", "preview label should stay removed");
 assertContains(initial, "Enabled", "settings section should render");
-assertLineContainsAll(initial, ["Working indicator", "on"], "General should render the single working indicator toggle");
-assert.equal(initial.match(/Working indicator/g)?.length, 1, "settings pane should expose exactly one working indicator row");
+assertContains(initial, "Working indicator", "Working indicator should render as a first-level category");
+assert.equal(initial.match(/Working indicator/g)?.length, 1, "settings pane should expose exactly one first-level Working indicator entry");
 assertThemeRow(initial, "Light", "Light palette");
 assertThemeRow(initial, "Dark", "Dark palette");
 assertNotContains(initial, "Adaptive width", "adaptive width should be always-on rather than a /glance setting");
@@ -424,16 +428,41 @@ for (const width of [56, 64, 80, 120, 160]) {
 	}
 }
 
+const workingIndicatorPane = await makePane();
+press(workingIndicatorPane.component, "\x1b[B");
+assertContains(plainText(workingIndicatorPane.component), "» Working indicator", "Working indicator should be directly selectable in the first-level category column");
+press(workingIndicatorPane.component, "\x1b[C");
+assertLineContainsAll(plainText(workingIndicatorPane.component), ["» Enabled", "on"], "Working indicator first-level entry should contain only its Enabled row");
+assertContains(plainText(workingIndicatorPane.component), "Show the complete themed working row.", "Working indicator Enabled row should retain its complete-experience hint");
+press(workingIndicatorPane.component, "\x1b[C");
+press(workingIndicatorPane.component, "\r");
+assertLineContainsAll(plainText(workingIndicatorPane.component), ["Enabled", "off"], "Working indicator Enabled value should toggle from the first-level entry");
+
+const rememberedChildPane = await makePane();
+press(rememberedChildPane.component, "\x1b[C");
+moveDown(rememberedChildPane.component, 4);
+assertContains(plainText(rememberedChildPane.component), "» Icons", "General should select a non-first child before testing return memory");
+press(rememberedChildPane.component, "\x1b[C");
+press(rememberedChildPane.component, "\x1b");
+assertContains(plainText(rememberedChildPane.component), "» Icons", "Esc from values should return one level and preserve the selected child");
+press(rememberedChildPane.component, "\x1b");
+assertContains(plainText(rememberedChildPane.component), "» General", "a second Esc should return to the original parent category");
+press(rememberedChildPane.component, "\x1b[B");
+press(rememberedChildPane.component, "\x1b[A");
+press(rememberedChildPane.component, "\x1b[C");
+assertContains(plainText(rememberedChildPane.component), "» Icons", "re-entering General should restore its remembered child row");
+
 const gridPane = await makePane();
-press(gridPane.component, "\x1b[B");
+moveDown(gridPane.component, 2);
 press(gridPane.component, "\x1b[C");
-assertContains(plainText(gridPane.component), "» Dirty marker", "right arrow should move to the same visual row in the setting column");
+assertContains(plainText(gridPane.component), "» Enabled", "first visit to Git should enter its first child setting");
+press(gridPane.component, "\x1b[B");
+assertContains(plainText(gridPane.component), "» Dirty marker", "down should select a Git child row");
 press(gridPane.component, "\x1b[D");
-assertContains(plainText(gridPane.component), "» Git", "left arrow should return to the same visual row in the category column");
+assertContains(plainText(gridPane.component), "» Git", "left arrow should return to the Git parent category");
 
 const gridSettingPane = await makePane();
 press(gridSettingPane.component, "\x1b[C");
-press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
@@ -442,10 +471,10 @@ const iconsSelectedText = plainText(gridSettingPane.component);
 assertContains(iconsSelectedText, "» Icons", "down arrow should move within the setting column");
 assertContains(iconsSelectedText, "Plain text or Nerd Font icons with fallback.", "Icons row hint should mention plain and Nerd Font fallback guidance");
 press(gridSettingPane.component, "\x1b[D");
-assertContains(plainText(gridSettingPane.component), "» Tokens", "left arrow should move to the category on the same visual row");
+assertContains(plainText(gridSettingPane.component), "» General", "left arrow should return to the original General parent category");
 
 const reorderPane = await makePane();
-press(reorderPane.component, "\x1b[B");
+moveDown(reorderPane.component, 2);
 press(reorderPane.component, "j");
 const reorderedLines = plainRender(reorderPane.component);
 assertContains(reorderedLines.join("\n"), "Segment order updated. Press S to save.", "J should reorder a segment in the category column");
@@ -462,7 +491,7 @@ assert.ok(
 );
 
 const settingsJPane = await makePane();
-press(settingsJPane.component, "\x1b[B");
+moveDown(settingsJPane.component, 2);
 press(settingsJPane.component, "\x1b[C");
 const beforeSettingsJ = plainText(settingsJPane.component);
 const beforeSettingsJRenders = settingsJPane.renders();
@@ -471,10 +500,7 @@ assert.equal(plainText(settingsJPane.component), beforeSettingsJ, "J should not 
 assert.equal(settingsJPane.renders(), beforeSettingsJRenders, "J outside the category column should not request a render");
 
 const contextPane = await makePane();
-press(contextPane.component, "\x1b[B");
-press(contextPane.component, "\x1b[B");
-press(contextPane.component, "\x1b[B");
-press(contextPane.component, "\x1b[B");
+moveDown(contextPane.component, 5);
 const contextCategory = plainText(contextPane.component);
 assertContains(contextCategory, "Text", "context category should show context detail settings");
 assertLineContainsAll(contextCategory, ["Text", "percent / tokens"], "context text setting should render");
@@ -484,7 +510,7 @@ assert.equal(contextCategory.includes("Progress width"), false, "progress width 
 assert.equal(contextCategory.includes("Unknown"), false, "context unknown setting should be removed");
 
 press(contextPane.component, "\x1b[C");
-press(contextPane.component, "\x1b[A");
+press(contextPane.component, "\x1b[B");
 const contextText = plainText(contextPane.component);
 assertContains(contextText, "Text details. With Progress bar on", "context text hint should render");
 press(contextPane.component, "\r");
@@ -512,15 +538,14 @@ assertLineContainsAll(contextWidthChanged, ["Progress width", "remaining"], "ent
 assertContains(contextWidthChanged, "one third or all remaining", "context progress width hint should render");
 
 const costPane = await makePane();
-press(costPane.component, "\x1b[B");
-press(costPane.component, "\x1b[B");
+moveDown(costPane.component, 3);
 const costCategory = plainText(costPane.component);
 assertContains(costCategory, "Hide zero", "cost category should show cost detail settings");
 assertLineContainsAll(costCategory, ["Hide zero", "off"], "cost hide zero setting should render");
 assertLineContainsAll(costCategory, ["Display", "compact USD"], "cost display info should render");
 
 press(costPane.component, "\x1b[C");
-press(costPane.component, "\x1b[A");
+press(costPane.component, "\x1b[B");
 press(costPane.component, "\x1b[C");
 press(costPane.component, "\r");
 const costChanged = plainText(costPane.component);
@@ -528,9 +553,9 @@ assertLineContainsAll(costChanged, ["Hide zero", "on"], "enter should toggle cos
 assertContains(costChanged, "Hide until cost is non-zero.", "cost hide zero hint should render");
 
 const costInfoPane = await makePane();
-press(costInfoPane.component, "\x1b[B");
-press(costInfoPane.component, "\x1b[B");
+moveDown(costInfoPane.component, 3);
 press(costInfoPane.component, "\x1b[C");
+moveDown(costInfoPane.component, 2);
 press(costInfoPane.component, "\x1b[C");
 press(costInfoPane.component, "\r");
 const costInfoLines = plainRender(costInfoPane.component);
@@ -539,18 +564,14 @@ assertContains(costInfoLines.join("\n"), "✓ Saved", "info row enter should not
 assertNotContains(costInfoLines.join("\n"), "● Unsaved changes", "info row enter should not create unsaved changes");
 
 const tokensPane = await makePane();
-press(tokensPane.component, "\x1b[B");
-press(tokensPane.component, "\x1b[B");
-press(tokensPane.component, "\x1b[B");
-press(tokensPane.component, "\x1b[B");
-press(tokensPane.component, "\x1b[B");
+moveDown(tokensPane.component, 6);
 const tokensCategory = plainText(tokensPane.component);
 assertContains(tokensCategory, "Cache", "tokens category should show tokens detail settings");
 assertLineContainsAll(tokensCategory, ["Display", "input / output"], "tokens display setting should render");
 assertLineContainsAll(tokensCategory, ["Cache", "auto"], "tokens cache setting should render");
 
 press(tokensPane.component, "\x1b[C");
-press(tokensPane.component, "\x1b[A");
+press(tokensPane.component, "\x1b[B");
 press(tokensPane.component, "\x1b[C");
 press(tokensPane.component, "\r");
 const tokensDisplayChanged = plainText(tokensPane.component);
@@ -562,19 +583,14 @@ assertLineContainsAll(tokensCacheChanged, ["Cache", "show"], "enter should cycle
 assertContains(tokensCacheChanged, "Show or hide cache details.", "tokens cache hint should render");
 
 const modelPane = await makePane();
-press(modelPane.component, "\x1b[B");
-press(modelPane.component, "\x1b[B");
-press(modelPane.component, "\x1b[B");
-press(modelPane.component, "\x1b[B");
-press(modelPane.component, "\x1b[B");
-press(modelPane.component, "\x1b[B");
+moveDown(modelPane.component, 7);
 const modelCategory = plainText(modelPane.component);
 assertContains(modelCategory, "Provider label", "model category should show model detail settings");
 assertLineContainsAll(modelCategory, ["Provider label", "auto"], "model provider setting should render");
 assertLineContainsAll(modelCategory, ["Thinking label", "auto"], "model thinking setting should render");
 
 press(modelPane.component, "\x1b[C");
-press(modelPane.component, "\x1b[A");
+press(modelPane.component, "\x1b[B");
 press(modelPane.component, "\x1b[C");
 press(modelPane.component, "\r");
 const providerChanged = plainText(modelPane.component);
@@ -588,8 +604,6 @@ assertContains(thinkingChanged, "Show thinking level.", "model thinking hint sho
 const generalHintPane = await makePane();
 press(generalHintPane.component, "\x1b[C");
 assertContains(plainText(generalHintPane.component), "Temporarily disable pi-glance.", "general enabled hint should render");
-press(generalHintPane.component, "\x1b[B");
-assertContains(plainText(generalHintPane.component), "Show the complete themed working row.", "single working indicator toggle hint should render");
 press(generalHintPane.component, "\x1b[B");
 assertContains(plainText(generalHintPane.component), "Follow Pi theme tokens or use Glance palettes.", "color source hint should render");
 press(generalHintPane.component, "\x1b[B");
@@ -619,9 +633,8 @@ press(generalHintPane.component, "\r");
 assertLineContainsAll(plainText(generalHintPane.component), ["Workspace label", "smart"], "enter should cycle workspace label in value column");
 
 const gitEnabledPane = await makePane();
-press(gitEnabledPane.component, "\x1b[B");
+moveDown(gitEnabledPane.component, 2);
 press(gitEnabledPane.component, "\x1b[C");
-press(gitEnabledPane.component, "\x1b[A");
 press(gitEnabledPane.component, "\x1b[C");
 press(gitEnabledPane.component, "\r");
 const gitEnabledChanged = plainText(gitEnabledPane.component);
@@ -629,7 +642,7 @@ assertLineContainsAll(gitEnabledChanged, ["Enabled", "off"], "enter should toggl
 assertContains(gitEnabledChanged, "Enabled → off. Press S to save.", "segment enabled status should use the updated friendly value");
 
 const gitPane = await makePane();
-press(gitPane.component, "\x1b[B");
+moveDown(gitPane.component, 2);
 const gitCategory = plainText(gitPane.component);
 assertContains(gitCategory, "Dirty marker", "git category should show git detail settings");
 assertContains(gitCategory, "Dirty marker", "git dirty setting should render");
@@ -638,6 +651,7 @@ assertContains(gitCategory, "SHA", "git SHA setting should render");
 assertContains(gitCategory, "Polling", "git polling setting should render");
 
 press(gitPane.component, "\x1b[C");
+press(gitPane.component, "\x1b[B");
 const gitSettings = plainText(gitPane.component);
 assertNotContains(gitSettings, "[Enter] change", "setting label column should not describe changing values");
 assertContains(gitSettings, "[←→↑↓] move  ·  [S] save  ·  [R] reset", "stable help shortcuts should stay first outside category column");

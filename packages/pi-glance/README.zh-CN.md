@@ -60,7 +60,7 @@ pi --no-extensions -e ./packages/pi-glance
 - Reply speed 使用 output tokens / wall time；wall time 包含 thinking、网络等待、工具执行和 provider 排队，因此不是纯模型解码 benchmark。
 - Reply speed 不从流式文本估算 token，也不运行自己的刷新 ticker。
 - Claude-inspired working indicator 是 Glance 组件，不是 Anthropic 官方组件，也不承诺逐像素兼容。它只使用 Pi 公共显示与生命周期 API，不改变 Agent、prompt、模型、工具、消息或 session 行为，也不会弹完成通知或增加 transcript 行。
-- `/glance` → **General** 只有一个 `Working indicator: on/off` 开关。`on` 代表完整自动体验；`off` 会停止动画并恢复 Pi 默认 working row。
+- `/glance` 会在一级菜单直接显示 **Working indicator**，其中只有一个 `Enabled: on/off` 开关。`on` 代表完整自动体验；`off` 会停止动画并恢复 Pi 默认 working row。从子列返回时会保留原父项，每个一级项也会记住上次选中的子项。
 
 ## Working indicator
 

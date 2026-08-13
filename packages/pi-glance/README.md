@@ -91,7 +91,7 @@ That's the only command — opens a calm settings pane with a real input-surface
 - Reply speed is enabled by default and appears between cost and context. It shows output tokens per wall time: `?` means no trusted measurement yet, `~42 tok/s` is a provisional current-run checkpoint from completed turns, and `42 tok/s` is the finalized agent-end measurement.
 - Configure `/glance` → **Reply speed** → `Precision`: `auto`, `1 digit`, or `0 digits`. Wall time includes tools, waiting, network, and thinking, so it is not a benchmark. Reply speed uses no notifications or token estimation from text/deltas and adds no command, footer, dashboard, history, or average view.
 - The Claude-inspired working indicator is a Glance component, not an official Anthropic component or a pixel-compatibility promise. It uses Pi's public display and lifecycle APIs only; it does not change the Agent, prompts, models, tools, messages, or session behavior and never adds completion notifications or transcript lines.
-- `/glance` → **General** exposes one `Working indicator: on/off` switch. `on` is the complete automatic experience; `off` stops its animation and restores Pi's default working row.
+- `/glance` exposes **Working indicator** directly in the first-level menu, with one `Enabled: on/off` switch. `on` is the complete automatic experience; `off` stops its animation and restores Pi's default working row. Returning from a child column preserves the parent item, and each first-level item remembers its last selected child row.
 
 ## Working indicator
 

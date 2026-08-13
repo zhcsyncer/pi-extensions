@@ -45,6 +45,7 @@ export interface PaneModelState {
 	focus: PaneFocus;
 	categoryIndex: number;
 	settingIndex: number;
+	settingIndexByCategory: Partial<Record<SettingsCategoryId, number>>;
 	status: string;
 	subview: PaneSubview;
 	themeBrowser?: ThemeBrowserState;
@@ -143,6 +144,31 @@ function selectedCategory(model: PaneModelState): SettingsCategory | undefined {
 
 function withModel(model: PaneModelState, changes: Partial<PaneModelState>): PaneModelState {
 	return { ...model, ...changes };
+}
+
+function rememberedSettingIndex(model: PaneModelState, categoryId: SettingsCategoryId | undefined): number {
+	if (!categoryId) return 0;
+	const rowCount = rowsFor(model, categoryId).length;
+	if (rowCount === 0) return 0;
+	return Math.min(model.settingIndexByCategory[categoryId] ?? 0, rowCount - 1);
+}
+
+function withSettingIndex(model: PaneModelState, settingIndex: number): PaneModelState {
+	const category = selectedCategory(model);
+	return withModel(model, {
+		settingIndex,
+		settingIndexByCategory: category
+			? { ...model.settingIndexByCategory, [category.id]: settingIndex }
+			: model.settingIndexByCategory,
+	});
+}
+
+function selectCategory(model: PaneModelState, categoryIndex: number): PaneModelState {
+	const category = categoriesFor(model)[categoryIndex];
+	return withModel(model, {
+		categoryIndex,
+		settingIndex: rememberedSettingIndex(model, category?.id),
+	});
 }
 
 function result(model: PaneModelState, requestRender: boolean, completion?: PaneCompletion): PaneUpdateResult {
@@ -262,25 +288,13 @@ function moveFocus(model: PaneModelState, direction: PaneMoveDirection): PaneMod
 	switch (direction) {
 		case "left": {
 			const index = PANE_FOCUS_ORDER.indexOf(model.focus);
-			let categoryIndex = model.categoryIndex;
-			if (model.focus === "settings") {
-				categoryIndex = categories.length === 0 ? 0 : Math.min(model.settingIndex, categories.length - 1);
-			}
 			return withModel(model, {
-				categoryIndex,
 				focus: PANE_FOCUS_ORDER[Math.max(0, index - 1)] ?? "categories",
 			});
 		}
 		case "right": {
 			const index = PANE_FOCUS_ORDER.indexOf(model.focus);
-			let settingIndex = model.settingIndex;
-			if (model.focus === "categories") {
-				const category = categories[model.categoryIndex];
-				const rowCount = category ? rowsFor(model, category.id).length : 0;
-				settingIndex = rowCount === 0 ? 0 : Math.min(model.categoryIndex, rowCount - 1);
-			}
 			return withModel(model, {
-				settingIndex,
 				focus: PANE_FOCUS_ORDER[Math.min(PANE_FOCUS_ORDER.length - 1, index + 1)] ?? "values",
 			});
 		}
@@ -288,36 +302,22 @@ function moveFocus(model: PaneModelState, direction: PaneMoveDirection): PaneMod
 			if (model.focus === "categories") {
 				const count = categories.length;
 				const categoryIndex = count === 0 ? 0 : (model.categoryIndex - 1 + count) % count;
-				const category = categories[categoryIndex];
-				const rowCount = category ? rowsFor(withModel(model, { categoryIndex }), category.id).length : 0;
-				next = withModel(model, {
-					categoryIndex,
-					settingIndex: rowCount === 0 ? 0 : Math.min(categoryIndex, rowCount - 1),
-				});
+				next = selectCategory(model, categoryIndex);
 			} else {
 				const category = categories[model.categoryIndex];
 				const count = category ? rowsFor(model, category.id).length : 0;
-				next = withModel(model, {
-					settingIndex: count === 0 ? 0 : (model.settingIndex - 1 + count) % count,
-				});
+				next = withSettingIndex(model, count === 0 ? 0 : (model.settingIndex - 1 + count) % count);
 			}
 			return next;
 		case "down":
 			if (model.focus === "categories") {
 				const count = categories.length;
 				const categoryIndex = count === 0 ? 0 : (model.categoryIndex + 1) % count;
-				const category = categories[categoryIndex];
-				const rowCount = category ? rowsFor(withModel(model, { categoryIndex }), category.id).length : 0;
-				next = withModel(model, {
-					categoryIndex,
-					settingIndex: rowCount === 0 ? 0 : Math.min(categoryIndex, rowCount - 1),
-				});
+				next = selectCategory(model, categoryIndex);
 			} else {
 				const category = categories[model.categoryIndex];
 				const count = category ? rowsFor(model, category.id).length : 0;
-				next = withModel(model, {
-					settingIndex: count === 0 ? 0 : (model.settingIndex + 1) % count,
-				});
+				next = withSettingIndex(model, count === 0 ? 0 : (model.settingIndex + 1) % count);
 			}
 			return next;
 	}
@@ -367,21 +367,23 @@ function activateCurrent(model: PaneModelState): PaneModelState {
 }
 
 function reorderCurrentSegment(model: PaneModelState, direction: -1 | 1): PaneModelState {
-	if (model.categoryIndex === 0) {
-		return withModel(model, { status: "Cannot move General settings." });
+	const category = selectedCategory(model);
+	const segmentIndex = model.draft.segments.findIndex((segment) => segment.id === category?.id);
+	const segment = model.draft.segments[segmentIndex];
+	if (!category || !segment) {
+		return withModel(model, { status: `Cannot move ${category?.label ?? "this"} settings.` });
 	}
 
-	const segment = model.draft.segments[model.categoryIndex - 1];
-	if (!segment) return model;
-
-	const targetCategoryIndex = model.categoryIndex + direction;
-	if (targetCategoryIndex < 1 || targetCategoryIndex > model.draft.segments.length) {
+	const targetSegmentIndex = segmentIndex + direction;
+	if (targetSegmentIndex < 0 || targetSegmentIndex >= model.draft.segments.length) {
 		return withModel(model, { status: direction < 0 ? "Already at the top." : "Already at the bottom." });
 	}
 
+	const draft = moveSegment(model.draft, segment.id, direction);
+	const categoryIndex = getSettingsCategories(draft).findIndex((candidate) => candidate.id === segment.id);
 	return withModel(model, {
-		draft: moveSegment(model.draft, segment.id, direction),
-		categoryIndex: targetCategoryIndex,
+		draft,
+		categoryIndex: categoryIndex === -1 ? model.categoryIndex : categoryIndex,
 		status: "Segment order updated. Press S to save.",
 	});
 }
@@ -393,6 +395,7 @@ export function createPaneModel(initial: GlanceConfig): PaneModelState {
 		focus: "categories",
 		categoryIndex: 0,
 		settingIndex: 0,
+		settingIndexByCategory: { general: 0 },
 		status: "",
 		subview: "settings",
 	};
@@ -476,7 +479,7 @@ export function updatePaneModel(model: PaneModelState, intent: PaneIntent): Pane
 		case "back":
 			if (model.subview === "themeBrowser") return result(restoreThemeBrowser(model), true);
 			if (model.focus === "categories") return result(model, false, { action: "cancel" });
-			return result(withModel(model, { focus: "categories" }), true);
+			return result(withModel(model, { focus: model.focus === "values" ? "settings" : "categories" }), true);
 		case "move":
 			return result(moveFocus(model, intent.direction), true);
 		case "activate":
@@ -492,6 +495,7 @@ export function updatePaneModel(model: PaneModelState, intent: PaneIntent): Pane
 					focus: "categories",
 					categoryIndex: 0,
 					settingIndex: 0,
+					settingIndexByCategory: { general: 0 },
 					status: "Defaults restored locally. Press S to save or Esc to discard.",
 					subview: "settings",
 					themeBrowser: undefined,

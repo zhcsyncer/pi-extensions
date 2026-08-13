@@ -50,7 +50,9 @@ assertReadmeIncludes("does not auto-detect, install, or bundle terminal fonts", 
 assertReadmeIncludes("Claude-inspired working indicator", "README should describe the Claude-inspired working indicator");
 assertReadmeIncludes("not an official Anthropic component", "README should rule out official Anthropic provenance");
 assertReadmeIncludes("does not change the Agent, prompts, models, tools, messages, or session behavior", "README should document display-only behavior");
-assertReadmeIncludes("one `Working indicator: on/off` switch", "README should document the single working-indicator toggle");
+assertReadmeIncludes("**Working indicator** directly in the first-level menu", "README should document the first-level working-indicator entry");
+assertReadmeIncludes("one `Enabled: on/off` switch", "README should document the single working-indicator toggle");
+assertReadmeIncludes("each first-level item remembers its last selected child row", "README should document parent and child cursor preservation");
 assertReadmeIncludes("Pi's public `estimateTokens()`", "README should document Pi's public partial-token estimator");
 assertReadmeIncludes("Completed assistant messages use provider-reported `usage.output`", "README should document finalized working-output accounting");
 assertReadmeIncludes("without double counting", "README should document estimate replacement rather than addition");
@@ -62,7 +64,9 @@ assertReadmeIncludes("global singleton with no owner stack", "README should docu
 assertReadmeIncludes("schema version 13", "README should document config schema 13");
 assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README working default should stay aligned with config");
 assert.ok(readmeZh.includes("不是 Anthropic 官方组件"), "Chinese README should rule out official Anthropic provenance");
-assert.ok(readmeZh.includes("只有一个 `Working indicator: on/off` 开关"), "Chinese README should document the single working switch");
+assert.ok(readmeZh.includes("一级菜单直接显示 **Working indicator**"), "Chinese README should document the first-level working entry");
+assert.ok(readmeZh.includes("只有一个 `Enabled: on/off` 开关"), "Chinese README should document the single working switch");
+assert.ok(readmeZh.includes("记住上次选中的子项"), "Chinese README should document parent and child cursor preservation");
 assert.ok(readmeZh.includes("当前高层 cycle output"), "Chinese README should document working-token scope");
 assert.ok(readmeZh.includes("现有 120ms working-row ticker 合并"), "Chinese README should document single-ticker streaming coalescing");
 assert.ok(readmeZh.includes("不显示 `↓ ~0 tokens`"), "Chinese README should document empty-partial suppression");
