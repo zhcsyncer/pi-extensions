@@ -11,8 +11,8 @@
  *   - `executeJob` calls `manager.spawn(..., { bypassQueue: true })` instead
  *     of dispatching a user message — schedule fires bypass maxConcurrent so
  *     a 5-minute interval can't be deferred behind 4 long-running agents.
- *   - Result delivery is implicit: spawn → background completion → existing
- *     `subagent-notification` followUp path. No new delivery code.
+ *   - Result delivery is implicit: spawn omits `completionDelivery`, so the
+ *     record keeps AgentManager's detached `followUp` default. No new delivery code.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";

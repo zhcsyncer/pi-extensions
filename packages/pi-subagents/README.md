@@ -13,7 +13,7 @@ This package publishes on its own and is also embedded in the aggregate `@zhcsyn
 
 ## Differences from upstream (read this first)
 
-This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView wiring, notifications, schedules). The changes are almost entirely **how progress and tool results are shown** in the TUI — so you can scan subagent work without drowning in dumps.
+This fork keeps upstream spawn, steer, resume, FleetView, schedule, and RPC behavior, but it now changes how manually launched background completion is delivered so current-task results cannot be starved behind a long parent tool loop. Most other differences remain focused on **how progress and tool results are shown** in the TUI.
 
 | Area | Upstream (`@tintinweb/pi-subagents`) | This fork (`@zhcsyncer/pi-subagents`) |
 | --- | --- | --- |
@@ -25,16 +25,30 @@ This fork keeps upstream **runtime** behavior (spawn, steer, resume, FleetView w
 | **Main transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` has Claude Code chrome; **`get_subagent_result` has no custom `renderResult`** → Pi dumps full payload | Same **Claude Code chrome** for all three; queued is honest (`queued…`); **Ctrl+O** expands Markdown without dumping by default |
 | Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:`; resume chips come from stored invocation |
 | Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details + `tool_result` → Pi `isError` (error shell); undetailed success paths never heuristic-red |
+| Background completion delivery | Manual Agent-tool, scheduled, and RPC completions all use `followUp`, which can starve current-task results during a long parent tool loop | Manual Agent-tool background completion uses `steer`; scheduled/RPC detached completion remains `followUp`; `triggerTurn: true` is retained |
+| Orchestration guidance | Foreground/background ownership is easy to blur | Prerequisite results must run foreground; background is only for genuinely disjoint work; the parent synthesizes and uses targeted verification without repeating delegated evidence collection |
 | Packaging | Standalone npm package | Standalone `@zhcsyncer/pi-subagents` **and** embedded/registered in root `@zhcsyncer/pi-extensions` |
 
 ### What did *not* change
 
-- Tool names and contracts: `Agent`, `get_subagent_result`, `steer_subagent`
-- Background completion **followUp** notifications (`triggerTurn`)
+- Tool names and public parameters: `Agent`, `get_subagent_result`, `steer_subagent`
+- `triggerTurn: true` completion notifications; scheduled/RPC detached completion still uses `followUp`
 - FleetView list navigation, Enter steer, `x` `x` stop, Esc/q close
 - Custom agents, worktrees, schedules, settings menus, RPC
 
 Upstream remains the source of truth for those behaviors — start from [`UPSTREAM_README.md`](./UPSTREAM_README.md).
+
+### Foreground vs background contract
+
+Use foreground when the subagent result is a prerequisite for the parent's next read, edit, or decision. Use background only when the parent has genuinely disjoint work to do. Background completion is delivered automatically; do not poll, sleep, or repeat the delegated grep/find/read evidence collection while waiting.
+
+The parent still owns synthesis, decisions, user-facing reporting, and final verification. After a report arrives, verify only high-risk claims with targeted checks instead of rerunning the full investigation. A `steer` completion can enter context before the parent's next model call, but it cannot retract sibling tools already issued in the same assistant turn.
+
+Delivery policy is fixed at spawn time:
+
+- Manual Agent-tool background runs, including custom agents whose frontmatter resolves to `run_in_background: true`: `steer`
+- Scheduled and cross-extension RPC runs: `followUp`
+- Foreground runs: result returned inline; no background completion nudge
 
 ---
 
