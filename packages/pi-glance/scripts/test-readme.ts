@@ -54,6 +54,8 @@ assertReadmeIncludes("one `Working indicator: on/off` switch", "README should do
 assertReadmeIncludes("Pi's public `estimateTokens()`", "README should document Pi's public partial-token estimator");
 assertReadmeIncludes("Completed assistant messages use provider-reported `usage.output`", "README should document finalized working-output accounting");
 assertReadmeIncludes("without double counting", "README should document estimate replacement rather than addition");
+assertReadmeIncludes("existing 120ms working-row ticker", "README should document single-ticker streaming coalescing");
+assertReadmeIncludes("instead of showing `↓ ~0 tokens`", "README should document empty-partial suppression");
 assertReadmeIncludes("Top-border Tokens — current session cumulative usage", "README should distinguish session usage from working output");
 assertReadmeIncludes("Context — current context-window occupancy", "README should distinguish context occupancy from output counters");
 assertReadmeIncludes("global singleton with no owner stack", "README should document working-row ownership limits");
@@ -62,6 +64,8 @@ assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README wo
 assert.ok(readmeZh.includes("不是 Anthropic 官方组件"), "Chinese README should rule out official Anthropic provenance");
 assert.ok(readmeZh.includes("只有一个 `Working indicator: on/off` 开关"), "Chinese README should document the single working switch");
 assert.ok(readmeZh.includes("当前高层 cycle output"), "Chinese README should document working-token scope");
+assert.ok(readmeZh.includes("现有 120ms working-row ticker 合并"), "Chinese README should document single-ticker streaming coalescing");
+assert.ok(readmeZh.includes("不显示 `↓ ~0 tokens`"), "Chinese README should document empty-partial suppression");
 assert.ok(readmeZh.includes("当前 session 累计 usage"), "Chinese README should document session-token scope");
 assert.ok(readmeZh.includes("当前 context window 占用"), "Chinese README should document context scope");
 assert.ok(readmeZh.includes("当前 schema 为版本 13"), "Chinese README should document schema 13");

@@ -7,7 +7,7 @@ import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEn
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
-import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters } from "./working-indicator.js";
+import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters, type WorkingMessageUpdateEvent } from "./working-indicator.js";
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
 
@@ -43,11 +43,6 @@ interface MessageEndLikeEvent {
 	message: RuntimeMessageEndInput;
 }
 
-interface MessageUpdateLikeEvent {
-	assistantMessageEvent?: { type?: unknown; partial?: unknown };
-	message?: unknown;
-}
-
 interface ToolExecutionLikeEvent {
 	toolCallId?: unknown;
 	toolName?: unknown;
@@ -71,7 +66,7 @@ export interface GlanceRuntime {
 		modelSelect(event: unknown, ctx: ExtensionContext): Promise<void>;
 		thinkingLevelSelect(event: unknown, ctx: ExtensionContext): Promise<void>;
 		turnStart(event: unknown, ctx: ExtensionContext): Promise<void>;
-		messageUpdate(event: MessageUpdateLikeEvent, ctx: ExtensionContext): void;
+		messageUpdate(event: WorkingMessageUpdateEvent, ctx: ExtensionContext): void;
 		toolExecutionStart(event: ToolExecutionLikeEvent, ctx: ExtensionContext): void;
 		toolExecutionEnd(event: ToolExecutionLikeEvent, ctx: ExtensionContext): Promise<void>;
 		sessionTree(event: unknown, ctx: ExtensionContext): Promise<void>;

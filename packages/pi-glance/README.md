@@ -99,7 +99,7 @@ While a high-level agent cycle is active, Glance owns Pi's working row and autom
 
 Working output has a deliberately different window from the other Glance metrics:
 
-- **Working row — current high-level cycle output.** Completed assistant messages use provider-reported `usage.output`. The current complete partial assistant message—including text, thinking, and assembled tool-call arguments—is conservatively estimated with Pi's public `estimateTokens()`. A value such as `↓ ~42 tokens` contains an estimate; final message usage replaces that estimate and removes `~`, without double counting.
+- **Working row — current high-level cycle output.** Completed assistant messages use provider-reported `usage.output`. The current complete partial assistant message—including text, thinking, and assembled tool-call arguments—is conservatively estimated with Pi's public `estimateTokens()`. Streaming bursts are coalesced by the existing 120ms working-row ticker, which estimates only the latest complete partial once per frame; an empty partial stays hidden instead of showing `↓ ~0 tokens`. A value such as `↓ ~42 tokens` contains an estimate; final message usage replaces that estimate and removes `~`, without double counting.
 - **Top-border Tokens — current session cumulative usage.** It includes reported assistant usage plus nested LLM tool, compaction, and branch-summary usage.
 - **Context — current context-window occupancy.** It comes from Pi's context-usage API rather than either output counter.
 

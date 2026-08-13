@@ -93,7 +93,7 @@ export class WorkingIndicatorState {
 		this.patch(thinkingEffort && thinkingEffort !== "off" ? { thinkingEffort } : { thinkingEffort: undefined });
 	}
 
-	messageUpdate(eventType: string, estimatedOutput: number, nowMs: number): void {
+	messageUpdate(eventType: string, nowMs: number): void {
 		if (!this.snapshotValue.active) return;
 		let phase = this.snapshotValue.phase;
 		if (eventType === "thinking_start" || eventType === "thinking_delta") phase = "thinking";
@@ -102,13 +102,13 @@ export class WorkingIndicatorState {
 		const hasGenerationProgress = phase === this.snapshotValue.phase
 			? this.snapshotValue.hasGenerationProgress || isGenerationDelta
 			: isGenerationDelta;
-		this.patch({
-			phase,
-			partialOutput: nonNegativeInteger(estimatedOutput),
-			hasPartialEstimate: true,
-			lastProgressAtMs: nowMs,
-			hasGenerationProgress,
-		});
+		this.patch({ phase, lastProgressAtMs: nowMs, hasGenerationProgress });
+	}
+
+	setPartialEstimate(estimatedOutput: number): void {
+		if (!this.snapshotValue.active) return;
+		const partialOutput = nonNegativeInteger(estimatedOutput);
+		this.patch({ partialOutput, hasPartialEstimate: partialOutput > 0 });
 	}
 
 	messageEnd(message: WorkingAssistantMessage, nowMs: number): void {

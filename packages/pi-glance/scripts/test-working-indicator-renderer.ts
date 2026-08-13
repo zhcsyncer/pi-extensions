@@ -78,6 +78,9 @@ assert.ok(respondingAtStart.includes(STYLE_CODES.dim!), "activity/token/elapsed 
 
 const estimated = renderWorkingMessage({ snapshot: snapshot({ partialOutput: 42, hasPartialEstimate: true }), nowMs: 2_000, width: 80, styles });
 assert.ok(estimated.includes("↓ ~226 tokens"), "partial output should add to finalized output and show an estimate marker");
+const emptyPartial = renderWorkingMessage({ snapshot: snapshot({ finalizedOutput: 0, partialOutput: 0, hasPartialEstimate: false, hasGenerationProgress: false }), nowMs: 2_000, width: 80, styles });
+assert.equal(emptyPartial.includes("token"), false, "an empty partial should not render a meaningless zero-token estimate");
+assert.equal(emptyPartial.includes("2s"), false, "an empty partial with no other facts should preserve the main-phrase-only state");
 const finalized = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_000, width: 80, styles });
 assert.ok(finalized.includes("↓ 184 tokens"), "finalized output should omit the estimate marker");
 assert.equal(finalized.includes("~184"), false, "finalized tokens should never retain a tilde");

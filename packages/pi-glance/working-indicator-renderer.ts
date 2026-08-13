@@ -114,7 +114,7 @@ export function renderWorkingMessage(input: WorkingRenderInput): string {
 	const verb = shimmerVerb(snapshot, nowMs, styles, stalled);
 	const activity = activityText(snapshot);
 	const tokens = tokenText(snapshot);
-	const elapsed = snapshot.phase === "requesting" && !activity && !tokens ? undefined : elapsedText(snapshot, nowMs);
+	const elapsed = !activity && !tokens ? undefined : elapsedText(snapshot, nowMs);
 	const detailVariants = [
 		[activity, tokens, elapsed],
 		[activity, tokens],

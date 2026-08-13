@@ -4,7 +4,7 @@ import { defaultConfig } from "../config.js";
 import { stripControls } from "../format.js";
 import { resolveBuiltInGlanceStyles, type GlanceRenderStyleContext } from "../theme-adapter.js";
 import type { GlanceConfig } from "../types.js";
-import { createWorkingIndicatorController } from "../working-indicator.js";
+import { createWorkingIndicatorController, type WorkingMessageUpdateEvent } from "../working-indicator.js";
 
 interface IndicatorCall {
 	frames?: string[];
@@ -29,11 +29,47 @@ function makeContext(mode: "tui" | "rpc" | "json" | "print" = "tui") {
 	return { ctx, messages, indicators };
 }
 
-function createHarness(mode: "tui" | "rpc" | "json" | "print" = "tui") {
+type PartialAssistantMessage = Extract<WorkingMessageUpdateEvent["message"], { role: "assistant" }>;
+
+function partialMessage(text: string): PartialAssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text }],
+		api: "anthropic-messages",
+		provider: "anthropic",
+		model: "test-model",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "pending",
+		timestamp: 1_000,
+	};
+}
+
+function messageUpdate(type: "thinking_delta" | "text_start" | "text_delta", message: PartialAssistantMessage): WorkingMessageUpdateEvent {
+	if (type === "text_start") {
+		return { type: "message_update", message, assistantMessageEvent: { type, contentIndex: 0, partial: message } };
+	}
+	if (type === "thinking_delta") {
+		return { type: "message_update", message, assistantMessageEvent: { type, contentIndex: 0, delta: message.content[0]?.type === "text" ? message.content[0].text : "", partial: message } };
+	}
+	return { type: "message_update", message, assistantMessageEvent: { type, contentIndex: 0, delta: message.content[0]?.type === "text" ? message.content[0].text : "", partial: message } };
+}
+
+function createHarness(
+	mode: "tui" | "rpc" | "json" | "print" = "tui",
+	estimateMessageTokens: (message: unknown) => number = () => 42,
+) {
 	let config = defaultConfig();
 	let now = 1_000;
 	let scheduled = 0;
 	let cleared = 0;
+	let estimateCalls = 0;
 	let callback: (() => void) | undefined;
 	const context = makeContext(mode);
 	const controller = createWorkingIndicatorController({
@@ -51,7 +87,10 @@ function createHarness(mode: "tui" | "rpc" | "json" | "print" = "tui") {
 			cleared++;
 			callback = undefined;
 		},
-		estimateMessageTokens: () => 42,
+		estimateMessageTokens: (message) => {
+			estimateCalls++;
+			return estimateMessageTokens(message);
+		},
 	});
 	return {
 		controller,
@@ -71,6 +110,9 @@ function createHarness(mode: "tui" | "rpc" | "json" | "print" = "tui") {
 		get cleared() {
 			return cleared;
 		},
+		get estimateCalls() {
+			return estimateCalls;
+		},
 	};
 }
 
@@ -87,10 +129,14 @@ function createHarness(mode: "tui" | "rpc" | "json" | "print" = "tui") {
 	harness.controller.agentStart(harness.context.ctx);
 	assert.equal(harness.scheduled, 1, "retry agent_start should reuse the single timer");
 	harness.controller.turnStart();
-	harness.controller.messageUpdate({ assistantMessageEvent: { type: "thinking_delta", partial: { role: "assistant" } } });
-	assert.ok(stripControls(harness.context.messages.at(-1) ?? "").includes("thinking with high effort"), "thinking phase should include current effort");
-	harness.controller.messageUpdate({ assistantMessageEvent: { type: "text_delta", partial: { role: "assistant" } } });
-	assert.ok(stripControls(harness.context.messages.at(-1) ?? "").includes("~42 tokens"), "partial output should use injected Pi estimate with a tilde");
+	const beforeUpdates = harness.context.messages.length;
+	harness.controller.messageUpdate(messageUpdate("thinking_delta", partialMessage("thinking")));
+	harness.controller.messageUpdate(messageUpdate("text_delta", partialMessage("answer")));
+	assert.equal(harness.estimateCalls, 0, "streaming bursts should not synchronously rescan complete partial messages");
+	assert.equal(harness.context.messages.length, beforeUpdates, "streaming bursts should wait for the existing ticker instead of rendering per delta");
+	harness.tick();
+	assert.equal(harness.estimateCalls, 1, "one ticker frame should coalesce a streaming burst into one estimate");
+	assert.ok(stripControls(harness.context.messages.at(-1) ?? "").includes("~42 tokens"), "the ticker should estimate the latest real Pi message_update snapshot");
 	harness.controller.messageEnd({ message: { role: "assistant", responseId: "one", usage: { output: 40 } } });
 	assert.ok(stripControls(harness.context.messages.at(-1) ?? "").includes("40 tokens"), "final provider output should calibrate the working value");
 	assert.equal(stripControls(harness.context.messages.at(-1) ?? "").includes("~40"), false, "calibrated final output should drop the tilde");
@@ -108,6 +154,26 @@ function createHarness(mode: "tui" | "rpc" | "json" | "print" = "tui") {
 	harness.controller.agentSettled();
 	assert.equal(harness.cleared, 1, "repeated settled cleanup should be idempotent");
 	assert.deepEqual(harness.context.messages.slice(-1), [undefined], "repeated cleanup should not write over a later working-row owner");
+}
+
+{
+	const estimatedTexts: string[] = [];
+	const harness = createHarness("tui", (message) => {
+		const block = (message as PartialAssistantMessage).content[0];
+		const text = block?.type === "text" ? block.text : "";
+		estimatedTexts.push(text);
+		return text.length;
+	});
+	harness.controller.apply(harness.context.ctx, { styles: resolveBuiltInGlanceStyles("dark") });
+	harness.controller.agentStart(harness.context.ctx);
+	harness.controller.messageUpdate(messageUpdate("text_start", partialMessage("")));
+	harness.tick();
+	assert.equal(stripControls(harness.context.messages.at(-1) ?? "").includes("token"), false, "an empty stream start should not display ~0 tokens");
+	harness.controller.messageUpdate(messageUpdate("text_delta", partialMessage("old")));
+	harness.controller.messageUpdate(messageUpdate("text_delta", partialMessage("latest")));
+	harness.tick();
+	assert.deepEqual(estimatedTexts, ["", "latest"], "each ticker frame should estimate only the latest partial snapshot in a burst");
+	assert.ok(stripControls(harness.context.messages.at(-1) ?? "").includes("~6 tokens"), "the coalesced estimate should reflect the latest complete partial");
 }
 
 {

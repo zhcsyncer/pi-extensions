@@ -1,4 +1,5 @@
 import { estimateTokens, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
 import { resolveGlanceRenderStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
 import type { GlanceConfig } from "./types.js";
 import { renderWorkingMessage, styledWorkingSpinnerFrames, WORKING_SPINNER_INTERVAL_MS } from "./working-indicator-renderer.js";
@@ -11,12 +12,10 @@ interface WorkingUi {
 	setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
 }
 
-interface MessageUpdateLike {
-	readonly assistantMessageEvent?: {
-		readonly type?: unknown;
-		readonly partial?: unknown;
-	};
-	readonly message?: unknown;
+export interface WorkingMessageUpdateEvent {
+	readonly type: "message_update";
+	readonly message: Parameters<typeof estimateTokens>[0];
+	readonly assistantMessageEvent: AssistantMessageEvent;
 }
 
 interface MessageEndLike {
@@ -44,7 +43,7 @@ export interface WorkingIndicatorController {
 	agentStart(ctx: ExtensionContext): void;
 	turnStart(): void;
 	thinkingLevelChanged(): void;
-	messageUpdate(event: MessageUpdateLike): void;
+	messageUpdate(event: WorkingMessageUpdateEvent): void;
 	messageEnd(event: MessageEndLike): void;
 	toolExecutionStart(event: ToolExecutionLike): void;
 	toolExecutionEnd(event: Pick<ToolExecutionLike, "toolCallId">): void;
@@ -68,6 +67,7 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 	let timer: unknown;
 	let installedStyleKey: string | undefined;
 	let defaultsRestored = false;
+	let pendingPartial: unknown;
 
 	function featureEnabled(): boolean {
 		const config = adapters.getConfig();
@@ -79,6 +79,7 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 			unschedule(timer);
 			timer = undefined;
 		}
+		pendingPartial = undefined;
 		if (ui && !defaultsRestored) {
 			ui.setWorkingMessage();
 			ui.setWorkingIndicator();
@@ -87,8 +88,22 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 		installedStyleKey = undefined;
 	}
 
+	function flushPartialEstimate(): void {
+		if (pendingPartial === undefined) return;
+		const partial = pendingPartial;
+		pendingPartial = undefined;
+		let estimatedOutput = 0;
+		try {
+			estimatedOutput = estimate(partial);
+		} catch {
+			estimatedOutput = 0;
+		}
+		state.setPartialEstimate(estimatedOutput);
+	}
+
 	function render(): void {
 		if (!ui || !featureEnabled() || !state.snapshot.active) return;
+		flushPartialEstimate();
 		const config = adapters.getConfig();
 		const styles = resolveGlanceRenderStyles(config, styleContext);
 		if (styles.cacheKey !== installedStyleKey) {
@@ -124,6 +139,7 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 		agentStart(ctx) {
 			if (!isTui(ctx) || !featureEnabled()) return;
 			ui = ctx.ui;
+			pendingPartial = undefined;
 			const verbs = WORKING_VERBS;
 			const verb = verbs[Math.min(verbs.length - 1, Math.floor(Math.max(0, random()) * verbs.length))]!;
 			state.agentStart(nowMs(), verb, adapters.getThinkingLevel());
@@ -131,6 +147,7 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 			render();
 		},
 		turnStart() {
+			pendingPartial = undefined;
 			state.turnStart(nowMs(), adapters.getThinkingLevel());
 			render();
 		},
@@ -139,19 +156,12 @@ export function createWorkingIndicatorController(adapters: WorkingIndicatorContr
 			render();
 		},
 		messageUpdate(event) {
-			const streamEvent = event.assistantMessageEvent;
-			if (!streamEvent || typeof streamEvent.type !== "string") return;
-			const partial = streamEvent.partial ?? event.message;
-			let estimatedOutput = 0;
-			try {
-				estimatedOutput = partial ? estimate(partial) : 0;
-			} catch {
-				estimatedOutput = 0;
-			}
-			state.messageUpdate(streamEvent.type, estimatedOutput, nowMs());
-			render();
+			if (!state.snapshot.active || !featureEnabled()) return;
+			state.messageUpdate(event.assistantMessageEvent.type, nowMs());
+			pendingPartial = event.message;
 		},
 		messageEnd(event) {
+			pendingPartial = undefined;
 			state.messageEnd(event.message, nowMs());
 			render();
 		},

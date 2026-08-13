@@ -68,7 +68,7 @@ pi --no-extensions -e ./packages/pi-glance
 
 Working output 与另外两类 Glance 指标窗口不同：
 
-- **Working row——当前高层 cycle output。** 已完成 assistant message 使用 provider 上报的 `usage.output`；当前完整 partial assistant message（包括 text、thinking 和已组装的 tool-call arguments）使用 Pi 公共 `estimateTokens()` 做保守估算。`↓ ~42 tokens` 表示其中含估算；message finalized 后会用正式 usage 替换估算、移除 `~`，不会双计。
+- **Working row——当前高层 cycle output。** 已完成 assistant message 使用 provider 上报的 `usage.output`；当前完整 partial assistant message（包括 text、thinking 和已组装的 tool-call arguments）使用 Pi 公共 `estimateTokens()` 做保守估算。流式 burst 由现有 120ms working-row ticker 合并，每帧只估算一次最新完整 partial；空 partial 保持隐藏，不显示 `↓ ~0 tokens`。`↓ ~42 tokens` 表示其中含估算；message finalized 后会用正式 usage 替换估算、移除 `~`，不会双计。
 - **顶边框 Tokens——当前 session 累计 usage。** 包含正式 assistant usage，以及嵌套 LLM tool、compaction 和 branch summary usage。
 - **Context——当前 context window 占用。** 来自 Pi context-usage API，不等同于任一 output 计数。
 

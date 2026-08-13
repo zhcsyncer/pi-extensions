@@ -109,7 +109,7 @@ workingOutput = sum(finalized assistant usage.output)
 ```
 
 - 使用 `@earendil-works/pi-coding-agent` 公开导出的 `estimateTokens()`，不要另写 `chars / 4`。
-- `message_update` 每次以完整 partial assistant message 重新估算，因此覆盖 text、thinking 和已组装的 tool call arguments，避免 delta 重复累计。
+- `message_update` 每次保存最新完整 partial assistant message；现有约 120ms 单 ticker 每帧至多重新估算一次，因此覆盖 text、thinking 和已组装的 tool call arguments，避免 delta 重复累计与逐 chunk 全量扫描。零值估算不显示 `↓ ~0 tokens`。
 - `message_end` 收到 assistant message 后，以正式 `message.usage.output` 替换当前 partial estimate，并加入 finalized 总数。
 - 使用 `responseId`（存在时）防止 finalized usage 重复计入；无 `responseId` 时依赖单次 `message_end` 契约。
 - 高层 cycle 第一次 `agent_start` 时清零；自动 retry/compaction 触发的后续 `agent_start` 若尚未 `agent_settled`，保留 verb、起始时间和累计输出。
@@ -141,7 +141,7 @@ type WorkingPhase =
   - `thinking_start|thinking_delta` → `thinking`
   - `text_start|text_delta|text_end` → `responding`
   - `toolcall_start|toolcall_delta|toolcall_end` → 保持当前生成阶段；真正执行前仍可显示 responding
-  - 每次更新 current partial estimate 和 last-progress timestamp
+  - 每次立即更新 phase 与 last-progress timestamp，并替换待估算的最新完整 partial；单 ticker 在下一帧合并估算和渲染
 - `message_end` assistant：finalize provider output usage；清除 current partial estimate。
 - `tool_execution_start`：记录 toolCallId/toolName；phase=`tool-use`。
 - `tool_execution_end`：移除对应工具；仍有并发工具则保持 `tool-use`，全部结束则 phase=`requesting`，等待下一 turn。
