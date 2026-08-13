@@ -8,6 +8,7 @@ import {
   choosePreferredRemote,
   fetchReviewRemote,
   inspectGitPreflight,
+  listInteractiveRangeStarts,
   remotesReferencedByTarget,
   spawnPreflightCommand,
   type PreflightCommandRunner,
@@ -261,6 +262,169 @@ describe("Git adversarial-review preflight", () => {
         try { process.kill(childPid, "SIGKILL"); } catch { /* already gone */ }
       }
     }
+  });
+
+  it("lists readable latest-N first-parent starts bound to exact parent..HEAD SHAs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-review-range-starts-"));
+    roots.push(root);
+    await exec("git", ["init", "--initial-branch=main", root]);
+    await git(root, "config", "user.email", "review@example.test");
+    await git(root, "config", "user.name", "Review Test");
+    const commits: string[] = [];
+    for (const [index, subject] of ["base", "prepare", "add worker", "finalize release"].entries()) {
+      await writeFile(path.join(root, `file-${index}.txt`), `${subject}\n`);
+      await git(root, "add", "-A");
+      await git(root, "commit", "-m", subject);
+      commits.push((await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim());
+    }
+
+    const result = await listInteractiveRangeStarts(root, commits[3], { limit: 2 });
+
+    expect(result).toEqual({
+      truncated: true,
+      starts: [
+        {
+          commitSha: commits[3],
+          parentSha: commits[2],
+          subject: "finalize release",
+          commitCount: 1,
+        },
+        {
+          commitSha: commits[2],
+          parentSha: commits[1],
+          subject: "add worker",
+          commitCount: 2,
+        },
+      ],
+    });
+  });
+
+  it("limits feature choices to commits after the default-branch merge-base", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-review-range-boundary-"));
+    roots.push(root);
+    await exec("git", ["init", "--initial-branch=main", root]);
+    await git(root, "config", "user.email", "review@example.test");
+    await git(root, "config", "user.name", "Review Test");
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "shared base");
+    const baseSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+    await git(root, "switch", "-c", "feature");
+    const featureCommits: string[] = [];
+    for (const subject of ["feature one", "feature two"]) {
+      await writeFile(path.join(root, `${subject}.txt`), `${subject}\n`);
+      await git(root, "add", "-A");
+      await git(root, "commit", "-m", subject);
+      featureCommits.push((await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim());
+    }
+    await git(root, "switch", "main");
+    await writeFile(path.join(root, "main.txt"), "main advanced\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "main advanced");
+    const mainSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+
+    const result = await listInteractiveRangeStarts(root, featureCommits[1], {
+      boundarySha: mainSha,
+    });
+
+    expect(result.mergeBaseSha).toBe(baseSha);
+    expect(result.starts).toEqual([
+      {
+        commitSha: featureCommits[1],
+        parentSha: featureCommits[0],
+        subject: "feature two",
+        commitCount: 1,
+      },
+      {
+        commitSha: featureCommits[0],
+        parentSha: baseSha,
+        subject: "feature one",
+        commitCount: 2,
+      },
+    ]);
+  });
+
+  it("falls back to local first-parent history when a boundary is unrelated", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-review-range-unrelated-"));
+    roots.push(root);
+    await exec("git", ["init", "--initial-branch=main", root]);
+    await git(root, "config", "user.email", "review@example.test");
+    await git(root, "config", "user.name", "Review Test");
+    await writeFile(path.join(root, "main.txt"), "main\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "main root");
+    const mainSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+    await git(root, "switch", "--orphan", "unrelated");
+    await writeFile(path.join(root, "other.txt"), "other\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "other root");
+    await writeFile(path.join(root, "next.txt"), "next\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "other next");
+    const headSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+
+    const result = await listInteractiveRangeStarts(root, headSha, { boundarySha: mainSha });
+
+    expect(result.mergeBaseSha).toBeUndefined();
+    expect(result.starts).toHaveLength(1);
+    expect(result.starts[0]).toMatchObject({
+      commitSha: headSha,
+      subject: "other next",
+      commitCount: 1,
+    });
+  });
+
+  it("follows only the first parent of merge commits and omits a root-only range", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-review-range-merge-"));
+    roots.push(root);
+    await exec("git", ["init", "--initial-branch=main", root]);
+    await git(root, "config", "user.email", "review@example.test");
+    await git(root, "config", "user.name", "Review Test");
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "root base");
+    const rootSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+    await git(root, "switch", "-c", "side");
+    await writeFile(path.join(root, "side.txt"), "side\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "side work");
+    await git(root, "switch", "main");
+    await writeFile(path.join(root, "main.txt"), "main\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "-m", "main work");
+    const firstParent = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+    await git(root, "merge", "--no-ff", "-m", "merge side", "side");
+    const mergeSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+
+    await expect(listInteractiveRangeStarts(root, mergeSha)).resolves.toMatchObject({
+      starts: [
+        { commitSha: mergeSha, parentSha: firstParent, commitCount: 1 },
+        { commitSha: firstParent, parentSha: rootSha, commitCount: 2 },
+      ],
+    });
+    await expect(listInteractiveRangeStarts(root, rootSha)).resolves.toEqual({
+      starts: [],
+      truncated: false,
+    });
+  });
+
+  it("fails closed when interactive history does not start at the captured HEAD", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pi-review-range-forged-"));
+    roots.push(root);
+    await exec("git", ["init", "--initial-branch=main", root]);
+    const sha = "a".repeat(40);
+    const parent = "b".repeat(40);
+    const runner: PreflightCommandRunner = vi.fn(async () => ({
+      stdout: `${"c".repeat(40)}\0${parent}\0forged\0`,
+      stderr: "",
+      code: 0,
+      killed: false,
+      timedOut: false,
+      aborted: false,
+    }));
+
+    await expect(listInteractiveRangeStarts(root, sha, { runner }))
+      .rejects.toThrow("does not form the captured first-parent chain");
   });
 
   it("treats a repository without upstream or remotes as an inspectable ambiguous state", async () => {

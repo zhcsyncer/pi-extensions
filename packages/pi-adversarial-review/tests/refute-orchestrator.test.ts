@@ -4,6 +4,7 @@ import { runRefuteFleet } from "../src/runtime/refute-orchestrator.ts";
 import type {
   ReviewAgentStartedEvent,
   ReviewAgentTerminalEvent,
+  ReviewerFleetProgress,
   ReviewSubagentRuntime,
   SpawnReviewAgentInput,
 } from "../src/runtime/types.ts";
@@ -133,7 +134,7 @@ function terminalFor(
 describe("runRefuteFleet", () => {
   it("starts one fresh isolated refuter per blocking cluster and preserves index order", async () => {
     const runtime = new FakeRuntime();
-    const progress: string[] = [];
+    const progress: ReviewerFleetProgress[] = [];
     runtime.spawnImpl = async (input, agentId) => {
       const index = Number(input.correlationId.split(":").at(-1));
       runtime.emitTerminal(terminalFor(input, agentId, JSON.stringify({
@@ -150,9 +151,7 @@ describe("runRefuteFleet", () => {
       blocking: [finding(0), finding(1)],
       frozenInput: frozen(),
       refuterSystemPrompt: "refute only",
-      onProgress: (snapshot) => progress.push(
-        `${snapshot.phase}:${snapshot.finished}/${snapshot.total}`,
-      ),
+      onProgress: (snapshot) => progress.push(snapshot),
     });
 
     expect(result.routeResults.map(({ findingIndex, status, report }) => ({
@@ -172,8 +171,50 @@ describe("runRefuteFleet", () => {
     expect(runtime.spawnInputs[0].prompt).toContain("Material issue 0");
     expect(runtime.spawnInputs[0].prompt).not.toContain("Material issue 1");
     expect(new Set(runtime.spawnInputs.map((input) => input.correlationId)).size).toBe(2);
-    expect(progress[0]).toBe("refute:0/2");
-    expect(progress.at(-1)).toBe("refute:2/2");
+    expect(progress[0]).toEqual({
+      phase: "refute",
+      total: 2,
+      queued: 2,
+      running: 0,
+      finished: 0,
+      items: [
+        {
+          kind: "refuter",
+          routeKey: "provider/refuter@high",
+          status: "queued",
+          findingIndex: 0,
+        },
+        {
+          kind: "refuter",
+          routeKey: "provider/refuter@high",
+          status: "queued",
+          findingIndex: 1,
+        },
+      ],
+    });
+    expect(progress.at(-1)).toEqual({
+      phase: "refute",
+      total: 2,
+      queued: 0,
+      running: 0,
+      finished: 2,
+      items: [
+        {
+          kind: "refuter",
+          routeKey: "provider/refuter@high",
+          status: "completed",
+          findingIndex: 0,
+          refuted: true,
+        },
+        {
+          kind: "refuter",
+          routeKey: "provider/refuter@high",
+          status: "completed",
+          findingIndex: 1,
+          refuted: false,
+        },
+      ],
+    });
     expect(runtime.listenerCount()).toBe(0);
   });
 

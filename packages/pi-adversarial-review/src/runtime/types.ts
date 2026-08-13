@@ -1,4 +1,5 @@
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ReviewerRouteStatus } from "../types.ts";
 
 export type ReviewRuntimeBackend = "external-v3" | "embedded";
 
@@ -9,12 +10,30 @@ export interface ReviewRuntimeCapabilities {
   fallbackReason?: "unavailable" | "incompatible";
 }
 
+export type ReviewerFleetItemProgress =
+  | {
+      kind: "reviewer";
+      routeKey: string;
+      status: ReviewerRouteStatus;
+      verdict?: "needs-attention" | "approve";
+      findingCount?: number;
+    }
+  | {
+      kind: "refuter";
+      routeKey: string;
+      status: ReviewerRouteStatus;
+      findingIndex: number;
+      refuted?: boolean;
+    };
+
 export interface ReviewerFleetProgress {
   phase: "review" | "refute";
   total: number;
   queued: number;
   running: number;
   finished: number;
+  /** Deterministic display snapshot; never includes raw model output or errors. */
+  items: ReviewerFleetItemProgress[];
 }
 
 export interface SpawnReviewAgentInput {

@@ -131,6 +131,40 @@ describe("buildMergedReviewReport", () => {
     expect(report.blocking[0].votes).toBe(1);
   });
 
+  it("does not splice high severity and high confidence from different source findings", () => {
+    const sharedIssue = "A retry can write duplicate state before rollback";
+    const report = build({
+      requested: 5,
+      results: [
+        completed(0, [finding({
+          severity: "high",
+          confidence: 0.7,
+          category: "failure-recovery",
+          invariant: "Retries never duplicate committed state",
+          issue: sharedIssue,
+        })]),
+        completed(1, [finding({
+          severity: "medium",
+          confidence: 0.95,
+          category: "failure-recovery",
+          invariant: "Retries never duplicate committed state",
+          issue: sharedIssue,
+        })]),
+        completed(2),
+        completed(3),
+        completed(4),
+      ],
+    });
+
+    expect(report.consensusThreshold).toBe(3);
+    expect(report.blocking).toEqual([]);
+    expect(report.advisory).toMatchObject([{
+      severity: "high",
+      confidence: 0.95,
+      votes: 2,
+    }]);
+  });
+
   it("leaves a single medium finding advisory and returns only candidate approval", () => {
     const report = build({ requested: 2, results: [completed(0, [finding()]), completed(1)] });
     expect(report.overall).toBe("candidate-approve");

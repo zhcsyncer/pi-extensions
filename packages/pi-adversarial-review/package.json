@@ -37,6 +37,8 @@
     "assets/",
     "README.md",
     "README.zh-CN.md",
+    "REFERENCE.md",
+    "REFERENCE.zh-CN.md",
     "CHANGELOG.md",
     "LICENSE"
   ],

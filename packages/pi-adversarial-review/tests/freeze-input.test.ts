@@ -41,6 +41,7 @@ import {
 import { ReviewInputCleanupError } from "../src/input/errors.ts";
 import {
   INHERITED_GIT_CONTEXT_ENV_KEYS,
+  resolveCommittedReviewPath,
   resolveReviewTarget,
 } from "../src/input/git-target.ts";
 
@@ -939,6 +940,34 @@ describe("prepareFrozenReviewInput", () => {
       `--range ${baseSha}..${commits[1]}`,
       `--range ${commits[1]}..${commits[2]}`,
     ]);
+    expect((error as OversizedReviewInputError).rangePlan).toMatchObject({
+      targetCommitCount: 3,
+      analyzedCommitCount: 3,
+      emptyCommitCount: 0,
+      requiresSeparateLocalReview: true,
+      items: [
+        {
+          kind: "bounded",
+          fromSha: baseSha,
+          toSha: commits[1],
+          commitCount: 2,
+          firstCommit: { sha: commits[0], subject: "part 1", ordinal: 1 },
+          lastCommit: { sha: commits[1], subject: "part 2", ordinal: 2 },
+          inputSize: { bytes: expect.any(Number), lines: expect.any(Number) },
+          changedFileCount: 2,
+        },
+        {
+          kind: "bounded",
+          fromSha: commits[1],
+          toSha: commits[2],
+          commitCount: 1,
+          firstCommit: { sha: commits[2], subject: "part 3", ordinal: 3 },
+          lastCommit: { sha: commits[2], subject: "part 3", ordinal: 3 },
+          inputSize: { bytes: expect.any(Number), lines: expect.any(Number) },
+          changedFileCount: 1,
+        },
+      ],
+    });
     for (const suggestion of suggestions) {
       const range = /--range ([0-9a-f]+)\.\.([0-9a-f]+)$/u.exec(suggestion);
       expect(range).not.toBeNull();
@@ -954,6 +983,29 @@ describe("prepareFrozenReviewInput", () => {
     expect((error as Error).message).toContain("Suggested smaller review ranges");
     expect((error as Error).message).toContain("review any uncommitted changes separately");
     expect((error as Error).message).not.toContain("lines");
+  });
+
+  it("can fail oversized fingerprinting without generating automatic range plans", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    for (let index = 1; index <= 3; index++) {
+      await writeFile(path.join(root, `manual-${index}.txt`), `${"x".repeat(70 * 1024)}\n`);
+      await commitAll(root, `manual ${index}`);
+    }
+
+    const error = await fingerprintReviewTarget({
+      cwd: root,
+      target: { mode: "base", baseRef: baseSha },
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+      suggestRangesOnOversize: false,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OversizedReviewInputError);
+    expect((error as OversizedReviewInputError).rangeSuggestions).toEqual([]);
+    expect((error as OversizedReviewInputError).rangePlan).toBeUndefined();
+    expect((error as Error).message).not.toContain("Suggested smaller review ranges");
   });
 
   it("sizes suggested ranges with the frozen requirement context included", async () => {
@@ -987,7 +1039,7 @@ describe("prepareFrozenReviewInput", () => {
     );
   });
 
-  it("skips empty commit ranges and does not suggest an oversized single commit", async () => {
+  it("accounts for empty commits and offers a recommended-limit single commit with approval", async () => {
     const root = await initRepo();
     await writeFile(path.join(root, "base.txt"), "base\n");
     const baseSha = await commitAll(root, "base");
@@ -1005,11 +1057,116 @@ describe("prepareFrozenReviewInput", () => {
 
     expect(error).toBeInstanceOf(OversizedReviewInputError);
     expect((error as OversizedReviewInputError).rangeSuggestions).toEqual([]);
+    expect((error as OversizedReviewInputError).rangePlan).toMatchObject({
+      targetCommitCount: 2,
+      analyzedCommitCount: 2,
+      emptyCommitCount: 1,
+      items: [{
+        kind: "large-single",
+        fromSha: emptySha,
+        toSha: oversizedSha,
+        commitCount: 1,
+        firstCommit: { sha: oversizedSha, subject: "oversized commit", ordinal: 2 },
+        lastCommit: { sha: oversizedSha, subject: "oversized commit", ordinal: 2 },
+        inputSize: { bytes: expect.any(Number), lines: expect.any(Number) },
+        changedFileCount: 1,
+      }],
+    });
     expect((error as Error).message).not.toContain(emptySha.slice(0, 12));
     expect((error as Error).message).toContain(
-      `Single-commit ranges still over the limit: ${oversizedSha.slice(0, 12)}`,
+      `Single-commit ranges needing explicit whole-target approval: ${oversizedSha.slice(0, 12)}`,
     );
-    expect((error as Error).message).toContain("split those commits before review");
+    expect((error as Error).message).not.toContain("split those commits before review");
+  });
+
+  it("retains an empty commit subject as display metadata without weakening SHA identity", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    await writeFile(path.join(root, "empty-subject.txt"), "review me\n");
+    await git(root, "add", "-A");
+    await git(root, "commit", "--allow-empty-message", "-qm", "");
+    const commitSha = await git(root, "rev-parse", "HEAD");
+    const request = { mode: "range" as const, fromRef: baseSha, toRef: commitSha };
+
+    const suggestions = await suggestReviewRanges({
+      root,
+      target: request,
+      resolvedTarget: await resolveReviewTarget(root, request),
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    });
+
+    expect(suggestions.plan).toMatchObject({
+      targetCommitCount: 1,
+      analyzedCommitCount: 1,
+      items: [{
+        kind: "bounded",
+        fromSha: baseSha,
+        toSha: commitSha,
+        firstCommit: { sha: commitSha, subject: "", ordinal: 1 },
+        changedFileCount: 1,
+      }],
+    });
+  });
+
+  it("counts the full commit path while bounding display metadata to the requested limit", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    const commits: string[] = [];
+    for (let index = 1; index <= 3; index++) {
+      await writeFile(path.join(root, `metadata-${index}.txt`), `${index}\n`);
+      commits.push(await commitAll(root, `metadata ${index}`));
+    }
+    const request = { mode: "range" as const, fromRef: baseSha, toRef: "HEAD" };
+
+    const reviewPath = await resolveCommittedReviewPath(
+      root,
+      await resolveReviewTarget(root, request),
+      { metadataLimit: 2 },
+    );
+
+    expect(reviewPath?.commits).toEqual(commits);
+    expect(reviewPath?.commitMetadata).toEqual([
+      { sha: commits[0], subject: "metadata 1" },
+      { sha: commits[1], subject: "metadata 2" },
+    ]);
+  });
+
+  it("marks a single commit above the absolute limit as visible but not selectable", async () => {
+    const root = await initRepo();
+    await writeFile(path.join(root, "base.txt"), "base\n");
+    const baseSha = await commitAll(root, "base");
+    await writeFile(path.join(root, "too-large.txt"), `${"x".repeat(1_100 * 1024)}\n`);
+    const commitSha = await commitAll(root, "too large to review whole");
+    const request = { mode: "range" as const, fromRef: baseSha, toRef: commitSha };
+
+    const suggestions = await suggestReviewRanges({
+      root,
+      target: request,
+      resolvedTarget: await resolveReviewTarget(root, request),
+      maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+      maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+    });
+
+    expect(suggestions.commands).toEqual([]);
+    expect(suggestions.plan).toMatchObject({
+      targetCommitCount: 1,
+      analyzedCommitCount: 1,
+      items: [{
+        kind: "too-large-single",
+        fromSha: baseSha,
+        toSha: commitSha,
+        firstCommit: {
+          sha: commitSha,
+          subject: "too large to review whole",
+          ordinal: 1,
+        },
+      }],
+    });
+    expect(suggestions.plan?.items[0]?.inputSize).toBeUndefined();
+    expect(suggestions.note).toContain("exceeding the absolute limit");
   });
 
   it("keeps range suggestions bound to resolved SHAs after a ref moves", async () => {

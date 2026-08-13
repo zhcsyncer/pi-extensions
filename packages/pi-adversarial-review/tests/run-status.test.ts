@@ -3,6 +3,7 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { FrozenReviewInput } from "../src/types.ts";
 import {
   createReviewRunStatus,
   runWithTuiCancellation,
@@ -10,14 +11,16 @@ import {
 
 function runContext(overrides: Record<string, unknown> = {}) {
   const setStatus = vi.fn();
+  const setWidget = vi.fn();
   const ctx = {
     mode: "tui",
     ui: {
       setStatus,
+      setWidget,
       ...overrides,
     },
   } as unknown as ExtensionCommandContext;
-  return { ctx, setStatus };
+  return { ctx, setStatus, setWidget };
 }
 
 beforeAll(() => {
@@ -29,54 +32,317 @@ afterEach(() => {
 });
 
 describe("review run UI", () => {
-  it("keeps one aggregate footer status and clears its timer on dispose", () => {
+  it("keeps one aggregate footer status and clears its timer and widget on dispose", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-    const { ctx, setStatus } = runContext();
-    const status = createReviewRunStatus(ctx, 4, Date.now());
+    const { ctx, setStatus, setWidget } = runContext();
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 4,
+      targetSummary: "Adversarial review target: local changes.",
+      startedAtMs: Date.now(),
+    });
 
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · preparing · 4 review routes · refute off · 0s",
+      "Adversarial review · preparing · 4 reviewers · 0s",
     );
-    status.update({ phase: "review", total: 4, queued: 1, running: 2, finished: 1 });
+    expect(setWidget).toHaveBeenCalledWith(
+      "adversarial-review-run",
+      expect.any(Function),
+      { placement: "aboveEditor" },
+    );
+    status.update({
+      phase: "review",
+      total: 4,
+      queued: 1,
+      running: 2,
+      finished: 1,
+      items: [],
+    });
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · review 1/4 finished · 2 running · 1 queued · refute off · 0s",
+      "Adversarial review · review 1/4 complete · 2 running · 1 queued · 0s",
     );
 
     vi.advanceTimersByTime(61_000);
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      "Adversarial review · review 1/4 finished · 2 running · 1 queued · refute off · 1m01s",
+      "Adversarial review · review 1/4 complete · 2 running · 1 queued · 1m01s",
     );
     status.dispose();
+    expect(setWidget).toHaveBeenLastCalledWith("adversarial-review-run", undefined);
     expect(setStatus).toHaveBeenLastCalledWith("adversarial-review", undefined);
     const calls = setStatus.mock.calls.length;
     vi.advanceTimersByTime(5_000);
     expect(setStatus).toHaveBeenCalledTimes(calls);
   });
 
-  it("shows refute armed through review and switches to the refute phase", () => {
+  it("mentions Refute only after the Refute phase actually starts", () => {
     vi.useFakeTimers();
     const { ctx, setStatus } = runContext();
-    const status = createReviewRunStatus(ctx, 2, Date.now(), true);
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: base origin/main.",
+    });
 
+    expect(setStatus.mock.calls.at(-1)?.[1]).not.toContain("refute");
+    status.update({
+      phase: "review",
+      total: 2,
+      queued: 0,
+      running: 2,
+      finished: 0,
+      items: [],
+    });
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      expect.stringContaining("2 review routes · refute armed"),
+      expect.stringContaining("review 0/2 complete · 2 running"),
     );
-    status.update({ phase: "review", total: 2, queued: 0, running: 2, finished: 0 });
+    expect(setStatus.mock.calls.at(-1)?.[1]).not.toContain("refute");
+    status.update({
+      phase: "refute",
+      total: 1,
+      queued: 0,
+      running: 1,
+      finished: 0,
+      items: [],
+    });
     expect(setStatus).toHaveBeenLastCalledWith(
       "adversarial-review",
-      expect.stringContaining("review 0/2 finished · 2 running · 0 queued · refute armed"),
+      expect.stringContaining("refute 0/1 complete · 1 running"),
     );
-    status.update({ phase: "refute", total: 1, queued: 0, running: 1, finished: 0 });
-    expect(setStatus).toHaveBeenLastCalledWith(
-      "adversarial-review",
-      expect.stringContaining("refute 0/1 finished · 1 running · 0 queued"),
+    status.dispose();
+  });
+
+  it("keeps external agent detail in FleetView while rendering target and deterministic outcomes", () => {
+    vi.useFakeTimers();
+    const { ctx, setWidget } = runContext();
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const factory = setWidget.mock.calls[0]?.[1] as (
+      tui: { requestRender(): void },
+      theme: { bold(text: string): string; fg(color: string, text: string): string },
+    ) => { render(width: number): string[] };
+    const component = factory(
+      { requestRender: vi.fn() },
+      { bold: (text) => text, fg: (_color, text) => text },
     );
-    expect(setStatus.mock.calls.at(-1)?.[1]).not.toContain("refute armed");
+
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ● Snapshot ─ ○ Review ─ ○ Gate ─ ○ Finish",
+    );
+    status.runtime("external-v3");
+    status.frozen({
+      target: {
+        description: "local changes at HEAD abc123",
+        changedFiles: ["src/a.ts", "src/b.ts"],
+      },
+      inputSize: { bytes: 61_440, lines: 824 },
+    } as FrozenReviewInput);
+    status.update({
+      phase: "review",
+      total: 2,
+      queued: 0,
+      running: 0,
+      finished: 2,
+      items: [
+        {
+          kind: "reviewer",
+          routeKey: "provider-a/model-a@high",
+          status: "completed",
+          verdict: "approve",
+          findingCount: 0,
+        },
+        {
+          kind: "reviewer",
+          routeKey: "provider-b/model-b@high",
+          status: "invalid-output",
+        },
+      ],
+    });
+    const reviewCard = component.render(180).join("\n");
+    expect(reviewCard).toContain("Flow · ✓ Snapshot ─ ● Review ─ ○ Gate ─ ○ Finish");
+    expect(reviewCard).toContain("Target · local changes at HEAD abc123");
+    expect(reviewCard).toContain("Snapshot · 60.0 KiB · 824 lines · 2 files");
+    expect(reviewCard).not.toContain("provider-a/model-a@high");
+    expect(reviewCard).not.toContain("provider-b/model-b@high");
+    expect(reviewCard).not.toContain("invalid output");
+
+    status.gate({
+      gating: "weighted",
+      overall: "needs-adjudication",
+      validReviewers: 1,
+      totalReviewers: 2,
+      blocking: 1,
+      advisory: 2,
+    });
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ● Gate ─ ○ Finish",
+    );
+    status.update({
+      phase: "refute",
+      total: 1,
+      queued: 0,
+      running: 1,
+      finished: 0,
+      items: [],
+    });
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ● Refute ─ ○ Finish",
+    );
+    status.refute({ state: "completed", valid: 1, total: 1, contested: 1 });
+    status.publishing();
+    const publishedCard = component.render(180).join("\n");
+    expect(publishedCard).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ✓ Refute ─ ● Finish",
+    );
+    expect(publishedCard).toContain(
+      "Gate · weighted · needs-adjudication · 1/2 valid · 1 blocking · 2 advisory",
+    );
+    expect(publishedCard).toContain("Refute · 1/1 valid · 1 contested");
+
+    status.cleanup("retained");
+    const retainedCard = component.render(180).join("\n");
+    expect(retainedCard).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ✓ Refute ─ ! Finish",
+    );
+    expect(retainedCard).toContain("resources retained for safety");
+    status.dispose();
+  });
+
+  it("finishes without inserting a Refute node when Refute never starts", () => {
+    const { ctx, setWidget } = runContext();
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const factory = setWidget.mock.calls[0]?.[1] as (
+      tui: { requestRender(): void },
+      theme: { bold(text: string): string; fg(color: string, text: string): string },
+    ) => { render(width: number): string[] };
+    const component = factory(
+      { requestRender: vi.fn() },
+      { bold: (text) => text, fg: (_color, text) => text },
+    );
+
+    status.runtime("external-v3");
+    status.update({
+      phase: "review",
+      total: 2,
+      queued: 0,
+      running: 0,
+      finished: 2,
+      items: [],
+    });
+    status.gate({
+      gating: "weighted",
+      overall: "candidate-approve",
+      validReviewers: 2,
+      totalReviewers: 2,
+      blocking: 0,
+      advisory: 0,
+    });
+    status.refute({ state: "skipped", reason: "no-blocking", overall: "candidate-approve" });
+    status.publishing();
+
+    const publishingCard = component.render(180).join("\n");
+    expect(publishingCard).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ● Finish",
+    );
+    expect(publishingCard).not.toContain("○ Refute");
+    expect(publishingCard).toContain("Refute · skipped · no blocking findings");
+
+    status.cleanup("completed");
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ✓ Finish",
+    );
+    status.dispose();
+  });
+
+  it("marks the failed lifecycle node while cleanup remains the active finish barrier", () => {
+    const { ctx, setWidget } = runContext();
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const factory = setWidget.mock.calls[0]?.[1] as (
+      tui: { requestRender(): void },
+      theme: { bold(text: string): string; fg(color: string, text: string): string },
+    ) => { render(width: number): string[] };
+    const component = factory(
+      { requestRender: vi.fn() },
+      { bold: (text) => text, fg: (_color, text) => text },
+    );
+
+    status.runtime("external-v3");
+    status.update({
+      phase: "review",
+      total: 2,
+      queued: 0,
+      running: 1,
+      finished: 1,
+      items: [],
+    });
+    status.failed();
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ○ Finish",
+    );
+
+    status.cleanup("running");
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ● Finish",
+    );
+    status.cleanup("retained");
+    expect(component.render(180).join("\n")).toContain(
+      "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ! Finish",
+    );
+    status.dispose();
+  });
+
+  it("retains per-agent visibility when the embedded fallback has no FleetView", () => {
+    const { ctx, setWidget } = runContext();
+    const status = createReviewRunStatus(ctx, {
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const factory = setWidget.mock.calls[0]?.[1] as (
+      tui: { requestRender(): void },
+      theme: { bold(text: string): string; fg(color: string, text: string): string },
+    ) => { render(width: number): string[] };
+    const component = factory(
+      { requestRender: vi.fn() },
+      { bold: (text) => text, fg: (_color, text) => text },
+    );
+
+    status.runtime("embedded");
+    status.update({
+      phase: "review",
+      total: 2,
+      queued: 0,
+      running: 1,
+      finished: 1,
+      items: [
+        {
+          kind: "reviewer",
+          routeKey: "provider-a/model-a@high",
+          status: "completed",
+          verdict: "approve",
+          findingCount: 0,
+        },
+        {
+          kind: "reviewer",
+          routeKey: "provider-b/model-b@high",
+          status: "running",
+        },
+      ],
+    });
+
+    const card = component.render(180).join("\n");
+    expect(card).toContain("provider-a/model-a@high · approve");
+    expect(card).toContain("provider-b/model-b@high");
+    expect(card).not.toContain("lens");
     status.dispose();
   });
 

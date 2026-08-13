@@ -82,6 +82,7 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   let localExplicit = false;
   let baseRef: string | undefined;
   let range: Extract<ReviewTargetRequest, { mode: "range" }> | undefined;
+  let interactiveRange = false;
   let reqdoc: string | undefined;
   let focus: string | undefined;
   let gating: GatingMode = "weighted";
@@ -101,11 +102,19 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
         baseRef = requireValue(tokens, index, token);
         index++;
         break;
-      case "--range":
-        if (range !== undefined) throw new ReviewCommandError("--range may be provided only once.");
-        range = parseRange(requireValue(tokens, index, token));
-        index++;
+      case "--range": {
+        if (range !== undefined || interactiveRange) {
+          throw new ReviewCommandError("--range may be provided only once.");
+        }
+        const value = tokens[index + 1];
+        if (value === undefined || value.startsWith("--")) {
+          interactiveRange = true;
+        } else {
+          range = parseRange(value);
+          index++;
+        }
         break;
+      }
       case "--reqdoc":
         if (reqdoc !== undefined) throw new ReviewCommandError("--reqdoc may be provided only once.");
         reqdoc = requireValue(tokens, index, token);
@@ -151,7 +160,8 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
     }
   }
 
-  const targetOptionCount = Number(localExplicit) + Number(baseRef !== undefined) + Number(range !== undefined);
+  const targetOptionCount = Number(localExplicit) + Number(baseRef !== undefined) +
+    Number(range !== undefined || interactiveRange);
   if (targetOptionCount > 1) {
     throw new ReviewCommandError("--local, --base, and --range are mutually exclusive.");
   }
@@ -163,6 +173,7 @@ export function parseReviewCommand(input: string): ParsedReviewCommand {
   return {
     target,
     targetExplicit: targetOptionCount === 1,
+    ...(interactiveRange ? { interactiveRange: true as const } : {}),
     reviewerSpecs,
     gating,
     allowLarge,

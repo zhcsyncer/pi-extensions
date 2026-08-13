@@ -185,6 +185,11 @@ function resolvedLocalPreflight(
 function context(cwd = process.cwd()) {
   const notifications: Array<{ message: string; type?: string }> = [];
   const statuses: Array<{ key: string; value: string | undefined }> = [];
+  const widgets: Array<{
+    key: string;
+    content: unknown;
+    options?: { placement?: "aboveEditor" | "belowEditor" };
+  }> = [];
   const tui = { requestRender: vi.fn() };
   const theme = {
     bold: (text: string) => text,
@@ -194,6 +199,11 @@ function context(cwd = process.cwd()) {
     notify: (message: string, type?: string) => notifications.push({ message, type }),
     onTerminalInput: vi.fn(() => () => {}),
     setStatus: (key: string, value: string | undefined) => statuses.push({ key, value }),
+    setWidget: (
+      key: string,
+      content: unknown,
+      options?: { placement?: "aboveEditor" | "belowEditor" },
+    ) => widgets.push({ key, content, ...(options ? { options } : {}) }),
     custom: async (factory: any) => new Promise((resolve) => {
       let component: { dispose?: () => void } | undefined;
       component = factory(tui, theme, {}, (value: unknown) => {
@@ -214,7 +224,7 @@ function context(cwd = process.cwd()) {
     sessionManager: { getSessionId: () => "test-session" },
     ui,
   } as unknown as ExtensionCommandContext;
-  return { ctx, notifications, statuses, tui, theme };
+  return { ctx, notifications, statuses, widgets, tui, theme };
 }
 
 beforeAll(() => {
@@ -737,6 +747,47 @@ describe("adversarial review extension", () => {
     });
   });
 
+  it("rejects bare --range headlessly before reviewer or runtime validation", async () => {
+    const fake = new FakePi();
+    const resolvePreflight = vi.fn();
+    const resolveRuntime = vi.fn();
+    adversarialReviewExtension(fake.api(), { resolvePreflight, resolveRuntime });
+    const { ctx } = context();
+    Object.assign(ctx, { mode: "json" });
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler("--range", ctx);
+
+    expect(resolvePreflight).not.toHaveBeenCalled();
+    expect(resolveRuntime).not.toHaveBeenCalled();
+    expect(fake.entries).toContainEqual({
+      customType: "adversarial-review-error",
+      data: expect.objectContaining({
+        kind: "command",
+        mode: "json",
+        message: expect.stringContaining("Interactive --range requires TUI mode"),
+      }),
+    });
+  });
+
+  it("passes bare --range to TUI preflight without treating it as local", async () => {
+    const fake = new FakePi();
+    const resolvePreflight = vi.fn(async () => undefined);
+    adversarialReviewExtension(fake.api(), { resolvePreflight });
+    const { ctx } = context();
+
+    await fake.commands.get(ADVERSARIAL_REVIEW_COMMAND).handler(
+      "--range --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    );
+
+    expect(resolvePreflight).toHaveBeenCalledWith(expect.objectContaining({
+      target: { mode: "local" },
+      targetExplicit: true,
+      interactiveRange: true,
+    }));
+    expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
+  });
+
   it("publishes a stable headless input error when automatic fetch preflight fails", async () => {
     const fake = new FakePi();
     const resolveRuntime = vi.fn();
@@ -780,6 +831,13 @@ describe("adversarial review extension", () => {
       "provider-b/model-b@high",
     ]);
     expect(preflight.command.target).toEqual({ mode: "local" });
+    expect(preflightReviewCommand(
+      "--range --reviewer provider-a/model-a@high --reviewer provider-b/model-b@high",
+      ctx,
+    ).command).toMatchObject({
+      interactiveRange: true,
+      targetExplicit: true,
+    });
   });
 
   it("runs the local two-route command and triggers one audited adjudication follow-up", async () => {
@@ -822,7 +880,7 @@ describe("adversarial review extension", () => {
       }
     };
     adversarialReviewExtension(fake.api());
-    const { ctx, notifications } = context(root);
+    const { ctx, notifications, widgets } = context(root);
     // The main model explicitly rejects the current thinking level. A review
     // that did not request Refute must still reach the reviewer fleet.
     (ctx.model as any).thinkingLevelMap = { medium: null };
@@ -854,6 +912,15 @@ describe("adversarial review extension", () => {
     expect(notifications.at(-1)).toEqual({
       message: "Adversarial review: candidate-approve (2/2 valid). Refute disabled.",
       type: "info",
+    });
+    expect(widgets[0]).toMatchObject({
+      key: "adversarial-review-run",
+      content: expect.any(Function),
+      options: { placement: "aboveEditor" },
+    });
+    expect(widgets.at(-1)).toEqual({
+      key: "adversarial-review-run",
+      content: undefined,
     });
     expect(frozenPaths).toHaveLength(2);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
@@ -1127,9 +1194,9 @@ describe("adversarial review extension", () => {
       contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
     });
     expect(fake.entries[0]?.data.blocking).toHaveLength(1);
-    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(true);
+    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(false);
     expect(notifications.some(({ message }) => message.includes("Refute 1/1 valid; 1 contested."))).toBe(true);
-    expect(statuses.some(({ value }) => value?.includes("refute 0/1 finished"))).toBe(true);
+    expect(statuses.some(({ value }) => value?.includes("refute 0/1 complete"))).toBe(true);
     expect(fake.sentMessages[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
     expect(JSON.stringify(fake.sentMessages[0]?.message.details)).not.toContain('"model":');
   });
@@ -1183,9 +1250,9 @@ describe("adversarial review extension", () => {
       refuteResults: [],
       contested: [],
     });
-    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(true);
+    expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(false);
     expect(notifications.some(({ message }) => message.includes("Refute skipped: no blocking findings."))).toBe(true);
-    expect(statuses.some(({ value }) => value?.includes("refute armed"))).toBe(true);
+    expect(statuses.some(({ value }) => value?.includes("refute armed"))).toBe(false);
     expect(statuses.some(({ value }) => value?.startsWith("Adversarial review · refute "))).toBe(false);
   });
 
@@ -1464,7 +1531,7 @@ describe("adversarial review extension", () => {
       }
     };
     adversarialReviewExtension(fake.api());
-    const { ctx, statuses, tui, theme } = context(root);
+    const { ctx, notifications, statuses, tui, theme } = context(root);
     (ctx.ui as any).custom = async (factory: any) => new Promise((resolve) => {
       let component: { handleInput(data: string): void; dispose?: () => void } | undefined;
       component = factory(tui, theme, {}, (value: unknown) => {
@@ -1491,6 +1558,11 @@ describe("adversarial review extension", () => {
       ],
     });
     expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
+    expect(fake.sentMessages).toEqual([]);
+    expect(notifications.at(-1)).toMatchObject({
+      type: "warning",
+      message: expect.stringContaining("Adversarial review: cancelled"),
+    });
     expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
     expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: root,
@@ -1549,6 +1621,7 @@ describe("adversarial review extension", () => {
       routeResults: [{ status: "cancelled" }, { status: "cancelled" }],
     });
     expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
+    expect(fake.sentMessages).toEqual([]);
   });
 
   it("marks the final report stale when the target drifts during reviewer execution", async () => {

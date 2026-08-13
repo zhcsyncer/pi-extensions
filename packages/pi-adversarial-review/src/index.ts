@@ -1,15 +1,16 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { parseReviewCommand, ReviewCommandError } from "./command/parse-args.ts";
+import { executeReviewRun } from "./command/execute-review.ts";
 import {
   resolveMainSessionRefuterRoute,
   resolveRefuterRoute,
   resolveReviewerRoutes,
 } from "./command/resolve-routes.ts";
-import { buildMergedReviewReport } from "./convergence/gate.ts";
-import { attachRefuteResults } from "./convergence/refute.ts";
-import { EmptyReviewInputError, prepareFrozenReviewInput } from "./input/freeze-input.ts";
-import { ReviewInputError } from "./input/errors.ts";
+import {
+  EmptyReviewInputError,
+  ReviewInputError,
+} from "./input/errors.ts";
 import {
   emitHeadlessDiagnostic,
   publishReviewFailure,
@@ -17,15 +18,11 @@ import {
 } from "./output/headless-output.ts";
 import {
   ADVERSARIAL_REVIEW_CANCELLATION_TYPE,
-  buildReviewFreezeCancellationAudit,
-  publishReviewFreezeCancellation,
   renderReviewFreezeCancellationMessage,
 } from "./output/publish-cancellation.ts";
 import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
-  publishMergedReviewReport,
   renderMergedReviewMessage,
-  summarizeRefuteStatus,
 } from "./output/publish-report.ts";
 import {
   resolveReviewPreflight,
@@ -34,42 +31,28 @@ import {
   type ResolveReviewPreflightOptions,
 } from "./preflight/resolve-preflight.ts";
 import {
-  DEFAULT_REVIEWER_MAX_TURNS,
-  DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
-  DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
-  LARGE_REVIEWER_MAX_TURNS,
-  LARGE_REVIEWER_OVERALL_TIMEOUT_MS,
-  LARGE_REVIEWER_ROUTE_TIMEOUT_MS,
-  runReviewerFleet,
-} from "./runtime/orchestrator.ts";
-import {
-  DEFAULT_REFUTER_MAX_TURNS,
-  DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
-  DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
-  LARGE_REFUTER_MAX_TURNS,
-  LARGE_REFUTER_OVERALL_TIMEOUT_MS,
-  LARGE_REFUTER_ROUTE_TIMEOUT_MS,
-  runRefuteFleet,
-} from "./runtime/refute-orchestrator.ts";
-import {
-  loadRefuterSystemPrompt,
-  loadReviewerSystemPrompt,
-} from "./runtime/reviewer-assets.ts";
-import {
   resolveReviewRuntime,
   type ResolvedReviewRuntime,
   type ResolveReviewRuntimeOptions,
 } from "./runtime/resolve-runtime.ts";
 import type { PiEventBus } from "./runtime/rpc-v3-client.ts";
 import type { ReviewRuntimeCapabilities } from "./runtime/types.ts";
-import type { ParsedReviewCommand, ReviewerRoute } from "./types.ts";
+import type {
+  FrozenReviewInput,
+  ParsedReviewCommand,
+  ReviewerRoute,
+} from "./types.ts";
 import {
   pickInteractiveReviewSetup,
   pickRefuterSpec,
   retainValidRefuterSpec,
   retainValidReviewerSpecs,
 } from "./ui/reviewer-picker.ts";
-import { createReviewRunStatus, runWithTuiCancellation } from "./ui/run-status.ts";
+import {
+  createReviewRunStatus,
+  type ReviewRunStatus,
+  runWithTuiCancellation,
+} from "./ui/run-status.ts";
 
 export const ADVERSARIAL_REVIEW_COMMAND = "adversarial-review";
 
@@ -139,8 +122,9 @@ export default function adversarialReviewExtension(
         return;
       }
 
-      let frozenInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>> | undefined;
+      let frozenInput: FrozenReviewInput | undefined;
       let resolvedRuntime: ResolvedReviewRuntime | undefined;
+      let runStatus: ReviewRunStatus | undefined;
       const controller = new AbortController();
       let resolveRunCompletion!: () => void;
       const runCompletion = new Promise<void>((resolve) => { resolveRunCompletion = resolve; });
@@ -148,6 +132,11 @@ export default function adversarialReviewExtension(
       activeRunCompletion = runCompletion;
       try {
         const command = parseReviewCommand(args);
+        if (command.interactiveRange && ctx.mode !== "tui") {
+          throw new ReviewCommandError(
+            'Interactive --range requires TUI mode. Outside TUI, pass --range "<refA>..<refB>".',
+          );
+        }
         if (command.reviewerSpecs.length === 0 && ctx.mode !== "tui") {
           throw new ReviewCommandError(
             "Reviewer selection requires TUI mode. Outside TUI, pass at least two " +
@@ -186,6 +175,7 @@ export default function adversarialReviewExtension(
               ctx,
               target: command.target,
               targetExplicit: command.targetExplicit,
+              ...(command.interactiveRange ? { interactiveRange: true } : {}),
               allowLarge: command.allowLarge,
               ...(command.reqdoc ? { reqdoc: command.reqdoc } : {}),
               ...(command.focus !== undefined ? { focus: command.focus } : {}),
@@ -338,216 +328,39 @@ export default function adversarialReviewExtension(
           : useMainSessionRefuter
             ? mainSessionRefuterRoute
             : undefined);
-        if (ctx.mode === "tui" && refuteRequested && refuterRoute) {
-          ctx.ui.notify(
-            safeReviewDiagnosticText(
-              `Adversarial refute armed: ${refuterRoute.key}. ` +
-                "It will start only when blocking findings pass the gate.",
-            ),
-            "info",
-          );
-        }
         const startedAt = new Date();
-        const runStatus = ctx.mode === "tui"
-          ? createReviewRunStatus(ctx, routes.length, startedAt.getTime(), refuteRequested)
+        runStatus = ctx.mode === "tui"
+          ? createReviewRunStatus(ctx, {
+              totalRoutes: routes.length,
+              targetSummary: targetPreflight.summary,
+              startedAtMs: startedAt.getTime(),
+            })
           : undefined;
-        const executeReview = async () => {
-          let candidateInput: Awaited<ReturnType<typeof prepareFrozenReviewInput>>;
-          try {
-            candidateInput = await prepareFrozenReviewInput({
-              cwd: ctx.cwd,
-              target: targetPreflight.target,
-              preflight: targetPreflight.audit,
-              reqdoc: command.reqdoc,
-              focus: command.focus,
-              signal: controller.signal,
-            });
-          } catch (error) {
-            if (!controller.signal.aborted || error !== controller.signal.reason) throw error;
-            const cancellationAudit = buildReviewFreezeCancellationAudit({
-              target: targetPreflight.target,
-              preflight: targetPreflight.audit,
-              requestedRoutes: routes,
-              refuteRequested,
-              ...(refuterRoute ? { refuterRoute } : {}),
-              gating: command.gating,
-              startedAt,
-            });
-            const published = publishReviewFreezeCancellation({
-              pi,
-              mode: ctx.mode,
-              audit: cancellationAudit,
-              sessionId: ctx.sessionManager.getSessionId(),
-              cwd: ctx.cwd,
-            });
-            ctx.ui.notify(
-              published.deliveryWarning
-                ? `${published.message} ${published.deliveryWarning}`
-                : published.message,
-              published.deliveryWarning ? "warning" : "info",
-            );
-            return;
-          }
-          let runtime: ResolvedReviewRuntime["runtime"];
-          let reviewerSystemPrompt: string;
-          try {
-            // Resolve backend/assets before the final guard so its comparison
-            // remains immediately adjacent to the first possible spawn.
-            const selectedRuntime = await ensureRuntime();
-            runtime = selectedRuntime.runtime;
-            capabilities = selectedRuntime.capabilities;
-            reviewerSystemPrompt = await loadReviewerSystemPrompt();
-            // Once freezing succeeds, Escape must still produce the full
-            // cancelled report. Skip guard failure and all reviewer spawns
-            // through the aborted signal.
-            let stable = true;
-            if (!controller.signal.aborted) {
-              try {
-                stable = await revalidate(targetPreflight, {
-                  signal: controller.signal,
-                  frozenInput: candidateInput,
-                });
-              } catch (error) {
-                if (!controller.signal.aborted) throw error;
-              }
-            }
-            if (!controller.signal.aborted && !stable) {
-              throw new ReviewInputError(
-                "Git state changed while freezing adversarial review input. Retry the review.",
-              );
-            }
-            frozenInput = candidateInput;
-          } catch (error) {
-            await candidateInput.cleanup();
-            throw error;
-          }
-          const reviewerMaxTurns = targetPreflight.largeInput
-            ? LARGE_REVIEWER_MAX_TURNS
-            : DEFAULT_REVIEWER_MAX_TURNS;
-          const refuterMaxTurns = targetPreflight.largeInput
-            ? LARGE_REFUTER_MAX_TURNS
-            : DEFAULT_REFUTER_MAX_TURNS;
-          const reviewerRouteTimeoutMs = targetPreflight.largeInput
-            ? LARGE_REVIEWER_ROUTE_TIMEOUT_MS
-            : DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
-          const reviewerOverallTimeoutMs = targetPreflight.largeInput
-            ? LARGE_REVIEWER_OVERALL_TIMEOUT_MS
-            : DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS;
-          const refuterRouteTimeoutMs = targetPreflight.largeInput
-            ? LARGE_REFUTER_ROUTE_TIMEOUT_MS
-            : DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
-          const refuterOverallTimeoutMs = targetPreflight.largeInput
-            ? LARGE_REFUTER_OVERALL_TIMEOUT_MS
-            : DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
-          const fleet = await runReviewerFleet({
-            runtime,
-            routes,
-            frozenInput,
-            reviewerSystemPrompt,
-            signal: controller.signal,
-            capabilities,
-            maxTurns: reviewerMaxTurns,
-            routeTimeoutMs: reviewerRouteTimeoutMs,
-            overallTimeoutMs: reviewerOverallTimeoutMs,
-            onProgress: (progress) => runStatus?.update(progress),
-          });
-          if (sessionShuttingDown) return;
-          const drift = await frozenInput.recheck();
-          if (sessionShuttingDown) return;
-          let report = buildMergedReviewReport({
-            runId: frozenInput.runId,
-            target: frozenInput.target,
-            charterSource: frozenInput.charterSource,
-            charterSha256: frozenInput.charterSha256,
-            requestedRoutes: routes,
-            routeResults: fleet.routeResults,
-            runtimeCapabilities: fleet.capabilities,
-            maxTurns: reviewerMaxTurns,
-            routeTimeoutMs: reviewerRouteTimeoutMs,
-            overallTimeoutMs: reviewerOverallTimeoutMs,
-            refuteRequested,
-            refuterRoute,
-            gating: command.gating,
-            stale: drift.stale,
-            cancelled: controller.signal.aborted,
-            limitedContext: frozenInput.limitedContext,
-            startedAt,
-          });
+        const executeReview = () => executeReviewRun({
+          pi,
+          ctx,
+          command,
+          targetPreflight,
+          routes,
+          refuteRequested,
+          ...(refuterRoute ? { refuterRoute } : {}),
+          controller,
+          startedAt,
+          ...(runStatus ? { runStatus } : {}),
+          ensureRuntime,
+          revalidate,
+          sessionShuttingDown: () => sessionShuttingDown,
+          retainFrozenInput: (input) => { frozenInput = input; },
+        });
 
-          const refuteEligible = refuteRequested &&
-            refuterRoute !== undefined &&
-            report.blocking.length > 0 &&
-            report.overall !== "cancelled" &&
-            report.overall !== "stale" &&
-            report.overall !== "failed";
-          if (refuteEligible) {
-            const refuterSystemPrompt = await loadRefuterSystemPrompt();
-            const refuteFleet = await runRefuteFleet({
-              runtime,
-              refuterRoute,
-              blocking: report.blocking,
-              frozenInput,
-              refuterSystemPrompt,
-              capabilities: fleet.capabilities,
-              signal: controller.signal,
-              maxTurns: refuterMaxTurns,
-              routeTimeoutMs: refuterRouteTimeoutMs,
-              overallTimeoutMs: refuterOverallTimeoutMs,
-              onProgress: (progress) => runStatus?.update(progress),
-            });
-            if (sessionShuttingDown) return;
-            const finalDrift = await frozenInput.recheck();
-            if (sessionShuttingDown) return;
-            report = attachRefuteResults({
-              report,
-              refuterRoute,
-              routeResults: refuteFleet.routeResults,
-              capabilities: refuteFleet.capabilities,
-              maxTurns: refuterMaxTurns,
-              routeTimeoutMs: refuterRouteTimeoutMs,
-              overallTimeoutMs: refuterOverallTimeoutMs,
-              stale: finalDrift.stale,
-              cancelled: controller.signal.aborted,
-            });
-          }
-
-          const published = publishMergedReviewReport(pi, report, ctx.mode, {
-            sessionId: ctx.sessionManager.getSessionId(),
-            cwd: ctx.cwd,
-          });
-          const completionMessage = safeReviewDiagnosticText(
-            `${published.deliveryWarning ??
-              `Adversarial review: ${report.overall} (${report.successfulReviewerCount}/${routes.length} valid).`} ` +
-              summarizeRefuteStatus(report).notification,
-          );
-          if (published.deliveryWarning) {
-            emitHeadlessDiagnostic(ctx.mode, completionMessage);
-            if (
-              (ctx.mode === "print" || ctx.mode === "json") &&
-              (process.exitCode === undefined || process.exitCode === 0)
-            ) {
-              process.exitCode = 1;
-            }
-          }
-          ctx.ui.notify(
-            completionMessage,
-            published.deliveryWarning
-              ? "warning"
-              : report.overall === "candidate-approve" ? "info" : "warning",
-          );
-        };
-
-        try {
-          if (ctx.mode === "tui") {
-            await runWithTuiCancellation(ctx, controller, executeReview);
-          } else {
-            await executeReview();
-          }
-        } finally {
-          runStatus?.dispose();
+        if (ctx.mode === "tui") {
+          await runWithTuiCancellation(ctx, controller, executeReview);
+        } else {
+          await executeReview();
         }
       } catch (error) {
         if (sessionShuttingDown) return;
+        runStatus?.failed();
         if (controller.signal.aborted && error === controller.signal.reason) {
           ctx.ui.notify("Adversarial review: Git preflight cancelled.", "info");
           return;
@@ -573,12 +386,15 @@ export default function adversarialReviewExtension(
       } finally {
         // Frozen input and any detached review worktree must remain readable until every
         // reviewer/refuter has terminated. Runtime disposal is therefore the first barrier.
+        runStatus?.cleanup("running");
+        let cleanupRetained = false;
         let runtimeCleanupComplete = true;
         if (resolvedRuntime) {
           try {
             await resolvedRuntime.dispose();
           } catch (error) {
             runtimeCleanupComplete = false;
+            cleanupRetained = true;
             if (!sessionShuttingDown) {
               const warning = safeReviewDiagnosticText(
                 `Adversarial review runtime cleanup warning: ${errorMessage(error)} ` +
@@ -593,6 +409,7 @@ export default function adversarialReviewExtension(
           try {
             await frozenInput.cleanup();
           } catch (error) {
+            cleanupRetained = true;
             if (!sessionShuttingDown) {
               const warning = safeReviewDiagnosticText(
                 `Adversarial review cleanup warning: ${errorMessage(error)}`,
@@ -602,6 +419,8 @@ export default function adversarialReviewExtension(
             }
           }
         }
+        runStatus?.cleanup(cleanupRetained ? "retained" : "completed");
+        runStatus?.dispose();
         if (activeRun === controller) activeRun = undefined;
         if (activeRunCompletion === runCompletion) activeRunCompletion = undefined;
         resolveRunCompletion();

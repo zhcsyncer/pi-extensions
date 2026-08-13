@@ -50,11 +50,25 @@ function validateConfig(config: GatingConfig): void {
   ) throw new Error("Invalid gating configuration.");
 }
 
-function isSingleHighException(finding: MergedFinding, config: GatingConfig): boolean {
-  return (
-    (finding.severity === "critical" || finding.severity === "high") &&
-    finding.confidence >= config.singleHighConfidence
-  );
+function isSingleHighException(
+  finding: MergedFinding,
+  routeResults: readonly ReviewerRouteResult[],
+  config: GatingConfig,
+): boolean {
+  return finding.sourceFindingIndexes.some(({ routeKey, findingIndex }) => {
+    const matchingRoutes = routeResults.filter((result) => result.route.key === routeKey);
+    if (matchingRoutes.length !== 1) {
+      throw new Error(`Merged finding source route is not unique: ${routeKey}.`);
+    }
+    const source = matchingRoutes[0].report?.findings[findingIndex];
+    if (!source) {
+      throw new Error(`Merged finding source does not exist: ${routeKey}#${findingIndex}.`);
+    }
+    return (
+      (source.severity === "critical" || source.severity === "high") &&
+      source.confidence >= config.singleHighConfidence
+    );
+  });
 }
 
 export interface BuildMergedReviewReportOptions {
@@ -115,7 +129,8 @@ export function buildMergedReviewReport(
     advisory = [];
   } else {
     blocking = clusters.filter((finding) => (
-      finding.votes >= consensusThreshold || isSingleHighException(finding, config)
+      finding.votes >= consensusThreshold ||
+      isSingleHighException(finding, successful, config)
     ));
     advisory = clusters.filter((finding) => !blocking.includes(finding));
   }

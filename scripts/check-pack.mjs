@@ -256,6 +256,8 @@ const requiredPackFiles = new Map([
 		"assets/adversarial-reviewer.md",
 		"README.md",
 		"README.zh-CN.md",
+		"REFERENCE.md",
+		"REFERENCE.zh-CN.md",
 		"CHANGELOG.md",
 		"LICENSE",
 	]],
@@ -292,6 +294,8 @@ const maintainedReadmes = [
 	"packages/pi-meter/README.zh-CN.md",
 	"packages/pi-adversarial-review/README.md",
 	"packages/pi-adversarial-review/README.zh-CN.md",
+	"packages/pi-adversarial-review/REFERENCE.md",
+	"packages/pi-adversarial-review/REFERENCE.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"providers/pi-provider-cursor-ask/README.md",
@@ -317,8 +321,10 @@ async function assertBilingualPair(englishPath, chinesePath) {
 		headingLevels(english),
 		`${chinesePath} must keep the same heading structure as ${englishPath}`,
 	);
-	assert.match(english, new RegExp(`\\[简体中文\\]\\(\\./${chinesePath.split("/").pop().replaceAll(".", "\\.")}\\)`));
-	assert.match(chinese, /\[English\]\(\.\/README\.md\)/);
+	const chineseFile = chinesePath.split("/").pop().replaceAll(".", "\\.");
+	const englishFile = englishPath.split("/").pop().replaceAll(".", "\\.");
+	assert.match(english, new RegExp(`\\[简体中文\\]\\(\\./${chineseFile}\\)`));
+	assert.match(chinese, new RegExp(`\\[English\\]\\(\\./${englishFile}\\)`));
 }
 
 await assertBilingualPair("README.md", "README.zh-CN.md");
@@ -365,6 +371,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-adversarial-review/README.md",
 	"packages/pi-adversarial-review/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-adversarial-review/REFERENCE.md",
+	"packages/pi-adversarial-review/REFERENCE.zh-CN.md",
 );
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",

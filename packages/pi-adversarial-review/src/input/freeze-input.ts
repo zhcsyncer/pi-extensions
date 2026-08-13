@@ -24,6 +24,9 @@ import {
   OversizedReviewInputError,
   ReviewInputCleanupError,
   ReviewInputError,
+  type ReviewRangePlan,
+  type ReviewRangePlanCommit,
+  type ReviewRangePlanItem,
 } from "./errors.ts";
 import {
   assertFrozenInputWithinLimits,
@@ -227,7 +230,10 @@ const MAX_RANGE_SUGGESTIONS = 8;
 const MAX_RANGE_SUGGESTION_COMMITS = 128;
 
 export interface ReviewRangeSuggestionResult {
+  /** Backward-compatible bounded target replacements for diagnostics/headless use. */
   commands: string[];
+  /** Commit-aware TUI plan; complete SHA pairs remain the authoritative identities. */
+  plan?: ReviewRangePlan;
   note?: string;
 }
 
@@ -243,7 +249,14 @@ export interface SuggestReviewRangesOptions {
   maxLines: number;
 }
 
-type SuggestedRangeProbe = "fits" | "empty" | "oversized";
+type SuggestedRangeProbe =
+  | {
+      status: "fits";
+      inputSize: { bytes: number; lines: number };
+      changedFileCount: number;
+    }
+  | { status: "empty" }
+  | { status: "oversized"; error: OversizedReviewInputError };
 
 async function probeSuggestedRange(options: {
   root: string;
@@ -270,7 +283,9 @@ async function probeSuggestedRange(options: {
         signal: options.signal,
       },
     );
-    if (sizing.changedFiles.length === 0 || sizing.patch.length === 0) return "empty";
+    if (sizing.changedFiles.length === 0 || sizing.patch.length === 0) {
+      return { status: "empty" };
+    }
     const resolved: ResolvedReviewTarget = {
       mode: "range",
       fromRef: options.fromSha,
@@ -300,12 +315,31 @@ async function probeSuggestedRange(options: {
       ...(options.requirement !== undefined ? { requirement: options.requirement } : {}),
       ...(options.focus !== undefined ? { focus: options.focus } : {}),
     });
-    assertFrozenInputWithinLimits(content, options.maxBytes, options.maxLines);
-    return "fits";
+    const inputSize = assertFrozenInputWithinLimits(
+      content,
+      options.maxBytes,
+      options.maxLines,
+    );
+    return {
+      status: "fits",
+      inputSize,
+      changedFileCount: sizing.changedFiles.length,
+    };
   } catch (error) {
-    if (error instanceof OversizedReviewInputError) return "oversized";
+    if (error instanceof OversizedReviewInputError) {
+      return { status: "oversized", error };
+    }
     throw error;
   }
+}
+
+function planCommit(
+  metadata: readonly { sha: string; subject: string }[],
+  index: number,
+): ReviewRangePlanCommit {
+  const commit = metadata[index];
+  if (!commit) throw new ReviewInputError("Commit metadata is incomplete for range planning.");
+  return { ...commit, ordinal: index + 1 };
 }
 
 export async function suggestReviewRanges(
@@ -317,7 +351,10 @@ export async function suggestReviewRanges(
   const path = await resolveCommittedReviewPath(
     options.root,
     options.resolvedTarget,
-    options.signal,
+    {
+      metadataLimit: MAX_RANGE_SUGGESTION_COMMITS,
+      ...(options.signal ? { signal: options.signal } : {}),
+    },
   );
   if (!path || path.commits.length === 0) return { commands: [] };
   const [charter, requirement] = await Promise.all([
@@ -326,78 +363,152 @@ export async function suggestReviewRanges(
   ]);
   const charterSha256 = sha256(charter);
   const commits = path.commits.slice(0, MAX_RANGE_SUGGESTION_COMMITS);
+  const metadata = path.commitMetadata.slice(0, MAX_RANGE_SUGGESTION_COMMITS);
   const commands: string[] = [];
-  const oversizedCommits: string[] = [];
+  const items: ReviewRangePlanItem[] = [];
+  let emptyCommitCount = 0;
   let startSha = path.startSha;
   let commitIndex = 0;
 
-  while (commitIndex < commits.length && commands.length < MAX_RANGE_SUGGESTIONS) {
+  const probe = (fromSha: string, toSha: string, maxBytes: number, maxLines: number) => (
+    probeSuggestedRange({
+      root: options.root,
+      fromSha,
+      toSha,
+      headSha: path.headSha,
+      charter,
+      charterSha256,
+      ...(requirement !== undefined ? { requirement } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      ...(options.preflight ? { preflight: options.preflight } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      maxBytes,
+      maxLines,
+    })
+  );
+
+  while (commitIndex < commits.length && items.length < MAX_RANGE_SUGGESTIONS) {
     let lastFit = -1;
+    let lastFitSize: { bytes: number; lines: number } | undefined;
+    let lastFitChangedFileCount: number | undefined;
     let firstOversized = -1;
     for (let candidateIndex = commitIndex; candidateIndex < commits.length; candidateIndex++) {
       assertFreezeActive(options.signal);
-      const result = await probeSuggestedRange({
-        root: options.root,
-        fromSha: startSha,
-        toSha: commits[candidateIndex],
-        headSha: path.headSha,
-        charter,
-        charterSha256,
-        ...(requirement !== undefined ? { requirement } : {}),
-        ...(options.focus !== undefined ? { focus: options.focus } : {}),
-        ...(options.preflight ? { preflight: options.preflight } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-        maxBytes: options.maxBytes,
-        maxLines: options.maxLines,
-      });
-      if (result === "oversized") {
+      const result = await probe(
+        startSha,
+        commits[candidateIndex],
+        options.maxBytes,
+        options.maxLines,
+      );
+      if (result.status === "oversized") {
         firstOversized = candidateIndex;
         break;
       }
-      if (result === "fits") lastFit = candidateIndex;
+      if (result.status === "fits") {
+        lastFit = candidateIndex;
+        lastFitSize = result.inputSize;
+        lastFitChangedFileCount = result.changedFileCount;
+      }
     }
 
-    if (lastFit >= commitIndex) {
+    if (
+      lastFit >= commitIndex &&
+      lastFitSize &&
+      lastFitChangedFileCount !== undefined
+    ) {
       const toSha = commits[lastFit];
-      commands.push(`--range ${startSha}..${toSha}`);
+      const item: ReviewRangePlanItem = {
+        kind: "bounded",
+        fromSha: startSha,
+        toSha,
+        commitCount: lastFit - commitIndex + 1,
+        firstCommit: planCommit(metadata, commitIndex),
+        lastCommit: planCommit(metadata, lastFit),
+        inputSize: lastFitSize,
+        changedFileCount: lastFitChangedFileCount,
+      };
+      items.push(item);
+      commands.push(`--range ${item.fromSha}..${item.toSha}`);
       startSha = toSha;
       commitIndex = lastFit + 1;
       continue;
     }
 
     if (firstOversized > commitIndex) {
+      // Every commit before the first oversized candidate produced no patch.
+      emptyCommitCount += firstOversized - commitIndex;
       startSha = commits[firstOversized - 1];
       commitIndex = firstOversized;
       continue;
     }
     if (firstOversized < 0) {
+      emptyCommitCount += commits.length - commitIndex;
       commitIndex = commits.length;
       break;
     }
 
-    oversizedCommits.push(commits[commitIndex]);
-    startSha = commits[commitIndex];
+    const toSha = commits[commitIndex];
+    const absolute = await probe(
+      startSha,
+      toSha,
+      MAX_FROZEN_INPUT_BYTES,
+      MAX_FROZEN_INPUT_LINES,
+    );
+    if (absolute.status === "empty") {
+      emptyCommitCount++;
+    } else {
+      items.push({
+        kind: absolute.status === "fits" ? "large-single" : "too-large-single",
+        fromSha: startSha,
+        toSha,
+        commitCount: 1,
+        firstCommit: planCommit(metadata, commitIndex),
+        lastCommit: planCommit(metadata, commitIndex),
+        ...(absolute.status === "fits"
+          ? {
+              inputSize: absolute.inputSize,
+              changedFileCount: absolute.changedFileCount,
+            }
+          : {}),
+      });
+    }
+    startSha = toSha;
     commitIndex++;
   }
 
+  const plan: ReviewRangePlan = {
+    targetCommitCount: path.commits.length,
+    analyzedCommitCount: commitIndex,
+    emptyCommitCount,
+    requiresSeparateLocalReview: options.target.mode === "base",
+    items,
+  };
+  const largeSingles = items.filter(({ kind }) => kind === "large-single");
+  const tooLargeSingles = items.filter(({ kind }) => kind === "too-large-single");
   const notes: string[] = [];
   if (options.target.mode === "base") {
     notes.push(
       "These ranges cover committed changes only; review any uncommitted changes separately with /adversarial-review --local.",
     );
   }
-  if (oversizedCommits.length > 0) {
+  if (largeSingles.length > 0) {
     notes.push(
-      `Single-commit ranges still over the limit: ${oversizedCommits.map((sha) => sha.slice(0, 12)).join(", ")}. Reduce attached context if present, or split those commits before review.`,
+      `Single-commit ranges needing explicit whole-target approval: ${largeSingles.map(({ toSha }) => toSha.slice(0, 12)).join(", ")}.`,
+    );
+  }
+  if (tooLargeSingles.length > 0) {
+    notes.push(
+      `Single-commit ranges exceeding the absolute limit: ${tooLargeSingles.map(({ toSha }) => toSha.slice(0, 12)).join(", ")}. Reduce attached context or split those commits before review.`,
     );
   }
   if (path.commits.length > commits.length || commitIndex < commits.length) {
     notes.push(
-      `Automatic suggestions stop at ${startSha.slice(0, 12)}; continue with another smaller range from that commit.`,
+      `Automatic analysis stops at ${startSha.slice(0, 12)}; continue with another smaller range from that commit.`,
     );
   }
   return {
     commands,
+    plan,
     ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
   };
 }
@@ -409,7 +520,7 @@ async function enrichOversizedInputError(
   if (
     !(error instanceof OversizedReviewInputError) ||
     !error.canSuggestRanges ||
-    error.rangeSuggestions.length > 0 ||
+    (error.rangeSuggestions.length > 0 || error.rangePlan !== undefined) ||
     options.target.mode === "local"
   ) {
     return error;
@@ -420,8 +531,12 @@ async function enrichOversizedInputError(
       maxBytes: Math.min(options.maxBytes, RECOMMENDED_FROZEN_INPUT_BYTES),
       maxLines: Math.min(options.maxLines, RECOMMENDED_FROZEN_INPUT_LINES),
     });
-    if (suggestions.commands.length > 0 || suggestions.note) {
-      error.addRangeSuggestions(suggestions.commands, suggestions.note);
+    if (suggestions.commands.length > 0 || suggestions.plan || suggestions.note) {
+      error.addRangeSuggestions(
+        suggestions.commands,
+        suggestions.note,
+        suggestions.plan,
+      );
     }
   } catch (suggestionError) {
     if (options.signal?.aborted) throw suggestionError;
@@ -461,6 +576,8 @@ export async function fingerprintReviewTarget(options: {
   signal?: AbortSignal;
   maxBytes?: number;
   maxLines?: number;
+  /** Disable best-effort automatic range planning when the caller owns range re-selection. */
+  suggestRangesOnOversize?: boolean;
 }): Promise<ReviewTargetFingerprint> {
   const maxBytes = options.maxBytes ?? MAX_FROZEN_INPUT_BYTES;
   const maxLines = options.maxLines ?? MAX_FROZEN_INPUT_LINES;
@@ -530,7 +647,7 @@ export async function fingerprintReviewTarget(options: {
     if (options.signal?.aborted) {
       throw options.signal.reason instanceof Error ? options.signal.reason : error;
     }
-    if (!resolvedForSuggestions) throw error;
+    if (!resolvedForSuggestions || options.suggestRangesOnOversize === false) throw error;
     throw await enrichOversizedInputError(error, {
       root,
       target: options.target,

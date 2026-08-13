@@ -564,10 +564,16 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
 }
 
+export interface CommittedReviewCommit {
+  sha: string;
+  subject: string;
+}
+
 export interface CommittedReviewPath {
   startSha: string;
   headSha: string;
   commits: string[];
+  commitMetadata: CommittedReviewCommit[];
 }
 
 export interface RangeSizingCapture {
@@ -585,12 +591,40 @@ function decodeCommitList(output: Buffer): string[] {
   return commits;
 }
 
+function decodeCommitMetadata(
+  output: Buffer,
+  expectedCommits: readonly string[],
+): CommittedReviewCommit[] {
+  // Subjects are display-only untrusted metadata, not Git identity. Decode
+  // malformed legacy messages deterministically with replacement characters;
+  // full object IDs below remain strict and authoritative.
+  const records = new TextDecoder("utf-8").decode(output).split("\0");
+  if (records.at(-1) === "") records.pop();
+  if (records.length !== expectedCommits.length * 2) {
+    throw new ReviewInputError("Git commit metadata output has an unexpected shape.");
+  }
+  const metadata: CommittedReviewCommit[] = [];
+  for (let index = 0; index < records.length; index += 2) {
+    const sha = records[index] ?? "";
+    const subject = records[index + 1] ?? "";
+    if (!/^[0-9a-f]{40,64}$/u.test(sha) || sha !== expectedCommits[index / 2]) {
+      throw new ReviewInputError("Git commit metadata does not match the resolved review path.");
+    }
+    metadata.push({ sha, subject });
+  }
+  return metadata;
+}
+
 export async function resolveCommittedReviewPath(
   root: string,
   target: ResolvedReviewTarget,
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal; metadataLimit: number },
 ): Promise<CommittedReviewPath | undefined> {
+  if (!Number.isSafeInteger(options.metadataLimit) || options.metadataLimit < 0) {
+    throw new ReviewInputError("Commit metadata limit must be a non-negative safe integer.");
+  }
   if (target.mode === "local") return undefined;
+  const { signal } = options;
   const headSha = target.mode === "base" ? target.headSha : target.toSha;
   const fromSha = target.mode === "base" ? target.baseSha : target.fromSha;
   const toSha = target.mode === "base" ? target.headSha : target.toSha;
@@ -607,7 +641,15 @@ export async function resolveCommittedReviewPath(
     ["rev-list", "--first-parent", "--reverse", "--ancestry-path", `${startSha}..${toSha}`],
     { maxOutputBytes: 4 * 1024 * 1024, signal },
   ));
-  return { startSha, headSha, commits };
+  const metadataCommits = commits.slice(0, options.metadataLimit);
+  const commitMetadata = metadataCommits.length === 0
+    ? []
+    : decodeCommitMetadata(await git(
+        root,
+        ["log", "--no-walk=unsorted", "-z", "--format=%H%x00%s", ...metadataCommits],
+        { maxOutputBytes: 4 * 1024 * 1024, signal },
+      ), metadataCommits);
+  return { startSha, headSha, commits, commitMetadata };
 }
 
 export async function captureRangeForSizing(

@@ -4,11 +4,11 @@ import {
   EmptyReviewInputError,
   OversizedReviewInputError,
   ReviewInputError,
+  type ReviewRangePlan,
+  type ReviewRangePlanItem,
 } from "../input/errors.ts";
 import {
   fingerprintReviewTarget,
-  MAX_FROZEN_INPUT_BYTES,
-  MAX_FROZEN_INPUT_LINES,
   RECOMMENDED_FROZEN_INPUT_BYTES,
   RECOMMENDED_FROZEN_INPUT_LINES,
   suggestReviewRanges,
@@ -25,6 +25,7 @@ import {
   fetchReviewRemote,
   hasLocalChanges,
   inspectGitPreflight,
+  listInteractiveRangeStarts,
   remotesReferencedByTarget,
   type GitPreflightState,
   type PreflightCommandRunner,
@@ -40,7 +41,11 @@ const USE_LOCAL_REF = "Use existing local remote-tracking ref";
 const CANCEL_REVIEW = "Cancel review";
 const ENTER_CUSTOM_BASE = "Enter a custom base ref…";
 const REVIEW_WHOLE_TARGET = "Review the whole target";
-const SHOW_RANGE_SUGGESTIONS = "Show smaller range suggestions and cancel";
+const CHOOSE_CONTINUOUS_RANGE = "Choose a continuous range ending at HEAD";
+const CHOOSE_COMMIT_PLAN = "Review by commit plan";
+const BACK_TO_LARGE_TARGET = "Back to whole-target choices";
+const REVIEW_LARGE_COMMIT = "Review this large commit";
+const BACK_TO_COMMIT_PLAN = "Back to commit plan";
 
 export interface ReviewPreflightGuard {
   root: string;
@@ -72,6 +77,7 @@ export interface ResolveReviewPreflightOptions {
   ctx: ExtensionCommandContext;
   target: ReviewTargetRequest;
   targetExplicit: boolean;
+  interactiveRange?: boolean;
   allowLarge?: boolean;
   reqdoc?: string;
   focus?: string;
@@ -80,12 +86,241 @@ export interface ResolveReviewPreflightOptions {
   fetchTimeoutMs?: number;
   inspect?: typeof inspectGitPreflight;
   fetch?: typeof fetchReviewRemote;
+  listRangeStarts?: typeof listInteractiveRangeStarts;
   fingerprintTarget?: typeof fingerprintReviewTarget;
   suggestRanges?: typeof suggestReviewRanges;
 }
 
 function display(value: string): string {
   return safeReviewDiagnosticText(value).slice(0, 160);
+}
+
+interface StableSelectOption<T> {
+  label: string;
+  value: T;
+}
+
+/** Preserve ordinary labels, but add an index before every colliding label. */
+function stableSelectOptions<T>(options: StableSelectOption<T>[]): StableSelectOption<T>[] {
+  const labels = options.map(({ label }) => label);
+  if (new Set(labels).size === labels.length) return options;
+  return options.map((option, index) => ({
+    ...option,
+    label: `[${index + 1}] ${option.label}`,
+  }));
+}
+
+function selectedValue<T>(
+  options: readonly StableSelectOption<T>[],
+  label: string | undefined,
+): T | undefined {
+  return options.find((option) => option.label === label)?.value;
+}
+
+type SuggestedRangeTarget = Extract<ReviewTargetRequest, { mode: "range" }>;
+type SuggestedRangePickerResult =
+  | { kind: "range"; target: SuggestedRangeTarget; allowLarge: boolean }
+  | { kind: "back" }
+  | { kind: "cancel" }
+  | { kind: "unavailable" };
+
+function parseSuggestedRangeCommand(command: string): SuggestedRangeTarget | undefined {
+  const match = /^--range ([0-9a-f]{40}|[0-9a-f]{64})\.\.([0-9a-f]{40}|[0-9a-f]{64})$/u.exec(command);
+  if (!match?.[1] || !match[2] || match[1].length !== match[2].length) return undefined;
+  return { mode: "range", fromRef: match[1], toRef: match[2] };
+}
+
+function oneLine(value: string, maxLength = 72): string {
+  const cleaned = safeReviewDiagnosticText(value)
+    .replace(/[\u202a-\u202e\u2066-\u2069]/gu, "�")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!cleaned) return "(no subject)";
+  const points = [...cleaned];
+  return points.length <= maxLength
+    ? cleaned
+    : `${points.slice(0, maxLength - 1).join("")}…`;
+}
+
+function formatCount(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+}
+
+function formatInputSize(size: { bytes: number; lines: number }): string {
+  const bytes = size.bytes < 1024
+    ? `${size.bytes} B`
+    : size.bytes < 1024 * 1024
+      ? `${(size.bytes / 1024).toFixed(1)} KiB`
+      : `${(size.bytes / (1024 * 1024)).toFixed(2)} MiB`;
+  return `${bytes} / ${formatCount(size.lines)} lines`;
+}
+
+function planItemTarget(item: ReviewRangePlanItem): SuggestedRangeTarget | undefined {
+  return parseSuggestedRangeCommand(`--range ${item.fromSha}..${item.toSha}`);
+}
+
+function planItemLabel(item: ReviewRangePlanItem, totalCommits: number): string {
+  const position = item.commitCount === 1
+    ? `${item.firstCommit.ordinal}/${totalCommits}`
+    : `${item.firstCommit.ordinal}–${item.lastCommit.ordinal}/${totalCommits}`;
+  const subjects = item.commitCount === 1
+    ? oneLine(item.firstCommit.subject)
+    : `${oneLine(item.firstCommit.subject, 38)} → ${oneLine(item.lastCommit.subject, 38)}`;
+  const identity = item.commitCount === 1
+    ? item.firstCommit.sha.slice(0, 7)
+    : `${item.firstCommit.sha.slice(0, 7)}..${item.lastCommit.sha.slice(0, 7)}`;
+  const size = item.inputSize ? ` · ${formatInputSize(item.inputSize)}` : "";
+  const files = item.changedFileCount === undefined
+    ? ""
+    : ` · ${item.changedFileCount} ${item.changedFileCount === 1 ? "file" : "files"}`;
+  const state = item.kind === "bounded"
+    ? "✓"
+    : item.kind === "large-single" ? "⚠" : "✗";
+  const status = item.kind === "large-single"
+    ? "approval required"
+    : item.kind === "too-large-single" ? "exceeds absolute limit" : "bounded";
+  const count = item.commitCount > 1 ? ` · ${item.commitCount} commits` : "";
+  return `${state} ${position}${count} · ${status}${size}${files} · ${subjects} · ${identity}`;
+}
+
+function commitPlanTitle(plan: ReviewRangePlan): string {
+  const accounted = plan.items.reduce((sum, item) => sum + item.commitCount, 0) +
+    plan.emptyCommitCount;
+  const bounded = plan.items.filter(({ kind }) => kind === "bounded").length;
+  const large = plan.items.filter(({ kind }) => kind === "large-single").length;
+  const blocked = plan.items.filter(({ kind }) => kind === "too-large-single").length;
+  const details = [
+    `${accounted}/${plan.targetCommitCount} commits accounted for`,
+    `${bounded} bounded ${bounded === 1 ? "segment" : "segments"}`,
+    ...(large > 0 ? [`${large} large ${large === 1 ? "commit needs" : "commits need"} approval`] : []),
+    ...(blocked > 0 ? [`${blocked} ${blocked === 1 ? "commit exceeds" : "commits exceed"} the absolute limit`] : []),
+    ...(plan.emptyCommitCount > 0 ? [`${plan.emptyCommitCount} empty`] : []),
+  ];
+  return `Commit review plan · ${details.join(" · ")}. Choose one item now; run the others separately.`;
+}
+
+async function confirmLargeCommit(options: {
+  ctx: ExtensionCommandContext;
+  item: ReviewRangePlanItem;
+  target: SuggestedRangeTarget;
+  signal?: AbortSignal;
+}): Promise<SuggestedRangePickerResult | { kind: "plan" }> {
+  const size = options.item.inputSize
+    ? formatInputSize(options.item.inputSize)
+    : "size below the absolute limit";
+  const files = options.item.changedFileCount === undefined
+    ? ""
+    : ` · ${options.item.changedFileCount} ${options.item.changedFileCount === 1 ? "file" : "files"}`;
+  const choice = await options.ctx.ui.select(
+    `Commit ${options.item.firstCommit.ordinal} · ${oneLine(options.item.firstCommit.subject)} · ` +
+      `${options.item.firstCommit.sha.slice(0, 12)} · ${size}${files}. ` +
+      "It exceeds the recommended review size and may reduce precision.",
+    [REVIEW_LARGE_COMMIT, BACK_TO_COMMIT_PLAN, CANCEL_REVIEW],
+    options.signal ? { signal: options.signal } : undefined,
+  );
+  if (choice === REVIEW_LARGE_COMMIT) {
+    return { kind: "range", target: options.target, allowLarge: true };
+  }
+  if (choice === BACK_TO_COMMIT_PLAN) return { kind: "plan" };
+  return { kind: "cancel" };
+}
+
+async function chooseSuggestedRange(options: {
+  ctx: ExtensionCommandContext;
+  commands: readonly string[];
+  plan?: ReviewRangePlan;
+  note?: string;
+  signal?: AbortSignal;
+  allowBack: boolean;
+}): Promise<SuggestedRangePickerResult> {
+  type Choice =
+    | { kind: "range"; target: SuggestedRangeTarget; item?: ReviewRangePlanItem }
+    | { kind: "blocked"; item: ReviewRangePlanItem }
+    | { kind: "back" }
+    | { kind: "cancel" };
+
+  const planChoices: StableSelectOption<Choice>[] = [];
+  for (const item of options.plan?.items ?? []) {
+    const target = planItemTarget(item);
+    if (!target) continue;
+    planChoices.push({
+      label: planItemLabel(item, options.plan!.targetCommitCount),
+      value: item.kind === "too-large-single"
+        ? { kind: "blocked", item }
+        : { kind: "range", target, item },
+    });
+  }
+
+  const targets = new Map<string, SuggestedRangeTarget>();
+  if (planChoices.length === 0) {
+    for (const command of options.commands) {
+      const target = parseSuggestedRangeCommand(command);
+      if (target) targets.set(`${target.fromRef}..${target.toRef}`, target);
+    }
+  }
+  if (planChoices.length === 0 && targets.size === 0) return { kind: "unavailable" };
+
+  if (options.plan?.requiresSeparateLocalReview) {
+    options.ctx.ui.notify(
+      "This commit plan excludes staged, unstaged, and untracked work; review those separately with /adversarial-review --local.",
+      "warning",
+    );
+  } else if (!options.plan && options.note) {
+    options.ctx.ui.notify(safeReviewDiagnosticText(options.note), "warning");
+  }
+  if (options.plan && options.plan.analyzedCommitCount < options.plan.targetCommitCount) {
+    options.ctx.ui.notify(
+      `Automatic analysis covered ${options.plan.analyzedCommitCount}/${options.plan.targetCommitCount} commits. Continue the remaining path in another run.`,
+      "warning",
+    );
+  }
+
+  const fallbackRanges = [...targets.values()];
+  const choices = stableSelectOptions<Choice>([
+    ...planChoices,
+    ...fallbackRanges.map((target, index) => ({
+      label: `Range ${index + 1}/${fallbackRanges.length} · ${target.fromRef.slice(0, 12)}..${target.toRef.slice(0, 12)}`,
+      value: { kind: "range" as const, target },
+    })),
+    ...(options.allowBack
+      ? [{ label: BACK_TO_LARGE_TARGET, value: { kind: "back" as const } }]
+      : []),
+    { label: CANCEL_REVIEW, value: { kind: "cancel" } },
+  ]);
+
+  while (true) {
+    const pickedLabel = await options.ctx.ui.select(
+      options.plan
+        ? commitPlanTitle(options.plan)
+        : "Choose one bounded committed range to review now. Run remaining ranges separately; all non-target options are preserved.",
+      choices.map(({ label }) => label),
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    const picked = selectedValue(choices, pickedLabel) ?? { kind: "cancel" as const };
+    if (picked.kind === "blocked") {
+      options.ctx.ui.notify(
+        `Commit ${picked.item.firstCommit.ordinal}/${options.plan?.targetCommitCount ?? "?"} ` +
+          `${oneLine(picked.item.firstCommit.subject)} exceeds the absolute frozen-input limit. ` +
+          "Reduce attached context or split the commit before review.",
+        "error",
+      );
+      continue;
+    }
+    if (picked.kind === "range" && picked.item?.kind === "large-single") {
+      const confirmed = await confirmLargeCommit({
+        ctx: options.ctx,
+        item: picked.item,
+        target: picked.target,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      if (confirmed.kind === "plan") continue;
+      return confirmed;
+    }
+    if (picked.kind === "range") {
+      return { kind: "range", target: picked.target, allowLarge: false };
+    }
+    return picked;
+  }
 }
 
 function targetLabel(target: ReviewTargetRequest): string {
@@ -189,16 +424,16 @@ function recommendedExcessText(size: { bytes: number; lines: number }): string {
   ].join("; ");
 }
 
-function recommendedLimitError(size: { bytes: number; lines: number }): OversizedReviewInputError {
-  return new OversizedReviewInputError({
-    ...(size.bytes > RECOMMENDED_FROZEN_INPUT_BYTES
-      ? { bytes: { limit: RECOMMENDED_FROZEN_INPUT_BYTES, actual: size.bytes } }
-      : {}),
-    ...(size.lines > RECOMMENDED_FROZEN_INPUT_LINES
-      ? { lines: { limit: RECOMMENDED_FROZEN_INPUT_LINES, actual: size.lines } }
-      : {}),
-  });
-}
+type LargeInputDecision =
+  | { kind: "continue"; largeInput: boolean }
+  | { kind: "range"; target: SuggestedRangeTarget; allowLarge: boolean }
+  | {
+      kind: "interactive-range";
+      picker: InteractiveRangePicker;
+      selection: InteractiveRangeSelection;
+    };
+
+type InteractiveRangePickerFactory = () => Promise<InteractiveRangePicker>;
 
 async function approveLargeInput(options: {
   ctx: ExtensionCommandContext;
@@ -209,9 +444,13 @@ async function approveLargeInput(options: {
   focus?: string;
   signal?: AbortSignal;
   suggestRanges?: typeof suggestReviewRanges;
-}): Promise<boolean | undefined> {
-  if (!exceedsRecommendedInput(options.fingerprint.inputSize)) return false;
-  if (options.allowLarge) return true;
+  interactiveRangePicker?: InteractiveRangePickerFactory;
+  allowAutomaticCommitPlan?: boolean;
+}): Promise<LargeInputDecision | undefined> {
+  if (!exceedsRecommendedInput(options.fingerprint.inputSize)) {
+    return { kind: "continue", largeInput: false };
+  }
+  if (options.allowLarge) return { kind: "continue", largeInput: true };
   const { bytes, lines } = options.fingerprint.inputSize;
   if (options.ctx.mode !== "tui") {
     throw new ReviewCommandError(
@@ -220,48 +459,79 @@ async function approveLargeInput(options: {
     );
   }
 
-  const choices = [
-    REVIEW_WHOLE_TARGET,
-    ...(options.target.mode === "local" ? [] : [SHOW_RANGE_SUGGESTIONS]),
-    CANCEL_REVIEW,
-  ];
-  const choice = await options.ctx.ui.select(
-    `Frozen review input is ${bytes} bytes / ${lines} lines. ` +
-      "Large targets use more reviewer turns and may reduce review precision.",
-    choices,
-    options.signal ? { signal: options.signal } : undefined,
-  );
-  if (choice === REVIEW_WHOLE_TARGET) return true;
-  if (choice === SHOW_RANGE_SUGGESTIONS) {
-    let suggestions: string[] = [];
-    let suggestionNote: string | undefined;
-    try {
-      const result = await (options.suggestRanges ?? suggestReviewRanges)({
-        root: options.fingerprint.root,
-        target: options.target,
-        resolvedTarget: options.fingerprint.resolvedTarget,
-        ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
-        ...(options.focus !== undefined ? { focus: options.focus } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-        maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
-        maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
-      });
-      suggestions = result.commands;
-      suggestionNote = result.note;
-    } catch (error) {
-      if (options.signal?.aborted) throw error;
-      // The original size warning remains authoritative if range advice fails.
+  let canChooseRange = options.target.mode !== "local" &&
+    (options.interactiveRangePicker !== undefined || options.allowAutomaticCommitPlan !== false);
+  let cachedSuggestions: Awaited<ReturnType<typeof suggestReviewRanges>> | undefined;
+  let suggestionAttempted = false;
+  while (true) {
+    const rangeChoice = options.interactiveRangePicker
+      ? CHOOSE_CONTINUOUS_RANGE
+      : CHOOSE_COMMIT_PLAN;
+    const choices = [
+      REVIEW_WHOLE_TARGET,
+      ...(canChooseRange ? [rangeChoice] : []),
+      CANCEL_REVIEW,
+    ];
+    const choice = await options.ctx.ui.select(
+      `Frozen review input is ${bytes} bytes / ${lines} lines. ` +
+        "Large targets use more reviewer turns and may reduce review precision.",
+      choices,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    if (choice === REVIEW_WHOLE_TARGET) {
+      return { kind: "continue", largeInput: true };
     }
-    const policyNote =
-      `This is the recommended whole-target threshold; the absolute limit remains ` +
-      `${MAX_FROZEN_INPUT_BYTES} bytes / ${MAX_FROZEN_INPUT_LINES} lines.`;
-    throw recommendedLimitError(options.fingerprint.inputSize)
-      .addRangeSuggestions(
-        suggestions,
-        [policyNote, suggestionNote].filter(Boolean).join(" "),
+    if (choice === CHOOSE_CONTINUOUS_RANGE && options.interactiveRangePicker) {
+      const picker = await options.interactiveRangePicker();
+      const selection = await picker.pick({
+        reason: "Choose one continuous range for this review.",
+      });
+      return selection ? { kind: "interactive-range", picker, selection } : undefined;
+    }
+    if (choice !== CHOOSE_COMMIT_PLAN) return undefined;
+
+    if (!suggestionAttempted) {
+      suggestionAttempted = true;
+      try {
+        cachedSuggestions = await (options.suggestRanges ?? suggestReviewRanges)({
+          root: options.fingerprint.root,
+          target: options.target,
+          resolvedTarget: options.fingerprint.resolvedTarget,
+          ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+          ...(options.focus !== undefined ? { focus: options.focus } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+          maxBytes: RECOMMENDED_FROZEN_INPUT_BYTES,
+          maxLines: RECOMMENDED_FROZEN_INPUT_LINES,
+        });
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        options.ctx.ui.notify(
+          safeReviewDiagnosticText(
+            `Adversarial review could not generate bounded range choices: ${display(error instanceof Error ? error.message : String(error))}`,
+          ),
+          "warning",
+        );
+      }
+    }
+
+    const picked = await chooseSuggestedRange({
+      ctx: options.ctx,
+      commands: cachedSuggestions?.commands ?? [],
+      ...(cachedSuggestions?.plan ? { plan: cachedSuggestions.plan } : {}),
+      ...(cachedSuggestions?.note ? { note: cachedSuggestions.note } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      allowBack: true,
+    });
+    if (picked.kind === "range") return picked;
+    if (picked.kind === "cancel") return undefined;
+    if (picked.kind === "unavailable") {
+      canChooseRange = false;
+      options.ctx.ui.notify(
+        "Adversarial review found no non-empty committed range within the recommended threshold. Choose whole-target review or cancel.",
+        "warning",
       );
+    }
   }
-  return undefined;
 }
 
 async function finalizePreflight(options: {
@@ -276,15 +546,110 @@ async function finalizePreflight(options: {
   signal?: AbortSignal;
   fingerprintTarget?: typeof fingerprintReviewTarget;
   suggestRanges?: typeof suggestReviewRanges;
+  interactiveRange?: InteractiveRangeControl;
+  interactiveRangePicker?: InteractiveRangePickerFactory;
+  allowAutomaticCommitPlan?: boolean;
 }): Promise<ResolvedReviewPreflight | undefined> {
   if (options.signal?.aborted) throw options.signal.reason;
-  const fingerprint = await (options.fingerprintTarget ?? fingerprintReviewTarget)({
-    cwd: options.state.root,
-    target: options.target,
-    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
-    ...(options.focus !== undefined ? { focus: options.focus } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
+  let fingerprint: ReviewTargetFingerprint;
+  try {
+    fingerprint = await (options.fingerprintTarget ?? fingerprintReviewTarget)({
+      cwd: options.state.root,
+      target: options.target,
+      ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.interactiveRange || options.interactiveRangePicker ||
+          options.allowAutomaticCommitPlan === false
+        ? { suggestRangesOnOversize: false }
+        : {}),
+    });
+  } catch (error) {
+    if (options.interactiveRange && error instanceof OversizedReviewInputError) {
+      const count = options.interactiveRange.selection.commitCount;
+      if (count <= 1) {
+        options.ctx.ui.notify(
+          "This commit cannot be reviewed because its frozen input exceeds the safety limit. Reduce attached context or split the commit.",
+          "error",
+        );
+        return undefined;
+      }
+      const selected = await options.interactiveRange.picker.pick({
+        maxCommitCount: count - 1,
+        reason: `The selected ${count} commits cannot be reviewed together because the frozen input exceeds the safety limit.`,
+      });
+      if (!selected) return undefined;
+      const audit = {
+        ...options.audit,
+        selection: "interactive" as const,
+        selectedCommitCount: selected.commitCount,
+      };
+      return finalizePreflight({
+        ...options,
+        target: selected.target,
+        audit,
+        summary: summaryText(selected.target, audit),
+        allowLarge: false,
+        interactiveRange: {
+          picker: options.interactiveRange.picker,
+          selection: selected,
+        },
+      });
+    }
+    if (options.interactiveRangePicker && error instanceof OversizedReviewInputError) {
+      const picker = await options.interactiveRangePicker();
+      const selected = await picker.pick({
+        reason: "The whole target cannot be reviewed because its frozen input exceeds the safety limit.",
+      });
+      if (!selected) return undefined;
+      const audit = {
+        ...options.audit,
+        selection: "interactive" as const,
+        selectedCommitCount: selected.commitCount,
+      };
+      return finalizePreflight({
+        ...options,
+        target: selected.target,
+        audit,
+        summary: summaryText(selected.target, audit),
+        allowLarge: false,
+        interactiveRange: { picker, selection: selected },
+      });
+    }
+    if (
+      options.ctx.mode !== "tui" ||
+      !(error instanceof OversizedReviewInputError) ||
+      options.target.mode === "local" ||
+      options.allowAutomaticCommitPlan === false ||
+      (error.rangeSuggestions.length === 0 && error.rangePlan === undefined)
+    ) {
+      throw error;
+    }
+    options.ctx.ui.notify(
+      "Adversarial review cannot review the whole target because it exceeds the absolute frozen-input limit. Choose a bounded committed range or cancel.",
+      "warning",
+    );
+    const picked = await chooseSuggestedRange({
+      ctx: options.ctx,
+      commands: error.rangeSuggestions,
+      ...(error.rangePlan ? { plan: error.rangePlan } : {}),
+      ...(error.rangeSuggestionNote ? { note: error.rangeSuggestionNote } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      allowBack: false,
+    });
+    if (picked.kind !== "range") {
+      if (picked.kind === "unavailable") throw error;
+      return undefined;
+    }
+    const audit = { ...options.audit, selection: "interactive" as const };
+    return finalizePreflight({
+      ...options,
+      target: picked.target,
+      audit,
+      summary: summaryText(picked.target, audit),
+      allowLarge: picked.allowLarge,
+    });
+  }
   if (options.signal?.aborted) throw options.signal.reason;
   const knownRefChanged = fingerprint.targetRefs.some(({ ref, sha }) => (
     (ref === "HEAD" && sha !== options.state.headSha) ||
@@ -300,17 +665,96 @@ async function finalizePreflight(options: {
   ) {
     throw new ReviewInputError("Git state changed during adversarial review preflight. Retry the review.");
   }
-  const largeInput = await approveLargeInput({
-    ctx: options.ctx,
-    target: options.target,
-    fingerprint,
-    ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
-    ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
-    ...(options.focus !== undefined ? { focus: options.focus } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
-  });
-  if (largeInput === undefined) return undefined;
+  let decision: LargeInputDecision | undefined;
+  if (
+    options.interactiveRange &&
+    exceedsRecommendedInput(fingerprint.inputSize) &&
+    !options.allowLarge
+  ) {
+    const count = options.interactiveRange.selection.commitCount;
+    const reviewAll = `Review all ${count} selected ${count === 1 ? "commit" : "commits"} together`;
+    const chooseCloser = "Choose a closer start commit";
+    const choice = await options.ctx.ui.select(
+      `The selected range contains ${count} ${count === 1 ? "commit" : "commits"} and its frozen input is ` +
+        `${formatInputSize(fingerprint.inputSize)}. It exceeds the recommended review size but remains below the safety limit.`,
+      [reviewAll, ...(count > 1 ? [chooseCloser] : []), CANCEL_REVIEW],
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    if (choice === reviewAll) {
+      decision = { kind: "continue", largeInput: true };
+    } else if (choice === chooseCloser) {
+      const selected = await options.interactiveRange.picker.pick({
+        maxCommitCount: count - 1,
+        reason: `The previous start selected ${count} commits, which exceeded the recommended review size.`,
+      });
+      if (!selected) return undefined;
+      const audit = {
+        ...options.audit,
+        selection: "interactive" as const,
+        selectedCommitCount: selected.commitCount,
+      };
+      return finalizePreflight({
+        ...options,
+        target: selected.target,
+        audit,
+        summary: summaryText(selected.target, audit),
+        allowLarge: false,
+        interactiveRange: {
+          picker: options.interactiveRange.picker,
+          selection: selected,
+        },
+      });
+    } else {
+      return undefined;
+    }
+  } else {
+    decision = await approveLargeInput({
+      ctx: options.ctx,
+      target: options.target,
+      fingerprint,
+      ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
+      ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
+      ...(options.interactiveRangePicker
+        ? { interactiveRangePicker: options.interactiveRangePicker }
+        : {}),
+      ...(options.allowAutomaticCommitPlan !== undefined
+        ? { allowAutomaticCommitPlan: options.allowAutomaticCommitPlan }
+        : {}),
+    });
+  }
+  if (decision === undefined) return undefined;
+  if (decision.kind === "interactive-range") {
+    const audit = {
+      ...options.audit,
+      selection: "interactive" as const,
+      selectedCommitCount: decision.selection.commitCount,
+    };
+    return finalizePreflight({
+      ...options,
+      target: decision.selection.target,
+      audit,
+      summary: summaryText(decision.selection.target, audit),
+      allowLarge: false,
+      interactiveRange: {
+        picker: decision.picker,
+        selection: decision.selection,
+      },
+    });
+  }
+  if (decision.kind === "range") {
+    const audit = { ...options.audit, selection: "interactive" as const };
+    return finalizePreflight({
+      ...options,
+      target: decision.target,
+      audit,
+      summary: summaryText(decision.target, audit),
+      allowLarge: decision.allowLarge,
+    });
+  }
+  const { largeInput } = decision;
   const sizeSummary = largeInput
     ? ` Large input approved: ${fingerprint.inputSize.bytes} bytes / ${fingerprint.inputSize.lines} lines.`
     : "";
@@ -458,17 +902,30 @@ async function chooseRemote(
         "Pass --local, --base, or --range explicitly.",
     );
   }
-  const labels = state.remotes.map((remote) => `Use remote: ${display(remote)}`);
-  const manual = "Continue without fetch and choose target manually";
-  const choice = await ctx.ui.select(
+  type RemoteChoice =
+    | { kind: "remote"; remote: string }
+    | { kind: "manual" }
+    | { kind: "cancel" };
+  const choices = stableSelectOptions<RemoteChoice>([
+    ...state.remotes.map((remote) => ({
+      label: `Use remote: ${display(remote)}`,
+      value: { kind: "remote" as const, remote },
+    })),
+    {
+      label: "Continue without fetch and choose target manually",
+      value: { kind: "manual" },
+    },
+    { label: CANCEL_REVIEW, value: { kind: "cancel" } },
+  ]);
+  const pickedLabel = await ctx.ui.select(
     "Multiple Git remotes are available. Choose the remote used to refresh and detect the default branch.",
-    [...labels, manual, CANCEL_REVIEW],
+    choices.map(({ label }) => label),
     signal ? { signal } : undefined,
   );
-  if (!choice || choice === CANCEL_REVIEW) return null;
-  if (choice === manual) return undefined;
-  const index = labels.indexOf(choice);
-  return index >= 0 ? state.remotes[index] : null;
+  const picked = selectedValue(choices, pickedLabel);
+  if (!picked || picked.kind === "cancel") return null;
+  if (picked.kind === "manual") return undefined;
+  return picked.remote;
 }
 
 function issueTitle(issue: PreflightIssue, state: GitPreflightState): string {
@@ -498,6 +955,145 @@ function issueTitle(issue: PreflightIssue, state: GitPreflightState): string {
   }
 }
 
+function assertInteractiveRangeContext(
+  ctx: ExtensionCommandContext,
+  state: GitPreflightState,
+): asserts state is GitPreflightState & { branch: string } {
+  if (ctx.mode !== "tui") {
+    throw new ReviewCommandError(
+      'Interactive --range requires TUI mode. Outside TUI, pass --range "<refA>..<refB>".',
+    );
+  }
+  if (!state.branch) {
+    throw new ReviewCommandError(
+      "Interactive --range requires the current worktree to be on a named branch.",
+    );
+  }
+  if (state.operation || state.workingTree.unmerged) {
+    throw new ReviewCommandError(
+      "Interactive --range is unavailable during a Git operation or with unmerged files.",
+    );
+  }
+}
+
+interface InteractiveRangeSelection {
+  target: SuggestedRangeTarget;
+  commitCount: number;
+}
+
+interface InteractiveRangePicker {
+  pick(options?: {
+    maxCommitCount?: number;
+    reason?: string;
+  }): Promise<InteractiveRangeSelection | undefined>;
+}
+
+interface InteractiveRangeControl {
+  picker: InteractiveRangePicker;
+  selection: InteractiveRangeSelection;
+}
+
+async function createInteractiveRangePicker(options: {
+  ctx: ExtensionCommandContext;
+  state: GitPreflightState;
+  signal?: AbortSignal;
+  runner?: PreflightCommandRunner;
+  listRangeStarts?: typeof listInteractiveRangeStarts;
+  boundarySha?: string;
+}): Promise<InteractiveRangePicker> {
+  assertInteractiveRangeContext(options.ctx, options.state);
+  const branch = options.state.branch;
+
+  const boundarySha = options.boundarySha ?? (
+    options.state.defaultBranchSha && options.state.branch !== options.state.defaultBranch
+      ? options.state.defaultBranchSha
+      : undefined
+  );
+  const result = await (options.listRangeStarts ?? listInteractiveRangeStarts)(
+    options.state.root,
+    options.state.headSha,
+    {
+      ...(options.runner ? { runner: options.runner } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(boundarySha ? { boundarySha } : {}),
+    },
+  );
+  if (result.starts.length === 0) {
+    throw new ReviewCommandError(
+      result.mergeBaseSha
+        ? "There are no first-parent commits after the default-branch merge-base to review."
+        : "Current HEAD has no parent, so there is no commit range ending at HEAD to review.",
+    );
+  }
+  if (result.truncated) {
+    options.ctx.ui.notify(
+      `Interactive range selection shows the latest ${result.starts.length} first-parent commits. Use an explicit --range A..B for older history.`,
+      "warning",
+    );
+  }
+  if (!result.mergeBaseSha && options.state.branch !== options.state.defaultBranch) {
+    options.ctx.ui.notify(
+      "The default-branch boundary could not be proven; interactive range choices use locally available first-parent history.",
+      "warning",
+    );
+  }
+  if (options.state.shallow) {
+    options.ctx.ui.notify(
+      "This is a shallow repository; interactive range choices include only locally available first-parent history.",
+      "warning",
+    );
+  }
+  if (hasLocalChanges(options.state)) {
+    options.ctx.ui.notify(
+      "Interactive range review includes committed changes only. Review staged, unstaged, and untracked work separately with /adversarial-review --local.",
+      "warning",
+    );
+  }
+
+  return {
+    async pick(pickOptions = {}) {
+      type Choice =
+        | { kind: "range"; parentSha: string; commitCount: number }
+        | { kind: "cancel" };
+      const starts = result.starts.filter((start) => (
+        pickOptions.maxCommitCount === undefined ||
+        start.commitCount <= pickOptions.maxCommitCount
+      ));
+      const choices = stableSelectOptions<Choice>([
+        ...starts.map((start) => ({
+          label: `Start ${start.commitSha.slice(0, 7)} · reviews ${start.commitCount} ` +
+            `${start.commitCount === 1 ? "commit" : "commits"} · ${oneLine(start.subject)}`,
+          value: {
+            kind: "range" as const,
+            parentSha: start.parentSha,
+            commitCount: start.commitCount,
+          },
+        })),
+        { label: CANCEL_REVIEW, value: { kind: "cancel" } },
+      ]);
+      const reason = pickOptions.reason ? `${pickOptions.reason} ` : "";
+      const pickedLabel = await options.ctx.ui.select(
+        `${reason}End is fixed at HEAD ${options.state.headSha.slice(0, 12)} on ` +
+          `${oneLine(branch, 60)}. Choose the earliest commit to include; ` +
+          "each row is one continuous review range and includes the shown commit." +
+          (result.mergeBaseSha ? " Choices stop at the default-branch merge-base." : ""),
+        choices.map(({ label }) => label),
+        options.signal ? { signal: options.signal } : undefined,
+      );
+      const picked = selectedValue(choices, pickedLabel);
+      if (!picked || picked.kind === "cancel") return undefined;
+      return {
+        target: {
+          mode: "range",
+          fromRef: picked.parentSha,
+          toRef: options.state.headSha,
+        },
+        commitCount: picked.commitCount,
+      };
+    },
+  };
+}
+
 async function customBase(
   ctx: ExtensionCommandContext,
   signal?: AbortSignal,
@@ -523,43 +1119,57 @@ async function chooseExceptionalTarget(
     );
   }
 
+  type TargetChoice =
+    | { kind: "target"; target: ReviewTargetRequest }
+    | { kind: "custom" }
+    | { kind: "cancel" };
   const dirty = hasLocalChanges(state);
   const baseRef = state.defaultBranchRef;
-  const combined = baseRef
-    ? `Review committed + local changes from ${display(baseRef)}`
-    : undefined;
-  const committed = baseRef && (state.ahead ?? 0) > 0
-    ? `Review committed changes only: ${display(baseRef)}..HEAD`
-    : undefined;
-  const local = dirty ? "Review local uncommitted changes only" : undefined;
-  const candidateBases = state.defaultBranchCandidates.map(
-    (candidate) => `Review committed + local changes from ${display(candidate)}`,
-  );
   const risky = issue === "git-operation" || issue === "unmerged-files" || issue === "default-branch-behind";
-  const options = [
-    ...(risky ? [`${CANCEL_REVIEW} (recommended)`] : []),
-    ...(combined ? [combined] : []),
-    ...candidateBases,
-    ...(committed ? [committed] : []),
-    ...(local ? [local] : []),
-    ENTER_CUSTOM_BASE,
-    ...(!risky ? [CANCEL_REVIEW] : []),
-  ];
-  const choice = await ctx.ui.select(
+  const choices = stableSelectOptions<TargetChoice>([
+    ...(risky
+      ? [{ label: `${CANCEL_REVIEW} (recommended)`, value: { kind: "cancel" as const } }]
+      : []),
+    ...(baseRef
+      ? [{
+          label: `Review committed + local changes from ${display(baseRef)}`,
+          value: { kind: "target" as const, target: { mode: "base" as const, baseRef } },
+        }]
+      : []),
+    ...state.defaultBranchCandidates.map((candidate) => ({
+      label: `Review committed + local changes from ${display(candidate)}`,
+      value: {
+        kind: "target" as const,
+        target: { mode: "base" as const, baseRef: candidate },
+      },
+    })),
+    ...(baseRef && (state.ahead ?? 0) > 0
+      ? [{
+          label: `Review committed changes only: ${display(baseRef)}..HEAD`,
+          value: {
+            kind: "target" as const,
+            target: { mode: "range" as const, fromRef: baseRef, toRef: "HEAD" },
+          },
+        }]
+      : []),
+    ...(dirty
+      ? [{
+          label: "Review local uncommitted changes only",
+          value: { kind: "target" as const, target: { mode: "local" as const } },
+        }]
+      : []),
+    { label: ENTER_CUSTOM_BASE, value: { kind: "custom" } },
+    ...(!risky ? [{ label: CANCEL_REVIEW, value: { kind: "cancel" as const } }] : []),
+  ]);
+  const pickedLabel = await ctx.ui.select(
     `${issueTitle(issue, state)} Choose the exact review target before reviewers start.`,
-    options,
+    choices.map(({ label }) => label),
     signal ? { signal } : undefined,
   );
-  if (!choice || choice.startsWith(CANCEL_REVIEW)) return undefined;
-  if (choice === combined && baseRef) return { mode: "base", baseRef };
-  const candidateIndex = candidateBases.indexOf(choice);
-  if (candidateIndex >= 0) {
-    return { mode: "base", baseRef: state.defaultBranchCandidates[candidateIndex] };
-  }
-  if (choice === committed && baseRef) return { mode: "range", fromRef: baseRef, toRef: "HEAD" };
-  if (choice === local) return { mode: "local" };
-  if (choice === ENTER_CUSTOM_BASE) return customBase(ctx, signal);
-  return undefined;
+  const picked = selectedValue(choices, pickedLabel);
+  if (!picked || picked.kind === "cancel") return undefined;
+  if (picked.kind === "custom") return customBase(ctx, signal);
+  return picked.target;
 }
 
 export async function resolveReviewPreflight(
@@ -574,7 +1184,16 @@ export async function resolveReviewPreflight(
   const fetchedRemotes: string[] = [];
   let fetchStatus: ReviewTargetPreflight["fetchStatus"] = "not-needed";
 
-  if (options.targetExplicit) {
+  if (options.interactiveRange) {
+    if (!options.targetExplicit) {
+      throw new ReviewCommandError("Interactive --range must be an explicit target selection.");
+    }
+    // Reject unsafe repository states before any network activity. State is
+    // checked again after fetch/re-inspection immediately before the picker.
+    assertInteractiveRangeContext(options.ctx, state);
+  }
+
+  if (options.targetExplicit && !options.interactiveRange) {
     const remotes = remotesReferencedByTarget(options.target, state.remotes);
     for (const remote of remotes) {
       attemptedRemotes.push(remote);
@@ -647,6 +1266,44 @@ export async function resolveReviewPreflight(
     state = { ...state, remoteAmbiguous: false };
   }
 
+  if (options.interactiveRange) {
+    const picker = await createInteractiveRangePicker({
+      ctx: options.ctx,
+      state,
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.runner ? { runner: options.runner } : {}),
+      ...(options.listRangeStarts ? { listRangeStarts: options.listRangeStarts } : {}),
+    });
+    const selected = await picker.pick();
+    if (!selected) return undefined;
+    const audit = {
+      ...buildAudit({
+        state,
+        selection: "interactive",
+        fetchStatus,
+        attemptedRemotes,
+        fetchedRemotes,
+      }),
+      selectedCommitCount: selected.commitCount,
+    };
+    return finalizePreflight({
+      ctx: options.ctx,
+      state,
+      target: selected.target,
+      audit,
+      summary: summaryText(selected.target, audit),
+      ...(options.allowLarge !== undefined ? { allowLarge: options.allowLarge } : {}),
+      ...(options.reqdoc ? { reqdoc: options.reqdoc } : {}),
+      ...(options.focus !== undefined ? { focus: options.focus } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.fingerprintTarget
+        ? { fingerprintTarget: options.fingerprintTarget }
+        : {}),
+      ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
+      interactiveRange: { picker, selection: selected },
+    });
+  }
+
   const inferred = inferReviewTarget(state);
   if (inferred.kind === "empty") throw new EmptyReviewInputError();
   let target: ReviewTargetRequest;
@@ -672,6 +1329,30 @@ export async function resolveReviewPreflight(
     attemptedRemotes,
     fetchedRemotes,
   });
+  const usesKnownDefaultBranchHistory = state.defaultBranchRef !== undefined && (
+    (target.mode === "base" && target.baseRef === state.defaultBranchRef) ||
+    (target.mode === "range" && target.fromRef === state.defaultBranchRef && target.toRef === "HEAD")
+  );
+  let continuousRangePicker: Promise<InteractiveRangePicker> | undefined;
+  const interactiveRangePicker = options.ctx.mode === "tui" &&
+      state.branch !== undefined &&
+      !state.operation &&
+      !state.workingTree.unmerged &&
+      state.defaultBranchSha !== undefined &&
+      usesKnownDefaultBranchHistory &&
+      (state.ahead ?? 0) > 0
+    ? () => {
+        continuousRangePicker ??= createInteractiveRangePicker({
+          ctx: options.ctx,
+          state,
+          ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.runner ? { runner: options.runner } : {}),
+          ...(options.listRangeStarts ? { listRangeStarts: options.listRangeStarts } : {}),
+          ...(state.defaultBranchSha ? { boundarySha: state.defaultBranchSha } : {}),
+        });
+        return continuousRangePicker;
+      }
+    : undefined;
   return finalizePreflight({
     ctx: options.ctx,
     state,
@@ -686,5 +1367,7 @@ export async function resolveReviewPreflight(
       ? { fingerprintTarget: options.fingerprintTarget }
       : {}),
     ...(options.suggestRanges ? { suggestRanges: options.suggestRanges } : {}),
+    ...(interactiveRangePicker ? { interactiveRangePicker } : {}),
+    allowAutomaticCommitPlan: false,
   });
 }

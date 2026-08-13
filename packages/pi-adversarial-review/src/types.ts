@@ -10,6 +10,8 @@ export type ReviewTargetRequest =
 export interface ParsedReviewCommand {
   target: ReviewTargetRequest;
   targetExplicit: boolean;
+  /** TUI-only `--range` form: choose the earliest included first-parent commit, ending at HEAD. */
+  interactiveRange?: true;
   reviewerSpecs: string[];
   reqdoc?: string;
   focus?: string;
@@ -109,6 +111,8 @@ export interface RefuteRouteResult {
 export interface ReviewTargetPreflight {
   selection: "explicit" | "inferred" | "interactive";
   fetchStatus: "succeeded" | "failed-used-local" | "not-needed";
+  /** Final continuous commit count selected by a fixed-HEAD TUI commit line. */
+  selectedCommitCount?: number;
   branch?: string;
   remote?: string;
   attemptedRemotes?: string[];

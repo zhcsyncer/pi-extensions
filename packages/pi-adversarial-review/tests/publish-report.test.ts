@@ -125,6 +125,13 @@ describe("merged report output", () => {
     expect(providerError).toContain("unsafe�[2Jclear");
   });
 
+  it("reports route outcomes without inventing differentiated reviewer duties", () => {
+    const current = report();
+    expect(buildMergedReportText(current)).not.toContain("Review lenses:");
+    expect(buildAdjudicationPrompt(current)).toContain('"provider/model@high"=completed');
+    expect(serializeMergedReviewReport(current).routeResults[0]).not.toHaveProperty("reviewLenses");
+  });
+
   it("omits runtime Model objects from reviewer, refuter, result, and contested details", () => {
     const refuter = route();
     const finding = mergedFinding();
@@ -179,7 +186,7 @@ describe("merged report output", () => {
       refuteRequested: true,
     });
     expect(buildMergedReportText(skipped)).toContain(
-      "Refute: armed but skipped because no blocking finding was produced.",
+      "Refute: requested but skipped because no blocking finding was produced.",
     );
     expect(renderMergedReviewMessage(
       serializeMergedReviewReport(skipped),
@@ -293,6 +300,35 @@ describe("merged report output", () => {
       { deliverAs: "followUp", triggerTurn: true },
     );
     expect(sendMessage.mock.calls[0][0].content).toContain("final adjudicator");
+  });
+
+  it("retains a cancelled partial report without triggering main-model adjudication", () => {
+    const sendMessage = vi.fn();
+    const appendEntry = vi.fn();
+    const cancelled = report({
+      overall: "cancelled",
+      successfulReviewerCount: 0,
+      routeResults: [{ route: route(), status: "cancelled", error: "cancelled by user" }],
+    });
+
+    const published = publishMergedReviewReport(
+      { sendMessage, appendEntry } as unknown as ExtensionAPI,
+      cancelled,
+      "tui",
+    );
+
+    expect(published.deliveryWarning).toBeUndefined();
+    expect(appendEntry).toHaveBeenCalledWith(
+      ADVERSARIAL_REVIEW_MESSAGE_TYPE,
+      expect.objectContaining({ overall: "cancelled" }),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(buildMergedReportText(cancelled)).toContain(
+      "partial evidence is retained for audit only",
+    );
+    const defensivePrompt = buildAdjudicationPrompt(cancelled);
+    expect(defensivePrompt).toContain("This run was cancelled by the user");
+    expect(defensivePrompt).not.toContain("Adjudication discipline:");
   });
 
   it("renders persisted version-1 reports that predate timeout audit fields", () => {

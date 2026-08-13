@@ -524,6 +524,139 @@ export async function inspectGitPreflight(
   };
 }
 
+export interface InteractiveRangeStart {
+  /** Full SHA of the earliest commit included in the review. */
+  commitSha: string;
+  /** Full first-parent SHA immediately before commitSha; becomes range A. */
+  parentSha: string;
+  subject: string;
+  /** Number of commits included through the captured HEAD. */
+  commitCount: number;
+}
+
+const MAX_INTERACTIVE_RANGE_COMMITS = 128;
+
+function decodeInteractiveRangeStarts(
+  output: string,
+  expectedHeadSha: string,
+  limit: number,
+): { starts: InteractiveRangeStart[]; truncated: boolean } {
+  const records = output.split("\0");
+  if (records.at(-1) === "") records.pop();
+  if (records.length % 3 !== 0) {
+    throw new ReviewInputError("Git interactive range metadata has an unexpected shape.");
+  }
+  const starts: InteractiveRangeStart[] = [];
+  let expectedSha = expectedHeadSha;
+  for (let index = 0; index < records.length; index += 3) {
+    const sha = records[index] ?? "";
+    const parentText = records[index + 1] ?? "";
+    const subject = (records[index + 2] ?? "").trimEnd();
+    const parents = parentText.split(/\s+/u).filter(Boolean);
+    if (
+      !/^[0-9a-f]{40,64}$/u.test(sha) ||
+      sha !== expectedSha ||
+      parents.some((parent) => (
+        !/^[0-9a-f]{40,64}$/u.test(parent) || parent.length !== sha.length
+      ))
+    ) {
+      throw new ReviewInputError(
+        "Git interactive range metadata does not form the captured first-parent chain.",
+      );
+    }
+    const parentSha = parents[0];
+    if (!parentSha) {
+      if (index + 3 !== records.length) {
+        throw new ReviewInputError("Git interactive range root is not terminal.");
+      }
+      break;
+    }
+    starts.push({
+      commitSha: sha,
+      parentSha,
+      subject,
+      commitCount: starts.length + 1,
+    });
+    expectedSha = parentSha;
+  }
+  return {
+    starts: starts.slice(0, limit),
+    truncated: starts.length > limit,
+  };
+}
+
+/**
+ * Return up to 128 first-parent start choices ending at the captured HEAD.
+ * Root commits have no parent and are omitted because Git A..B requires A.
+ */
+export async function listInteractiveRangeStarts(
+  root: string,
+  headSha: string,
+  options: {
+    runner?: PreflightCommandRunner;
+    signal?: AbortSignal;
+    limit?: number;
+    /** Optional default-branch SHA; choices stop at its merge-base with HEAD. */
+    boundarySha?: string;
+  } = {},
+): Promise<{ starts: InteractiveRangeStart[]; truncated: boolean; mergeBaseSha?: string }> {
+  const limit = options.limit ?? MAX_INTERACTIVE_RANGE_COMMITS;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_INTERACTIVE_RANGE_COMMITS) {
+    throw new ReviewInputError(
+      `Interactive range history limit must be between 1 and ${MAX_INTERACTIVE_RANGE_COMMITS}.`,
+    );
+  }
+  if (!/^[0-9a-f]{40,64}$/u.test(headSha)) {
+    throw new ReviewInputError("Interactive range selection requires a full captured HEAD SHA.");
+  }
+  if (
+    options.boundarySha !== undefined &&
+    (!/^[0-9a-f]{40,64}$/u.test(options.boundarySha) || options.boundarySha.length !== headSha.length)
+  ) {
+    throw new ReviewInputError("Interactive range boundary must be a full commit SHA.");
+  }
+  let runner = options.runner ?? spawnPreflightCommand;
+  runner = withCommandEnvironment(
+    runner,
+    await neutralizedGitConfigEnv(root, options.signal),
+  );
+  let mergeBaseSha: string | undefined;
+  if (options.boundarySha) {
+    const mergeBase = await runGit(
+      runner,
+      root,
+      ["merge-base", headSha, options.boundarySha],
+      { allowedExitCodes: [0, 1], signal: options.signal },
+    );
+    if (mergeBase.code === 0) {
+      mergeBaseSha = mergeBase.stdout.trim();
+      if (!/^[0-9a-f]{40,64}$/u.test(mergeBaseSha) || mergeBaseSha.length !== headSha.length) {
+        throw new ReviewInputError(
+          "Current branch and default branch have no unambiguous merge base for interactive range selection.",
+        );
+      }
+    }
+  }
+  const revision = mergeBaseSha ? `${mergeBaseSha}..${headSha}` : headSha;
+  const result = await runGit(
+    runner,
+    root,
+    [
+      "log",
+      "--first-parent",
+      `--max-count=${limit + 1}`,
+      "-z",
+      "--format=%H%x00%P%x00%<(160,trunc)%s",
+      revision,
+    ],
+    { signal: options.signal },
+  );
+  return {
+    ...decodeInteractiveRangeStarts(result.stdout, headSha, limit),
+    ...(mergeBaseSha ? { mergeBaseSha } : {}),
+  };
+}
+
 export interface FetchRemoteResult {
   status: "succeeded" | "failed";
   remote: string;

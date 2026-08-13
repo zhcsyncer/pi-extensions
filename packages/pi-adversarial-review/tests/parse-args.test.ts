@@ -16,7 +16,7 @@ describe("parseReviewCommand", () => {
     });
   });
 
-  it("parses explicit local, base, and range targets", () => {
+  it("parses explicit local, base, exact range, and TUI range selection targets", () => {
     expect(parseReviewCommand("--local")).toMatchObject({
       target: { mode: "local" },
       targetExplicit: true,
@@ -30,6 +30,12 @@ describe("parseReviewCommand", () => {
       fromRef: "main",
       toRef: "feature",
     });
+    expect(parseReviewCommand("--range --reviewer provider/a@high")).toMatchObject({
+      target: { mode: "local" },
+      targetExplicit: true,
+      interactiveRange: true,
+      reviewerSpecs: ["provider/a@high"],
+    });
   });
 
   it("rejects mutually exclusive and malformed targets", () => {
@@ -41,6 +47,12 @@ describe("parseReviewCommand", () => {
     );
     expect(() => parseReviewCommand("--range main...feature")).toThrow(
       '--range must use exactly "<refA>..<refB>"',
+    );
+    expect(() => parseReviewCommand("--range --range main..feature")).toThrow(
+      "--range may be provided only once",
+    );
+    expect(() => parseReviewCommand("--local --range")).toThrow(
+      "--local, --base, and --range are mutually exclusive",
     );
   });
 
