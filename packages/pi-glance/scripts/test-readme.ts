@@ -60,6 +60,9 @@ assertReadmeIncludes("existing 120ms working-row ticker", "README should documen
 assertReadmeIncludes("instead of showing `↓ ~0 tokens`", "README should document empty-partial suppression");
 assertReadmeIncludes("Top-border Tokens — current session cumulative usage", "README should distinguish session usage from working output");
 assertReadmeIncludes("Context — current context-window occupancy", "README should distinguish context occupancy from output counters");
+assertReadmeIncludes("Elapsed time stays compact and human-readable", "README should document human-readable working elapsed time");
+assertReadmeIncludes("uses the theme warning color at five minutes or later", "README should document long-cycle elapsed emphasis");
+assertReadmeIncludes("it is retained ahead of cycle tokens", "README should document warning elapsed narrow-width priority");
 assertReadmeIncludes("global singleton with no owner stack", "README should document working-row ownership limits");
 assertReadmeIncludes("schema version 13", "README should document config schema 13");
 assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README working default should stay aligned with config");
@@ -72,6 +75,9 @@ assert.ok(readmeZh.includes("现有 120ms working-row ticker 合并"), "Chinese 
 assert.ok(readmeZh.includes("不显示 `↓ ~0 tokens`"), "Chinese README should document empty-partial suppression");
 assert.ok(readmeZh.includes("当前 session 累计 usage"), "Chinese README should document session-token scope");
 assert.ok(readmeZh.includes("当前 context window 占用"), "Chinese README should document context scope");
+assert.ok(readmeZh.includes("耗时保持紧凑且易读"), "Chinese README should document human-readable working elapsed time");
+assert.ok(readmeZh.includes("五分钟及以上使用主题 warning 色"), "Chinese README should document long-cycle elapsed emphasis");
+assert.ok(readmeZh.includes("优先于 cycle token 保留"), "Chinese README should document warning elapsed narrow-width priority");
 assert.ok(readmeZh.includes("当前 schema 为版本 13"), "Chinese README should document schema 13");
 
 assert.equal(GLANCE_THEMES.length, 22, "README theme copy should describe the curated 22-theme collection");

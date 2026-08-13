@@ -59,7 +59,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 4. requesting / thinking / responding / tool-use 活动投影。
 5. thinking effort（可用时）。
 6. 当前高层 agent cycle 的实时输出 token；未完成部分明确标为估算。
-7. 当前高层 agent cycle 的 elapsed time。
+7. 当前高层 agent cycle 的人类可读 elapsed time，并只对长耗时字段做渐进强调。
 8. 窄终端自动删减次要信息。
 9. 安全的长时间无增量提示色；不在正常 thinking、requesting 或工具执行期间误报。
 
@@ -74,7 +74,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 ✶ Brewing… (thinking with high effort · ↓ ~42 tokens · 8s)
 ✻ Brewing… (↓ ~127 tokens · 12s)
 ✽ Brewing… (running bash · ↓ 184 tokens · 18s)
-✢ Brewing… (requesting · ↓ 184 tokens · 19s)
+✢ Brewing… (requesting · ↓ 184 tokens · 19m 15s)
 ```
 
 语义：
@@ -83,8 +83,9 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 - 无 `~`：当前显示值全部来自已完成 assistant message 的 provider-reported `usage.output`。
 - `↓ N tokens`：仅指当前高层 agent cycle 的模型输出，不是 session 累计，也不是 context window。
 - 工具自身嵌套 LLM usage 不计入该 working 值；它属于 Glance session 累计 usage。
+- elapsed 使用 `47s`、`3m 08s`、`1h 07m` 形态；一小时后省略低价值秒数。
 
-终端变窄时自动降级，不新增用户设置。保留顺序：
+终端变窄时自动降级，不新增用户设置。通常保留顺序：
 
 1. spinner 与主文案始终保留；
 2. thinking/tool 当前活动；
@@ -92,7 +93,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 4. elapsed time；
 5. 最终才截断主文案。
 
-Responding 状态本身可由 token 增长表达，无需额外显示 `responding`。首次请求且无更多事实时只显示主文案。
+elapsed 达到 5 分钟进入 warning 后，在降级时优先于当前 run token 保留，但仍不抢占当前活动。Responding 状态本身可由 token 增长表达，无需额外显示 `responding`。首次请求且无更多事实时，一分钟内只显示主文案；一分钟起主动显示 elapsed。
 
 ## 4. Token 口径
 
@@ -175,7 +176,7 @@ type WorkingPhase =
 ### 6.2 Shimmer
 
 - 不做写死 Claude RGB，也不解析/插值 ANSI。
-- base 使用 resolved Glance `title`；highlight 使用 resolved Glance `text`；辅助信息使用 `dim`；stall 使用 `error`。
+- base 使用 resolved Glance `title`；highlight 使用 resolved Glance `text`；辅助信息使用 `dim`；长 elapsed 使用 `text` / `warn`；stall 使用 `error`。
 - 使用 `Intl.Segmenter` 的 grapheme segmentation；不可用时回退 `Array.from()`。
 - shimmer 位置按可见终端列而不是 UTF-16 index 计算；使用 `visibleWidth()`。
 - requesting 从左向右，其余生成阶段从右向左。
@@ -189,7 +190,15 @@ type WorkingPhase =
 - 重复 start/stop/disable/reload 必须幂等，无 timer 泄漏。
 - 尽量把 clock、scheduler、random 注入 controller，便于确定性测试。
 
-### 6.4 Stall
+### 6.4 Elapsed
+
+- `<1m`：秒数，例如 `47s`，使用 `dim`。
+- `1m–<5m`：分钟与零补齐秒数，例如 `3m 08s`，只把 elapsed 字段提升为 `text`。
+- `>=5m`：同样的人类可读格式，elapsed 字段使用 `warn`；不因总时长把整行或主文案标为错误。
+- `>=1h`：显示小时与零补齐分钟，例如 `1h 07m`，省略秒数以控制宽度。
+- 无活动和 token 事实时，一分钟前保持主文案-only；一分钟起仍显示 elapsed。
+
+### 6.5 Stall
 
 首版保留安全版本：
 
@@ -241,9 +250,10 @@ packages/pi-glance/
 
 - spinner 无重复端点且每帧一列。
 - shimmer 方向正确，grapheme/emoji/组合字符不被拆坏。
-- base/highlight/dim/error 使用 resolved Glance semantic styles。
+- base/highlight/dim/text/warn/error 使用 resolved Glance semantic styles。
 - `~` 只在含 partial estimate 时出现。
-- 宽度降级按规定优先级，任何输出不超过预算。
+- elapsed 在 60s、5m、1h 边界使用规定格式和强调级别。
+- 宽度降级按规定优先级，warning elapsed 优先于 token，任何输出不超过预算。
 - stall 只在安全条件下出现并可恢复。
 
 ### 9.3 Controller
@@ -274,7 +284,7 @@ packages/pi-glance/
 "@zhcsyncer/pi-extensions": minor
 ```
 
-changeset 摘要应说明：Glance 新增可关闭、主题感知的 Claude-inspired working indicator，自动展示活动、当前 run 输出估算和耗时。
+changeset 摘要应说明：Glance 新增可关闭、主题感知的 Claude-inspired working indicator，自动展示活动、当前 run 输出估算和人类可读耗时，并对长 cycle 的耗时字段做 warning 强调。
 
 实现完成至少运行：
 
@@ -301,7 +311,7 @@ pnpm check:pack
 
 1. 用户在 `/glance` 一级菜单直接看到 Working indicator，内部只有一个 Enabled 开关，没有细碎显示级别。
 2. 从子列返回时保留原父项；重新进入一级项时恢复上次选中的子项。
-3. 开启后，spinner、shimmer、活动、thinking effort、当前 run token 和 elapsed 自动工作。
+3. 开启后，spinner、shimmer、活动、thinking effort、当前 run token 和人类可读 elapsed 自动工作；elapsed 在一分钟和五分钟边界渐进强调。
 4. 关闭、顶层 disable、settled、shutdown、reload 后 Pi 默认 working UI 被恢复且无 timer 泄漏。
 5. 配色严格跟随 Glance 当前 Color source，并响应 runtime Pi theme 与 Glance config 切换。
 6. 当前 run token 的估算/正式边界可见且不与 session/context 口径混淆。

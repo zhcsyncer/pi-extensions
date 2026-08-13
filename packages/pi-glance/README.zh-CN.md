@@ -66,13 +66,15 @@ pi --no-extensions -e ./packages/pi-glance
 
 高层 agent cycle 活跃时，Glance 会接管 Pi working row，自动显示主题化往返星形 spinner、当前 cycle 内保持稳定的趣味动词、grapheme-safe shimmer、requesting/thinking/tool 活动、可用的 thinking effort、本 cycle 输出 token 和耗时。并行工具独立跟踪；retry、压缩重试和 queued continuation 会在 `agent_settled` 前保持同一个动词、起始时间和 output 累计。
 
+耗时保持紧凑且易读：`47s`、`3m 08s`、`1h 07m`。不足一分钟使用 dim，一分钟起到五分钟前使用普通文字，五分钟及以上使用主题 warning 色。只强调耗时字段——cycle 很长不代表它已经卡住。
+
 Working output 与另外两类 Glance 指标窗口不同：
 
 - **Working row——当前高层 cycle output。** 已完成 assistant message 使用 provider 上报的 `usage.output`；当前完整 partial assistant message（包括 text、thinking 和已组装的 tool-call arguments）使用 Pi 公共 `estimateTokens()` 做保守估算。流式 burst 由现有 120ms working-row ticker 合并，每帧只估算一次最新完整 partial；空 partial 保持隐藏，不显示 `↓ ~0 tokens`。`↓ ~42 tokens` 表示其中含估算；message finalized 后会用正式 usage 替换估算、移除 `~`，不会双计。
 - **顶边框 Tokens——当前 session 累计 usage。** 包含正式 assistant usage，以及嵌套 LLM tool、compaction 和 branch summary usage。
 - **Context——当前 context window 占用。** 来自 Pi context-usage API，不等同于任一 output 计数。
 
-窄终端始终优先保留 spinner 与主文案，再依次保留活动、本 cycle token 和耗时；输出按 grapheme 与可见列安全处理。只有 responding 已经产生过 generation delta，随后连续 10 秒没有 assistant progress，才使用 stall 色；requesting、thinking 和工具执行不会误报 stall。
+窄终端始终优先保留 spinner 与主文案，再依次保留活动、本 cycle token 和耗时；耗时进入 warning 状态后，会优先于 cycle token 保留。输出按 grapheme 与可见列安全处理。只有 responding 已经产生过 generation delta，随后连续 10 秒没有 assistant progress，才使用独立的 stall 色；requesting、thinking 和工具执行不会误报 stall。
 
 Pi working row 是没有 owner stack 的全局单例。同时启用多个同类扩展时，最后写入者生效。关闭该功能或 Glance 时只能恢复 Pi 默认 row，无法恢复另一扩展之前的私有值；settled、shutdown 和 reload 也会执行同样的完整清理。
 

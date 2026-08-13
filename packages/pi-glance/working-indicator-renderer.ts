@@ -6,6 +6,8 @@ export const WORKING_SPINNER_GLYPHS = ["·", "✢", "✱", "✶", "✻", "✽", 
 export const WORKING_SPINNER_INTERVAL_MS = 120;
 
 const SHIMMER_STEP_MS = 90;
+const ELAPSED_TEXT_THRESHOLD_MS = 60_000;
+const ELAPSED_WARNING_THRESHOLD_MS = 5 * 60_000;
 const ELLIPSIS = "…";
 
 export interface WorkingRenderInput {
@@ -70,12 +72,33 @@ function tokenText(snapshot: WorkingIndicatorSnapshot): string | undefined {
 	return `↓ ${snapshot.hasPartialEstimate ? "~" : ""}${output.toLocaleString("en-US")} ${output === 1 ? "token" : "tokens"}`;
 }
 
-function elapsedText(snapshot: WorkingIndicatorSnapshot, nowMs: number): string {
-	return `${Math.max(0, Math.floor((nowMs - snapshot.startedAtMs) / 1000))}s`;
+function formatWorkingElapsed(elapsedMs: number): string {
+	const safeElapsedMs = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
+	const totalSeconds = Math.floor(safeElapsedMs / 1000);
+	if (totalSeconds < 60) return `${totalSeconds}s`;
+
+	const seconds = totalSeconds % 60;
+	const totalMinutes = Math.floor(totalSeconds / 60);
+	if (totalMinutes < 60) return `${totalMinutes}m ${seconds.toString().padStart(2, "0")}s`;
+
+	const hours = Math.floor(totalMinutes / 60);
+	const minutes = totalMinutes % 60;
+	return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
 }
 
-function renderDetails(details: readonly string[], styles: ResolvedGlanceStyles): string {
-	return styles.dim(` (${details.join(" · ")})`);
+type DetailTone = "dim" | "text" | "warn";
+
+interface WorkingDetail {
+	readonly text: string;
+	readonly tone: DetailTone;
+}
+
+function renderDetail(detail: WorkingDetail, styles: ResolvedGlanceStyles): string {
+	return styles[detail.tone](detail.text);
+}
+
+function renderDetails(details: readonly WorkingDetail[], styles: ResolvedGlanceStyles): string {
+	return `${styles.dim(" (")}${details.map((detail) => renderDetail(detail, styles)).join(styles.dim(" · "))}${styles.dim(")")}`;
 }
 
 function truncatePlain(text: string, width: number): string {
@@ -112,15 +135,25 @@ export function renderWorkingMessage(input: WorkingRenderInput): string {
 	if (!snapshot.active) return "";
 	const stalled = isWorkingStalled(snapshot, nowMs);
 	const verb = shimmerVerb(snapshot, nowMs, styles, stalled);
-	const activity = activityText(snapshot);
-	const tokens = tokenText(snapshot);
-	const elapsed = !activity && !tokens ? undefined : elapsedText(snapshot, nowMs);
+	const activityValue = activityText(snapshot);
+	const tokenValue = tokenText(snapshot);
+	const elapsedMs = Math.max(0, nowMs - snapshot.startedAtMs);
+	const showElapsed = Boolean(activityValue || tokenValue) || elapsedMs >= ELAPSED_TEXT_THRESHOLD_MS;
+	const elapsedWarning = elapsedMs >= ELAPSED_WARNING_THRESHOLD_MS;
+	const activity: WorkingDetail | undefined = activityValue ? { text: activityValue, tone: "dim" } : undefined;
+	const tokens: WorkingDetail | undefined = tokenValue ? { text: tokenValue, tone: "dim" } : undefined;
+	const elapsed: WorkingDetail | undefined = showElapsed
+		? {
+				text: formatWorkingElapsed(elapsedMs),
+				tone: elapsedWarning ? "warn" : elapsedMs >= ELAPSED_TEXT_THRESHOLD_MS ? "text" : "dim",
+			}
+		: undefined;
 	const detailVariants = [
 		[activity, tokens, elapsed],
-		[activity, tokens],
+		elapsedWarning ? [activity, elapsed] : [activity, tokens],
 		[activity],
 		[],
-	].map((parts) => parts.filter((part): part is string => Boolean(part)));
+	].map((parts) => parts.filter((part): part is WorkingDetail => Boolean(part)));
 
 	for (const details of detailVariants) {
 		const candidate = `${verb}${details.length > 0 ? renderDetails(details, styles) : ""}`;

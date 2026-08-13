@@ -97,13 +97,15 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 While a high-level agent cycle is active, Glance owns Pi's working row and automatically shows a themed ping-pong star, a stable per-cycle verb with grapheme-safe shimmer, current requesting/thinking/tool activity, available thinking effort, output tokens for that cycle, and elapsed time. Parallel tools are tracked independently; retry, compaction retry, and queued continuation keep the same verb, clock, and output total until `agent_settled`.
 
+Elapsed time stays compact and human-readable: `47s`, `3m 08s`, and `1h 07m`. It is dim below one minute, uses normal text from one minute up to five minutes, and uses the theme warning color at five minutes or later. Only the elapsed field gains emphasis—a long cycle can still be healthy and progressing.
+
 Working output has a deliberately different window from the other Glance metrics:
 
 - **Working row — current high-level cycle output.** Completed assistant messages use provider-reported `usage.output`. The current complete partial assistant message—including text, thinking, and assembled tool-call arguments—is conservatively estimated with Pi's public `estimateTokens()`. Streaming bursts are coalesced by the existing 120ms working-row ticker, which estimates only the latest complete partial once per frame; an empty partial stays hidden instead of showing `↓ ~0 tokens`. A value such as `↓ ~42 tokens` contains an estimate; final message usage replaces that estimate and removes `~`, without double counting.
 - **Top-border Tokens — current session cumulative usage.** It includes reported assistant usage plus nested LLM tool, compaction, and branch-summary usage.
 - **Context — current context-window occupancy.** It comes from Pi's context-usage API rather than either output counter.
 
-Narrow terminals preserve the spinner and main verb first, then activity, cycle tokens, and elapsed time; output is grapheme- and display-width-safe. A stall color is used only after responding has already produced a generation delta and then makes no assistant progress for 10 seconds. Requesting, thinking, and tool execution are never marked stalled.
+Narrow terminals preserve the spinner and main verb first, then activity, cycle tokens, and elapsed time; once elapsed time reaches its warning state, it is retained ahead of cycle tokens. Output is grapheme- and display-width-safe. A separate stall color is used only after responding has already produced a generation delta and then makes no assistant progress for 10 seconds. Requesting, thinking, and tool execution are never marked stalled.
 
 Pi's working row is a global singleton with no owner stack. If multiple working-indicator extensions are enabled, the last writer wins. Turning this feature or Glance off restores Pi's default row; it cannot recover another extension's private previous value. Settling, shutdown, and reload perform the same cleanup.
 
