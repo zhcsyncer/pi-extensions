@@ -296,18 +296,12 @@ export class ProcessManager {
 		return this.exclusive(async () => {
 			this.registry.replace(snapshot);
 			const replacement = reason === "new" || reason === "resume" || reason === "fork";
-			// Replacement sessions must attempt persisted cleanup before any pane-list
-			// probe: a transient list failure must not skip all expected closes.
 			if (replacement) {
+				// Persisted pane addresses may be stale after a move or Herdr restart.
+				// Lifecycle cleanup verifies terminal_id against a fresh pane list first.
 				await this.closeLifecycleEntries(processEntriesToCloseOnStart(this.registry.entries(), reason));
 			}
-			let reconciled = await this.reconcileNow();
-			if (replacement) {
-				// A pane may have moved since the snapshot. Reconciliation resolves its
-				// current address by terminal_id before retrying lifecycle cleanup.
-				await this.closeLifecycleEntries(processEntriesToCloseOnStart(this.registry.entries(), reason));
-				reconciled = await this.reconcileNow();
-			}
+			const reconciled = await this.reconcileNow();
 			return { entries: this.registry.entries(), ...reconciled };
 		});
 	}
@@ -468,19 +462,41 @@ export class ProcessManager {
 					await this.exclusive(async () => {
 						if (!entry) return;
 						const pending = this.pendingStarts.get(token);
-						const owned = this.registry.findOwned(entry);
+						let owned = this.registry.findOwned(entry);
 						// stop/shutdown may already have closed and forgotten a published start.
 						if (ownershipPublished && !pending && !owned) return;
 						this.pendingStarts.delete(token);
+
+						let cleanupEntry = owned ?? entry;
+						let closed = false;
+						let verified = !cleanupEntry.terminalId;
+						if (cleanupEntry.terminalId) {
+							try {
+								// A readiness wait leaves time for the Pane to move or its old public
+								// address to be reused. Never let this fallback bypass the same live
+								// terminal verification required by lifecycle cleanup.
+								await this.reconcileNow();
+								owned = this.registry.findOwned(entry);
+								if (!owned) closed = true;
+								else {
+									cleanupEntry = owned;
+									verified = true;
+								}
+							} catch (verificationError) {
+								closeFailure = new Error(
+									`live terminal verification failed: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}`,
+									{ cause: verificationError },
+								);
+							}
+						}
+
 						const registryEntryBelongsToStart = owned !== undefined &&
 							owned.ownerSessionId === entry.ownerSessionId &&
 							owned.ownerPaneId === entry.ownerPaneId &&
 							owned.createdAt === entry.createdAt;
 						if (owned && !registryEntryBelongsToStart) return;
 
-						const cleanupEntry = owned ?? entry;
-						let closed = false;
-						if (mayCloseOwnedProcess(cleanupEntry, this.options.runtime.paneId)) {
+						if (!closed && verified && mayCloseOwnedProcess(cleanupEntry, this.options.runtime.paneId)) {
 							try {
 								await this.options.client.closePane(cleanupEntry.paneId);
 								closed = true;
@@ -616,28 +632,32 @@ export class ProcessManager {
 			controller.abort(new Error(`Managed process start cancelled by session ${reason}`));
 		}
 		return this.exclusive(async () => {
-			if (reason !== "reload") await this.reconcileNow().catch(() => undefined);
 			const pending = [...this.pendingStarts.entries()];
 			const pendingEntries = pending.map(([, item]) => item.entry);
-			await this.closeLifecycleEntries(pendingEntries);
+			const lifecycleEntries = processEntriesToCloseOnShutdown(this.registry.entries(), reason)
+				.filter((entry) => !pendingEntries.some((pendingEntry) =>
+					sameProcessOwnership(entry, pendingEntry)));
+			await this.closeLifecycleEntries([...pendingEntries, ...lifecycleEntries]);
 			for (const [token, item] of pending) {
 				if (!this.registry.findOwned(item.entry)) this.pendingStarts.delete(token);
 			}
-			await this.closeLifecycleEntries(
-				processEntriesToCloseOnShutdown(this.registry.entries(), reason)
-					.filter((entry) => !pendingEntries.some((pendingEntry) =>
-						sameProcessOwnership(entry, pendingEntry))),
-			);
 		});
 	}
 
 	private async closeLifecycleEntries(entries: readonly ProcessEntry[]): Promise<void> {
+		if (entries.length === 0) return;
+		// Never authorize a close from persisted paneId alone. A successful fresh
+		// reconciliation either relocates the same terminal or removes stale ownership;
+		// a list failure or duplicate terminal_id throws before any pane is touched.
+		await this.reconcileNow();
 		let changed = false;
+		const failures: Array<{ entry: ProcessEntry; error: unknown }> = [];
 		for (const reference of entries) {
-			const entry = this.registry.findOwned(reference) ?? reference;
+			const entry = this.registry.findOwned(reference);
+			if (!entry) continue;
 			if (!entry.terminalId || entry.serverScope !== this.serverScope) {
-				// Pane-only or foreign-scope snapshots cannot prove ownership after a
-				// Herdr cold restart. Forget them without touching the live pane.
+				// Reconciliation normally removed this already. Keep this guard so a
+				// legacy or foreign-scope row can never authorize a pane close.
 				this.registry.removeOwned(entry);
 				changed = true;
 				continue;
@@ -648,17 +668,35 @@ export class ProcessManager {
 				this.registry.removeOwned(entry);
 				changed = true;
 			} catch (error) {
-				if (isMissingPaneError(error) && !entry.terminalId) {
-					this.registry.removeOwned(entry);
-					changed = true;
-				}
-				// Preserve stable ownership on a missing old pane address or any
-				// transient failure so reconciliation or a later operation can retry.
+				// Preserve verified ownership on any close failure so a later list/stop
+				// can reconcile again. Missing by paneId may only mean it moved again.
+				failures.push({ entry, error });
 			}
 		}
+		let persistenceFailure: unknown;
 		if (changed) {
-			this.persist();
-			this.notifyChange();
+			try {
+				this.persist();
+				this.notifyChange();
+			} catch (error) {
+				persistenceFailure = error;
+			}
+		}
+		if (failures.length > 0 || persistenceFailure) {
+			const closeSummary = failures.length > 0
+				? `Could not close verified managed Pane(s): ${failures.map(({ entry, error }) =>
+					`${entry.paneId}: ${error instanceof Error ? error.message : String(error)}`).join("; ")}. Ownership was retained for herdr_process list/stop retry.`
+				: undefined;
+			const persistenceSummary = persistenceFailure
+				? `Lifecycle ownership persistence failed: ${persistenceFailure instanceof Error ? persistenceFailure.message : String(persistenceFailure)}.`
+				: undefined;
+			throw new Error(
+				[closeSummary, persistenceSummary].filter(Boolean).join(" "),
+				{ cause: new AggregateError([
+					...failures.map(({ error }) => error),
+					...(persistenceFailure ? [persistenceFailure] : []),
+				]) },
+			);
 		}
 	}
 }

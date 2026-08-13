@@ -278,6 +278,39 @@ describe("process manager behavior", () => {
 		expect(snapshots.at(-1)?.entries).toEqual([]);
 	});
 
+	it("does not let an aborted readiness fallback close a stale public Pane address", async () => {
+		const { instance, client } = manager();
+		let announceWait!: () => void;
+		const waiting = new Promise<void>((resolve) => { announceWait = resolve; });
+		client.waitOutputHandler = async (signal) => {
+			announceWait();
+			return new Promise<string>((_resolve, reject) => {
+				const abort = () => reject(signal?.reason ?? new Error("aborted"));
+				if (signal?.aborted) abort();
+				else signal?.addEventListener("abort", abort, { once: true });
+			});
+		};
+		const start = instance.start(
+			{ command: "pnpm dev", readyMatch: "Local:", readyTimeoutMs: 600_000 },
+			{ cwd: "/work", sessionId: "session-1" },
+		);
+		await waiting;
+
+		client.terminalIds.set("w1:p2", "term-unrelated");
+		client.panes.add("w2:p7");
+		client.terminalIds.set("w2:p7", "term-managed");
+		client.failList = true;
+
+		await expect(instance.shutdown("quit")).rejects.toThrow(/pane list unavailable/);
+		await expect(start).rejects.toThrow(/cleanup was incomplete.*live terminal verification failed/);
+		expect(client.calls.some((call) => call.name === "close")).toBe(false);
+		expect(client.panes.has("w1:p2")).toBe(true);
+		expect(client.panes.has("w2:p7")).toBe(true);
+		expect(instance.registry.entries()).toEqual([
+			expect.objectContaining({ paneId: "w1:p2", terminalId: "term-managed" }),
+		]);
+	});
+
 	it("keeps a readiness-waiting pane observable and stoppable", async () => {
 		const { instance, client } = manager();
 		let announceWait!: () => void;
@@ -626,16 +659,77 @@ describe("process manager behavior", () => {
 		expect(client.calls.some((call) => call.name === "close")).toBe(false);
 	});
 
-	it("attempts replacement-session cleanup before a transient pane-list failure", async () => {
+	it("closes a moved session pane only at its freshly verified terminal address", async () => {
+		const client = new FakeProcessClient();
+		client.panes.add("w2:p7");
+		client.terminalIds.set("w2:p7", "term-managed");
+		const snapshot = {
+			version: PROCESS_STATE_VERSION,
+			entries: [owned({ terminalId: "term-managed", serverScope: processServerScope("/tmp/herdr") })],
+		} satisfies ProcessRegistrySnapshot;
+		const resumed = manager(client);
+
+		await expect(resumed.instance.rehydrate(snapshot, "resume"))
+			.resolves.toMatchObject({ entries: [] });
+		expect(client.calls.filter((call) => call.name === "close").map((call) => call.args[0]))
+			.toEqual(["w2:p7"]);
+	});
+
+	it("never closes an unrelated pane occupying a stale persisted address", async () => {
+		const client = new FakeProcessClient();
+		client.panes.add("w1:p2");
+		client.terminalIds.set("w1:p2", "term-unrelated");
+		const snapshot = {
+			version: PROCESS_STATE_VERSION,
+			entries: [owned({ terminalId: "term-managed", serverScope: processServerScope("/tmp/herdr") })],
+		} satisfies ProcessRegistrySnapshot;
+		const resumed = manager(client);
+
+		await expect(resumed.instance.rehydrate(snapshot, "resume"))
+			.resolves.toMatchObject({ entries: [] });
+		expect(client.calls.some((call) => call.name === "close")).toBe(false);
+		expect(client.panes.has("w1:p2")).toBe(true);
+	});
+
+	it("leaves replacement cleanup pending when live terminal verification fails", async () => {
 		const client = new FakeProcessClient();
 		client.panes.add("w1:p2");
 		client.failList = true;
-		const snapshot = { version: 1, entries: [owned()] } satisfies ProcessRegistrySnapshot;
+		const snapshot = { version: PROCESS_STATE_VERSION, entries: [owned()] } satisfies ProcessRegistrySnapshot;
 		const resumed = manager(client);
+
 		await expect(resumed.instance.rehydrate(snapshot, "resume")).rejects.toThrow(/pane list unavailable/);
-		expect(client.calls[0]).toEqual({ name: "close", args: ["w1:p2"] });
-		expect(resumed.instance.registry.entries()).toEqual([]);
-		expect(resumed.snapshots.at(-1)?.entries).toEqual([]);
+		expect(client.calls[0]).toEqual({ name: "list", args: [] });
+		expect(client.calls.some((call) => call.name === "close")).toBe(false);
+		expect(resumed.instance.registry.entries()).toEqual(snapshot.entries);
+		expect(resumed.snapshots).toEqual([]);
+	});
+
+	it("reports replacement cleanup close failures and retains ownership for retry", async () => {
+		const client = new FakeProcessClient();
+		client.panes.add("w1:p2");
+		client.failClose = true;
+		const snapshot = { version: PROCESS_STATE_VERSION, entries: [owned()] } satisfies ProcessRegistrySnapshot;
+		const resumed = manager(client);
+
+		await expect(resumed.instance.rehydrate(snapshot, "resume"))
+			.rejects.toThrow(/Could not close verified managed Pane.*ownership was retained/i);
+		expect(client.calls.filter((call) => call.name === "close").map((call) => call.args[0]))
+			.toEqual(["w1:p2"]);
+		expect(resumed.instance.registry.entries()).toEqual(snapshot.entries);
+	});
+
+	it("leaves a visible orphan instead of closing by stale address when shutdown verification fails", async () => {
+		const client = new FakeProcessClient();
+		client.panes.add("w1:p2");
+		client.failList = true;
+		const snapshot = { version: PROCESS_STATE_VERSION, entries: [owned()] } satisfies ProcessRegistrySnapshot;
+		const shuttingDown = manager(client, snapshot);
+
+		await expect(shuttingDown.instance.shutdown("quit")).rejects.toThrow(/pane list unavailable/);
+		expect(client.calls.some((call) => call.name === "close")).toBe(false);
+		expect(client.panes.has("w1:p2")).toBe(true);
+		expect(shuttingDown.instance.registry.entries()).toEqual(snapshot.entries);
 	});
 });
 

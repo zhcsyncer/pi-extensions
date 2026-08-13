@@ -105,7 +105,7 @@ On POSIX, commands use `shell: "bash"` by default, so Bash syntax is not reinter
 
 A start still waiting for readiness is canceled and closed when the Pi session reloads or changes. Moving an owned pane to another tab or workspace changes its public pane ID, but the companion keeps following the same live terminal within the same Herdr server.
 
-If start or cleanup fails, the error includes the known pane ID when available. Use `herdr_process list` and `stop`, or close that pane directly in Herdr. The companion never uses process ownership to close the caller pane or an unowned pane.
+Before lifecycle cleanup closes a pane, the companion refreshes Herdr's live pane list and verifies the stored terminal identity. If that verification fails, it leaves the visible pane/process running for manual cleanup rather than risk closing the caller pane or an unowned pane. Use `herdr_process list` and `stop`, or close the verified pane directly in Herdr.
 
 ## Temporary `/btw` side threads
 

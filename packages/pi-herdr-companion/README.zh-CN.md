@@ -105,7 +105,7 @@ POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 
 
 仍在等待 readiness 的 start 会在 Pi session reload 或切换时取消并关闭。Owned Pane 移动到其他 Tab 或 Workspace 后，public Pane ID 会变化，但只要仍是同一 Herdr server 内的同一 live terminal，Companion 就会继续关联它。
 
-如果启动或清理失败，错误会尽量包含已知 Pane ID。请使用 `herdr_process list` 和 `stop`，或直接在 Herdr 中关闭该 Pane。Companion 不会根据进程 ownership 关闭 caller Pane 或不属于它的 Pane。
+生命周期清理在关闭 Pane 前，会刷新 Herdr live Pane 列表并核对保存的 terminal identity。若无法完成核验，Companion 会保留这个在 Herdr 中可见的 Pane/进程供手工清理，而不是冒险关闭 caller Pane 或不属于它的 Pane。请使用 `herdr_process list` 和 `stop`，或直接在 Herdr 中关闭已经确认的 Pane。
 
 ## 临时 `/btw` 支线
 
