@@ -90,7 +90,12 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
       // — same pattern the scheduler path already uses — so the spawned
       // agent's auth lookup doesn't crash with "No API key found for
       // undefined".
-      let normalizedOptions = options ?? {};
+      // Completion delivery is an internal spawn policy, not part of the RPC
+      // contract. Detached RPC work always relies on AgentManager's followUp
+      // default even if an untyped caller sends the field.
+      const rpcOptions = { ...(options ?? {}) };
+      delete rpcOptions.completionDelivery;
+      let normalizedOptions = rpcOptions;
       if (typeof normalizedOptions.model === "string") {
         const registry = (ctx as { modelRegistry?: ModelRegistry }).modelRegistry;
         if (!registry) {

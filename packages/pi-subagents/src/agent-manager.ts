@@ -12,7 +12,7 @@ import { isAbsolute } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
-import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentInvocation, AgentRecord, CompletionDelivery, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage, createLifetimeUsage, type LifetimeUsage } from "./usage.js";
 import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
 
@@ -62,6 +62,8 @@ interface SpawnOptions {
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
   isBackground?: boolean;
+  /** How completion is delivered to the parent. Defaults to detached follow-up delivery. */
+  completionDelivery?: CompletionDelivery;
   /**
    * Skip the maxConcurrent queue check for this spawn — start immediately even
    * if the configured concurrency limit would otherwise queue it. Used by the
@@ -167,6 +169,7 @@ export class AgentManager {
       abortController,
       lifetimeUsage: createLifetimeUsage(),
       compactionCount: 0,
+      completionDelivery: options.completionDelivery ?? "followUp",
       // Raw tri-state (not coerced to a boolean): true = background, false =
       // foreground (has an inline tool-result surface), undefined = caller never
       // declared it (e.g. a cross-extension RPC spawn). The widget's background-

@@ -132,21 +132,61 @@ describe("toolDescriptionMode", () => {
     expect(desc).toContain("## Usage notes");
   });
 
-  it("compact keeps every load-bearing contract — fails when a behavior change forgets compact", () => {
-    const tools = setup({ toolDescriptionMode: "compact" });
-    const desc: string = tools.get("Agent").description;
-    // One keyword per behavioral contract the orchestrator must know about.
-    // If you change one of these behaviors, update BOTH descriptions.
+  it("full and compact descriptions keep the foreground/background ownership contract", async () => {
+    const compact: string = setup({ toolDescriptionMode: "compact" }).get("Agent").description;
     for (const contract of [
       "run_in_background",
+      "foreground",
+      "next read, edit, or decision",
+      "genuinely disjoint work",
+      "automatically",
+      "Never poll/sleep",
+      "repeat its evidence collection",
+      "targeted verification",
+      "sibling tools already issued in this turn",
       "resume",
       "steer_subagent",
       'isolation: "worktree"',
       ".pi/agents/",
       "self-contained",
     ]) {
-      expect(desc).toContain(contract);
+      expect(compact).toContain(contract);
     }
+
+    // A fresh full-mode instance guards the same load-bearing orchestration
+    // contract independently of compact mode.
+    writeConfigFile(getProjectSubagentsSettingsPath(tmpDir), JSON.stringify({ toolDescriptionMode: "full" }));
+    const fullHarness = makePi();
+    subagentsExtension(fullHarness.pi);
+    const full: string = fullHarness.tools.get("Agent").description;
+    try {
+      for (const contract of [
+        "prerequisite for your next read, edit, or decision",
+        "genuinely disjoint work",
+        "delivered automatically",
+        "do NOT poll or sleep",
+        "do not repeat the agent's evidence collection",
+        "targeted checks",
+        "sibling tools already issued in the same assistant turn",
+      ]) {
+        expect(full).toContain(contract);
+      }
+    } finally {
+      await fullHarness.handlers.get("session_shutdown")?.({}, { hasUI: false, ui: {} } as any);
+    }
+  });
+
+  it("prompt guidelines carry the same foreground/background ownership contract", () => {
+    const tools = setup();
+    const guidelines: string[] = tools.get("Agent").promptGuidelines;
+    const text = guidelines.join("\n");
+
+    expect(text).toContain("prerequisite for your next read, edit, or decision");
+    expect(text).toContain("genuinely disjoint work");
+    expect(text).toContain("completion is delivered automatically");
+    expect(text).toContain("do not repeat its evidence collection");
+    expect(text).toContain("targeted checks");
+    expect(text).toContain("sibling tools already issued in the same assistant turn");
   });
 
   it("custom mode renders the canonical project template and de-duplicates unknown-placeholder warnings", async () => {

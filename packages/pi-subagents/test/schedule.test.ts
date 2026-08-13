@@ -281,7 +281,7 @@ describe("SubagentScheduler — fire path", () => {
     expect(manager.spawn).toHaveBeenCalledTimes(1);
   });
 
-  it("fire passes bypassQueue: true to manager.spawn", () => {
+  it("fire bypasses the queue and leaves completion delivery at the manager default", () => {
     scheduler.addJob({
       name: "every-1s", description: "x", schedule: "1s",
       subagent_type: "general-purpose", prompt: "x",
@@ -292,6 +292,7 @@ describe("SubagentScheduler — fire path", () => {
     const optsArg = manager.spawn.mock.calls[0][4];
     expect(optsArg.bypassQueue).toBe(true);
     expect(optsArg.isBackground).toBe(true);
+    expect(optsArg).not.toHaveProperty("completionDelivery");
   });
 
   it("disabled jobs do not fire", () => {

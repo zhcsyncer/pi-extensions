@@ -186,6 +186,24 @@ describe("AgentManager — completion callbacks", () => {
     manager?.dispose();
   });
 
+  it("stores an explicit completion delivery and defaults detached callers to followUp", () => {
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+    manager = new AgentManager();
+
+    const defaultId = manager.spawn(mockPi, mockCtx, "general-purpose", "default", {
+      description: "default delivery",
+      isBackground: true,
+    });
+    const steerId = manager.spawn(mockPi, mockCtx, "general-purpose", "steer", {
+      description: "manual background delivery",
+      isBackground: true,
+      completionDelivery: "steer",
+    });
+
+    expect(manager.getRecord(defaultId)?.completionDelivery).toBe("followUp");
+    expect(manager.getRecord(steerId)?.completionDelivery).toBe("steer");
+  });
+
   it("does not let onComplete errors turn a completed agent into a failed run", async () => {
     manager = new AgentManager(() => {
       throw new Error("stale extension context");

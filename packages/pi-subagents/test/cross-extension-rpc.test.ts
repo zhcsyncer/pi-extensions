@@ -83,13 +83,32 @@ describe("cross-extension RPC", () => {
       );
     });
 
-    it("passes options through to manager.spawn", async () => {
+    it("passes options through without adding a completion-delivery override", async () => {
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:spawn:reply:req-s2", reply);
       events.emit("subagents:rpc:spawn", {
         requestId: "req-s2", type: "Explore", prompt: "find it",
         options: { description: "search", isBackground: true },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(manager.spawn).toHaveBeenCalledWith(
+        deps.pi, ctx, "Explore", "find it",
+        { description: "search", isBackground: true },
+      );
+      expect((manager.spawn as ReturnType<typeof vi.fn>).mock.calls[0][4]).not.toHaveProperty("completionDelivery");
+    });
+
+    it("drops completionDelivery from untyped callers so RPC stays followUp", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-delivery", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-delivery",
+        type: "Explore",
+        prompt: "find it",
+        options: { description: "search", isBackground: true, completionDelivery: "steer" },
       });
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());

@@ -13,7 +13,7 @@
 
 ## 与上游的差异（先看这里）
 
-本 fork **保留上游运行时行为**（spawn / steer / resume、FleetView 接线、完成通知、调度等）。改动几乎都在 **TUI 如何呈现进展与 tool 结果**，避免大段 dump 淹没主会话。
+本 fork 保留上游 spawn / steer / resume、FleetView、调度与 RPC 行为，但现在会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余差异仍主要集中在 **TUI 如何呈现进展与 tool 结果**。
 
 | 区域 | 上游 `@tintinweb/pi-subagents` | 本 fork `@zhcsyncer/pi-subagents` |
 | --- | --- | --- |
@@ -25,16 +25,30 @@
 | **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**；queued 真话；**Ctrl+O** 展开 Markdown，默认不 dump |
 | Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；resume 用存储的 invocation |
 | 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
+| 后台完成投递 | 手动 Agent-tool、schedule 与 RPC 都使用 `followUp`；主 agent 长工具循环可能饿死当前任务结果 | 手动 Agent-tool 后台完成使用 `steer`；schedule / RPC 等脱离当前推理链的任务保留 `followUp`；继续使用 `triggerTurn: true` |
+| 编排合同 | foreground / background 的工作所有权容易混淆 | 后续步骤依赖结果时必须 foreground；background 只用于真正互不重叠的工作；主 agent 负责综合和定向验证，但不得重复已委派的证据收集 |
 | 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
 
 ### 未改动的部分
 
-- 工具名与契约：`Agent`、`get_subagent_result`、`steer_subagent`
-- 后台完成 **followUp** 通知（`triggerTurn`）
+- 工具名与公开参数：`Agent`、`get_subagent_result`、`steer_subagent`
+- 完成通知继续使用 `triggerTurn: true`；schedule / RPC 等 detached 任务仍使用 `followUp`
 - FleetView 导航、Enter steer、`x` `x` stop、Esc/q 关闭
 - 自定义 agent、worktree、调度、设置菜单、RPC
 
 行为细节仍以上游文档为准：[`UPSTREAM_README.md`](./UPSTREAM_README.md)。
+
+### Foreground / background 合同
+
+如果 subagent 结果是主 agent 下一次 read、edit 或 decision 的前置条件，应使用 foreground。只有主 agent 确实有互不重叠的并行工作时才使用 background。后台完成会自动投递；等待期间不要轮询、sleep，也不要重复 subagent 已承担的 grep / find / read 证据收集。
+
+主 agent 仍负责综合、决策、面向用户的报告与最终验证。报告到达后，只对高风险结论做定向抽查，不要重跑整轮调查。`steer` 完成通知能在主 agent 下一次模型调用前进入上下文，但无法撤回同一 assistant turn 已发出的 sibling tools。
+
+投递策略在 spawn 时固定：
+
+- 手动 Agent-tool background（包括 frontmatter 最终解析为 `run_in_background: true` 的自定义 agent）：`steer`
+- schedule 与跨扩展 RPC：`followUp`
+- foreground：结果 inline 返回，不发送后台完成 nudge
 
 ---
 

@@ -69,6 +69,9 @@ export interface AgentConfig {
 
 export type JoinMode = 'async' | 'group' | 'smart';
 
+/** How a completed background agent is delivered into the parent agent loop. */
+export type CompletionDelivery = "steer" | "followUp";
+
 /**
  * Display mode for the persistent above-editor agent widget.
  * - `all`: show every agent (foreground + background).
@@ -93,6 +96,8 @@ export interface AgentRecord {
   promise?: Promise<string>;
   groupId?: string;
   joinMode?: JoinMode;
+  /** Completion delivery policy fixed when the record is created. */
+  completionDelivery: CompletionDelivery;
   /** Set when result was already consumed via get_subagent_result — suppresses completion notification. */
   resultConsumed?: boolean;
   /** Steering messages queued before the session was ready. */

@@ -472,7 +472,7 @@ export default function (pi: ExtensionAPI) {
       content: notification + footer,
       display: true,
       details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
-    }, { deliverAs: "followUp", triggerTurn: true });
+    }, { deliverAs: record.completionDelivery, triggerTurn: true });
   }
 
   function sendIndividualNudge(record: AgentRecord) {
@@ -488,6 +488,11 @@ export default function (pi: ExtensionAPI) {
     (records, partial) => {
       for (const r of records) { agentActivity.delete(r.id); widget.markFinished(r.id); fleet.onAgentFinished(r.id); }
 
+      // Smart/group batches contain only Agent-tool background spawns resolved
+      // in one assistant turn. Scheduler and RPC spawns never enter
+      // currentBatchAgents, so the records are homogeneous and the first record
+      // fixes completion delivery for the whole notification.
+      const completionDelivery = records[0]?.completionDelivery ?? "followUp";
       const groupKey = `group:${records.map(r => r.id).join(",")}`;
       scheduleNudge(groupKey, () => {
         // Re-check at send time
@@ -510,7 +515,7 @@ export default function (pi: ExtensionAPI) {
           content: `Background agent group completed: ${label}\n\n${notifications}\n\nUse get_subagent_result for full output.`,
           display: true,
           details,
-        }, { deliverAs: "followUp", triggerTurn: true });
+        }, { deliverAs: completionDelivery, triggerTurn: true });
       });
       widget.update();
     },
@@ -775,7 +780,8 @@ export default function (pi: ExtensionAPI) {
   function setToolDescriptionMode(mode: ToolDescriptionMode): void { toolDescriptionMode = mode; }
 
   // ---- Batch tracking for smart join mode ----
-  // Collects background agent IDs spawned in the current turn for smart grouping.
+  // Collects only Agent-tool background IDs spawned in the current assistant
+  // turn for smart grouping. Scheduler/RPC spawns do not pass through this path.
   // Uses a debounced timer: each new agent resets the 100ms window so that all
   // parallel tool calls (which may be dispatched across multiple microtasks by the
   // framework) are captured in the same batch.
@@ -920,11 +926,11 @@ ${buildCompactTypeListText()}
 Custom agents: .pi/agents/<name>.md (project) or ${getAgentDir()}/agents/<name>.md (global).
 
 Notes:
-- description: 3-5 words (shown in UI). Prompts must be self-contained — the agent has not seen this conversation.
-- Parallel work: one message, multiple Agent calls, run_in_background: true on each. You are notified when background agents finish — never poll or sleep.
-- The result is not shown to the user — summarize it for them. Verify an agent's claimed code changes before reporting work done.
-- resume continues a previous agent by ID; steer_subagent messages a running one.
-- isolation: "worktree" runs the agent in an isolated git worktree; changes land on a branch.`;
+- description: 3-5 words. Prompts must be self-contained — the agent has not seen this conversation.
+- Use foreground if the result gates your next read, edit, or decision. Use run_in_background only for genuinely disjoint work; launch parallel calls in one message.
+- Background completion notifies you automatically. Never poll/sleep or repeat its evidence collection while waiting; completion cannot retract sibling tools already issued in this turn.
+- You own synthesis, decisions, and final verification. After the report, use targeted verification only for high-risk claims; summarize results for the user.
+- resume continues an agent; steer_subagent redirects a running one; isolation: "worktree" isolates changes on a branch.`;
 
   const fullAgentToolDescription = `Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.
 
@@ -942,11 +948,11 @@ If the target is already known, use a direct tool — \`read\` for a known path,
 ## Usage notes
 
 - Always include a short (3-5 word) description summarizing what the agent will do (shown in UI).
-- When you launch multiple agents for independent work, send them in a single message with multiple tool uses, with run_in_background: true on each, so they run concurrently. If the user specifies that they want agents run "in parallel", you MUST send a single message with multiple tool calls. Foreground calls run sequentially — only one executes at a time.
+- When you launch multiple agents for genuinely disjoint work, send them in a single message with multiple tool uses, with run_in_background: true on each, so they run concurrently. If the user specifies that they want agents run "in parallel", you MUST send a single message with multiple tool calls. Foreground calls run sequentially — only one executes at a time.
 - When the agent is done, it returns a single message back to you. The result is not visible to the user — to show the user, send a text message with a concise summary.
-- Trust but verify: an agent's summary describes what it intended to do, not necessarily what it did. When an agent writes or edits code, check the actual changes before reporting work as done.
-- Use run_in_background for work you don't need immediately. You will be notified when it completes — do NOT poll or sleep waiting for it. Continue with other work or respond to the user instead.
-- Foreground vs background: use foreground (default) when you need the agent's results before you can proceed. Use background when you have genuinely independent work to do in parallel.
+- Foreground vs background: if the result is a prerequisite for your next read, edit, or decision, use foreground (default). Use background only when you have genuinely disjoint work to do in parallel.
+- Background completion is delivered automatically — do NOT poll or sleep waiting for it. While it runs, do not repeat the agent's evidence collection or otherwise duplicate its work. A completion notice cannot retract sibling tools already issued in the same assistant turn.
+- You retain responsibility for synthesis, decisions, and final verification. After the report arrives, verify only high-risk claims with targeted checks; do not rerun the agent's full grep/find/read evidence collection.
 - Use resume with an agent ID to continue a previous agent's work. A new (non-resume) Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
 - Use steer_subagent to send mid-run messages to a running background agent.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
@@ -967,7 +973,7 @@ Provide clear, detailed prompts so the agent can work autonomously. Brief it lik
 
 Terse command-style prompts produce shallow, generic work.
 
-**Never delegate understanding.** Don't write "based on your findings, fix the bug" or "based on the research, implement it." Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change.`;
+**Never delegate understanding.** Don't write "based on your findings, fix the bug" or "based on the research, implement it." Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change. Retaining understanding does not mean repeating evidence collection; synthesize the report and use only targeted verification.`;
 
   // `toolDescriptionMode: "custom"` — user-authored description with live
   // dynamic parts. Project file wins over global; missing/empty falls back to
@@ -1010,10 +1016,10 @@ Terse command-style prompts produce shallow, generic work.
     description: agentToolDescription,
     promptSnippet: "Launch autonomous sub-agents for complex multi-step tasks",
     promptGuidelines: [
-      "Use Agent with specialized agents when the task matches an agent type's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but should not be used excessively when not needed. Importantly, avoid duplicating work that subagents are already doing — if you delegate research to a subagent, do not also perform the same searches yourself.",
+      "Use Agent with specialized agents when the task matches an agent type's description. If its result is a prerequisite for your next read, edit, or decision, run it in the foreground. Use background only for genuinely disjoint work.",
       "For broad codebase exploration or research, spawn Agent with an appropriate subagent_type (e.g. Explore). Otherwise use direct tools (read, grep, find) when the target is already known.",
-      "When an agent runs in the background, you will be notified on completion — do not poll or sleep waiting for it. Continue with other work instead.",
-      "Trust but verify: an agent's summary describes intent, not outcome. When an agent writes or edits code, check the actual changes before reporting work as done.",
+      "When an Agent runs in the background, completion is delivered automatically — never poll or sleep, and do not repeat its evidence collection while waiting. A completion notice cannot retract sibling tools already issued in the same assistant turn.",
+      "You retain synthesis, decision, and final verification responsibility. After an Agent reports, verify only high-risk claims with targeted checks instead of rerunning the same grep/find/read evidence collection.",
     ],
     parameters: Type.Object({
       prompt: Type.String({
@@ -1044,7 +1050,7 @@ Terse command-style prompts produce shallow, generic work.
       ),
       run_in_background: Type.Optional(
         Type.Boolean({
-          description: "Set to true to run in background. Returns agent ID immediately. You will be notified on completion.",
+          description: "Set to true only for genuinely disjoint work. Returns an agent ID immediately; completion is delivered automatically, so do not poll.",
         }),
       ),
       resume: Type.Optional(
@@ -1317,6 +1323,7 @@ Terse command-style prompts produce shallow, generic work.
             inheritContext,
             thinkingLevel: thinking,
             isBackground: true,
+            completionDelivery: "steer",
             isolation,
             invocation: agentInvocation,
             ...bgCallbacks,
@@ -1367,9 +1374,10 @@ Terse command-style prompts produce shallow, generic work.
           `Description: ${params.description}\n` +
           (record?.outputFile ? `Output file: ${record.outputFile}\n` : "") +
           (isQueued ? `Position: queued (max ${manager.getMaxConcurrent()} concurrent)\n` : "") +
-          `\nYou will be notified when this agent completes.\n` +
-          `Use get_subagent_result to retrieve full results, or steer_subagent to send it messages.\n` +
-          `Do not duplicate this agent's work.`,
+          `\nCompletion will be delivered automatically; do not poll get_subagent_result or sleep.\n` +
+          `While it runs, continue only with genuinely disjoint work. Do not repeat its evidence collection or otherwise duplicate its work.\n` +
+          `After the report, keep synthesis and final verification yourself, using only targeted checks for high-risk claims.\n` +
+          `Use steer_subagent to redirect the agent while it is running.`,
           {
             ...detailBase,
             toolUses: 0,

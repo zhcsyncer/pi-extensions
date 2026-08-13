@@ -26,4 +26,8 @@
 
 ## Unreleased
 
+### Fixed
+
+- Manual Agent-tool background completions now use `steer` delivery, including custom agents whose frontmatter resolves to background, so results reach the parent before its next model call instead of starving behind a long tool loop. Scheduled and RPC completions retain detached `followUp` delivery, foreground results remain inline, and the Agent guidance now requires foreground for prerequisite results plus non-overlapping background work with targeted verification rather than repeated evidence collection.
+
 Initial public release will be cut by Changesets from `0.0.0`.

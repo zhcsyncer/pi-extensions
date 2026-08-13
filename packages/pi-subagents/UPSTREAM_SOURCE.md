@@ -58,7 +58,15 @@ Stable “why” only — implementation detail lives in code/tests.
 - Root tarball carries subagents sources plus runtime deps (`@sinclair/typebox`, `croner`, `nanoid`).
 - `agent-runner`: skip null parent `modelRuntime` for stricter Pi `ModelRuntime` typings.
 
+### Background completion delivery and orchestration contract
+
+- Manual Agent-tool background runs, including custom-agent frontmatter that resolves to background, fix `completionDelivery: "steer"` at spawn. Their completion reaches the parent before its next model call instead of waiting behind a long tool loop.
+- Scheduled and cross-extension RPC runs omit that field and retain AgentManager's detached `followUp` default. Foreground runs still return inline and suppress completion nudges.
+- Smart/group batches currently contain only background Agent-tool calls from one assistant turn, so they are homogeneous and use the first record's delivery policy. Scheduler/RPC do not enter those batches.
+- Full/compact tool descriptions, prompt guidelines, the launch envelope, and the shipped example require foreground for prerequisite results, background only for genuinely disjoint work, no repeated evidence collection, and targeted verification after the report.
+- `steer` cannot retract sibling tools already issued in the same assistant turn. This fork intentionally adds no origin state machine, path locks, natural-language overlap inference, or telemetry.
+
 ### Intentionally unchanged vs upstream
 
-- Tool contracts (names/params), background followUp notifications, FleetView navigation/steer/stop, custom agents, worktrees, schedules, settings, RPC.
-- Note: queued `get_subagent_result` copy and failure `isError` flag are model-visible deltas kept for honesty; runtime spawn/steer/resume behavior is otherwise upstream-aligned.
+- Tool names/params, FleetView navigation/steer/stop, custom agents, worktrees, schedules, settings, and RPC contracts.
+- Note: queued `get_subagent_result` copy, failure `isError`, completion delivery, and orchestration guidance are model-visible deltas kept for honesty and timely result consumption; spawn/steer/resume behavior is otherwise upstream-aligned.
