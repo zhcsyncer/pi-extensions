@@ -9,7 +9,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — 最近活动回顾扩展，可选同步 Session 标题，并自动命名最近一层 Herdr pane 或 tmux window。
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — 分支感知的 Todo overlay，提供严格生命周期、原子批量操作、受限 widget 渲染和 `/todo` 视觉设置 TUI。
-- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留扩展状态，支持右下角 context 进度条和高亮自动压缩标记。
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留可组合状态与右下角 context 进度，并提供跟随主题的 Claude-inspired working indicator，展示当前活动、本 cycle output 和耗时。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。

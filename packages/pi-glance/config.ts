@@ -38,7 +38,7 @@ import type {
 } from "./types.js";
 
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 12 as const;
+const CONFIG_VERSION = 13 as const;
 const emittedMigrationNotices = new Set<string>();
 const pendingMigrationNotices: string[] = [];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -77,6 +77,9 @@ export function defaultConfig(): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: true,
+		workingIndicator: {
+			enabled: true,
+		},
 		colorSource: "pi",
 		theme: { light: "light", dark: "dark" },
 		icons: "plain",
@@ -126,6 +129,7 @@ export function defaultConfig(): GlanceConfig {
 export function cloneConfig(config: GlanceConfig): GlanceConfig {
 	return {
 		...config,
+		workingIndicator: { ...config.workingIndicator },
 		theme: { ...config.theme },
 		editor: { ...config.editor },
 		display: { ...config.display },
@@ -249,7 +253,8 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	if (!raw || typeof raw !== "object") return defaults;
 	const record = raw as Record<string, unknown>;
 	const rawVersion = typeof record.version === "number" && Number.isFinite(record.version) ? Math.floor(record.version) : undefined;
-	const isLegacyConfig = rawVersion !== undefined && rawVersion < CONFIG_VERSION;
+	const usesLegacyGlanceColorDefault = rawVersion !== undefined && rawVersion < CONFIG_VERSION;
+	const workingIndicator = record.workingIndicator && typeof record.workingIndicator === "object" ? (record.workingIndicator as Record<string, unknown>) : {};
 	const editor = record.editor && typeof record.editor === "object" ? (record.editor as Record<string, unknown>) : {};
 	const display = record.display && typeof record.display === "object" ? (record.display as Record<string, unknown>) : {};
 	const model = record.model && typeof record.model === "object" ? (record.model as Record<string, unknown>) : {};
@@ -263,7 +268,10 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 	return {
 		version: CONFIG_VERSION,
 		enabled: parseBool(record.enabled, defaults.enabled),
-		colorSource: parseStringEnum(record.colorSource, COLOR_SOURCES, isLegacyConfig ? "glance" : defaults.colorSource),
+		workingIndicator: {
+			enabled: parseBool(workingIndicator.enabled, defaults.workingIndicator.enabled),
+		},
+		colorSource: parseStringEnum(record.colorSource, COLOR_SOURCES, usesLegacyGlanceColorDefault ? "glance" : defaults.colorSource),
 		theme: parseThemePair(record.theme, defaults.theme),
 		icons: parseStringEnum(record.icons, ICON_MODES, defaults.icons),
 		editor: {
@@ -320,7 +328,8 @@ export function configToText(config: GlanceConfig): string {
 }
 
 const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
-	"": new Set(["version", "enabled", "colorSource", "theme", "icons", "editor", "display", "segments", "model", "git", "context", "cost", "tokens", "throughput", "bottomDetails"]),
+	"": new Set(["version", "enabled", "workingIndicator", "colorSource", "theme", "icons", "editor", "display", "segments", "model", "git", "context", "cost", "tokens", "throughput", "bottomDetails"]),
+	workingIndicator: new Set(["enabled"]),
 	theme: new Set(["light", "dark"]),
 	editor: new Set(["minContentRows", "topMarginRows"]),
 	display: new Set(["showProvider", "workspaceLabel"]),

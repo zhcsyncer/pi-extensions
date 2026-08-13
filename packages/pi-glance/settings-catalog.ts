@@ -178,6 +178,11 @@ export function getSettingsRows(config: GlanceConfig, categoryId: SettingsCatego
 						next.enabled = !next.enabled;
 					}),
 				),
+				toggleRow("general.workingIndicator", "Working indicator", config.workingIndicator.enabled, "Show the complete themed working row.", (draft) =>
+					withConfig(draft, (next) => {
+						next.workingIndicator.enabled = !next.workingIndicator.enabled;
+					}),
+				),
 				cycleRow("general.colorSource", "Color source", colorSourceLabel(config.colorSource), "Follow Pi theme tokens or use Glance palettes.", (draft) =>
 					withConfig(draft, (next) => {
 						next.colorSource = nextIn(next.colorSource, COLOR_SOURCE_VALUES);

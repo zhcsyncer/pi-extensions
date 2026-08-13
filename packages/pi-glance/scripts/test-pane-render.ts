@@ -40,7 +40,7 @@ function press(component: Component, data: string): void {
 
 function openPaletteBrowser(component: Component, slot: "light" | "dark"): void {
 	press(component, "\x1b[C");
-	const settingIndex = slot === "light" ? 2 : 3;
+	const settingIndex = slot === "light" ? 3 : 4;
 	for (let index = 0; index < settingIndex; index++) press(component, "\x1b[B");
 	press(component, "\x1b[C");
 	press(component, "\r");
@@ -196,6 +196,8 @@ assertContains(initial, "✓ Saved", "initial pane should be clean");
 assertContains(initial, "Ask pi to improve the input surface...", "preview should render");
 assertNotContains(initial, "PREVIEW", "preview label should stay removed");
 assertContains(initial, "Enabled", "settings section should render");
+assertLineContainsAll(initial, ["Working indicator", "on"], "General should render the single working indicator toggle");
+assert.equal(initial.match(/Working indicator/g)?.length, 1, "settings pane should expose exactly one working indicator row");
 assertThemeRow(initial, "Light", "Light palette");
 assertThemeRow(initial, "Dark", "Dark palette");
 assertNotContains(initial, "Adaptive width", "adaptive width should be always-on rather than a /glance setting");
@@ -435,11 +437,12 @@ press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
 press(gridSettingPane.component, "\x1b[B");
+press(gridSettingPane.component, "\x1b[B");
 const iconsSelectedText = plainText(gridSettingPane.component);
 assertContains(iconsSelectedText, "» Icons", "down arrow should move within the setting column");
 assertContains(iconsSelectedText, "Plain text or Nerd Font icons with fallback.", "Icons row hint should mention plain and Nerd Font fallback guidance");
 press(gridSettingPane.component, "\x1b[D");
-assertContains(plainText(gridSettingPane.component), "» Context", "left arrow should move to the category on the same visual row");
+assertContains(plainText(gridSettingPane.component), "» Tokens", "left arrow should move to the category on the same visual row");
 
 const reorderPane = await makePane();
 press(reorderPane.component, "\x1b[B");
@@ -585,6 +588,8 @@ assertContains(thinkingChanged, "Show thinking level.", "model thinking hint sho
 const generalHintPane = await makePane();
 press(generalHintPane.component, "\x1b[C");
 assertContains(plainText(generalHintPane.component), "Temporarily disable pi-glance.", "general enabled hint should render");
+press(generalHintPane.component, "\x1b[B");
+assertContains(plainText(generalHintPane.component), "Show the complete themed working row.", "single working indicator toggle hint should render");
 press(generalHintPane.component, "\x1b[B");
 assertContains(plainText(generalHintPane.component), "Follow Pi theme tokens or use Glance palettes.", "color source hint should render");
 press(generalHintPane.component, "\x1b[B");

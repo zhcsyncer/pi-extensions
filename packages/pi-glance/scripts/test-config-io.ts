@@ -38,18 +38,20 @@ async function main(): Promise<void> {
 		assert.equal(loadConfigSync().enabled, false, "legacy config should migrate and retain mapped fields");
 		assert.match(consumeGlanceConfigNotices().join("\n"), /obsolete/, "migration should report discarded fields");
 		await assert.rejects(readFile(legacyConfigPath, "utf8"), /ENOENT/, "verified migration should delete the legacy file");
-		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 12, "migration should write the current schema version");
+		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 13, "migration should write the current schema version");
+		assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).workingIndicator, { enabled: true }, "schema migration should persist working indicator enabled by default");
 		await rm(configPath, { force: true });
 
 		await writeConfigText(configPath, "{");
 		assert.deepEqual(loadConfigSync(), defaultConfig(), "invalid JSON should make loadConfigSync fall back to defaults");
 		assert.deepEqual(await loadConfig(), defaultConfig(), "invalid JSON should make async loadConfig fall back to defaults");
 
-		const partialRaw = { enabled: false, icons: "nerd" };
+		const partialRaw = { enabled: false, icons: "nerd", workingIndicator: { enabled: false, details: true } };
 		const partialExpected = normalizeConfig(partialRaw);
 		await writeConfigText(configPath, JSON.stringify(partialRaw));
 		assert.deepEqual(configFromText(await readFile(configPath, "utf8")), partialExpected, "configFromText should parse and normalize valid partial config file text");
 		assert.deepEqual(loadConfigSync(), partialExpected, "loadConfigSync should read and normalize valid partial config text");
+		assert.equal((JSON.parse(await readFile(configPath, "utf8")) as { workingIndicator: Record<string, unknown> }).workingIndicator.details, undefined, "migration should drop unknown working indicator sub-fields");
 		assert.deepEqual(await loadConfig(), partialExpected, "async loadConfig should read and normalize valid partial config text");
 
 		const nextConfig = normalizeConfig({

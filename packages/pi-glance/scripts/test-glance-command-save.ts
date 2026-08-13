@@ -79,6 +79,8 @@ function createContext(customResults: PaneResult[]): TestContext {
 			notify: (message: string, type?: "info" | "warning" | "error") => {
 				notifications.push({ message, type });
 			},
+			setWorkingMessage: () => undefined,
+			setWorkingIndicator: () => undefined,
 			custom: async <T>(factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: T) => void) => { render?: (width: number) => string[] }) => {
 				const component = factory(fakeTui, fakeTheme, {}, () => undefined);
 				if (typeof component.render === "function") renderedPanes.push(component.render(100));

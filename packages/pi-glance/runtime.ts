@@ -7,6 +7,7 @@ import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEn
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
+import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters } from "./working-indicator.js";
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
 
@@ -35,10 +36,21 @@ export interface GlanceRuntimeAdapters {
 	showPane(initial: GlanceConfig, ctx: ExtensionCommandContext, previewState?: GlanceState, options?: RuntimeShowPaneOptions): Promise<GlancePaneResult>;
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	nowMs?: () => number;
+	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
 }
 
 interface MessageEndLikeEvent {
 	message: RuntimeMessageEndInput;
+}
+
+interface MessageUpdateLikeEvent {
+	assistantMessageEvent?: { type?: unknown; partial?: unknown };
+	message?: unknown;
+}
+
+interface ToolExecutionLikeEvent {
+	toolCallId?: unknown;
+	toolName?: unknown;
 }
 
 type TurnEndLikeEvent = RuntimeTurnEndInput;
@@ -59,13 +71,16 @@ export interface GlanceRuntime {
 		modelSelect(event: unknown, ctx: ExtensionContext): Promise<void>;
 		thinkingLevelSelect(event: unknown, ctx: ExtensionContext): Promise<void>;
 		turnStart(event: unknown, ctx: ExtensionContext): Promise<void>;
-		toolExecutionEnd(event: unknown, ctx: ExtensionContext): Promise<void>;
+		messageUpdate(event: MessageUpdateLikeEvent, ctx: ExtensionContext): void;
+		toolExecutionStart(event: ToolExecutionLikeEvent, ctx: ExtensionContext): void;
+		toolExecutionEnd(event: ToolExecutionLikeEvent, ctx: ExtensionContext): Promise<void>;
 		sessionTree(event: unknown, ctx: ExtensionContext): Promise<void>;
 		sessionCompact(event: unknown, ctx: ExtensionContext): Promise<void>;
 		messageEnd(event: MessageEndLikeEvent, ctx: ExtensionContext): Promise<void>;
 		turnEnd(event: TurnEndLikeEvent, ctx: ExtensionContext): Promise<void>;
 		agentStart(event: unknown, ctx: ExtensionContext): void;
 		agentEnd(event: AgentEndLikeEvent, ctx: ExtensionContext): Promise<void>;
+		agentSettled(event: unknown, ctx: ExtensionContext): void;
 	};
 }
 
@@ -91,8 +106,15 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 	let footer: StatusOnlyFooter | undefined;
 	let gitRefresher: RuntimeGitRefresher | undefined;
 	let requestRender: (() => void) | undefined;
+	let readTerminalWidth = () => 80;
 	let uiGeneration = 0;
 	const nowMs = adapters.nowMs ?? Date.now;
+	const workingIndicator = createWorkingIndicatorController({
+		getConfig,
+		getThinkingLevel: () => adapters.getThinkingLevel(),
+		getTerminalWidth: () => readTerminalWidth(),
+		...adapters.workingIndicator,
+	});
 
 	async function ensureConfig(): Promise<GlanceConfig> {
 		config ??= await adapters.loadConfig();
@@ -164,6 +186,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 
 	function clearUI(ctx: ExtensionContext): void {
 		if (!isTuiMode(ctx)) return;
+		workingIndicator.apply(ctx);
 		invalidateUiOwnership();
 		clearGitRefresher();
 		ctx.ui.setEditorComponent(undefined);
@@ -183,10 +206,12 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			getPiTheme: () => readPiUiTheme(ctx.ui),
 			getAmbientTone: () => readPiAmbientTone(ctx.ui),
 		});
+		workingIndicator.apply(ctx, renderStyleContext);
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);
 		ctx.ui.setFooter((tui, theme, footerData) => {
+			readTerminalWidth = () => tui.terminal.columns;
 			const nextFooter = new StatusOnlyFooter({ theme, footerData });
 			if (isCurrentUiGeneration(generation)) {
 				setUiRequestRender(generation, () => tui.requestRender());
@@ -196,6 +221,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		});
 
 		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+			readTerminalWidth = () => tui.terminal.columns;
 			setUiRequestRender(generation, () => tui.requestRender());
 			return new GlanceEditor(
 				tui,
@@ -251,6 +277,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				installInputSurface(ctx);
 			},
 			sessionShutdown: async (_event, ctx) => {
+				workingIndicator.shutdown();
 				refreshSession.sessionShutdown();
 				clearUI(ctx);
 			},
@@ -261,12 +288,23 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				await refreshSession.execute("model_select", ctx);
 			},
 			thinkingLevelSelect: async (_event, ctx) => {
+				workingIndicator.thinkingLevelChanged();
 				await refreshSession.execute("thinking_level_select", ctx);
 			},
 			turnStart: async (_event, ctx) => {
+				workingIndicator.turnStart();
 				await refreshSession.execute("turn_start", ctx);
 			},
-			toolExecutionEnd: async (_event, ctx) => {
+			messageUpdate: (event, _ctx) => {
+				workingIndicator.messageUpdate(event);
+			},
+			toolExecutionStart: (event, _ctx) => {
+				if (typeof event.toolCallId === "string" && typeof event.toolName === "string") {
+					workingIndicator.toolExecutionStart({ toolCallId: event.toolCallId, toolName: event.toolName });
+				}
+			},
+			toolExecutionEnd: async (event, ctx) => {
+				if (typeof event.toolCallId === "string") workingIndicator.toolExecutionEnd({ toolCallId: event.toolCallId });
 				await refreshSession.execute("tool_execution_end", ctx);
 			},
 			sessionTree: async (_event, ctx) => {
@@ -276,16 +314,21 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				await refreshSession.execute("session_compact", ctx);
 			},
 			messageEnd: async (event, ctx) => {
+				workingIndicator.messageEnd(event);
 				await refreshSession.messageEnd(event.message, ctx);
 			},
 			turnEnd: async (event, ctx) => {
 				await refreshSession.turnEnd(event, ctx);
 			},
-			agentStart: (_event, _ctx) => {
+			agentStart: (_event, ctx) => {
+				workingIndicator.agentStart(ctx);
 				refreshSession.agentStart();
 			},
 			agentEnd: async (event, ctx) => {
 				await refreshSession.agentEnd(event, ctx);
+			},
+			agentSettled: (_event, _ctx) => {
+				workingIndicator.agentSettled();
 			},
 		},
 	};

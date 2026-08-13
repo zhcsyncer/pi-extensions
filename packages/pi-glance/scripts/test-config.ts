@@ -33,11 +33,16 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 12, "Follow Pi should keep CONFIG_VERSION at 12");
-assert.equal(normalizeConfig({ version: 0 }).version, 12, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 12, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 13, "working indicator should advance CONFIG_VERSION to 13");
+assert.equal(normalizeConfig({ version: 0 }).version, 13, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 13, "future raw version should normalize to current schema version");
+assert.deepEqual(defaults.workingIndicator, { enabled: true }, "working indicator should default on for the complete experience");
+assert.deepEqual(normalizeConfig({ version: 12 }).workingIndicator, { enabled: true }, "schema 12 configs should migrate with working indicator on");
+assert.equal(normalizeConfig({ workingIndicator: { enabled: false } }).workingIndicator.enabled, false, "explicit working indicator off should be preserved");
+assert.equal(normalizeConfig({ workingIndicator: { enabled: "no" } }).workingIndicator.enabled, true, "invalid working indicator values should fall back on");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
 assert.equal(normalizeConfig({ version: 10 }).colorSource, "glance", "v10 configs should preserve Glance palette behavior when colorSource is missing");
+assert.equal(normalizeConfig({ version: 12 }).colorSource, "glance", "v12 configs missing colorSource should preserve the established legacy Glance fallback while adding working indicator");
 assert.equal(normalizeConfig({ version: 10, colorSource: "pi" }).colorSource, "pi", "legacy configs should preserve an explicit new color source");
 assert.equal(normalizeConfig({ colorSource: "glance" }).colorSource, "glance", "current configs should preserve Glance palette color source");
 assert.equal(normalizeConfig({ colorSource: "invalid" }).colorSource, "pi", "invalid current color source should fall back to Follow Pi");
@@ -88,8 +93,11 @@ assert.deepEqual(normalizeConfig({}).theme, defaults.theme, "missing theme shoul
 	const cloned = cloneConfig(source);
 	assert.deepEqual(cloned, source, "cloneConfig should preserve the theme pair");
 	assert.notEqual(cloned.theme, source.theme, "cloneConfig should deep-clone the theme pair object");
+	assert.notEqual(cloned.workingIndicator, source.workingIndicator, "cloneConfig should deep-clone working indicator config");
 	cloned.theme.light = "dark";
+	cloned.workingIndicator.enabled = false;
 	assert.equal(source.theme.light, "one-light", "mutating cloned theme pair should not mutate the source config");
+	assert.equal(source.workingIndicator.enabled, true, "mutating cloned working config should not mutate the source config");
 }
 
 for (const icons of ICON_MODE_VALUES) {
@@ -197,8 +205,11 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 12,
+		version: 13,
 		enabled: false,
+		workingIndicator: {
+			enabled: true,
+		},
 		colorSource: "glance",
 		theme: { light: "tokyo-night", dark: "tokyo-night" },
 		icons: "nerd",
@@ -260,6 +271,7 @@ assert.equal(normalizeConfig({ icons: "nerd" }).icons, "nerd", "saved icons: ner
 const sparseConfig = normalizeConfig({ enabled: false, theme: "dark" });
 assert.equal(sparseConfig.enabled, false, "missing nested groups should not reset known top-level booleans");
 assert.deepEqual(sparseConfig.theme, { light: "dark", dark: "dark" }, "missing nested groups should migrate known top-level old theme strings");
+assert.deepEqual(sparseConfig.workingIndicator, defaults.workingIndicator, "missing working indicator group should fill defaults");
 assert.deepEqual(sparseConfig.editor, defaults.editor, "missing editor group should fill defaults");
 assert.deepEqual(sparseConfig.display, defaults.display, "missing display group should fill defaults");
 assert.deepEqual(normalizeConfig({ display: { adaptive: false } }).display, defaults.display, "legacy adaptive width setting should be ignored because fitting is always on");

@@ -24,6 +24,8 @@ export default function piGlance(pi: ExtensionAPI): void {
 	pi.on("model_select", runtime.events.modelSelect);
 	pi.on("thinking_level_select", runtime.events.thinkingLevelSelect);
 	pi.on("turn_start", runtime.events.turnStart);
+	pi.on("message_update", runtime.events.messageUpdate);
+	pi.on("tool_execution_start", runtime.events.toolExecutionStart);
 	pi.on("tool_execution_end", runtime.events.toolExecutionEnd);
 	pi.on("session_tree", runtime.events.sessionTree);
 	pi.on("session_compact", runtime.events.sessionCompact);
@@ -31,4 +33,5 @@ export default function piGlance(pi: ExtensionAPI): void {
 	pi.on("turn_end", runtime.events.turnEnd);
 	pi.on("agent_start", runtime.events.agentStart);
 	pi.on("agent_end", runtime.events.agentEnd);
+	pi.on("agent_settled", runtime.events.agentSettled);
 }

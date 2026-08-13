@@ -74,8 +74,11 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 12;
+	version: 13;
 	enabled: boolean;
+	workingIndicator: {
+		enabled: boolean;
+	};
 	colorSource: ColorSource;
 	theme: GlanceThemePair;
 	icons: IconMode;

@@ -48,6 +48,8 @@ function createContext(calls: string[], mode: "tui" | "rpc" | "json" | "print" =
 			getBranch: () => [],
 		},
 		ui: {
+			setWorkingMessage: (message?: string) => calls.push(message === undefined ? "setWorkingMessage:restore" : "setWorkingMessage:set"),
+			setWorkingIndicator: (options?: unknown) => calls.push(options === undefined ? "setWorkingIndicator:restore" : "setWorkingIndicator:set"),
 			setFooter: (factory: unknown) => calls.push(factory ? "setFooter:install" : "setFooter:clear"),
 			setEditorComponent: (factory: unknown) => calls.push(factory ? "setEditorComponent:install" : "setEditorComponent:clear"),
 		},
@@ -98,7 +100,9 @@ async function main(): Promise<void> {
 		const disabledResult = getHandler(disabledPi, "session_start")({ type: "session_start" }, createContext(disabledCalls));
 
 		assert.equal(isPromiseLike(disabledResult), false, "session_start should also be synchronous for disabled config");
-		assert.deepEqual(disabledCalls.filter((call) => call.endsWith(":install")), [], "disabled config should not claim custom footer/editor");
+		assert.deepEqual(disabledCalls.filter((call) => call.endsWith(":install") || call.endsWith(":set")), [], "disabled config should not claim custom footer/editor/working UI");
+		assert.ok(disabledCalls.includes("setWorkingMessage:restore"), "disabled config should synchronously restore Pi's working message");
+		assert.ok(disabledCalls.includes("setWorkingIndicator:restore"), "disabled config should synchronously restore Pi's working spinner");
 		assert.ok(disabledCalls.includes("setEditorComponent:clear"), "disabled config should synchronously restore the built-in editor");
 		assert.ok(disabledCalls.includes("setFooter:clear"), "disabled config should synchronously restore the built-in footer");
 	} finally {

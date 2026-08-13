@@ -60,7 +60,7 @@ function turnEnd(turnIndex: unknown, message: unknown): unknown {
 function createContext(): TestContext {
 	const notifications: Notification[] = [];
 	let renderRequests = 0;
-	const fakeTui = { requestRender: () => renderRequests++ };
+	const fakeTui = { terminal: { columns: 100 }, requestRender: () => renderRequests++ };
 	const fakeTheme = {};
 
 	const ctx = {
@@ -78,6 +78,8 @@ function createContext(): TestContext {
 		},
 		ui: {
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
+			setWorkingMessage: (_message?: string) => {},
+			setWorkingIndicator: (_options?: unknown) => {},
 			setFooter: (factory: unknown) => {
 				if (factory) (factory as (tui: unknown, theme: unknown) => unknown)(fakeTui, fakeTheme);
 			},
@@ -106,6 +108,11 @@ function createRuntime(nowValues: number[]): { runtime: RuntimeRecord; capturedS
 		nowMs: () => {
 			assert.ok(pendingNowValues.length > 0, "runtime should only read injected nowMs for agent_start/turn_end/agent_end timing");
 			return pendingNowValues.shift()!;
+		},
+		workingIndicator: {
+			nowMs: () => 0,
+			setInterval: () => ({ kind: "throughput-test-working-timer" }),
+			clearInterval: () => undefined,
 		},
 	};
 	return { runtime: createGlanceRuntime(adapters) as unknown as RuntimeRecord, capturedStates, getRemainingNowReads: () => pendingNowValues.length };
