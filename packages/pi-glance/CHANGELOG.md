@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.5.0
+
+### Minor Changes
+
+- caf3e9c: Add a switchable, theme-aware Claude-inspired working indicator to Glance, with automatic activity, current-cycle output estimates, human-readable elapsed time with long-cycle emphasis, a first-level settings entry, and parent-preserving pane navigation.
+
 ## 0.4.1
 
 ### Patch Changes
