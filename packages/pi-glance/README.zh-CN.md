@@ -6,7 +6,7 @@
 
 用圆角多行编辑器替换默认输入框，在边框中展示 Git、费用、回复速率、context、可选 token 和模型信息，同时不再隐藏其他扩展发布的状态。
 
-本包 fork 自 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3。它保留上游能力，并增加固定的 StatusOnlyFooter、输入框右下角 context 进度条、高亮自动压缩标记，以及跟随主题的 Claude-inspired working indicator。
+本包 fork 自 [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3，并在上游输入界面基础上增加固定的 StatusOnlyFooter、Follow Pi 主题集成、输入框右下角 context 与自动压缩详情，以及可关闭、跟随主题的 Claude-inspired working indicator。
 
 [English](./README.md)
 
@@ -64,7 +64,11 @@ pi --no-extensions -e ./packages/pi-glance
 
 ## Working indicator
 
-高层 agent cycle 活跃时，Glance 会接管 Pi working row，自动显示主题化往返星形 spinner、当前 cycle 内保持稳定的趣味动词、grapheme-safe shimmer、requesting/thinking/tool 活动、可用的 thinking effort、本 cycle 输出 token 和耗时。并行工具独立跟踪；retry、压缩重试和 queued continuation 会在 `agent_settled` 前保持同一个动词、起始时间和 output 累计。
+**Fork 差异：** Working indicator 由 `@zhcsyncer/pi-glance` 提供；上游 `pi-glance` 0.5.3 不包含该功能。
+
+高层 agent cycle 活跃时，Glance 会接管 Pi working row，自动显示主题化往返星形 spinner、当前 cycle 内保持稳定的趣味动词、requesting/thinking/tool 活动、可用的 thinking effort、本 cycle 输出 token 和耗时。并行工具独立跟踪；retry、压缩重试和 queued continuation 会在 `agent_settled` 前保持同一个动词、起始时间和 output 累计。
+
+动画由沉稳的缓动星形和高对比、grapheme-safe 的 accent shimmer 组成，shimmer 中心额外加粗。tool-use 阶段动词保持静态，避免与可见 tool call 争夺注意力。
 
 耗时保持紧凑且易读：`47s`、`3m 08s`、`1h 07m`。不足一分钟使用 dim，一分钟起到五分钟前使用普通文字，五分钟及以上使用主题 warning 色。只强调耗时字段——cycle 很长不代表它已经卡住。
 

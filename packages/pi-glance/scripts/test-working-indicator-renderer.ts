@@ -16,6 +16,7 @@ const STYLE_CODES: Record<string, string> = {
 	warn: "\u001b[33m",
 	error: "\u001b[35m",
 	title: "\u001b[34m",
+	strongTitle: "\u001b[1;34m",
 };
 
 function marker(name: string): TextStyler {
@@ -28,6 +29,7 @@ const styles: ResolvedGlanceStyles = {
 	label: "Test",
 	cacheKey: "glance:test",
 	text: marker("text"),
+	strongTitle: marker("strongTitle"),
 	dim: marker("dim"),
 	success: marker("success"),
 	warn: marker("warn"),
@@ -55,7 +57,12 @@ function snapshot(overrides: Partial<WorkingIndicatorSnapshot> = {}): WorkingInd
 	};
 }
 
-assert.deepEqual(WORKING_SPINNER_GLYPHS, ["·", "✢", "✱", "✶", "✻", "✽", "✻", "✶", "✱", "✢"], "spinner should preserve non-repeated ping-pong endpoints");
+assert.deepEqual(
+	WORKING_SPINNER_GLYPHS,
+	["·", "·", "✢", "✢", "✱", "✶", "✻", "✽", "✽", "✽", "✽", "✻", "✶", "✱", "✢", "✢", "·"],
+	"spinner should use an eased ping-pong sequence with deliberate endpoint dwell",
+);
+assert.equal(WORKING_SPINNER_GLYPHS.length * 120, 2_040, "spinner cycle should stay close to Claude Code's calmer two-second rhythm");
 assert.ok(safeWorkingSpinnerGlyphs().every((glyph) => visibleWidth(glyph) === 1), "every spinner frame should be exactly one visible column");
 assert.deepEqual(safeWorkingSpinnerGlyphs(["✢", "ab", "🧪"]), ["✢", "*", "*"], "unsafe-width spinner glyphs should fall back to one-column stars");
 assert.ok(styledWorkingSpinnerFrames(styles).every((frame) => frame.includes(STYLE_CODES.title!)), "spinner frames should use resolved title styling");
@@ -67,15 +74,29 @@ assert.equal(unicode.includes("�"), false, "shimmer should never emit broken U
 
 const firstRequest = snapshot({ phase: "requesting", finalizedOutput: 0, hasGenerationProgress: false });
 const requestingAtStart = renderWorkingMessage({ snapshot: firstRequest, nowMs: 0, width: 80, styles });
-const requestingLater = renderWorkingMessage({ snapshot: firstRequest, nowMs: 90, width: 80, styles });
-assert.notEqual(requestingAtStart, requestingLater, "requesting shimmer should move left to right with elapsed time");
+const requestingStillOffscreen = renderWorkingMessage({ snapshot: firstRequest, nowMs: 960, width: 80, styles });
+const requestingShoulderEntry = renderWorkingMessage({ snapshot: firstRequest, nowMs: 1_080, width: 80, styles });
+const requestingEntry = renderWorkingMessage({ snapshot: firstRequest, nowMs: 1_200, width: 80, styles });
+const requestingNext = renderWorkingMessage({ snapshot: firstRequest, nowMs: 1_320, width: 80, styles });
+assert.equal(requestingAtStart, requestingStillOffscreen, "requesting shimmer should begin with a calm offscreen lead-in");
+assert.ok(requestingShoulderEntry.includes(`${STYLE_CODES.title}B`), "requesting shimmer shoulder should enter before its center");
+assert.notEqual(requestingEntry, requestingNext, "requesting shimmer should move left to right one visible column per ticker frame");
 assert.equal(requestingAtStart.includes("("), false, "first requesting state with no other facts should show only the main phrase");
-assert.ok(requestingAtStart.includes(`${STYLE_CODES.text}B`), "requesting shimmer should begin on the leftmost grapheme");
-const respondingAtStart = renderWorkingMessage({ snapshot: snapshot(), nowMs: 0, width: 80, styles });
-assert.ok(respondingAtStart.includes(`${STYLE_CODES.text}…`), "generating shimmer should begin on the rightmost grapheme");
-assert.ok(respondingAtStart.includes(STYLE_CODES.title!), "verb base should use resolved title style");
-assert.ok(respondingAtStart.includes(STYLE_CODES.text!), "verb highlight should use resolved text style");
-assert.ok(respondingAtStart.includes(STYLE_CODES.dim!), "activity/token/elapsed details should use resolved dim style");
+assert.equal(requestingAtStart, styles.text("Brewing…"), "offscreen shimmer should leave the whole verb in normal text color");
+assert.ok(requestingEntry.includes(`${STYLE_CODES.strongTitle}B`), "requesting shimmer center should enter on the left in bold accent");
+assert.ok(requestingNext.includes(`${STYLE_CODES.title}B`) && requestingNext.includes(`${STYLE_CODES.strongTitle}r`), "shimmer shoulders should retain accent around its bold center");
+const respondingOffscreen = renderWorkingMessage({ snapshot: snapshot(), nowMs: 0, width: 80, styles });
+const respondingShoulderEntry = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_400, width: 80, styles });
+const respondingEntry = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_640, width: 80, styles });
+const respondingNext = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_880, width: 80, styles });
+assert.ok(respondingShoulderEntry.includes(`${STYLE_CODES.title}…`), "generating shimmer shoulder should enter from the right");
+assert.ok(respondingEntry.includes(`${STYLE_CODES.strongTitle}…`), "generating shimmer center should enter on the right");
+assert.ok(respondingNext.includes(`${STYLE_CODES.strongTitle}g`), "generating shimmer should move right to left at the slower cadence");
+assert.equal(respondingOffscreen.includes(STYLE_CODES.title!), false, "offscreen generating shimmer should preserve the normal text base");
+assert.ok(respondingEntry.includes(STYLE_CODES.title!), "visible shimmer shoulders should use resolved title style");
+assert.ok(respondingEntry.includes(STYLE_CODES.strongTitle!), "visible shimmer center should use resolved strong title style");
+assert.ok(respondingEntry.includes(STYLE_CODES.text!), "verb base should use resolved text style");
+assert.ok(respondingEntry.includes(STYLE_CODES.dim!), "activity/token/elapsed details should use resolved dim style");
 
 const estimated = renderWorkingMessage({ snapshot: snapshot({ partialOutput: 42, hasPartialEstimate: true }), nowMs: 2_000, width: 80, styles });
 assert.ok(estimated.includes("↓ ~226 tokens"), "partial output should add to finalized output and show an estimate marker");
@@ -98,7 +119,11 @@ assert.ok(finalized.includes("↓ 184 tokens"), "finalized output should omit th
 assert.equal(finalized.includes("~184"), false, "finalized tokens should never retain a tilde");
 
 const tool = snapshot({ phase: "tool-use", tools: [{ id: "a", name: "bash" }] });
+const toolAtStart = renderWorkingMessage({ snapshot: tool, nowMs: 0, width: 80, styles });
 const wide = renderWorkingMessage({ snapshot: tool, nowMs: 18_000, width: 80, styles });
+assert.equal(toolAtStart.replace(/0s/g, "18s"), wide, "tool-use verb should remain static instead of adding shimmer or breathing motion");
+assert.ok(wide.includes(styles.text("Brewing…")), "tool-use verb should use normal text styling");
+assert.equal(wide.includes(STYLE_CODES.title!), false, "tool-use should not compete with the visible tool call using animated accent text");
 assert.ok(wide.includes("running bash") && wide.includes("↓ 184 tokens") && wide.includes("18s"), "wide output should include activity, token and elapsed details");
 const withoutElapsed = renderWorkingMessage({ snapshot: tool, nowMs: 18_000, width: visibleWidth(wide) - 3, styles });
 assert.equal(withoutElapsed.includes("18s"), false, "short elapsed time should be the first detail removed as width narrows");

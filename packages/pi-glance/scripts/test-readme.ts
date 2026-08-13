@@ -5,6 +5,7 @@ import { GLANCE_THEMES } from "../themes.js";
 
 const readme = await readFile("README.md", "utf8");
 const readmeZh = await readFile("README.zh-CN.md", "utf8");
+const upstreamSource = await readFile("UPSTREAM_SOURCE.md", "utf8");
 
 function assertReadmeIncludes(fragment: string, message: string): void {
 	assert.ok(readme.includes(fragment), message);
@@ -48,6 +49,9 @@ assertReadmeIncludes("Nerd icons need a Nerd Font or Symbols Nerd Font fallback"
 assertReadmeIncludes("If icons look like boxes, choose `plain`", "README should explain the plain fallback when icons render as boxes");
 assertReadmeIncludes("does not auto-detect, install, or bundle terminal fonts", "README should avoid implying font detection/install/bundling");
 assertReadmeIncludes("Claude-inspired working indicator", "README should describe the Claude-inspired working indicator");
+assertReadmeIncludes("Fork difference:", "README should clearly mark the working indicator as a fork difference");
+assertReadmeIncludes("upstream `pi-glance` 0.5.3 does not include it", "README should distinguish the working indicator from upstream capabilities");
+assert.ok(upstreamSource.includes("switchable, theme-aware Claude-inspired working indicator"), "upstream source record should list the working indicator among local differences");
 assertReadmeIncludes("not an official Anthropic component", "README should rule out official Anthropic provenance");
 assertReadmeIncludes("does not change the Agent, prompts, models, tools, messages, or session behavior", "README should document display-only behavior");
 assertReadmeIncludes("**Working indicator** directly in the first-level menu", "README should document the first-level working-indicator entry");
@@ -66,6 +70,8 @@ assertReadmeIncludes("it is retained ahead of cycle tokens", "README should docu
 assertReadmeIncludes("global singleton with no owner stack", "README should document working-row ownership limits");
 assertReadmeIncludes("schema version 13", "README should document config schema 13");
 assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README working default should stay aligned with config");
+assert.ok(readmeZh.includes("**Fork 差异：**"), "Chinese README should clearly mark the working indicator as a fork difference");
+assert.ok(readmeZh.includes("上游 `pi-glance` 0.5.3 不包含该功能"), "Chinese README should distinguish the working indicator from upstream capabilities");
 assert.ok(readmeZh.includes("不是 Anthropic 官方组件"), "Chinese README should rule out official Anthropic provenance");
 assert.ok(readmeZh.includes("一级菜单直接显示 **Working indicator**"), "Chinese README should document the first-level working entry");
 assert.ok(readmeZh.includes("只有一个 `Enabled: on/off` 开关"), "Chinese README should document the single working switch");

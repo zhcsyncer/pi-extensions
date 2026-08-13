@@ -2467,6 +2467,11 @@ for (const themeId of GLANCE_THEME_IDS) {
 		assert.equal(styles[role](text), fg(palette[role], text), `${themeId}.${role} style should preserve current fg(PALETTES[theme].${role}, text) ANSI output`);
 	}
 	assert.equal(
+		styles.strongTitle("strong"),
+		fg(palette.title, "\x1b[1mstrong\x1b[22m"),
+		`${themeId}.strongTitle should combine palette title color with bold emphasis`,
+	);
+	assert.equal(
 		styles.bashBorder(`${themeId}:bash:sample`),
 		fg(palette.warn, `${themeId}:bash:sample`),
 		`${themeId}.bashBorder should use the palette warning color`,
@@ -2506,6 +2511,7 @@ function fakePiTheme(colors: Partial<Record<PiThemeColorToken, Rgb>>, name = "fa
 			if (!color) throw new Error(`missing fake pi theme token ${token}`);
 			return fg(color, text);
 		},
+		bold: (text) => `<bold>${text}</bold>`,
 	};
 }
 
@@ -2529,6 +2535,7 @@ function fakePiTheme(colors: Partial<Record<PiThemeColorToken, Rgb>>, name = "fa
 	assert.equal(styles.border("│"), fg(PI_TOKEN_COLORS.border, "│"), "Pi border should map to border token");
 	assert.equal(styles.bashBorder("bash"), fg(PI_TOKEN_COLORS.bashMode, "bash"), "Pi Bash border should map to bashMode token");
 	assert.equal(styles.title("title"), fg(PI_TOKEN_COLORS.accent, "title"), "Pi title should map to accent token");
+	assert.equal(styles.strongTitle("strong"), fg(PI_TOKEN_COLORS.accent, "<bold>strong</bold>"), "Pi strong title should combine public accent and bold theme APIs");
 	assert.equal(styles.segments.git.fg("git"), fg(PI_TOKEN_COLORS.success, "git"), "Pi git segment should map to success token");
 	assert.equal(styles.segments.model.fg("model"), fg(PI_TOKEN_COLORS.text, "model"), "Pi model segment should map to text token");
 	assert.equal(styles.segments.context.fg("ctx"), fg(PI_TOKEN_COLORS.accent, "ctx"), "Pi context segment should map to accent token");
@@ -2568,6 +2575,7 @@ function fakePiTheme(colors: Partial<Record<PiThemeColorToken, Rgb>>, name = "fa
 	assert.equal(styles.border("border"), fg(PI_TOKEN_COLORS.muted, "border"), "missing Pi border tokens should fall back to muted");
 	assert.equal(styles.bashBorder("bash"), fg(PI_TOKEN_COLORS.accent, "bash"), "missing Pi bashMode/warning should fall back to accent");
 	assert.equal(styles.title("title"), fg(PI_TOKEN_COLORS.accent, "title"), "missing Pi title accent alternatives should use accent");
+	assert.equal(styles.strongTitle("strong"), fg(PI_TOKEN_COLORS.accent, "<bold>strong</bold>"), "missing Pi title alternatives should preserve bold accent fallback");
 	assert.equal(styles.segments.git.fg("git"), fg(PI_TOKEN_COLORS.accent, "git"), "missing Pi success should fall back git to accent");
 	assert.equal(styles.segments.cost.fg("cost"), fg(PI_TOKEN_COLORS.accent, "cost"), "missing Pi warning should fall back cost to accent");
 	assert.equal(styles.segments.tokens.fg("tok"), fg(PI_TOKEN_COLORS.muted, "tok"), "missing Pi token-specific colors should fall back tokens to muted");

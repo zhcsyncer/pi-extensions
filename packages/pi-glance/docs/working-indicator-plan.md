@@ -1,6 +1,6 @@
 # Glance Working Indicator 实施方案
 
-状态：Ready for implementation
+状态：Implemented
 
 目标分支：`feat/glance-working-indicator`
 
@@ -161,25 +161,22 @@ type WorkingPhase =
 
 ### 6.1 Spinner
 
-基础 glyph：
+基础 glyph 为 `· → ✢ → ✱ → ✶ → ✻ → ✽` 往返；安装到 Pi 前重复靠近两端的 frame，形成约 2 秒一轮的 eased 节奏与端点停留。
 
-```ts
-["·", "✢", "✱", "✶", "✻", "✽", "✻", "✶", "✱", "✢"]
-```
-
-- 不重复往返点。
 - 每个 frame 必须恰好一列；使用 `visibleWidth()` 检查，异常 glyph 退化为 `*`。
-- `intervalMs` 约 120ms。
+- `intervalMs` 保持约 120ms；缓动由预计算 frame 序列完成，不增加第二个 timer。
 - frame 使用当前 resolved Glance title/accent style。
 - 若 runtime theme / color source cache key 变化，重新安装已着色 frames。
 
 ### 6.2 Shimmer
 
 - 不做写死 Claude RGB，也不解析/插值 ANSI。
-- base 使用 resolved Glance `title`；highlight 使用 resolved Glance `text`；辅助信息使用 `dim`；长 elapsed 使用 `text` / `warn`；stall 使用 `error`。
+- base 使用 resolved Glance `text`；三列 highlight 带的两侧使用 `title`，中心使用粗体 `title`；辅助信息使用 `dim`；长 elapsed 使用 `text` / `warn`；stall 使用 `error`。
+- Follow Pi 的中心强调组合公开 `accent` 与 `bold()`；Glance palette 使用 palette `title` 与标准 bold，因此即使主题的 text/accent 接近仍有非颜色对比。
 - 使用 `Intl.Segmenter` 的 grapheme segmentation；不可用时回退 `Array.from()`。
 - shimmer 位置按可见终端列而不是 UTF-16 index 计算；使用 `visibleWidth()`。
-- requesting 从左向右，其余生成阶段从右向左。
+- 文案两侧各保留 10 列场外行程；requesting 从左向右且每 120ms 移动一列，thinking/responding 从右向左且每 240ms 移动一列，避免现有单 ticker 跳列。
+- tool-use 主文案保持静态，不叠加 shimmer 或整段呼吸，避免与可见 tool call 重复争夺注意力。
 - 使用 elapsed-time-based position，而不是依赖 tick 次数，避免 timer 抖动造成速度漂移。
 - 主题函数应从现有 `resolveRuntimeRenderStyleContext()` / `resolveGlanceRenderStyles()` 懒解析，保持 `Follow Pi` 的 runtime theme switching 和 Glance palette 一致。
 
@@ -248,9 +245,9 @@ packages/pi-glance/
 
 ### 9.2 Renderer
 
-- spinner 无重复端点且每帧一列。
-- shimmer 方向正确，grapheme/emoji/组合字符不被拆坏。
-- base/highlight/dim/text/warn/error 使用 resolved Glance semantic styles。
+- spinner 使用约 2 秒 eased 往返节奏且每帧一列。
+- shimmer 场外停顿、三列强调带、方向和速度正确，grapheme/emoji/组合字符不被拆坏。
+- base/title/strong-title/dim/text/warn/error 使用 resolved Glance semantic styles；tool-use 主文案保持静态。
 - `~` 只在含 partial estimate 时出现。
 - elapsed 在 60s、5m、1h 边界使用规定格式和强调级别。
 - 宽度降级按规定优先级，warning elapsed 优先于 token，任何输出不超过预算。

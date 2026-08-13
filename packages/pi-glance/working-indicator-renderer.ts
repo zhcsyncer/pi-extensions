@@ -2,10 +2,12 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ResolvedGlanceStyles } from "./theme-adapter.js";
 import { isWorkingStalled, type WorkingIndicatorSnapshot, workingOutputTokens } from "./working-indicator-state.js";
 
-export const WORKING_SPINNER_GLYPHS = ["·", "✢", "✱", "✶", "✻", "✽", "✻", "✶", "✱", "✢"] as const;
+export const WORKING_SPINNER_GLYPHS = ["·", "·", "✢", "✢", "✱", "✶", "✻", "✽", "✽", "✽", "✽", "✻", "✶", "✱", "✢", "✢", "·"] as const;
 export const WORKING_SPINNER_INTERVAL_MS = 120;
 
-const SHIMMER_STEP_MS = 90;
+const SHIMMER_EDGE_TRAVEL_COLUMNS = 10;
+const REQUESTING_SHIMMER_STEP_MS = WORKING_SPINNER_INTERVAL_MS;
+const GENERATING_SHIMMER_STEP_MS = WORKING_SPINNER_INTERVAL_MS * 2;
 const ELAPSED_TEXT_THRESHOLD_MS = 60_000;
 const ELAPSED_WARNING_THRESHOLD_MS = 5 * 60_000;
 const ELLIPSIS = "…";
@@ -33,25 +35,39 @@ export function splitGraphemes(text: string): string[] {
 	return Array.from(text);
 }
 
-function shimmerVerb(snapshot: WorkingIndicatorSnapshot, nowMs: number, styles: ResolvedGlanceStyles, stalled: boolean): string {
-	const verb = `${snapshot.verb}${ELLIPSIS}`;
-	const graphemes = splitGraphemes(verb);
-	if (graphemes.length === 0) return "";
+function shimmerCenter(snapshot: WorkingIndicatorSnapshot, nowMs: number, totalColumns: number): number | undefined {
+	if (snapshot.phase === "tool-use") return undefined;
+	const stepMs = snapshot.phase === "requesting" ? REQUESTING_SHIMMER_STEP_MS : GENERATING_SHIMMER_STEP_MS;
+	const travelColumns = totalColumns + SHIMMER_EDGE_TRAVEL_COLUMNS * 2;
+	const rawPosition = Math.floor(Math.max(0, nowMs - snapshot.startedAtMs) / stepMs) % travelColumns;
+	return snapshot.phase === "requesting"
+		? rawPosition - SHIMMER_EDGE_TRAVEL_COLUMNS
+		: totalColumns + SHIMMER_EDGE_TRAVEL_COLUMNS - rawPosition;
+}
+
+function renderShimmerText(text: string, snapshot: WorkingIndicatorSnapshot, nowMs: number, styles: ResolvedGlanceStyles, stalled: boolean): string {
+	if (!text) return "";
+	if (stalled) return styles.error(text);
+	const graphemes = splitGraphemes(text);
 	const columns = graphemes.map((grapheme) => Math.max(1, visibleWidth(grapheme)));
 	const totalColumns = columns.reduce((sum, width) => sum + width, 0);
-	const rawPosition = Math.floor(Math.max(0, nowMs - snapshot.startedAtMs) / SHIMMER_STEP_MS) % Math.max(1, totalColumns);
-	const leftToRight = snapshot.phase === "requesting";
-	const position = leftToRight ? rawPosition : totalColumns - 1 - rawPosition;
+	const center = shimmerCenter(snapshot, nowMs, totalColumns);
+	if (center === undefined || center < -1 || center > totalColumns) return styles.text(text);
+
 	let cursor = 0;
 	return graphemes
 		.map((grapheme, index) => {
 			const start = cursor;
 			cursor += columns[index]!;
-			const highlighted = position >= start && position < cursor;
-			if (stalled) return styles.error(grapheme);
-			return highlighted ? styles.text(grapheme) : styles.title(grapheme);
+			if (center >= start && center < cursor) return styles.strongTitle(grapheme);
+			const touchesHighlightBand = start < center + 2 && cursor > center - 1;
+			return touchesHighlightBand ? styles.title(grapheme) : styles.text(grapheme);
 		})
 		.join("");
+}
+
+function shimmerVerb(snapshot: WorkingIndicatorSnapshot, nowMs: number, styles: ResolvedGlanceStyles, stalled: boolean): string {
+	return renderShimmerText(`${snapshot.verb}${ELLIPSIS}`, snapshot, nowMs, styles, stalled);
 }
 
 function activityText(snapshot: WorkingIndicatorSnapshot): string | undefined {
@@ -113,20 +129,7 @@ function truncatePlain(text: string, width: number): string {
 
 function truncateVerb(snapshot: WorkingIndicatorSnapshot, nowMs: number, styles: ResolvedGlanceStyles, stalled: boolean, width: number): string {
 	const plain = truncatePlain(`${snapshot.verb}${ELLIPSIS}`, Math.max(0, width));
-	if (!plain) return "";
-	const graphemes = splitGraphemes(plain);
-	const columns = graphemes.map((grapheme) => Math.max(1, visibleWidth(grapheme)));
-	const totalColumns = columns.reduce((sum, columnWidth) => sum + columnWidth, 0);
-	const rawPosition = Math.floor(Math.max(0, nowMs - snapshot.startedAtMs) / SHIMMER_STEP_MS) % totalColumns;
-	const position = snapshot.phase === "requesting" ? rawPosition : totalColumns - 1 - rawPosition;
-	let cursor = 0;
-	return graphemes
-		.map((grapheme, index) => {
-			const start = cursor;
-			cursor += columns[index]!;
-			return stalled ? styles.error(grapheme) : position >= start && position < cursor ? styles.text(grapheme) : styles.title(grapheme);
-		})
-		.join("");
+	return renderShimmerText(plain, snapshot, nowMs, styles, stalled);
 }
 
 export function renderWorkingMessage(input: WorkingRenderInput): string {

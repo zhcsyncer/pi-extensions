@@ -8,7 +8,7 @@
 
 Replace the default prompt with a rounded multiline editor and an inline glance at Git, cost, Reply speed, context, optional tokens, and model—without hiding statuses published by other extensions.
 
-This package is a maintained fork of [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. It preserves upstream behavior while adding a status-only footer, a bottom-right context progress mode, a highlighted auto-compaction marker, and a theme-aware Claude-inspired working indicator.
+This package is a maintained fork of [`pi-glance`](https://github.com/LinYS77/pi-glance) 0.5.3. It builds on upstream's input surface with a status-only footer, Follow Pi theme integration, bottom-right context and auto-compaction details, and a switchable, theme-aware Claude-inspired working indicator.
 
 [![npm](https://img.shields.io/npm/v/%40zhcsyncer%2Fpi-glance?style=flat-square&color=blue)](https://www.npmjs.com/package/@zhcsyncer/pi-glance)
 [![license](https://img.shields.io/badge/license-MIT-64748b?style=flat-square)](LICENSE)
@@ -95,7 +95,11 @@ That's the only command — opens a calm settings pane with a real input-surface
 
 ## Working indicator
 
-While a high-level agent cycle is active, Glance owns Pi's working row and automatically shows a themed ping-pong star, a stable per-cycle verb with grapheme-safe shimmer, current requesting/thinking/tool activity, available thinking effort, output tokens for that cycle, and elapsed time. Parallel tools are tracked independently; retry, compaction retry, and queued continuation keep the same verb, clock, and output total until `agent_settled`.
+**Fork difference:** Working indicator is provided by `@zhcsyncer/pi-glance`; upstream `pi-glance` 0.5.3 does not include it.
+
+While a high-level agent cycle is active, Glance owns Pi's working row and automatically shows a themed ping-pong star, a stable per-cycle verb, current requesting/thinking/tool activity, available thinking effort, output tokens for that cycle, and elapsed time. Parallel tools are tracked independently; retry, compaction retry, and queued continuation keep the same verb, clock, and output total until `agent_settled`.
+
+The animation combines a calm eased star with a high-contrast, grapheme-safe accent shimmer whose center is bold. During tool use the verb stays static instead of competing with the visible tool call.
 
 Elapsed time stays compact and human-readable: `47s`, `3m 08s`, and `1h 07m`. It is dim below one minute, uses normal text from one minute up to five minutes, and uses the theme warning color at five minutes or later. Only the elapsed field gains emphasis—a long cycle can still be healthy and progressing.
 
