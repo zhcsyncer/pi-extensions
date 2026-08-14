@@ -529,6 +529,8 @@ export interface InteractiveRangeStart {
   commitSha: string;
   /** Full first-parent SHA immediately before commitSha; becomes range A. */
   parentSha: string;
+  /** Strict ISO-8601 committer timestamp from Git (`%cI`). */
+  committedAt: string;
   subject: string;
   /** Number of commits included through the captured HEAD. */
   commitCount: number;
@@ -543,19 +545,21 @@ function decodeInteractiveRangeStarts(
 ): { starts: InteractiveRangeStart[]; truncated: boolean } {
   const records = output.split("\0");
   if (records.at(-1) === "") records.pop();
-  if (records.length % 3 !== 0) {
+  if (records.length % 4 !== 0) {
     throw new ReviewInputError("Git interactive range metadata has an unexpected shape.");
   }
   const starts: InteractiveRangeStart[] = [];
   let expectedSha = expectedHeadSha;
-  for (let index = 0; index < records.length; index += 3) {
+  for (let index = 0; index < records.length; index += 4) {
     const sha = records[index] ?? "";
     const parentText = records[index + 1] ?? "";
-    const subject = (records[index + 2] ?? "").trimEnd();
+    const committedAt = records[index + 2] ?? "";
+    const subject = (records[index + 3] ?? "").trimEnd();
     const parents = parentText.split(/\s+/u).filter(Boolean);
     if (
       !/^[0-9a-f]{40,64}$/u.test(sha) ||
       sha !== expectedSha ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/u.test(committedAt) ||
       parents.some((parent) => (
         !/^[0-9a-f]{40,64}$/u.test(parent) || parent.length !== sha.length
       ))
@@ -566,7 +570,7 @@ function decodeInteractiveRangeStarts(
     }
     const parentSha = parents[0];
     if (!parentSha) {
-      if (index + 3 !== records.length) {
+      if (index + 4 !== records.length) {
         throw new ReviewInputError("Git interactive range root is not terminal.");
       }
       break;
@@ -574,6 +578,7 @@ function decodeInteractiveRangeStarts(
     starts.push({
       commitSha: sha,
       parentSha,
+      committedAt,
       subject,
       commitCount: starts.length + 1,
     });
@@ -646,7 +651,7 @@ export async function listInteractiveRangeStarts(
       "--first-parent",
       `--max-count=${limit + 1}`,
       "-z",
-      "--format=%H%x00%P%x00%<(160,trunc)%s",
+      "--format=%H%x00%P%x00%cI%x00%<(160,trunc)%s",
       revision,
     ],
     { signal: options.signal },

@@ -46,6 +46,9 @@ const CHOOSE_COMMIT_PLAN = "Review by commit plan";
 const BACK_TO_LARGE_TARGET = "Back to whole-target choices";
 const REVIEW_LARGE_COMMIT = "Review this large commit";
 const BACK_TO_COMMIT_PLAN = "Back to commit plan";
+const INCLUDE_UNCOMMITTED_CHANGES = "Continue and include uncommitted changes";
+const EXCLUDE_UNCOMMITTED_CHANGES = "Continue with committed range only";
+const CANCEL_TO_COMMIT_FIRST = "Cancel review and commit changes first";
 
 export interface ReviewPreflightGuard {
   root: string;
@@ -140,6 +143,11 @@ function oneLine(value: string, maxLength = 72): string {
   return points.length <= maxLength
     ? cleaned
     : `${points.slice(0, maxLength - 1).join("")}…`;
+}
+
+function formatCommitTime(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  return match ? `${match[1]} ${match[2]} ${match[3]}` : "unknown time";
 }
 
 function formatCount(value: number): string {
@@ -329,6 +337,39 @@ function targetLabel(target: ReviewTargetRequest): string {
     return `committed changes from ${display(target.baseRef)} through HEAD, plus local changes`;
   }
   return `committed snapshot ${display(target.fromRef)}..${display(target.toRef)}`;
+}
+
+function uncommittedChangeSummary(state: GitPreflightState): string {
+  const kinds = [
+    ...(state.workingTree.staged ? ["staged"] : []),
+    ...(state.workingTree.unstaged ? ["unstaged"] : []),
+    ...(state.workingTree.untracked ? ["untracked"] : []),
+    ...(state.workingTree.unmerged ? ["unmerged"] : []),
+  ];
+  return kinds.join(", ") || "working-tree";
+}
+
+async function confirmUncommittedCoverage(options: {
+  ctx: ExtensionCommandContext;
+  state: GitPreflightState;
+  committedOnly: boolean;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  if (options.ctx.mode !== "tui" || !hasLocalChanges(options.state)) return true;
+  const kinds = uncommittedChangeSummary(options.state);
+  const { committedOnly } = options;
+  const picked = await options.ctx.ui.select(
+    committedOnly
+      ? `Uncommitted changes were found (${kinds}). A commit range contains committed snapshots only, ` +
+        "so these changes will be excluded unless you cancel, commit them, and rerun."
+      : `Uncommitted changes were found (${kinds}). This target can freeze and include them without ` +
+        "creating a commit; cancel if you want to commit them first.",
+    committedOnly
+      ? [EXCLUDE_UNCOMMITTED_CHANGES, CANCEL_TO_COMMIT_FIRST]
+      : [INCLUDE_UNCOMMITTED_CHANGES, CANCEL_TO_COMMIT_FIRST],
+    options.signal ? { signal: options.signal } : undefined,
+  );
+  return picked === (committedOnly ? EXCLUDE_UNCOMMITTED_CHANGES : INCLUDE_UNCOMMITTED_CHANGES);
 }
 
 function buildAudit(options: {
@@ -755,6 +796,17 @@ async function finalizePreflight(options: {
     });
   }
   const { largeInput } = decision;
+  const rangeCoverageAlreadyAcknowledged = options.target.mode === "range" &&
+    options.interactiveRange?.selection.uncommittedCoverageAcknowledged === true;
+  if (
+    !rangeCoverageAlreadyAcknowledged &&
+    !await confirmUncommittedCoverage({
+      ctx: options.ctx,
+      state: options.state,
+      committedOnly: options.target.mode === "range",
+      ...(options.signal ? { signal: options.signal } : {}),
+    })
+  ) return undefined;
   const sizeSummary = largeInput
     ? ` Large input approved: ${fingerprint.inputSize.bytes} bytes / ${fingerprint.inputSize.lines} lines.`
     : "";
@@ -979,6 +1031,8 @@ function assertInteractiveRangeContext(
 interface InteractiveRangeSelection {
   target: SuggestedRangeTarget;
   commitCount: number;
+  /** True when dirty working-tree changes were explicitly accepted as excluded. */
+  uncommittedCoverageAcknowledged: boolean;
 }
 
 interface InteractiveRangePicker {
@@ -1043,15 +1097,20 @@ async function createInteractiveRangePicker(options: {
       "warning",
     );
   }
-  if (hasLocalChanges(options.state)) {
-    options.ctx.ui.notify(
-      "Interactive range review includes committed changes only. Review staged, unstaged, and untracked work separately with /adversarial-review --local.",
-      "warning",
-    );
-  }
+  let uncommittedCoverageAcknowledged = !hasLocalChanges(options.state);
 
   return {
     async pick(pickOptions = {}) {
+      if (!uncommittedCoverageAcknowledged) {
+        const accepted = await confirmUncommittedCoverage({
+          ctx: options.ctx,
+          state: options.state,
+          committedOnly: true,
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+        if (!accepted) return undefined;
+        uncommittedCoverageAcknowledged = true;
+      }
       type Choice =
         | { kind: "range"; parentSha: string; commitCount: number }
         | { kind: "cancel" };
@@ -1062,7 +1121,8 @@ async function createInteractiveRangePicker(options: {
       const choices = stableSelectOptions<Choice>([
         ...starts.map((start) => ({
           label: `Start ${start.commitSha.slice(0, 7)} · reviews ${start.commitCount} ` +
-            `${start.commitCount === 1 ? "commit" : "commits"} · ${oneLine(start.subject)}`,
+            `${start.commitCount === 1 ? "commit" : "commits"} · ${formatCommitTime(start.committedAt)} · ` +
+            oneLine(start.subject),
           value: {
             kind: "range" as const,
             parentSha: start.parentSha,
@@ -1089,6 +1149,7 @@ async function createInteractiveRangePicker(options: {
           toRef: options.state.headSha,
         },
         commitCount: picked.commitCount,
+        uncommittedCoverageAcknowledged,
       };
     },
   };

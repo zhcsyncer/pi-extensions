@@ -38,7 +38,7 @@ TUI 模式下打开 setup picker：
 /adversarial-review --range
 ```
 
-终点固定为捕获时的 `HEAD`。每个可见 first-parent commit 都能作为起点；每行直接写 `Start <sha> · reviews N commits`，因此可以选择 3 个、6 个或任意可见的连续数量。所选起点 commit 会被包含，起点到 HEAD 的完整范围在同一轮中整体评审。功能分支默认止于刚刷新过的远端默认分支 merge-base。超过建议阈值时，TUI 可确认整体评审所选范围，或回到同一 commit 线选择更近起点；超过硬上限时必须选择更近起点。
+终点固定为捕获时的 `HEAD`。每个可见 first-parent commit 都能作为起点；每行直接写 `Start <sha> · reviews N commits · <commit-time> · <subject>`，因此可以在看到各起点提交时间的同时，选择 3 个、6 个或任意可见的连续数量。所选起点 commit 会被包含，起点到 HEAD 的完整范围在同一轮中整体评审。功能分支默认止于刚刷新过的远端默认分支 merge-base。超过建议阈值时，TUI 可确认整体评审所选范围，或回到同一 commit 线选择更近起点；超过硬上限时必须选择更近起点。
 
 需要可复现或 headless 运行时，显式给出 target 和至少两条精确 reviewer route：
 
@@ -66,6 +66,8 @@ Target 形式包括：
 - `--base <ref>` — 从 merge base 到 HEAD 的 committed changes，再加 local work。
 - `--range` — 仅 TUI 的 commit 线：终点固定为捕获时 `HEAD`，任选最早包含的 commit。
 - `--range <A>..<B>` — 精确的 committed-only range，并在扩展拥有、精确指向 B 的 detached worktree 中评审。例如最近 5 个 commit 使用 `--range HEAD~5..HEAD`。
+
+TUI preflight 发现 staged、unstaged 或 untracked 内容时，会在模型选择前明确其覆盖范围。Whole-target `--base` 和 `--local` 无需先 commit，也能冻结并包含这些修改。用户可以继续，或取消后先提交。Committed `--range` 无法包含它们，因此必须明确选择“只继续评审 committed history”，或取消、提交后重跑。已位于 HEAD 历史中的本地 commit 本身就是 committed history，只要所选 target 覆盖它们就会正常进入评审。
 
 完整要求、focus/需求输入、gating 和大目标处理见[命令参考](./REFERENCE.zh-CN.md#命令参数)。
 

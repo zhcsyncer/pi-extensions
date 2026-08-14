@@ -38,7 +38,7 @@ To open that commit line directly without writing refs or hashes, use:
 /adversarial-review --range
 ```
 
-The endpoint is fixed at the captured `HEAD`. Every visible first-parent commit is a possible start: each row says `Start <sha> · reviews N commits`, so you can choose 3, 6, or any other available continuous count. The selected start commit is included and the complete start-to-HEAD range is reviewed together in one run. On a feature branch, choices normally stop at its freshly fetched default-branch merge-base. Above the recommendation, TUI can review the whole selected range after confirmation or return to the same commit line for a closer start; above the hard limit it must choose a closer start.
+The endpoint is fixed at the captured `HEAD`. Every visible first-parent commit is a possible start: each row says `Start <sha> · reviews N commits · <commit-time> · <subject>`, so you can choose 3, 6, or any other available continuous count while seeing when each possible start was committed. The selected start commit is included and the complete start-to-HEAD range is reviewed together in one run. On a feature branch, choices normally stop at its freshly fetched default-branch merge-base. Above the recommendation, TUI can review the whole selected range after confirmation or return to the same commit line for a closer start; above the hard limit it must choose a closer start.
 
 For a reproducible or headless run, provide the target and at least two exact reviewer routes:
 
@@ -66,6 +66,8 @@ Target forms are:
 - `--base <ref>` — committed changes from the merge base through HEAD, plus local work.
 - `--range` — TUI-only commit-line picker: endpoint fixed at captured `HEAD`, choose any earliest included commit.
 - `--range <A>..<B>` — exact committed-only range reviewed from an extension-owned detached worktree at B. For example, use `--range HEAD~5..HEAD` for the latest five commits.
+
+When TUI preflight finds staged, unstaged, or untracked work, it makes the coverage explicit before model selection. Whole-target `--base` and `--local` review can freeze and include that work without a commit. Users may continue or cancel to commit first. A committed `--range` cannot include it, so users must explicitly continue with committed history only or cancel, commit, and rerun. Local commits already reachable from HEAD are committed history and are included whenever the chosen target covers them.
 
 See the [command reference](./REFERENCE.md#command-options) for requirements, focus/requirement inputs, gating, and large-target handling.
 

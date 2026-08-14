@@ -286,12 +286,18 @@ describe("Git adversarial-review preflight", () => {
         {
           commitSha: commits[3],
           parentSha: commits[2],
+          committedAt: expect.stringMatching(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/u,
+          ),
           subject: "finalize release",
           commitCount: 1,
         },
         {
           commitSha: commits[2],
           parentSha: commits[1],
+          committedAt: expect.stringMatching(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/u,
+          ),
           subject: "add worker",
           commitCount: 2,
         },
@@ -332,12 +338,14 @@ describe("Git adversarial-review preflight", () => {
       {
         commitSha: featureCommits[1],
         parentSha: featureCommits[0],
+        committedAt: expect.any(String),
         subject: "feature two",
         commitCount: 1,
       },
       {
         commitSha: featureCommits[0],
         parentSha: baseSha,
+        committedAt: expect.any(String),
         subject: "feature one",
         commitCount: 2,
       },
@@ -415,7 +423,7 @@ describe("Git adversarial-review preflight", () => {
     const sha = "a".repeat(40);
     const parent = "b".repeat(40);
     const runner: PreflightCommandRunner = vi.fn(async () => ({
-      stdout: `${"c".repeat(40)}\0${parent}\0forged\0`,
+      stdout: `${"c".repeat(40)}\0${parent}\0${"2026-08-14T11:23:45+08:00"}\0forged\0`,
       stderr: "",
       code: 0,
       killed: false,

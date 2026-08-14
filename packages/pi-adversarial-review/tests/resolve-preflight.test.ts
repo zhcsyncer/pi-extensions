@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReviewTargetRequest } from "../src/types.ts";
 
+const COMMITTED_AT = "2026-08-14T11:23:45+08:00";
+const COMMIT_TIME_LABEL = "2026-08-14 11:23:45 +08:00";
+
 vi.mock("../src/input/freeze-input.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/input/freeze-input.ts")>();
   return {
@@ -78,7 +81,7 @@ function state(overrides: Partial<GitPreflightState> = {}): GitPreflightState {
     ahead: 2,
     behind: 1,
     relationAvailable: true,
-    workingTree: { staged: false, unstaged: true, untracked: false, unmerged: false },
+    workingTree: { staged: false, unstaged: false, untracked: false, unmerged: false },
     shallow: false,
     ...overrides,
   };
@@ -155,12 +158,14 @@ describe("resolveReviewPreflight", () => {
         {
           commitSha: latestSha,
           parentSha: secondSha,
+          committedAt: COMMITTED_AT,
           subject: "finalize release",
           commitCount: 1,
         },
         {
           commitSha: secondSha,
           parentSha,
+          committedAt: COMMITTED_AT,
           subject: "add worker handoff",
           commitCount: 2,
         },
@@ -225,8 +230,8 @@ describe("resolveReviewPreflight", () => {
     expect(ctx.ui.select).toHaveBeenCalledWith(
       expect.stringContaining("each row is one continuous review range"),
       expect.arrayContaining([
-        `Start ${latestSha.slice(0, 7)} · reviews 1 commit · finalize release`,
-        `Start ${secondSha.slice(0, 7)} · reviews 2 commits · add worker handoff`,
+        `Start ${latestSha.slice(0, 7)} · reviews 1 commit · ${COMMIT_TIME_LABEL} · finalize release`,
+        `Start ${secondSha.slice(0, 7)} · reviews 2 commits · ${COMMIT_TIME_LABEL} · add worker handoff`,
       ]),
       undefined,
     );
@@ -237,6 +242,7 @@ describe("resolveReviewPreflight", () => {
     const starts = Array.from({ length: 6 }, (_, index) => ({
       commitSha: String(index + 1).repeat(40),
       parentSha: String.fromCharCode(98 + index).repeat(40),
+      committedAt: COMMITTED_AT,
       subject: `commit ${index + 1}`,
       commitCount: index + 1,
     }));
@@ -308,6 +314,7 @@ describe("resolveReviewPreflight", () => {
     const starts = Array.from({ length: 6 }, (_, index) => ({
       commitSha: String(index + 1).repeat(40),
       parentSha: String.fromCharCode(98 + index).repeat(40),
+      committedAt: COMMITTED_AT,
       subject: `commit ${index + 1}`,
       commitCount: index + 1,
     }));
@@ -373,6 +380,7 @@ describe("resolveReviewPreflight", () => {
     const starts = Array.from({ length: 6 }, (_, index) => ({
       commitSha: String(index + 1).repeat(40),
       parentSha: String.fromCharCode(98 + index).repeat(40),
+      committedAt: COMMITTED_AT,
       subject: `commit ${index + 1}`,
       commitCount: index + 1,
     }));
@@ -467,6 +475,7 @@ describe("resolveReviewPreflight", () => {
     const starts = Array.from({ length: 6 }, (_, index) => ({
       commitSha: String(index + 1).repeat(40),
       parentSha: String.fromCharCode(98 + index).repeat(40),
+      committedAt: COMMITTED_AT,
       subject: `commit ${index + 1}`,
       commitCount: index + 1,
     }));
@@ -561,6 +570,7 @@ describe("resolveReviewPreflight", () => {
         starts: [{
           commitSha: "a".repeat(40),
           parentSha: "b".repeat(40),
+          committedAt: COMMITTED_AT,
           subject: "latest",
           commitCount: 1,
         }],
@@ -619,6 +629,7 @@ describe("resolveReviewPreflight", () => {
         starts: [{
           commitSha: "a".repeat(40),
           parentSha: "b".repeat(40),
+          committedAt: COMMITTED_AT,
           subject: "latest",
           commitCount: 1,
         }],
@@ -630,7 +641,7 @@ describe("resolveReviewPreflight", () => {
     );
   });
 
-  it("warns when interactive range uses shallow, unbounded, or dirty local history", async () => {
+  it("warns for shallow history and requires explicit exclusion of dirty local work", async () => {
     const ctx = context();
     await resolveReviewPreflight({
       ctx,
@@ -655,6 +666,7 @@ describe("resolveReviewPreflight", () => {
         starts: [{
           commitSha: "a".repeat(40),
           parentSha: "b".repeat(40),
+          committedAt: COMMITTED_AT,
           subject: "latest",
           commitCount: 1,
         }],
@@ -669,9 +681,13 @@ describe("resolveReviewPreflight", () => {
       expect.stringContaining("shallow repository"),
       "warning",
     );
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("committed changes only"),
-      "warning",
+    expect(ctx.ui.select).toHaveBeenCalledWith(
+      expect.stringContaining("commit range contains committed snapshots only"),
+      [
+        "Continue with committed range only",
+        "Cancel review and commit changes first",
+      ],
+      undefined,
     );
   });
 
@@ -726,12 +742,14 @@ describe("resolveReviewPreflight", () => {
         {
           commitSha: headSha,
           parentSha: "8".repeat(40),
+          committedAt: COMMITTED_AT,
           subject: "latest",
           commitCount: 1,
         },
         {
           commitSha: selectedCommitSha,
           parentSha: selectedParentSha,
+          committedAt: COMMITTED_AT,
           subject: "selected start",
           commitCount: 6,
         },
@@ -818,7 +836,8 @@ describe("resolveReviewPreflight", () => {
     const interactions: Array<{ title: string; options: string[] }> = [];
     const ctx = context("tui", async (title, options) => {
       interactions.push({ title, options: [...options] });
-      return options.find((option) => option === "Review the whole target");
+      return options.find((option) => option === "Review the whole target") ??
+        options.find((option) => option === "Continue and include uncommitted changes");
     });
     const listRangeStarts = vi.fn();
     const suggestRanges = vi.fn();
@@ -849,7 +868,11 @@ describe("resolveReviewPreflight", () => {
       ctx,
       target: { mode: "local" },
       targetExplicit: false,
-      inspect: vi.fn(async () => state({ ahead: 0, behind: 0 })),
+      inspect: vi.fn(async () => state({
+        ahead: 0,
+        behind: 0,
+        workingTree: { staged: false, unstaged: true, untracked: false, unmerged: false },
+      })),
       fetch: vi.fn(async () => ({ status: "succeeded" as const, remote: "origin", timedOut: false })),
       fingerprintTarget,
       listRangeStarts,
@@ -889,6 +912,7 @@ describe("resolveReviewPreflight", () => {
       starts: [{
         commitSha: selectedCommitSha,
         parentSha: selectedParentSha,
+        committedAt: COMMITTED_AT,
         subject: "bounded start",
         commitCount: 3,
       }],
@@ -958,7 +982,11 @@ describe("resolveReviewPreflight", () => {
   it("infers local target on synchronized default branch after fetch", async () => {
     const ctx = context();
     const inspect = vi.fn(async () => state({
-      branch: "main", upstreamRef: "origin/main", ahead: 0, behind: 0,
+      branch: "main",
+      upstreamRef: "origin/main",
+      ahead: 0,
+      behind: 0,
+      workingTree: { staged: false, unstaged: true, untracked: false, unmerged: false },
     }));
 
     await expect(resolveReviewPreflight({
@@ -1271,6 +1299,63 @@ describe("resolveReviewPreflight", () => {
       target: { mode: "local" },
       audit: { selection: "explicit", fetchStatus: "not-needed" },
     });
+  });
+
+  it("asks whether dirty whole-target work should be included without committing", async () => {
+    const ctx = context("tui", async (title, options) => {
+      expect(title).toContain("can freeze and include them without creating a commit");
+      expect(options).toEqual([
+        "Continue and include uncommitted changes",
+        "Cancel review and commit changes first",
+      ]);
+      return options[0];
+    });
+
+    const result = await resolveReviewPreflight({
+      ctx,
+      target: { mode: "local" },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state({
+        workingTree: { staged: true, unstaged: true, untracked: true, unmerged: false },
+      })),
+    });
+
+    expect(result?.target).toEqual({ mode: "local" });
+    expect(ctx.ui.select).toHaveBeenCalledWith(
+      expect.stringContaining("staged, unstaged, untracked"),
+      [
+        "Continue and include uncommitted changes",
+        "Cancel review and commit changes first",
+      ],
+      undefined,
+    );
+  });
+
+  it("lets a committed-only range stop so dirty work can be committed first", async () => {
+    const ctx = context("tui", async (_title, options) => (
+      options.find((option) => option === "Cancel review and commit changes first")
+    ));
+
+    const result = await resolveReviewPreflight({
+      ctx,
+      target: { mode: "range", fromRef: "b".repeat(40), toRef: "a".repeat(40) },
+      targetExplicit: true,
+      inspect: vi.fn(async () => state({
+        remotes: [],
+        preferredRemote: undefined,
+        workingTree: { staged: false, unstaged: true, untracked: false, unmerged: false },
+      })),
+    });
+
+    expect(result).toBeUndefined();
+    expect(ctx.ui.select).toHaveBeenCalledWith(
+      expect.stringContaining("commit range contains committed snapshots only"),
+      [
+        "Continue with committed range only",
+        "Cancel review and commit changes first",
+      ],
+      undefined,
+    );
   });
 
   it("fetches remotes referenced by an explicit base target", async () => {
