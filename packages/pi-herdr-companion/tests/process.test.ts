@@ -132,9 +132,6 @@ class FakeProcessClient implements ProcessClient {
 		this.calls.push({ name: "read", args });
 		return this.output;
 	}
-	async focusPane(paneId: string) {
-		this.calls.push({ name: "focus", args: [paneId] });
-	}
 	async closePane(paneId: string) {
 		this.calls.push({ name: "close", args: [paneId] });
 		if (this.failClose) throw new Error("pane close unavailable");
@@ -469,7 +466,7 @@ describe("process manager behavior", () => {
 		expect(client.calls.some((call) => call.name === "close")).toBe(false);
 	});
 
-	it("tracks a moved pane by terminal_id for logs, focus, agent metadata, and stop", async () => {
+	it("tracks a moved pane by terminal_id for logs, agent metadata, and stop", async () => {
 		const client = new FakeProcessClient();
 		client.panes.add("w1:p2");
 		client.terminalIds.set("w1:p2", "term-managed");
@@ -513,8 +510,6 @@ describe("process manager behavior", () => {
 			workspaceId: "w2",
 			tabId: "w2:t1",
 		});
-		await expect(instance.focus("dev")).resolves.toMatchObject({ paneId: "w2:p7" });
-		expect(client.calls.some((call) => call.name === "focus" && call.args[0] === "w2:p7")).toBe(true);
 		await expect(instance.stop("dev")).resolves.toMatchObject({ paneId: "w2:p7" });
 		expect(client.calls.some((call) => call.name === "close" && call.args[0] === "w2:p7")).toBe(true);
 	});

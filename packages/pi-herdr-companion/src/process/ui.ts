@@ -7,7 +7,6 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { HerdrCommandError } from "../herdr-client.ts";
 import type {
 	ProcessListResult,
 	ProcessManager,
@@ -43,7 +42,7 @@ export interface ProcessUICtx {
 	confirm(title: string, message: string): Promise<boolean>;
 }
 
-export type ProcessUIManager = Pick<ProcessManager, "list" | "focus" | "stop" | "onChange">;
+export type ProcessUIManager = Pick<ProcessManager, "list" | "stop" | "onChange">;
 
 function processIdentity(entry: ProcessEntry): string {
 	return entry.terminalId && entry.serverScope
@@ -239,10 +238,6 @@ export class ProcessWidgetController {
 			this.deactivate();
 			return { consume: true };
 		}
-		if (matchesKey(data, Key.enter) || data === "f") {
-			void this.focusSelected();
-			return { consume: true };
-		}
 		if (data === "s") {
 			void this.stopSelected();
 			return { consume: true };
@@ -265,31 +260,6 @@ export class ProcessWidgetController {
 
 	private selectedEntry(): ProcessEntry | undefined {
 		return this.listed.entries[this.selectedIndex];
-	}
-
-	private async focusSelected(): Promise<void> {
-		if (this.busy) return;
-		this.busy = true;
-		this.updateWidget();
-		try {
-			await this.refresh();
-			const entry = this.selectedEntry();
-			if (!entry) return;
-			await this.manager.focus(entry.terminalId ?? entry.label);
-			this.deactivate();
-		} catch (error) {
-			const unavailable = error instanceof HerdrCommandError &&
-				error.operation === "pane focus" && error.exitCode === 2;
-			this.ui?.notify(
-				unavailable
-					? "Exact pane focus is unavailable in this Herdr build. Update Herdr and retry."
-					: `Could not focus managed process: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
-		} finally {
-			this.busy = false;
-			this.updateWidget();
-		}
 	}
 
 	private async stopSelected(): Promise<void> {
@@ -329,7 +299,7 @@ export class ProcessWidgetController {
 		const hint = this.busy
 			? "working…"
 			: this.active
-				? "↑↓ select · enter/f focus · s stop · esc back"
+				? "↑↓ select · s stop · esc back"
 				: "→ manage Herdr processes";
 		const lines = [truncateToWidth(`  ${theme.fg("dim", hint)}`, width, "…"), ""];
 		const visible = Math.min(MAX_PROCESS_ROWS, this.listed.entries.length);

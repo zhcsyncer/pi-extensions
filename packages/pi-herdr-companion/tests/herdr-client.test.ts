@@ -214,26 +214,10 @@ describe("HerdrClient argv and response contracts", () => {
 				? ok(JSON.stringify({ result: { pane: pane() } }))
 				: ok());
 		await client.renamePane("w1:p2", "dev", controller.signal);
-		await client.focusPane("w2:p7", controller.signal);
 		await client.closePane("w1:p2", controller.signal);
 		await client.focusAgent("w1:p1", controller.signal);
 		expect(calls.every((call) => call.options.signal === controller.signal)).toBe(true);
-		expect(calls.map((call) => call.options.timeout)).toEqual([5000, 5000, 5000, 5000]);
-		expect(calls[1]?.args).toEqual(["pane", "focus", "w2:p7"]);
-	});
-
-	it("preserves exact pane-focus operation and exit code for upgrade guidance", async () => {
-		const { client } = capture(() => ({
-			stdout: "",
-			stderr: "usage: herdr pane focus --direction ...",
-			code: 2,
-			killed: false,
-		}));
-
-		await expect(client.focusPane("w2:p7")).rejects.toMatchObject({
-			operation: "pane focus",
-			exitCode: 2,
-		});
+		expect(calls.map((call) => call.options.timeout)).toEqual([5000, 5000, 5000]);
 	});
 
 	it("does not invoke the executor when the signal was already aborted", async () => {

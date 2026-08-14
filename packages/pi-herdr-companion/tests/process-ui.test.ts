@@ -63,17 +63,10 @@ function listed(entries = [entry()]): ProcessListResult {
 
 class FakeManager implements ProcessUIManager {
 	current = listed();
-	focused: string[] = [];
 	stopped: string[] = [];
 	private listeners = new Set<() => void>();
 
 	async list() { return this.current; }
-	async focus(target: string) {
-		this.focused.push(target);
-		const found = this.current.entries.find((item) => item.terminalId === target || item.label === target);
-		if (!found) throw new Error("missing");
-		return found;
-	}
 	async stop(target: string) {
 		this.stopped.push(target);
 		const found = this.current.entries.find((item) => item.terminalId === target || item.label === target);
@@ -166,24 +159,23 @@ describe("ProcessWidgetController", () => {
 			expect(controller.handleKey(RIGHT)).toBeUndefined();
 			ui.tui.focusedComponent = undefined;
 			expect(controller.handleKey(RIGHT)).toEqual({ consume: true });
-			expect(ui.render().join("\n")).toContain("enter/f focus · s stop");
+			expect(ui.render().join("\n")).toContain("↑↓ select · s stop · esc back");
 			expect(controller.handleKey(ESCAPE)).toEqual({ consume: true });
 		} finally {
 			controller.dispose();
 		}
 	});
 
-	it("selects with arrows and focuses the exact current pane through stable terminal identity", async () => {
+	it("selects managed processes with arrows", async () => {
 		const preview = entry({ paneId: "w2:p7", terminalId: "term-preview", workspaceId: "w2", tabId: "w2:t3", label: "preview" });
-		const { manager, ui, controller } = await setup([entry(), preview]);
+		const { ui, controller } = await setup([entry(), preview]);
 		try {
 			ui.render();
 			controller.handleKey(RIGHT);
 			expect(controller.handleKey(DOWN)).toEqual({ consume: true });
+			expect(ui.render().join("\n")).toContain("› ✓ preview");
 			expect(controller.handleKey(UP)).toEqual({ consume: true });
-			expect(controller.handleKey(DOWN)).toEqual({ consume: true });
-			expect(controller.handleKey("f")).toEqual({ consume: true });
-			await vi.waitFor(() => expect(manager.focused).toEqual(["term-preview"]));
+			expect(ui.render().join("\n")).toContain("› ● dev");
 		} finally {
 			controller.dispose();
 		}

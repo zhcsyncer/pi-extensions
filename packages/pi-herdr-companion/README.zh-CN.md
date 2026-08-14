@@ -9,7 +9,7 @@
 | 能力 | 用户获得什么 |
 | --- | --- |
 | Herdr 上下文 | Pi 获得稳定的 Herdr caller 身份，不必反复探测焦点或环境。 |
-| 托管进程 | 启动、检查、聚焦和停止 owned 长跑命令，并提供可导航的 TUI Process Widget。 |
+| 托管进程 | 启动、检查和停止 owned 长跑命令，并提供可导航的 TUI Process Widget。 |
 | Pi Worker | 在已有 Herdr Pane 启动一个 Pi Worker，并异步接收其显式最终报告。 |
 | `/btw` 支线 | 在临时 Pi 对话中探索问题，并且只在你明确要求时合回父会话。 |
 | Blocked 上报 | 让 Herdr 将已配置的工具或扩展事件显示为 blocked。 |
@@ -20,7 +20,6 @@
 - Node.js 22.19+
 - Pi 0.84+
 - 核心进程管理需要 Herdr 0.7.5+（开发基于 Herdr 0.8.0）
-- 跨 Tab/Workspace 精确聚焦 Process Widget 需要 `herdr pane focus <pane_id>` 已出现在帮助中的 Herdr build
 - POSIX 默认进程 shell 需要 Bash；Windows 使用 Pane 自身的 shell
 - 安装 Herdr 的 Pi integration：
 
@@ -84,7 +83,6 @@ Worker name 必须在 live Herdr agent 中唯一，并匹配 `[a-z][a-z0-9_-]{0,
 
 - 按 `→` 激活列表；
 - 用 `↑` / `↓` 选择进程；
-- 按 `Enter` 或 `f` 聚焦其当前准确的 Herdr Pane；
 - 按 `s` 并二次确认，通过与 `herdr_process stop` 相同的 ownership 检查停止进程；
 - 按 `Esc` 返回 editor。
 

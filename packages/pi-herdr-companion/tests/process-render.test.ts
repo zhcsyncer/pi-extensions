@@ -136,13 +136,13 @@ describe("herdr_process TUI rendering", () => {
 	});
 
 	it("keeps errors visible, sanitizes terminal controls, and respects narrow widths", () => {
-		const failure = result(undefined, "focus failed\u001b[2J\nrecovery: herdr_process list/stop");
+		const failure = result(undefined, "stop failed\u001b[2J\nrecovery: herdr_process list/stop");
 		const collapsed = renderHerdrProcessResult(failure, {
 			expanded: false,
 			isPartial: false,
 		}, theme, context(false, true));
 		const lines = rendered(collapsed, 24);
-		expect(lines[0]).toContain("✗ focus failed");
+		expect(lines[0]).toContain("✗ stop failed");
 		expect(lines[0]).not.toContain("\u001b");
 		expect(lines.every((line) => visibleWidth(line) <= 24)).toBe(true);
 

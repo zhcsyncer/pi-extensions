@@ -9,7 +9,7 @@ A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It pro
 | Capability | What you get |
 | --- | --- |
 | Herdr context | Pi receives a stable Herdr caller identity without repeatedly probing focus or environment state. |
-| Managed processes | Start, inspect, focus, and stop owned long-running commands, with a navigable TUI process widget. |
+| Managed processes | Start, inspect, and stop owned long-running commands, with a navigable TUI process widget. |
 | Pi Workers | Start one Pi Worker in an existing Herdr pane and receive its explicit final report asynchronously. |
 | `/btw` side threads | Explore a question in a temporary Pi conversation and merge it back only when you ask. |
 | Blocked reporting | Show configured tools or extension events as blocked in Herdr. |
@@ -20,7 +20,6 @@ A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It pro
 - Node.js 22.19+
 - Pi 0.84+
 - Herdr 0.7.5+ for core process management (developed against Herdr 0.8.0)
-- A Herdr build whose help includes `herdr pane focus <pane_id>` for exact Process Widget focus across tabs and workspaces
 - Bash on POSIX for the default process shell; Windows uses the pane's shell
 - Herdr's Pi integration:
 
@@ -84,7 +83,6 @@ When at least one managed process exists, Pi TUI shows a live process list below
 
 - press `→` to activate the list;
 - use `↑` / `↓` to select a process;
-- press `Enter` or `f` to focus its exact current Herdr pane;
 - press `s`, then confirm, to stop it through the same ownership checks as `herdr_process stop`;
 - press `Esc` to return to the editor.
 

@@ -120,7 +120,6 @@ const SAFE_OPERATIONS = new Set([
 	"pane read",
 	"pane close",
 	"pane process-info",
-	"pane focus",
 	"agent start",
 	"agent get",
 	"agent rename",
@@ -476,10 +475,6 @@ export class HerdrClient {
 
 		if (recent === undefined && visible === undefined) throw visibleError ?? recentError;
 		return mergePaneOutput(recent ?? "", visible ?? "");
-	}
-
-	async focusPane(paneId: string, signal?: AbortSignal): Promise<void> {
-		await this.executeJson(["pane", "focus", paneId], 5_000, "pane focus", signal);
 	}
 
 	async closePane(paneId: string, signal?: AbortSignal): Promise<void> {

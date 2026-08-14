@@ -48,7 +48,6 @@ export type ProcessClient = Pick<
 	| "runPane"
 	| "waitOutput"
 	| "readPane"
-	| "focusPane"
 	| "closePane"
 >;
 
@@ -606,21 +605,6 @@ export class ProcessManager {
 			this.registry.removeOwned(entry);
 			this.persist();
 			this.notifyChange();
-			return entry;
-		});
-	}
-
-	focus(target: string, signal?: AbortSignal): Promise<ProcessEntry> {
-		return this.exclusive(async () => {
-			const normalizedTarget = target.trim();
-			if (!normalizedTarget) throw new Error("focus target must not be empty");
-			const beforeReconcile = this.registry.find(normalizedTarget);
-			await this.reconcileNow(signal);
-			const entry = beforeReconcile
-				? this.registry.findOwned(beforeReconcile)
-				: this.registry.find(normalizedTarget);
-			if (!entry) throw new Error(`No owned process matches ${normalizedTarget}`);
-			await this.options.client.focusPane(entry.paneId, signal);
 			return entry;
 		});
 	}
