@@ -19,6 +19,10 @@ import {
   summarizeRefuteStatus,
 } from "../output/publish-report.ts";
 import {
+  buildReviewDispatchEntry,
+  publishReviewDispatch,
+} from "../output/run-transcript.ts";
+import {
   revalidateReviewPreflight,
   type ResolvedReviewPreflight,
 } from "../preflight/resolve-preflight.ts";
@@ -172,6 +176,20 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
   const refuterOverallTimeoutMs = targetPreflight.largeInput
     ? LARGE_REFUTER_OVERALL_TIMEOUT_MS
     : DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
+
+  const dispatchWarning = publishReviewDispatch(pi, buildReviewDispatchEntry({
+    frozenInput,
+    routes,
+    refuteRequested,
+    ...(refuterRoute ? { refuterRoute } : {}),
+    gating: command.gating,
+    capabilities,
+    startedAt,
+  }));
+  if (dispatchWarning) {
+    emitHeadlessDiagnostic(ctx.mode, dispatchWarning);
+    ctx.ui.notify(dispatchWarning, "warning");
+  }
 
   const fleet = await runReviewerFleet({
     runtime,

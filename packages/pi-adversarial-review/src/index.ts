@@ -12,18 +12,27 @@ import {
   ReviewInputError,
 } from "./input/errors.ts";
 import {
+  ADVERSARIAL_REVIEW_ERROR_TYPE,
   emitHeadlessDiagnostic,
   publishReviewFailure,
+  renderReviewFailureEntry,
   safeReviewDiagnosticText,
 } from "./output/headless-output.ts";
 import {
   ADVERSARIAL_REVIEW_CANCELLATION_TYPE,
+  renderReviewFreezeCancellationEntry,
   renderReviewFreezeCancellationMessage,
 } from "./output/publish-cancellation.ts";
 import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
+  ADVERSARIAL_REVIEW_RESULT_TYPE,
+  renderMergedReviewEntry,
   renderMergedReviewMessage,
 } from "./output/publish-report.ts";
+import {
+  ADVERSARIAL_REVIEW_DISPATCH_TYPE,
+  renderReviewDispatchEntry,
+} from "./output/run-transcript.ts";
 import {
   resolveReviewPreflight,
   revalidateReviewPreflight,
@@ -104,6 +113,18 @@ export default function adversarialReviewExtension(
   pi.registerMessageRenderer(ADVERSARIAL_REVIEW_CANCELLATION_TYPE, (message, options, theme) => (
     renderReviewFreezeCancellationMessage(message.details, options, theme)
   ));
+  pi.registerEntryRenderer(ADVERSARIAL_REVIEW_DISPATCH_TYPE, (entry, options, theme) => (
+    renderReviewDispatchEntry(entry.data, options, theme)
+  ));
+  pi.registerEntryRenderer(ADVERSARIAL_REVIEW_RESULT_TYPE, (entry, options, theme) => (
+    renderMergedReviewEntry(entry.data, options, theme)
+  ));
+  pi.registerEntryRenderer(ADVERSARIAL_REVIEW_CANCELLATION_TYPE, (entry, options, theme) => (
+    renderReviewFreezeCancellationEntry(entry.data, options, theme)
+  ));
+  pi.registerEntryRenderer(ADVERSARIAL_REVIEW_ERROR_TYPE, (entry, options, theme) => (
+    renderReviewFailureEntry(entry.data, options, theme)
+  ));
 
   pi.registerCommand(ADVERSARIAL_REVIEW_COMMAND, {
     description: "Run deterministic multi-model adversarial code review",
@@ -163,7 +184,6 @@ export default function adversarialReviewExtension(
         const runTargetPreflight = async (): Promise<ResolvedReviewPreflight | undefined> => {
           let removePreflightInput = () => {};
           if (ctx.mode === "tui") {
-            ctx.ui.setStatus("adversarial-review", "Adversarial review · checking Git target…");
             removePreflightInput = ctx.ui.onTerminalInput((data) => {
               if (matchesKey(data, "escape")) {
                 controller.abort(new Error("Adversarial review preflight cancelled by user"));
@@ -183,7 +203,6 @@ export default function adversarialReviewExtension(
             });
           } finally {
             removePreflightInput();
-            if (ctx.mode === "tui") ctx.ui.setStatus("adversarial-review", undefined);
           }
         };
         let targetPreflight = await runTargetPreflight();
@@ -381,6 +400,10 @@ export default function adversarialReviewExtension(
           message,
           sessionId: ctx.sessionManager.getSessionId(),
           cwd: ctx.cwd,
+          ...(frozenInput ? {
+            runId: frozenInput.runId,
+            target: frozenInput.target.description,
+          } : {}),
         });
         ctx.ui.notify(message, type);
       } finally {

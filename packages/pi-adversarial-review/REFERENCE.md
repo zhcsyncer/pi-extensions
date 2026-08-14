@@ -181,18 +181,18 @@ When commit planning is requested, or the hard limit is exceeded, diagnostics re
 
 ## TUI lifecycle and cancellation
 
-Review uses four display layers with distinct responsibilities:
+Review uses four display surfaces with distinct responsibilities:
 
-1. **Footer:** the single compact phase, completed/running/queued count, and elapsed-time summary. Zero running/queued counts and not-yet-started Refute state are omitted.
-2. **Run card above the editor:** a one-line discrete `Snapshot → Review → Gate → Finish` stepper, target, frozen snapshot size, deterministic gate/Refute outcomes, and cleanup state. Refute is inserted only after it actually starts. Finish covers report publication and the real cleanup barrier. This is stage visibility, never a percentage or time estimate, and it does not repeat the footer summary.
-3. **Subagents Agents/FleetView:** when the external backend is active, this exclusively owns per-agent model, execution, conversation, token, and tool-step detail; the Review card does not duplicate agent rows. The embedded fallback has no FleetView, so the Review card retains bounded per-agent status there.
-4. **Final report message:** durable collapsed summary with expandable complete details.
+1. **Run card above the editor:** the single compact phase, completed/running/queued count, elapsed time, one-line discrete `Snapshot → Review → Gate → Finish` stepper, target, frozen input size, deterministic gate/Refute outcomes, and cleanup state. Refute is inserted only after it actually starts. Finish covers report publication and the real cleanup barrier. This is stage visibility, never a percentage or time estimate. Review does not occupy Pi's footer status area.
+2. **Subagents Agents/FleetView:** when the external backend is active, this exclusively owns per-agent model, execution, conversation, token, and tool-step detail; the Review card does not duplicate agent rows. The embedded fallback has no FleetView, so the Review card retains bounded per-agent status there.
+3. **Dispatch transcript entry:** immediately before the first reviewer spawn, a durable `adversarial-review-dispatch` entry records the run ID, exact frozen target, input size, requested routes, backend, gate, and Refute selection. It is readable and expandable but does not participate in model context.
+4. **Terminal transcript entry:** the durable `adversarial-review-result`, cancellation, or error entry closes the visible lifecycle. A collapsed non-success report shows route failures immediately; expansion shows every route outcome, duration/usage, complete blocking/advisory findings, Refute, and target details. The adjudication handoff is a separate hidden custom message, so the visible report is not duplicated.
 
-The card is bounded to ten lines. Embedded overflow points to the final report. Control characters are sanitized, full Git identities remain in the audit/report while the transient card uses short identity hints, and long lines are terminal-width truncated. Intermediate card/footer state is ephemeral and is not appended to model context.
+The card is bounded to ten lines. Embedded overflow points to the final report. Control characters are sanitized, full Git identities remain in the audit/report while the transient card uses short identity hints, and long lines are terminal-width truncated. Intermediate card state is ephemeral and is not appended to model context; dispatch and terminal entries are durable without entering model context.
 
 During freeze, review, and refute, Escape opens an explicit cancellation choice without stopping work. **Continue review** is selected by default. Enter on that choice, or Escape from the confirmation screen, returns to the same running operation. Only **Confirm cancellation** aborts the shared run signal.
 
-External shutdown bypasses confirmation. In all cases, UI acknowledgement is not terminal truth: the command waits for agent terminal settlement, Git process exit, runtime disposal, and frozen workspace cleanup. The footer and card remain until that barrier completes; cleanup failure retains recoverable resources and emits a warning. A post-freeze cancelled report is persisted as partial audit evidence but never wakes the main model or queues adjudication. Git preflight and reviewer/refuter pickers retain immediate Escape cancellation.
+External shutdown bypasses confirmation. In all cases, UI acknowledgement is not terminal truth: the command waits for agent terminal settlement, Git process exit, runtime disposal, and frozen workspace cleanup. The card remains until that barrier completes and is then removed; cleanup failure retains recoverable resources and emits a warning. A post-freeze cancelled report is persisted as partial audit evidence but never wakes the main model or queues adjudication. Git preflight and reviewer/refuter pickers retain immediate Escape cancellation.
 
 ## Reports and parser contract
 
@@ -216,7 +216,7 @@ No state means final approval. `candidate-approve` only means that no blocking c
 
 ## Durable audit and adjudication handoff
 
-TUI reports are retained as session entries and rendered through the custom report renderer. Every non-TUI completed report or error is also written atomically with private permissions under:
+TUI dispatch, result, cancellation, and operational-failure boundaries are retained as non-model-context session entries and rendered through custom entry renderers. Report and dispatch nodes include an expansion hint; non-success report summaries expose bounded route errors before expansion. Every non-TUI completed report or error is also written atomically with private permissions under:
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/
@@ -226,7 +226,7 @@ The default is `~/.pi/agent/extension-data/pi-adversarial-review/audit/`. This s
 
 A confirmed cancellation before freeze completes produces a versioned minimal audit only when the freeze rejects with the exact run-signal abort reason and temporary-workspace cleanup succeeds. It contains preflight target, requested reviewer/refuter metadata, gating, and timestamps; it never invents frozen hashes or route results. Concurrent input failures and cleanup failures remain errors. Pre-freeze cancellation is persisted in every mode and retained as an `adversarial-review-cancellation` session entry.
 
-Pi guards extension stdout in headless modes. Scripts should use process status, not an assumed stdout/stderr split, to distinguish a completed report from an operational failure. Print/JSON failures emit a control-safe stderr diagnostic, persist an error audit, and set non-zero process status. RPC keeps the host alive and exposes `adversarial-review-report`, `adversarial-review-error`, and `adversarial-review-cancellation` through `get_entries`.
+Pi guards extension stdout in headless modes. Scripts should use process status, not an assumed stdout/stderr split, to distinguish a completed report from an operational failure. Print/JSON failures emit a control-safe stderr diagnostic, persist an error audit, and set non-zero process status. RPC keeps the host alive and exposes `adversarial-review-dispatch`, `adversarial-review-result`, `adversarial-review-error`, and `adversarial-review-cancellation` through `get_entries`; the hidden `adversarial-review-report` custom message carries only the main-model handoff.
 
 Print mode emits the merged report without starting a model turn. Non-cancelled successful non-print modes send a fixed evidence-first follow-up to the current main model; cancelled reports remain persisted without `triggerTurn`. Repository and model text is encoded as untrusted data. If the handoff exceeds 128 KiB, the audit is preserved but delivery fails loud rather than silently truncating findings.
 

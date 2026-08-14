@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildReviewFreezeCancellationAudit,
   publishReviewFreezeCancellation,
+  renderReviewFreezeCancellationEntry,
 } from "../src/output/publish-cancellation.ts";
 import type { ReviewerRoute } from "../src/types.ts";
 
@@ -85,5 +86,27 @@ describe("pre-freeze cancellation publishing", () => {
     });
     expect(record.payload).not.toHaveProperty("inputSha256");
     expect(record.payload).not.toHaveProperty("routeResults");
+  });
+
+  it("renders a readable cancellation boundary with expandable target and routes", () => {
+    const audit = buildReviewFreezeCancellationAudit({
+      target: { mode: "range", fromRef: "from", toRef: "to" },
+      preflight: { selection: "explicit", fetchStatus: "not-needed" },
+      requestedRoutes: [route(0), route(1)],
+      refuteRequested: false,
+      gating: "weighted",
+      startedAt: new Date("2026-03-01T01:02:03.000Z"),
+      cancelledAt: new Date("2026-03-01T01:02:04.000Z"),
+    });
+    const theme = { fg: (_color: string, text: string) => text } as any;
+    const collapsed = renderReviewFreezeCancellationEntry(audit, { expanded: false }, theme)
+      .render(140).join("\n");
+    const expanded = renderReviewFreezeCancellationEntry(audit, { expanded: true }, theme)
+      .render(140).join("\n");
+
+    expect(collapsed).toContain("cancelled during input freeze · 2 routes not started");
+    expect(expanded).toContain("Target · range from..to");
+    expect(expanded).toContain("provider-0/model-0@high");
+    expect(expanded).toContain("Cancelled · 2026-03-01T01:02:04.000Z");
   });
 });

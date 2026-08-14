@@ -1,7 +1,9 @@
-import type {
-  ExtensionAPI,
-  MessageRenderOptions,
-  Theme,
+import {
+  keyHint,
+  type EntryRenderOptions,
+  type ExtensionAPI,
+  type MessageRenderOptions,
+  type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
 import type { MergedReviewReport, ReviewerRoute } from "../types.ts";
@@ -16,9 +18,33 @@ import {
 import { persistStandaloneAudit } from "./audit-store.ts";
 
 export const ADVERSARIAL_REVIEW_MESSAGE_TYPE = "adversarial-review-report";
+export const ADVERSARIAL_REVIEW_RESULT_TYPE = "adversarial-review-result";
 
 function safeDisplayText(value: string): string {
   return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/gu, "�");
+}
+
+function formatDurationMs(durationMs: number | undefined): string | undefined {
+  if (durationMs === undefined || !Number.isFinite(durationMs)) return undefined;
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes > 0 ? `${minutes}m${String(remainder).padStart(2, "0")}s` : `${seconds}s`;
+}
+
+function formatUsageTotal(total: number | undefined): string | undefined {
+  if (total === undefined || !Number.isFinite(total)) return undefined;
+  if (total < 1000) return `${Math.max(0, Math.round(total))} tokens`;
+  return `${(Math.max(0, total) / 1000).toFixed(1)}k tokens`;
+}
+
+function expandHint(): string {
+  try {
+    const hint = keyHint("app.tools.expand", "details");
+    return hint.trim() || "Ctrl+O details";
+  } catch {
+    return "Ctrl+O details";
+  }
 }
 
 function routeIdentity(route: ReviewerRoute) {
@@ -155,18 +181,35 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     }
   }
   if (report.advisory.length > 0) {
-    lines.push("", `Advisory findings: ${report.advisory.length} (see report details).`);
-  }
-
-  const failedRoutes = report.routeResults.filter((result) => result.status !== "completed");
-  if (failedRoutes.length > 0) {
-    lines.push("", "Reviewer route failures:");
-    for (const result of failedRoutes) {
+    lines.push("", `Advisory findings (${report.advisory.length}):`);
+    for (const finding of report.advisory) {
       lines.push(
-        `- ${safeDisplayText(result.route.key)}: ${result.status}` +
-          `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
+        `- [${finding.severity}] ${safeDisplayText(finding.file)}:` +
+          `${finding.lineStart}-${finding.lineEnd} ${safeDisplayText(finding.issue)} ` +
+          `(votes ${finding.votes}, confidence ${finding.confidence.toFixed(2)})`,
       );
     }
+  }
+
+  lines.push("", `Reviewer routes (${report.routeResults.length}):`);
+  for (const result of report.routeResults) {
+    const duration = formatDurationMs(result.durationMs);
+    const usage = formatUsageTotal(result.usage?.total);
+    const metrics = [duration, usage].filter(Boolean);
+    if (result.status === "completed" && result.report) {
+      const findings = result.report.findings.length;
+      lines.push(
+        `- ✓ ${safeDisplayText(result.route.key)}: valid · ${result.report.verdict} · ` +
+          `${findings} finding${findings === 1 ? "" : "s"}` +
+          `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}`,
+      );
+      continue;
+    }
+    lines.push(
+      `- × ${safeDisplayText(result.route.key)}: ${result.status}` +
+        `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}` +
+        `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
+    );
   }
   const failedRefuters = report.refuteResults.filter((result) => result.status !== "completed");
   if (failedRefuters.length > 0) {
@@ -301,30 +344,74 @@ function isSerializedReport(value: unknown): value is ReturnType<typeof serializ
     Array.isArray(candidate.contested);
 }
 
-export function renderMergedReviewMessage(
+function compactLine(value: string, maxLength = 180): string {
+  const safe = safeDisplayText(value).replace(/\s+/gu, " ").trim();
+  return safe.length <= maxLength ? safe : `${safe.slice(0, maxLength - 1)}…`;
+}
+
+function renderMergedReviewReport(
   details: unknown,
-  options: MessageRenderOptions,
+  expanded: boolean,
   theme: Theme,
+  padding: number,
 ): Component {
   if (!isSerializedReport(details)) {
-    return new Text(theme.fg("warning", "Adversarial review report (invalid details)"), options.outputPad, 0);
+    return new Text(theme.fg("warning", "Adversarial review report (invalid details)"), padding, 0);
   }
   const started = Date.parse(details.startedAt);
   const completed = Date.parse(details.completedAt);
   const durationSeconds = Number.isFinite(started) && Number.isFinite(completed)
     ? Math.max(0, Math.round((completed - started) / 1000))
     : 0;
-  const color = details.overall === "candidate-approve" ? "success" : "warning";
-  let text = theme.fg(
-    color,
-    `Review ${details.successfulReviewerCount}/${details.requestedRoutes.length} valid · ` +
-      `${details.blocking.length} blocking · ${details.advisory.length} advisory · ` +
-      `${summarizeRefuteStatus(details).compact} · ${details.gating} · ${durationSeconds}s`,
-  );
-  if (options.expanded) {
-    text += `\n\n${buildMergedReportText(details as unknown as MergedReviewReport)}`;
+  const failedRoutes = details.routeResults.filter((result) => result.status !== "completed");
+  const successful = details.overall === "candidate-approve";
+  const icon = successful ? "✓" : details.overall === "failed" ? "×" : "!";
+  const color = successful ? "success" : details.overall === "failed" ? "error" : "warning";
+  const lines = [
+    theme.fg(
+      color,
+      `${icon} Adversarial review · ${details.overall} · ` +
+        `${details.successfulReviewerCount}/${details.requestedRoutes.length} valid · ` +
+        `${failedRoutes.length} failed · ${durationSeconds}s`,
+    ),
+    `  ${details.blocking.length} blocking · ${details.advisory.length} advisory · ` +
+      `${summarizeRefuteStatus(details).compact} · ${details.gating}`,
+  ];
+  if (!expanded && failedRoutes.length > 0) {
+    const visible = failedRoutes.slice(0, 3);
+    for (const result of visible) {
+      lines.push(
+        `  ${theme.fg("error", "×")} ${compactLine(result.route.key, 60)} · ${result.status}` +
+          `${result.error ? ` — ${compactLine(result.error, 120)}` : ""}`,
+      );
+    }
+    if (failedRoutes.length > visible.length) {
+      lines.push(`  ${theme.fg("dim", `… ${failedRoutes.length - visible.length} more failed routes`)}`);
+    }
   }
-  return new Text(text, options.outputPad, 0);
+  if (expanded) {
+    lines.push("", buildMergedReportText(details as unknown as MergedReviewReport));
+  } else {
+    lines.push(`  ${theme.fg("dim", expandHint())}`);
+  }
+  return new Text(lines.join("\n"), padding, 0);
+}
+
+/** Legacy/custom-message renderer retained for restored sessions. */
+export function renderMergedReviewMessage(
+  details: unknown,
+  options: MessageRenderOptions,
+  theme: Theme,
+): Component {
+  return renderMergedReviewReport(details, options.expanded, theme, options.outputPad);
+}
+
+export function renderMergedReviewEntry(
+  details: unknown,
+  options: EntryRenderOptions,
+  theme: Theme,
+): Component {
+  return renderMergedReviewReport(details, options.expanded, theme, 1);
 }
 
 export interface PublishReportResult {
@@ -360,9 +447,9 @@ export function publishMergedReviewReport(
     }
   }
 
-  // Live session/display channel. Standalone audit above covers fresh non-TUI
-  // commands that Pi intentionally does not flush without an assistant message.
-  pi.appendEntry(ADVERSARIAL_REVIEW_MESSAGE_TYPE, details);
+  // Durable visible transcript entry. Standalone audit above covers fresh
+  // non-TUI commands that Pi intentionally does not flush without an assistant message.
+  pi.appendEntry(ADVERSARIAL_REVIEW_RESULT_TYPE, details);
 
   if (mode === "print") {
     console.log(displayContent);
@@ -383,7 +470,9 @@ export function publishMergedReviewReport(
     pi.sendMessage({
       customType: ADVERSARIAL_REVIEW_MESSAGE_TYPE,
       content: buildAdjudicationPrompt(report),
-      display: true,
+      // The visible report is the non-model-context entry above. Keep the
+      // adjudication handoff hidden to avoid a duplicate transcript node.
+      display: false,
       details,
     }, { deliverAs: "followUp", triggerTurn: true });
     return {

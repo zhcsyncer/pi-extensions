@@ -181,18 +181,18 @@ Whole-target 建议阈值是 200 KiB 或 5,000 个逻辑行。这是质量和资
 
 ## TUI 生命周期与取消
 
-Review 使用四层显示，各自职责不同：
+Review 使用四个显示面，各自职责不同：
 
-1. **Footer：**唯一的紧凑 phase、completed/running/queued 计数与耗时摘要；running/queued 为零时省略，尚未开始的 Refute 也不预告。
-2. **Editor 上方 run card：**显示一行离散的 `Snapshot → Review → Gate → Finish` 节点条、target、frozen snapshot 大小、确定性的 gate/Refute 结果和 cleanup state。只有 Refute 真正启动后才插入该节点；Finish 覆盖报告发布与真实 cleanup barrier。它只表达阶段，不表示百分比或剩余时间，也不重复 footer 汇总。
-3. **Subagents Agents/FleetView：**external backend 下，逐 agent 的模型、执行、对话、token 和 tool step 明细只归这里，Review 卡不重复 agent 行。Embedded fallback 没有 FleetView，因此 Review 卡会保留有界的逐 agent 状态。
-4. **最终报告消息：**持久的折叠摘要与可展开完整详情。
+1. **Editor 上方 run card：**统一承担紧凑 phase、completed/running/queued 计数、耗时、一行离散的 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果和 cleanup state。只有 Refute 真正启动后才插入该节点；Finish 覆盖报告发布与真实 cleanup barrier。它只表达阶段，不表示百分比或剩余时间。Review 不再占用 Pi 的 footer status 区域。
+2. **Subagents Agents/FleetView：**external backend 下，逐 agent 的模型、执行、对话、token 和 tool step 明细只归这里，Review 卡不重复 agent 行。Embedded fallback 没有 FleetView，因此 Review 卡会保留有界的逐 agent 状态。
+3. **派发 transcript entry：**第一次 reviewer spawn 紧邻之前，持久的 `adversarial-review-dispatch` entry 会记录 run ID、精确 frozen target、input size、请求的 routes、backend、gate 和 Refute 选择。它可读、可展开，但不进入模型 context。
+4. **终态 transcript entry：**持久的 `adversarial-review-result`、cancellation 或 error entry 关闭可见生命周期。非成功报告的折叠视图直接显示 route failure；展开后包含每路终态、duration/usage、完整 blocking/advisory finding、Refute 和 target 详情。Adjudication handoff 使用另一条隐藏 custom message，因此不会重复显示最终报告。
 
-状态卡最多十行；embedded overflow 会指向最终报告。控制字符会被清理；完整 Git identity 留在 audit/report，临时状态卡只使用短 identity 提示；长行按 terminal width 截断。中间 card/footer 状态是临时 UI，不会写入模型 context。
+状态卡最多十行；embedded overflow 会指向最终报告。控制字符会被清理；完整 Git identity 留在 audit/report，临时状态卡只使用短 identity 提示；长行按 terminal width 截断。中间 card 状态是临时 UI，不会写入模型 context；派发与终态 entry 会持久化，但同样不进入模型 context。
 
 Freeze、review、refute 期间按 Escape 会打开明确的取消选择，但不会停止工作。默认选中 **Continue review**；在该项按 Enter，或在确认界面按 Escape，都会回到同一个运行。只有 **Confirm cancellation** 才会 abort 共享 run signal。
 
-External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 terminal 真值：命令会等待 agent terminal settlement、Git process exit、runtime dispose 和 frozen workspace cleanup。Footer 与状态卡会一直保留到该 barrier 完成；cleanup 失败时会保留可恢复资源并给出 warning。Freeze 完成后的 cancelled report 会作为 partial audit evidence 持久化，但绝不会唤醒主模型或排入 adjudication。Git preflight 和 reviewer/refuter picker 仍保持 Escape 立即取消。
+External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 terminal 真值：命令会等待 agent terminal settlement、Git process exit、runtime dispose 和 frozen workspace cleanup。状态卡会一直保留到该 barrier 完成，随后销毁；cleanup 失败时会保留可恢复资源并给出 warning。Freeze 完成后的 cancelled report 会作为 partial audit evidence 持久化，但绝不会唤醒主模型或排入 adjudication。Git preflight 和 reviewer/refuter picker 仍保持 Escape 立即取消。
 
 ## 报告与 parser contract
 
@@ -216,7 +216,7 @@ Merged report 会记录：
 
 ## 持久 audit 与 adjudication handoff
 
-TUI report 会作为 session entry 保留，并通过 custom report renderer 显示。每个非 TUI 完整报告或错误还会以私有权限原子写入：
+TUI 的派发、结果、取消和运行故障边界都会作为不进入模型 context 的 session entry 保留，并通过 custom entry renderer 显示。Report 与 dispatch 节点带展开提示；非成功报告在展开前就会显示有界的 route error。每个非 TUI 完整报告或错误还会以私有权限原子写入：
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/
@@ -226,7 +226,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/
 
 Frozen input 完成前的已确认取消，只有在 freeze 以本轮 run-signal 的精确 abort reason 拒绝、且 temporary-workspace cleanup 成功时，才生成带版本号的最小 audit。它包含 preflight target、请求的 reviewer/refuter metadata、gating 与时间戳，绝不伪造 frozen hash 或 route result。并发 input failure 与 cleanup failure 仍按错误处理。Pre-freeze cancellation 会在所有模式持久化，并保留为 `adversarial-review-cancellation` session entry。
 
-Pi 会保护 headless extension stdout。脚本应使用 process status，而不是假设 stdout/stderr 分流，来区分“已生成报告”与“运行故障”。Print/JSON failure 会输出过滤控制字符后的 stderr 诊断、持久化 error audit 并设置非零状态。RPC host 保持运行，并通过 `get_entries` 暴露 `adversarial-review-report`、`adversarial-review-error`、`adversarial-review-cancellation`。
+Pi 会保护 headless extension stdout。脚本应使用 process status，而不是假设 stdout/stderr 分流，来区分“已生成报告”与“运行故障”。Print/JSON failure 会输出过滤控制字符后的 stderr 诊断、持久化 error audit 并设置非零状态。RPC host 保持运行，并通过 `get_entries` 暴露 `adversarial-review-dispatch`、`adversarial-review-result`、`adversarial-review-error`、`adversarial-review-cancellation`；隐藏的 `adversarial-review-report` custom message 只承载主模型 handoff。
 
 Print mode 只输出 merged report，不启动 model turn。未取消且成功的非 print 模式会向当前主模型发送固定 evidence-first follow-up；cancelled report 只持久化，不使用 `triggerTurn`。仓库与模型文本会编码为不可信数据。Handoff 超过 128 KiB 时，audit 仍保留，但 delivery 会 fail-loud，绝不静默截断 finding。
 

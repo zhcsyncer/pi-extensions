@@ -83,6 +83,7 @@ class FakePi {
   readonly entries: Array<{ customType: string; data: any }> = [];
   readonly registerTool = vi.fn();
   readonly registerMessageRenderer = vi.fn();
+  readonly registerEntryRenderer = vi.fn();
   eventResponder?: (event: string, data: any) => void;
   readonly events = {
     on: (event: string, handler: (data: any) => void) => {
@@ -114,6 +115,10 @@ class FakePi {
 
   appendEntry(customType: string, data: any): void {
     this.entries.push({ customType, data });
+  }
+
+  entry(customType: string): { customType: string; data: any } | undefined {
+    return this.entries.find((entry) => entry.customType === customType);
   }
 
   api(): ExtensionAPI {
@@ -240,7 +245,7 @@ afterEach(async () => {
 });
 
 describe("adversarial review extension", () => {
-  it("registers only the slash command, report renderer, and shutdown lifecycle", () => {
+  it("registers only the slash command, transcript renderers, and shutdown lifecycle", () => {
     const fake = new FakePi();
     adversarialReviewExtension(fake.api());
 
@@ -255,6 +260,15 @@ describe("adversarial review extension", () => {
       "adversarial-review-cancellation",
       expect.any(Function),
     );
+    expect(fake.registerEntryRenderer).toHaveBeenCalledTimes(4);
+    for (const type of [
+      "adversarial-review-dispatch",
+      "adversarial-review-result",
+      "adversarial-review-cancellation",
+      "adversarial-review-error",
+    ]) {
+      expect(fake.registerEntryRenderer).toHaveBeenCalledWith(type, expect.any(Function));
+    }
     expect(fake.handlers.get("session_shutdown")).toHaveLength(1);
   });
 
@@ -334,7 +348,7 @@ describe("adversarial review extension", () => {
       message: "Adversarial review target: inferred feature branch.",
       type: "info",
     });
-    expect(fake.entries[0]?.data.target.preflight).toEqual({
+    expect(fake.entry("adversarial-review-result")?.data.target.preflight).toEqual({
       selection: "inferred",
       fetchStatus: "succeeded",
       branch: "feature/preflight",
@@ -414,8 +428,8 @@ describe("adversarial review extension", () => {
       message: "Adversarial review: Git changed while selecting models; running preflight again.",
       type: "warning",
     });
-    expect(fake.entries[0]?.data.target.preflight.selection).toBe("interactive");
-    expect(fake.entries[0]?.data.overall).toBe("candidate-approve");
+    expect(fake.entry("adversarial-review-result")?.data.target.preflight.selection).toBe("interactive");
+    expect(fake.entry("adversarial-review-result")?.data.overall).toBe("candidate-approve");
   });
 
   it("cleans a frozen candidate and prevents runtime spawn when the guard changes during freeze", async () => {
@@ -447,7 +461,12 @@ describe("adversarial review extension", () => {
     expect(revalidatePreflight).toHaveBeenCalledTimes(2);
     expect(resolveRuntime).toHaveBeenCalledTimes(1);
     expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
-    expect(fake.entries).toEqual([]);
+    expect(fake.entry("adversarial-review-error")).toMatchObject({
+      data: {
+        kind: "input",
+        message: expect.stringContaining("Git state changed while freezing"),
+      },
+    });
     expect(notifications.at(-1)).toMatchObject({
       type: "error",
       message: expect.stringContaining("Git state changed while freezing"),
@@ -601,10 +620,12 @@ describe("adversarial review extension", () => {
 
     expect(resolveRuntime).not.toHaveBeenCalled();
     expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
-    // Existing TUI failures notify without appending the headless-only error
-    // entry. The important distinction is that the abort must not publish the
-    // durable pre-freeze cancellation entry.
-    expect(fake.entries).toEqual([]);
+    // The failure is visible in the transcript, but it must not be mislabeled
+    // as a user cancellation or trigger a standalone TUI audit file.
+    expect(fake.entry("adversarial-review-error")).toMatchObject({
+      data: { kind: "input", message: expect.stringContaining(diagnostic) },
+    });
+    expect(fake.entry("adversarial-review-cancellation")).toBeUndefined();
     expect(persistStandaloneAudit).not.toHaveBeenCalled();
     expect(notifications.at(-1)).toMatchObject({
       type: "error",
@@ -703,7 +724,7 @@ describe("adversarial review extension", () => {
 
     expect(resolveRuntime).not.toHaveBeenCalled();
     expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
-    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect(statuses).toEqual([]);
     expect(notifications).toEqual([]);
   });
 
@@ -740,7 +761,7 @@ describe("adversarial review extension", () => {
 
     expect(resolveRuntime).not.toHaveBeenCalled();
     expect(fake.emitted.some(({ event }) => event === "subagents:rpc:spawn")).toBe(false);
-    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect(statuses).toEqual([]);
     expect(notifications.at(-1)).toEqual({
       message: "Adversarial review: Git preflight cancelled.",
       type: "info",
@@ -890,9 +911,13 @@ describe("adversarial review extension", () => {
       ctx,
     );
 
-    expect(fake.entries).toHaveLength(1);
+    expect(fake.entries).toHaveLength(2);
     expect(fake.entries[0]).toMatchObject({
-      customType: "adversarial-review-report",
+      customType: "adversarial-review-dispatch",
+      data: { status: "dispatched", requestedRoutes: expect.any(Array) },
+    });
+    expect(fake.entry("adversarial-review-result")).toMatchObject({
+      customType: "adversarial-review-result",
       data: {
         overall: "candidate-approve",
         successfulReviewerCount: 2,
@@ -975,8 +1000,8 @@ describe("adversarial review extension", () => {
     );
 
     expect(fake.emitted.some(({ event }) => event === "subagents:rpc:ping")).toBe(false);
-    expect(fake.entries[0]).toMatchObject({
-      customType: "adversarial-review-report",
+    expect(fake.entry("adversarial-review-result")).toMatchObject({
+      customType: "adversarial-review-result",
       data: {
         overall: "candidate-approve",
         runtime: {
@@ -1176,7 +1201,7 @@ describe("adversarial review extension", () => {
         inlineAgentConfig: { builtinToolNames: ["read", "grep", "find", "ls"] },
       },
     });
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "needs-adjudication",
       runtime: {
         maxTurns: 40,
@@ -1193,10 +1218,10 @@ describe("adversarial review extension", () => {
       refuteResults: [{ findingIndex: 0, status: "completed", report: { refuted: true } }],
       contested: [{ findingIndex: 0, reason: "The caller awaits persistence before returning." }],
     });
-    expect(fake.entries[0]?.data.blocking).toHaveLength(1);
+    expect(fake.entry("adversarial-review-result")?.data.blocking).toHaveLength(1);
     expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(false);
     expect(notifications.some(({ message }) => message.includes("Refute 1/1 valid; 1 contested."))).toBe(true);
-    expect(statuses.some(({ value }) => value?.includes("refute 0/1 complete"))).toBe(true);
+    expect(statuses).toEqual([]);
     expect(fake.sentMessages[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
     expect(JSON.stringify(fake.sentMessages[0]?.message.details)).not.toContain('"model":');
   });
@@ -1239,7 +1264,7 @@ describe("adversarial review extension", () => {
     expect(spawns).toHaveLength(2);
     expect(spawns.every((item) => item.data.type === "adversarial-reviewer")).toBe(true);
     expect(fake.emitted.filter((item) => item.event === "subagents:rpc:ping")).toHaveLength(1);
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "candidate-approve",
       blocking: [],
       refuteRequested: true,
@@ -1252,8 +1277,7 @@ describe("adversarial review extension", () => {
     });
     expect(notifications.some(({ message }) => message.includes("Adversarial refute armed:"))).toBe(false);
     expect(notifications.some(({ message }) => message.includes("Refute skipped: no blocking findings."))).toBe(true);
-    expect(statuses.some(({ value }) => value?.includes("refute armed"))).toBe(false);
-    expect(statuses.some(({ value }) => value?.startsWith("Adversarial review · refute "))).toBe(false);
+    expect(statuses).toEqual([]);
   });
 
   it("spawns a blocking refuter with the current main-session route", async () => {
@@ -1318,7 +1342,7 @@ describe("adversarial review extension", () => {
         thinkingLevel: "medium",
       },
     });
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       refuterRoute: {
         key: "main-provider/main-model@medium",
         thinkingSource: "main-session",
@@ -1384,7 +1408,7 @@ describe("adversarial review extension", () => {
     const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
     expect(spawns).toHaveLength(2);
     expect(spawns.map((item) => item.data.options.thinkingLevel)).toEqual(["medium", "medium"]);
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "candidate-approve",
       successfulReviewerCount: 2,
       runtime: { maxConcurrent: 1, waves: 2 },
@@ -1428,10 +1452,7 @@ describe("adversarial review extension", () => {
     expect(fake.entries).toEqual([]);
     expect(fake.sentMessages).toEqual([]);
     expect(fake.emitted.some((item) => item.event === "subagents:rpc:spawn")).toBe(false);
-    expect(statuses).toEqual([
-      { key: "adversarial-review", value: "Adversarial review · checking Git target…" },
-      { key: "adversarial-review", value: undefined },
-    ]);
+    expect(statuses).toEqual([]);
     expect(notifications).toEqual([
       { message: "Adversarial review target: test-local.", type: "info" },
     ]);
@@ -1508,7 +1529,12 @@ describe("adversarial review extension", () => {
     await Promise.all([shutdown, command]);
     expect(shutdownResolved).toBe(true);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
-    expect(fake.entries).toEqual([]);
+    expect(fake.entries).toEqual([
+      expect.objectContaining({
+        customType: "adversarial-review-dispatch",
+        data: expect.objectContaining({ status: "dispatched" }),
+      }),
+    ]);
     expect(fake.sentMessages).toEqual([]);
   });
 
@@ -1550,7 +1576,7 @@ describe("adversarial review extension", () => {
       ctx,
     );
 
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "cancelled",
       routeResults: [
         { status: "cancelled" },
@@ -1563,7 +1589,7 @@ describe("adversarial review extension", () => {
       type: "warning",
       message: expect.stringContaining("Adversarial review: cancelled"),
     });
-    expect(statuses.at(-1)).toEqual({ key: "adversarial-review", value: undefined });
+    expect(statuses).toEqual([]);
     expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: root,
       encoding: "utf8",
@@ -1616,7 +1642,7 @@ describe("adversarial review extension", () => {
     );
 
     expect(validationCount).toBe(2);
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "cancelled",
       routeResults: [{ status: "cancelled" }, { status: "cancelled" }],
     });
@@ -1662,7 +1688,7 @@ describe("adversarial review extension", () => {
       ctx,
     );
 
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "stale",
       stale: true,
       successfulReviewerCount: 2,
@@ -1716,7 +1742,7 @@ describe("adversarial review extension", () => {
       ctx,
     );
 
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "failed",
       successfulReviewerCount: 0,
       routeResults: [
@@ -1778,7 +1804,7 @@ describe("adversarial review extension", () => {
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     await command;
 
-    expect(fake.entries[0]?.data).toMatchObject({
+    expect(fake.entry("adversarial-review-result")?.data).toMatchObject({
       overall: "failed",
       routeResults: [{ status: "timed-out" }, { status: "timed-out" }],
     });
@@ -1808,7 +1834,9 @@ describe("adversarial review extension", () => {
     expect(notifications.at(-1)).toMatchObject({ type: "error" });
     expect(notifications.at(-1)?.message).toContain("Frozen review input exceeds the 1048576-byte limit");
     expect(fake.emitted).toEqual([]);
-    expect(fake.entries).toEqual([]);
+    expect(fake.entry("adversarial-review-error")).toMatchObject({
+      data: { kind: "input", message: expect.stringContaining("Frozen review input exceeds") },
+    });
     expect((await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       cwd: root,
       encoding: "utf8",

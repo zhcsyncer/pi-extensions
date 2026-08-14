@@ -25,7 +25,6 @@ import type {
   MergedReviewReport,
 } from "../types.ts";
 
-const STATUS_KEY = "adversarial-review";
 const WIDGET_KEY = "adversarial-review-run";
 const MAX_CARD_LINES = 10;
 
@@ -181,8 +180,8 @@ function appendFleetItems(
 }
 
 /**
- * Ephemeral run-level visibility. The footer owns aggregate progress; this card
- * owns deterministic Review state. External Subagents owns per-agent detail,
+ * Ephemeral run-level visibility. This card owns aggregate progress and
+ * deterministic Review state. External Subagents owns per-agent detail,
  * while embedded fallback renders bounded agent rows here. No intermediate UI
  * text is appended to model context.
  */
@@ -204,24 +203,31 @@ export function createReviewRunStatus(
   let widgetRegistered = false;
   let widgetTui: { requestRender(): void } | undefined;
 
-  const fleetProgress = (phase: "review" | "refute", value: ReviewerFleetProgress) => {
+  const fleetProgress = (phase: "Review" | "Refute", value: ReviewerFleetProgress) => {
     const running = value.running > 0 ? ` · ${value.running} running` : "";
     const queued = value.queued > 0 ? ` · ${value.queued} queued` : "";
-    return `${phase} ${value.finished}/${value.total} complete${running}${queued}`;
+    return `${phase} · ${value.finished}/${value.total} complete${running}${queued}`;
   };
 
-  const footerDetail = () => {
+  const stageDetail = () => {
     if (stage === "review" && progress?.phase === "review") {
-      return fleetProgress("review", progress);
+      return fleetProgress("Review", progress);
     }
     if (stage === "refute" && progress?.phase === "refute") {
-      return fleetProgress("refute", progress);
+      return fleetProgress("Refute", progress);
     }
-    if (stage === "gating") return "gating findings";
-    if (stage === "publishing") return "publishing report";
-    if (stage === "cleanup") return "cleaning up";
-    if (stage === "failed") return "failed";
-    return `preparing · ${options.totalRoutes} reviewers`;
+    if (stage === "gating") return "Gating findings";
+    if (stage === "publishing" && gate) {
+      return `${gate.overall} · ${gate.validReviewers}/${gate.totalReviewers} valid`;
+    }
+    if (stage === "publishing") return "Publishing report";
+    if (stage === "cleanup") {
+      if (cleanupState === "completed") return "Cleanup complete";
+      if (cleanupState === "retained") return "Cleanup retained resources";
+      return "Cleaning up";
+    }
+    if (stage === "failed") return "Failed";
+    return `Preparing · ${options.totalRoutes} reviewers`;
   };
 
   const activeFlowNode = (): ReviewFlowNode => {
@@ -253,7 +259,10 @@ export function createReviewRunStatus(
     if (failedIndex >= 0 && active === "finish" && nodeIndex > failedIndex && node !== "finish") {
       return "pending";
     }
-    if (nodeIndex < activeIndex) return "completed";
+    if (nodeIndex < activeIndex) {
+      if (node === "gate" && gate && gate.overall !== "candidate-approve") return "warning";
+      return "completed";
+    }
     if (node === active) return stage === "failed" ? "failed" : "active";
     return "pending";
   };
@@ -269,6 +278,19 @@ export function createReviewRunStatus(
     if (state === "failed") return theme.fg("error", `× ${label}`);
     if (state === "warning") return theme.fg("warning", `! ${label}`);
     return theme.fg("dim", `○ ${label}`);
+  };
+
+  const headerLine = (width: number, theme: Theme) => {
+    const failed = stage === "failed";
+    const warning = cleanupState === "retained" ||
+      (stage === "publishing" && gate?.overall !== "candidate-approve");
+    const icon = failed ? "×" : warning ? "!" : "●";
+    const color = failed ? "error" : warning ? "warning" : "accent";
+    return truncateToWidth(
+      `  ${theme.bold("Adversarial Review")} · ${theme.fg(color, `${icon} ${stageDetail()}`)} · ` +
+        theme.fg("dim", elapsedText(startedAtMs)),
+      width,
+    );
   };
 
   const flowLine = (width: number, theme: Theme) => {
@@ -290,7 +312,7 @@ export function createReviewRunStatus(
     const detail = frozen
       ? `${formatBytes(frozen.bytes)} · ${frozen.lines} lines · ${frozen.files} files`
       : "freezing deterministic input";
-    return truncateToWidth(`  ${theme.fg("muted", "Snapshot")} · ${detail}`, width);
+    return truncateToWidth(`  ${theme.fg("muted", "Input")} · ${detail}`, width);
   };
 
   const gateLine = (width: number, theme: Theme) => gate
@@ -321,7 +343,12 @@ export function createReviewRunStatus(
   };
 
   const renderCard = (width: number, theme: Theme): string[] => {
-    const lines = [flowLine(width, theme), targetLine(width, theme), snapshotLine(width, theme)];
+    const lines = [
+      headerLine(width, theme),
+      flowLine(width, theme),
+      targetLine(width, theme),
+      snapshotLine(width, theme),
+    ];
     if (stage === "review" && progress?.phase === "review") {
       if (backend === "embedded") appendFleetItems(lines, progress.items, width, theme);
       return lines;
@@ -363,21 +390,13 @@ export function createReviewRunStatus(
       }, { placement: "aboveEditor" });
       widgetRegistered = true;
     } catch {
-      // Footer status still provides a bounded fallback if widgets are unavailable.
+      // The running input control remains available if widgets are unavailable.
     }
   };
 
   const render = () => {
     if (disposed) return;
     registerWidget();
-    try {
-      ctx.ui.setStatus(
-        STATUS_KEY,
-        `Adversarial review · ${footerDetail()} · ${elapsedText(startedAtMs)}`,
-      );
-    } catch {
-      // UI observers must never alter review execution semantics.
-    }
     try {
       widgetTui?.requestRender();
     } catch {
@@ -453,11 +472,6 @@ export function createReviewRunStatus(
       } catch {
         // The session may already be tearing down.
       }
-      try {
-        ctx.ui.setStatus(STATUS_KEY, undefined);
-      } catch {
-        // The session may already be tearing down.
-      }
     },
   };
 }
@@ -480,7 +494,7 @@ export async function runWithTuiCancellation<T>(
       const loader = new BorderedLoader(
         tui,
         theme,
-        "Review running. Progress is shown above. Esc opens cancellation options.",
+        "Review running · input paused · Esc opens cancellation options.",
         { cancellable: false },
       );
       const choices: SelectItem[] = [

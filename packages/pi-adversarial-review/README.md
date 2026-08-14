@@ -86,15 +86,16 @@ Severity measures impact, confidence measures evidence strength, and votes measu
 
 During a run:
 
-- the footer owns the compact phase/count/elapsed summary;
-- a temporary card above the editor shows a one-line `Snapshot → Review → Gate → Finish` stepper, the target, frozen snapshot size, deterministic gate/Refute outcomes, and real cleanup progress; Refute is inserted only if it actually starts, and the stepper never claims a percentage;
+- one temporary card above the editor owns the compact phase/count/elapsed summary, a one-line `Snapshot → Review → Gate → Finish` stepper, the target, frozen input size, deterministic gate/Refute outcomes, and real cleanup progress; Refute is inserted only if it actually starts, and the stepper never claims a percentage;
+- the extension does not occupy Pi's footer status area;
 - with a compatible external Subagents runtime, its Agents/FleetView surface exclusively owns per-agent model, execution, conversation, and tool-call detail; the Review card does not repeat those rows;
 - the embedded fallback has no FleetView, so the Review card retains bounded per-agent status there;
-- the final expandable report remains the durable result.
+- a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
+- the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
 
 Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. Those low-level calls are intentionally not duplicated in the Review status card.
 
-Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The status remains until runtime termination and frozen-workspace cleanup have actually completed. Preflight and picker Escape remain immediate cancellation actions.
+Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The card remains until runtime termination and frozen-workspace cleanup have actually completed, then it is removed. Preflight and picker Escape remain immediate cancellation actions.
 
 ## Result semantics
 

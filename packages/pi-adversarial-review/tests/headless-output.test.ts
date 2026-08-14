@@ -7,6 +7,7 @@ import {
   ADVERSARIAL_REVIEW_ERROR_TYPE,
   emitHeadlessDiagnostic,
   publishReviewFailure,
+  renderReviewFailureEntry,
 } from "../src/output/headless-output.ts";
 
 const originalExitCode = process.exitCode;
@@ -75,7 +76,7 @@ describe("headless review output", () => {
     expect(process.exitCode).toBe(originalExitCode);
   });
 
-  it("does not persist invisible error entries for ordinary TUI mistakes", () => {
+  it("persists visible error entries for ordinary TUI failures without changing exit status", () => {
     const appendEntry = vi.fn();
 
     publishReviewFailure({
@@ -85,8 +86,33 @@ describe("headless review output", () => {
       message: "bad arguments",
     });
 
-    expect(appendEntry).not.toHaveBeenCalled();
+    expect(appendEntry).toHaveBeenCalledWith(
+      ADVERSARIAL_REVIEW_ERROR_TYPE,
+      expect.objectContaining({ kind: "command", message: "bad arguments", mode: "tui" }),
+    );
     expect(process.exitCode).toBe(originalExitCode);
+  });
+
+  it("renders a durable TUI failure with run and target details", () => {
+    const details = {
+      version: 1 as const,
+      kind: "runtime" as const,
+      message: "Adversarial review failed: provider unavailable",
+      mode: "tui" as const,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      runId: "run-123",
+      target: "base origin/main ... HEAD",
+    };
+    const theme = { fg: (_color: string, text: string) => text } as any;
+    const collapsed = renderReviewFailureEntry(details, { expanded: false }, theme)
+      .render(120).join("\n");
+    const expanded = renderReviewFailureEntry(details, { expanded: true }, theme)
+      .render(120).join("\n");
+
+    expect(collapsed).toContain("provider unavailable");
+    expect(expanded).toContain("Target · base origin/main ... HEAD");
+    expect(expanded).toContain("Run · run-123");
+    expect(expanded).toContain("Failure · runtime");
   });
 
   it("writes warnings to stderr without changing exit status or stdout framing", () => {

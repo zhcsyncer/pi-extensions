@@ -6,9 +6,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ADVERSARIAL_REVIEW_MESSAGE_TYPE,
+  ADVERSARIAL_REVIEW_RESULT_TYPE,
   buildAdjudicationPrompt,
   buildMergedReportText,
   publishMergedReviewReport,
+  renderMergedReviewEntry,
   renderMergedReviewMessage,
   serializeMergedReviewReport,
 } from "../src/output/publish-report.ts";
@@ -173,7 +175,9 @@ describe("merged report output", () => {
       { expanded: false, outputPad: 0 },
       { fg: (_color: string, text: string) => text } as any,
     );
-    expect(component.render(120).join("\n")).toContain("Review 1/1 valid");
+    expect(component.render(120).join("\n")).toContain(
+      "Adversarial review · candidate-approve · 1/1 valid",
+    );
     expect(component.render(120).join("\n")).toContain("Refute off");
     expect(component.render(120).join("\n")).not.toContain("Adjudication discipline");
   });
@@ -241,11 +245,66 @@ describe("merged report output", () => {
       { expanded: true, outputPad: 0 },
       theme,
     ).render(120).join("\n");
-    expect(collapsed).toContain("Review 1/1 valid");
-    expect(collapsed).not.toContain("provider unavailable");
+    expect(collapsed).toContain("Adversarial review · inconclusive · 1/1 valid · 1 failed");
+    expect(collapsed).toContain("provider unavailable");
+    expect(collapsed).toContain("Ctrl+O details");
     expect(expanded).toContain("runtime: external-v3");
-    expect(expanded).toContain("Reviewer route failures");
+    expect(expanded).toContain("Reviewer routes (1)");
     expect(expanded).toContain("provider unavailable");
+  });
+
+  it("keeps route failures visible and expands complete advisory details", () => {
+    const routes = [
+      route(),
+      { ...route(), key: "provider-b/model-b@high", provider: "provider-b", modelId: "model-b", ordinal: 1 },
+      { ...route(), key: "provider-c/model-c@high", provider: "provider-c", modelId: "model-c", ordinal: 2 },
+    ];
+    const degraded = serializeMergedReviewReport(report({
+      requestedRoutes: routes,
+      successfulReviewerCount: 1,
+      overall: "inconclusive",
+      advisory: [mergedFinding("Fallback intent is hidden for live tool rows")],
+      routeResults: [
+        {
+          route: routes[0]!,
+          status: "completed",
+          durationMs: 51_000,
+          usage: { total: 12_500 },
+          report: {
+            verdict: "needs-attention",
+            summary: "one advisory",
+            findings: [],
+          },
+        },
+        {
+          route: routes[1]!,
+          status: "errored",
+          durationMs: 226_000,
+          error: "Reviewer terminated with status aborted.",
+        },
+        {
+          route: routes[2]!,
+          status: "errored",
+          durationMs: 182_000,
+          error: "run hit the output token limit before producing any text",
+        },
+      ],
+    }));
+    const theme = { fg: (_color: string, text: string) => text } as any;
+    const collapsed = renderMergedReviewEntry(degraded, { expanded: false }, theme)
+      .render(180).join("\n");
+    const expanded = renderMergedReviewEntry(degraded, { expanded: true }, theme)
+      .render(180).join("\n");
+
+    expect(collapsed).toContain("1/3 valid · 2 failed");
+    expect(collapsed).toContain("Reviewer terminated with status aborted");
+    expect(collapsed).toContain("output token limit");
+    expect(collapsed).toContain("Ctrl+O details");
+    expect(expanded).toContain("Advisory findings (1)");
+    expect(expanded).toContain("Fallback intent is hidden for live tool rows");
+    expect(expanded).toContain("Reviewer routes (3)");
+    expect(expanded).toContain("valid · needs-attention · 0 findings · 51s · 12.5k tokens");
+    expect(expanded).toContain("errored · 3m46s — Reviewer terminated with status aborted");
   });
 
   it("encodes hostile report text behind one untrusted boundary", () => {
@@ -288,13 +347,13 @@ describe("merged report output", () => {
     );
 
     expect(appendEntry).toHaveBeenCalledWith(
-      ADVERSARIAL_REVIEW_MESSAGE_TYPE,
+      ADVERSARIAL_REVIEW_RESULT_TYPE,
       expect.objectContaining({ overall: "inconclusive" }),
     );
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         customType: ADVERSARIAL_REVIEW_MESSAGE_TYPE,
-        display: true,
+        display: false,
         details: expect.any(Object),
       }),
       { deliverAs: "followUp", triggerTurn: true },
@@ -319,7 +378,7 @@ describe("merged report output", () => {
 
     expect(published.deliveryWarning).toBeUndefined();
     expect(appendEntry).toHaveBeenCalledWith(
-      ADVERSARIAL_REVIEW_MESSAGE_TYPE,
+      ADVERSARIAL_REVIEW_RESULT_TYPE,
       expect.objectContaining({ overall: "cancelled" }),
     );
     expect(sendMessage).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import type {
+  EntryRenderOptions,
   ExtensionAPI,
   MessageRenderOptions,
   Theme,
@@ -89,23 +90,55 @@ function isFreezeCancellationAudit(value: unknown): value is ReviewFreezeCancell
     typeof candidate.cancelledAt === "string";
 }
 
+function renderReviewFreezeCancellation(
+  details: unknown,
+  expanded: boolean,
+  theme: Theme,
+  padding: number,
+): Component {
+  if (!isFreezeCancellationAudit(details)) {
+    return new Text(
+      theme.fg("warning", "Adversarial review cancellation (invalid details)"),
+      padding,
+      0,
+    );
+  }
+  const lines = [theme.fg(
+    "warning",
+    `– Adversarial review cancelled during input freeze · ` +
+      `${details.requestedRoutes.length} routes not started`,
+  )];
+  if (expanded) {
+    const request = details.target.request;
+    const target = request.mode === "local"
+      ? "local changes"
+      : request.mode === "base"
+        ? `base ${safeReviewDiagnosticText(request.baseRef)}`
+        : `range ${safeReviewDiagnosticText(request.fromRef)}..${safeReviewDiagnosticText(request.toRef)}`;
+    lines.push(
+      `  ${theme.fg("muted", "Target")} · ${target}`,
+      `  ${theme.fg("muted", "Routes")} · ` +
+        details.requestedRoutes.map((route) => safeReviewDiagnosticText(route.key)).join(" · "),
+      `  ${theme.fg("muted", "Cancelled")} · ${details.cancelledAt}`,
+    );
+  }
+  return new Text(lines.join("\n"), padding, 0);
+}
+
 export function renderReviewFreezeCancellationMessage(
   details: unknown,
   options: MessageRenderOptions,
   theme: Theme,
 ): Component {
-  if (!isFreezeCancellationAudit(details)) {
-    return new Text(
-      theme.fg("warning", "Adversarial review cancellation (invalid details)"),
-      options.outputPad,
-      0,
-    );
-  }
-  const text = theme.fg(
-    "warning",
-    `Review cancelled during input freeze · ${details.requestedRoutes.length} routes not started`,
-  );
-  return new Text(text, options.outputPad, 0);
+  return renderReviewFreezeCancellation(details, options.expanded, theme, options.outputPad);
+}
+
+export function renderReviewFreezeCancellationEntry(
+  details: unknown,
+  options: EntryRenderOptions,
+  theme: Theme,
+): Component {
+  return renderReviewFreezeCancellation(details, options.expanded, theme, 1);
 }
 
 export interface PublishFreezeCancellationResult {
