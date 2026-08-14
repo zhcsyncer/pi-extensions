@@ -12,6 +12,7 @@ import {
   detectToolDisplayCapabilities,
   type ToolDisplayCapabilities,
 } from "./capabilities.js";
+import { registerAggregateThinkingPlaceholderSuppression } from "./aggregate-thinking-placeholder.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
@@ -101,6 +102,10 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   };
 
   registerToolDisplayOverrides(pi, getEffectiveConfig);
+  registerAggregateThinkingPlaceholderSuppression(
+    pi,
+    () => initial.config.toolCallLayout === "aggregate",
+  );
   registerNativeUserMessageBox(pi, getConfig);
   registerThinkingLabeling(pi, () => getConfig().enableThinkingLabel);
 

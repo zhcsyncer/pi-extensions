@@ -2,11 +2,11 @@
 
 ## 状态
 
-方案已确认，待实施。
+已实施，当前处于本地试用与发布前验证阶段。
 
 本方案为 `pi-tool-display-intent` 增加 `aggregate` 布局。最终决策是：
 
-> aggregate 是固定最小化的 Activity 视图，不展示逐工具详情，不生成 intent，也不展开组内成员；当前运行工具直接显示在 Activity 节点内部，成功后自动收起。
+> aggregate 是有界的 Activity 视图，不展示逐工具输出或 diff body，不生成 intent，也不展开组内成员；运行工具直接显示在 Activity 节点内部，成功后先保留为可替换的 `done` 行，agent settled 后再延迟收起，`Ctrl+O` 只显示修改文件概要。
 
 现有逐工具展示完整保留为 `individual` 布局。两种布局共享一份配置文件，但 aggregate 下与逐工具详情有关的偏好暂不生效，并在配置 TUI 中隐藏；切回 individual 后恢复原值。
 
@@ -14,9 +14,11 @@
 
 - 一次用户请求中的工具调用合并为一条 Activity 统计，减少 transcript 噪音。
 - Activity 内部持续显示当前运行工具的确定性目标，如路径、命令或查询。
-- 工具成功结束后立即从 current list 消失并计入统计。
-- 失败和需要用户处理的事件保持一行可见摘要。
-- aggregate 下不因 `Ctrl+O` 展开整个长会话。
+- 工具成功后标记为 `done` 并短暂保留；下一工具替换最早的 `done`，最终成功行在 agent settled 后延迟收起。
+- 不同工具使用主题感知的语义色；edit/write 等修改操作高强调，文件与增删概要使用对应主题色。
+- 失败和需要用户处理的事件保持一行可见摘要，不自动收起。
+- aggregate 下 `Ctrl+O` 只展开有界的修改文件概要，不展开整个长会话。
+- Pi 隐藏 reasoning 时，纯 `Thinking...` assistant 占位行在 aggregate 下归零；assistant 文本、错误和显式展开的 reasoning 保持原样。
 - 原始 tool call arguments、results 和 diff 数据仍保留在 Session 与模型上下文中。
 - 旧配置、旧 Session 和默认行为保持不变。
 
@@ -76,7 +78,7 @@ assistant 文字和不参与聚合的工具仍留在原时间位置，不被搬�
 
 ```text
 ◐ Activity · read ×12 · edit ×8 · bash ×16
-  Bash(pnpm test)
+  ◐ Bash(pnpm test)
 ```
 
 当前项只显示确定性信息：
@@ -94,13 +96,20 @@ Bash(pnpm test)
 … 4 more running
 ```
 
-显示项完成后，按 source order 补入下一项。
-
-### 成功完成
+显示项成功后先在原列表标记为 `done`：
 
 ```text
 ✓ Activity · read ×12 · edit ×8 · bash ×17
+  ✓ Bash(pnpm test) done
 ```
+
+后续新工具出现时，优先替换最早保留的 `done` 行；parallel 场景中，running/pending 始终优先占用最多 3 个槽位，最近完成行只填补剩余槽位。Pi 发出 `agent_settled` 后，最终成功行保留 1.5 秒再收进标题统计；若期间出现新工具，则取消本次收起并由新工具直接替换。该停留状态只属于实时 UI，reload/resume/tree/compaction 重建历史时不恢复。
+
+### 主题语义色
+
+工具目标使用不同的 Pi 主题 token：读取、搜索、目录、命令和修改操作在主题允许时保持视觉区分；`edit`、`write` 加粗高强调。文件路径使用 `accent`，新增和删除分别使用 `toolDiffAdded`、`toolDiffRemoved`，状态继续使用 success/warning/error。文字标签与状态符号始终保留，颜色不是唯一信息通道。
+
+### 成功统计
 
 edit/write 必须尽量附带可确定计算的修改规模：
 
@@ -112,7 +121,7 @@ edit/write 必须尽量附带可确定计算的修改规模：
 
 ### 失败或需关注
 
-失败保留一行原因摘要：
+失败保留一行原因摘要，并且不会被最终成功行的延迟收起逻辑隐藏：
 
 ```text
 ! Activity · read ×12 · edit ×8 · bash ×17 · 1 failed
@@ -133,13 +142,14 @@ needsAttention 交互、审批、图片或必须独立展示的结果
 
 partial update 仍属于 running。Session idle 时历史 tool call 缺失 final result 不得计为 success，应显示 interrupted/failed。terminated、aborted、rejected 等终态在实现时映射为 failed 或 needsAttention，并写契约测试。
 
-## 无展开行为
+## 有界文件概要展开
 
-aggregate-owned 工具忽略 Pi 全局 `expanded`：
+aggregate-owned 工具读取 Pi 全局 `expanded`，但只用于 Activity 自身的文件概要：
 
 - `Ctrl+O` 不显示隐藏成员；
-- `Ctrl+O` 不展开 Activity 内的结果；
-- Activity 只保持固定最小视图；
+- `Ctrl+O` 不展开组内结果或 diff body；
+- 最多显示 20 个修改文件路径，以及每文件可确定计算的 `+A/−B`；
+- 超出上限只显示剩余文件数；
 - 非聚合工具仍保留自己的原生 `Ctrl+O` 行为。
 
 因此 aggregate 不会把整个长会话的 settled tools 和完整输出一次性展开，也不存在 group renderer 与原工具 renderer 双重渲染。
@@ -170,9 +180,9 @@ latest leader  -> Activity component
 other members  -> zero-row component
 ```
 
-Pi 的 self-shell 在内容为空且没有 image component 时可以返回 `[]`，从而绕过默认 shell 的固定 Spacer 和空 Box。aggregate 不需要在 `Ctrl+O` 后恢复 default shell，因此不会与 individual shell style 冲突。
+Pi 的 self-shell 在内容为空且没有 image component 时可以返回 `[]`，从而绕过默认 shell 的固定 Spacer 和空 Box。aggregate 在 `Ctrl+O` 后仍使用同一个 Activity self shell，只增加文件概要行，因此不会与 individual shell style 冲突。
 
-实施前必须完成 go/no-go spike，验证：
+Go/no-go spike 已完成并验证：
 
 1. 非 leader 成员真实 `render(width) === []`，没有空行、背景或滚动占位；
 2. leader 转移后旧 leader 立即归零，新 leader 正确刷新；
@@ -199,7 +209,7 @@ Pi 的 self-shell 在内容为空且没有 image component 时可以返回 `[]`�
 ```text
 toolCalls.layout:
   individual  原有逐工具布局，默认值
-  aggregate   固定最小 Activity 布局
+  aggregate   有界 Activity 布局；Ctrl+O 仅显示文件概要
 ```
 
 命令：
@@ -319,17 +329,19 @@ Pi 当前没有公开 transcript-level group renderer。若 public event + self-
 ## 验收标准
 
 1. 旧配置未声明 layout 时逐工具行为完全不变。
-2. aggregate 只显示一个最新 Activity 节点、最多 3 个 current items 和失败摘要。
-3. success 完成后立即从 current list 消失并准确计入统计。
+2. aggregate 只显示一个最新 Activity 节点、最多 3 个 running/recent-done items 和失败摘要。
+3. success 准确计入统计并保留为 `done`；新工具替换最早 done，agent settled 后最终 done 延迟 1.5 秒收起，失败不自动收起。
 4. 非 leader aggregate members 为真实零高度，无 Spacer、空 Box 或背景行。
 5. 新成员出现时 leader 转移到最新成员，旧 leader 归零且 Activity 保持靠近 transcript 底部。
 6. parallel tools 按 source order 展示，乱序完成不重复计数。
 7. 中间 assistant 文字正常展示且不切断同一 user-turn group。
 8. aggregate 不注册 `displaySummary`，不生成组合 intent，也不产生额外推理调用。
-9. aggregate-owned tools 忽略 `Ctrl+O`，长会话不会因展开泄洪；非聚合工具保持原行为。
-10. edit/write 折叠统计包含可确定的 file/diff stats。
-11. error、aborted、interrupted、approval、question、image 和 unsafe custom tool 不被计为普通 success 或静默隐藏。
-12. reload/resume/tree/compaction 后 group、leader、统计和错误状态正确。
-13. aggregate TUI 隐藏 inactive detail settings，但 retained values 不变；切回 individual 后完整恢复。
-14. `/tool-display-intent show` 准确区分 effective 与 retained settings。
-15. layout 切换触发 `/reload` 提示，individual 重建历史工具详情且不补造 intent。
+9. aggregate-owned tools 的 `Ctrl+O` 只显示有界文件概要，长会话不会因展开泄洪；非聚合工具保持原行为。
+10. edit/write 折叠统计包含可确定的 file/diff stats，展开时按文件汇总。
+11. 工具目标使用可区分的主题语义色，edit/write 高强调，文件路径和 `+A/−B` 使用对应 accent/diff 色，同时保留文字与符号。
+12. aggregate 隐藏纯 collapsed-thinking 占位行，但不隐藏 assistant 文本、错误或显式展开的 reasoning。
+13. error、aborted、interrupted、approval、question、image 和 unsafe custom tool 不被计为普通 success 或静默隐藏。
+14. reload/resume/tree/compaction 后 group、leader、统计和错误状态正确，且不恢复实时 `done` 停留状态。
+15. aggregate TUI 隐藏 inactive detail settings，但 retained values 不变；切回 individual 后完整恢复。
+16. `/tool-display-intent show` 准确区分 effective 与 retained settings。
+17. layout 切换触发 `/reload` 提示并重绘整个当前 branch；individual 重建历史工具详情且不补造 intent。

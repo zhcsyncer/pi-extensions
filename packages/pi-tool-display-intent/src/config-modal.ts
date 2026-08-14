@@ -106,8 +106,9 @@ export function buildInspectorSettings(
 			inspectorTitle: "Tool Call Layout",
 			inspectorSummary: config.toolCallLayout === "aggregate"
 				? [
-					"Aggregate uses a fixed minimal Activity view.",
-					"Individual-tool settings are retained but hidden. Run /reload after changing layouts.",
+					"Aggregate uses a theme-colored bounded Activity; successful rows stay done until replacement or the final delayed fold.",
+					"Ctrl+O reveals only changed-file summaries. Pure collapsed Thinking placeholders are hidden.",
+					"Individual-tool settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
@@ -115,11 +116,11 @@ export function buildInspectorSettings(
 				],
 			inspectorOptions: [
 				"individual — preserve the complete existing per-tool display (default)",
-				"aggregate — show one non-expandable minimal Activity for owned safe tools",
+				"aggregate — show one bounded Activity with Ctrl+O file summaries",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Changing the layout updates tool schemas and renderer shells after /reload.",
-				"Aggregate never generates displaySummary and retains individual-only preferences without applying them.",
+				"Changing the layout updates tool schemas and renderer shells after /reload and redraws the whole current branch.",
+				"Aggregate never generates displaySummary or reveals grouped output/diff bodies.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["layout", "individual", "aggregate", "activity", "minimal", "reload"],

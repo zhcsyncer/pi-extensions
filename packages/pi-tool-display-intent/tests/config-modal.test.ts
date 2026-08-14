@@ -179,7 +179,12 @@ test("aggregate modal hides individual-only settings without deleting retained v
 		aggregateSettings.map((setting) => setting.id),
 		["toolCallLayout", "enableThinkingLabel", "enableNativeUserMessageBox"],
 	);
-	assert.match(aggregateSettings[0]?.inspectorSummary.join(" ") ?? "", /retained but hidden/);
+	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
+	assert.match(layoutSummary, /theme-colored bounded Activity/);
+	assert.match(layoutSummary, /successful rows stay done until replacement/);
+	assert.match(layoutSummary, /Ctrl\+O reveals only changed-file summaries/);
+	assert.match(layoutSummary, /Thinking placeholders are hidden/);
+	assert.match(layoutSummary, /retained but inactive/);
 
 	const individual = applySetting(retained, "toolCallLayout", "individual");
 	assert.equal(individual.resultMode, "preview");

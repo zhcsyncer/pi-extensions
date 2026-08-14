@@ -42,6 +42,8 @@ export interface AggregateMember {
 	errorSummary?: string;
 	diffStats?: AggregateDiffStats;
 	visible: boolean;
+	retainedDone?: boolean;
+	completionOrder?: number;
 }
 
 export interface AggregateGroup {
@@ -54,10 +56,12 @@ export interface AggregateActivityView {
 	groupId: string;
 	leaderToolCallId: string;
 	active: AggregateMember[];
+	displayRows: AggregateMember[];
 	activeOverflow: number;
 	failed: AggregateMember[];
 	successCounts: Array<{ toolName: AggregateSafeToolName; count: number }>;
 	modifiedFiles: string[];
+	modifiedFileSummaries: Array<{ path: string; diffStats?: AggregateDiffStats }>;
 	diffStats?: AggregateDiffStats;
 }
 
@@ -108,6 +112,20 @@ interface WritePreviousContent {
 
 const FAILED_SUMMARY_MAX_LENGTH = 200;
 const ACTIVE_ROW_LIMIT = 3;
+const EXPANDED_FILE_ROW_LIMIT = 20;
+export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
+
+const AGGREGATE_TOOL_COLORS: Record<AggregateSafeToolName, string> = {
+	read: "mdLink",
+	grep: "syntaxString",
+	find: "syntaxFunction",
+	ls: "accent",
+	bash: "bashMode",
+	edit: "warning",
+	write: "customMessageLabel",
+};
+
+const AGGREGATE_MUTATION_TOOLS = new Set<AggregateSafeToolName>(["edit", "write"]);
 
 function toRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -184,6 +202,21 @@ export function formatAggregateTarget(member: Pick<AggregateMember, "toolName" |
 		case "write":
 			return `Write(${path})`;
 	}
+}
+
+function formatColoredAggregateTarget(
+	member: Pick<AggregateMember, "toolName" | "args">,
+	theme: RenderTheme,
+): string {
+	const target = formatAggregateTarget(member);
+	const emphasized = AGGREGATE_MUTATION_TOOLS.has(member.toolName)
+		? theme.bold?.(target) ?? target
+		: target;
+	return theme.fg(AGGREGATE_TOOL_COLORS[member.toolName], emphasized);
+}
+
+function formatColoredDiffStats(stats: AggregateDiffStats, theme: RenderTheme): string {
+	return `${theme.fg("toolDiffAdded", `+${stats.additions}`)} ${theme.fg("toolDiffRemoved", `−${stats.deletions}`)}`;
 }
 
 function messageRole(value: unknown): string | undefined {
@@ -274,6 +307,7 @@ export class AggregateProjection {
 	private readonly writePreviousById = new Map<string, WritePreviousContent>();
 	private readonly persistedWriteDiffStatsById = new Map<string, AggregateDiffStats>();
 	private sourceOrder = 0;
+	private completionOrder = 0;
 	private liveGroupSequence = 0;
 	private activeGroupId: string | undefined;
 	private initialized = false;
@@ -297,6 +331,7 @@ export class AggregateProjection {
 	}
 
 	startUserGroup(groupId?: string): string {
+		this.collapseRetainedDone();
 		const resolvedId = groupId || `live-user-${++this.liveGroupSequence}`;
 		this.ensureGroup(resolvedId);
 		this.activeGroupId = resolvedId;
@@ -345,6 +380,8 @@ export class AggregateProjection {
 		const member = this.addOrUpdateMember(toolCallId, toolName, args, true);
 		if (!member || member.state === "needsAttention") return;
 		member.state = "running";
+		member.retainedDone = false;
+		member.completionOrder = undefined;
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
 
@@ -376,13 +413,20 @@ export class AggregateProjection {
 		}
 	}
 
-	markComplete(toolCallId: string, result: unknown, isError: boolean): void {
+	markComplete(
+		toolCallId: string,
+		result: unknown,
+		isError: boolean,
+		options: { retainDone?: boolean } = {},
+	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
 		if (aggregateResultHasImage(result)) {
 			member.state = "needsAttention";
 			member.errorSummary = undefined;
 			member.diffStats = undefined;
+			member.retainedDone = false;
+			member.completionOrder = undefined;
 			this.recomputeLeader(member.groupId);
 			this.invalidateGroup(member.groupId, toolCallId);
 			return;
@@ -392,9 +436,15 @@ export class AggregateProjection {
 			return;
 		}
 
+		const firstSuccess = member.state !== "success";
 		member.state = "success";
 		member.errorSummary = undefined;
 		member.diffStats = this.resolveDiffStats(member, result);
+		if (firstSuccess && options.retainDone !== false) {
+			member.retainedDone = true;
+			member.completionOrder = ++this.completionOrder;
+			this.trimRetainedDone(member.groupId);
+		}
 		this.writePreviousById.delete(toolCallId);
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
@@ -405,6 +455,8 @@ export class AggregateProjection {
 		member.state = "needsAttention";
 		member.errorSummary = undefined;
 		member.diffStats = undefined;
+		member.retainedDone = false;
+		member.completionOrder = undefined;
 		this.recomputeLeader(member.groupId);
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
@@ -415,8 +467,21 @@ export class AggregateProjection {
 		member.state = "failed";
 		member.errorSummary = normalizeDisplaySummary(summary, FAILED_SUMMARY_MAX_LENGTH) ?? "Tool failed.";
 		member.diffStats = undefined;
+		member.retainedDone = false;
+		member.completionOrder = undefined;
 		this.writePreviousById.delete(toolCallId);
 		this.invalidateGroup(member.groupId, toolCallId);
+	}
+
+	collapseRetainedDone(): void {
+		const changedGroups = new Set<string>();
+		for (const member of this.membersById.values()) {
+			if (!member.retainedDone) continue;
+			member.retainedDone = false;
+			member.completionOrder = undefined;
+			changedGroups.add(member.groupId);
+		}
+		for (const groupId of changedGroups) this.invalidateGroup(groupId);
 	}
 
 	markUnsettledInterrupted(summary = "Interrupted before a final result."): void {
@@ -435,6 +500,7 @@ export class AggregateProjection {
 		this.writePreviousById.clear();
 		this.persistedWriteDiffStatsById.clear();
 		this.sourceOrder = 0;
+		this.completionOrder = 0;
 		this.activeGroupId = undefined;
 
 		let fallbackGroupIndex = 0;
@@ -468,7 +534,7 @@ export class AggregateProjection {
 			if (role === "toolResult") {
 				const record = toRecord(message);
 				if (typeof record.toolCallId === "string") {
-					this.markComplete(record.toolCallId, record, record.isError === true);
+					this.markComplete(record.toolCallId, record, record.isError === true, { retainDone: false });
 				}
 			}
 		}
@@ -503,6 +569,13 @@ export class AggregateProjection {
 		const activeAll = grouped
 			.filter((entry) => entry.state === "pending" || entry.state === "running")
 			.sort((left, right) => left.sourceOrder - right.sourceOrder);
+		const active = activeAll.slice(0, ACTIVE_ROW_LIMIT);
+		const retainedDone = grouped
+			.filter((entry) => entry.state === "success" && entry.retainedDone)
+			.sort((left, right) => (right.completionOrder ?? 0) - (left.completionOrder ?? 0))
+			.slice(0, Math.max(0, ACTIVE_ROW_LIMIT - active.length));
+		const displayRows = [...active, ...retainedDone]
+			.sort((left, right) => left.sourceOrder - right.sourceOrder);
 		const failed = grouped
 			.filter((entry) => entry.state === "failed")
 			.sort((left, right) => left.sourceOrder - right.sourceOrder);
@@ -510,31 +583,57 @@ export class AggregateProjection {
 			.filter((entry) => entry.state === "success")
 			.sort((left, right) => left.sourceOrder - right.sourceOrder);
 		const successCounts = new Map<AggregateSafeToolName, number>();
-		const modifiedFiles = new Set<string>();
+		const modifiedFiles = new Map<string, {
+			path: string;
+			additions: number;
+			deletions: number;
+			hasDiffStats: boolean;
+		}>();
 		let additions = 0;
 		let deletions = 0;
 		let hasDiffStats = false;
 		for (const success of successes) {
 			successCounts.set(success.toolName, (successCounts.get(success.toolName) ?? 0) + 1);
 			if (success.toolName === "edit" || success.toolName === "write") {
-				const path = getPath(success.args);
-				if (path) modifiedFiles.add(shortenPath(path));
+				const rawPath = getPath(success.args);
+				const file = rawPath
+					? modifiedFiles.get(rawPath) ?? {
+						path: shortenPath(rawPath),
+						additions: 0,
+						deletions: 0,
+						hasDiffStats: false,
+					}
+					: undefined;
+				if (rawPath && file && !modifiedFiles.has(rawPath)) modifiedFiles.set(rawPath, file);
 				if (success.diffStats) {
 					additions += success.diffStats.additions;
 					deletions += success.diffStats.deletions;
 					hasDiffStats = true;
+					if (file) {
+						file.additions += success.diffStats.additions;
+						file.deletions += success.diffStats.deletions;
+						file.hasDiffStats = true;
+					}
 				}
 			}
 		}
+		const modifiedFileSummaries = [...modifiedFiles.values()].map((file) => ({
+			path: file.path,
+			...(file.hasDiffStats
+				? { diffStats: { additions: file.additions, deletions: file.deletions } }
+				: {}),
+		}));
 
 		return {
 			groupId: group.groupId,
 			leaderToolCallId: toolCallId,
-			active: activeAll.slice(0, ACTIVE_ROW_LIMIT),
+			active,
+			displayRows,
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
 			failed,
 			successCounts: [...successCounts].map(([toolName, count]) => ({ toolName, count })),
-			modifiedFiles: [...modifiedFiles],
+			modifiedFiles: modifiedFileSummaries.map((file) => file.path),
+			modifiedFileSummaries,
 			diffStats: hasDiffStats ? { additions, deletions } : undefined,
 		};
 	}
@@ -571,6 +670,7 @@ export class AggregateProjection {
 		}
 
 		const group = this.ensureActiveGroup();
+		this.evictOldestRetainedDone(group);
 		const previousLeader = group.leaderToolCallId;
 		const member: AggregateMember = {
 			toolCallId,
@@ -586,6 +686,26 @@ export class AggregateProjection {
 		if (visible) group.leaderToolCallId = toolCallId;
 		this.invalidateIds(previousLeader, group.leaderToolCallId);
 		return member;
+	}
+
+	private evictOldestRetainedDone(group: AggregateGroup): void {
+		const oldest = group.members
+			.filter((member) => member.retainedDone)
+			.sort((left, right) =>
+				(left.completionOrder ?? Number.MAX_SAFE_INTEGER) -
+				(right.completionOrder ?? Number.MAX_SAFE_INTEGER),
+			)[0];
+		if (!oldest) return;
+		oldest.retainedDone = false;
+		oldest.completionOrder = undefined;
+	}
+
+	private trimRetainedDone(groupId: string): void {
+		const group = this.groupsById.get(groupId);
+		if (!group) return;
+		while (group.members.filter((member) => member.retainedDone).length > ACTIVE_ROW_LIMIT) {
+			this.evictOldestRetainedDone(group);
+		}
 	}
 
 	private recomputeLeader(groupId: string): void {
@@ -648,10 +768,15 @@ export class AggregateActivityComponent implements Component {
 		private readonly toolCallId: string,
 		private readonly projection: AggregateProjection,
 		private theme: RenderTheme,
+		private expanded = false,
 	) {}
 
 	setTheme(theme: RenderTheme): void {
 		this.theme = theme;
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.expanded = expanded;
 	}
 
 	render(width: number): string[] {
@@ -665,34 +790,78 @@ export class AggregateActivityComponent implements Component {
 		const marker = hasFailure ? "!" : hasActive ? "◐" : "✓";
 		const markerColor = hasFailure ? "error" : hasActive ? "warning" : "success";
 		let header = `${this.theme.fg(markerColor, marker)} ${this.theme.fg("toolTitle", this.theme.bold?.("Activity") ?? "Activity")}`;
-		for (const count of view.successCounts) {
-			header += this.theme.fg("muted", ` · ${count.toolName} ×${count.count}`);
-		}
 		if (view.modifiedFiles.length > 0) {
-			header += this.theme.fg("muted", ` · ${view.modifiedFiles.length} ${view.modifiedFiles.length === 1 ? "file" : "files"}`);
+			header += this.theme.fg("muted", " · ");
+			header += this.theme.fg(
+				"accent",
+				`${view.modifiedFiles.length} ${view.modifiedFiles.length === 1 ? "file" : "files"}`,
+			);
 		}
 		if (view.diffStats) {
-			header += this.theme.fg("muted", ` · +${view.diffStats.additions} −${view.diffStats.deletions}`);
+			header += this.theme.fg("muted", " · ");
+			header += formatColoredDiffStats(view.diffStats, this.theme);
+		}
+		for (const count of view.successCounts) {
+			const label = `${count.toolName} ×${count.count}`;
+			const emphasized = AGGREGATE_MUTATION_TOOLS.has(count.toolName)
+				? this.theme.bold?.(label) ?? label
+				: label;
+			header += this.theme.fg("muted", " · ");
+			header += this.theme.fg(AGGREGATE_TOOL_COLORS[count.toolName], emphasized);
 		}
 		if (hasFailure) {
 			header += this.theme.fg("error", ` · ${view.failed.length} failed`);
 		}
 
 		const lines = [truncateToWidth(header, safeWidth, "…")];
-		for (const active of view.active) {
-			lines.push(truncateToWidth(`  ${formatAggregateTarget(active)}`, safeWidth, "…"));
-		}
-		if (view.activeOverflow > 0) {
-			lines.push(truncateToWidth(`  … ${view.activeOverflow} more running`, safeWidth, "…"));
-		}
-		for (const failed of view.failed) {
+		for (const row of view.displayRows) {
+			if (row.state === "success") {
+				lines.push(
+					truncateToWidth(
+						`  ${this.theme.fg("success", "✓")} ${formatColoredAggregateTarget(row, this.theme)} ${this.theme.fg("success", "done")}`,
+						safeWidth,
+						"…",
+					),
+				);
+				continue;
+			}
 			lines.push(
 				truncateToWidth(
-					`  ${formatAggregateTarget(failed)}: ${failed.errorSummary ?? "Tool failed."}`,
+					`  ${this.theme.fg("warning", "◐")} ${formatColoredAggregateTarget(row, this.theme)}`,
 					safeWidth,
 					"…",
 				),
 			);
+		}
+		if (view.activeOverflow > 0) {
+			lines.push(
+				truncateToWidth(this.theme.fg("muted", `  … ${view.activeOverflow} more running`), safeWidth, "…"),
+			);
+		}
+		for (const failed of view.failed) {
+			lines.push(
+				truncateToWidth(
+					`  ${this.theme.fg("error", "!")} ${formatColoredAggregateTarget(failed, this.theme)}${this.theme.fg("error", `: ${failed.errorSummary ?? "Tool failed."}`)}`,
+					safeWidth,
+					"…",
+				),
+			);
+		}
+		if (this.expanded) {
+			for (const file of view.modifiedFileSummaries.slice(0, EXPANDED_FILE_ROW_LIMIT)) {
+				const stats = file.diffStats
+					? `${this.theme.fg("muted", " · ")}${formatColoredDiffStats(file.diffStats, this.theme)}`
+					: "";
+				lines.push(
+					truncateToWidth(`  ${this.theme.fg("accent", file.path)}${stats}`, safeWidth, "…"),
+				);
+			}
+			const hiddenFileCount = view.modifiedFileSummaries.length - EXPANDED_FILE_ROW_LIMIT;
+			if (hiddenFileCount > 0) {
+				lines.push(
+					truncateToWidth(this.theme.fg("muted", `  … ${hiddenFileCount} more files`), safeWidth, "…"),
+				);
+			}
 		}
 		return lines;
 	}
@@ -724,9 +893,15 @@ function renderAggregateCall(
 	const existing = context.lastComponent;
 	if (existing instanceof AggregateActivityComponent) {
 		existing.setTheme(theme);
+		existing.setExpanded(context.expanded === true);
 		return existing;
 	}
-	return new AggregateActivityComponent(context.toolCallId, projection, theme);
+	return new AggregateActivityComponent(
+		context.toolCallId,
+		projection,
+		theme,
+		context.expanded === true,
+	);
 }
 
 export function applyAggregateRendering<T extends RuntimeToolDefinition>(
@@ -787,14 +962,31 @@ function rebuildProjectionFromContext(projection: AggregateProjection, ctx: Sess
 export function registerAggregateProjectionEvents(
 	pi: ExtensionAPI,
 	projection: AggregateProjection,
+	options: { doneSettleDelayMs?: number } = {},
 ): void {
 	const persistedWriteDiffIds = new Set<string>();
-	pi.on("session_start", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
-	pi.on("before_agent_start", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
-	pi.on("session_compact", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
-	pi.on("session_tree", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
+	const requestedDelay = options.doneSettleDelayMs ?? AGGREGATE_DONE_SETTLE_DELAY_MS;
+	const doneSettleDelayMs = Number.isFinite(requestedDelay)
+		? Math.max(0, Math.floor(requestedDelay))
+		: AGGREGATE_DONE_SETTLE_DELAY_MS;
+	let settleTimer: ReturnType<typeof setTimeout> | undefined;
+	const clearSettleTimer = () => {
+		if (settleTimer !== undefined) clearTimeout(settleTimer);
+		settleTimer = undefined;
+	};
+	const rebuild = (ctx: SessionContextLike) => {
+		clearSettleTimer();
+		rebuildProjectionFromContext(projection, ctx);
+	};
+
+	pi.on("session_start", async (_event, ctx) => rebuild(ctx));
+	pi.on("before_agent_start", async (_event, ctx) => rebuild(ctx));
+	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));
+	pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
+	pi.on("session_shutdown", async () => clearSettleTimer());
 	pi.on("message_start", async (event) => {
 		if (messageRole(event.message) === "user") {
+			clearSettleTimer();
 			const timestamp = toRecord(event.message).timestamp;
 			projection.startUserGroup(typeof timestamp === "number" ? `live-user-${timestamp}` : undefined);
 		}
@@ -802,6 +994,7 @@ export function registerAggregateProjectionEvents(
 	pi.on("message_update", async (event) => projection.ingestAssistantMessage(event.message));
 	pi.on("message_end", async (event) => projection.ingestAssistantMessage(event.message));
 	pi.on("tool_execution_start", async (event) => {
+		clearSettleTimer();
 		projection.markStarted(event.toolCallId, event.toolName, event.args);
 	});
 	pi.on("tool_execution_update", async (event) => {
@@ -824,5 +1017,13 @@ export function registerAggregateProjectionEvents(
 			// rather than mutating the original tool call/result or inventing values.
 		}
 	});
-	pi.on("agent_settled", async () => projection.markUnsettledInterrupted());
+	pi.on("agent_settled", async () => {
+		projection.markUnsettledInterrupted();
+		clearSettleTimer();
+		settleTimer = setTimeout(() => {
+			settleTimer = undefined;
+			projection.collapseRetainedDone();
+		}, doneSettleDelayMs);
+		settleTimer.unref?.();
+	});
 }

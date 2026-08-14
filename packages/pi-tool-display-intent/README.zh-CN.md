@@ -21,10 +21,10 @@ $ pnpm test — 验证 extension 测试套件
 - 在 TUI 中同时展示模型意图与路径、命令、pattern、diff 等确定性信息。
 - 调用原始工具前剥离纯展示字段，保持工具执行语义不变。
 - 在 Pi RPC 原始事件及后续模型上下文中保留该字段，让 follow-up 调用继续生成意图。
-- 模型或历史调用漏掉字段时，使用按工具区分的确定性 fallback。
+- 当前调用执行时若漏掉字段，使用按工具区分的确定性 fallback；恢复后未保存摘要的历史调用只显示 target。
 - 渲染前清理终端控制序列，并限制摘要长度。
 - 可选用 Claude Code 风格 TUI：状态标记、`Name(target)` 标题、无背景框调用行和缩进的 `⎿` 结果。
-- 可选用 aggregate 布局，把一次用户请求中由本扩展持有的安全内置工具合并为固定最小 Activity。
+- 可选用 aggregate 布局，把一次用户请求中由本扩展持有的安全内置工具合并为有界 Activity。
 - 保留 fork 自 `pi-tool-display` 的输出折叠、MCP 展示、pending diff、edit/write diff、thinking label 和原生用户消息框。
 - 为自定义工具提供合作式包装 API。
 
@@ -135,14 +135,19 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 ```text
 ◐ Activity · read ×12 · edit ×8 · bash ×16
-  Bash(pnpm test)
+  ◐ Bash(pnpm test)
+
+✓ Activity · read ×12 · edit ×8 · bash ×17
+  ✓ Bash(pnpm test) done
 ```
 
-最新的 aggregate-safe 工具行承载 Activity，同组旧成员占用零行。Activity 最多按 assistant source order 显示三个 pending/running 操作；成功操作收进计数，失败保留一行摘要，edit/write 尽可能显示 unique files 和可准确计算的 `+A −B`。同组会跨越多个底层 assistant/tool turn，只在下一条 user message 开始时结束。
+最新的 aggregate-safe 工具行承载 Activity，同组旧成员占用零行。Activity 最多按 assistant source order 显示三个运行中或刚完成的操作。成功行会先变成 `done`，而不是立即消失；新工具优先替换最早保留的 `done` 行，运行中工具始终优先占用槽位。Pi 报告 agent settled 后，最后的成功行继续停留 1.5 秒，再收进标题计数；失败行保持可见，不会自动收起。
 
-Aggregate 固定为最小视图：忽略 `Ctrl+O`，不展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。执行时可准确计算的 write diff 数量会保存在不可见的扩展 custom entry 中，因此重建后的 Activity 统计保持稳定，同时不会持久化旧文件内容。
+各工具使用不同的主题感知颜色，其中 `edit` 和 `write` 使用加粗高强调样式。修改文件路径使用主题 accent，新增和删除分别使用 `toolDiffAdded` 与 `toolDiffRemoved`。工具名和状态符号始终保留，不会只靠颜色表达差异。edit/write 还会尽可能显示 unique files 和可准确计算的 `+A −B`；文件统计排在工具计数之前，因此窄窗口也会优先保留。同组会跨越多个底层 assistant/tool turn，只在下一条 user message 开始时结束。
 
-Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。需要检查历史原始详情时，切回 individual 并 reload：
+Aggregate 始终保持有界：瞬态 `done` 行只存在于实时执行，不会在 reload、resume、tree 导航或 compaction 后重建。按 `Ctrl+O` 只展开最多 20 个修改文件路径及每文件可用的 `+A −B`，不会展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。Pi 隐藏 reasoning block 时，aggregate 还会隐藏纯 assistant `Thinking...` 占位行；assistant 文本、错误以及通过 Pi thinking toggle 展开的真实 reasoning 仍正常显示。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。执行时可准确计算的 write diff 数量会保存在不可见的扩展 custom entry 中，因此重建后的 Activity 统计保持稳定，同时不会持久化旧文件内容。
+
+Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。layout 变更在 `/reload` 后生效，并重绘整个当前 branch，而不是只影响未来调用。需要检查历史原始详情时，切回 individual 并 reload：
 
 ```text
 /tool-display-intent layout individual

@@ -21,10 +21,10 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 - Shows the intent beside deterministic metadata such as paths, commands, patterns, and diff information.
 - Strips the presentation field before calling the original tool implementation.
 - Keeps the raw field available to Pi RPC consumers and retains it in later model context so follow-up calls keep producing intent.
-- Uses deterministic per-tool fallbacks when a model or historical call omits the field.
+- Uses deterministic per-tool fallbacks while a current call is executing; restored calls without a stored summary remain target-only.
 - Sanitizes terminal control sequences and bounds displayed intent length.
 - Offers an optional Claude Code-inspired TUI style with status markers, `Name(target)` headers, unboxed rows, and indented `⎿` results.
-- Offers an optional aggregate layout that combines owned safe built-ins into one fixed minimal Activity per user request.
+- Offers an optional aggregate layout that combines owned safe built-ins into one bounded Activity per user request.
 - Preserves the compact output modes, MCP rendering, pending diff previews, adaptive edit/write diffs, thinking labels, and native user prompt box inherited from `pi-tool-display`.
 - Provides a cooperative API for custom tools.
 
@@ -135,14 +135,19 @@ Every content preview, including custom tools and bash live/error output, uses `
 
 ```text
 ◐ Activity · read ×12 · edit ×8 · bash ×16
-  Bash(pnpm test)
+  ◐ Bash(pnpm test)
+
+✓ Activity · read ×12 · edit ×8 · bash ×17
+  ✓ Bash(pnpm test) done
 ```
 
-The latest aggregate-safe tool row carries Activity; older group members occupy zero rows. Up to three pending/running operations appear in assistant source order, successful operations fold into counts, failures retain one summary line, and edit/write operations include unique-file and exact available `+A −B` statistics. Groups continue across low-level assistant/tool turns and end only at the next user message.
+The latest aggregate-safe tool row carries Activity; older group members occupy zero rows. Up to three running or recently completed operations appear in assistant source order. A successful row changes to `done` instead of disappearing immediately; a newer tool replaces the oldest retained `done` row, while running tools always take slot priority. After Pi reports the agent settled, the final successful row remains for a 1.5-second grace period and then folds into the header counts. Failures remain visible and do not auto-fold.
 
-Aggregate is intentionally fixed and minimal: it ignores `Ctrl+O`, never shows grouped output or diff bodies, and does not add `displaySummary` to owned schemas. Images, interactive or attention-requiring results, passthrough tools, externally owned tools, and unknown/custom tools remain independent instead of being silently hidden. Reload, resume, tree navigation, and compaction rebuild Activity from the current session branch without changing the stored raw calls or results. Exact write diff counts that were available at execution time are retained in an invisible extension custom entry, so rebuilt Activity statistics stay stable without persisting previous file content.
+Tools use distinct theme-aware colors, with bold high-emphasis styling for `edit` and `write`. Changed-file paths use the theme accent, while additions and deletions use `toolDiffAdded` and `toolDiffRemoved`. Labels and status symbols remain present, so color is never the only distinction. Edit/write operations also include unique-file and exact available `+A −B` statistics; file statistics are placed before tool counts so they survive narrow headers. Groups continue across low-level assistant/tool turns and end only at the next user message.
 
-Individual-only preferences remain in `config.json` while aggregate is active. The settings TUI hides them, and `/tool-display-intent show` marks them inactive. To inspect historical raw details, switch back and reload:
+Aggregate stays bounded: transient `done` rows are live-only and are not reconstructed after reload, resume, tree navigation, or compaction. `Ctrl+O` expands only up to 20 changed-file paths with per-file available `+A −B` statistics; it never reveals grouped output or diff bodies and does not add `displaySummary` to owned schemas. When Pi hides reasoning blocks, pure assistant `Thinking...` placeholder rows are also suppressed in aggregate, while assistant text, errors, and reasoning revealed with Pi's thinking toggle remain visible. Images, interactive or attention-requiring results, passthrough tools, externally owned tools, and unknown/custom tools remain independent instead of being silently hidden. Reload, resume, tree navigation, and compaction rebuild Activity from the current session branch without changing the stored raw calls or results. Exact write diff counts that were available at execution time are retained in an invisible extension custom entry, so rebuilt Activity statistics stay stable without persisting previous file content.
+
+Individual-only preferences remain in `config.json` while aggregate is active. The settings TUI hides them, and `/tool-display-intent show` marks them inactive. Layout changes take effect after `/reload` and redraw the whole current branch, not only future calls. To inspect historical raw details, switch back and reload:
 
 ```text
 /tool-display-intent layout individual
