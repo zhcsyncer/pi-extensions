@@ -10,7 +10,8 @@ Features:
 - Automatically recap after the agent has been idle for a while.
 - Cancel an unfinished automatic recap when a new message arrives, preventing stale results from being stored or displayed.
 - Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications.
-- Generate a short title as a recap side effect.
+- Generate a short title as a recap side effect, with a deterministic recap-derived fallback and visible warning when the model omits a usable title.
+- Reject empty, truncated, failed, or malformed JSON-like model output without saving partial recap state.
 - Optionally apply the title to the Pi session name.
 - Optionally sync Pi session name changes to the nearest terminal multiplexer: a Herdr pane label or tmux window name.
 - Configure common options with `/recap-config`.
@@ -142,6 +143,10 @@ Apply generated titles to Pi session names:
   }
 }
 ```
+
+When `title.generate` is enabled but the model omits a usable title, recap deterministically uses the cleaned one-line recap as the title, strictly capped by `title.maxLength`. The fallback still follows `title.applyToSessionName` and `title.applyPolicy`; `never`, `if-empty`, `if-empty-or-auto`, and `always` keep their existing meanings. The persisted recap records that the title came from the fallback, so the editor widget shows the warning after generation and after a session reload. Set `title.generate` to `false` to disable both model titles and this fallback.
+
+Plain text and ordinary bullet recap responses remain valid. Empty recaps, malformed or truncated JSON-like responses, and completions stopped with `length` or `error` are treated as failed recaps: the widget shows the failure, no recap entry is appended, the session is not renamed, and the previous recap source position is preserved.
 
 Disable automatic recap and keep manual `/recap` only:
 
