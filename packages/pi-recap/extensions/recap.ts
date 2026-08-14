@@ -25,6 +25,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { CancellableLoader, Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import {
+	recapOutputWarning,
+	resolveRecapOutput,
+	type RecapTitleSource,
+} from "./recap-output.ts";
+import {
 	migrateMultiplexerConfig,
 	MultiplexerManager,
 	type MultiplexerConfig,
@@ -36,11 +41,11 @@ const CUSTOM_TYPE = "recap";
 const WIDGET_KEY = "recap";
 const LEGACY_STATUS_KEY = "recap";
 
-type RecapReason = "manual" | "auto";
-type TitleApplyPolicy = "never" | "if-empty" | "if-empty-or-auto" | "always";
+export type RecapReason = "manual" | "auto";
+export type TitleApplyPolicy = "never" | "if-empty" | "if-empty-or-auto" | "always";
 type WidgetPlacement = "aboveEditor" | "belowEditor";
 
-type RecapConfig = {
+export type RecapConfig = {
 	recap: {
 		enabled: boolean;
 		auto: boolean;
@@ -66,9 +71,10 @@ type RecapConfig = {
 	multiplexer: MultiplexerConfig;
 };
 
-type RecapEntryData = {
+export type RecapEntryData = {
 	recap: string;
 	title?: string;
+	titleSource?: RecapTitleSource;
 	reason: RecapReason;
 	model?: string;
 	source: {
@@ -80,7 +86,7 @@ type RecapEntryData = {
 	sessionNamePolicy: TitleApplyPolicy;
 };
 
-const DEFAULT_CONFIG: RecapConfig = {
+export const DEFAULT_CONFIG: RecapConfig = {
 	recap: {
 		enabled: true,
 		auto: true,
@@ -529,39 +535,6 @@ function buildSystemPrompt(config: RecapConfig): string {
 	].join("\n");
 }
 
-function parseModelJson(raw: string): { recap: string; title?: string } {
-	const trimmed = raw.trim();
-	const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
-	const object = (fenced ?? trimmed.match(/\{[\s\S]*\}/)?.[0] ?? trimmed).trim();
-
-	try {
-		const parsed = JSON.parse(object) as unknown;
-		if (isRecord(parsed)) {
-			return {
-				recap: typeof parsed.recap === "string" ? parsed.recap : trimmed,
-				title: typeof parsed.title === "string" ? parsed.title : undefined,
-			};
-		}
-	} catch {
-		// fall through
-	}
-
-	return { recap: trimmed };
-}
-
-function cleanOneLine(value: string, maxLength?: number): string {
-	let cleaned = value
-		.replace(/```(?:json)?|```/gi, "")
-		.replace(/[\x00-\x1f\x7f]/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-
-	if (maxLength && cleaned.length > maxLength) {
-		cleaned = `${cleaned.slice(0, Math.max(1, maxLength - 1))}…`;
-	}
-	return cleaned;
-}
-
 function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 	if (config.recap.model === "current") return ctx.model;
 
@@ -576,32 +549,51 @@ function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 	return config.recap.fallbackToCurrentModel ? ctx.model : undefined;
 }
 
+export type TitleApplicationInput = {
+	title?: string;
+	applyToSessionName: boolean;
+	policy: TitleApplyPolicy;
+	currentSessionName?: string;
+	lastAppliedSessionName: boolean;
+	lastAppliedTitle?: string;
+};
+
+export function shouldApplyTitleForPolicy(input: TitleApplicationInput): boolean {
+	if (!input.applyToSessionName || !input.title) return false;
+	if (input.policy === "never") return false;
+	if (input.policy === "always") return true;
+	if (!input.currentSessionName) return true;
+	if (input.policy === "if-empty") return false;
+	return Boolean(
+		input.lastAppliedSessionName &&
+		input.lastAppliedTitle &&
+		input.currentSessionName === input.lastAppliedTitle,
+	);
+}
+
 function shouldApplyTitle(title: string | undefined, pi: ExtensionAPI, ctx: ExtensionContext, config: RecapConfig, state: RecapState): boolean {
-	if (!config.title.applyToSessionName) return false;
-	if (!title) return false;
-
-	const policy = config.title.applyPolicy;
-	if (policy === "never") return false;
-	if (policy === "always") return true;
-
-	const current = currentSessionName(pi, ctx);
-	if (!current) return true;
-	if (policy === "if-empty") return false;
-
-	return Boolean(state.lastAppliedSessionName && state.lastAppliedTitle && current === state.lastAppliedTitle);
+	return shouldApplyTitleForPolicy({
+		title,
+		applyToSessionName: config.title.applyToSessionName,
+		policy: config.title.applyPolicy,
+		currentSessionName: currentSessionName(pi, ctx),
+		lastAppliedSessionName: state.lastAppliedSessionName,
+		lastAppliedTitle: state.lastAppliedTitle,
+	});
 }
 
 function formatModelName(model: NonNullable<ExtensionContext["model"]> | undefined): string | undefined {
 	return model ? `${model.provider}/${model.id}` : undefined;
 }
 
-type RunRecapOptions = {
+export type RunRecapOptions = {
 	force?: boolean;
 	signal?: AbortSignal;
 	showProgress?: boolean;
+	completeModel?: typeof complete;
 };
 
-async function runRecap(
+export async function runRecap(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	config: RecapConfig,
@@ -609,7 +601,7 @@ async function runRecap(
 	reason: RecapReason,
 	options: RunRecapOptions = {},
 ): Promise<RecapEntryData | undefined> {
-	const { force = false, signal, showProgress = true } = options;
+	const { force = false, signal, showProgress = true, completeModel = complete } = options;
 	if (state.running) return undefined;
 	if (!config.recap.enabled) {
 		if (reason === "manual" && ctx.mode === "tui") displayRecapError(ctx, config, "Recap is disabled by config");
@@ -669,7 +661,7 @@ async function runRecap(
 			return undefined;
 		}
 
-		const response = await complete(
+		const response = await completeModel(
 			model,
 			{
 				systemPrompt: buildSystemPrompt(config),
@@ -697,16 +689,19 @@ async function runRecap(
 			.map((item) => item.text)
 			.join("\n")
 			.trim();
-
-		if (!raw) {
-			displayRecapError(ctx, config, "Recap model returned empty output");
+		const resolved = resolveRecapOutput(raw, {
+			stopReason: response.stopReason,
+			errorMessage: response.errorMessage,
+			generateTitle: config.title.generate,
+			titleMaxLength: config.title.maxLength,
+		});
+		if (!resolved.ok) {
+			displayRecapError(ctx, config, resolved.error);
 			displayed = true;
 			return undefined;
 		}
 
-		const parsed = parseModelJson(raw);
-		const recap = cleanOneLine(parsed.recap);
-		const title = config.title.generate ? cleanOneLine(parsed.title ?? "", config.title.maxLength) || undefined : undefined;
+		const { recap, title, titleSource } = resolved;
 		const appliedSessionName = shouldApplyTitle(title, pi, ctx, config, state);
 
 		if (appliedSessionName && title) {
@@ -720,6 +715,7 @@ async function runRecap(
 		const data: RecapEntryData = {
 			recap,
 			title,
+			titleSource,
 			reason,
 			model: formatModelName(model),
 			source: {
@@ -792,9 +788,11 @@ function displayRecapWidget(ctx: ExtensionContext, config: RecapConfig, data: Re
 				hour: "2-digit",
 				minute: "2-digit",
 			}).format(data.generatedAt);
+			const warning = recapOutputWarning(data.titleSource);
 			const text = [
 				theme.fg("muted", "RECAP  ") + theme.fg("accent", theme.bold(title)),
 				theme.fg("text", data.recap),
+				...(warning ? [theme.fg("warning", `WARNING  ${warning}`)] : []),
 				theme.fg("dim", `Generated ${generatedTime}`),
 			].join("\n");
 
@@ -1002,7 +1000,7 @@ type ActiveRecapRun = {
 	signal?: AbortSignal;
 };
 
-type RecapState = {
+export type RecapState = {
 	config: RecapConfig;
 	running: boolean;
 	nextRunId: number;
@@ -1062,28 +1060,40 @@ function scheduleAutoRecap(pi: ExtensionAPI, ctx: ExtensionContext, state: Recap
 	}, config.recap.idleAfterTurnMs);
 }
 
-async function refreshStateFromSession(ctx: ExtensionContext, state: RecapState) {
-	const entries = ctx.sessionManager.getBranch();
+export function restoreRecapState(entries: SessionEntry[], currentSessionName: string | undefined) {
 	const last = getLastRecap(entries);
-
-	state.lastRecap = last?.data;
-	state.lastRecapAt = last?.data.generatedAt;
-	state.lastRecapSourceToEntryId = last?.data.source?.toEntryId;
-
-	const current = ctx.sessionManager.getSessionName();
-	state.lastAppliedSessionName = Boolean(last?.data.appliedSessionName && last.data.title && current === last.data.title);
-	state.lastAppliedTitle = state.lastAppliedSessionName ? last?.data.title : undefined;
+	const lastAppliedSessionName = Boolean(
+		last?.data.appliedSessionName && last.data.title && currentSessionName === last.data.title,
+	);
+	return {
+		lastRecap: last?.data,
+		lastRecapAt: last?.data.generatedAt,
+		lastRecapSourceToEntryId: last?.data.source?.toEntryId,
+		lastAppliedSessionName,
+		lastAppliedTitle: lastAppliedSessionName ? last?.data.title : undefined,
+	};
 }
 
-export default function (pi: ExtensionAPI) {
-	const state: RecapState = {
-		config: DEFAULT_CONFIG,
+async function refreshStateFromSession(ctx: ExtensionContext, state: RecapState) {
+	Object.assign(
+		state,
+		restoreRecapState(ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionName()),
+	);
+}
+
+export function createRecapState(config: RecapConfig = DEFAULT_CONFIG): RecapState {
+	return {
+		config,
 		running: false,
 		nextRunId: 0,
 		applyingSessionName: false,
 		lastAppliedSessionName: false,
 		multiplexer: new MultiplexerManager(),
 	};
+}
+
+export default function (pi: ExtensionAPI) {
+	const state = createRecapState();
 
 	pi.on("session_start", async (_event, ctx) => {
 		try {
