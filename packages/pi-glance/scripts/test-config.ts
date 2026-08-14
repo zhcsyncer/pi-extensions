@@ -11,6 +11,7 @@ import {
 	TOKENS_CACHE_MODE_VALUES,
 	TOKENS_DISPLAY_MODE_VALUES,
 	WORKSPACE_LABEL_MODE_VALUES,
+	WORKTREE_SUMMARY_MODE_VALUES,
 } from "../config-options.js";
 import { cloneConfig, configFromText, configToText, defaultConfig, normalizeConfig } from "../config.js";
 import { THROUGHPUT_PRECISION_DESCRIPTOR } from "../config-schema.js";
@@ -33,11 +34,15 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 13, "working indicator should advance CONFIG_VERSION to 13");
-assert.equal(normalizeConfig({ version: 0 }).version, 13, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 13, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 14, "working tree summary should advance CONFIG_VERSION to 14");
+assert.equal(normalizeConfig({ version: 0 }).version, 14, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 14, "future raw version should normalize to current schema version");
 assert.deepEqual(defaults.workingIndicator, { enabled: true }, "working indicator should default on for the complete experience");
+assert.equal(defaults.git.worktreeSummary, "above-compact", "working tree summary should default to above compact");
+assert.equal(defaults.git.refreshDebounceMs, 250, "Git event refresh should default to a 250ms trailing debounce");
+assert.equal(defaults.git.pollIntervalMs, 15000, "Git fallback polling should default to 15 seconds");
 assert.deepEqual(normalizeConfig({ version: 12 }).workingIndicator, { enabled: true }, "schema 12 configs should migrate with working indicator on");
+assert.equal(normalizeConfig({ version: 13 }).git.worktreeSummary, "above-compact", "schema 13 configs should migrate to the default working tree summary mode");
 assert.equal(normalizeConfig({ workingIndicator: { enabled: false } }).workingIndicator.enabled, false, "explicit working indicator off should be preserved");
 assert.equal(normalizeConfig({ workingIndicator: { enabled: "no" } }).workingIndicator.enabled, true, "invalid working indicator values should fall back on");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
@@ -115,6 +120,9 @@ for (const topMarginRows of EDITOR_TOP_MARGIN_ROW_VALUES) {
 for (const shaMode of GIT_SHA_MODE_VALUES) {
 	assert.equal(normalizeConfig({ git: { shaMode } }).git.shaMode, shaMode, `${shaMode} should normalize as a valid git SHA mode`);
 }
+for (const worktreeSummary of WORKTREE_SUMMARY_MODE_VALUES) {
+	assert.equal(normalizeConfig({ git: { worktreeSummary } }).git.worktreeSummary, worktreeSummary, `${worktreeSummary} should normalize as a valid working tree summary mode`);
+}
 for (const textMode of CONTEXT_TEXT_MODE_VALUES) {
 	assert.equal(normalizeConfig({ context: { text: textMode } }).context.text, textMode, `${textMode} should normalize as a valid context text mode`);
 }
@@ -180,6 +188,7 @@ const userConfig = normalizeConfig({
 		showDirty: false,
 		showAheadBehind: false,
 		shaMode: "always",
+		worktreeSummary: "border-right",
 		timeoutMs: 2500,
 		refreshDebounceMs: 250,
 		pollIntervalMs: 30000,
@@ -205,7 +214,7 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 13,
+		version: 14,
 		enabled: false,
 		workingIndicator: {
 			enabled: true,
@@ -240,6 +249,7 @@ assert.deepEqual(
 			showDirty: false,
 			showAheadBehind: false,
 			shaMode: "always",
+			worktreeSummary: "border-right",
 			timeoutMs: 2500,
 			refreshDebounceMs: 250,
 			pollIntervalMs: 30000,
@@ -308,6 +318,7 @@ assert.equal(normalizeConfig({ icons: null }).icons, defaults.icons, "non-string
 assert.equal(normalizeConfig({ display: { showProvider: "sometimes" } }).display.showProvider, defaults.display.showProvider, "unknown provider mode should fall back to default");
 assert.equal(normalizeConfig({ display: { workspaceLabel: "repo" } }).display.workspaceLabel, defaults.display.workspaceLabel, "unknown workspace label mode should fall back to default");
 assert.equal(normalizeConfig({ git: { shaMode: "branch" } }).git.shaMode, defaults.git.shaMode, "unknown git SHA mode should fall back to default");
+assert.equal(normalizeConfig({ git: { worktreeSummary: "footer" } }).git.worktreeSummary, defaults.git.worktreeSummary, "unknown working tree summary mode should fall back to default");
 assert.equal(normalizeConfig({ context: { text: "window" } }).context.text, defaults.context.text, "unknown context text mode should fall back to default");
 assert.equal(normalizeConfig({ context: { progress: "yes" } }).context.progress, defaults.context.progress, "invalid context progress should fall back to default");
 assert.deepEqual(normalizeConfig({ context: { display: "window" } }).context, defaults.context, "unknown legacy context display should fall back to defaults");

@@ -13,8 +13,9 @@ import {
 	type ThemeBrowserThemeViewModel,
 } from "./pane-model.js";
 import { renderInputSurface, renderInputSurfacePreview } from "./renderer.js";
-import { resolveBuiltInGlanceStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
+import { resolveBuiltInGlanceStyles, resolveGlanceRenderStyles, type GlanceRenderStyleContext } from "./theme-adapter.js";
 import type { GlanceConfig, GlanceState } from "./types.js";
+import { isAboveWorktreeSummary, renderAboveWorktreeSummary } from "./worktree-summary.js";
 
 type PaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
 type Done = (result: GlanceConfig | null) => void;
@@ -203,6 +204,10 @@ class GlanceConfigPane implements Component {
 				}
 				: {}),
 		};
+		if (this.previewState && isAboveWorktreeSummary(this.model.draft.git.worktreeSummary)) {
+			const styles = resolveGlanceRenderStyles(this.model.draft, previewOptions);
+			lines.push(...renderAboveWorktreeSummary(this.previewState.git, this.model.draft.git.worktreeSummary, layout.width, styles));
+		}
 		const preview = this.previewState
 			? renderInputSurface(this.previewState, this.model.draft, layout.width, previewOptions)
 			: renderInputSurfacePreview(this.model.draft, layout.width, previewOptions);

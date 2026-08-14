@@ -12,6 +12,7 @@ import {
 	TOKENS_CACHE_MODE_VALUES,
 	TOKENS_DISPLAY_MODE_VALUES,
 	WORKSPACE_LABEL_MODE_VALUES,
+	WORKTREE_SUMMARY_MODE_VALUES,
 } from "../config-options.js";
 import { defaultConfig } from "../config.js";
 import { THROUGHPUT_PRECISION_DESCRIPTOR } from "../config-schema.js";
@@ -300,9 +301,16 @@ const gitRows = assertRows(config, "git", [
 		kind: "cycle",
 	},
 	{
+		id: "git.worktreeSummary",
+		label: "Working tree",
+		value: "above compact",
+		hint: "Show a compact/detailed widget or use the input bottom border.",
+		kind: "cycle",
+	},
+	{
 		id: "git.polling",
 		label: "Polling",
-		value: "5s",
+		value: "15s",
 		hint: "Check external Git changes.",
 		kind: "cycle",
 	},
@@ -499,12 +507,13 @@ assert.equal(rowById(gitRows, "git.enabled").apply!(config).segments.find((segme
 assert.equal(rowById(gitRows, "git.dirtyMarker").apply!(config).git.showDirty, false, "dirty marker should toggle off");
 assert.equal(rowById(gitRows, "git.aheadBehind").apply!(config).git.showAheadBehind, false, "ahead/behind should toggle off");
 assert.equal(rowById(gitRows, "git.sha").apply!(config).git.shaMode, "detached", "sha mode should cycle off -> detached");
-assert.equal(rowById(gitRows, "git.polling").apply!(config).git.pollIntervalMs, 10000, "polling should cycle 5s -> 10s");
+assert.equal(rowById(gitRows, "git.worktreeSummary").apply!(config).git.worktreeSummary, "above-detailed", "working tree summary should cycle above compact -> above detailed");
+assert.equal(rowById(gitRows, "git.polling").apply!(config).git.pollIntervalMs, 30000, "polling should cycle 15s -> 30s");
 
-const pollingValues = [2000, 5000, 10000, 30000].map((pollIntervalMs) =>
+const pollingValues = [5000, 15000, 30000, 60000].map((pollIntervalMs) =>
 	getSettingsRows({ ...config, git: { ...config.git, pollIntervalMs } }, "git").find((row) => row.id === "git.polling")?.value,
 );
-assert.deepEqual(pollingValues, ["2s", "5s", "10s", "30s"], "polling values should be formatted as seconds");
+assert.deepEqual(pollingValues, ["5s", "15s", "30s", "60s"], "polling values should be formatted as seconds");
 
 assert.equal(rowById(contextRows, "context.enabled").apply!(config).segments.find((segment) => segment.id === "context")?.enabled, false, "context enabled should toggle off");
 assert.equal(rowById(contextRows, "context.text").apply!(config).context.text, "percent", "context text should cycle percent+tokens -> percent");
@@ -584,6 +593,17 @@ assertCycleUsesValues(
 		next.git.shaMode = shaMode;
 	}),
 	(after) => after.git.shaMode,
+);
+assertCycleUsesValues(
+	config,
+	WORKTREE_SUMMARY_MODE_VALUES,
+	"git",
+	"git.worktreeSummary",
+	"Git Working tree",
+	(base, worktreeSummary) => withTestConfig(base, (next) => {
+		next.git.worktreeSummary = worktreeSummary;
+	}),
+	(after) => after.git.worktreeSummary,
 );
 assertCycleUsesValues(
 	config,

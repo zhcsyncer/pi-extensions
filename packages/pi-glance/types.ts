@@ -13,6 +13,7 @@ export type IconMode = "nerd" | "plain";
 export type WidthMode = "full" | "compact" | "minimal";
 export type GitStatus = "clean" | "dirty" | "conflict" | "unknown";
 export type GitShaMode = "off" | "detached" | "always";
+export type WorktreeSummaryMode = "above-compact" | "above-detailed" | "border-left" | "border-right";
 export type ContextTextMode = "percent+tokens" | "percent" | "tokens";
 export type ContextProgressStyle = "track" | "border";
 export type ContextProgressWidth = "third" | "remaining";
@@ -42,6 +43,7 @@ export interface GitConfig {
 	showDirty: boolean;
 	showAheadBehind: boolean;
 	shaMode: GitShaMode;
+	worktreeSummary: WorktreeSummaryMode;
 	timeoutMs: number;
 	refreshDebounceMs: number;
 	pollIntervalMs: number;
@@ -74,7 +76,7 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 13;
+	version: 14;
 	enabled: boolean;
 	workingIndicator: {
 		enabled: boolean;
@@ -122,6 +124,23 @@ export interface TurnThroughput {
 	usage: TurnThroughputUsage;
 }
 
+export interface GitWorktreeSnapshot {
+	/** Current paths with index changes. */
+	staged: string[];
+	/** Current paths with working-tree changes. */
+	unstaged: string[];
+	/** Untracked paths. File contents are never read for polling. */
+	untracked: string[];
+	/** Current paths with unresolved merge conflicts. */
+	conflicts: string[];
+	/** Unique current paths across all categories. */
+	files: number;
+	/** Tracked working tree versus HEAD; null when Git cannot calculate it safely. */
+	additions: number | null;
+	/** Tracked working tree versus HEAD; null when Git cannot calculate it safely. */
+	deletions: number | null;
+}
+
 export interface GitSnapshot {
 	repo: boolean;
 	branch: string | null;
@@ -136,6 +155,7 @@ export interface GitSnapshot {
 	conflicts: number;
 	dirty: boolean;
 	status: GitStatus;
+	worktree: GitWorktreeSnapshot;
 	updatedAt: number;
 }
 

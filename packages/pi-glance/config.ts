@@ -15,6 +15,7 @@ import {
 	TOKENS_CACHE_MODE_VALUES,
 	TOKENS_DISPLAY_MODE_VALUES,
 	WORKSPACE_LABEL_MODE_VALUES,
+	WORKTREE_SUMMARY_MODE_VALUES,
 } from "./config-options.js";
 import { THROUGHPUT_PRECISION_DESCRIPTOR } from "./config-schema.js";
 import { defaultSegmentConfigs, isSegmentId } from "./segment-registry.js";
@@ -35,10 +36,11 @@ import type {
 	TokensCacheMode,
 	TokensDisplayMode,
 	WorkspaceLabelMode,
+	WorktreeSummaryMode,
 } from "./types.js";
 
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 13 as const;
+const CONFIG_VERSION = 14 as const;
 const emittedMigrationNotices = new Set<string>();
 const pendingMigrationNotices: string[] = [];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -66,6 +68,7 @@ const ICON_MODES = new Set<IconMode>(ICON_MODE_VALUES);
 const PROVIDER_MODES = new Set<GlanceConfig["display"]["showProvider"]>(PROVIDER_DISPLAY_MODE_VALUES);
 const WORKSPACE_LABEL_MODES = new Set<WorkspaceLabelMode>(WORKSPACE_LABEL_MODE_VALUES);
 const GIT_SHA_MODES = new Set<GitShaMode>(GIT_SHA_MODE_VALUES);
+const WORKTREE_SUMMARY_MODES = new Set<WorktreeSummaryMode>(WORKTREE_SUMMARY_MODE_VALUES);
 const CONTEXT_TEXT_MODES = new Set<ContextTextMode>(CONTEXT_TEXT_MODE_VALUES);
 const CONTEXT_PROGRESS_STYLES = new Set<ContextProgressStyle>(CONTEXT_PROGRESS_STYLE_VALUES);
 const CONTEXT_PROGRESS_WIDTHS = new Set<ContextProgressWidth>(CONTEXT_PROGRESS_WIDTH_VALUES);
@@ -100,9 +103,10 @@ export function defaultConfig(): GlanceConfig {
 			showDirty: true,
 			showAheadBehind: true,
 			shaMode: "off",
-			timeoutMs: 1000,
-			refreshDebounceMs: 1500,
-			pollIntervalMs: 5000,
+			worktreeSummary: "above-compact",
+			timeoutMs: 1500,
+			refreshDebounceMs: 250,
+			pollIntervalMs: 15000,
 		},
 		context: {
 			text: "percent+tokens",
@@ -298,6 +302,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 			showDirty: parseBool(git.showDirty, defaults.git.showDirty),
 			showAheadBehind: parseBool(git.showAheadBehind, defaults.git.showAheadBehind),
 			shaMode: parseStringEnum(git.shaMode, GIT_SHA_MODES, defaults.git.shaMode),
+			worktreeSummary: parseStringEnum(git.worktreeSummary, WORKTREE_SUMMARY_MODES, defaults.git.worktreeSummary),
 			timeoutMs: parseIntAtLeast(git.timeoutMs, defaults.git.timeoutMs, 100),
 			refreshDebounceMs: parseIntAtLeast(git.refreshDebounceMs, defaults.git.refreshDebounceMs, 0),
 			pollIntervalMs: parseIntAtLeast(git.pollIntervalMs, defaults.git.pollIntervalMs, 1000),
@@ -334,7 +339,7 @@ const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
 	editor: new Set(["minContentRows", "topMarginRows"]),
 	display: new Set(["showProvider", "workspaceLabel"]),
 	model: new Set(["customNames", "showThinking"]),
-	git: new Set(["showDirty", "showAheadBehind", "shaMode", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
+	git: new Set(["showDirty", "showAheadBehind", "shaMode", "worktreeSummary", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
 	context: new Set(["text", "progress", "progressStyle", "progressWidth"]),
 	cost: new Set(["hideZero"]),
 	tokens: new Set(["display", "cache"]),

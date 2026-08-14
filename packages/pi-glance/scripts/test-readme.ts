@@ -20,6 +20,15 @@ assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should insta
 assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_settled-compatible Pi baseline");
 assertReadmeIncludes("public `agent_settled` lifecycle event", "README should explain the minimum Pi version");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
+assertReadmeIncludes("`above compact`, `above detailed`, `border left`, and `border right`", "README should document exactly four Working Tree placements");
+assertReadmeIncludes("standard tracked working tree versus `HEAD`", "README should document tracked numstat semantics");
+assertReadmeIncludes("untracked file contents are never read by polling", "README should document untracked polling safety");
+assertReadmeIncludes("250ms trailing debounce", "README should document event-driven Git debounce");
+assertReadmeIncludes("fallback polling defaults to 15 seconds", "README should document fallback polling default");
+assertReadmeIncludes("No recursive filesystem watcher is installed", "README should reject recursive watcher behavior");
+assertReadmeIncludes("`/diff` runs revdiff's default uncommitted review", "README should document the primary review entrypoint");
+assertReadmeIncludes("loads them into the editor for confirmation instead of sending them to the Agent", "README should document annotation confirmation behavior");
+assertReadmeIncludes("only `/diff` shows the install hint", "README should isolate missing revdiff from Glance startup");
 assertReadmeIncludes("**Bottom details**", "README should document the remaining bottom-details settings category");
 assertReadmeIncludes("`Progress bar`", "README should document the bottom-right context progress toggle");
 assertReadmeIncludes("standalone `track` or a progress-aware `border`", "README should document both context progress styles");
@@ -36,12 +45,19 @@ assertReadmeExcludes('"enabled": true,\n    "showSession"', "README should not d
 assert.equal("footer" in defaultConfig(), false, "README footer behavior should stay aligned with config removal");
 assert.deepEqual(defaultConfig().bottomDetails, { showAutoCompact: true }, "README bottom-details JSON should stay aligned with defaultConfig");
 assert.deepEqual(defaultConfig().context, { text: "percent+tokens", progress: false, progressStyle: "border", progressWidth: "third" }, "README context progress defaults should stay aligned with defaultConfig");
+assert.equal(defaultConfig().git.worktreeSummary, "above-compact", "README Working Tree default should stay aligned with defaultConfig");
+assert.equal(defaultConfig().git.refreshDebounceMs, 250, "README Git debounce should stay aligned with defaultConfig");
+assert.equal(defaultConfig().git.pollIntervalMs, 15000, "README Git polling should stay aligned with defaultConfig");
 assert.ok(readmeZh.includes("pi install npm:@zhcsyncer/pi-glance"), "Chinese README should document scoped install");
 assert.ok(readmeZh.includes("Footer 组合"), "Chinese README should document footer composition");
 assert.ok(readmeZh.includes("右下角详情"), "Chinese README should document bottom-right details");
 assert.ok(readmeZh.includes("Progress bar"), "Chinese README should document context progress mode");
 assert.ok(readmeZh.includes("未用部分保持细线 `─`，已用部分变为粗线 `━`"), "Chinese README should document border progress glyphs");
 assert.ok(readmeZh.includes("70%（含）到 85%（不含）使用 warning，85% 及以上使用 error"), "Chinese README should document fixed context risk thresholds");
+assert.ok(readmeZh.includes("`above compact`、`above detailed`、`border left`、`border right`"), "Chinese README should document exactly four Working Tree placements");
+assert.ok(readmeZh.includes("250ms trailing debounce"), "Chinese README should document event-driven Git debounce");
+assert.ok(readmeZh.includes("兜底轮询默认 15 秒"), "Chinese README should document fallback polling default");
+assert.ok(readmeZh.includes("有 annotations 时只回填编辑器供用户确认，不自动发送给 Agent"), "Chinese README should document annotation confirmation behavior");
 assertReadmeIncludes("Icons default to `plain`", "README should state that icons default to plain");
 assertReadmeIncludes("`nerd` icons are opt-in", "README should state that nerd icons are opt-in");
 assertReadmeIncludes("/glance` → **General** → `Icons`", "README should point users to /glance General Icons");
@@ -52,6 +68,7 @@ assertReadmeIncludes("Claude-inspired working indicator", "README should describ
 assertReadmeIncludes("Fork difference:", "README should clearly mark the working indicator as a fork difference");
 assertReadmeIncludes("upstream `pi-glance` 0.5.3 does not include it", "README should distinguish the working indicator from upstream capabilities");
 assert.ok(upstreamSource.includes("switchable, theme-aware Claude-inspired working indicator"), "upstream source record should list the working indicator among local differences");
+assert.ok(upstreamSource.includes("four-placement, theme-aware Git Working Tree summary"), "upstream source record should list the Working Tree summary among local differences");
 assertReadmeIncludes("not an official Anthropic component", "README should rule out official Anthropic provenance");
 assertReadmeIncludes("does not change the Agent, prompts, models, tools, messages, or session behavior", "README should document display-only behavior");
 assertReadmeIncludes("**Working indicator** directly in the first-level menu", "README should document the first-level working-indicator entry");
@@ -68,7 +85,7 @@ assertReadmeIncludes("Elapsed time stays compact and human-readable", "README sh
 assertReadmeIncludes("uses the theme warning color at five minutes or later", "README should document long-cycle elapsed emphasis");
 assertReadmeIncludes("it is retained ahead of cycle tokens", "README should document warning elapsed narrow-width priority");
 assertReadmeIncludes("global singleton with no owner stack", "README should document working-row ownership limits");
-assertReadmeIncludes("schema version 13", "README should document config schema 13");
+assertReadmeIncludes("schema version 14", "README should document config schema 14");
 assert.deepEqual(defaultConfig().workingIndicator, { enabled: true }, "README working default should stay aligned with config");
 assert.ok(readmeZh.includes("**Fork 差异：**"), "Chinese README should clearly mark the working indicator as a fork difference");
 assert.ok(readmeZh.includes("上游 `pi-glance` 0.5.3 不包含该功能"), "Chinese README should distinguish the working indicator from upstream capabilities");
@@ -84,7 +101,7 @@ assert.ok(readmeZh.includes("当前 context window 占用"), "Chinese README sho
 assert.ok(readmeZh.includes("耗时保持紧凑且易读"), "Chinese README should document human-readable working elapsed time");
 assert.ok(readmeZh.includes("五分钟及以上使用主题 warning 色"), "Chinese README should document long-cycle elapsed emphasis");
 assert.ok(readmeZh.includes("优先于 cycle token 保留"), "Chinese README should document warning elapsed narrow-width priority");
-assert.ok(readmeZh.includes("当前 schema 为版本 13"), "Chinese README should document schema 13");
+assert.ok(readmeZh.includes("当前 schema 为版本 14"), "Chinese README should document schema 14");
 
 assert.equal(GLANCE_THEMES.length, 22, "README theme copy should describe the curated 22-theme collection");
 assertReadmeIncludes("22 built-in Glance palettes", "README should describe the curated 22-theme fallback collection");

@@ -18,6 +18,7 @@ export interface RuntimePlanExecutionInput {
 
 function applyGitScheduling(input: RuntimePlanExecutionInput, workspaceChanged: boolean): void {
 	if (input.plan.git === "immediate") input.scheduleGitRefresh(true);
+	else if (input.plan.git === "debounced") input.scheduleGitRefresh(workspaceChanged);
 	else if (input.plan.git === "onWorkspaceChange" && workspaceChanged) input.scheduleGitRefresh(true);
 }
 

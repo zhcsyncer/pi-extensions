@@ -16,3 +16,4 @@ The production source and upstream tests were copied from that tag before local 
 - Add a responsive context progress mode to the input surface bottom-right.
 - Add a plain/Nerd Font auto-compaction marker with semantic color highlighting.
 - Add a switchable, theme-aware Claude-inspired working indicator for activity, current-cycle output, and elapsed time.
+- Add a four-placement, theme-aware Git Working Tree summary with tracked diff statistics, resilient refresh scheduling, and `/diff` revdiff review handoff.

@@ -11,7 +11,8 @@ const ALLOWED_PI_IMPORTS = new Set([
 const FOOTER_MODULE = "footer.ts";
 const STATUS_LINE_MODULE = "status-line.ts";
 const INPUT_SURFACE_FRAME_MODULE = "input-surface-frame.ts";
-const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", INPUT_SURFACE_FRAME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
+const WORKTREE_SUMMARY_MODULE = "worktree-summary.ts";
+const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", WORKTREE_SUMMARY_MODULE, INPUT_SURFACE_FRAME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
 const INDEX_MODULE = "index.ts";
 const PURE_CONFIG_OPTIONS_MODULE = "config-options.ts";
 const SEGMENT_DISPLAY_PRIMITIVES_MODULE = "segment-display-primitives.ts";
@@ -97,6 +98,15 @@ function namedImportsFrom(file: SourceFile, specifier: string): string[] {
 function assertNoLowLevelFrameCompositionTokens(file: SourceFile, label: string): void {
 	const match = file.text.match(LOW_LEVEL_FRAME_COMPOSITION_PATTERN);
 	if (match) fail(`${file.path}: ${label} must not directly use low-level frame composition primitive ${match[0]}`);
+}
+
+function assertNoToolDisplayIntentCoupling(files: SourceFile[]): void {
+	for (const file of files) {
+		if (file.path === GUARD_SCRIPT) continue;
+		if (/pi-tool-display-intent|tool-display-intent/.test(file.text)) {
+			fail(`${file.path}: Glance Working Tree state must not couple to pi-tool-display-intent activity`);
+		}
+	}
 }
 
 function assertNoLegacyNamespace(files: SourceFile[]): void {
@@ -294,6 +304,7 @@ function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
 		join("scripts", "test-themes.ts"),
 		join("scripts", "test-input-surface-frame.ts"),
 		join("scripts", "test-surface-parity.ts"),
+		join("scripts", "test-worktree-summary.ts"),
 	]);
 	for (const file of files) {
 		if (allowed.has(file.path)) continue;
@@ -422,7 +433,7 @@ function assertInputSurfaceFrameSeamImports(files: SourceFile[]): void {
 	const inputSurfaceFrame = files.find((candidate) => basename(candidate.path) === INPUT_SURFACE_FRAME_MODULE);
 	assert.ok(inputSurfaceFrame, "input-surface-frame.ts frame composition seam should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./context-risk.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./context-risk.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js", "./worktree-summary.js"]);
 	const forbiddenLocalSpecifiers = new Set([
 		"./editor.js",
 		"./renderer.js",
@@ -932,6 +943,7 @@ function assertConfigOptionsPureModule(files: SourceFile[]): void {
 const sourceFiles = await readSourceFiles();
 const packageFiles: SourceFile[] = [{ path: "package.json", text: await readText("package.json") }];
 
+assertNoToolDisplayIntentCoupling(sourceFiles);
 assertNoLegacyNamespace(sourceFiles);
 assertNoLegacyPiPackages(packageFiles);
 assertPublicPiImports(sourceFiles);

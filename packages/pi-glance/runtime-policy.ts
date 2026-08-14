@@ -13,7 +13,7 @@ export type RuntimeEventKind =
 	| "editor_thinking_cycle";
 
 export type RuntimeSnapshotMode = "none" | "reliable" | "lifecycle" | "message" | "thinking" | "compact";
-export type RuntimeGitRefreshMode = "never" | "onWorkspaceChange" | "immediate";
+export type RuntimeGitRefreshMode = "never" | "onWorkspaceChange" | "debounced" | "immediate";
 export type RuntimeContextPlan = "none" | "refresh" | "clear";
 
 export interface RuntimeRefreshPlan {
@@ -30,6 +30,7 @@ export interface RuntimeRefreshPlan {
 
 export interface RuntimeEventFacts {
 	messageRole?: string;
+	toolName?: string;
 }
 
 const ENSURE_ONLY_PLAN: RuntimeRefreshPlan = {
@@ -112,9 +113,26 @@ const TOOL_EXECUTION_END_PLAN: RuntimeRefreshPlan = {
 	refreshModel: false,
 	refreshUsageTotals: false,
 	context: "refresh",
-	git: "immediate",
+	git: "debounced",
 	render: true,
 };
+
+const READ_ONLY_TOOL_NAMES = new Set([
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"web_search",
+	"web_read",
+	"ollama_web_search",
+	"ollama_web_fetch",
+	"resolve-library-id",
+	"query-docs",
+]);
+
+export function isExplicitlyReadOnlyTool(toolName: string | undefined): boolean {
+	return typeof toolName === "string" && READ_ONLY_TOOL_NAMES.has(toolName);
+}
 
 const ASSISTANT_MESSAGE_END_PLAN: RuntimeRefreshPlan = {
 	ensureConfig: true,
@@ -190,8 +208,11 @@ export function runtimePlanFor(kind: RuntimeEventKind, facts: RuntimeEventFacts 
 			return clonePlan(RELIABLE_WITH_MODEL_IMMEDIATE_PLAN);
 		case "turn_start":
 			return clonePlan(LIFECYCLE_WITH_MODEL_ON_WORKSPACE_CHANGE_PLAN);
-		case "tool_execution_end":
-			return clonePlan(TOOL_EXECUTION_END_PLAN);
+		case "tool_execution_end": {
+			const plan = clonePlan(TOOL_EXECUTION_END_PLAN);
+			if (isExplicitlyReadOnlyTool(facts.toolName)) plan.git = "onWorkspaceChange";
+			return plan;
+		}
 		case "session_compact":
 			return clonePlan(SESSION_COMPACT_PLAN);
 		case "message_end":

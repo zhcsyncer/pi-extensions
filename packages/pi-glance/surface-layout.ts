@@ -66,6 +66,7 @@ interface SurfaceTopFramePlan extends SurfaceFramePlan {
 
 interface SurfaceBottomFramePlan extends SurfaceFramePlan {
 	indicator: string;
+	leftStatus: SurfaceStatusPlan;
 	status: SurfaceStatusPlan;
 	fillerWidth: number;
 	leadingFillerWidth: number;
@@ -105,6 +106,7 @@ interface SurfaceBottomProgressOptions {
 interface SurfaceBottomFrameOptions {
 	width: number;
 	scrollIndicator?: string;
+	leftStatus?: string;
 	status?: string;
 	statusEllipsis?: string;
 	contextProgress?: SurfaceBottomProgressOptions;
@@ -308,10 +310,13 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 	const metrics = surfaceMetrics(options.width);
 	const indicator = options.scrollIndicator ? truncateSurfaceText(options.scrollIndicator, metrics.innerWidth, "") : "";
 	const indicatorWidth = visibleWidth(indicator);
-	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, indicatorWidth);
+	const leftStatus = planSurfaceStatus(options.leftStatus, Math.max(0, metrics.innerWidth - indicatorWidth), options.statusEllipsis);
+	const leftStatusChromeWidth = leftStatus.text ? SURFACE_STATUS_CHROME_WIDTH : 0;
+	const leftWidth = indicatorWidth + leftStatus.width + leftStatusChromeWidth;
+	const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, leftWidth);
 	const status = planSurfaceStatus(options.status, statusBudget, options.statusEllipsis);
 	const statusChromeWidth = status.text ? SURFACE_STATUS_CHROME_WIDTH : 0;
-	const fillerWidth = Math.max(0, metrics.innerWidth - indicatorWidth - status.width - statusChromeWidth);
+	const fillerWidth = Math.max(0, metrics.innerWidth - leftWidth - status.width - statusChromeWidth);
 	const requestedProgressWidth = options.contextProgress?.maxWidth === undefined
 		? fillerWidth
 		: Math.max(0, finiteFloor(options.contextProgress.maxWidth, 0));
@@ -320,9 +325,19 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 	const chunks: SurfaceChunk[] = [
 		chunk("border", SURFACE_BORDER.bottomLeft),
 		chunk("border", indicator),
+	];
+	if (leftStatus.text) {
+		chunks.push(
+			chunk("border", SURFACE_BORDER.horizontal),
+			chunk("text", " "),
+			chunk("status", leftStatus.text),
+			chunk("text", " "),
+		);
+	}
+	chunks.push(
 		chunk("border", repeat(SURFACE_BORDER.horizontal, leadingFillerWidth)),
 		...bottomProgressChunks(progressWidth, options.contextProgress?.percent ?? null),
-	];
+	);
 	if (status.text) {
 		chunks.push(
 			chunk("text", " "),
@@ -332,7 +347,7 @@ export function planSurfaceBottomFrame(options: SurfaceBottomFrameOptions): Surf
 		);
 	}
 	chunks.push(chunk("border", SURFACE_BORDER.bottomRight));
-	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), indicator, status, fillerWidth, leadingFillerWidth, progressWidth };
+	return { ...metrics, chunks, width: surfaceChunksWidth(chunks), indicator, leftStatus, status, fillerWidth, leadingFillerWidth, progressWidth };
 }
 
 export function planSurfaceRow(options: SurfaceRowOptions): SurfaceRowPlan {

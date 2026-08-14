@@ -1,8 +1,8 @@
-import { GIT_SHA_MODE_VALUES } from "./config-options.js";
+import { GIT_SHA_MODE_VALUES, WORKTREE_SUMMARY_MODE_VALUES } from "./config-options.js";
 import type { SegmentFeature } from "./segment-feature.js";
 import type { GlanceConfig, SegmentData, SegmentRenderContext } from "./types.js";
 
-const POLL_INTERVALS = [2000, 5000, 10000, 30000] as const;
+const POLL_INTERVALS = [5000, 15000, 30000, 60000] as const;
 
 function nextIn<T extends string | number>(current: T, values: readonly T[]): T {
 	const index = values.indexOf(current);
@@ -21,6 +21,19 @@ function onOff(value: boolean): string {
 function formatPolling(ms: number): string {
 	if (ms % 1000 === 0) return `${ms / 1000}s`;
 	return `${ms}ms`;
+}
+
+function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): string {
+	switch (mode) {
+		case "above-compact":
+			return "above compact";
+		case "above-detailed":
+			return "above detailed";
+		case "border-left":
+			return "border left";
+		case "border-right":
+			return "border right";
+	}
 }
 
 function gitBranchLabel(ctx: SegmentRenderContext): string {
@@ -101,6 +114,16 @@ export const gitSegmentFeature = {
 			value: (config: GlanceConfig) => config.git.shaMode,
 			mutate: (config: GlanceConfig) => {
 				config.git.shaMode = nextIn(config.git.shaMode, GIT_SHA_MODE_VALUES);
+			},
+		},
+		{
+			id: "git.worktreeSummary",
+			label: "Working tree",
+			hint: "Show a compact/detailed widget or use the input bottom border.",
+			kind: "cycle",
+			value: (config: GlanceConfig) => worktreeSummaryLabel(config.git.worktreeSummary),
+			mutate: (config: GlanceConfig) => {
+				config.git.worktreeSummary = nextIn(config.git.worktreeSummary, WORKTREE_SUMMARY_MODE_VALUES);
 			},
 		},
 		{

@@ -79,6 +79,15 @@ export function gitSnapshot(branchOrOverrides: string | Partial<GitSnapshot> = "
 		status: repo ? "dirty" : "unknown",
 		updatedAt: overrides.updatedAt ?? updatedAt,
 		...overrides,
+		worktree: overrides.worktree ?? {
+			staged: [],
+			unstaged: repo ? ["changed.ts"] : [],
+			untracked: [],
+			conflicts: [],
+			files: repo ? 1 : 0,
+			additions: repo ? 1 : null,
+			deletions: repo ? 0 : null,
+		},
 	};
 }
 

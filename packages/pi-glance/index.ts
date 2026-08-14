@@ -18,6 +18,11 @@ export default function piGlance(pi: ExtensionAPI): void {
 		handler: runtime.commands.openPane,
 	});
 
+	pi.registerCommand("diff", {
+		description: "Review the current Git working tree with revdiff",
+		handler: runtime.commands.openDiff,
+	});
+
 	pi.on("session_start", runtime.events.sessionStart);
 	pi.on("session_shutdown", runtime.events.sessionShutdown);
 	pi.on("session_info_changed", runtime.events.sessionInfoChanged);
