@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { resolveDisplaySummaryForTool } from "./display-summary-fallback.js";
 import { registerCleanup, registerTimer } from "./disposable.js";
+import { shouldShowDeterministicFallback } from "./live-tool-call.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import {
 	formatClaudeStatusMarker,
@@ -206,7 +207,7 @@ function buildBashCallPresentation(
 		: undefined;
 	const intentSuffix = displaySummary && !(
 		displaySummary.source === "fallback" &&
-		(context?.executionStarted === false || context?.argsComplete === true)
+		!shouldShowDeterministicFallback(context)
 	)
 		? `${theme.fg("muted", " — ")}${theme.fg(displaySummary.source === "model" ? "accent" : "muted", displaySummary.text)}`
 		: "";

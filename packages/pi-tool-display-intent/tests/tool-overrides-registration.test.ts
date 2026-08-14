@@ -46,10 +46,11 @@ interface RegisteredToolLike {
 	renderResult?: (...args: unknown[]) => unknown;
 }
 
-interface ToolEventHandlers {
-	session_start?: () => Promise<void> | void;
-	before_agent_start?: () => Promise<void> | void;
-}
+type ToolEventHandler = (event?: any, ctx?: any) => Promise<void> | void;
+type ToolEventHandlers = Partial<Record<
+	"session_start" | "before_agent_start" | "tool_execution_start" | "tool_execution_end",
+	ToolEventHandler
+>>;
 
 interface ExecutableToolLike extends RegisteredToolLike {
 	execute: (...args: unknown[]) => Promise<{ content?: Array<{ type: string; text?: string }> }>;
@@ -94,7 +95,7 @@ function createExtensionApiStub(allTools: unknown[] = []): {
 		registerTool(tool: RegisteredToolLike): void {
 			registeredTools.push(tool);
 		},
-		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
+		on(event: keyof ToolEventHandlers, handler: ToolEventHandler): void {
 			eventHandlers[event] = handler;
 		},
 		getAllTools(): unknown[] {
@@ -341,6 +342,68 @@ test("built-in renderers use accent for model intent and muted for fallback inte
 		{},
 	) as { render(width: number): string[] };
 	assert.match(fallbackIntent.render(160).join("\n"), /<muted>Read file<\/muted>/);
+});
+
+test("live ToolExecutionComponent shows fallback after args complete while restored rows stay target-only", async () => {
+	initTheme("dark", false);
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const read = registeredTools.find((tool) => tool.name === "read");
+	assert.ok(read);
+
+	const ui = { requestRender() {} };
+	const row = new ToolExecutionComponent(
+		"read",
+		"read-live-fallback",
+		{ path: "sample.txt" },
+		{},
+		read as never,
+		ui as never,
+		process.cwd(),
+	);
+	row.setArgsComplete();
+	await eventHandlers.tool_execution_start?.({
+		toolCallId: "read-live-fallback",
+		toolName: "read",
+		args: { path: "sample.txt" },
+	});
+	row.markExecutionStarted();
+	assert.match(row.render(160).join("\n"), /Read file/);
+
+	await eventHandlers.tool_execution_end?.({
+		toolCallId: "read-live-fallback",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "done" }] },
+		isError: false,
+	});
+	row.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
+	assert.doesNotMatch(row.render(160).join("\n"), /Read file/);
+
+	const bash = registeredTools.find((tool) => tool.name === "bash");
+	assert.ok(bash?.renderCall);
+	await eventHandlers.tool_execution_start?.({
+		toolCallId: "bash-live-fallback",
+		toolName: "bash",
+		args: { command: "pnpm test" },
+	});
+	const bashCall = bash.renderCall(
+		{ command: "pnpm test" },
+		{ fg: (_color: string, value: string) => value, bold: (value: string) => value },
+		{
+			toolCallId: "bash-live-fallback",
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			state: {},
+		},
+	) as { render(width: number): string[] };
+	assert.match(bashCall.render(160).join("\n"), /Run command/);
+	await eventHandlers.tool_execution_end?.({
+		toolCallId: "bash-live-fallback",
+		toolName: "bash",
+		result: { content: [] },
+		isError: false,
+	});
 });
 
 test("cooperative custom tools can share intent, execution stripping, and inherited result rendering", async () => {

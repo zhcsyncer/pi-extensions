@@ -30,6 +30,8 @@ export interface AggregateDiffStats {
 	deletions: number;
 }
 
+export const AGGREGATE_WRITE_DIFF_CUSTOM_TYPE = "pi-tool-display-intent.aggregate-write-diff.v1";
+
 export interface AggregateMember {
 	toolCallId: string;
 	toolName: AggregateSafeToolName;
@@ -227,6 +229,32 @@ function entryId(entry: unknown, fallback: string): string {
 	return typeof id === "string" ? id : fallback;
 }
 
+function persistedWriteDiffFromEntry(entry: unknown): {
+	toolCallId: string;
+	stats: AggregateDiffStats;
+} | undefined {
+	const record = toRecord(entry);
+	if (record.type !== "custom" || record.customType !== AGGREGATE_WRITE_DIFF_CUSTOM_TYPE) return undefined;
+	const data = toRecord(record.data);
+	const toolCallId = data.toolCallId;
+	const additions = data.additions;
+	const deletions = data.deletions;
+	if (
+		typeof toolCallId !== "string" ||
+		!toolCallId ||
+		typeof additions !== "number" ||
+		!Number.isSafeInteger(additions) ||
+		additions < 0 ||
+		typeof deletions !== "number" ||
+		!Number.isSafeInteger(deletions) ||
+		deletions < 0 ||
+		(additions === 0 && deletions === 0)
+	) {
+		return undefined;
+	}
+	return { toolCallId, stats: { additions, deletions } };
+}
+
 function isAssistantTerminalFailure(message: unknown): boolean {
 	const reason = toRecord(message).stopReason;
 	return reason === "aborted" || reason === "error";
@@ -244,6 +272,7 @@ export class AggregateProjection {
 	private readonly membersById = new Map<string, AggregateMember>();
 	private readonly invalidators = new Map<string, () => void>();
 	private readonly writePreviousById = new Map<string, WritePreviousContent>();
+	private readonly persistedWriteDiffStatsById = new Map<string, AggregateDiffStats>();
 	private sourceOrder = 0;
 	private liveGroupSequence = 0;
 	private activeGroupId: string | undefined;
@@ -331,6 +360,22 @@ export class AggregateProjection {
 		this.writePreviousById.set(toolCallId, { ...previous });
 	}
 
+	getWriteDiffStatsForPersistence(toolCallId: string): AggregateDiffStats | undefined {
+		const member = this.membersById.get(toolCallId);
+		return member?.toolName === "write" && member.state === "success" && member.diffStats
+			? { ...member.diffStats }
+			: undefined;
+	}
+
+	recordPersistedWriteDiffStats(toolCallId: string, stats: AggregateDiffStats): void {
+		const persisted = { ...stats };
+		this.persistedWriteDiffStatsById.set(toolCallId, persisted);
+		const member = this.membersById.get(toolCallId);
+		if (member?.toolName === "write" && member.state === "success") {
+			member.diffStats = { ...persisted };
+		}
+	}
+
 	markComplete(toolCallId: string, result: unknown, isError: boolean): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
@@ -388,11 +433,17 @@ export class AggregateProjection {
 		this.groupsById.clear();
 		this.membersById.clear();
 		this.writePreviousById.clear();
+		this.persistedWriteDiffStatsById.clear();
 		this.sourceOrder = 0;
 		this.activeGroupId = undefined;
 
 		let fallbackGroupIndex = 0;
 		for (const entry of Array.isArray(branchEntries) ? branchEntries : []) {
+			const persistedWriteDiff = persistedWriteDiffFromEntry(entry);
+			if (persistedWriteDiff) {
+				this.recordPersistedWriteDiffStats(persistedWriteDiff.toolCallId, persistedWriteDiff.stats);
+				continue;
+			}
 			const message = entryMessage(entry);
 			if (!message) continue;
 			const role = messageRole(message);
@@ -556,11 +607,14 @@ export class AggregateProjection {
 		if (member.toolName !== "write") return undefined;
 		const previous = this.writePreviousById.get(member.toolCallId);
 		const nextContent = member.args.content;
-		if (!previous || typeof nextContent !== "string") return undefined;
-		if (previous.fileExistedBeforeWrite && previous.previousContent === undefined) return undefined;
-		const path = getPath(member.args) ?? "file";
-		const patch = generateUnifiedPatch(path, previous.previousContent ?? "", nextContent, 0);
-		return countPatchStats(patch);
+		if (previous && typeof nextContent === "string") {
+			if (previous.fileExistedBeforeWrite && previous.previousContent === undefined) return undefined;
+			const path = getPath(member.args) ?? "file";
+			const patch = generateUnifiedPatch(path, previous.previousContent ?? "", nextContent, 0);
+			return countPatchStats(patch);
+		}
+		const persisted = this.persistedWriteDiffStatsById.get(member.toolCallId);
+		return persisted ? { ...persisted } : undefined;
 	}
 
 	private invalidateGroup(groupId: string, changedId?: string): void {
@@ -734,6 +788,7 @@ export function registerAggregateProjectionEvents(
 	pi: ExtensionAPI,
 	projection: AggregateProjection,
 ): void {
+	const persistedWriteDiffIds = new Set<string>();
 	pi.on("session_start", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
 	pi.on("before_agent_start", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
 	pi.on("session_compact", async (_event, ctx) => rebuildProjectionFromContext(projection, ctx));
@@ -754,6 +809,20 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("tool_execution_end", async (event) => {
 		projection.markComplete(event.toolCallId, event.result, event.isError === true);
+		const stats = projection.getWriteDiffStatsForPersistence(event.toolCallId);
+		if (!stats || persistedWriteDiffIds.has(event.toolCallId) || typeof pi.appendEntry !== "function") return;
+		try {
+			pi.appendEntry(AGGREGATE_WRITE_DIFF_CUSTOM_TYPE, {
+				toolCallId: event.toolCallId,
+				additions: stats.additions,
+				deletions: stats.deletions,
+			});
+			persistedWriteDiffIds.add(event.toolCallId);
+			projection.recordPersistedWriteDiffStats(event.toolCallId, stats);
+		} catch {
+			// Rendering remains correct for the live row; a later rebuild omits stats
+			// rather than mutating the original tool call/result or inventing values.
+		}
 	});
 	pi.on("agent_settled", async () => projection.markUnsettledInterrupted());
 }

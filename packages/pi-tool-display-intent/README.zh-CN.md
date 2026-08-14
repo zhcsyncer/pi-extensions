@@ -140,7 +140,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 最新的 aggregate-safe 工具行承载 Activity，同组旧成员占用零行。Activity 最多按 assistant source order 显示三个 pending/running 操作；成功操作收进计数，失败保留一行摘要，edit/write 尽可能显示 unique files 和可准确计算的 `+A −B`。同组会跨越多个底层 assistant/tool turn，只在下一条 user message 开始时结束。
 
-Aggregate 固定为最小视图：忽略 `Ctrl+O`，不展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。
+Aggregate 固定为最小视图：忽略 `Ctrl+O`，不展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。执行时可准确计算的 write diff 数量会保存在不可见的扩展 custom entry 中，因此重建后的 Activity 统计保持稳定，同时不会持久化旧文件内容。
 
 Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。需要检查历史原始详情时，切回 individual 并 reload：
 

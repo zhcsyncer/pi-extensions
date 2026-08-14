@@ -48,6 +48,11 @@ import {
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { registerCleanup } from "./disposable.js";
 import {
+  clearLiveToolCalls,
+  registerLiveToolCallEvents,
+  shouldShowDeterministicFallback,
+} from "./live-tool-call.js";
+import {
   compactOutputLines,
   countNonEmptyLines,
   extractTextOutput,
@@ -529,7 +534,7 @@ function formatDisplaySummarySuffix(
   const summary = resolveDisplaySummaryForTool(args, toolName, config.toolIntent);
   if (
     !summary ||
-    (summary.source === "fallback" && (context?.executionStarted === false || context?.argsComplete === true))
+    (summary.source === "fallback" && !shouldShowDeterministicFallback(context))
   ) {
     return "";
   }
@@ -1899,8 +1904,10 @@ export function registerToolDisplayOverrides(
   getConfig: ConfigGetter,
 ): void {
   clearBuiltInToolCache();
+  registerLiveToolCallEvents(pi);
   const toolDisplayApi = installToolDisplayApi(getConfig);
   registerCleanup(() => {
+    clearLiveToolCalls();
     restoreToolPropertyDescriptors(decoratedToolDescriptors, decoratedTools);
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
     if (globalWithApi[TOOL_DISPLAY_API_KEY] === toolDisplayApi) {

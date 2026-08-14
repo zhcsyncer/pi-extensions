@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import {
+	AGGREGATE_WRITE_DIFF_CUSTOM_TYPE,
 	AggregateProjection,
 	applyAggregateRendering,
 	formatAggregateTarget,
@@ -195,6 +196,66 @@ test("edit/write successes aggregate unique files and exact available diff stats
 		{ toolName: "write", count: 1 },
 		{ toolName: "edit", count: 1 },
 	]);
+});
+
+test("write diff stats persist outside raw results and survive branch rebuilds", async () => {
+	const projection = createProjection();
+	const handlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();
+	const appendedEntries: unknown[] = [];
+	const api = {
+		on(event: string, handler: (event: any, ctx?: any) => unknown) {
+			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+		},
+		appendEntry(customType: string, data: unknown) {
+			appendedEntries.push({
+				type: "custom",
+				id: `custom-${appendedEntries.length + 1}`,
+				customType,
+				data,
+			});
+		},
+	} as unknown as ExtensionAPI;
+	registerAggregateProjectionEvents(api, projection);
+
+	projection.startUserGroup("user-persist-write");
+	projection.markStarted("write-persist", "write", {
+		path: "src/persist.ts",
+		content: "new\nkeep\n",
+	});
+	projection.recordWritePrevious("write-persist", {
+		fileExistedBeforeWrite: true,
+		previousContent: "old\nkeep\n",
+	});
+	const rawResult = { content: [{ type: "text", text: "Successfully wrote file" }] };
+	await handlers.get("tool_execution_end")?.[0]?.({
+		toolCallId: "write-persist",
+		toolName: "write",
+		result: rawResult,
+		isError: false,
+	});
+
+	assert.deepEqual(rawResult, { content: [{ type: "text", text: "Successfully wrote file" }] });
+	assert.equal(appendedEntries.length, 1);
+	assert.equal((appendedEntries[0] as { customType?: unknown }).customType, AGGREGATE_WRITE_DIFF_CUSTOM_TYPE);
+	assert.deepEqual(projection.getView("write-persist")?.diffStats, { additions: 1, deletions: 1 });
+
+	const branch = [
+		userEntry("user-persist-write"),
+		assistantEntry("assistant-persist-write", [
+			call("write-persist", "write", { path: "src/persist.ts", content: "new\nkeep\n" }),
+		]),
+		...appendedEntries,
+		resultEntry("result-persist-write", "write-persist", "write", { text: "Successfully wrote file" }),
+	];
+	const restored = createProjection();
+	for (const reason of ["reload", "before_agent_start", "tree", "compaction"]) {
+		restored.rebuild(branch, messages(branch));
+		assert.deepEqual(
+			restored.getView("write-persist")?.diffStats,
+			{ additions: 1, deletions: 1 },
+			`${reason} preserves persisted write stats`,
+		);
+	}
 });
 
 test("image and unknown/custom tools are never silently absorbed", () => {
