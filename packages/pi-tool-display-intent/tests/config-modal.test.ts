@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { registerToolDisplayCommand } from "../src/config-modal.ts";
+import {
+	applySetting,
+	buildInspectorSettings,
+	registerToolDisplayCommand,
+} from "../src/config-modal.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 import type { ToolDisplayCapabilities } from "../src/capabilities.ts";
 
@@ -99,6 +103,7 @@ test("show reports the simple result mode and independent groups", async () => {
 
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0]?.message ?? "", /^tool-display-intent: /);
+	assert.match(notifications[0]?.message ?? "", /layout=individual/);
 	assert.match(notifications[0]?.message ?? "", /results=compact\/8rows/);
 	assert.match(notifications[0]?.message ?? "", /intent=on\/auto/);
 	assert.match(notifications[0]?.message ?? "", /toolCalls=compact\/bash1rows/);
@@ -124,6 +129,67 @@ test("show reports the diff collapsed mode", async () => {
 	registerToolDisplayCommand(api, controller);
 	await getHandler()!("show", ctx);
 	assert.match(notifications[0]?.message ?? "", /diffFold=summary/);
+});
+
+test("show marks retained individual settings inactive in aggregate layout", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller } = createControllerStub({ toolCallLayout: "aggregate" });
+	const { ctx, notifications } = createCtxStub(true);
+	registerToolDisplayCommand(api, controller);
+	await getHandler()!("show", ctx);
+	assert.match(notifications[0]?.message ?? "", /layout=aggregate/);
+	assert.match(notifications[0]?.message ?? "", /individualSettings=retained \(inactive in aggregate layout\)/);
+	assert.match(notifications[0]?.message ?? "", /intent=on\/auto/);
+});
+
+test("layout command validates values, saves, and prompts for reload", async () => {
+	const { api, getHandler } = createPiStub();
+	const { controller, getLastSet } = createControllerStub();
+	const { ctx, notifications } = createCtxStub(true);
+	registerToolDisplayCommand(api, controller);
+	await getHandler()!("layout aggregate", ctx);
+	assert.equal(getLastSet().config?.toolCallLayout, "aggregate");
+	assert.match(notifications[0]?.message ?? "", /Run \/reload to apply/);
+
+	const invalid = createControllerStub();
+	const invalidStub = createPiStub();
+	const invalidContext = createCtxStub(true);
+	registerToolDisplayCommand(invalidStub.api, invalid.controller);
+	await invalidStub.getHandler()!("layout combined", invalidContext.ctx);
+	assert.equal(invalid.getLastSet().config, null);
+	assert.match(invalidContext.notifications[0]?.message ?? "", /individual\|aggregate/);
+});
+
+test("aggregate modal hides individual-only settings without deleting retained values", () => {
+	const retained = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+		resultMode: "preview" as const,
+		previewRows: 40,
+		toolCallStyle: "claude" as const,
+		bashCommandPreviewRows: 4,
+		diffCollapsedMode: "summary" as const,
+		toolIntent: { enabled: false, language: "zh-CN" as const, maxLength: 64 },
+	};
+	const aggregateSettings = buildInspectorSettings(retained, {
+		hasMcpTooling: false,
+		hasRtkOptimizer: false,
+	});
+	assert.deepEqual(
+		aggregateSettings.map((setting) => setting.id),
+		["toolCallLayout", "enableThinkingLabel", "enableNativeUserMessageBox"],
+	);
+	assert.match(aggregateSettings[0]?.inspectorSummary.join(" ") ?? "", /retained but hidden/);
+
+	const individual = applySetting(retained, "toolCallLayout", "individual");
+	assert.equal(individual.resultMode, "preview");
+	assert.equal(individual.previewRows, 40);
+	assert.equal(individual.toolCallStyle, "claude");
+	assert.equal(individual.toolIntent.enabled, false);
+	assert.ok(buildInspectorSettings(individual, {
+		hasMcpTooling: false,
+		hasRtkOptimizer: false,
+	}).some((setting) => setting.id === "diffCollapsedMode"));
 });
 
 test("reset restores the complete default config", async () => {

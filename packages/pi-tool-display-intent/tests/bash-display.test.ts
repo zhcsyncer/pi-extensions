@@ -280,7 +280,7 @@ test("renderBashCall uses accent for model intent and muted for fallback intent"
 	const fallbackIntent = renderBashCall(
 		{ command: "pnpm test" },
 		theme,
-		makeContext(),
+		makeContext({ executionStarted: true }),
 		toolIntent,
 	);
 	assert.match(renderedText(fallbackIntent), /<muted>Run command<\/muted>/);

@@ -208,6 +208,29 @@ test("listed generic custom tool override replaces existing extension renderers 
 	assert.equal(renderToolResult(unlistedTool, "ignored"), "RAW UNLISTED RESULT");
 });
 
+test("aggregate layout keeps configured custom tools independent", async () => {
+	const customTool: RuntimeTool = {
+		name: "custom_probe",
+		description: "A configured custom tool that is not aggregate-safe.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["RAW CUSTOM CALL"] }),
+		renderResult: () => ({ render: () => ["RAW CUSTOM RESULT"] }),
+	};
+	const config = buildConfigWithCustomOverrides(
+		{ custom_probe: { outputMode: "summary" } },
+		{ toolCallLayout: "aggregate" },
+	);
+	const { api, eventHandlers } = createExtensionApiStub([]);
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(customTool);
+
+	assert.match(renderToText(customTool.renderCall?.({ query: "alpha" }, createTheme())), /^custom_probe /);
+	assert.doesNotMatch(renderToText(customTool.renderCall?.({}, createTheme())), /Activity/);
+	assert.equal(renderToolResult(customTool, "alpha\nbeta\n"), "↳ 2 lines returned • Ctrl+O to expand");
+});
+
 test("custom tool override defaults kind to generic unless the user chooses mcp", async () => {
 	const genericTool: RuntimeTool = {
 		name: "remote_gateway",

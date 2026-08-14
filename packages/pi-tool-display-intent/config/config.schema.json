@@ -33,6 +33,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "layout": {
+          "enum": ["individual", "aggregate"],
+          "default": "individual",
+          "description": "Controls whether owned safe built-in tools render individually or as one fixed minimal Activity per user turn."
+        },
         "style": {
           "enum": ["compact", "claude"],
           "default": "compact"

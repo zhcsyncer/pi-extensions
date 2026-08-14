@@ -47,6 +47,7 @@ function toolRegistrationChanged(
     previous.toolIntent.enabled !== next.toolIntent.enabled ||
     previous.toolIntent.language !== next.toolIntent.language ||
     previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
+    previous.toolCallLayout !== next.toolCallLayout ||
     previous.toolCallStyle !== next.toolCallStyle;
   return ownershipChanged || intentSchemaChanged;
 }
@@ -93,7 +94,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
     if (requiresReload) {
       ctx.ui.notify(
-        "Tool ownership, intent schema, or call frame updates apply after /reload.",
+        "Tool ownership, layout, intent schema, or call frame updates apply after /reload.",
         "warning",
       );
     }

@@ -9,6 +9,7 @@ export const DIFF_VIEW_MODES = ["auto", "split", "unified"] as const;
 export const DIFF_INDICATOR_MODES = ["bars", "classic", "none"] as const;
 export const DIFF_COLLAPSED_MODES = ["body", "summary"] as const;
 export const TOOL_INTENT_LANGUAGES = ["auto", "zh-CN", "en"] as const;
+export const TOOL_CALL_LAYOUTS = ["individual", "aggregate"] as const;
 export const TOOL_CALL_STYLES = ["compact", "claude"] as const;
 export const TOOL_DISPLAY_CONFIG_VERSION = 2 as const;
 export const TOOL_DISPLAY_CONFIG_SCHEMA_URL =
@@ -25,6 +26,7 @@ export type DiffViewMode = (typeof DIFF_VIEW_MODES)[number];
 export type DiffIndicatorMode = (typeof DIFF_INDICATOR_MODES)[number];
 export type DiffCollapsedMode = (typeof DIFF_COLLAPSED_MODES)[number];
 export type ToolIntentLanguage = (typeof TOOL_INTENT_LANGUAGES)[number];
+export type ToolCallLayout = (typeof TOOL_CALL_LAYOUTS)[number];
 export type ToolCallStyle = (typeof TOOL_CALL_STYLES)[number];
 
 export const BUILT_IN_TOOL_OVERRIDE_NAMES = [
@@ -66,6 +68,7 @@ export interface ToolDisplayConfig {
 	registerToolOverrides: ToolOverrideOwnership;
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	toolIntent: ToolIntentConfig;
+	toolCallLayout: ToolCallLayout;
 	toolCallStyle: ToolCallStyle;
 	bashCommandPreviewRows: number;
 	resultMode: ResultDisplayMode;
@@ -104,6 +107,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		language: "auto",
 		maxLength: 96,
 	},
+	toolCallLayout: "individual",
 	toolCallStyle: "compact",
 	bashCommandPreviewRows: 1,
 	resultMode: "compact",

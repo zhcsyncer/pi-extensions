@@ -23,6 +23,7 @@ import {
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
 	RESULT_DISPLAY_MODES,
+	TOOL_CALL_LAYOUTS,
 	TOOL_CALL_STYLES,
 	TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 	TOOL_DISPLAY_CONFIG_VERSION,
@@ -94,6 +95,12 @@ function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
 	return value === "summary" || value === "preview"
 		? value
 		: DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode;
+}
+
+function toToolCallLayout(value: unknown): ToolDisplayConfig["toolCallLayout"] {
+	return TOOL_CALL_LAYOUTS.includes(value as ToolDisplayConfig["toolCallLayout"])
+		? (value as ToolDisplayConfig["toolCallLayout"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallLayout;
 }
 
 function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
@@ -308,6 +315,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
+		toolCallLayout: toToolCallLayout(source.toolCallLayout),
 		toolCallStyle: toToolCallStyle(source.toolCallStyle),
 		bashCommandPreviewRows: clampNumber(
 			source.bashCommandPreviewRows,
@@ -444,7 +452,8 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["layout", "style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateOptionalEnum(toolCalls, "layout", TOOL_CALL_LAYOUTS, "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
 	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
 
@@ -567,6 +576,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		registerToolOverrides: normalizeV2ToolOwnership(tools),
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
+		toolCallLayout: toolCalls.layout,
 		toolCallStyle: toolCalls.style,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
 		enableNativeUserMessageBox:
@@ -608,6 +618,7 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	assignSection(output, "intent", intent);
 
 	const toolCalls: Record<string, unknown> = {};
+	if (config.toolCallLayout !== defaults.toolCallLayout) toolCalls.layout = config.toolCallLayout;
 	if (config.toolCallStyle !== defaults.toolCallStyle) toolCalls.style = config.toolCallStyle;
 	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
 		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
@@ -685,7 +696,7 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 
 const LEGACY_CONFIG_KEYS = new Set([
 	"version", "enabled", "debug", "displaySummary", "toolIntent", "registerToolOverrides", "registerReadToolOverride",
-	"customToolOverrides", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
+	"customToolOverrides", "toolCallLayout", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
 	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "enableThinkingLabel", "previewRows",
 	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
 	"diffCollapsedRows", "diffCollapsedLines", "diffCollapsedMode", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",

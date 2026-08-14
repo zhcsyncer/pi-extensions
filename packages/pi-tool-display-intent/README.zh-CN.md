@@ -24,6 +24,7 @@ $ pnpm test — 验证 extension 测试套件
 - 模型或历史调用漏掉字段时，使用按工具区分的确定性 fallback。
 - 渲染前清理终端控制序列，并限制摘要长度。
 - 可选用 Claude Code 风格 TUI：状态标记、`Name(target)` 标题、无背景框调用行和缩进的 `⎿` 结果。
+- 可选用 aggregate 布局，把一次用户请求中由本扩展持有的安全内置工具合并为固定最小 Activity。
 - 保留 fork 自 `pi-tool-display` 的输出折叠、MCP 展示、pending diff、edit/write diff、thinking label 和原生用户消息框。
 - 为自定义工具提供合作式包装 API。
 
@@ -68,12 +69,14 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 ```text
 /tool-display-intent show
 /tool-display-intent reset
+/tool-display-intent layout individual
+/tool-display-intent layout aggregate
 /tool-display-intent mode compact
 /tool-display-intent mode summary
 /tool-display-intent mode preview
 ```
 
-修改工具 ownership 或意图 Schema 后需要执行 `/reload`。历史命令 `preset minimal|balanced|detailed`、`opencode` 和 `verbose` 仍作为兼容别名接受。
+修改工具 ownership、layout、意图 Schema 或 renderer shell 后需要执行 `/reload`。历史命令 `preset minimal|balanced|detailed`、`opencode` 和 `verbose` 仍作为兼容别名接受。
 
 ## 配置
 
@@ -93,6 +96,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
     "language": "zh-CN"
   },
   "toolCalls": {
+    "layout": "aggregate",
     "style": "claude",
     "bashCommandPreviewRows": 1
   },
@@ -108,7 +112,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 | 分组 | 可配置字段 | 作用 |
 |---|---|---|
 | `intent` | `enabled`、`language`、`maxLength` | 模型生成的工具调用意图。 |
-| `toolCalls` | `style`、`bashCommandPreviewRows` | 调用外框和 Bash 命令参数折叠后的视觉行预算。 |
+| `toolCalls` | `layout`、`style`、`bashCommandPreviewRows` | 逐工具或聚合布局、调用外框和 Bash 命令参数折叠后的视觉行预算。 |
 | `results` | `mode`、`previewRows` | 结果显示量和统一的折行后视觉行预算。 |
 | `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`collapsedMode`、`wordWrap` | edit/write diff 展示。`collapsedMode: summary` 在 Ctrl+O 前只显示 +N -M 统计行，最省空间；`body`（默认）保留 `collapsedRows` 行的预览。 |
 | `transcript` | `userMessageStyle`、`thinkingLabel` | 用户消息和 reasoning 标签。 |
@@ -124,6 +128,28 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 | `preview` | 显示内容预览 | 显示内容预览 |
 
 所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`，支持范围为 `2`–`80`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。已有 v2 配置中的 `1` 会迁移为 `2`；`advanced.expandedRows` 单独限制展开后的输出。
+
+### 工具调用布局
+
+`toolCalls.layout` 默认是 `individual`，完整保留现有逐工具行为。`aggregate` 会把一次用户请求中由本扩展持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` 合并起来：
+
+```text
+◐ Activity · read ×12 · edit ×8 · bash ×16
+  Bash(pnpm test)
+```
+
+最新的 aggregate-safe 工具行承载 Activity，同组旧成员占用零行。Activity 最多按 assistant source order 显示三个 pending/running 操作；成功操作收进计数，失败保留一行摘要，edit/write 尽可能显示 unique files 和可准确计算的 `+A −B`。同组会跨越多个底层 assistant/tool turn，只在下一条 user message 开始时结束。
+
+Aggregate 固定为最小视图：忽略 `Ctrl+O`，不展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。
+
+Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。需要检查历史原始详情时，切回 individual 并 reload：
+
+```text
+/tool-display-intent layout individual
+/reload
+```
+
+Aggregate 期间创建的调用没有生成 intent；切回 individual 后，历史行使用确定性 target 和原始保存结果。
 
 `toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，把命令预览放到独立行，并使用 accent 色强调该行的 shell prompt。按 `Ctrl+O` 可查看完整原始命令，并在安全限制内应用 Bash 语法高亮。该配置不影响命令输出。Claude 风格的 Bash 结果无论折叠还是展开，左侧线框都会贯穿到最后一行。
 
@@ -147,7 +173,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 `bashCollapsedLines` 会直接丢弃，因为所有预览统一使用 `results.previewRows`。废弃的 `displaySummary.required`、`displaySummary.showInTui`、未知字段和无法映射的无效值也会被丢弃；Pi 状态栏会报告准确字段路径。格式损坏的 JSON 和未来版本 schema 会原样保留并回退默认值。直接编辑配置后执行 `/reload` 重新读取。
 
-启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。旧 Session 或不完整 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
+在 `individual` 布局启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。当前正在执行的 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数；恢复出的历史调用如果没有已保存摘要，则只显示 target，避免 aggregate 历史在切换布局后获得伪造 intent。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 
 ## 自定义工具
 
@@ -208,7 +234,7 @@ RPC UI 可以直接读取原始调用：
 }
 ```
 
-extension 会在后续模型上下文中保留 `displaySummary`。这会增加少量 token，但能给模型持续提供正确示例，避免恢复旧 Session 或连续工具 turn 时反向教会模型省略必填字段。持久化 Session 与 RPC 历史同样保留该参数。
+在 individual 布局中，extension 会在后续模型上下文中保留 `displaySummary`。这会增加少量 token，但能给模型持续提供正确示例，避免恢复旧 Session 或连续工具 turn 时反向教会模型省略必填字段。持久化 Session 与 RPC 历史同样保留该参数。Aggregate 不注册、也不生成这个字段。
 
 ## 安全与成本
 

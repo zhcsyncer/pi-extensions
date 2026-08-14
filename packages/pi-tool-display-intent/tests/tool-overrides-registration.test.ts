@@ -19,6 +19,8 @@ import {
 	createReadToolDefinition,
 	createWriteTool,
 	createWriteToolDefinition,
+	initTheme,
+	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -464,6 +466,134 @@ test("cooperative result presentations share preview rows and skip duplicated ra
 	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
 	assert.equal(rendered, "↳ Remote · 2 values\nalpha\nbeta");
 	assert.doesNotMatch(rendered, /duplicate/);
+});
+
+test("aggregate owned built-ins use self shell without displaySummary schemas", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+		toolCallStyle: "compact" as const,
+		toolIntent: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
+			enabled: true,
+		},
+	};
+	registerToolDisplayOverrides(api, () => config);
+
+	assert.deepEqual(
+		registeredTools.map((tool) => tool.name).sort(),
+		["bash", "edit", "find", "grep", "ls", "read", "write"],
+	);
+	for (const tool of registeredTools) {
+		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
+		assert.equal(tool.renderShell, "self", `${tool.name} uses self shell in aggregate`);
+		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
+		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
+		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);
+	}
+});
+
+test("aggregate history switched back to individual keeps raw detail without inventing intent", () => {
+	initTheme("dark", false);
+	const aggregateConfig = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+	};
+	const aggregateStub = createExtensionApiStub();
+	registerToolDisplayOverrides(aggregateStub.api, () => aggregateConfig);
+	const aggregateRead = aggregateStub.registeredTools.find((tool) => tool.name === "read");
+	const aggregateSchema = aggregateRead?.parameters as { properties?: Record<string, unknown> };
+	assert.equal(aggregateSchema.properties?.displaySummary, undefined);
+	const storedArgs = { path: "history.ts" };
+
+	const individualConfig = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "individual" as const,
+		resultMode: "preview" as const,
+		readOutputMode: "preview" as const,
+		searchOutputMode: "preview" as const,
+		mcpOutputMode: "preview" as const,
+		bashOutputMode: "preview" as const,
+	};
+	const individualStub = createExtensionApiStub();
+	registerToolDisplayOverrides(individualStub.api, () => individualConfig);
+	const individualRead = individualStub.registeredTools.find((tool) => tool.name === "read");
+	assert.ok(individualRead);
+	const component = new ToolExecutionComponent(
+		"read",
+		"aggregate-history-read",
+		storedArgs,
+		{},
+		individualRead as never,
+		{ requestRender() {} } as never,
+		process.cwd(),
+	);
+	component.updateResult({
+		content: [{ type: "text", text: "original result" }],
+		details: {},
+		isError: false,
+	});
+	const rendered = component.render(120).join("\n");
+	assert.match(rendered, /history\.ts/);
+	assert.match(rendered, /original result/);
+	assert.doesNotMatch(rendered, /Read file/);
+	assert.doesNotMatch(rendered, / — /);
+});
+
+test("all individual built-ins suppress fallback intent on restored calls", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
+	const cases: Array<{ name: string; args: Record<string, unknown> }> = [
+		{ name: "read", args: { path: "history.ts" } },
+		{ name: "grep", args: { pattern: "needle", path: "src" } },
+		{ name: "find", args: { pattern: "*.ts", path: "src" } },
+		{ name: "ls", args: { path: "src" } },
+		{ name: "bash", args: { command: "pnpm test" } },
+		{ name: "edit", args: { path: "history.ts", edits: [{ oldText: "a", newText: "b" }] } },
+		{ name: "write", args: { path: "history.ts", content: "content" } },
+	];
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+	for (const entry of cases) {
+		const component = byName.get(entry.name)?.renderCall?.(
+			entry.args,
+			theme,
+			{ executionStarted: false, isPartial: false, argsComplete: false, state: {} },
+		) as { render(width: number): string[] };
+		assert.doesNotMatch(component.render(160).join("\n"), / — /, `${entry.name} does not invent intent`);
+	}
+});
+
+test("historical model-written intent remains visible when it was actually stored", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const read = registeredTools.find((tool) => tool.name === "read");
+	const component = read?.renderCall?.(
+		{ path: "history.ts", displaySummary: "Reviewing stored history" },
+		{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
+		{ executionStarted: false, isPartial: false },
+	) as { render(width: number): string[] };
+	assert.match(component.render(120).join("\n"), /Reviewing stored history/);
+});
+
+test("aggregate respects passthrough and external ownership boundaries", () => {
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+		registerToolOverrides: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
+			read: false,
+		},
+	};
+	const { api, registeredTools } = createExtensionApiStub([
+		{ name: "edit", sourceInfo: { source: "local", path: "/extensions/interactive-edit.ts" } },
+	]);
+	registerToolDisplayOverrides(api, () => config);
+	const names = new Set(registeredTools.map((tool) => tool.name));
+	assert.equal(names.has("read"), false, "passthrough read remains independent");
+	assert.equal(names.has("edit"), false, "externally owned edit remains independent");
+	assert.equal(names.has("bash"), true);
 });
 
 test("tool intent can be disabled without changing built-in execution schemas", () => {

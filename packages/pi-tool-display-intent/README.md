@@ -24,6 +24,7 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 - Uses deterministic per-tool fallbacks when a model or historical call omits the field.
 - Sanitizes terminal control sequences and bounds displayed intent length.
 - Offers an optional Claude Code-inspired TUI style with status markers, `Name(target)` headers, unboxed rows, and indented `⎿` results.
+- Offers an optional aggregate layout that combines owned safe built-ins into one fixed minimal Activity per user request.
 - Preserves the compact output modes, MCP rendering, pending diff previews, adaptive edit/write diffs, thinking labels, and native user prompt box inherited from `pi-tool-display`.
 - Provides a cooperative API for custom tools.
 
@@ -68,12 +69,14 @@ Direct commands:
 ```text
 /tool-display-intent show
 /tool-display-intent reset
+/tool-display-intent layout individual
+/tool-display-intent layout aggregate
 /tool-display-intent mode compact
 /tool-display-intent mode summary
 /tool-display-intent mode preview
 ```
 
-Tool ownership and intent-schema changes take effect after `/reload`. Legacy `preset minimal|balanced|detailed`, `opencode`, and `verbose` command names remain accepted as aliases.
+Tool ownership, layout, intent-schema, and renderer-shell changes take effect after `/reload`. Legacy `preset minimal|balanced|detailed`, `opencode`, and `verbose` command names remain accepted as aliases.
 
 ## Configuration
 
@@ -93,6 +96,7 @@ When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Debug
     "language": "en"
   },
   "toolCalls": {
+    "layout": "aggregate",
     "style": "claude",
     "bashCommandPreviewRows": 1
   },
@@ -108,7 +112,7 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | Section | Configurable fields | Purpose |
 |---|---|---|
 | `intent` | `enabled`, `language`, `maxLength` | Model-written tool intent. |
-| `toolCalls` | `style`, `bashCommandPreviewRows` | Call framing and the wrapped-row budget for collapsed Bash command arguments. |
+| `toolCalls` | `layout`, `style`, `bashCommandPreviewRows` | Individual or aggregate calls, call framing, and the wrapped-row budget for collapsed Bash command arguments. |
 | `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
 | `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `collapsedMode`, `wordWrap` | Edit/write diff presentation. `collapsedMode: summary` shows only the +N -M stats line before Ctrl+O for the densest transcript; `body` (default) keeps the `collapsedRows` preview. |
 | `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
@@ -124,6 +128,28 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | `preview` | Show content previews | Show a content preview |
 
 Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. Its supported range is `2`–`80`, and it counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. A stored v2 value of `1` is migrated to `2`; `advanced.expandedRows` separately caps expanded output.
+
+### Tool call layouts
+
+`toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` combines this extension's owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` calls within one user request:
+
+```text
+◐ Activity · read ×12 · edit ×8 · bash ×16
+  Bash(pnpm test)
+```
+
+The latest aggregate-safe tool row carries Activity; older group members occupy zero rows. Up to three pending/running operations appear in assistant source order, successful operations fold into counts, failures retain one summary line, and edit/write operations include unique-file and exact available `+A −B` statistics. Groups continue across low-level assistant/tool turns and end only at the next user message.
+
+Aggregate is intentionally fixed and minimal: it ignores `Ctrl+O`, never shows grouped output or diff bodies, and does not add `displaySummary` to owned schemas. Images, interactive or attention-requiring results, passthrough tools, externally owned tools, and unknown/custom tools remain independent instead of being silently hidden. Reload, resume, tree navigation, and compaction rebuild Activity from the current session branch without changing the stored raw calls or results.
+
+Individual-only preferences remain in `config.json` while aggregate is active. The settings TUI hides them, and `/tool-display-intent show` marks them inactive. To inspect historical raw details, switch back and reload:
+
+```text
+/tool-display-intent layout individual
+/reload
+```
+
+Calls created while aggregate was active have no generated intent; individual history uses deterministic targets and the original stored results.
 
 `toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header, put the command preview on its own row, and emphasize that row's shell prompt with the accent color. `Ctrl+O` reveals the complete original command and applies Bash syntax highlighting within safety limits. This setting does not affect command output. Claude-style Bash results use a connected left gutter through their final row in both collapsed and expanded views.
 
@@ -147,7 +173,7 @@ On first load, the extension automatically moves the previous config path, legac
 
 `bashCollapsedLines` is intentionally discarded because all previews now share `results.previewRows`. Deprecated `displaySummary.required`, `displaySummary.showInTui`, unknown fields, and invalid values that cannot be mapped are also discarded. The Pi status bar reports the exact affected field paths. Malformed JSON and unsupported future schema versions are preserved and use defaults instead. Run `/reload` after editing the file directly.
 
-When `intent.enabled` is on, `displaySummary` is required in owned built-in schemas and always shown in TUI. If an old or incomplete call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
+When `intent.enabled` is on in the `individual` layout, `displaySummary` is required in owned built-in schemas and always shown in TUI. If a current executing call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Restored calls with no stored summary remain target-only, so aggregate history does not acquire invented intent after switching layouts. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 
 ## Custom tools
 
@@ -208,7 +234,7 @@ The raw call remains suitable for RPC UI progress:
 }
 ```
 
-The extension retains `displaySummary` in later model context. This small token cost gives the model valid recent examples and prevents resumed or multi-turn runs from teaching the model to omit the required field. Persisted Session and RPC history keep the same argument as well.
+In the individual layout, the extension retains `displaySummary` in later model context. This small token cost gives the model valid recent examples and prevents resumed or multi-turn runs from teaching the model to omit the required field. Persisted Session and RPC history keep the same argument as well. Aggregate does not register or generate this field.
 
 ## Security and cost
 
