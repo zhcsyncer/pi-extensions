@@ -10,6 +10,18 @@ import {
   runWithTuiCancellation,
 } from "../src/ui/run-status.ts";
 
+const theme = {
+  bold: (text: string) => text,
+  fg: (_color: string, text: string) => text,
+} as const;
+
+function renderCard(
+  status: ReturnType<typeof createReviewRunStatus>,
+  width = 180,
+): string {
+  return status.render(width, theme as any).join("\n");
+}
+
 function runContext(overrides: Record<string, unknown> = {}) {
   const setStatus = vi.fn();
   const setWidget = vi.fn();
@@ -33,33 +45,23 @@ afterEach(() => {
 });
 
 describe("review run UI", () => {
-  it("keeps aggregate progress and elapsed time in one widget and clears it on dispose", () => {
+  it("keeps aggregate progress and elapsed time in one editor card and stops ticking after dispose", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-    const { ctx, setStatus, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const onChange = vi.fn();
+    const { setStatus, setWidget } = runContext();
+    const status = createReviewRunStatus({
       totalRoutes: 4,
       targetSummary: "Adversarial review target: local changes.",
       startedAtMs: Date.now(),
+      onChange,
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Adversarial Review · ● Preparing · 4 reviewers · 0s",
     );
     expect(setStatus).not.toHaveBeenCalled();
-    expect(setWidget).toHaveBeenCalledWith(
-      "adversarial-review-run",
-      expect.any(Function),
-      { placement: "aboveEditor" },
-    );
+    expect(setWidget).not.toHaveBeenCalled();
     status.update({
       phase: "review",
       total: 4,
@@ -68,39 +70,30 @@ describe("review run UI", () => {
       finished: 1,
       items: [],
     });
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Adversarial Review · ● Review · 1/4 complete · 2 running · 1 queued · 0s",
     );
 
     vi.advanceTimersByTime(61_000);
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Adversarial Review · ● Review · 1/4 complete · 2 running · 1 queued · 1m01s",
     );
+    const changeCount = onChange.mock.calls.length;
     status.dispose();
-    expect(setWidget).toHaveBeenLastCalledWith("adversarial-review-run", undefined);
-    const calls = setWidget.mock.calls.length;
     vi.advanceTimersByTime(5_000);
-    expect(setWidget).toHaveBeenCalledTimes(calls);
+    expect(onChange).toHaveBeenCalledTimes(changeCount);
     expect(setStatus).not.toHaveBeenCalled();
+    expect(setWidget).not.toHaveBeenCalled();
   });
 
   it("mentions Refute only after the Refute phase actually starts", () => {
-    vi.useFakeTimers();
-    const { ctx, setStatus, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const { setStatus, setWidget } = runContext();
+    const status = createReviewRunStatus({
       totalRoutes: 2,
       targetSummary: "Adversarial review target: base origin/main.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
-    expect(component.render(180).join("\n")).not.toContain("Refute");
+    expect(renderCard(status)).not.toContain("Refute");
     status.update({
       phase: "review",
       total: 2,
@@ -109,7 +102,7 @@ describe("review run UI", () => {
       finished: 0,
       items: [],
     });
-    const reviewCard = component.render(180).join("\n");
+    const reviewCard = renderCard(status);
     expect(reviewCard).toContain("Review · 0/2 complete · 2 running");
     expect(reviewCard).not.toContain("Refute");
     status.update({
@@ -120,30 +113,22 @@ describe("review run UI", () => {
       finished: 0,
       items: [],
     });
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Refute · 0/1 complete · 1 running",
     );
     status.dispose();
     expect(setStatus).not.toHaveBeenCalled();
+    expect(setWidget).not.toHaveBeenCalled();
   });
 
   it("keeps external agent detail in FleetView while rendering target and deterministic outcomes", () => {
-    vi.useFakeTimers();
-    const { ctx, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const { setWidget } = runContext();
+    const status = createReviewRunStatus({
       totalRoutes: 2,
       targetSummary: "Adversarial review target: local changes.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ● Snapshot ─ ○ Review ─ ○ Gate ─ ○ Finish",
     );
     status.runtime("external-v3");
@@ -175,7 +160,7 @@ describe("review run UI", () => {
         },
       ],
     });
-    const reviewCard = component.render(180).join("\n");
+    const reviewCard = renderCard(status);
     expect(reviewCard).toContain("Flow · ✓ Snapshot ─ ● Review ─ ○ Gate ─ ○ Finish");
     expect(reviewCard).toContain("Target · local changes at HEAD abc123");
     expect(reviewCard).toContain("Input · 60.0 KiB · 824 lines · 2 files");
@@ -191,7 +176,7 @@ describe("review run UI", () => {
       blocking: 1,
       advisory: 2,
     });
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ● Gate ─ ○ Finish",
     );
     status.update({
@@ -202,12 +187,12 @@ describe("review run UI", () => {
       finished: 0,
       items: [],
     });
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ! Gate ─ ● Refute ─ ○ Finish",
     );
     status.refute({ state: "completed", valid: 1, total: 1, contested: 1 });
     status.publishing();
-    const publishedCard = component.render(180).join("\n");
+    const publishedCard = renderCard(status);
     expect(publishedCard).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ! Gate ─ ✓ Refute ─ ● Finish",
     );
@@ -217,28 +202,20 @@ describe("review run UI", () => {
     expect(publishedCard).toContain("Refute · 1/1 valid · 1 contested");
 
     status.cleanup("retained");
-    const retainedCard = component.render(180).join("\n");
+    const retainedCard = renderCard(status);
     expect(retainedCard).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ! Gate ─ ✓ Refute ─ ! Finish",
     );
     expect(retainedCard).toContain("resources retained for safety");
     status.dispose();
+    expect(setWidget).not.toHaveBeenCalled();
   });
 
   it("finishes without inserting a Refute node when Refute never starts", () => {
-    const { ctx, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const status = createReviewRunStatus({
       totalRoutes: 2,
       targetSummary: "Adversarial review target: local changes.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
     status.runtime("external-v3");
     status.update({
@@ -260,7 +237,7 @@ describe("review run UI", () => {
     status.refute({ state: "skipped", reason: "no-blocking", overall: "candidate-approve" });
     status.publishing();
 
-    const publishingCard = component.render(180).join("\n");
+    const publishingCard = renderCard(status);
     expect(publishingCard).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ● Finish",
     );
@@ -268,26 +245,17 @@ describe("review run UI", () => {
     expect(publishingCard).toContain("Refute · skipped · no blocking findings");
 
     status.cleanup("completed");
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ ✓ Review ─ ✓ Gate ─ ✓ Finish",
     );
     status.dispose();
   });
 
   it("marks the failed lifecycle node while cleanup remains the active finish barrier", () => {
-    const { ctx, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const status = createReviewRunStatus({
       totalRoutes: 2,
       targetSummary: "Adversarial review target: local changes.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
     status.runtime("external-v3");
     status.update({
@@ -299,36 +267,27 @@ describe("review run UI", () => {
       items: [],
     });
     status.failed();
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ○ Finish",
     );
 
     status.cleanup("running");
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ● Finish",
     );
     status.cleanup("retained");
-    expect(component.render(180).join("\n")).toContain(
+    expect(renderCard(status)).toContain(
       "Flow · ✓ Snapshot ─ × Review ─ ○ Gate ─ ! Finish",
     );
     status.dispose();
   });
 
   it("keeps the compact card bounded at narrow, normal, and wide terminal widths", () => {
-    const { ctx, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const status = createReviewRunStatus({
       totalRoutes: 8,
       targetSummary:
         "Adversarial review target: committed changes from origin/main through HEAD, plus local changes on a very long feature branch.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
     status.runtime("external-v3");
     status.update({
       phase: "review",
@@ -340,7 +299,7 @@ describe("review run UI", () => {
     });
 
     for (const width of [60, 80, 120]) {
-      const lines = component.render(width);
+      const lines = status.render(width, theme as any);
       expect(lines).toHaveLength(4);
       expect(lines[0]).toContain("Adversarial Review");
       expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
@@ -349,19 +308,10 @@ describe("review run UI", () => {
   });
 
   it("retains per-agent visibility when the embedded fallback has no FleetView", () => {
-    const { ctx, setWidget } = runContext();
-    const status = createReviewRunStatus(ctx, {
+    const status = createReviewRunStatus({
       totalRoutes: 2,
       targetSummary: "Adversarial review target: local changes.",
     });
-    const factory = setWidget.mock.calls[0]?.[1] as (
-      tui: { requestRender(): void },
-      theme: { bold(text: string): string; fg(color: string, text: string): string },
-    ) => { render(width: number): string[] };
-    const component = factory(
-      { requestRender: vi.fn() },
-      { bold: (text) => text, fg: (_color, text) => text },
-    );
 
     status.runtime("embedded");
     status.update({
@@ -386,7 +336,7 @@ describe("review run UI", () => {
       ],
     });
 
-    const card = component.render(180).join("\n");
+    const card = renderCard(status);
     expect(card).toContain("provider-a/model-a@high · approve");
     expect(card).toContain("provider-b/model-b@high");
     expect(card).not.toContain("lens");
@@ -434,14 +384,19 @@ describe("review run UI", () => {
     });
 
     let runResolved = false;
-    const running = runWithTuiCancellation(ctx, controller, work)
+    const status = createReviewRunStatus({
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const running = runWithTuiCancellation(ctx, controller, status, work)
       .then((value) => {
         runResolved = true;
         return value;
       });
     await workStarted;
 
-    expect(component?.render(120).join("\n")).toContain("Esc opens cancellation options");
+    expect(component?.render(120).join("\n")).toContain("input paused · Esc to cancel");
+    expect(component?.render(120).join("\n")).toContain("Adversarial Review");
     component?.handleInput("\x1b");
     expect(controller.signal.aborted).toBe(false);
     component?.handleInput("\r"); // default Continue review
@@ -487,7 +442,11 @@ describe("review run UI", () => {
     const cleanupAllowed = new Promise<void>((resolve) => { releaseCleanup = resolve; });
     let markAborted!: () => void;
     const abortObserved = new Promise<void>((resolve) => { markAborted = resolve; });
-    const running = runWithTuiCancellation(ctx, controller, async () => {
+    const status = createReviewRunStatus({
+      totalRoutes: 2,
+      targetSummary: "Adversarial review target: local changes.",
+    });
+    const running = runWithTuiCancellation(ctx, controller, status, async () => {
       await new Promise<void>((resolve) => {
         if (controller.signal.aborted) resolve();
         else controller.signal.addEventListener("abort", () => resolve(), { once: true });

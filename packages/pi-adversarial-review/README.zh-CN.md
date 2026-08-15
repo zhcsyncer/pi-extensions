@@ -28,7 +28,7 @@ TUI 模式下打开 setup picker：
 /adversarial-review
 ```
 
-选择 2–8 条精确的 reviewer model/thinking route。没有 session 记忆的 route 初始为 disabled，首次启用进入 `medium`，或模型最接近的支持档位。Refute 默认启用：它使用当前主模型与精确 thinking level 创建全新 session；也可改用 scoped model 或关闭。
+选择 2–8 条精确的 reviewer model/thinking route。没有 session 记忆的 route 初始为 disabled，首次启用进入 `medium`，或模型最接近的支持档位。已启用 thinking 档（含 `off`）用高亮；只有 `disabled` 保持暗色。Refute 默认启用：它使用当前主模型与精确 thinking level 创建全新 session；也可改用 scoped model 或关闭。
 
 模型选择前，Git preflight 会 fetch，并识别它能够证明安全的 target。普通功能分支评审“相对远端默认分支的 committed changes + staged、unstaged、untracked”；同步的默认分支只评审 local work。歧义或高风险状态必须由 TUI 明确选择，绝不猜测。若自动识别出的功能分支 target 较大，普通 `/adversarial-review` 也会提供同一条连续“起点到 HEAD”commit 线，而不是自动 batch plan。
 
@@ -88,16 +88,16 @@ Severity 衡量影响，confidence 衡量证据强度，votes 衡量独立印证
 
 运行期间：
 
-- editor 上方的一张临时状态卡统一承担紧凑的阶段/计数/耗时摘要、一行 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果和真实 cleanup 进度；只有 Refute 真正启动后才插入该节点，节点条不声称百分比；
-- 扩展不再占用 Pi 的 footer status 区域；
+- 暂停输入区统一承担紧凑的阶段/计数/耗时摘要、一行 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果、真实 cleanup 进度，以及 `input paused · Esc to cancel`；只有 Refute 真正启动后才插入该节点，节点条不声称百分比；
+- 扩展不再占用 Pi 的 footer status 区域，也不再注册独立的 editor 上方 widget；
 - 使用兼容的 external Subagents runtime 时，逐 agent 的模型、执行、对话与 tool call 明细只由其 Agents/FleetView 展示，Review 状态卡不再重复这些行；
-- embedded fallback 没有 FleetView，因此 Review 状态卡会保留有界的逐 agent 状态；
+- embedded fallback 没有 FleetView，因此同一张输入区状态卡会保留有界的逐 agent 状态；
 - reviewer 即将派发前，会用不进入模型上下文的持久 transcript 节点记录精确 frozen target 和请求的 routes；
 - 最终报告是另一条独立的持久 transcript 节点：失败时折叠视图直接显示 route error，展开后包含每路终态以及完整 blocking/advisory finding 详情。
 
 Reviewer/refuter session 不继承主会话。它们的 inline agent config 会关闭 extension 和 skill，只暴露 `read`、`grep`、`find`、`ls`。这些低层调用不会在 Review 状态卡中重复刷屏。
 
-Freeze/review/refute 期间按 Esc 只会打开确认界面，后台工作继续。默认选中 **Continue review**；只有选择 **Confirm cancellation** 才会 abort。状态卡会一直保留到 runtime 真正终止、frozen workspace 真正清理完成，随后销毁。Preflight 与 picker 的 Esc 仍然立即取消。
+Freeze/review/refute 期间按 Esc 只会打开确认界面，后台工作继续。默认选中 **Continue review**；只有选择 **Confirm cancellation** 才会 abort。输入区状态卡会一直保留到 runtime 真正终止、frozen workspace 真正清理完成，随后恢复正常编辑器。Preflight 与 picker 的 Esc 仍然立即取消。
 
 ## 结果语义
 

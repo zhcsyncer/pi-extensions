@@ -151,6 +151,7 @@ export class PiSubagentRpcV3Client implements ReviewSubagentRuntime {
           model: input.model,
           thinkingLevel: input.thinking,
           maxTurns: input.maxTurns,
+          ...(input.graceTurns !== undefined ? { graceTurns: input.graceTurns } : {}),
           cwd: input.cwd,
           isolated: true,
           inheritContext: false,

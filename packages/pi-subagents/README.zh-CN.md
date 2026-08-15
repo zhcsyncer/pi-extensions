@@ -46,7 +46,8 @@
 
 - `inlineAgentConfig`：直接使用调用方给出的角色 prompt/tools，不查找 named agent，也不 fallback；
 - `completionOwner: "caller"`：保留 queue、stop、FleetView、lifecycle event 与 history，但不向主会话发送单 agent 完成通知；
-- `correlationId`：在 started/terminal event 中原样带回编排方的 route key。
+- `correlationId`：在 started/terminal event 中原样带回编排方的 route key；
+- `graceTurns`：可选，软上限 steer 之后的收尾轮数；省略时仍用全局默认 5 轮。
 
 调用方收口要求 `isBackground: true` 且 `correlationId` 非空。`subagents:rpc:ping` 返回 protocol version `3` 和 `maxConcurrent`；关联后的 terminal event 会给出请求与实际生效的 model/thinking。不传任何新字段时，仍走原来的 named-agent 与完成通知路径。
 

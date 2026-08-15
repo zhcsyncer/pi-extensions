@@ -46,7 +46,8 @@ Upstream remains the source of truth for ordinary Agent behavior — start from 
 
 - `inlineAgentConfig`: use the supplied role prompt/tools without named-agent discovery or fallback;
 - `completionOwner: "caller"`: keep queue, stop, FleetView, lifecycle events, and history, but suppress the per-agent parent-conversation nudge;
-- `correlationId`: echo an orchestrator-owned route key in started/terminal events.
+- `correlationId`: echo an orchestrator-owned route key in started/terminal events;
+- `graceTurns`: optional wrap-up turns after the soft max-turn steer; omit to keep the global five-turn default.
 
 Caller-owned completion requires `isBackground: true` and a non-empty `correlationId`. `subagents:rpc:ping` returns protocol version `3` plus `maxConcurrent`; correlated terminal events include requested/effective model and thinking. Omitting all new fields preserves the historical named-agent and notification path.
 

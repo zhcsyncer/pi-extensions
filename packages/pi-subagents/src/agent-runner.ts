@@ -311,6 +311,12 @@ export function getGraceTurns(): number { return graceTurns; }
 /** Set the grace turns value (minimum 1). */
 export function setGraceTurns(n: number): void { graceTurns = Math.max(1, n); }
 
+/** Normalize a per-run grace override. undefined keeps the global setting. */
+export function normalizeGraceTurns(n: number | undefined): number | undefined {
+  if (n == null) return undefined;
+  return Math.max(1, n);
+}
+
 /**
  * Try to find the right model for an agent type.
  * Priority: explicit option > config.model > parent model.
@@ -359,6 +365,8 @@ export interface RunOptions {
   agentId?: string;
   model?: Model<any>;
   maxTurns?: number;
+  /** Extra wrap-up turns after the soft maxTurns steer. Defaults to the global setting. */
+  graceTurns?: number;
   signal?: AbortSignal;
   isolated?: boolean;
   inheritContext?: boolean;
@@ -878,6 +886,7 @@ export async function runAgent(
   // Track turns for graceful max_turns enforcement
   let turnCount = 0;
   const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
+  const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
   let softLimitReached = false;
   let aborted = false;
 
@@ -890,7 +899,7 @@ export async function runAgent(
         if (!softLimitReached && turnCount >= maxTurns) {
           softLimitReached = true;
           session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
-        } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
+        } else if (softLimitReached && turnCount >= maxTurns + effectiveGraceTurns) {
           aborted = true;
           session.abort();
         }

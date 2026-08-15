@@ -19,6 +19,7 @@ Preflight、target freeze 与 route 选择完成后，Review 会通过兼容的 
   model: selectedModel,
   thinking: exactThinkingLevel,
   maxTurns: boundedTurnLimit,
+  graceTurns: wrapUpTurnsAfterSteer,
   correlationId: "run-id:role:ordinal",
   description: "仅供显示的 route/finding 描述"
 }
@@ -62,7 +63,7 @@ Remote/ref 与无值 range 的 commit 线都使用稳定 value 表示 Git identi
 
 ## Reviewer 与 Refuter 选择
 
-TUI setup 要求从 `ctx.scopedModels` 选择 2–8 条精确 reviewer route。每个没有记忆的 model 初始为 `disabled`。首次启用进入 `medium`；若模型不支持 `medium`，使用 Pi AI thinking-level clamp 返回的最近档位。之后可轮换全部支持档位。Scope-pinned model 只能使用 `disabled` 或固定 level。
+TUI setup 要求从 `ctx.scopedModels` 选择 2–8 条精确 reviewer route。每个没有记忆的 model 初始为 `disabled`。首次启用进入 `medium`；若模型不支持 `medium`，使用 Pi AI thinking-level clamp 返回的最近档位。之后可轮换全部支持档位。Scope-pinned model 只能使用 `disabled` 或固定 level。值列里 `disabled` 继续用暗色，已启用 thinking 档（含 `off`）用高亮，避免看起来像未选用。
 
 有效选择只在当前 Pi session 中记忆。已移出 scope 的 entry 会立即清除，即使之后重新加入也不会复活旧选择。
 
@@ -168,14 +169,14 @@ Whole-target 建议阈值是 200 KiB 或 5,000 个逻辑行。这是质量和资
 
 显式的大 `--base` 或 `--range A..B` 仍保留 **Review by commit plan**，作为用户明确想拆成独立 run 时的确定性诊断。其 row 继续按完整 frozen bundle 测量并绑定完整 SHA pair。分析上限仍是 first-parent 前 128 个 commit 和最多 8 个 plan item；不完整覆盖会明确报告。Headless 绝不隐式选择：必须传精确 `--range`；只有 target 仍低于绝对上限时，`--allow-large` 才能批准 whole-target。
 
-| Role / target | Max turns | 单 route timeout | 整轮 timeout |
-|---|---:|---:|---:|
-| Reviewer / 普通 | 25 | 10 分钟 | 20 分钟 |
-| Reviewer / 已批准大目标 | 40 | 20 分钟 | 30 分钟 |
-| Refuter / 普通 | 12 | 5 分钟 | 15 分钟 |
-| Refuter / 已批准大目标 | 20 | 10 分钟 | 30 分钟 |
+| Role / target | Max turns | Grace turns | 单 route timeout | 整轮 timeout |
+|---|---:|---:|---:|---:|
+| Reviewer / 普通 | 25 | 15 | 10 分钟 | 20 分钟 |
+| Reviewer / 已批准大目标 | 40 | 20 | 20 分钟 | 30 分钟 |
+| Refuter / 普通 | 12 | 10 | 5 分钟 | 15 分钟 |
+| Refuter / 已批准大目标 | 20 | 15 | 10 分钟 | 30 分钟 |
 
-可配置 grace turns（默认 5）与 wall-clock deadline 仍会约束收尾。只有通过相同 identity 与输出校验后，`steered` terminal event 才会被接受，并记录为 `turnLimited`。
+Review 通过现有 Subagents spawn 路径传这些 per-spawn grace turns。普通 Agent 工具省略该字段时仍使用全局默认 5 轮。到达 `maxTurns` 仍会催该路立即收尾；硬停只发生在 `maxTurns + graceTurns` 之后。wall-clock deadline 仍会约束收尾。只有通过相同 identity 与输出校验后，`steered` terminal event 才会被接受，并记录为 `turnLimited`。
 
 用户请求 commit plan 或触及硬上限时，诊断只显示实际超过相关阈值的维度。SHA-bound、非空的普通替换段会按完整 frozen bundle 对 200 KiB / 5,000 行建议阈值重新测量；大 single commit 还会按绝对上限再次测量。TUI 选中后自动保留所有非 target 参数；复制 headless 命令时也必须保留。Base plan 只覆盖 committed changes，并明确提示未提交内容仍需 `--local`。若单个 commit 超过硬上限，应缩减附加 context 或拆分该 commit。
 
@@ -183,16 +184,16 @@ Whole-target 建议阈值是 200 KiB 或 5,000 个逻辑行。这是质量和资
 
 Review 使用四个显示面，各自职责不同：
 
-1. **Editor 上方 run card：**统一承担紧凑 phase、completed/running/queued 计数、耗时、一行离散的 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果和 cleanup state。只有 Refute 真正启动后才插入该节点；Finish 覆盖报告发布与真实 cleanup barrier。它只表达阶段，不表示百分比或剩余时间。Review 不再占用 Pi 的 footer status 区域。
-2. **Subagents Agents/FleetView：**external backend 下，逐 agent 的模型、执行、对话、token 和 tool step 明细只归这里，Review 卡不重复 agent 行。Embedded fallback 没有 FleetView，因此 Review 卡会保留有界的逐 agent 状态。
+1. **暂停输入区：**统一承担紧凑 phase、completed/running/queued 计数、耗时、一行离散的 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果、cleanup state，以及 `input paused · Esc to cancel`。只有 Refute 真正启动后才插入该节点；Finish 覆盖报告发布与真实 cleanup barrier。它只表达阶段，不表示百分比或剩余时间。Review 不再占用 Pi 的 footer status 区域，也不再注册独立的 editor 上方 widget。
+2. **Subagents Agents/FleetView：**external backend 下，逐 agent 的模型、执行、对话、token 和 tool step 明细只归这里，Review 卡不重复 agent 行。Embedded fallback 没有 FleetView，因此同一张输入区状态卡会保留有界的逐 agent 状态。
 3. **派发 transcript entry：**第一次 reviewer spawn 紧邻之前，持久的 `adversarial-review-dispatch` entry 会记录 run ID、精确 frozen target、input size、请求的 routes、backend、gate 和 Refute 选择。它可读、可展开，但不进入模型 context。
 4. **终态 transcript entry：**持久的 `adversarial-review-result`、cancellation 或 error entry 关闭可见生命周期。非成功报告的折叠视图直接显示 route failure；展开后包含每路终态、duration/usage、完整 blocking/advisory finding、Refute 和 target 详情。Adjudication handoff 使用另一条隐藏 custom message，因此不会重复显示最终报告。
 
-状态卡最多十行；embedded overflow 会指向最终报告。控制字符会被清理；完整 Git identity 留在 audit/report，临时状态卡只使用短 identity 提示；长行按 terminal width 截断。中间 card 状态是临时 UI，不会写入模型 context；派发与终态 entry 会持久化，但同样不进入模型 context。
+输入区状态卡最多十行内容，外加暂停/取消提示；embedded overflow 会指向最终报告。控制字符会被清理；完整 Git identity 留在 audit/report，临时状态卡只使用短 identity 提示；长行按 terminal width 截断。中间 card 状态是临时 UI，不会写入模型 context；派发与终态 entry 会持久化，但同样不进入模型 context。
 
 Freeze、review、refute 期间按 Escape 会打开明确的取消选择，但不会停止工作。默认选中 **Continue review**；在该项按 Enter，或在确认界面按 Escape，都会回到同一个运行。只有 **Confirm cancellation** 才会 abort 共享 run signal。
 
-External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 terminal 真值：命令会等待 agent terminal settlement、Git process exit、runtime dispose 和 frozen workspace cleanup。状态卡会一直保留到该 barrier 完成，随后销毁；cleanup 失败时会保留可恢复资源并给出 warning。Freeze 完成后的 cancelled report 会作为 partial audit evidence 持久化，但绝不会唤醒主模型或排入 adjudication。Git preflight 和 reviewer/refuter picker 仍保持 Escape 立即取消。
+External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 terminal 真值：命令会等待 agent terminal settlement、Git process exit、runtime dispose 和 frozen workspace cleanup。输入区状态卡会一直保留到该 barrier 完成，随后恢复正常编辑器；cleanup 失败时会保留可恢复资源并给出 warning。Freeze 完成后的 cancelled report 会作为 partial audit evidence 持久化，但绝不会唤醒主模型或排入 adjudication。Git preflight 和 reviewer/refuter picker 仍保持 Escape 立即取消。
 
 ## 报告与 parser contract
 

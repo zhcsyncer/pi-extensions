@@ -1,5 +1,4 @@
 import {
-  BorderedLoader,
   DynamicBorder,
   type ExtensionCommandContext,
   getSelectListTheme,
@@ -25,7 +24,6 @@ import type {
   MergedReviewReport,
 } from "../types.ts";
 
-const WIDGET_KEY = "adversarial-review-run";
 const MAX_CARD_LINES = 10;
 
 function elapsedText(startedAtMs: number, nowMs = Date.now()): string {
@@ -79,6 +77,7 @@ export interface CreateReviewRunStatusOptions {
   totalRoutes: number;
   targetSummary: string;
   startedAtMs?: number;
+  onChange?: () => void;
 }
 
 export interface ReviewRunStatus {
@@ -90,6 +89,8 @@ export interface ReviewRunStatus {
   publishing(): void;
   cleanup(state: "running" | "completed" | "retained"): void;
   failed(): void;
+  render(width: number, theme: Theme): string[];
+  attach(onChange: () => void): void;
   dispose(): void;
 }
 
@@ -180,13 +181,12 @@ function appendFleetItems(
 }
 
 /**
- * Ephemeral run-level visibility. This card owns aggregate progress and
- * deterministic Review state. External Subagents owns per-agent detail,
- * while embedded fallback renders bounded agent rows here. No intermediate UI
- * text is appended to model context.
+ * Ephemeral run-level visibility rendered inside the paused editor replacement.
+ * This card owns aggregate progress and deterministic Review state. External
+ * Subagents owns per-agent detail, while embedded fallback renders bounded
+ * agent rows here. No intermediate UI text is appended to model context.
  */
 export function createReviewRunStatus(
-  ctx: ExtensionCommandContext,
   options: CreateReviewRunStatusOptions,
 ): ReviewRunStatus {
   const startedAtMs = options.startedAtMs ?? Date.now();
@@ -200,8 +200,7 @@ export function createReviewRunStatus(
   let refute: ReviewRunRefuteSummary | undefined;
   let cleanupState: "running" | "completed" | "retained" | undefined;
   let disposed = false;
-  let widgetRegistered = false;
-  let widgetTui: { requestRender(): void } | undefined;
+  let onChange = options.onChange;
 
   const fleetProgress = (phase: "Review" | "Refute", value: ReviewerFleetProgress) => {
     const running = value.running > 0 ? ` · ${value.running} running` : "";
@@ -287,7 +286,7 @@ export function createReviewRunStatus(
     const icon = failed ? "×" : warning ? "!" : "●";
     const color = failed ? "error" : warning ? "warning" : "accent";
     return truncateToWidth(
-      `  ${theme.bold("Adversarial Review")} · ${theme.fg(color, `${icon} ${stageDetail()}`)} · ` +
+      `${theme.bold("Adversarial Review")} · ${theme.fg(color, `${icon} ${stageDetail()}`)} · ` +
         theme.fg("dim", elapsedText(startedAtMs)),
       width,
     );
@@ -300,11 +299,11 @@ export function createReviewRunStatus(
     const flow = nodes
       .map((node) => flowNodeText(node, flowNodeState(node, nodes), theme))
       .join(theme.fg("dim", " ─ "));
-    return truncateToWidth(`  ${theme.fg("muted", "Flow")} · ${flow}`, width);
+    return truncateToWidth(`${theme.fg("muted", "Flow")} · ${flow}`, width);
   };
 
   const targetLine = (width: number, theme: Theme) => truncateToWidth(
-    `  ${theme.fg("muted", "Target")} · ${frozen?.description ?? compactTargetSummary(options.targetSummary)}`,
+    `${theme.fg("muted", "Target")} · ${frozen?.description ?? compactTargetSummary(options.targetSummary)}`,
     width,
   );
 
@@ -312,12 +311,12 @@ export function createReviewRunStatus(
     const detail = frozen
       ? `${formatBytes(frozen.bytes)} · ${frozen.lines} lines · ${frozen.files} files`
       : "freezing deterministic input";
-    return truncateToWidth(`  ${theme.fg("muted", "Input")} · ${detail}`, width);
+    return truncateToWidth(`${theme.fg("muted", "Input")} · ${detail}`, width);
   };
 
   const gateLine = (width: number, theme: Theme) => gate
     ? truncateToWidth(
-        `  ${theme.fg("muted", "Gate")} · ${gate.gating} · ${gate.overall} · ` +
+        `${theme.fg("muted", "Gate")} · ${gate.gating} · ${gate.overall} · ` +
           `${gate.validReviewers}/${gate.totalReviewers} valid · ` +
           `${gate.blocking} blocking · ${gate.advisory} advisory`,
         width,
@@ -339,7 +338,7 @@ export function createReviewRunStatus(
     } else {
       detail = "disabled";
     }
-    return truncateToWidth(`  ${theme.fg("muted", "Refute")} · ${detail}`, width);
+    return truncateToWidth(`${theme.fg("muted", "Refute")} · ${detail}`, width);
   };
 
   const renderCard = (width: number, theme: Theme): string[] => {
@@ -368,60 +367,38 @@ export function createReviewRunStatus(
         ? "resources retained for safety"
         : cleanupState === "completed" ? "complete" : "stopping runtime and removing frozen input";
       lines.push(truncateToWidth(
-        `  ${theme.fg("muted", "Cleanup")} · ${cleanupText}`,
+        `${theme.fg("muted", "Cleanup")} · ${cleanupText}`,
         width,
       ));
     }
     return lines.slice(0, MAX_CARD_LINES);
   };
 
-  const registerWidget = () => {
-    if (disposed || widgetRegistered) return;
-    try {
-      ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
-        widgetTui = tui;
-        return {
-          render: (width: number) => renderCard(width, theme),
-          invalidate: () => {
-            widgetRegistered = false;
-            widgetTui = undefined;
-          },
-        };
-      }, { placement: "aboveEditor" });
-      widgetRegistered = true;
-    } catch {
-      // The running input control remains available if widgets are unavailable.
-    }
-  };
-
-  const render = () => {
+  const notify = () => {
     if (disposed) return;
-    registerWidget();
     try {
-      widgetTui?.requestRender();
+      onChange?.();
     } catch {
-      // A stale TUI component will be replaced on the next refresh.
-      widgetRegistered = false;
-      widgetTui = undefined;
+      // A stale TUI listener must never alter review execution.
     }
   };
 
-  render();
-  const timer = setInterval(render, 1000);
+  notify();
+  const timer = setInterval(notify, 1000);
   timer.unref?.();
 
   return {
     runtime(next) {
       if (disposed) return;
       backend = next;
-      render();
+      notify();
     },
     update(next) {
       if (disposed) return;
       progress = copyProgress(next);
       if (next.phase === "refute") refuteStarted = true;
       stage = next.phase;
-      render();
+      notify();
     },
     frozen(input) {
       if (disposed) return;
@@ -431,47 +408,48 @@ export function createReviewRunStatus(
         lines: input.inputSize.lines,
         files: input.target.changedFiles.length,
       };
-      render();
+      notify();
     },
     gate(next) {
       if (disposed) return;
       gate = { ...next };
       stage = "gating";
-      render();
+      notify();
     },
     refute(next) {
       if (disposed) return;
       refute = { ...next };
-      render();
+      notify();
     },
     publishing() {
       if (disposed) return;
       stage = "publishing";
-      render();
+      notify();
     },
     cleanup(next) {
       if (disposed) return;
       cleanupState = next;
       stage = "cleanup";
-      render();
+      notify();
     },
     failed() {
       if (disposed) return;
       failedNode = activeFlowNode();
       stage = "failed";
-      render();
+      notify();
+    },
+    render(width, theme) {
+      return renderCard(width, theme);
+    },
+    attach(next) {
+      if (disposed) return;
+      onChange = next;
+      notify();
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       clearInterval(timer);
-      widgetRegistered = false;
-      widgetTui = undefined;
-      try {
-        ctx.ui.setWidget(WIDGET_KEY, undefined);
-      } catch {
-        // The session may already be tearing down.
-      }
     },
   };
 }
@@ -484,6 +462,7 @@ export function createReviewRunStatus(
 export async function runWithTuiCancellation<T>(
   ctx: ExtensionCommandContext,
   controller: AbortController,
+  status: ReviewRunStatus,
   work: () => Promise<T>,
 ): Promise<T> {
   let workPromise: Promise<T> | undefined;
@@ -491,12 +470,8 @@ export async function runWithTuiCancellation<T>(
 
   try {
     await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-      const loader = new BorderedLoader(
-        tui,
-        theme,
-        "Review running · input paused · Esc opens cancellation options.",
-        { cancellable: false },
-      );
+      status.attach(() => tui.requestRender());
+      const hint = theme.fg("dim", "input paused · Esc to cancel");
       const choices: SelectItem[] = [
         {
           value: "continue",
@@ -532,6 +507,15 @@ export async function runWithTuiCancellation<T>(
         mode = "running";
         tui.requestRender();
       };
+      const renderRunning = (width: number) => {
+        const lines = status.render(Math.max(1, width - 2), theme).map((line) => `  ${line}`);
+        return [
+          theme.fg("border", "─".repeat(Math.max(1, width))),
+          ...lines,
+          `  ${hint}`,
+          theme.fg("border", "─".repeat(Math.max(1, width))),
+        ];
+      };
       const showConfirmation = () => {
         selectList.setSelectedIndex(0);
         mode = "confirm";
@@ -561,7 +545,7 @@ export async function runWithTuiCancellation<T>(
       if (controller.signal.aborted) close();
       return {
         render: (width: number) => (
-          mode === "running" ? loader.render(width) : confirmation.render(width)
+          mode === "running" ? renderRunning(width) : confirmation.render(width)
         ),
         handleInput: (data: string) => {
           if (mode === "running") {
@@ -572,10 +556,8 @@ export async function runWithTuiCancellation<T>(
           tui.requestRender();
         },
         invalidate: () => {
-          loader.invalidate();
           confirmation.invalidate();
         },
-        dispose: () => loader.dispose(),
       };
     });
   } catch (error) {

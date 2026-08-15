@@ -20,6 +20,7 @@ function spawnInput(role: "reviewer" | "refuter" = "reviewer"): SpawnReviewAgent
     model: model(),
     thinking: "high",
     maxTurns: 25,
+    graceTurns: 15,
     correlationId: `run:${role}:0`,
     description: `Run ${role}`,
   };
@@ -112,6 +113,8 @@ describe("EmbeddedReviewRuntime", () => {
     expect(core.spawn).toHaveBeenCalledWith(expect.objectContaining({
       type: "adversarial-refuter",
       correlationId: "run:refuter:0",
+      maxTurns: 25,
+      graceTurns: 15,
       isolated: true,
       inheritContext: false,
       inlineAgentConfig: {

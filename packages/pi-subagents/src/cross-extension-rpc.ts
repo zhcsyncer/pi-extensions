@@ -209,6 +209,9 @@ function normalizeSpawnOptions(type: string, raw: unknown): RpcSpawnOptions {
   if (options.maxTurns !== undefined && (!Number.isInteger(options.maxTurns) || options.maxTurns < 0)) {
     throw new Error("maxTurns must be a non-negative integer");
   }
+  if (options.graceTurns !== undefined && (!Number.isInteger(options.graceTurns) || options.graceTurns < 1)) {
+    throw new Error("graceTurns must be a positive integer");
+  }
   for (const field of ["isolated", "inheritContext", "isBackground", "bypassQueue"] as const) {
     if (options[field] !== undefined && typeof options[field] !== "boolean") {
       throw new Error(`${field} must be a boolean`);

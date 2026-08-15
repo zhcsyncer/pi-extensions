@@ -27,18 +27,22 @@ import {
   type ResolvedReviewPreflight,
 } from "../preflight/resolve-preflight.ts";
 import {
+  DEFAULT_REVIEWER_GRACE_TURNS,
   DEFAULT_REVIEWER_MAX_TURNS,
   DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,
   DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
+  LARGE_REVIEWER_GRACE_TURNS,
   LARGE_REVIEWER_MAX_TURNS,
   LARGE_REVIEWER_OVERALL_TIMEOUT_MS,
   LARGE_REVIEWER_ROUTE_TIMEOUT_MS,
   runReviewerFleet,
 } from "../runtime/orchestrator.ts";
 import {
+  DEFAULT_REFUTER_GRACE_TURNS,
   DEFAULT_REFUTER_MAX_TURNS,
   DEFAULT_REFUTER_OVERALL_TIMEOUT_MS,
   DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
+  LARGE_REFUTER_GRACE_TURNS,
   LARGE_REFUTER_MAX_TURNS,
   LARGE_REFUTER_OVERALL_TIMEOUT_MS,
   LARGE_REFUTER_ROUTE_TIMEOUT_MS,
@@ -164,6 +168,12 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
   const refuterMaxTurns = targetPreflight.largeInput
     ? LARGE_REFUTER_MAX_TURNS
     : DEFAULT_REFUTER_MAX_TURNS;
+  const reviewerGraceTurns = targetPreflight.largeInput
+    ? LARGE_REVIEWER_GRACE_TURNS
+    : DEFAULT_REVIEWER_GRACE_TURNS;
+  const refuterGraceTurns = targetPreflight.largeInput
+    ? LARGE_REFUTER_GRACE_TURNS
+    : DEFAULT_REFUTER_GRACE_TURNS;
   const reviewerRouteTimeoutMs = targetPreflight.largeInput
     ? LARGE_REVIEWER_ROUTE_TIMEOUT_MS
     : DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
@@ -199,6 +209,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     signal: controller.signal,
     capabilities,
     maxTurns: reviewerMaxTurns,
+    graceTurns: reviewerGraceTurns,
     routeTimeoutMs: reviewerRouteTimeoutMs,
     overallTimeoutMs: reviewerOverallTimeoutMs,
     onProgress: (progress) => options.runStatus?.update(progress),
@@ -251,6 +262,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
       capabilities: fleet.capabilities,
       signal: controller.signal,
       maxTurns: refuterMaxTurns,
+      graceTurns: refuterGraceTurns,
       routeTimeoutMs: refuterRouteTimeoutMs,
       overallTimeoutMs: refuterOverallTimeoutMs,
       onProgress: (progress) => options.runStatus?.update(progress),

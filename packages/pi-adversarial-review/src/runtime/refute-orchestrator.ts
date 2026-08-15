@@ -21,6 +21,8 @@ export const LARGE_REFUTER_ROUTE_TIMEOUT_MS = 10 * 60_000;
 export const LARGE_REFUTER_OVERALL_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_REFUTER_MAX_TURNS = 12;
 export const LARGE_REFUTER_MAX_TURNS = 20;
+export const DEFAULT_REFUTER_GRACE_TURNS = 10;
+export const LARGE_REFUTER_GRACE_TURNS = 15;
 
 export interface RunRefuteFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -33,6 +35,7 @@ export interface RunRefuteFleetOptions {
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
   maxTurns?: number;
+  graceTurns?: number;
   onProgress?: (progress: ReviewerFleetProgress) => void;
 }
 
@@ -66,6 +69,7 @@ export async function runRefuteFleet(options: RunRefuteFleetOptions): Promise<Re
   const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_REFUTER_ROUTE_TIMEOUT_MS;
   const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_REFUTER_OVERALL_TIMEOUT_MS;
   const maxTurns = options.maxTurns ?? DEFAULT_REFUTER_MAX_TURNS;
+  const graceTurns = options.graceTurns ?? DEFAULT_REFUTER_GRACE_TURNS;
   const tasks: ManagedFleetTask<RefuteRouteResult>[] = options.blocking.map(
     (finding, findingIndex) => {
       const correlationId = `${options.frozenInput.runId}:refuter:${findingIndex}`;
@@ -90,6 +94,7 @@ export async function runRefuteFleet(options: RunRefuteFleetOptions): Promise<Re
           model: options.refuterRoute.model,
           thinking: options.refuterRoute.thinking,
           maxTurns: effectiveMaxTurns,
+          graceTurns,
           correlationId,
           description: `Refute #${findingIndex + 1} ${finding.file}:${finding.lineStart}`,
         }),

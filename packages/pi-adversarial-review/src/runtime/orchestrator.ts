@@ -16,6 +16,8 @@ export const LARGE_REVIEWER_ROUTE_TIMEOUT_MS = 20 * 60_000;
 export const LARGE_REVIEWER_OVERALL_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_REVIEWER_MAX_TURNS = 25;
 export const LARGE_REVIEWER_MAX_TURNS = 40;
+export const DEFAULT_REVIEWER_GRACE_TURNS = 15;
+export const LARGE_REVIEWER_GRACE_TURNS = 20;
 
 export interface RunReviewerFleetOptions {
   runtime: ReviewSubagentRuntime;
@@ -26,6 +28,7 @@ export interface RunReviewerFleetOptions {
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
   maxTurns?: number;
+  graceTurns?: number;
   capabilities?: ReviewRuntimeCapabilities;
   onProgress?: (progress: ReviewerFleetProgress) => void;
 }
@@ -51,6 +54,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
   const routeTimeoutMs = options.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS;
   const overallTimeoutMs = options.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS;
   const maxTurns = options.maxTurns ?? DEFAULT_REVIEWER_MAX_TURNS;
+  const graceTurns = options.graceTurns ?? DEFAULT_REVIEWER_GRACE_TURNS;
   const tasks: ManagedFleetTask<ReviewerRouteResult>[] = options.routes.map((route) => {
     return {
       correlationId: `${options.frozenInput.runId}:reviewer:${route.ordinal}`,
@@ -67,6 +71,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
         model: route.model,
         thinking: route.thinking,
         maxTurns: effectiveMaxTurns,
+        graceTurns,
         correlationId: `${options.frozenInput.runId}:reviewer:${route.ordinal}`,
         description: `Full independent review · ${route.key}`,
       }),

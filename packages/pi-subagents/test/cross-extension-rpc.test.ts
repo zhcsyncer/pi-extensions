@@ -214,6 +214,47 @@ describe("cross-extension RPC", () => {
       expect(manager.spawn).not.toHaveBeenCalled();
     });
 
+    it("passes per-spawn graceTurns through without changing the global default", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-grace", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-grace",
+        type: "reviewer",
+        prompt: "review now",
+        options: {
+          description: "review",
+          isBackground: true,
+          graceTurns: 15,
+        },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(manager.spawn).toHaveBeenCalledWith(
+        deps.pi, ctx, "reviewer", "review now",
+        { description: "review", isBackground: true, graceTurns: 15 },
+      );
+    });
+
+    it("rejects non-positive graceTurns before spawning", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-bad-grace", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-bad-grace",
+        type: "reviewer",
+        prompt: "x",
+        options: { graceTurns: 0 },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply.mock.calls[0][0]).toEqual({
+        success: false,
+        error: "graceTurns must be a positive integer",
+      });
+      expect(manager.spawn).not.toHaveBeenCalled();
+    });
+
     it("rejects malformed route options before spawning", async () => {
       registerRpcHandlers(deps);
       const reply = vi.fn();

@@ -142,6 +142,7 @@ describe("runReviewerFleet", () => {
       expect(runtime.spawnInputs[0]).toMatchObject({
         cwd: "/repo",
         maxTurns: 25,
+        graceTurns: 15,
         correlationId: "run-1:reviewer:0",
       });
       expect(runtime.spawnInputs.every((input) => input.cwd === "/repo")).toBe(true);

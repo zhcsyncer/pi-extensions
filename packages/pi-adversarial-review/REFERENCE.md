@@ -19,6 +19,7 @@ After preflight, target freezing, and route selection, Review sends caller-owned
   model: selectedModel,
   thinking: exactThinkingLevel,
   maxTurns: boundedTurnLimit,
+  graceTurns: wrapUpTurnsAfterSteer,
   correlationId: "run-id:role:ordinal",
   description: "display-only route/finding description"
 }
@@ -62,7 +63,7 @@ Remote/ref and bare-range commit-line labels use stable picker values; shortened
 
 ## Reviewer and Refuter selection
 
-TUI setup requires 2–8 exact reviewer routes from `ctx.scopedModels`. Every unremembered model starts `disabled`. Its first enabled state is `medium`, or the nearest level returned by Pi AI's thinking-level clamp when `medium` is unsupported. Later cycling exposes every supported level. A scope-pinned model can use only `disabled` or its pinned level.
+TUI setup requires 2–8 exact reviewer routes from `ctx.scopedModels`. Every unremembered model starts `disabled`. Its first enabled state is `medium`, or the nearest level returned by Pi AI's thinking-level clamp when `medium` is unsupported. Later cycling exposes every supported level. A scope-pinned model can use only `disabled` or its pinned level. The value column keeps `disabled` dim and highlights every enabled thinking level, including `off`, so an enabled route is not visually the same as an unused one.
 
 Valid choices are remembered only for the current Pi session. Removed scope entries are pruned immediately and are not resurrected if later re-added.
 
@@ -168,14 +169,14 @@ For either TUI entry into the fixed-HEAD commit line, the user's continuous star
 
 Explicit large `--base` or `--range A..B` targets retain **Review by commit plan** as a deterministic diagnostic for users who intentionally want separate runs. Its rows remain complete frozen-bundle measurements bound to full SHA pairs. Analysis is capped at the first 128 first-parent commits and eight plan items; incomplete coverage is reported explicitly. Headless modes never choose implicitly: pass an exact `--range`, or `--allow-large` only when the target remains below the absolute limit.
 
-| Role / target | Max turns | Per-route timeout | Overall timeout |
-|---|---:|---:|---:|
-| Reviewer / ordinary | 25 | 10 min | 20 min |
-| Reviewer / approved large | 40 | 20 min | 30 min |
-| Refuter / ordinary | 12 | 5 min | 15 min |
-| Refuter / approved large | 20 | 10 min | 30 min |
+| Role / target | Max turns | Grace turns | Per-route timeout | Overall timeout |
+|---|---:|---:|---:|---:|
+| Reviewer / ordinary | 25 | 15 | 10 min | 20 min |
+| Reviewer / approved large | 40 | 20 | 20 min | 30 min |
+| Refuter / ordinary | 12 | 10 | 5 min | 15 min |
+| Refuter / approved large | 20 | 15 | 10 min | 30 min |
 
-Configured grace turns (five by default) and wall-clock deadlines still bound wrap-up behavior. A terminal event with `steered` status is accepted only after the same identity and output checks and is recorded as `turnLimited`.
+Review sends these per-spawn grace turns through the existing Subagents spawn path. Ordinary Agent tools keep the global five-turn default when the field is omitted. Reaching `maxTurns` still steers the route to wrap up immediately; hard abort happens only after `maxTurns + graceTurns`. Wall-clock deadlines still bound wrap-up behavior. A terminal event with `steered` status is accepted only after the same identity and output checks and is recorded as `turnLimited`.
 
 When commit planning is requested, or the hard limit is exceeded, diagnostics report only dimensions actually over the relevant threshold. SHA-bound, non-empty bounded replacements are measured as complete frozen bundles against the 200 KiB / 5,000-line recommendation; large single commits are additionally measured against the absolute limit. TUI preserves every non-target option automatically after selection; copied headless commands must do the same. Base plans cover committed changes only and explicitly warn that uncommitted work still needs `--local`. If one commit exceeds the hard limit, reduce attached context or split that commit.
 
@@ -183,16 +184,16 @@ When commit planning is requested, or the hard limit is exceeded, diagnostics re
 
 Review uses four display surfaces with distinct responsibilities:
 
-1. **Run card above the editor:** the single compact phase, completed/running/queued count, elapsed time, one-line discrete `Snapshot → Review → Gate → Finish` stepper, target, frozen input size, deterministic gate/Refute outcomes, and cleanup state. Refute is inserted only after it actually starts. Finish covers report publication and the real cleanup barrier. This is stage visibility, never a percentage or time estimate. Review does not occupy Pi's footer status area.
-2. **Subagents Agents/FleetView:** when the external backend is active, this exclusively owns per-agent model, execution, conversation, token, and tool-step detail; the Review card does not duplicate agent rows. The embedded fallback has no FleetView, so the Review card retains bounded per-agent status there.
+1. **Paused editor replacement:** the single compact phase, completed/running/queued count, elapsed time, one-line discrete `Snapshot → Review → Gate → Finish` stepper, target, frozen input size, deterministic gate/Refute outcomes, cleanup state, and `input paused · Esc to cancel`. Refute is inserted only after it actually starts. Finish covers report publication and the real cleanup barrier. This is stage visibility, never a percentage or time estimate. Review does not occupy Pi's footer status area or register a separate above-editor widget.
+2. **Subagents Agents/FleetView:** when the external backend is active, this exclusively owns per-agent model, execution, conversation, token, and tool-step detail; the Review card does not duplicate agent rows. The embedded fallback has no FleetView, so the same editor card retains bounded per-agent status there.
 3. **Dispatch transcript entry:** immediately before the first reviewer spawn, a durable `adversarial-review-dispatch` entry records the run ID, exact frozen target, input size, requested routes, backend, gate, and Refute selection. It is readable and expandable but does not participate in model context.
 4. **Terminal transcript entry:** the durable `adversarial-review-result`, cancellation, or error entry closes the visible lifecycle. A collapsed non-success report shows route failures immediately; expansion shows every route outcome, duration/usage, complete blocking/advisory findings, Refute, and target details. The adjudication handoff is a separate hidden custom message, so the visible report is not duplicated.
 
-The card is bounded to ten lines. Embedded overflow points to the final report. Control characters are sanitized, full Git identities remain in the audit/report while the transient card uses short identity hints, and long lines are terminal-width truncated. Intermediate card state is ephemeral and is not appended to model context; dispatch and terminal entries are durable without entering model context.
+The editor card is bounded to ten content lines plus the pause/cancel hint. Embedded overflow points to the final report. Control characters are sanitized, full Git identities remain in the audit/report while the transient card uses short identity hints, and long lines are terminal-width truncated. Intermediate card state is ephemeral and is not appended to model context; dispatch and terminal entries are durable without entering model context.
 
 During freeze, review, and refute, Escape opens an explicit cancellation choice without stopping work. **Continue review** is selected by default. Enter on that choice, or Escape from the confirmation screen, returns to the same running operation. Only **Confirm cancellation** aborts the shared run signal.
 
-External shutdown bypasses confirmation. In all cases, UI acknowledgement is not terminal truth: the command waits for agent terminal settlement, Git process exit, runtime disposal, and frozen workspace cleanup. The card remains until that barrier completes and is then removed; cleanup failure retains recoverable resources and emits a warning. A post-freeze cancelled report is persisted as partial audit evidence but never wakes the main model or queues adjudication. Git preflight and reviewer/refuter pickers retain immediate Escape cancellation.
+External shutdown bypasses confirmation. In all cases, UI acknowledgement is not terminal truth: the command waits for agent terminal settlement, Git process exit, runtime disposal, and frozen workspace cleanup. The editor card remains until that barrier completes and is then replaced by the normal editor; cleanup failure retains recoverable resources and emits a warning. A post-freeze cancelled report is persisted as partial audit evidence but never wakes the main model or queues adjudication. Git preflight and reviewer/refuter pickers retain immediate Escape cancellation.
 
 ## Reports and parser contract
 

@@ -28,7 +28,7 @@ In TUI mode, open the setup picker:
 /adversarial-review
 ```
 
-Choose 2–8 exact reviewer model/thinking routes. Unremembered routes start disabled and first enable at `medium`, or at the nearest supported level. Refute is enabled by default with a fresh session on the current main model and exact thinking level; it can be changed to a scoped model or disabled.
+Choose 2–8 exact reviewer model/thinking routes. Unremembered routes start disabled and first enable at `medium`, or at the nearest supported level. Enabled thinking values, including `off`, stay highlighted; only `disabled` is dim. Refute is enabled by default with a fresh session on the current main model and exact thinking level; it can be changed to a scoped model or disabled.
 
 Before model selection, Git preflight fetches and identifies the safest target it can prove. A normal feature branch reviews committed changes from the remote default branch plus staged, unstaged, and untracked work. A synchronized default branch reviews local work only. Ambiguous or risky states require an explicit TUI decision rather than a guess. If that inferred feature-branch target is large, ordinary `/adversarial-review` offers the same continuous start-to-HEAD commit line instead of an automatic batch plan.
 
@@ -88,16 +88,16 @@ Severity measures impact, confidence measures evidence strength, and votes measu
 
 During a run:
 
-- one temporary card above the editor owns the compact phase/count/elapsed summary, a one-line `Snapshot → Review → Gate → Finish` stepper, the target, frozen input size, deterministic gate/Refute outcomes, and real cleanup progress; Refute is inserted only if it actually starts, and the stepper never claims a percentage;
-- the extension does not occupy Pi's footer status area;
+- the paused editor replacement owns the compact phase/count/elapsed summary, a one-line `Snapshot → Review → Gate → Finish` stepper, the target, frozen input size, deterministic gate/Refute outcomes, real cleanup progress, and `input paused · Esc to cancel`; Refute is inserted only if it actually starts, and the stepper never claims a percentage;
+- the extension does not occupy Pi's footer status area or register a separate above-editor widget;
 - with a compatible external Subagents runtime, its Agents/FleetView surface exclusively owns per-agent model, execution, conversation, and tool-call detail; the Review card does not repeat those rows;
-- the embedded fallback has no FleetView, so the Review card retains bounded per-agent status there;
+- the embedded fallback has no FleetView, so the same editor card retains bounded per-agent status there;
 - a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
 - the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
 
 Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. Those low-level calls are intentionally not duplicated in the Review status card.
 
-Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The card remains until runtime termination and frozen-workspace cleanup have actually completed, then it is removed. Preflight and picker Escape remain immediate cancellation actions.
+Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The editor card remains until runtime termination and frozen-workspace cleanup have actually completed, then the normal editor returns. Preflight and picker Escape remain immediate cancellation actions.
 
 ## Result semantics
 

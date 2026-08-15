@@ -39,6 +39,7 @@ function spawnInput(correlationId = "run:reviewer:0") {
     model: model(),
     thinkingLevel: "high" as const,
     maxTurns: 25,
+    graceTurns: 15,
     cwd: process.cwd(),
     isolated: true,
     inheritContext: false,
@@ -107,6 +108,12 @@ describe("CallerOwnedAgentRuntime", () => {
       effectiveModel: { provider: "provider", modelId: "model" },
       effectiveThinkingLevel: "high",
     }));
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.anything(),
+      "reviewer",
+      "Review the frozen input.",
+      expect.objectContaining({ maxTurns: 25, graceTurns: 15 }),
+    );
     expect(pi.registerTool).not.toHaveBeenCalled();
     expect(pi.registerCommand).not.toHaveBeenCalled();
     expect(pi.sendMessage).not.toHaveBeenCalled();

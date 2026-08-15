@@ -144,6 +144,7 @@ describe("AgentManager — caller-owned cross-extension runs", () => {
       description: "Inline reviewer",
       model,
       thinkingLevel: "off",
+      graceTurns: 15,
       inlineAgentConfig,
       completionOwner: "caller",
       correlationId: "route-1",
@@ -155,7 +156,7 @@ describe("AgentManager — caller-owned cross-extension runs", () => {
       mockCtx,
       "reviewer",
       "review",
-      expect.objectContaining({ inlineAgentConfig, thinkingLevel: "off" }),
+      expect.objectContaining({ inlineAgentConfig, thinkingLevel: "off", graceTurns: 15 }),
     );
     expect(manager.getRecord(id)).toMatchObject({
       completionOwner: "caller",

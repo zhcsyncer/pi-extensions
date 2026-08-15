@@ -9,6 +9,7 @@ import {
   pickInteractiveReviewSetup,
   pickRefuterSpec,
   pickReviewerSpecs,
+  pickerValueColor,
   retainValidRefuterSpec,
   retainValidReviewerSpecs,
 } from "../src/ui/reviewer-picker.ts";
@@ -55,6 +56,16 @@ beforeAll(() => {
 });
 
 describe("reviewer picker", () => {
+  it("dims only disabled values and highlights enabled thinking including off", () => {
+    expect(pickerValueColor("disabled", false)).toBe("dim");
+    expect(pickerValueColor("disabled", true)).toBe("dim");
+    expect(pickerValueColor("off", false)).toBe("success");
+    expect(pickerValueColor("off", true)).toBe("accent");
+    expect(pickerValueColor("medium", false)).toBe("success");
+    expect(pickerValueColor("confirm", true)).toBe("accent");
+    expect(pickerValueColor("main session", false)).toBe("success");
+  });
+
   it("selects two scoped routes and reports concurrency waves", async () => {
     let initial = "";
     let selected = "";

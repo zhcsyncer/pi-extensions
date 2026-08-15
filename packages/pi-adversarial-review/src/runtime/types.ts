@@ -44,6 +44,7 @@ export interface SpawnReviewAgentInput {
   model: Model<any>;
   thinking: ModelThinkingLevel;
   maxTurns: number;
+  graceTurns?: number;
   correlationId: string;
   description: string;
 }

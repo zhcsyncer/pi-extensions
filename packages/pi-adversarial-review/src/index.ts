@@ -146,6 +146,45 @@ export default function adversarialReviewExtension(
       let frozenInput: FrozenReviewInput | undefined;
       let resolvedRuntime: ResolvedReviewRuntime | undefined;
       let runStatus: ReviewRunStatus | undefined;
+      let cleanupFinished = false;
+      const cleanupReview = async () => {
+        if (cleanupFinished) return;
+        cleanupFinished = true;
+        runStatus?.cleanup("running");
+        let cleanupRetained = false;
+        let runtimeCleanupComplete = true;
+        if (resolvedRuntime) {
+          try {
+            await resolvedRuntime.dispose();
+          } catch (error) {
+            runtimeCleanupComplete = false;
+            cleanupRetained = true;
+            if (!sessionShuttingDown) {
+              const warning = safeReviewDiagnosticText(
+                `Adversarial review runtime cleanup warning: ${errorMessage(error)} ` +
+                  "Frozen input and any detached review worktree were retained for safety.",
+              );
+              emitHeadlessDiagnostic(ctx.mode, warning);
+              ctx.ui.notify(warning, "warning");
+            }
+          }
+        }
+        if (frozenInput && runtimeCleanupComplete) {
+          try {
+            await frozenInput.cleanup();
+          } catch (error) {
+            cleanupRetained = true;
+            if (!sessionShuttingDown) {
+              const warning = safeReviewDiagnosticText(
+                `Adversarial review cleanup warning: ${errorMessage(error)}`,
+              );
+              emitHeadlessDiagnostic(ctx.mode, warning);
+              ctx.ui.notify(warning, "warning");
+            }
+          }
+        }
+        runStatus?.cleanup(cleanupRetained ? "retained" : "completed");
+      };
       const controller = new AbortController();
       let resolveRunCompletion!: () => void;
       const runCompletion = new Promise<void>((resolve) => { resolveRunCompletion = resolve; });
@@ -349,7 +388,7 @@ export default function adversarialReviewExtension(
             : undefined);
         const startedAt = new Date();
         runStatus = ctx.mode === "tui"
-          ? createReviewRunStatus(ctx, {
+          ? createReviewRunStatus({
               totalRoutes: routes.length,
               targetSummary: targetPreflight.summary,
               startedAtMs: startedAt.getTime(),
@@ -372,10 +411,20 @@ export default function adversarialReviewExtension(
           retainFrozenInput: (input) => { frozenInput = input; },
         });
 
-        if (ctx.mode === "tui") {
-          await runWithTuiCancellation(ctx, controller, executeReview);
+        if (ctx.mode === "tui" && runStatus) {
+          await runWithTuiCancellation(ctx, controller, runStatus, async () => {
+            try {
+              await executeReview();
+            } finally {
+              await cleanupReview();
+            }
+          });
         } else {
-          await executeReview();
+          try {
+            await executeReview();
+          } finally {
+            await cleanupReview();
+          }
         }
       } catch (error) {
         if (sessionShuttingDown) return;
@@ -407,42 +456,7 @@ export default function adversarialReviewExtension(
         });
         ctx.ui.notify(message, type);
       } finally {
-        // Frozen input and any detached review worktree must remain readable until every
-        // reviewer/refuter has terminated. Runtime disposal is therefore the first barrier.
-        runStatus?.cleanup("running");
-        let cleanupRetained = false;
-        let runtimeCleanupComplete = true;
-        if (resolvedRuntime) {
-          try {
-            await resolvedRuntime.dispose();
-          } catch (error) {
-            runtimeCleanupComplete = false;
-            cleanupRetained = true;
-            if (!sessionShuttingDown) {
-              const warning = safeReviewDiagnosticText(
-                `Adversarial review runtime cleanup warning: ${errorMessage(error)} ` +
-                  "Frozen input and any detached review worktree were retained for safety.",
-              );
-              emitHeadlessDiagnostic(ctx.mode, warning);
-              ctx.ui.notify(warning, "warning");
-            }
-          }
-        }
-        if (frozenInput && runtimeCleanupComplete) {
-          try {
-            await frozenInput.cleanup();
-          } catch (error) {
-            cleanupRetained = true;
-            if (!sessionShuttingDown) {
-              const warning = safeReviewDiagnosticText(
-                `Adversarial review cleanup warning: ${errorMessage(error)}`,
-              );
-              emitHeadlessDiagnostic(ctx.mode, warning);
-              ctx.ui.notify(warning, "warning");
-            }
-          }
-        }
-        runStatus?.cleanup(cleanupRetained ? "retained" : "completed");
+        await cleanupReview();
         runStatus?.dispose();
         if (activeRun === controller) activeRun = undefined;
         if (activeRunCompletion === runCompletion) activeRunCompletion = undefined;

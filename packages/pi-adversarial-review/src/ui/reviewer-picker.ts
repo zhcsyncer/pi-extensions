@@ -130,6 +130,25 @@ function initialValue(row: PickerRow): string {
   return row.remembered ?? DISABLED;
 }
 
+/** Disabled stays dim; enabled thinking (including off) and other live values stay highlighted. */
+export function pickerValueColor(
+  text: string,
+  selected: boolean,
+): "dim" | "accent" | "success" {
+  if (text === DISABLED) return "dim";
+  return selected ? "accent" : "success";
+}
+
+function pickerListTheme(theme: {
+  fg(color: string, text: string): string;
+}) {
+  const base = getSettingsListTheme();
+  return {
+    ...base,
+    value: (text: string, selected: boolean) => theme.fg(pickerValueColor(text, selected), text),
+  };
+}
+
 function selectedSpecs(rows: readonly PickerRow[], values: ReadonlyMap<string, string>): string[] {
   const specs: string[] = [];
   for (const row of rows) {
@@ -284,7 +303,7 @@ async function pickScopedSpecs(
       list = new SettingsList(
         items,
         Math.min(Math.max(rows.length + 1 + (refuteControl ? 1 : 0), 4), 14),
-        getSettingsListTheme(),
+        pickerListTheme(theme),
         (id, newValue) => {
           if (id === RUN_ITEM_ID) {
             const specs = selectedSpecs(rows, values);

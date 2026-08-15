@@ -1928,3 +1928,38 @@ describe("agent-runner ext: tool selectors", () => {
     expect(tools).not.toContain("foo_tool"); // denylisted even though ext:foo selects it
   });
 });
+
+describe("agent-runner per-spawn graceTurns", () => {
+  async function emitTurns(count: number, options: Parameters<typeof runAgent>[3]) {
+    const { session, listeners } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+    session.prompt = vi.fn(async () => {
+      for (let i = 0; i < count; i++) {
+        for (const listener of listeners) listener({ type: "turn_end" });
+      }
+      session.messages.push({ role: "assistant", content: [{ type: "text", text: "OK" }] });
+    }) as any;
+    return await runAgent(ctx, "Explore", "go", options);
+  }
+
+  it("steers at maxTurns and hard-aborts only after the per-spawn grace window", async () => {
+    const result = await emitTurns(17, { pi, maxTurns: 2, graceTurns: 15 });
+
+    expect(lastSession?.steer).toHaveBeenCalledOnce();
+    expect(lastSession?.steer).toHaveBeenCalledWith(
+      "You have reached your turn limit. Wrap up immediately — provide your final answer now.",
+    );
+    expect(lastSession?.abort).toHaveBeenCalledOnce();
+    expect(result.steered).toBe(true);
+    expect(result.aborted).toBe(true);
+  });
+
+  it("keeps the global five-turn grace when spawn omits the override", async () => {
+    const result = await emitTurns(6, { pi, maxTurns: 2 });
+
+    expect(lastSession?.steer).toHaveBeenCalledOnce();
+    expect(lastSession?.abort).not.toHaveBeenCalled();
+    expect(result.steered).toBe(true);
+    expect(result.aborted).toBe(false);
+  });
+});

@@ -18,6 +18,7 @@ export interface CallerOwnedSpawnInput {
   model: Model<any>;
   thinkingLevel: ThinkingLevel;
   maxTurns: number;
+  graceTurns?: number;
   cwd: string;
   isolated: boolean;
   inheritContext: boolean;
@@ -117,6 +118,7 @@ export class CallerOwnedAgentRuntime {
         model: input.model,
         thinkingLevel: input.thinkingLevel,
         maxTurns: input.maxTurns,
+        ...(input.graceTurns !== undefined ? { graceTurns: input.graceTurns } : {}),
         cwd: input.cwd,
         isolated: input.isolated,
         inheritContext: input.inheritContext,

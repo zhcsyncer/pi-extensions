@@ -72,6 +72,8 @@ export interface SpawnOptions {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
+  /** Extra wrap-up turns after the soft maxTurns steer. Defaults to the global setting. */
+  graceTurns?: number;
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
@@ -320,6 +322,7 @@ export class AgentManager {
       agentId: id,
       model: options.model,
       maxTurns: options.maxTurns,
+      ...(options.graceTurns !== undefined ? { graceTurns: options.graceTurns } : {}),
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,

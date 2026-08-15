@@ -901,7 +901,7 @@ describe("adversarial review extension", () => {
       }
     };
     adversarialReviewExtension(fake.api());
-    const { ctx, notifications, widgets } = context(root);
+    const { ctx, notifications, widgets, tui } = context(root);
     // The main model explicitly rejects the current thinking level. A review
     // that did not request Refute must still reach the reviewer fleet.
     (ctx.model as any).thinkingLevelMap = { medium: null };
@@ -938,15 +938,8 @@ describe("adversarial review extension", () => {
       message: "Adversarial review: candidate-approve (2/2 valid). Refute disabled.",
       type: "info",
     });
-    expect(widgets[0]).toMatchObject({
-      key: "adversarial-review-run",
-      content: expect.any(Function),
-      options: { placement: "aboveEditor" },
-    });
-    expect(widgets.at(-1)).toEqual({
-      key: "adversarial-review-run",
-      content: undefined,
-    });
+    expect(widgets).toEqual([]);
+    expect(tui.requestRender).toHaveBeenCalled();
     expect(frozenPaths).toHaveLength(2);
     for (const inputPath of frozenPaths) await expect(access(inputPath)).rejects.toThrow();
   });
@@ -1192,11 +1185,14 @@ describe("adversarial review extension", () => {
 
     const spawns = fake.emitted.filter((item) => item.event === "subagents:rpc:spawn");
     expect(spawns).toHaveLength(3);
-    expect(spawns.slice(0, 2).every(({ data }) => data.options.maxTurns === 40)).toBe(true);
+    expect(spawns.slice(0, 2).every(({ data }) => (
+      data.options.maxTurns === 40 && data.options.graceTurns === 20
+    ))).toBe(true);
     expect(spawns.at(-1)?.data).toMatchObject({
       type: "adversarial-refuter",
       options: {
         maxTurns: 20,
+        graceTurns: 15,
         correlationId: expect.stringContaining(":refuter:0"),
         inlineAgentConfig: { builtinToolNames: ["read", "grep", "find", "ls"] },
       },

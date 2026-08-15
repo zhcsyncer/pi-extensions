@@ -80,6 +80,7 @@ describe("PiSubagentRpcV3Client", () => {
       model: model(),
       thinking: "high",
       maxTurns: 25,
+      graceTurns: 15,
       correlationId: "run:reviewer:0",
       description: "Review route",
     })).resolves.toEqual({ agentId: "agent-1" });
@@ -96,6 +97,8 @@ describe("PiSubagentRpcV3Client", () => {
         inheritContext: false,
         cwd: "/repo",
         thinkingLevel: "high",
+        maxTurns: 25,
+        graceTurns: 15,
         inlineAgentConfig: {
           name: "adversarial-reviewer",
           builtinToolNames: ["read", "grep", "find", "ls"],
@@ -145,6 +148,7 @@ describe("PiSubagentRpcV3Client", () => {
       model: model(),
       thinking: "high",
       maxTurns: 12,
+      graceTurns: 10,
       correlationId: "run:refuter:0",
       description: "Refute #1",
     });
@@ -154,6 +158,7 @@ describe("PiSubagentRpcV3Client", () => {
       options: {
         correlationId: "run:refuter:0",
         maxTurns: 12,
+        graceTurns: 10,
         inlineAgentConfig: {
           name: "adversarial-refuter",
           displayName: "Adversarial Refuter",

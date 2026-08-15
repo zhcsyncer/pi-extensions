@@ -166,7 +166,10 @@ describe("runRefuteFleet", () => {
     expect(result.routeResults[1].turnLimited).toBeUndefined();
     expect(runtime.spawnInputs).toHaveLength(2);
     expect(runtime.spawnInputs.every((input) => (
-      input.role === "refuter" && input.maxTurns === 12 && input.cwd === "/repo"
+      input.role === "refuter" &&
+      input.maxTurns === 12 &&
+      input.graceTurns === 10 &&
+      input.cwd === "/repo"
     ))).toBe(true);
     expect(runtime.spawnInputs[0].prompt).toContain("Material issue 0");
     expect(runtime.spawnInputs[0].prompt).not.toContain("Material issue 1");
