@@ -15,6 +15,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
+- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
 
 ## Bundle 私有 Search Hub
 
@@ -57,7 +58,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、Subagents、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、Subagents、结构化用户问答、Fast Mode，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -105,6 +106,12 @@ pi install npm:@zhcsyncer/pi-context7
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
+仅安装 Fast Mode：
+
+```bash
+pi install npm:@zhcsyncer/pi-fast-mode
+```
+
 ## 开发
 
 测试根 bundle：
@@ -125,6 +132,7 @@ pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 pi --no-extensions -e ./packages/pi-subagents --list-models nope
+pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。

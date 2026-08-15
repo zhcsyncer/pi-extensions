@@ -105,9 +105,10 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:smoke && pnpm check:pack",
+    "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:fast-mode && pnpm check:smoke && pnpm check:pack",
     "check:release-policy": "node --test scripts/release-policy.test.mjs scripts/npm-bootstrap.test.mjs scripts/check-smoke.test.mjs && node scripts/check-release-policy.mjs",
     "check:recap": "pnpm --filter @zhcsyncer/pi-recap check",
+    "check:fast-mode": "pnpm --filter @zhcsyncer/pi-fast-mode check",
     "check:smoke": "node scripts/check-smoke.mjs",
     "check:pack": "node scripts/check-pack.mjs"
   },
@@ -121,7 +122,8 @@
       "./packages/pi-search-hub/extensions/search-hub.ts",
       "./packages/pi-context7/extensions/context7.ts",
       "./packages/pi-ask-user-question/index.ts",
-      "./packages/pi-subagents/src/index.ts"
+      "./packages/pi-subagents/src/index.ts",
+      "./packages/pi-fast-mode/extensions/fast-mode.ts"
     ],
     "skills": [
       "./packages/pi-context7/skills"
