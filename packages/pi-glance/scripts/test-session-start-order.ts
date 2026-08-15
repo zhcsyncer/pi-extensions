@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 		const enabledResult = getHandler(enabledPi, "session_start")({ type: "session_start" }, enabledContext);
 
 		assert.equal(isPromiseLike(enabledResult), false, "session_start should be synchronous for default enabled config");
-		assert.equal(enabledCalls[0], "setWidget:install", "default enabled TUI config should synchronously claim its keyed summary widget before handler returns");
+		assert.equal(enabledCalls[0], "setWidget:clear", "default enabled TUI config should synchronously clear any legacy Working Tree widget before claiming the input surface");
 		assert.equal(enabledCalls[1], "setFooter:install", "default enabled TUI config should synchronously claim the footer before handler returns");
 		assert.equal(enabledCalls[2], "setEditorComponent:install", "default enabled TUI config should synchronously claim the editor before handler returns");
 		assert.equal(enabledCalls.some((call) => call.startsWith("setHeader:")), false, "pi-glance should leave Pi's Header untouched");
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 		assert.deepEqual(disabledCalls.filter((call) => call.endsWith(":install") || call.endsWith(":set")), [], "disabled config should not claim custom footer/editor/working UI");
 		assert.ok(disabledCalls.includes("setWorkingMessage:restore"), "disabled config should synchronously restore Pi's working message");
 		assert.ok(disabledCalls.includes("setWorkingIndicator:restore"), "disabled config should synchronously restore Pi's working spinner");
-		assert.ok(disabledCalls.includes("setWidget:clear"), "disabled config should synchronously clear the Glance summary widget");
+		assert.ok(disabledCalls.includes("setWidget:clear"), "disabled config should synchronously clear any legacy Working Tree widget");
 		assert.ok(disabledCalls.includes("setEditorComponent:clear"), "disabled config should synchronously restore the built-in editor");
 		assert.ok(disabledCalls.includes("setFooter:clear"), "disabled config should synchronously restore the built-in footer");
 	} finally {

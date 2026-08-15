@@ -303,8 +303,8 @@ const gitRows = assertRows(config, "git", [
 	{
 		id: "git.worktreeSummary",
 		label: "Working tree",
-		value: "above compact",
-		hint: "Show a compact/detailed widget or use the input bottom border.",
+		value: "status",
+		hint: "Keep file and +/− counts in the Git status, or pin them to the bottom-right border.",
 		kind: "cycle",
 	},
 	{
@@ -507,7 +507,7 @@ assert.equal(rowById(gitRows, "git.enabled").apply!(config).segments.find((segme
 assert.equal(rowById(gitRows, "git.dirtyMarker").apply!(config).git.showDirty, false, "dirty marker should toggle off");
 assert.equal(rowById(gitRows, "git.aheadBehind").apply!(config).git.showAheadBehind, false, "ahead/behind should toggle off");
 assert.equal(rowById(gitRows, "git.sha").apply!(config).git.shaMode, "detached", "sha mode should cycle off -> detached");
-assert.equal(rowById(gitRows, "git.worktreeSummary").apply!(config).git.worktreeSummary, "above-detailed", "working tree summary should cycle above compact -> above detailed");
+assert.equal(rowById(gitRows, "git.worktreeSummary").apply!(config).git.worktreeSummary, "border-right", "working tree summary should cycle status -> border-right");
 assert.equal(rowById(gitRows, "git.polling").apply!(config).git.pollIntervalMs, 30000, "polling should cycle 15s -> 30s");
 
 const pollingValues = [5000, 15000, 30000, 60000].map((pollIntervalMs) =>

@@ -40,7 +40,7 @@ import type {
 } from "./types.js";
 
 // CONFIG_VERSION is the on-disk config schema version, not the npm package version.
-const CONFIG_VERSION = 14 as const;
+const CONFIG_VERSION = 15 as const;
 const emittedMigrationNotices = new Set<string>();
 const pendingMigrationNotices: string[] = [];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -103,7 +103,7 @@ export function defaultConfig(): GlanceConfig {
 			showDirty: true,
 			showAheadBehind: true,
 			shaMode: "off",
-			worktreeSummary: "above-compact",
+			worktreeSummary: "status",
 			timeoutMs: 1500,
 			refreshDebounceMs: 250,
 			pollIntervalMs: 15000,
@@ -154,6 +154,12 @@ function parseBool(value: unknown, fallback: boolean): boolean {
 
 function parseStringEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>, fallback: T): T {
 	return typeof value === "string" && allowed.has(value as T) ? (value as T) : fallback;
+}
+
+function parseWorktreeSummary(value: unknown, fallback: WorktreeSummaryMode): WorktreeSummaryMode {
+	if (value === "border-right") return "border-right";
+	if (value === "status" || value === "above-compact" || value === "above-detailed" || value === "border-left") return "status";
+	return fallback;
 }
 
 function parseThemePair(value: unknown, fallback: GlanceThemePair): GlanceThemePair {
@@ -302,7 +308,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 			showDirty: parseBool(git.showDirty, defaults.git.showDirty),
 			showAheadBehind: parseBool(git.showAheadBehind, defaults.git.showAheadBehind),
 			shaMode: parseStringEnum(git.shaMode, GIT_SHA_MODES, defaults.git.shaMode),
-			worktreeSummary: parseStringEnum(git.worktreeSummary, WORKTREE_SUMMARY_MODES, defaults.git.worktreeSummary),
+			worktreeSummary: parseWorktreeSummary(git.worktreeSummary, defaults.git.worktreeSummary),
 			timeoutMs: parseIntAtLeast(git.timeoutMs, defaults.git.timeoutMs, 100),
 			refreshDebounceMs: parseIntAtLeast(git.refreshDebounceMs, defaults.git.refreshDebounceMs, 0),
 			pollIntervalMs: parseIntAtLeast(git.pollIntervalMs, defaults.git.pollIntervalMs, 1000),

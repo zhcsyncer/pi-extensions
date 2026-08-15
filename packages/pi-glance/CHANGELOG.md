@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- Add a theme-aware Git Working Tree summary with four responsive placements, tracked diff statistics, event-driven refresh with safe polling fallback, and `/diff` terminal handoff to revdiff with annotation round-tripping into the editor.
+- Add a theme-aware Git Working Tree summary that defaults into the Git status line, with an optional bottom-right border placement, tracked diff statistics, event-driven refresh with safe polling fallback, and `/diff` terminal handoff to revdiff with annotation round-tripping into the editor.
 
 ## 0.5.0
 

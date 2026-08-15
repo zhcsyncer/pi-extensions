@@ -24,16 +24,18 @@ function formatPolling(ms: number): string {
 }
 
 function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): string {
-	switch (mode) {
-		case "above-compact":
-			return "above compact";
-		case "above-detailed":
-			return "above detailed";
-		case "border-left":
-			return "border left";
-		case "border-right":
-			return "border right";
+	return mode === "border-right" ? "border right" : "status";
+}
+
+function worktreeStatusParts(ctx: SegmentRenderContext): string[] {
+	if (ctx.config.git.worktreeSummary !== "status") return [];
+	const worktree = ctx.state.git.worktree;
+	if (ctx.state.git.status === "clean" || worktree.files <= 0) return [];
+	const parts = [`Δ${worktree.files}`];
+	if (worktree.additions !== null && worktree.deletions !== null) {
+		parts.push(`+${worktree.additions}`, `−${worktree.deletions}`);
 	}
+	return parts;
 }
 
 function gitBranchLabel(ctx: SegmentRenderContext): string {
@@ -62,6 +64,7 @@ function gitDetailParts(ctx: SegmentRenderContext): string[] {
 		if (git.ahead > 0) parts.push(`↑${git.ahead}`);
 		if (git.behind > 0) parts.push(`↓${git.behind}`);
 	}
+	parts.push(...worktreeStatusParts(ctx));
 	return parts;
 }
 
@@ -119,7 +122,7 @@ export const gitSegmentFeature = {
 		{
 			id: "git.worktreeSummary",
 			label: "Working tree",
-			hint: "Show a compact/detailed widget or use the input bottom border.",
+			hint: "Keep file and +/− counts in the Git status, or pin them to the bottom-right border.",
 			kind: "cycle",
 			value: (config: GlanceConfig) => worktreeSummaryLabel(config.git.worktreeSummary),
 			mutate: (config: GlanceConfig) => {

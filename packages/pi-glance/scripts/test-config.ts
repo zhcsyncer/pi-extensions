@@ -34,15 +34,18 @@ for (const raw of [undefined, null, false, true, 0, 1, "", "{}", []]) {
 }
 
 assert.equal(defaults.editor.topMarginRows, 1, "default editor top margin rows should preserve the one-row breathing room");
-assert.equal(defaults.version, 14, "working tree summary should advance CONFIG_VERSION to 14");
-assert.equal(normalizeConfig({ version: 0 }).version, 14, "old raw version should normalize to current schema version");
-assert.equal(normalizeConfig({ version: 999 }).version, 14, "future raw version should normalize to current schema version");
+assert.equal(defaults.version, 15, "working tree summary should advance CONFIG_VERSION to 15");
+assert.equal(normalizeConfig({ version: 0 }).version, 15, "old raw version should normalize to current schema version");
+assert.equal(normalizeConfig({ version: 999 }).version, 15, "future raw version should normalize to current schema version");
 assert.deepEqual(defaults.workingIndicator, { enabled: true }, "working indicator should default on for the complete experience");
-assert.equal(defaults.git.worktreeSummary, "above-compact", "working tree summary should default to above compact");
+assert.equal(defaults.git.worktreeSummary, "status", "working tree summary should default to the Git status line");
 assert.equal(defaults.git.refreshDebounceMs, 250, "Git event refresh should default to a 250ms trailing debounce");
 assert.equal(defaults.git.pollIntervalMs, 15000, "Git fallback polling should default to 15 seconds");
 assert.deepEqual(normalizeConfig({ version: 12 }).workingIndicator, { enabled: true }, "schema 12 configs should migrate with working indicator on");
-assert.equal(normalizeConfig({ version: 13 }).git.worktreeSummary, "above-compact", "schema 13 configs should migrate to the default working tree summary mode");
+assert.equal(normalizeConfig({ version: 13 }).git.worktreeSummary, "status", "schema 13 configs should migrate to the default working tree status mode");
+assert.equal(normalizeConfig({ git: { worktreeSummary: "above-compact" } }).git.worktreeSummary, "status", "legacy above-compact should migrate into the Git status line");
+assert.equal(normalizeConfig({ git: { worktreeSummary: "above-detailed" } }).git.worktreeSummary, "status", "legacy above-detailed should migrate into the Git status line");
+assert.equal(normalizeConfig({ git: { worktreeSummary: "border-left" } }).git.worktreeSummary, "status", "legacy border-left should migrate into the Git status line");
 assert.equal(normalizeConfig({ workingIndicator: { enabled: false } }).workingIndicator.enabled, false, "explicit working indicator off should be preserved");
 assert.equal(normalizeConfig({ workingIndicator: { enabled: "no" } }).workingIndicator.enabled, true, "invalid working indicator values should fall back on");
 assert.equal(defaults.colorSource, "pi", "new installs should follow Pi theme tokens by default");
@@ -214,7 +217,7 @@ const userConfig = normalizeConfig({
 assert.deepEqual(
 	userConfig,
 	{
-		version: 14,
+		version: 15,
 		enabled: false,
 		workingIndicator: {
 			enabled: true,

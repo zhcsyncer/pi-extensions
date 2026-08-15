@@ -15,7 +15,8 @@ function minRows(config: GlanceConfig): number {
 function assertFrameGeometry(lines: readonly string[], config: GlanceConfig, width: number, bodyLineCount: number, label: string): void {
 	const metrics = measureInputSurfaceFrame(width);
 	const topMarginRows = renderSurfaceTopMargin(metrics.safeWidth, config.editor.topMarginRows).length;
-	assert.equal(lines.length, topMarginRows + Math.max(minRows(config), bodyLineCount) + 2, `${label} should use top margin + top frame + padded body rows + bottom frame`);
+	const expected = topMarginRows + Math.max(minRows(config), bodyLineCount) + 2;
+	assert.equal(lines.length, expected, `${label} should use top margin + top frame + padded body rows + bottom frame`);
 	for (const [index, line] of lines.entries()) {
 		assert.ok(visibleWidth(line) <= metrics.safeWidth, `${label} line ${index} should fit safeWidth ${metrics.safeWidth}: ${stripAnsi(line)}`);
 	}
@@ -120,9 +121,10 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	assert.equal(capturedStyles, styles, "custom status callback should receive the shared ResolvedGlanceStyles instance");
 	assert.equal(capturedBudget, 30, "top scroll indicator should reserve the interactive left slot before budgeting status");
 	assertFrameGeometry(frame, config, 48, 1, "editor-like frame");
-	assert.ok(stripAnsi(frame[2] ?? "").includes("─── ↑ 7 more"), "top scroll indicator should be placed in the top-left frame slot");
-	assert.ok(frame[3]?.includes(rawBody), "editor body rows should remain already-rendered text while being wrapped by the frame");
-	assert.match(stripAnsi(frame[4] ?? ""), /^│ *│$/, "editor-like frame should pad body rows up to minContentRows");
+	const topBorderIndex = 2;
+	assert.ok(stripAnsi(frame[topBorderIndex] ?? "").includes("─── ↑ 7 more"), "top scroll indicator should be placed in the top-left frame slot");
+	assert.ok(frame[topBorderIndex + 1]?.includes(rawBody), "editor body rows should remain already-rendered text while being wrapped by the frame");
+	assert.match(stripAnsi(frame[topBorderIndex + 2] ?? ""), /^│ *│$/, "editor-like frame should pad body rows up to minContentRows");
 	assert.ok(stripAnsi(frame.at(-1) ?? "").includes("─── ↓ 2 more"), "bottom scroll indicator should be placed in the bottom frame slot");
 }
 

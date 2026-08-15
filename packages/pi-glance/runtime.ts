@@ -8,7 +8,7 @@ import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEn
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
-import { isAboveWorktreeSummary, WORKTREE_WIDGET_KEY, WorktreeSummaryWidget } from "./worktree-summary.js";
+import { WORKTREE_WIDGET_KEY } from "./worktree-summary.js";
 import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters, type WorkingMessageUpdateEvent } from "./working-indicator.js";
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
@@ -211,22 +211,9 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);
-		if (isAboveWorktreeSummary(activeConfig.git.worktreeSummary)) {
-			ctx.ui.setWidget(
-				WORKTREE_WIDGET_KEY,
-				(tui) => {
-					setUiRequestRender(generation, () => tui.requestRender());
-					return new WorktreeSummaryWidget(
-						() => refreshSession.getState() ?? refreshSession.ensureState(ctx),
-						() => getConfig(),
-						renderStyleContext,
-					);
-				},
-				{ placement: "aboveEditor" },
-			);
-		} else {
-			ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
-		}
+		// Clear any legacy keyed Working Tree widget from earlier builds so it cannot
+		// stack above todo/plan/recap widgets after the summary moved into the editor surface.
+		ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			readTerminalWidth = () => tui.terminal.columns;
 			const nextFooter = new StatusOnlyFooter({ theme, footerData });

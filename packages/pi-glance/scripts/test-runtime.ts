@@ -193,7 +193,7 @@ for (const matrixCase of [
 	const result = harness.runtime.events.sessionStart({}, test.ctx);
 
 	assert.equal(isPromiseLike(result), false, "sessionStart should stay synchronous for enabled config");
-	assert.deepEqual(test.surfaceCalls, ["setWidget:install", "setFooter:install", "setEditorComponent:install"], "enabled TUI sessionStart should synchronously install the summary widget, footer, and editor without taking Header ownership");
+	assert.deepEqual(test.surfaceCalls, ["setWidget:clear", "setFooter:install", "setEditorComponent:install"], "enabled TUI sessionStart should clear legacy widgets and install footer/editor without taking Header ownership");
 	assert.deepEqual(git.schedules, [true], "enabled sessionStart should schedule an immediate git refresh through the adapter");
 	assert.equal(harness.getLoadConfigCalls(), 0, "sessionStart should not call the async loadConfig adapter");
 }
@@ -794,7 +794,7 @@ for (const matrixCase of [
 	assert.equal(harness.showPaneContexts[0], test.ctx, "showPane should receive the command context passed to /glance");
 	assert.equal(harness.showPanePreviewStates[0]?.workspace.path, "/repo", "showPane should receive the current runtime state for preview rendering");
 	assertAmbientPaneOptions(harness.showPaneOptions[0], "default pane open");
-	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setWidget:install", "setFooter:install", "setEditorComponent:install"], "save success should reinstall the enabled TUI input surface and summary widget without taking Header ownership");
+	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setWidget:clear", "setFooter:install", "setEditorComponent:install"], "save success should clear legacy widgets and reinstall the enabled TUI input surface without taking Header ownership");
 	assert.ok(git.schedules.length > scheduleBaseline, "enabled->enabled save success should schedule git refreshes only after disk save succeeds");
 	assert.ok(test.getRenderRequests() > renderBaseline, "save success should request a render after reinstalling the surface");
 	assert.deepEqual(git.options?.getConfig(), nextConfig.git, "existing git refresher should read the updated active git config after save success");
@@ -854,7 +854,7 @@ for (const matrixCase of [
 	assert.deepEqual(
 		test.surfaceCalls.slice(baseline),
 		["setWidget:clear", "setFooter:install", "setEditorComponent:install"],
-		"switching from above summary to border-right should clear only Glance's keyed widget and reinstall the composable input surface",
+		"switching from status to border-right should keep clearing legacy widgets and reinstall the composable input surface",
 	);
 }
 
@@ -879,7 +879,7 @@ for (const matrixCase of [
 	await harness.runtime.commands.openPane("", test.ctx);
 
 	assert.deepEqual(harness.savedConfigs, [nextConfig], "disabled->enabled success should persist the enabled config");
-	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setWidget:install", "setFooter:install", "setEditorComponent:install"], "disabled->enabled success should install the summary Widget and TUI input surface without replacing Pi's Header");
+	assert.deepEqual(test.surfaceCalls.slice(surfaceBaseline), ["setWidget:clear", "setFooter:install", "setEditorComponent:install"], "disabled->enabled success should clear legacy widgets and install the TUI input surface without replacing Pi's Header");
 	assert.equal(git.created, 1, "disabled->enabled success should create the git refresher after disk save succeeds");
 	assert.deepEqual(git.schedules, [true], "disabled->enabled success should schedule one immediate git refresh after installing the surface");
 	assert.deepEqual(git.options?.getConfig(), nextConfig.git, "new git refresher should read the enabled active git config after save success");

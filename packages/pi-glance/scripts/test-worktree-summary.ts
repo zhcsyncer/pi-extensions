@@ -4,12 +4,7 @@ import { defaultConfig } from "../config.js";
 import { parseGitStatus } from "../git.js";
 import { renderInputSurfaceFrame } from "../input-surface-frame.js";
 import { resolveBuiltInGlanceStyles, resolveGlanceRenderStyles, resolvePiThemeStyles } from "../theme-adapter.js";
-import {
-	WorktreeSummaryWidget,
-	renderAboveWorktreeSummary,
-	renderWorktreeInline,
-	worktreeInlineCandidates,
-} from "../worktree-summary.js";
+import { renderWorktreeInline, worktreeInlineCandidates } from "../worktree-summary.js";
 import { onlySegments, stripAnsi } from "./surface-test-harness.js";
 import { testState } from "./helpers.js";
 import type { GitSnapshot, GlanceState } from "../types.js";
@@ -61,27 +56,6 @@ const clean = parseGitStatus("# branch.oid 1234567890abcdef1234567890abcdef12345
 assert.equal(stripAnsi(renderWorktreeInline(clean, 80, styles)), "Δ clean", "wide clean summary should be explicit");
 assert.equal(renderWorktreeInline(clean, 3, styles), "", "clean summary should be the first fact hidden on narrow borders");
 
-const compact = renderAboveWorktreeSummary(dirty, "above-compact", 80, styles);
-assert.equal(compact.length, 1, "above compact should be one unframed widget line");
-assert.equal(stripAnsi(compact[0] ?? ""), "● Working tree · 6 files · +123 −99    /diff", "above compact should include the review hint and tracked stats");
-assert.equal(stripAnsi(compact[0] ?? "").includes("╭"), false, "above compact should never add an input/dialog border");
-
-const detailed = renderAboveWorktreeSummary(dirty, "above-detailed", 50, styles);
-assert.equal(detailed.length, 2, "above detailed should be exactly two unframed widget lines");
-assert.equal(stripAnsi(detailed[0] ?? ""), "● Working tree · 6 files    /diff", "detailed first line should keep title, files, and review hint");
-assert.ok(stripAnsi(detailed[1] ?? "").startsWith("+123 −99  "), "detailed second line should lead with additions and deletions");
-assert.ok((detailed[1] ?? "").includes(styles.success("━".repeat(13))), "detailed ratio bar should color the rounded addition share with success");
-assert.ok((detailed[1] ?? "").includes(styles.error("━".repeat(11))), "detailed ratio bar should color the remaining deletion share with error");
-const unavailable = renderAboveWorktreeSummary(snapshot({ additions: null, deletions: null }), "above-detailed", 50, styles);
-assert.equal(stripAnsi(unavailable[1] ?? ""), "Line statistics unavailable", "uncalculable detailed stats should be omitted rather than guessed");
-for (const mode of ["above-compact", "above-detailed"] as const) {
-	for (const width of [4, 12, 24, 50, 80]) {
-		for (const line of renderAboveWorktreeSummary(conflict, mode, width, styles)) {
-			assert.ok(visibleWidth(line) <= width, `${mode} conflict line should fit width ${width}`);
-		}
-	}
-}
-
 const piStyles = resolvePiThemeStyles({
 	name: "worktree-pi",
 	fg: (token, text) => `<${token}>${text}</${token}>`,
@@ -97,21 +71,16 @@ assert.ok(themed.includes("<error> 2 conflicts</error>"), "Follow Pi should styl
 assert.ok(themed.includes("<muted> · </muted>"), "Follow Pi should style separators through separator/dim semantics");
 
 let activePiStyles = piStyles;
-const widgetState = testState({ git: dirty });
-const widgetConfig = defaultConfig();
-widgetConfig.colorSource = "pi";
-const widget = new WorktreeSummaryWidget(() => widgetState, () => widgetConfig, { getPiStyles: () => activePiStyles });
-const firstTheme = widget.render(80).join("\n");
+const firstThemed = renderWorktreeInline(dirty, 80, resolveGlanceRenderStyles(piConfig, { getPiStyles: () => activePiStyles }));
 activePiStyles = resolvePiThemeStyles({ name: "worktree-pi-next", fg: (token, text) => `[next:${token}]${text}` });
-widget.invalidate();
-const nextTheme = widget.render(80).join("\n");
-assert.ok(firstTheme.includes("<success>"), "widget should initially use the current Pi theme source");
-assert.ok(nextTheme.includes("[next:success]"), "widget invalidation should lazily re-resolve runtime Pi theme styles");
-assert.equal(nextTheme.includes("<success>"), false, "widget should not retain stale pre-baked theme ANSI");
+const nextThemed = renderWorktreeInline(dirty, 80, resolveGlanceRenderStyles(piConfig, { getPiStyles: () => activePiStyles }));
+assert.ok(firstThemed.includes("<success>"), "inline summary should initially use the current Pi theme source");
+assert.ok(nextThemed.includes("[next:success]"), "inline summary should lazily re-resolve runtime Pi theme styles");
+assert.equal(nextThemed.includes("<success>"), false, "inline summary should not retain stale pre-baked theme ANSI");
 
-function bottomFrame(mode: "border-left" | "border-right", width = 80): { raw: string; plain: string; state: GlanceState } {
+function bottomFrame(width = 80): { raw: string; plain: string; state: GlanceState } {
 	const config = defaultConfig();
-	config.git.worktreeSummary = mode;
+	config.git.worktreeSummary = "border-right";
 	config.context.progress = true;
 	config.context.progressStyle = "border";
 	config.context.progressWidth = "remaining";
@@ -129,24 +98,27 @@ function bottomFrame(mode: "border-left" | "border-right", width = 80): { raw: s
 	return { raw, plain: stripAnsi(raw), state };
 }
 
-const right = bottomFrame("border-right");
+const right = bottomFrame();
 assert.equal(visibleWidth(right.raw), 80, "border-right summary should preserve exact frame width");
 assert.ok(right.plain.endsWith(" 50% · Δ 6 files · +123 −99 ─╯"), "border-right should keep Git summary fixed at the far-right after context label");
 assert.ok(right.plain.indexOf("╼") < right.plain.indexOf("50%"), "remaining context progress should occupy the space left of the fixed Git summary");
 assert.ok(right.plain.indexOf("━") < right.plain.indexOf("Δ 6"), "remaining used progress should extend leftward before the right-side Git summary");
-
-const left = bottomFrame("border-left");
-assert.equal(visibleWidth(left.raw), 80, "border-left summary should preserve exact frame width");
-assert.ok(left.plain.startsWith("╰─ Δ 6 files · +123 −99 "), "border-left should embed the same responsive summary at the left edge");
-assert.ok(left.plain.includes("50% ─╯"), "border-left should remain composable with context progress details on the right");
-const narrowLeft = bottomFrame("border-left", 16);
-assert.ok(narrowLeft.plain.includes("Δ 6"), "narrow border-left should retain the minimal Git candidate");
-assert.ok(narrowLeft.plain.includes("50%"), "border-left should not double-charge chrome width and prematurely hide a fitting context label");
-for (const mode of ["border-left", "border-right"] as const) {
-	for (const width of [12, 24, 40, 80]) {
-		const frame = bottomFrame(mode, width);
-		assert.equal(visibleWidth(frame.raw), width, `${mode} frame should preserve exact width ${width}`);
-	}
+for (const width of [12, 24, 40, 80]) {
+	const frame = bottomFrame(width);
+	assert.equal(visibleWidth(frame.raw), width, `border-right frame should preserve exact width ${width}`);
 }
 
-console.log("✓ working tree responsive, detailed ratio, theme, and border composition checks passed");
+const statusConfig = defaultConfig();
+statusConfig.editor.topMarginRows = 0;
+statusConfig.git.worktreeSummary = "status";
+const statusFrame = renderInputSurfaceFrame({
+	state: testState({ git: dirty }),
+	config: statusConfig,
+	width: 80,
+	styles,
+	body: { kind: "preview", lines: [""] },
+});
+assert.ok(stripAnsi(statusFrame[0] ?? "").startsWith("╭"), "status mode should not add an extra row above the input box");
+assert.equal(stripAnsi(statusFrame.at(-1) ?? "").includes("Δ 6"), false, "status mode should keep working-tree counts out of the bottom border");
+
+console.log("✓ working tree responsive, theme, and border-right composition checks passed");

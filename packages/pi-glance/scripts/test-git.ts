@@ -198,7 +198,7 @@ const testConfig: GitConfig = {
 	showDirty: true,
 	showAheadBehind: true,
 	shaMode: "off",
-	worktreeSummary: "above-compact",
+	worktreeSummary: "status",
 	timeoutMs: 1000,
 	refreshDebounceMs: 250,
 	pollIntervalMs: 15000,

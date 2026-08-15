@@ -37,7 +37,48 @@ function gitLine(git: Partial<GitSnapshot>, mutateConfig?: (config: ReturnType<t
 }
 
 assert.equal(gitLine({ status: "clean" }), "git main", "clean branch stays quiet");
-assert.equal(gitLine({ status: "dirty", dirty: true, unstaged: 1 }), "git main *", "dirty marker defaults on");
+assert.equal(gitLine({ status: "dirty", dirty: true, unstaged: 1 }), "git main *", "dirty marker defaults on without worktree counts when files are unknown");
+assert.equal(
+	gitLine({
+		status: "dirty",
+		dirty: true,
+		unstaged: 1,
+		worktree: {
+			staged: [],
+			unstaged: ["changed.ts"],
+			untracked: [],
+			conflicts: [],
+			files: 6,
+			additions: 123,
+			deletions: 99,
+		},
+	}),
+	"git main * Δ6 +123 −99",
+	"status mode should append unique file and tracked +/− counts",
+);
+assert.equal(
+	gitLine(
+		{
+			status: "dirty",
+			dirty: true,
+			unstaged: 1,
+			worktree: {
+				staged: [],
+				unstaged: ["changed.ts"],
+				untracked: [],
+				conflicts: [],
+				files: 6,
+				additions: 123,
+				deletions: 99,
+			},
+		},
+		(config) => {
+			config.git.worktreeSummary = "border-right";
+		},
+	),
+	"git main *",
+	"border-right should keep worktree counts out of the Git status line",
+);
 assert.equal(
 	gitLine({ status: "dirty", dirty: true, unstaged: 1 }, (config) => {
 		config.git.showDirty = false;

@@ -13,7 +13,7 @@ export type IconMode = "nerd" | "plain";
 export type WidthMode = "full" | "compact" | "minimal";
 export type GitStatus = "clean" | "dirty" | "conflict" | "unknown";
 export type GitShaMode = "off" | "detached" | "always";
-export type WorktreeSummaryMode = "above-compact" | "above-detailed" | "border-left" | "border-right";
+export type WorktreeSummaryMode = "status" | "border-right";
 export type ContextTextMode = "percent+tokens" | "percent" | "tokens";
 export type ContextProgressStyle = "track" | "border";
 export type ContextProgressWidth = "third" | "remaining";
@@ -76,7 +76,7 @@ interface BottomDetailsConfig {
 }
 
 export interface GlanceConfig {
-	version: 14;
+	version: 15;
 	enabled: boolean;
 	workingIndicator: {
 		enabled: boolean;

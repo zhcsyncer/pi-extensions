@@ -198,28 +198,22 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 	const scrollIndicator = input.chrome?.bottomScrollIndicator;
 	const indicatorWidth = Math.min(innerWidth, visibleWidth(scrollIndicator ?? ""));
 	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, indicatorWidth);
-	const summaryMode = input.config.git.worktreeSummary;
-	const hasBorderSummary = isBorderWorktreeSummary(summaryMode) && input.state.git.repo;
-	const summaryBudget = summaryMode === "border-left"
-		? Math.max(0, availableDetailsBudget - 3)
-		: availableDetailsBudget;
+	const hasBorderSummary = isBorderWorktreeSummary(input.config.git.worktreeSummary) && input.state.git.repo;
 	const rawSummary = hasBorderSummary
-		? renderWorktreeInline(input.state.git, summaryBudget, input.styles)
+		? renderWorktreeInline(input.state.git, availableDetailsBudget, input.styles)
 		: "";
 	const summary = dimmed && rawSummary
 		? input.styles.dim(stripControlsPreservingSpaces(rawSummary))
 		: rawSummary;
-	const summaryReservation = summary
-		? visibleWidth(summary) + (summaryMode === "border-left" ? 3 : visibleWidth(" · "))
-		: 0;
+	const summaryReservation = summary ? visibleWidth(summary) + visibleWidth(" · ") : 0;
 	const remainingDetailsBudget = Math.max(0, availableDetailsBudget - summaryReservation);
 	const detailsBudget = input.config.context.progressWidth === "remaining"
 		? remainingDetailsBudget
 		: Math.min(remainingDetailsBudget, bottomDetailsBudget(innerWidth));
 	const detailsStatus = renderBottomDetails(input.state, input.config, detailsBudget, { styles: input.styles, dimmed });
 	const joinedSeparator = input.styles.separator(" · ");
-	const leftStatus = summaryMode === "border-left" ? summary : "";
-	const status = summaryMode === "border-right"
+	const leftStatus = "";
+	const status = summary
 		? [detailsStatus, summary].filter(Boolean).join(joinedSeparator)
 		: detailsStatus;
 	const progressPercent = bottomBorderProgressPercent(input.state, input.config);

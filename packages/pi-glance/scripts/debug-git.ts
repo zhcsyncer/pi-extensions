@@ -5,7 +5,7 @@ const config: GitConfig = {
 	showDirty: true,
 	showAheadBehind: true,
 	shaMode: "off",
-	worktreeSummary: "above-compact",
+	worktreeSummary: "status",
 	timeoutMs: 1000,
 	refreshDebounceMs: 0,
 	pollIntervalMs: 5000,

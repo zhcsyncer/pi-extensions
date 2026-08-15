@@ -137,7 +137,7 @@ async function main(): Promise<void> {
 		piGlance(pi.api);
 		const test = createContext([]);
 		getHandler(pi, "session_start")({ type: "session_start" }, test.ctx);
-		assert.deepEqual(test.surfaceCalls, ["setWidget:install", "setFooter:install", "setEditorComponent:install"], "enabled session_start should install the summary widget and input surface without replacing Pi's Header");
+		assert.deepEqual(test.surfaceCalls, ["setWidget:clear", "setFooter:install", "setEditorComponent:install"], "enabled session_start should clear legacy widgets and install the input surface without replacing Pi's Header");
 
 		const command = getCommand(pi, "glance");
 		await rm(configDir, { recursive: true, force: true });

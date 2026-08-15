@@ -22,7 +22,7 @@ export const PROVIDER_DISPLAY_MODE_VALUES: ReadonlyArray<GlanceConfig["display"]
 export const WORKSPACE_LABEL_MODE_VALUES: ReadonlyArray<WorkspaceLabelMode> = ["name", "smart", "path"];
 export const EDITOR_TOP_MARGIN_ROW_VALUES: ReadonlyArray<EditorTopMarginRows> = [0, 1, 2];
 export const GIT_SHA_MODE_VALUES: ReadonlyArray<GitShaMode> = ["off", "detached", "always"];
-export const WORKTREE_SUMMARY_MODE_VALUES: ReadonlyArray<WorktreeSummaryMode> = ["above-compact", "above-detailed", "border-left", "border-right"];
+export const WORKTREE_SUMMARY_MODE_VALUES: ReadonlyArray<WorktreeSummaryMode> = ["status", "border-right"];
 export const CONTEXT_TEXT_MODE_VALUES: ReadonlyArray<ContextTextMode> = ["percent+tokens", "percent", "tokens"];
 export const CONTEXT_PROGRESS_STYLE_VALUES: ReadonlyArray<ContextProgressStyle> = ["border", "track"];
 export const CONTEXT_PROGRESS_WIDTH_VALUES: ReadonlyArray<ContextProgressWidth> = ["third", "remaining"];
