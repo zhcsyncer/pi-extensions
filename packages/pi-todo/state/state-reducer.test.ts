@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Task } from "../tool/types.js";
 import { isTransitionValid } from "./invariants.js";
 import type { TaskState } from "./state.js";
-import { applyTaskMutation } from "./state-reducer.js";
+import { applyTaskMutation, FRESH_CYCLE_ERROR } from "./state-reducer.js";
 
 const emptyState = (): TaskState => ({
 	tasks: [],
@@ -24,17 +24,29 @@ const task = (overrides: Partial<Task> & { id: number; subject: string }): Task 
 });
 
 describe("applyTaskMutation — create", () => {
-	it("rejects empty subject", () => {
-		const result = applyTaskMutation(emptyState(), "create", { subject: "" });
-		expect(result.op).toEqual({ kind: "error", message: "subject required for create" });
+	it("rejects a top-level create on an empty cycle", () => {
+		const result = applyTaskMutation(emptyState(), "create", { subject: "x" });
+		expect(result.op).toEqual({ kind: "error", message: FRESH_CYCLE_ERROR });
 		expect(result.state.tasks).toHaveLength(0);
 		expect(result.state.nextId).toBe(1);
 	});
 
-	it("creates directly in_progress without an auxiliary activity label", () => {
-		const result = applyTaskMutation(emptyState(), "create", { subject: "x", status: "in_progress" });
-		expect(result.op).toEqual({ kind: "create", taskId: 1, status: "in_progress" });
-		expect(result.state.tasks[0]).toMatchObject({ status: "in_progress" });
+	it("rejects empty subject when appending to an active cycle", () => {
+		const state = stateWith(task({ id: 1, subject: "active", status: "in_progress" }));
+		const result = applyTaskMutation(state, "create", { subject: "" });
+		expect(result.op).toEqual({ kind: "error", message: "subject required for create" });
+		expect(result.state).toBe(state);
+	});
+
+	it("appends a pending task to an already active cycle", () => {
+		const state = stateWith(task({ id: 1, subject: "active", status: "in_progress" }));
+		const result = applyTaskMutation(state, "create", { subject: "write tests" });
+		expect(result.state.tasks).toHaveLength(2);
+		expect(result.state.tasks[1]).toMatchObject({ id: 2, subject: "write tests", status: "pending" });
+		expect(result.state.nextId).toBe(3);
+		expect(result.state.revision).toBe(1);
+		expect(result.state.tasks).not.toBe(state.tasks);
+		expect(result.op).toEqual({ kind: "create", taskId: 2, status: "pending" });
 	});
 
 	it("rejects direct in_progress create while another task is active", () => {
@@ -45,22 +57,12 @@ describe("applyTaskMutation — create", () => {
 		});
 	});
 
-	it("rejects terminal initial status", () => {
-		expect(applyTaskMutation(emptyState(), "create", { subject: "x", status: "completed" }).op).toEqual({
+	it("rejects terminal initial status when appending", () => {
+		const state = stateWith(task({ id: 1, subject: "active", status: "in_progress" }));
+		expect(applyTaskMutation(state, "create", { subject: "x", status: "completed" }).op).toEqual({
 			kind: "error",
-			message: "cannot create #1 with status completed; use pending or in_progress",
+			message: "cannot create #2 with status completed; use pending or in_progress",
 		});
-	});
-
-	it("creates with next id and preserves immutability", () => {
-		const state = emptyState();
-		const result = applyTaskMutation(state, "create", { subject: "write tests" });
-		expect(result.state.tasks).toHaveLength(1);
-		expect(result.state.tasks[0]).toMatchObject({ id: 1, subject: "write tests", status: "pending" });
-		expect(result.state.nextId).toBe(2);
-		expect(result.state.revision).toBe(1);
-		expect(result.state.tasks).not.toBe(state.tasks);
-		expect(result.op).toEqual({ kind: "create", taskId: 1, status: "pending" });
 	});
 });
 
@@ -201,17 +203,26 @@ describe("applyTaskMutation — batch", () => {
 		expect(result.state).toBe(state);
 	});
 
+	it("rejects a one-create batch on an empty cycle", () => {
+		const result = applyTaskMutation(emptyState(), "batch", {
+			operations: [{ action: "create", subject: "only one" }],
+		});
+		expect(result.op).toEqual({ kind: "error", message: FRESH_CYCLE_ERROR });
+		expect(result.state.tasks).toEqual([]);
+	});
+
 	it("rolls back every operation when one fails", () => {
 		const state = emptyState();
 		const result = applyTaskMutation(state, "batch", {
 			operations: [
-				{ action: "create", subject: "would be rolled back" },
+				{ action: "create", subject: "would be rolled back", status: "in_progress" },
+				{ action: "create", subject: "second" },
 				{ action: "update", id: 99, status: "in_progress" },
 			],
 		});
 		expect(result.op).toEqual({
 			kind: "error",
-			message: "batch operation 2 (update #99 → in_progress): #99 not found",
+			message: "batch operation 3 (update #99 → in_progress): #99 not found",
 		});
 		expect(result.state).toBe(state);
 		expect(result.state.tasks).toEqual([]);
@@ -258,7 +269,7 @@ describe("applyTaskMutation — list/get/delete", () => {
 });
 
 describe("applyTaskMutation — rollover and revisions", () => {
-	it("rolls terminal live state over before a top-level create without reusing ids", () => {
+	it("rejects a top-level create on a terminal cycle", () => {
 		const state: TaskState = {
 			tasks: [
 				task({ id: 10, subject: "done", status: "completed" }),
@@ -269,9 +280,32 @@ describe("applyTaskMutation — rollover and revisions", () => {
 			revision: 9,
 		};
 		const result = applyTaskMutation(state, "create", { subject: "new cycle" });
+		expect(result.op).toEqual({ kind: "error", message: FRESH_CYCLE_ERROR });
+		expect(result.state).toBe(state);
+	});
+
+	it("rolls terminal live state over before a multi-create batch without reusing ids", () => {
+		const state: TaskState = {
+			tasks: [
+				task({ id: 10, subject: "done", status: "completed" }),
+				task({ id: 11, subject: "gone", status: "deleted" }),
+			],
+			nextId: 12,
+			generation: 4,
+			revision: 9,
+		};
+		const result = applyTaskMutation(state, "batch", {
+			operations: [
+				{ action: "create", subject: "new cycle", status: "in_progress" },
+				{ action: "create", subject: "next" },
+			],
+		});
 		expect(result.state).toEqual({
-			tasks: [{ id: 12, subject: "new cycle", status: "pending" }],
-			nextId: 13,
+			tasks: [
+				{ id: 12, subject: "new cycle", status: "in_progress" },
+				{ id: 13, subject: "next", status: "pending" },
+			],
+			nextId: 14,
 			generation: 5,
 			revision: 10,
 		});
@@ -329,7 +363,8 @@ describe("applyTaskMutation — rollover and revisions", () => {
 		};
 		const result = applyTaskMutation(state, "batch", {
 			operations: [
-				{ action: "create", subject: "temporary" },
+				{ action: "create", subject: "temporary", status: "in_progress" },
+				{ action: "create", subject: "second" },
 				{ action: "update", id: 99, status: "in_progress" },
 			],
 		});

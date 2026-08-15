@@ -66,11 +66,11 @@
 
 新 Todo 周期绝不能以单任务计划开始，不因风险、耗时、重要性或预计工具调用数量而例外。只有一个里程碑时直接执行；一个 subject 只有在确实合并了不同结果（例如“复审”和“交付”各自具有独立完成价值）时才拆分。不得为了满足数量制造填充任务，也不得把一个紧密的 edit-test 循环强拆成两项。其他任务完成或按需求删除后，周期中只剩一项未完成或可见任务是正常状态，不应补充填充项。简单问答、单个文件读取和每条命令同样不得创建 Todo。
 
-建议保持 3–7 个里程碑；超过约 12 个时 guidance 提醒聚合，不设 runtime 硬上限。现阶段先以明确 prompt 契约观察模型行为，不在 reducer 增加最小任务数校验。
+建议保持 3–7 个里程碑；超过约 12 个时 guidance 提醒聚合，不设总任务数硬上限。空状态或全部终态时，reducer 拒绝顶层 create 和 create 数少于 2 的 batch。
 
 ### 2. 初始创建
 
-初始 batch 的自然顺序是默认串行执行顺序，不再维护独立依赖图；后来出现的插入工作临时改变顺序时，唯一 `in_progress` 是权威即时焦点。默认 guidance 要求当前状态为空或刚 rollover 时，必须用一次至少含两条 create 的 batch 按执行顺序创建初始计划并启动第一项；不得用单独顶层 create 或单项 batch 启动新周期。顶层 create 仅用于向已有活动多任务周期末尾追加后来发现的里程碑：
+初始 batch 的自然顺序是默认串行执行顺序，不再维护独立依赖图；后来出现的插入工作临时改变顺序时，唯一 `in_progress` 是权威即时焦点。当前状态为空或刚 rollover 时，必须用一次至少含两条 create 的 batch 按执行顺序创建初始计划并启动第一项；顶层 create 或只有一条 create 的 batch 会被拒绝。顶层 create 仅用于向已有活动多任务周期末尾追加后来发现的里程碑：
 
 ```json
 {
@@ -128,8 +128,8 @@ const allTerminal = tasks.length > 0 && !hasActiveTasks;
 
 触发规则：
 
-- 顶层 `create` 开始时若 `allTerminal`，先清空旧 `tasks`、内部 generation 加一、保持 `nextId`，再创建新任务；
-- 顶层 `batch` 开始时若 `allTerminal` 且 batch 含 create，先做同样 rollover，再执行整个 batch；
+- 顶层 `create` 在空状态或 `allTerminal` 时直接失败，不再单独开新周期；
+- 顶层 `batch` 开始时若为空或 `allTerminal`，必须至少含两条 create；满足后先 rollover（仅 `allTerminal`），再执行整个 batch；
 - batch 执行过程中不二次检查 rollover。若一个 batch 先完成旧任务再创建后续任务，这些操作仍属于同一周期；
 - 当前仍有 pending/in-progress 时，create 继续追加到当前列表，runtime 不猜测用户是否切换目标；
 - 不自动删除活动周期内的单个 completed/deleted。
@@ -142,7 +142,7 @@ const allTerminal = tasks.length > 0 && !hasActiveTasks;
 #11 deleted
 nextId = 12
 
-create "研究新问题"
+batch create "研究新问题" + create "下一步"
 
 调用后：
 #12 pending 研究新问题
@@ -321,7 +321,7 @@ rollover 判断属于顶层 mutation 前置步骤，必须纳入 batch 的原子
 
 模型 guidance 应增加：
 
-- 新周期必须用至少含两条 create 的原子 batch 按预期执行顺序启动；不得用顶层 create 或单项 batch 启动；
+- 新周期必须用至少含两条 create 的原子 batch 按预期执行顺序启动；空/终态下顶层 create 或单项 create batch 会被 runtime 拒绝；
 - 顶层 create 仅用于向已有活动多任务周期末尾追加后来发现的里程碑；
 - Todo 是当前串行执行焦点，不表达依赖图、并发批次或长期可追溯方案；
 - 周期后续只剩一项未完成或可见任务是正常状态，不得补充填充项；
@@ -336,7 +336,7 @@ rollover 判断属于顶层 mutation 前置步骤，必须纳入 batch 的原子
 
 1. `list/get` tool result 不包含 replay checkpoint，也不复制完整 tasks。
 2. replay 忽略 query envelope，并兼容 V1 快照。
-3. 所有任务终态后，下一次顶层 create/batch-create 原子 rollover；旧任务不进入新 checkpoint。
+3. 所有任务终态后，下一次合格的多 create batch 原子 rollover；旧任务不进入新 checkpoint。空/终态顶层 create 与单 create batch 失败且不改状态。
 4. batch 中途完成最后任务再 create 不触发第二次 rollover。
 5. rollover/reset 后 `nextId` 不下降，task ID 不复用。
 6. 默认 list 只输出 pending/in-progress，并准确报告隐藏 completed 数量。

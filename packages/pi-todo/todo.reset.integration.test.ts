@@ -42,7 +42,13 @@ describe("/todo reset integration", () => {
 
 		const created = await tool.execute?.(
 			"tc",
-			{ action: "create", subject: "active", status: "in_progress" } as never,
+			{
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "active", status: "in_progress" },
+					{ action: "create", subject: "pending" },
+				],
+			} as never,
 			undefined as never,
 			undefined as never,
 			ctx as never,
@@ -64,26 +70,32 @@ describe("/todo reset integration", () => {
 			schemaVersion: 2,
 			kind: "checkpoint",
 			action: "reset",
-			state: { tasks: [], nextId: 2, generation: 2, revision: 2 },
+			state: { tasks: [], nextId: 3, generation: 2, revision: 2 },
 		});
 		expect(setWidget).toHaveBeenCalledTimes(2);
 		expect(setWidget.mock.calls[1]).toEqual(["rpiv-todos", undefined]);
 
 		const afterResetCreate = await tool.execute?.(
 			"after-reset",
-			{ action: "create", subject: "new" } as never,
+			{
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "new", status: "in_progress" },
+					{ action: "create", subject: "follow-up" },
+				],
+			} as never,
 			undefined as never,
 			undefined as never,
 			{} as never,
 		);
-		expect(afterResetCreate?.content[0]).toMatchObject({ text: expect.stringContaining("Created #2") });
+		expect(afterResetCreate?.content[0]).toMatchObject({ text: expect.stringContaining("Created #3") });
 
 		const branchBeforeReset = buildSessionEntries([makeTodoToolResult(created?.details)]);
 		const branchAfterReset = [
 			...branchBeforeReset,
 			{ type: "custom", customType: TODO_STATE_CUSTOM_TYPE, data: reset } as never,
 		];
-		expect(replayFromBranch(createMockCtx({ branch: branchBeforeReset })).tasks).toHaveLength(1);
+		expect(replayFromBranch(createMockCtx({ branch: branchBeforeReset })).tasks).toHaveLength(2);
 		expect(replayFromBranch(createMockCtx({ branch: branchAfterReset }))).toEqual(reset.state);
 
 		await captured.events.get("session_tree")?.[0]?.(
@@ -122,7 +134,13 @@ describe("/todo reset integration", () => {
 		await captured.events.get("session_start")?.[0]?.({ reason: "startup" } as never, ctx as never);
 		await tool.execute?.(
 			"tc",
-			{ action: "create", subject: "must survive", status: "in_progress" } as never,
+			{
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "must survive", status: "in_progress" },
+					{ action: "create", subject: "keep too" },
+				],
+			} as never,
 			undefined as never,
 			undefined as never,
 			ctx as never,

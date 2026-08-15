@@ -113,7 +113,12 @@ const TodoBatchOperationSchema = Type.Object({
 
 export const TodoParamsSchema = Type.Object({
 	action: StringEnum(["create", "update", "list", "get", "delete", "batch"] as const),
-	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
+	subject: Type.Optional(
+		Type.String({
+			description:
+				"Task subject line (required for create). Top-level create only appends to an already active multi-item cycle; start a fresh cycle with a batch of at least two create operations.",
+		}),
+	),
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
 	status: Type.Optional(
 		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
@@ -143,7 +148,7 @@ export const TodoParamsSchema = Type.Object({
 			minItems: 1,
 			maxItems: 50,
 			description:
-				"Ordered atomic create/update/delete operations. To start a fresh cycle, include at least two create operations in intended execution order: set the first to in_progress and leave the rest pending. Each operation sees prior results and all roll back if one fails. Complete or re-queue the active task before starting another.",
+				"Ordered atomic create/update/delete operations. A fresh or terminal cycle is rejected unless this batch includes at least two create operations: set the first to in_progress and leave the rest pending. Each operation sees prior results and all roll back if one fails. Complete or re-queue the active task before starting another.",
 		}),
 	),
 });

@@ -38,8 +38,13 @@ async function promptResult(handler: (...args: unknown[]) => unknown, systemProm
 describe("before_agent_start Current Todo state", () => {
 	it("appends the active summary at the system prompt tail on every run", async () => {
 		const { captured, tool, beforeAgentStart } = setup();
-		await call(tool, { action: "create", subject: "Implement", status: "in_progress" });
-		await call(tool, { action: "create", subject: "Verify" });
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "Implement", status: "in_progress" },
+				{ action: "create", subject: "Verify" },
+			],
+		});
 
 		for (const base of ["BASE ONE", "BASE TWO"]) {
 			const result = await promptResult(beforeAgentStart, base);
@@ -56,14 +61,27 @@ describe("before_agent_start Current Todo state", () => {
 	it("does not append a section when no active task exists", async () => {
 		const { tool, beforeAgentStart } = setup();
 		expect(await promptResult(beforeAgentStart)).toBeUndefined();
-		await call(tool, { action: "create", subject: "Done" });
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "Done", status: "in_progress" },
+				{ action: "create", subject: "Also" },
+			],
+		});
 		await call(tool, { action: "update", id: 1, status: "completed" });
+		await call(tool, { action: "update", id: 2, status: "completed" });
 		expect(await promptResult(beforeAgentStart)).toBeUndefined();
 	});
 
 	it("injects an ephemeral exact update after same-run mutation and overflow compaction", async () => {
 		const { captured, tool, beforeAgentStart, context, agentSettled } = setup();
-		await call(tool, { action: "create", subject: "Initial", status: "in_progress" });
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "Initial", status: "in_progress" },
+				{ action: "create", subject: "Next" },
+			],
+		});
 		await promptResult(beforeAgentStart);
 		expect(await context({ messages: [] } as never, createMockCtx() as never)).toBeUndefined();
 
@@ -82,7 +100,8 @@ describe("before_agent_start Current Todo state", () => {
 			content:
 				"Current Todo state update:\n" +
 				"- #1 in_progress: Initial\n" +
-				"- #2 pending: Added after run start",
+				"- #2 pending: Next\n" +
+				"- #3 pending: Added after run start",
 		});
 		expect(captured.entries).toEqual([]);
 

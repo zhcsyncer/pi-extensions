@@ -44,12 +44,23 @@ function formatBatchOperation(operation: TaskBatchOperation): string {
 	}
 }
 
+export const FRESH_CYCLE_ERROR =
+	"cannot start a one-task Todo cycle; start a fresh cycle with a batch of at least two create operations";
+
 function hasActiveTasks(tasks: readonly Task[]): boolean {
 	return tasks.some((task) => task.status === "pending" || task.status === "in_progress");
 }
 
 function isAllTerminal(state: TaskState): boolean {
 	return state.tasks.length > 0 && !hasActiveTasks(state.tasks);
+}
+
+function isFreshCycleState(state: TaskState): boolean {
+	return state.tasks.length === 0 || isAllTerminal(state);
+}
+
+function createOperationCount(operations: readonly TaskBatchOperation[] | undefined): number {
+	return operations?.filter((operation) => operation.action === "create").length ?? 0;
 }
 
 function rollover(state: TaskState): TaskState {
@@ -199,8 +210,8 @@ function applyBatchOperation(state: TaskState, operation: TaskBatchOperation): A
 export function applyTaskMutation(state: TaskState, action: TaskAction, params: TaskMutationParams): ApplyResult {
 	switch (action) {
 		case "create": {
-			const base = isAllTerminal(state) ? rollover(state) : state;
-			return finalizeMutation(state, applyCreate(base, params));
+			if (isFreshCycleState(state)) return errorResult(state, FRESH_CYCLE_ERROR);
+			return finalizeMutation(state, applyCreate(state, params));
 		}
 
 		case "update":
@@ -212,8 +223,11 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 		case "batch": {
 			if (!params.operations?.length) return errorResult(state, "operations required for batch");
 			if (params.operations.length > 50) return errorResult(state, "batch supports at most 50 operations");
+			if (isFreshCycleState(state) && createOperationCount(params.operations) < 2) {
+				return errorResult(state, FRESH_CYCLE_ERROR);
+			}
 
-			const shouldRollover = isAllTerminal(state) && params.operations.some((operation) => operation.action === "create");
+			const shouldRollover = isAllTerminal(state) && createOperationCount(params.operations) >= 2;
 			let nextState = shouldRollover ? rollover(state) : state;
 			const operations: BatchItemOp[] = [];
 			for (const [index, operation] of params.operations.entries()) {

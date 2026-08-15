@@ -28,7 +28,7 @@ describe("registerTodoTool — guidance overrides", () => {
 		expect(guidance).toContain("Never start a one-task Todo cycle");
 		expect(guidance).toContain("regardless of risk, duration, importance");
 		expect(guidance).toContain("never split a tightly coupled edit-test loop or invent filler");
-		expect(guidance).toContain("Never bootstrap a cycle with a top-level create or a one-item batch");
+		expect(guidance).toContain("Runtime rejects a top-level create or a one-create batch");
 		expect(guidance).toContain("Use top-level create only to append a newly discovered milestone");
 		expect(guidance).toContain("only one unfinished or visible task");
 		expect(guidance).not.toContain("single-step, low-risk");

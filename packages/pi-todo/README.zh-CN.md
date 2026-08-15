@@ -30,7 +30,7 @@ pi install git:github.com/zhcsyncer/pi-extensions
 - 每个新周期必须用一次原子 `batch` 按执行顺序启动，其中至少包含两条 create：第一项为 in_progress，其余为 pending。不得用顶层 create 或单项 batch 启动周期；顶层 create 只用于向已有活动多任务周期末尾追加后来发现的里程碑。
 - 其他任务完成后，周期中可能只剩一项未完成或可见任务；这是正常状态，不应为维持数量添加填充项。
 - `batch` 按数组顺序执行多条 create/update/delete，任一操作失败则整体回滚。独立工作打断当前里程碑时，可原子地把当前任务重新排回 pending，并创建插入任务为 in_progress；插入任务完成后再恢复原任务。
-- 当前所有任务均已 completed/deleted 后，应使用规定的多 create batch 开启下一周期；runtime 会在该 batch 前自动 rollover。旧周期任务会离开 live state，只能从 transcript/tree 查看。为保持 API 与 replay 兼容，reducer 仍接受旧式顶层 create rollover，但默认模型 guidance 不使用这条路径。
+- 当前所有任务均已 completed/deleted 后，应使用规定的多 create batch 开启下一周期；runtime 会在该 batch 前自动 rollover。旧周期任务会离开 live state，只能从 transcript/tree 查看。空状态或刚做完一轮时，顶层 create 和只有一条 create 的 batch 会被拒绝。
 - 整个 session tree 内的任务 ID 保持单调：rollover 和用户 reset 都保留 `nextId`，branch replay 也会维持 session 级高水位，不会复用旧 ID。
 - 默认 `list` 只返回 pending/in-progress，并报告隐藏了多少 completed；没有 status filter 时，`includeDeleted: true` 返回当前 live state 的所有状态；显式 `status` filter 可直接查询 completed/deleted。
 

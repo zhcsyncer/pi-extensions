@@ -134,6 +134,22 @@ export function makeTodoToolResult(details: unknown, text = "ok"): ToolResultMes
 	return makeToolResult(details, text);
 }
 
+export function startCycle(
+	subjects: readonly string[],
+	options: { firstStatus?: "pending" | "in_progress" } = {},
+): { action: "batch"; operations: Array<{ action: "create"; subject: string; status?: "in_progress" }> } {
+	const names = subjects.length >= 2 ? [...subjects] : [subjects[0] ?? "first", "next"];
+	const firstStatus = options.firstStatus ?? "in_progress";
+	return {
+		action: "batch",
+		operations: names.map((subject, index) => ({
+			action: "create" as const,
+			subject,
+			...(index === 0 && firstStatus === "in_progress" ? { status: "in_progress" as const } : {}),
+		})),
+	};
+}
+
 export function buildSessionEntries(messages: Message[]): SessionEntry[] {
 	return messages.map((message) => ({ type: "message", message }) as unknown as SessionEntry);
 }
