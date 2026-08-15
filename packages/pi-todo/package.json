@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-todo",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Persistent task management, planning, and branch-aware Todo overlay for the Pi coding agent.",
   "keywords": [
     "pi-package",
