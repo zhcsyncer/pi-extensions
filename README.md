@@ -8,8 +8,8 @@ A collection of Pi extensions by zhcsyncer.
 
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and nearest-layer Herdr pane or tmux window naming.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, adaptive diffs, and bounded Bash call previews.
-- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — branch-aware task overlay with strict lifecycle rules, atomic batches, bounded widget rendering, and a `/todo` visual-settings TUI.
-- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable statuses, bottom-right context progress, and a theme-aware Claude-inspired working indicator for activity, current-cycle output, and elapsed time.
+- [`@zhcsyncer/pi-todo`](./packages/pi-todo) — cycle-bounded task overlay with atomic multi-item batches, confirmed `/todo` reset, and no dependency graph; live lists stay on active work across compaction and resume.
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable statuses, working-tree counts in the Git status line or bottom-right border, `/diff` review, and a theme-aware Claude-inspired working indicator.
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
