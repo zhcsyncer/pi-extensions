@@ -1,6 +1,6 @@
 # Releasing
 
-This repository publishes ten public npm packages:
+This repository publishes eleven public npm packages:
 
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
@@ -11,6 +11,7 @@ This repository publishes ten public npm packages:
 - `@zhcsyncer/pi-context7`
 - `@zhcsyncer/pi-ask-user-question`
 - `@zhcsyncer/pi-subagents`
+- `@zhcsyncer/pi-fast-mode`
 - `pi-provider-volcengine-agent-plan`
 
 

@@ -15,6 +15,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
+- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
 
 ## Bundle-private Search Hub
 
@@ -57,7 +58,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, structured user questions, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, structured user questions, Fast Mode, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -111,6 +112,12 @@ Install only Subagents:
 pi install npm:@zhcsyncer/pi-subagents
 ```
 
+Install only Fast Mode:
+
+```bash
+pi install npm:@zhcsyncer/pi-fast-mode
+```
+
 ## Development
 
 Test the root bundle:
@@ -131,6 +138,7 @@ pi --no-extensions -e ./packages/pi-search-hub --list-models nope
 pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 pi --no-extensions -e ./packages/pi-subagents --list-models nope
+pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
