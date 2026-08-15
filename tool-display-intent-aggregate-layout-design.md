@@ -16,8 +16,9 @@
 - Tools 首行直接展示每类工具的总调用次数和失败总数。
 - 当前工具显示确定性 target；无法可靠提取 target 的 custom tool 只显示名称。
 - 成功行先标记 `done`，由下一调用替换；最终成功行在 agent settled 后延迟收起。
-- 收起时错误只显示总数；具体错误和按工具类型的 last target 只在有界展开中出现。
-- aggregate 下隐藏纯 `Thinking...` 占位行，但不隐藏 assistant 文本、错误或显式展开的 reasoning。
+- 收起时错误只显示总数；夹在工具之间的中途旁白默认隐藏，最终结论仍可见。
+- `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用各自显示一行目标/状态概要。
+- aggregate 下剥掉收起的 `Thinking...` 占位行，但不隐藏错误或显式展开的 reasoning。
 - 原始 tool call/result 保持可恢复；切回 individual 后原 renderer 重新展示历史详情。
 
 ## 非目标
@@ -129,23 +130,28 @@ pending / running / success / failed / needsAttention
 
 ### 错误
 
-收起视图只显示 `N failed`，不逐条堆叠常见 tool error。按 `Ctrl+O` 后最多显示最近 20 条非-passthrough 错误摘要；更早错误只显示剩余数量。passthrough 工具的原 renderer 自己负责错误详情，但失败仍计入首行。
+收起视图只显示 `N failed`，不逐条堆叠常见 tool error。passthrough 工具的原 renderer 自己负责错误详情，但失败仍计入首行。
 
 ### 展开
 
-`Ctrl+O` 只展开 Tools 自身的有界审计概要：
+`Ctrl+O` 离开 Tools 账本，并按原时间线恢复中途旁白和逐条调用概要：
 
 ```text
-  ! Bash(pnpm test): 1 test failed
-  read ×12 · last: Read(src/index.ts)
-  bash ×17 · last: Bash(pnpm test)
-  ask_user_question ×1
+✓ Tools · read ×1 · bash ×1
+  │ ✦ 先定位两边的设计与实现入口，再对照分组、渲染和边界。
+  │ ✓ Read(src/index.ts)
+  │ ✦ 先把两边的设计文档和关键实现读清楚。
+  │ ! Bash(pnpm test): 1 test failed
+  └ ✓ ask_user_question
 ```
 
-- 最多 20 条错误；
-- 最多 20 个工具类型；
-- 有 deterministic target 时显示 `last`；
-- generic custom tool 不猜参数含义，只显示名称和 count；
+- 汇总条留在框外，没有边线；
+- 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
+- 展开内容共用一条贯通边线：中间行 `│`，最后一行 `└`；
+- 旁白行用 `✦` 与工具概要区分；
+- 有 deterministic target 时显示目标；
+- generic custom tool 不猜参数含义，只显示名称；
+- 失败行附带一行错误摘要；
 - 不恢复 raw output、文件列表或 diff body。
 
 要检查原始详情，切回 individual：
@@ -239,7 +245,7 @@ ctx.sessionManager.buildSessionContext()?.messages
 2. Aggregate 统计所有 built-in/custom/MCP/late tool，重复 streaming update 不重复计数。
 3. `×N` 是总调用次数，failed 单独计数；收起不显示逐条错误。
 4. Tools 最多显示 3 个 active/recent-done，done 替换和 settled 延迟无回弹。
-5. `Ctrl+O` 只显示有界错误和 per-tool last target，不泄露 raw output/diff/file summary。
+5. `Ctrl+O` 离开 Tools 账本，按原时间线恢复中途旁白和逐条调用概要，不泄露 raw output/diff/file summary。
 6. 不生成、保存或恢复任何 aggregate 文件变更统计。
 7. `Agent` 默认保留原 renderer但仍计数；任意配置 passthrough 同样处理。
 8. `ask_user_question` 交互正常，aggregate 隐藏完成结果；individual + reload 恢复答案。
@@ -247,5 +253,5 @@ ctx.sessionManager.buildSessionContext()?.messages
 10. 非 leader 成员真实零高度，无 Spacer、空 Box 或背景行。
 11. reload/resume/tree/compaction 后 counts、leader、failed 正确，瞬态 done 不恢复。
 12. 聚合不改写 Session call/result，不向模型上下文注入 Tools 数据。
-13. 纯 collapsed-thinking 占位归零，assistant 文本、错误和显式 reasoning 保留。
+13. 收起的 `Thinking...` 占位和中途旁白被隐藏；最终结论、错误和显式 reasoning 保留。
 14. HTML export 与 individual 历史 renderer 保持可用。

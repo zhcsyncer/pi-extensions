@@ -183,7 +183,8 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);
 	assert.match(layoutSummary, /successful rows stay done until replacement/);
 	assert.match(layoutSummary, /Collapsed errors stay as a failed count/);
-	assert.match(layoutSummary, /Ctrl\+O reveals bounded failure details, per-tool counts, and last targets/);
+	assert.match(layoutSummary, /restores mid-turn narration in place/);
+	assert.match(layoutSummary, /one target\/status summary per call/);
 	assert.match(layoutSummary, /Agent keeps its original renderer by default/);
 	assert.match(layoutSummary, /retained but inactive/);
 

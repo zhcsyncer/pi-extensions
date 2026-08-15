@@ -13,6 +13,7 @@ import {
 	patchAggregateToolExecutions,
 	registerAggregateProjectionEvents,
 	renderAggregateActivity,
+	renderAggregateMemberRow,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
 
@@ -288,26 +289,46 @@ test("rendered Tools header keeps failed first and treats every tool uniformly",
 	const rendered = renderAggregateActivity(view, 500, plainTheme()).join("\n");
 	assert.match(rendered, /^! Tools · 1 failed · read ×1 · edit ×1 · custom_probe ×1/m);
 	assert.doesNotMatch(rendered, /network exploded/);
-	assert.match(renderAggregateActivity(view, 500, plainTheme(), true).join("\n"), /network exploded/);
+	const failed = projection.getMember("custom-1");
+	assert.ok(failed);
+	assert.match(renderAggregateMemberRow(failed, 500, plainTheme()).join("\n"), /network exploded/);
 	assert.doesNotMatch(rendered, /files|Changes|\+\d|−\d/);
 });
 
-test("expanded Tools shows one bounded last-target summary per tool type and no raw output", () => {
+test("expanded tool rows leave the Tools ledger and show one summary per call", () => {
+	initTheme("dark", false);
 	const projection = createProjection();
-	projection.startUserGroup("user-expand");
-	projection.markStarted("read-1", "read", { path: "src/a.ts" });
-	projection.markComplete("read-1", { content: [{ type: "text", text: "RAW SECRET" }] }, false);
-	projection.markStarted("bash-1", "bash", { command: "pnpm test" });
-	projection.markComplete("bash-1", { content: [{ type: "text", text: "RAW OUTPUT" }] }, false);
-	projection.collapseRetainedDone();
-	const view = projection.getView("bash-1");
-	assert.ok(view);
-	const collapsed = renderAggregateActivity(view, 500, plainTheme(), false).join("\n");
-	assert.doesNotMatch(collapsed, /last:/);
-	const expanded = renderAggregateActivity(view, 500, plainTheme(), true).join("\n");
-	assert.match(expanded, /read ×1 · last: Read\(src\/a\.ts\)/);
-	assert.match(expanded, /bash ×1 · last: Bash\(pnpm test\)/);
-	assert.doesNotMatch(expanded, /RAW SECRET|RAW OUTPUT|files|\+\d|−\d/);
+	patchAggregateToolExecutions(projection);
+	try {
+		projection.startUserGroup("user-expand");
+		projection.markStarted("read-1", "read", { path: "src/a.ts" });
+		const read = createComponent("read", "read-1", { path: "src/a.ts" });
+		projection.markComplete("read-1", { content: [{ type: "text", text: "RAW SECRET" }] }, false);
+		read.updateResult({ content: [{ type: "text", text: "RAW SECRET" }], isError: false });
+		projection.markStarted("bash-1", "bash", { command: "pnpm test" });
+		const bash = createComponent("bash", "bash-1", { command: "pnpm test" });
+		projection.markComplete("bash-1", { content: [{ type: "text", text: "RAW OUTPUT" }] }, false);
+		bash.updateResult({ content: [{ type: "text", text: "RAW OUTPUT" }], isError: false });
+		projection.collapseRetainedDone();
+
+		const collapsedLeader = bash.render(120).join("\n");
+		assert.match(collapsedLeader, /Tools.*read ×1.*bash ×1/);
+		assert.deepEqual(read.render(120), []);
+
+		read.setExpanded(true);
+		bash.setExpanded(true);
+		const expandedRead = read.render(120);
+		const expandedBash = bash.render(120);
+		assert.match(expandedRead.join("\n"), /Tools.*read ×1.*bash ×1/);
+		assert.doesNotMatch(expandedRead.join("\n"), /│.*Tools/);
+		assert.doesNotMatch(expandedBash.join("\n"), /Tools.*read ×1.*bash ×1/);
+		assert.match(expandedRead.join("\n"), /│.*Read\(src\/a\.ts\)/);
+		assert.match(expandedBash.join("\n"), /└.*Bash\(pnpm test\)/);
+		assert.doesNotMatch(expandedRead.join("\n"), /RAW SECRET|files|\+\d|−\d/);
+		assert.doesNotMatch(expandedBash.join("\n"), /RAW OUTPUT|files|\+\d|−\d/);
+	} finally {
+		restoreAggregateToolExecutions();
+	}
 });
 
 test("prototype patch aggregates an arbitrary custom tool without changing its definition", () => {

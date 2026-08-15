@@ -5,6 +5,13 @@ import {
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
 import {
+	AggregateProjection,
+	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
+	patchAggregateToolExecutions,
+	restoreAggregateToolExecutions,
+} from "../src/aggregate-activity.ts";
+import {
+	isInterimAssistantNarration,
 	patchAggregateThinkingPlaceholders,
 	restoreAggregateThinkingPlaceholders,
 } from "../src/aggregate-thinking-placeholder.ts";
@@ -18,8 +25,8 @@ function assistant(content: unknown[], overrides: Record<string, unknown> = {}) 
 	};
 }
 
-function render(message: unknown, hideThinkingBlock: boolean): string[] {
-	const component = new AssistantMessageComponent(
+function createComponent(message: unknown, hideThinkingBlock: boolean): AssistantMessageComponent {
+	return new AssistantMessageComponent(
 		message as never,
 		hideThinkingBlock,
 		undefined,
@@ -27,10 +34,13 @@ function render(message: unknown, hideThinkingBlock: boolean): string[] {
 		0,
 		[],
 	);
-	return component.render(100);
 }
 
-test("aggregate hides only pure collapsed Thinking placeholders", () => {
+function render(message: unknown, hideThinkingBlock: boolean): string[] {
+	return createComponent(message, hideThinkingBlock).render(100);
+}
+
+test("aggregate strips collapsed Thinking placeholders but keeps final assistant text", () => {
 	initTheme("dark", false);
 	let aggregate = true;
 	patchAggregateThinkingPlaceholders(() => aggregate);
@@ -46,18 +56,19 @@ test("aggregate hides only pure collapsed Thinking placeholders", () => {
 		const withText = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
 			{ type: "text", text: "Visible answer" },
-		]), true).join("\n");
-		assert.match(withText, /Thinking\.\.\./);
+		], { stopReason: "stop" }), true).join("\n");
+		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
-		]), false).join("\n");
+		], { stopReason: "stop" }), false).join("\n");
 		assert.match(revealed, /reasoning/);
 
 		const error = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
 		], { stopReason: "error", errorMessage: "provider failed" }), true).join("\n");
+		assert.doesNotMatch(error, /Thinking\.\.\./);
 		assert.match(error, /provider failed/);
 
 		aggregate = false;
@@ -73,6 +84,67 @@ test("aggregate hides only pure collapsed Thinking placeholders", () => {
 		render(assistant([{ type: "thinking", thinking: "reasoning" }]), true).join("\n"),
 		/Thinking\.\.\./,
 	);
+});
+
+test("aggregate hides interim narration until Ctrl+O restores it in place", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-narration");
+		const message = assistant([
+			{ type: "thinking", thinking: "reasoning" },
+			{ type: "text", text: "先定位两边的设计与实现入口" },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-narration" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), true);
+		assert.deepEqual(component.render(100), []);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.match(expanded.join("\n"), /│.*✦.*先定位两边的设计与实现入口/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
+		assert.doesNotMatch(expanded.join("\n"), /Thinking\.\.\./);
+
+		expandable.setExpanded(false);
+		assert.deepEqual(component.render(100), []);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("final assistant conclusions stay unmarked and do not use a captured Pi theme", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	const theme = {
+		fgColors: new Map([["muted", "x"]]),
+		fg(this: { fgColors?: Map<string, string> }, color: string, text: string) {
+			if (!this.fgColors) {
+				throw new TypeError("Cannot read properties of undefined (reading 'fgColors')");
+			}
+			return `${color}:${text}`;
+		},
+	};
+	projection.setRenderTheme(theme);
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const rendered = render(assistant([
+			{ type: "text", text: "Visible answer" },
+		], { stopReason: "stop" }), true).join("\n");
+		assert.doesNotMatch(rendered, /✦/);
+		assert.match(rendered, /Visible answer/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
 });
 
 test("aggregate thinking patch preserves a later outer renderer wrapper", () => {
@@ -91,7 +163,7 @@ test("aggregate thinking patch preserves a later outer renderer wrapper", () => 
 		assert.equal(prototype.render, outer);
 		restoreAggregateThinkingPlaceholders();
 		assert.match(
-			render(assistant([{ type: "thinking", thinking: "reasoning" }]), true).join("\n"),
+			render(assistant([{ type: "thinking", thinking: "reasoning" }], { stopReason: "stop" }), true).join("\n"),
 			/Thinking\.\.\./,
 		);
 	} finally {

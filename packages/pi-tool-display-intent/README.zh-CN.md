@@ -145,7 +145,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 所有工具使用相同的聚合规则和确定性的主题颜色。Aggregate 刻意不推断或展示文件变更摘要：Bash、custom tool 或子 Agent 修改无法由父 transcript 完整测量。图片结果 fail-open 到原 renderer。`Agent` 默认也保留自身丰富的进度和结果 renderer，但仍计入 Tools；其他逃生工具可加入 `tools.passthrough`。
 
-Aggregate 始终保持有界。按 `Ctrl+O` 最多展开 20 条错误摘要，以及 20 条按工具类型汇总的 `count + last target`；不会展示组内 output、文件内容或 diff body。没有确定性 target 的通用工具只显示名称与计数。Pi 隐藏 reasoning block 时，纯 assistant `Thinking...` 占位行归零；assistant 文本、错误和显式展开的 reasoning 仍正常显示。
+收起时 aggregate 仍是一条 Tools 账本：错误只显示 `N failed`，最多保留 3 条运行中或刚完成的行，夹在工具之间的中途旁白默认隐藏；最终结论仍可见。按 `Ctrl+O` 后仍保留无边线的 Tools 汇总条，并在下方按原时间线展开，类似 Bash 结果的贯通 `│/└`：中途文字回到原来的位置，并以 `✦` 标记；每一条调用各自显示一行目标/状态概要。最后一行用 `└`，前面的行用 `│`。展开行仍不会泄露 output、文件内容或 diff body。Pi 隐藏 reasoning block 时，收起的 `Thinking...` 占位行会被剥掉；错误和显式展开的 reasoning 仍保留。
 
 聚合只改变交互渲染，不改写或追加 Session tool call/result。reload、resume、tree 导航和 compaction 会从当前 branch 重建投影。Custom tool 的执行期 UI 仍正常运行；其 transcript result 在 aggregate 中收起。切换到 `individual` 并 reload 后，原 renderer 和保存结果会恢复，例如已完成的 `ask_user_question` 问答会重新可见。
 

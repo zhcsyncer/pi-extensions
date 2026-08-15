@@ -3,7 +3,7 @@ import {
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { normalizeDisplaySummary } from "./display-summary.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 import { shortenPath } from "./render-utils.js";
@@ -32,7 +32,10 @@ export interface AggregateGroup {
 	groupId: string;
 	leaderToolCallId?: string;
 	members: AggregateMember[];
+	framedItemIds: string[];
 }
+
+export type AggregateFrameEdge = "start" | "continue" | "end" | "only";
 
 export interface AggregateToolSummary {
 	toolName: string;
@@ -80,6 +83,11 @@ interface PatchableToolExecution {
 	invalidate?: () => void;
 }
 
+interface FrameInvalidator {
+	id: string;
+	invalidate: () => void;
+}
+
 interface PatchableToolExecutionPrototype {
 	render(width: number): string[];
 	[AGGREGATE_TOOL_EXECUTION_PATCH_KEY]?: AggregateToolExecutionPatchState;
@@ -93,8 +101,9 @@ interface AggregateToolExecutionPatchState {
 
 const FAILED_SUMMARY_MAX_LENGTH = 200;
 const ACTIVE_ROW_LIMIT = 3;
-const EXPANDED_TOOL_ROW_LIMIT = 20;
-const EXPANDED_FAILURE_ROW_LIMIT = 20;
+const AGGREGATE_FRAME_CONTINUE = "  │ ";
+const AGGREGATE_FRAME_END = "  └ ";
+export const AGGREGATE_ASSISTANT_MARK = "✦";
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
 
@@ -130,7 +139,7 @@ function publicThemeFallback(): AggregateRenderTheme {
 			fg(color, text) {
 				if (color === "muted" || color === "dim") return markdown.quote(text);
 				if (color === "success") return markdown.codeBlock(text);
-				if (color === "warning" || color === "error") return markdown.heading(text);
+				if (color === "warning" || color === "error" || color === "accent") return markdown.heading(text);
 				if (color === "toolTitle") return markdown.code(text);
 				let hash = 0;
 				for (const character of color) hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
@@ -246,6 +255,33 @@ function toolCallsFromMessage(value: unknown): ToolCallRecord[] {
 	});
 }
 
+function messageHasVisibleText(value: unknown): boolean {
+	return messageContent(value).some((entry) => {
+		const content = toRecord(entry);
+		return content.type === "text" && typeof content.text === "string" && Boolean(content.text.trim());
+	});
+}
+
+function isInterimAssistantMessage(value: unknown): boolean {
+	const reason = toRecord(value).stopReason;
+	if (reason === "error" || reason === "aborted" || reason === "length" || reason === "stop") return false;
+	if (reason === "toolUse") return true;
+	if (toolCallsFromMessage(value).length > 0) return true;
+	return messageContent(value).some((entry) => {
+		const content = toRecord(entry);
+		return content.type === "thinking" && typeof content.thinking === "string" && Boolean(content.thinking.trim());
+	});
+}
+
+export function aggregateAssistantFrameId(message: unknown): string | undefined {
+	const firstToolId = toolCallsFromMessage(message)[0]?.id;
+	if (firstToolId) return `assistant-before:${firstToolId}`;
+	const record = toRecord(message);
+	if (typeof record.id === "string" && record.id.trim()) return `assistant:${record.id}`;
+	if (typeof record.timestamp === "number") return `assistant:${record.timestamp}`;
+	return undefined;
+}
+
 function collectVisibleToolCallIds(messages: unknown[] | undefined): Set<string> | undefined {
 	if (!Array.isArray(messages)) return undefined;
 	const ids = new Set<string>();
@@ -276,10 +312,22 @@ function assistantFailureSummary(message: unknown): string {
 	return normalizeDisplaySummary(record.errorMessage, FAILED_SUMMARY_MAX_LENGTH) ?? "Assistant turn failed.";
 }
 
+let activeAggregateProjection: AggregateProjection | undefined;
+
+export function getActiveAggregateProjection(): AggregateProjection | undefined {
+	return activeAggregateProjection;
+}
+
+export function resolveAggregateRenderTheme(): AggregateRenderTheme {
+	return activeAggregateProjection?.getRenderTheme() ?? publicThemeFallback();
+}
+
 export class AggregateProjection {
 	private readonly groups: AggregateGroup[] = [];
 	private readonly groupsById = new Map<string, AggregateGroup>();
 	private readonly membersById = new Map<string, AggregateMember>();
+	private readonly framedGroupById = new Map<string, string>();
+	private readonly frameInvalidators: FrameInvalidator[] = [];
 	private readonly invalidators = new Map<string, () => void>();
 	private sourceOrder = 0;
 	private completionOrder = 0;
@@ -314,6 +362,80 @@ export class AggregateProjection {
 		return this.membersById.get(toolCallId);
 	}
 
+	getFrameEdge(itemId: string): AggregateFrameEdge | undefined {
+		const items = this.getFramedItemIds(itemId);
+		const index = items.indexOf(itemId);
+		if (index < 0) return undefined;
+		if (items.length === 1) return "only";
+		if (index === 0) return "start";
+		if (index === items.length - 1) return "end";
+		return "continue";
+	}
+
+	getFramedItemIds(itemId: string): string[] {
+		const groupId = this.framedGroupById.get(itemId);
+		return groupId ? [...(this.groupsById.get(groupId)?.framedItemIds ?? [])] : [];
+	}
+
+	isFrameStart(itemId: string): boolean {
+		const edge = this.getFrameEdge(itemId);
+		return edge === "start" || edge === "only";
+	}
+
+	getViewForGroup(itemId: string): AggregateActivityView | undefined {
+		const groupId = this.framedGroupById.get(itemId) ?? this.membersById.get(itemId)?.groupId;
+		if (!groupId) return undefined;
+		const group = this.groupsById.get(groupId);
+		if (!group?.leaderToolCallId) return undefined;
+		return this.getView(group.leaderToolCallId);
+	}
+
+	private groupIdForFrameItem(itemId: string, beforeId?: string): string | undefined {
+		if (beforeId) {
+			const fromTool = this.membersById.get(beforeId)?.groupId ?? this.framedGroupById.get(beforeId);
+			if (fromTool) return fromTool;
+		}
+		const existing = this.framedGroupById.get(itemId);
+		if (existing) return existing;
+		const prefix = "assistant-before:";
+		if (itemId.startsWith(prefix)) {
+			const toolId = itemId.slice(prefix.length);
+			return this.membersById.get(toolId)?.groupId ?? this.framedGroupById.get(toolId);
+		}
+		return this.activeGroupId;
+	}
+
+	trackFramedItem(itemId: string, groupId?: string, beforeId?: string): void {
+		const resolvedGroupId = groupId ?? this.groupIdForFrameItem(itemId, beforeId);
+		if (!resolvedGroupId || !itemId) return;
+		const existingGroupId = this.framedGroupById.get(itemId);
+		if (existingGroupId === resolvedGroupId) return;
+		if (existingGroupId) this.untrackFramedItem(itemId);
+		const group = this.ensureGroup(resolvedGroupId);
+		const previousLast = group.framedItemIds[group.framedItemIds.length - 1];
+		const beforeIndex = beforeId ? group.framedItemIds.indexOf(beforeId) : -1;
+		if (beforeIndex >= 0) group.framedItemIds.splice(beforeIndex, 0, itemId);
+		else group.framedItemIds.push(itemId);
+		this.framedGroupById.set(itemId, resolvedGroupId);
+		this.invalidateIds(previousLast, itemId);
+	}
+
+	untrackFramedItem(itemId: string): void {
+		const groupId = this.framedGroupById.get(itemId);
+		if (!groupId) return;
+		const group = this.groupsById.get(groupId);
+		const previousLast = group?.framedItemIds[group.framedItemIds.length - 1];
+		if (group) group.framedItemIds = group.framedItemIds.filter((id) => id !== itemId);
+		this.framedGroupById.delete(itemId);
+		this.invalidateIds(previousLast, group?.framedItemIds[group.framedItemIds.length - 1]);
+	}
+
+	connectFrameRenderer(itemId: string, invalidate: (() => void) | undefined): void {
+		if (!invalidate || !itemId) return;
+		if (this.frameInvalidators.some((entry) => entry.id === itemId && entry.invalidate === invalidate)) return;
+		this.frameInvalidators.push({ id: itemId, invalidate });
+	}
+
 	getConnectedRendererCount(): number {
 		return this.invalidators.size;
 	}
@@ -346,7 +468,12 @@ export class AggregateProjection {
 
 	ingestAssistantMessage(message: unknown): void {
 		if (messageRole(message) !== "assistant") return;
-		for (const call of toolCallsFromMessage(message)) {
+		const calls = toolCallsFromMessage(message);
+		if (isInterimAssistantMessage(message) && messageHasVisibleText(message)) {
+			const frameId = aggregateAssistantFrameId(message);
+			if (frameId) this.trackFramedItem(frameId, this.activeGroupId, calls[0]?.id);
+		}
+		for (const call of calls) {
 			this.addOrUpdateMember(call.id, call.name, call.args, true);
 		}
 		if (isAssistantTerminalFailure(message)) {
@@ -449,6 +576,8 @@ export class AggregateProjection {
 		this.groups.length = 0;
 		this.groupsById.clear();
 		this.membersById.clear();
+		this.framedGroupById.clear();
+		this.frameInvalidators.length = 0;
 		this.sourceOrder = 0;
 		this.completionOrder = 0;
 		this.activeGroupId = undefined;
@@ -464,14 +593,13 @@ export class AggregateProjection {
 				continue;
 			}
 			if (role === "assistant") {
+				this.ingestAssistantMessage(message);
 				for (const call of toolCallsFromMessage(message)) {
-					this.addOrUpdateMember(call.id, call.name, call.args, visibleIds?.has(call.id) ?? true);
-				}
-				if (isAssistantTerminalFailure(message)) {
-					const summary = assistantFailureSummary(message);
-					for (const call of toolCallsFromMessage(message)) {
-						if (this.membersById.has(call.id)) this.markFailed(call.id, summary);
-					}
+					const member = this.membersById.get(call.id);
+					if (!member) continue;
+					const visible = visibleIds?.has(call.id) ?? true;
+					member.visible = visible;
+					if (!visible) this.untrackFramedItem(call.id);
 				}
 				continue;
 			}
@@ -558,7 +686,7 @@ export class AggregateProjection {
 	private ensureGroup(groupId: string): AggregateGroup {
 		let group = this.groupsById.get(groupId);
 		if (!group) {
-			group = { groupId, members: [] };
+			group = { groupId, members: [], framedItemIds: [] };
 			this.groups.push(group);
 			this.groupsById.set(groupId, group);
 		}
@@ -600,7 +728,10 @@ export class AggregateProjection {
 		};
 		group.members.push(member);
 		this.membersById.set(toolCallId, member);
-		if (visible && !this.isPassthrough(toolName)) group.leaderToolCallId = toolCallId;
+		if (visible && !this.isPassthrough(toolName)) {
+			this.trackFramedItem(toolCallId, group.groupId);
+			group.leaderToolCallId = toolCallId;
+		}
 		this.invalidateIds(previousLeader, group.leaderToolCallId);
 		return member;
 	}
@@ -645,11 +776,21 @@ export class AggregateProjection {
 	}
 
 	private invalidateIds(...ids: Array<string | undefined>): void {
-		for (const id of new Set(ids.filter((entry): entry is string => Boolean(entry)))) {
+		const requested = new Set(ids.filter((entry): entry is string => Boolean(entry)));
+		if (requested.size === 0) return;
+		for (const id of requested) {
 			try {
 				this.invalidators.get(id)?.();
 			} catch {
 				// Rendering must remain fail-open if a stale component rejects invalidation.
+			}
+		}
+		for (const entry of this.frameInvalidators) {
+			if (!requested.has(entry.id)) continue;
+			try {
+				entry.invalidate();
+			} catch {
+				// A stale transcript component may already be disposed.
 			}
 		}
 	}
@@ -665,11 +806,73 @@ export class AggregateProjection {
 	}
 }
 
+function memberStatusChrome(
+	member: Pick<AggregateMember, "state" | "errorSummary">,
+	theme: AggregateRenderTheme,
+): { marker: string; suffix: string } {
+	if (member.state === "failed") {
+		const detail = member.errorSummary ?? "Tool failed.";
+		return {
+			marker: theme.fg("error", "!"),
+			suffix: theme.fg("error", `: ${detail}`),
+		};
+	}
+	if (member.state === "success") {
+		return {
+			marker: theme.fg("success", "✓"),
+			suffix: "",
+		};
+	}
+	return {
+		marker: theme.fg("warning", "◐"),
+		suffix: "",
+	};
+}
+
+export function framePrefixForEdge(edge: AggregateFrameEdge): string {
+	return edge === "end" || edge === "only" ? AGGREGATE_FRAME_END : AGGREGATE_FRAME_CONTINUE;
+}
+
+export function applyAggregateGroupFrame(
+	lines: readonly string[],
+	width: number,
+	theme: AggregateRenderTheme,
+	edge: AggregateFrameEdge,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || lines.length === 0) return [];
+	const lastIndex = lines.length - 1;
+	return lines.map((line, index) => {
+		const prefixPlain = index === lastIndex ? framePrefixForEdge(edge) : AGGREGATE_FRAME_CONTINUE;
+		const prefix = theme.fg("muted", prefixPlain);
+		const contentWidth = Math.max(0, safeWidth - visibleWidth(prefixPlain));
+		return `${prefix}${truncateToWidth(line, contentWidth, "…")}`;
+	});
+}
+
+export function padAggregateBlock(lines: readonly string[]): string[] {
+	return lines.length > 0 ? ["", ...lines, ""] : [];
+}
+
+export function renderAggregateMemberRow(
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	width: number,
+	theme: AggregateRenderTheme,
+	edge: AggregateFrameEdge = "only",
+): string[] {
+	const { marker, suffix } = memberStatusChrome(member, theme);
+	return applyAggregateGroupFrame(
+		[`${marker} ${formatColoredTarget(member, theme)}${suffix}`],
+		width,
+		theme,
+		edge,
+	);
+}
+
 export function renderAggregateActivity(
 	view: AggregateActivityView,
 	width: number,
 	theme: AggregateRenderTheme,
-	expanded = false,
 ): string[] {
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 	if (safeWidth === 0) return [];
@@ -708,36 +911,6 @@ export function renderAggregateActivity(
 			truncateToWidth(theme.fg("muted", `  … ${view.activeOverflow} more active`), safeWidth, "…"),
 		);
 	}
-	if (expanded) {
-		for (const failed of view.failed.slice(-EXPANDED_FAILURE_ROW_LIMIT)) {
-			lines.push(
-				truncateToWidth(
-					`  ${theme.fg("error", "!")} ${formatColoredTarget(failed, theme)}${theme.fg("error", `: ${failed.errorSummary ?? "Tool failed."}`)}`,
-					safeWidth,
-					"…",
-				),
-			);
-		}
-		const hiddenFailureCount = view.failed.length - EXPANDED_FAILURE_ROW_LIMIT;
-		if (hiddenFailureCount > 0) {
-			lines.push(
-				truncateToWidth(theme.fg("muted", `  … ${hiddenFailureCount} earlier failures`), safeWidth, "…"),
-			);
-		}
-		for (const summary of view.toolSummaries.slice(0, EXPANDED_TOOL_ROW_LIMIT)) {
-			const count = theme.fg(toolColor(summary.toolName), `${summary.toolName} ×${summary.count}`);
-			const target = summary.lastTarget === summary.toolName
-				? ""
-				: `${theme.fg("muted", " · last: ")}${theme.fg(toolColor(summary.toolName), summary.lastTarget)}`;
-			lines.push(truncateToWidth(`  ${count}${target}`, safeWidth, "…"));
-		}
-		const hiddenToolCount = view.toolSummaries.length - EXPANDED_TOOL_ROW_LIMIT;
-		if (hiddenToolCount > 0) {
-			lines.push(
-				truncateToWidth(theme.fg("muted", `  … ${hiddenToolCount} more tool types`), safeWidth, "…"),
-			);
-		}
-	}
 	return lines;
 }
 
@@ -757,6 +930,7 @@ function createComponentInvalidator(component: PatchableToolExecution): () => vo
 }
 
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
+	activeAggregateProjection = projection;
 	const prototype = getToolExecutionPrototype();
 	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (existing) {
@@ -800,14 +974,23 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		if (member?.state === "needsAttention") return state.originalRender.call(this, width);
 		if (!member) return [];
 		const view = activeProjection.getView(toolCallId);
+		if (this.expanded === true) {
+			const detail = renderAggregateMemberRow(
+				member,
+				width,
+				activeProjection.getRenderTheme(),
+				activeProjection.getFrameEdge(toolCallId) ?? "only",
+			);
+			if (activeProjection.isFrameStart(toolCallId)) {
+				const headerView = activeProjection.getViewForGroup(toolCallId);
+				if (headerView) {
+					return [...padAggregateBlock(renderAggregateActivity(headerView, width, activeProjection.getRenderTheme())), ...detail];
+				}
+			}
+			return detail;
+		}
 		if (!view) return [];
-		const lines = renderAggregateActivity(
-			view,
-			width,
-			activeProjection.getRenderTheme(),
-			this.expanded === true,
-		);
-		return lines.length > 0 ? ["", ...lines] : [];
+		return padAggregateBlock(renderAggregateActivity(view, width, activeProjection.getRenderTheme()));
 	};
 	Object.defineProperty(prototype, AGGREGATE_TOOL_EXECUTION_PATCH_KEY, {
 		configurable: true,
@@ -817,6 +1000,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 }
 
 export function restoreAggregateToolExecutions(): void {
+	activeAggregateProjection = undefined;
 	const prototype = getToolExecutionPrototype();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (!state) return;

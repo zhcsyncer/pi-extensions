@@ -107,7 +107,7 @@ export function buildInspectorSettings(
 			inspectorSummary: config.toolCallLayout === "aggregate"
 				? [
 					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
-					"Collapsed errors stay as a failed count; Ctrl+O reveals bounded failure details, per-tool counts, and last targets.",
+					"Collapsed errors stay as a failed count. Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
 					"Agent keeps its original renderer by default. Individual-tool settings are retained but inactive.",
 				]
 				: [
@@ -116,7 +116,7 @@ export function buildInspectorSettings(
 				],
 			inspectorOptions: [
 				"individual — preserve the complete existing per-tool display (default)",
-				"aggregate — summarize all tools; Ctrl+O shows per-type last targets",
+				"aggregate — summarize tools and hide mid-turn narration; Ctrl+O restores the timeline",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing the layout updates tool schemas and renderer shells after /reload and redraws the whole current branch.",

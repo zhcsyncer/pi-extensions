@@ -36,7 +36,7 @@
         "layout": {
           "enum": ["individual", "aggregate"],
           "default": "individual",
-          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn."
+          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn. Aggregate stays collapsed as a Tools ledger and hides mid-turn narration; Ctrl+O restores the original timeline of notes plus one target/status summary per call."
         },
         "style": {
           "enum": ["compact", "claude"],
