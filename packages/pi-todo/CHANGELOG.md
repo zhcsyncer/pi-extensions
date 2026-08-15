@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Minor Changes
+
+- Bound Todo to the current execution cycle: mutation-only V2 replay checkpoints, automatic rollover without reusing IDs, default lists focused on active work, and a compact active-state summary on each agent run.
+- Move destructive reset out of the model tool and into the confirmed `/todo` TUI flow, with active-work warnings, branch-scoped persistence, legacy V1 replay compatibility, and immediate widget refresh.
+- Reject singleton Todo cycles: an empty or terminal cycle must start with an atomic multi-item batch. One-milestone work runs directly without filler tasks.
+- Remove dependency-graph fields, validation, deletion guards, and UI from the current contract. Legacy checkpoints remain replay-compatible while retired dependency data is discarded.
+
 ## 0.4.0
 
 ### Minor Changes

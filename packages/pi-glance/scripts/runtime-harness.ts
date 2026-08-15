@@ -83,6 +83,7 @@ export interface RuntimeHarnessOptions {
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
 	workingIndicator?: GlanceRuntimeAdapters["workingIndicator"];
+	reviewWorkingTree?: GlanceRuntimeAdapters["reviewWorkingTree"];
 }
 
 export interface RuntimeHarness {
@@ -127,6 +128,15 @@ export function runtimeGitSnapshot(branch = "main"): GitSnapshot {
 		conflicts: 0,
 		dirty: true,
 		status: "dirty",
+		worktree: {
+			staged: [],
+			unstaged: ["changed.ts"],
+			untracked: [],
+			conflicts: [],
+			files: 1,
+			additions: 4,
+			deletions: 2,
+		},
 		updatedAt: 1000,
 	};
 }
@@ -257,6 +267,10 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
 			setWorkingMessage: (message?: string) => workingMessages.push(message),
 			setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => workingIndicators.push(options),
+			setWidget: (_key: string, factory: unknown) => {
+				surfaceCalls.push(factory ? "setWidget:install" : "setWidget:clear");
+				if (typeof factory === "function") (factory as (tui: typeof fakeTui, theme: typeof fakeTheme) => unknown)(fakeTui, fakeTheme);
+			},
 			setFooter: (factory: unknown) => {
 				surfaceCalls.push(factory ? "setFooter:install" : "setFooter:clear");
 				if (factory) {
@@ -371,6 +385,7 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 			return result;
 		},
 		createGitRefresher: options.git?.create,
+		reviewWorkingTree: options.reviewWorkingTree,
 		workingIndicator:
 			options.workingIndicator ??
 			{

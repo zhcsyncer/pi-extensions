@@ -23,12 +23,28 @@ describe("registerTodoTool — guidance overrides", () => {
 		expect(tool.promptSnippet).toBe(DEFAULT_PROMPT_SNIPPET);
 		const guidelines = tool.promptGuidelines as string[];
 		expect(guidelines).toHaveLength(DEFAULT_GUIDELINES_LENGTH);
-		expect(guidelines.join("\n")).toContain("single-step");
-		expect(guidelines.join("\n")).toContain("batch");
-		expect(guidelines.join("\n")).toContain("Each operation sees prior results");
-		expect(guidelines.join("\n")).toContain("create it directly with status in_progress");
-		expect(guidelines.join("\n")).toContain("pending task may move directly to completed");
-		expect(guidelines.join("\n")).toContain("independently valuable milestones");
+		const guidance = guidelines.join("\n");
+		expect(guidance).toContain("at least two independently valuable milestones");
+		expect(guidance).toContain("Never start a one-task Todo cycle");
+		expect(guidance).toContain("regardless of risk, duration, importance");
+		expect(guidance).toContain("never split a tightly coupled edit-test loop or invent filler");
+		expect(guidance).toContain("Runtime rejects a top-level create or a one-create batch");
+		expect(guidance).toContain("Use top-level create only to append a newly discovered milestone");
+		expect(guidance).toContain("only one unfinished or visible task");
+		expect(guidance).not.toContain("single-step, low-risk");
+		expect(guidance).toContain("intended execution order");
+		expect(guidance).toContain("Each batch operation sees prior results");
+		expect(guidance).toContain("atomically re-queue the current task");
+		expect(guidance).toContain("resume the original task");
+		expect(guidance).toContain("pending task may move directly to completed");
+		expect(guidance).toContain("only pending and in_progress");
+		expect(guidance).toContain("reports hidden completed tasks");
+		expect(guidance).toContain("start the next cycle with the required multi-create batch");
+		expect(guidance).toContain("Previous-cycle tasks leave live state");
+		expect(guidance).toContain("Current Todo state update");
+		expect(guidance).toContain("User-confirmed reset");
+		expect(guidance).not.toContain("clear");
+		expect(guidance).not.toContain("blockedBy");
 	});
 
 	it("uses built-in defaults when config has no guidance field", () => {

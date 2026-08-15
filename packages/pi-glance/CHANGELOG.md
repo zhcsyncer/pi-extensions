@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-glance
 
+## Unreleased
+
+### Minor Changes
+
+- Add a theme-aware Git Working Tree summary that defaults into the Git status line, with an optional bottom-right border placement, tracked diff statistics, event-driven refresh with safe polling fallback, and `/diff` terminal handoff to revdiff with annotation round-tripping into the editor.
+- Keep the working-indicator peak spinner frame on a stable one-column `*` so `Brewing…` no longer shifts right on the old ambiguous `✽` dwell.
+
 ## 0.5.0
 
 ### Minor Changes

@@ -54,7 +54,6 @@
     "state/state-reducer.ts",
     "state/state.ts",
     "state/store.ts",
-    "state/task-graph.ts",
     "tool/response-envelope.ts",
     "tool/types.ts",
     "view/format.ts",

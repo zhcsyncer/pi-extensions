@@ -34,15 +34,17 @@ pi --no-extensions -e ./packages/pi-glance
 
 ```text
 /glance
+/diff
 ```
 
-该命令会打开配置面板和实时输入界面预览。
+`/glance` 会打开配置面板和实时输入界面预览。`/diff` 会把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅当前未提交 Working Tree；annotations 只回填到 Pi 编辑器，等待你确认或修改，不会自动发送给 Agent。
 
 ## 你会看到什么
 
 - **圆角编辑器**：可配置最小 2 / 3 / 4 行和顶部 0 / 1 / 2 行间距，并保留 Pi 原生自动补全、粘贴和滚动能力。
 - **工作区标题**：展示目录名，或安全缩短后的 `~/...` 路径。
 - **顶部状态**：Git、费用、Reply speed、context、可选 tokens 和模型。
+- **Working Tree 概要**：按唯一当前路径统计文件数，并显示 tracked `+N −N`；默认并进顶栏 Git，也可钉在底边右侧。
 - **可组合 Footer**：只渲染其他扩展通过 `ctx.ui.setStatus()` 发布的状态，不再将其全部隐藏。
 - **固定省略 Pi 状态行**：不再重建被 Glance 输入界面替代的两行 workspace/usage/context/model 信息，也不提供启用开关。
 - **右下角详情**：固定启用，仅展示可选的 context 进度条和高亮自动压缩标记。
@@ -54,6 +56,8 @@ pi --no-extensions -e ./packages/pi-glance
 
 - 普通终端字体默认使用 `plain` 图标；`nerd` 图标需要 Nerd Font 或 Symbols Nerd Font fallback。
 - 其他扩展的 `ctx.ui.setStatus()` 状态默认保留在输入框下方。
+- 新安装默认把 Working Tree 计数放进顶栏 Git，例如 `main * Δ6 +123 −99`。进入 `/glance` → **Git** → `Working tree` 可在 `status`（默认）和 `border right` 之间切换。
+- 文件数覆盖 staged、unstaged、conflict、untracked，并按当前路径去重。`+N −N` 使用 tracked Working Tree 相对 `HEAD` 的标准统计；binary、失败或超时时省略无法可靠计算的统计，轮询不会读取 untracked 文件内容。
 - 聚焦输入框的普通边框使用所选 Color source，不再跟随 thinking level。Bash 是唯一动态例外：`!` 使用该颜色来源的 Bash 色并显示 `Bash`，`!!` 显示 `Bash · no context`。
 - 长输入最大高度、内部滚动、`↑/↓ N more`、自动补全和大段粘贴 marker 都继续使用 Pi 原生行为。
 - Reply speed 默认启用：`? tok/s` 表示未知，`~42 tok/s` 表示当前 agent run 的临时值，`42 tok/s` 表示 `agent_end` 后的最终值。
@@ -93,6 +97,9 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
   "workingIndicator": {
     "enabled": true
   },
+  "git": {
+    "worktreeSummary": "status"
+  },
   "colorSource": "pi",
   "theme": {
     "light": "light",
@@ -105,11 +112,11 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
 
 选择 `Glance palette` 时，普通边框、segments、context 进度和 working indicator 都使用当前 light/dark 内置配色；Bash 使用该 palette 的 warning 色。当前 Pi theme 不可用时也以它作为 fallback。22 套配色包括 Light/Dark、Catppuccin、Nord、Tokyo Night、Gruvbox、Solarized、Rosé Pine、One、Kanagawa、Everforest 和 High Contrast 变体。
 
-迁移保持保守：schema 10 及更早配置若缺少 `colorSource`，会使用 `colorSource: "glance"`，保留原有视觉；显式配置的新字段会保留。旧字符串主题仍会迁移到相同的 light/dark 槽。
+迁移保持保守：schema 14 及更早的 above/left 档会变成 `git.worktreeSummary: "status"`；schema 10 及更早配置若缺少 `colorSource`，会使用 `colorSource: "glance"`，保留原有视觉；显式配置的新字段会保留。旧字符串主题仍会迁移到相同的 light/dark 槽。
 
 ## Segment 详情
 
-- **Git**：dirty、冲突、ahead/behind、SHA 和轮询。
+- **Git**：dirty、冲突、ahead/behind、SHA、Working Tree 计数（顶栏或底边右侧）和轮询。
 - **Cost**：累计费用，可隐藏零费用。
 - **Reply speed**：output tokens / wall time，支持自动、1 位或 0 位小数。
 - **Context**：百分比 / tokens 文本、可选右下角进度条（开启后文本跟随到底部且始终含百分比），以及独立 track 或底边样式、三分之一或全部剩余宽度。
@@ -126,8 +133,9 @@ permission strict  recap ready  3 tasks pending
 
 Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有配置开关可以恢复。
 
-输入框右下角详情固定启用，没有总开关，并且只包含：
+输入框右下角详情固定启用，没有总开关，并且可以包含：
 
+- **Working Tree**：`status`（默认）把计数放进顶栏 Git。`border-right` 把同一份响应式概要钉在底边最右侧。候选依次降级为 `Δ 6 files · +123 −99` → `Δ 6 · +123 −99` → `Δ 6`；冲突优先保留，clean 在窄屏最先隐藏。`border-right` 与 context `remaining` 同时使用时，Git 固定在最右侧，context progress 使用左侧剩余空间，并随着占用增长向左延伸。
 - **Context progress**：在 `/glance` → **Context** 中打开 `Progress bar`。Context 文本会离开顶栏，跟随到底部进度旁；标签始终包含百分比，`Text` 仍可附加 tokens（`percent / tokens`）。`Progress style: track` 保留独立的 `╶───────────╴ 23%`；`Progress style: border` 直接利用输入框底边，未用部分保持细线 `─`，已用部分变为粗线 `━`，并使用 `╼` 连接。`Progress width` 可选择进度与标签合计占内部宽度 `one third`，或使用底边全部 `remaining` 空间。百分比保持普通文本色，底部不显示 context 图标；`nerd` 文本模式仍使用 `󰍛`。
 - **Context risk**：低于 70% 时已用部分使用 context 色，70%（含）到 85%（不含）使用 warning，85% 及以上使用 error。顶部 context 文本和两种底部进度样式共用这些固定阈值；填充色和未填充边框都来自当前 Color source，未知进度使用 dim 色。
 - **Auto compact**：Pi 自动压缩开启时显示。`plain` 模式高亮 `auto`，`nerd` 模式高亮 `󰁄 auto`；可在 **Bottom details** 中单独隐藏。该状态反映 Pi 合并后的全局/项目设置，项目设置仅在项目受信任时读取。
@@ -148,7 +156,7 @@ Pi 原有的两行 workspace/usage/context/model 信息不再重建，也没有�
 }
 ```
 
-配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 13；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
+配置保存在 `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json`。当前 schema 为版本 15；旧路径与旧 schema 会自动迁移升级，无法映射的字段会被丢弃并提示 warning，格式损坏的文件会原样保留。Pi Header 始终由 Pi 原生负责，同时继续丢弃已废弃的 Footer 和详情开关。
 
 ## 顶边框优先级
 
@@ -168,15 +176,27 @@ Bash 标签（`Bash` / `Bash · no context`）和编辑器的 `↑ N more` 滚�
 
 Glance 不会在标题中渲染完整绝对路径。Home 路径缩短为 `~/...`，其他路径只保留安全尾部。
 
-## Git 状态
+## Git 状态与 Working Tree review
 
-Git 信息异步采集并缓存，渲染阶段不执行 IO：
+Git 信息异步采集并缓存，渲染阶段不执行 IO。状态使用 NUL 分隔的稳定 porcelain v2 输出，tracked 行统计独立使用 Working Tree 相对 `HEAD` 的 numstat：
 
 ```bash
-git --no-optional-locks status --porcelain=v2 --branch --show-stash
+git --no-optional-locks status --porcelain=v2 --branch --show-stash -z
 ```
 
-可在 `/glance` → **Git** 中配置 dirty、ahead/behind、SHA 和轮询间隔。
+可在 `/glance` → **Git** 中配置：
+
+- `Dirty marker`：普通 dirty marker 的显示；冲突始终保留。
+- `Ahead / behind`：上游 ahead/behind 计数。
+- `SHA`：`off`、`detached`、`always`。
+- `Working tree`：`status`（默认）或 `border right`。
+- `Polling`：`5s`、`15s`（默认）、`30s`、`60s`。
+
+`status` 只在 dirty/conflict 时把唯一文件数和 tracked `+N −N` 并进现有 Git segment，例如 `main * Δ6 +123 −99`。clean 仓库仍然只显示分支名。`border right` 把同一份紧凑概要移到底边右侧，而不是在输入框外再占一行。
+
+刷新以事件驱动为主：session 启动和 cwd 变化立即刷新；edit/write/bash 与未知自定义工具完成后使用 250ms trailing debounce；明确只读工具跳过；`agent_settled` 再校准。兜底轮询默认 15 秒，禁止重叠并在失败/慢场景安全退避；不会安装递归文件 watcher。
+
+`/diff` 会直接在仓库 cwd 运行 revdiff 默认的 uncommitted review。Glance 先停止 Pi TUI、完成 terminal handoff，再启动 TUI；退出、取消和错误路径都会清理临时 annotations 并立即刷新概要。有 annotations 时只回填编辑器供用户确认，不自动发送给 Agent。缺少 revdiff 时，仅 `/diff` 显示安装提示（`brew install umputun/apps/revdiff` 或设置 `REVDIFF_BIN`），不会禁用 Glance 或概要；非 TUI 模式会安全拒绝 terminal handoff。
 
 ## 设计
 

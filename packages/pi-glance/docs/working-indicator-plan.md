@@ -73,7 +73,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 ✢ Brewing…
 ✶ Brewing… (thinking with high effort · ↓ ~42 tokens · 8s)
 ✻ Brewing… (↓ ~127 tokens · 12s)
-✽ Brewing… (running bash · ↓ 184 tokens · 18s)
+* Brewing… (running bash · ↓ 184 tokens · 18s)
 ✢ Brewing… (requesting · ↓ 184 tokens · 19m 15s)
 ```
 
@@ -161,7 +161,7 @@ type WorkingPhase =
 
 ### 6.1 Spinner
 
-基础 glyph 为 `· → ✢ → ✱ → ✶ → ✻ → ✽` 往返；安装到 Pi 前重复靠近两端的 frame，形成约 2 秒一轮的 eased 节奏与端点停留。
+基础 glyph 为 `· → ✢ → ✱ → ✶ → ✻ → *` 往返；峰值帧沿用 Claude Code 在 Ghostty 上的替换（`✽` → `*`），避免 Ambiguous 宽度把后面的文案挤开。安装到 Pi 前重复靠近两端的 frame，形成约 2 秒一轮的 eased 节奏与端点停留。
 
 - 每个 frame 必须恰好一列；使用 `visibleWidth()` 检查，异常 glyph 退化为 `*`。
 - `intervalMs` 保持约 120ms；缓动由预计算 frame 序列完成，不增加第二个 timer。

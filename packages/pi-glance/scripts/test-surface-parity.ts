@@ -803,12 +803,14 @@ for (const topMarginRows of [0, 1, 2] as const) {
 			const shortText = "short row";
 			const longText = "Ask pi to improve the input surface with a long prompt that must be clipped by the row planner";
 			const contentLines = [longText, shortText];
+			const state = dirtyState();
 			const expectedPreviewLines = Math.max(minContentRows, contentLines.length) + topMarginRows + 2;
-			const previewFocused = previewFrame(dirtyState(), config, width, contentLines, true);
-			const previewUnfocused = previewFrame(dirtyState(), config, width, contentLines, false);
-			const liveShort = liveFrame(dirtyState(), config, width, true, shortText);
-			const liveLong = liveFrame(dirtyState(), config, width, true, `${longText}\n${shortText}`);
-			const firstContentIndex = topMarginRows + 1;
+			const previewFocused = previewFrame(state, config, width, contentLines, true);
+			const previewUnfocused = previewFrame(state, config, width, contentLines, false);
+			const liveShort = liveFrame(state, config, width, true, shortText);
+			const liveLong = liveFrame(state, config, width, true, `${longText}\n${shortText}`);
+			const topBorderAt = topMarginRows;
+			const firstContentIndex = topBorderAt + 1;
 
 			assert.equal(previewFocused.length, expectedPreviewLines, `focused preview frame line count honors margin ${topMarginRows} and minRows ${minContentRows}`);
 			assert.equal(previewUnfocused.length, expectedPreviewLines, `unfocused preview frame line count honors margin ${topMarginRows} and minRows ${minContentRows}`);
@@ -818,8 +820,8 @@ for (const topMarginRows of [0, 1, 2] as const) {
 			assertTopMargin(previewUnfocused, topMarginRows, "unfocused preview", width);
 			assertTopMargin(liveShort, topMarginRows, "live short", width);
 			assertTopMargin(liveLong, topMarginRows, "live long", width);
-			assert.ok(previewFocused[topMarginRows]?.startsWith("╭"), `focused preview top border follows configured margin at width ${width}`);
-			assert.ok(liveShort[topMarginRows]?.startsWith("╭"), `live top border follows configured margin at width ${width}`);
+			assert.ok(previewFocused[topBorderAt]?.startsWith("╭"), `focused preview top border follows configured margin at width ${width}`);
+			assert.ok(liveShort[topBorderAt]?.startsWith("╭"), `live top border follows configured margin at width ${width}`);
 			assert.ok(previewFocused[firstContentIndex]?.includes("› "), `focused preview first row keeps dim prefix at width ${width}`);
 			assert.ok(!(previewUnfocused[firstContentIndex] ?? "").includes("› "), `unfocused preview first row omits focus prefix at width ${width}`);
 			assert.ok(previewUnfocused[firstContentIndex]?.startsWith("│  "), `unfocused preview first row keeps two-column plain prefix at width ${width}`);

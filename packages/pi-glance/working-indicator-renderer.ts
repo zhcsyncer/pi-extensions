@@ -2,7 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ResolvedGlanceStyles } from "./theme-adapter.js";
 import { isWorkingStalled, type WorkingIndicatorSnapshot, workingOutputTokens } from "./working-indicator-state.js";
 
-export const WORKING_SPINNER_GLYPHS = ["·", "·", "✢", "✢", "✱", "✶", "✻", "✽", "✽", "✽", "✽", "✻", "✶", "✱", "✢", "✢", "·"] as const;
+export const WORKING_SPINNER_GLYPHS = ["·", "·", "✢", "✢", "✱", "✶", "✻", "*", "*", "*", "*", "✻", "✶", "✱", "✢", "✢", "·"] as const;
 export const WORKING_SPINNER_INTERVAL_MS = 120;
 
 const SHIMMER_EDGE_TRAVEL_COLUMNS = 10;

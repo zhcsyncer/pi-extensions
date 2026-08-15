@@ -1,8 +1,8 @@
-import { GIT_SHA_MODE_VALUES } from "./config-options.js";
+import { GIT_SHA_MODE_VALUES, WORKTREE_SUMMARY_MODE_VALUES } from "./config-options.js";
 import type { SegmentFeature } from "./segment-feature.js";
 import type { GlanceConfig, SegmentData, SegmentRenderContext } from "./types.js";
 
-const POLL_INTERVALS = [2000, 5000, 10000, 30000] as const;
+const POLL_INTERVALS = [5000, 15000, 30000, 60000] as const;
 
 function nextIn<T extends string | number>(current: T, values: readonly T[]): T {
 	const index = values.indexOf(current);
@@ -21,6 +21,21 @@ function onOff(value: boolean): string {
 function formatPolling(ms: number): string {
 	if (ms % 1000 === 0) return `${ms / 1000}s`;
 	return `${ms}ms`;
+}
+
+function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): string {
+	return mode === "border-right" ? "border right" : "status";
+}
+
+function worktreeStatusParts(ctx: SegmentRenderContext): string[] {
+	if (ctx.config.git.worktreeSummary !== "status") return [];
+	const worktree = ctx.state.git.worktree;
+	if (ctx.state.git.status === "clean" || worktree.files <= 0) return [];
+	const parts = [`Δ${worktree.files}`];
+	if (worktree.additions !== null && worktree.deletions !== null) {
+		parts.push(`+${worktree.additions}`, `−${worktree.deletions}`);
+	}
+	return parts;
 }
 
 function gitBranchLabel(ctx: SegmentRenderContext): string {
@@ -49,6 +64,7 @@ function gitDetailParts(ctx: SegmentRenderContext): string[] {
 		if (git.ahead > 0) parts.push(`↑${git.ahead}`);
 		if (git.behind > 0) parts.push(`↓${git.behind}`);
 	}
+	parts.push(...worktreeStatusParts(ctx));
 	return parts;
 }
 
@@ -101,6 +117,16 @@ export const gitSegmentFeature = {
 			value: (config: GlanceConfig) => config.git.shaMode,
 			mutate: (config: GlanceConfig) => {
 				config.git.shaMode = nextIn(config.git.shaMode, GIT_SHA_MODE_VALUES);
+			},
+		},
+		{
+			id: "git.worktreeSummary",
+			label: "Working tree",
+			hint: "Keep file and +/− counts in the Git status, or pin them to the bottom-right border.",
+			kind: "cycle",
+			value: (config: GlanceConfig) => worktreeSummaryLabel(config.git.worktreeSummary),
+			mutate: (config: GlanceConfig) => {
+				config.git.worktreeSummary = nextIn(config.git.worktreeSummary, WORKTREE_SUMMARY_MODE_VALUES);
 			},
 		},
 		{

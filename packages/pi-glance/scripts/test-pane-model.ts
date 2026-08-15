@@ -351,10 +351,10 @@ assert.equal(selectedSetting(view(gitAgain.model)).id, "git.aheadBehind", "revis
 const gitSettingsTop = withFocus(model, "settings", 2, 0);
 const settingsWrapUp = move(gitSettingsTop, "up");
 assert.equal(settingsWrapUp.model.categoryIndex, 2, "up in settings should preserve category index");
-assert.equal(settingsWrapUp.model.settingIndex, 4, "up from first Git setting should wrap to the last Git setting");
+assert.equal(settingsWrapUp.model.settingIndex, 5, "up from first Git setting should wrap to the last Git setting");
 assert.equal(selectedSetting(view(settingsWrapUp.model)).id, "git.polling", "up in settings should wrap to Git polling");
 
-const gitValuesBottom = withFocus(model, "values", 2, 4);
+const gitValuesBottom = withFocus(model, "values", 2, 5);
 const valuesWrapDown = move(gitValuesBottom, "down");
 assert.equal(valuesWrapDown.model.focus, "values", "down in values should stay in values");
 assert.equal(valuesWrapDown.model.categoryIndex, 2, "down in values should preserve category index");

@@ -20,7 +20,7 @@ import {
 	type TodoVisualConfig,
 } from "./config.js";
 import { formatStatusLabel, t } from "./state/i18n-bridge.js";
-import { selectHasActive, selectOverlayLayout, selectShowTaskIds, selectTodoCounts } from "./state/selectors.js";
+import { selectHasActive, selectOverlayLayout, selectTodoCounts } from "./state/selectors.js";
 import type { TodoStore } from "./state/store.js";
 import { formatOverlayTaskLine, statusIcon } from "./view/format.js";
 
@@ -38,6 +38,7 @@ export class TodoOverlay {
 	private completedTaskIdsPendingHide = new Set<number>();
 	private hiddenCompletedTaskIds = new Set<number>();
 	private lastNextId: number | undefined;
+	private lastGeneration: number | undefined;
 	private animationTimer: ReturnType<typeof setInterval> | undefined;
 	private inProgressFrameIndex = 0;
 	private statusIcons: StatusIcons;
@@ -115,6 +116,7 @@ export class TodoOverlay {
 		this.completedTaskIdsPendingHide.clear();
 		this.hiddenCompletedTaskIds.clear();
 		this.lastNextId = undefined;
+		this.lastGeneration = undefined;
 	}
 
 	hideCompletedTasksFromPreviousTurn(): void {
@@ -128,10 +130,14 @@ export class TodoOverlay {
 
 	private getSnapshot() {
 		const state = this.store.getState();
-		if (this.lastNextId !== undefined && state.nextId < this.lastNextId) {
+		if (
+			(this.lastNextId !== undefined && state.nextId < this.lastNextId) ||
+			(this.lastGeneration !== undefined && state.generation !== this.lastGeneration)
+		) {
 			this.resetCompletedDisplayState();
 		}
 		this.lastNextId = state.nextId;
+		this.lastGeneration = state.generation;
 		const completedTaskIds = new Set(
 			state.tasks.filter((task) => task.status === "completed").map((task) => task.id),
 		);
@@ -141,7 +147,7 @@ export class TodoOverlay {
 		for (const taskId of this.hiddenCompletedTaskIds) {
 			if (!completedTaskIds.has(taskId)) this.hiddenCompletedTaskIds.delete(taskId);
 		}
-		return { tasks: [...state.tasks], nextId: state.nextId };
+		return { ...state, tasks: [...state.tasks] };
 	}
 
 	private selectOverlayTasks(snapshot: ReturnType<TodoOverlay["getSnapshot"]>) {
@@ -163,11 +169,10 @@ export class TodoOverlay {
 		const hasInProgress = overlayTasks.some((task) => task.status === "in_progress");
 		this.syncAnimation(hasInProgress);
 		const inProgressFrame = this.currentInProgressFrame();
-		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
+		const overlayState = { ...snapshot, tasks: overlayTasks };
 		const truncate = (line: string): string => truncateToWidth(line, width, "…");
 		const counts = selectTodoCounts(overlayState);
 		const hasActive = selectHasActive(overlayState);
-		const showIds = selectShowTaskIds(overlayState);
 
 		const headingColor = hasActive ? "accent" : "dim";
 		const headingIcon = theme.fg(headingColor, this.statusIcons.heading);
@@ -181,7 +186,7 @@ export class TodoOverlay {
 		for (const task of layout.visible) {
 			lines.push(
 				truncate(
-					`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, showIds, this.statusIcons, inProgressFrame)}`,
+					`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, this.statusIcons, inProgressFrame)}`,
 				),
 			);
 		}

@@ -135,6 +135,10 @@ export function refreshWorkspace(state: GlanceState, inputs: Pick<StateInputs, "
 	return true;
 }
 
+function stringArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 function gitSnapshotsEqual(a: GitSnapshot, b: GitSnapshot): boolean {
 	return (
 		a.repo === b.repo &&
@@ -149,7 +153,14 @@ function gitSnapshotsEqual(a: GitSnapshot, b: GitSnapshot): boolean {
 		a.untracked === b.untracked &&
 		a.conflicts === b.conflicts &&
 		a.dirty === b.dirty &&
-		a.status === b.status
+		a.status === b.status &&
+		stringArraysEqual(a.worktree.staged, b.worktree.staged) &&
+		stringArraysEqual(a.worktree.unstaged, b.worktree.unstaged) &&
+		stringArraysEqual(a.worktree.untracked, b.worktree.untracked) &&
+		stringArraysEqual(a.worktree.conflicts, b.worktree.conflicts) &&
+		a.worktree.files === b.worktree.files &&
+		a.worktree.additions === b.worktree.additions &&
+		a.worktree.deletions === b.worktree.deletions
 	);
 }
 

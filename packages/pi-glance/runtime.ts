@@ -1,4 +1,5 @@
 import { getAgentDir, SettingsManager, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { handleDiffCommand } from "./diff-review.js";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher } from "./git.js";
@@ -7,6 +8,7 @@ import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEn
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
 import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
+import { WORKTREE_WIDGET_KEY } from "./worktree-summary.js";
 import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters, type WorkingMessageUpdateEvent } from "./working-indicator.js";
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
@@ -37,6 +39,7 @@ export interface GlanceRuntimeAdapters {
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	nowMs?: () => number;
 	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
+	reviewWorkingTree?: (ctx: ExtensionCommandContext) => Promise<unknown>;
 }
 
 interface MessageEndLikeEvent {
@@ -58,6 +61,8 @@ interface RuntimeModeContext {
 export interface GlanceRuntime {
 	commands: {
 		openPane(args: string, ctx: ExtensionCommandContext): Promise<void>;
+		openDiff(args: string, ctx: ExtensionCommandContext): Promise<void>;
+		refreshGit(): void;
 	};
 	events: {
 		sessionStart(event: unknown, ctx: ExtensionContext): void;
@@ -184,6 +189,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		workingIndicator.apply(ctx);
 		invalidateUiOwnership();
 		clearGitRefresher();
+		ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
 		ctx.ui.setEditorComponent(undefined);
 		ctx.ui.setFooter(undefined);
 	}
@@ -205,6 +211,9 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);
+		// Clear any legacy keyed Working Tree widget from earlier builds so it cannot
+		// stack above todo/plan/recap widgets after the summary moved into the editor surface.
+		ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			readTerminalWidth = () => tui.terminal.columns;
 			const nextFooter = new StatusOnlyFooter({ theme, footerData });
@@ -234,6 +243,14 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 
 	return {
 		commands: {
+			refreshGit: () => scheduleGitRefresh(true),
+			openDiff: async (_args, ctx) => {
+				try {
+					await (adapters.reviewWorkingTree ?? handleDiffCommand)(ctx);
+				} finally {
+					scheduleGitRefresh(true);
+				}
+			},
 			openPane: async (_args, ctx) => {
 				if (!isTuiMode(ctx)) {
 					ctx.ui.notify("pi-glance configuration pane requires TUI mode", "error");
@@ -300,7 +317,9 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			},
 			toolExecutionEnd: async (event, ctx) => {
 				if (typeof event.toolCallId === "string") workingIndicator.toolExecutionEnd({ toolCallId: event.toolCallId });
-				await refreshSession.execute("tool_execution_end", ctx);
+				await refreshSession.execute("tool_execution_end", ctx, {
+					facts: { toolName: typeof event.toolName === "string" ? event.toolName : undefined },
+				});
 			},
 			sessionTree: async (_event, ctx) => {
 				await refreshSession.execute("session_tree", ctx);
@@ -324,6 +343,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			},
 			agentSettled: (_event, _ctx) => {
 				workingIndicator.agentSettled();
+				scheduleGitRefresh(true);
 			},
 		},
 	};

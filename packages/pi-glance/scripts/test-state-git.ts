@@ -33,4 +33,14 @@ assert.equal(oldState.git.repo, false, "stale old cwd does not restore git repo"
 assert.equal(setGitSnapshot(oldState, "/new", newSnapshot), true, "new cwd snapshot accepted");
 assert.equal(oldState.git.branch, "new", "new branch accepted");
 
+const changedStats = {
+	...newSnapshot,
+	worktree: { ...newSnapshot.worktree, files: 1, unstaged: ["changed.ts"], additions: 9, deletions: 4 },
+};
+assert.equal(setGitSnapshot(oldState, "/new", changedStats), true, "working-tree path/stat changes should invalidate the cached state even when branch metadata is unchanged");
+assert.equal(oldState.git.worktree.additions, 9, "updated tracked additions should reach render state");
+const sameStatsNewTimestamp = { ...changedStats, updatedAt: 4000 };
+assert.equal(setGitSnapshot(oldState, "/new", sameStatsNewTimestamp), false, "timestamp-only refresh should not trigger a render");
+assert.equal(oldState.git.updatedAt, 4000, "timestamp-only refresh should still update freshness metadata");
+
 console.log("✓ git state workspace/stale snapshot checks passed");

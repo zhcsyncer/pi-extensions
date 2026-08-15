@@ -80,6 +80,9 @@ function createContext(): TestContext {
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
 			setWorkingMessage: (_message?: string) => {},
 			setWorkingIndicator: (_options?: unknown) => {},
+			setWidget: (_key: string, factory: unknown) => {
+				if (typeof factory === "function") (factory as (tui: unknown, theme: unknown) => unknown)(fakeTui, fakeTheme);
+			},
 			setFooter: (factory: unknown) => {
 				if (factory) (factory as (tui: unknown, theme: unknown) => unknown)(fakeTui, fakeTheme);
 			},

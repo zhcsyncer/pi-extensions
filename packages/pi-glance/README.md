@@ -56,9 +56,10 @@ pnpm debug:git
 
 ```text
 /glance
+/diff
 ```
 
-That's the only command — opens a calm settings pane with a real input-surface preview and a compact three-column settings grid.
+`/glance` opens a calm settings pane with a real input-surface preview and a compact three-column settings grid. `/diff` hands the terminal to optional [`revdiff`](https://revdiff.com/) for an uncommitted working-tree review; annotations return to Pi's editor for you to confirm or edit, and are never sent automatically.
 
 ## What you see
 
@@ -71,6 +72,7 @@ That's the only command — opens a calm settings pane with a real input-surface
 | 🖊️ | **Rounded editor** | Configurable 2 / 3 / 4 min rows and 0 / 1 / 2 top spacing rows, preserving Pi autocomplete, paste, and scrolling |
 | 🏷️ | **Project title** | Current folder name, or a safe `~/...` path when enabled |
 | 📊 | **Inline status** | Git · cost · Reply speed · context · optional tokens · model — top-right |
+| Δ | **Working tree** | Unique changed-file count and tracked `+N −N` stats in the Git status line, or optionally pinned to the bottom-right border |
 | ⚙️ | **`/glance` pane** | General settings, segment order, and per-segment detail settings in a calm grid |
 | 💤 | **Dim unfocused** | Surface quiets down when you scroll the chat |
 | 🎨 | **Themes** | Follows Pi theme tokens by default, with 22 built-in Glance palettes available as an alternative/fallback |
@@ -87,6 +89,8 @@ That's the only command — opens a calm settings pane with a real input-surface
 - Nerd icons need a Nerd Font or Symbols Nerd Font fallback. If icons look like boxes, choose `plain`.
 - pi-glance does not auto-detect, install, or bundle terminal fonts.
 - Other extensions' `ctx.ui.setStatus()` values remain visible below the editor. Glance permanently omits Pi's two informational footer rows because the input surface already shows those primary facts; there is no setting to restore them.
+- New installs keep working-tree counts in the Git status line, for example `main * Δ6 +123 −99`. Open `/glance` → **Git** → `Working tree` to choose `status` (default) or `border right`.
+- Working-tree counts cover staged, unstaged, conflict, and untracked paths once per unique current path. `+N −N` is the standard tracked working tree versus `HEAD`; binary or failed/timeout statistics are omitted rather than guessed, and untracked file contents are never read by polling.
 - Bottom-right details are always active and have no master switch. Turn on `/glance` → **Context** → `Progress bar` to move context text next to a bottom-right bar (the label always includes percent), then choose a standalone `track` or a progress-aware `border` plus `one third` or `remaining` width. Auto-compaction is shown when enabled and can be hidden under **Bottom details**.
 - Reply speed is enabled by default and appears between cost and context. It shows output tokens per wall time: `?` means no trusted measurement yet, `~42 tok/s` is a provisional current-run checkpoint from completed turns, and `42 tok/s` is the finalized agent-end measurement.
 - Configure `/glance` → **Reply speed** → `Precision`: `auto`, `1 digit`, or `0 digits`. Wall time includes tools, waiting, network, and thinking, so it is not a benchmark. Reply speed uses no notifications or token estimation from text/deltas and adds no command, footer, dashboard, history, or average view.
@@ -124,6 +128,9 @@ New installs default to:
   "workingIndicator": {
     "enabled": true
   },
+  "git": {
+    "worktreeSummary": "status"
+  },
   "colorSource": "pi",
   "theme": {
     "light": "light",
@@ -136,13 +143,13 @@ New installs default to:
 
 `Glance palette` uses the selected light/dark built-in pair for the frame, segments, context progress, and working indicator. Bash uses that palette's warning color. The same pair is the fallback if no current Pi theme is available. The 22 built-ins include Light/Dark, Catppuccin, Nord, Tokyo Night, Gruvbox, Solarized, Rosé Pine, One, Kanagawa, Everforest, and High Contrast variants.
 
-Migration is conservative: schema 10 and older configs without `colorSource` use `colorSource: "glance"`, preserving their previous appearance. Explicit values are retained. Old string themes still migrate to matching light/dark slots.
+Migration is conservative: schema 14 and older above/left placements become `git.worktreeSummary: "status"`; schema 10 and older configs without `colorSource` use `colorSource: "glance"`, preserving their previous appearance. Explicit values are retained. Old string themes still migrate to matching light/dark slots.
 
 ## Segment details
 
 `/glance` keeps segment settings small and display-focused:
 
-- **Git** — dirty marker, upstream counts, SHA, and polling.
+- **Git** — dirty marker, upstream counts, SHA, working-tree counts in the status line or bottom-right border, and polling.
 - **Cost** — hide zero cost.
 - **Reply speed** — enabled by default; shows unknown `?`, provisional `~`, or finalized output tokens per wall time in the status line. Precision can be `auto`, `1 digit`, or `0 digits`. It sends no notifications, uses no timers, and does not estimate tokens from text or deltas.
 - **Context** — percent / tokens text, an optional bottom-right progress bar (text moves next to the bar and always includes percent), plus standalone track or border style and one-third or remaining width.
@@ -153,8 +160,9 @@ Migration is conservative: schema 10 and older configs without `colorSource` use
 
 The custom footer always renders only statuses published by extensions, sorted by status key. Pi's two informational footer rows are not reconstructed and cannot be enabled, avoiding duplicate workspace, usage, context, and model facts.
 
-The input box's bottom-right detail area is always active and has no master switch. It contains only:
+The input box's bottom-right detail area is always active and has no master switch. It can contain:
 
+- **Working tree** — `status` (default) keeps counts in the Git status line. `border-right` embeds the same responsive summary at the far right of the bottom border. Candidates degrade from `Δ 6 files · +123 −99` to `Δ 6 · +123 −99` to `Δ 6`; conflict counts take priority, while clean state disappears first on narrow terminals. With `border-right` plus context `remaining`, Git stays fixed at the far right while context progress uses the space to its left and grows leftward.
 - **Context progress** — turn on `/glance` → **Context** → `Progress bar`. Context text leaves the top status line and follows the bar; the label always includes percent, and `Text` can still add tokens (`percent / tokens`). `Progress style: track` preserves the standalone `╶───────────╴ 23%` renderer. `Progress style: border` uses the input border itself: unused cells stay light `─`, used cells become heavy `━`, and `╼` joins them. `Progress width` chooses whether progress plus labels use `one third` of the inner width or all `remaining` bottom-border space. The percentage keeps normal text color and bottom progress omits the context icon; Nerd Font text modes still use `󰍛`.
 - **Context risk** — below 70% the used section has the context color, from 70% to below 85% it uses warning, and at 85% or higher it uses error. The same fixed thresholds style top-line context text and both bottom progress styles. Filled and unused border colors come from the selected Color source; unknown progress is dim.
 - **Auto compact** — appears only while Pi auto-compaction is enabled. Plain mode shows highlighted `auto`; Nerd Font mode shows the highlighted `󰁄 auto` marker. It reflects Pi's merged global/project setting, reading project settings only for trusted projects.
@@ -193,7 +201,7 @@ Open `/glance`, select **General**, and set `Workspace label`:
 
 pi-glance never renders full absolute paths in the title: home paths are shortened to `~/...`, and non-home paths use an ellipsis tail such as `…/work/project`.
 
-## Git status
+## Git status and working-tree review
 
 The Git segment is intentionally quiet:
 
@@ -208,9 +216,16 @@ Open `/glance`, select **Git**, move to a value with the arrow keys, and press E
 - `Dirty marker` — hide/show normal dirty markers; conflict markers stay visible.
 - `Ahead / behind` — hide/show upstream counts.
 - `SHA` — `off`, `detached`, or `always`.
-- `Polling` — `2s`, `5s`, `10s`, or `30s`.
+- `Working tree` — `status` (default) or `border right`.
+- `Polling` — `5s`, `15s` (default), `30s`, or `60s`.
 
-Git is collected asynchronously and cached. External file changes usually appear within a few seconds. For local development/debugging you can compare pi-glance with Git directly:
+`status` appends unique file and tracked `+N −N` counts to the existing Git segment when the tree is dirty or conflicted, for example `main * Δ6 +123 −99`. Clean repositories stay as just the branch name. `border right` moves that same compact summary to the bottom-right border instead of adding a row outside the input box.
+
+Git is collected asynchronously and cached. Session start and cwd changes refresh immediately. Mutating or unknown tool completions use a 250ms trailing debounce, explicitly read-only tools are skipped, `agent_settled` recalibrates, and non-overlapping fallback polling defaults to 15 seconds with safe failure backoff. No recursive filesystem watcher is installed.
+
+`/diff` runs revdiff's default uncommitted review directly in the repository cwd. Pi's TUI is stopped for the terminal handoff and restarted afterward. Exit/cancel/error paths always clean temporary annotations and refresh the summary. If annotations were written, Glance loads them into the editor for confirmation instead of sending them to the Agent. If revdiff is missing, only `/diff` shows the install hint (`brew install umputun/apps/revdiff` or `REVDIFF_BIN`); Glance and the summary remain available. Non-TUI modes decline the terminal handoff safely.
+
+For local development/debugging you can compare pi-glance with Git directly:
 
 ```bash
 git status --short --branch
@@ -222,7 +237,7 @@ pnpm debug:git
 - No Pi core patches — public extension APIs only
 - No render-time IO — Git is collected asynchronously and cached; Pi settings are sampled during lifecycle refreshes; Glance owns one in-memory working-message timer while Pi animates the installed spinner frames through its public UI API
 - pi-glance never replaces Pi's native Header or resource area. Context/Skills/Prompts/Extensions keep Pi's native compact/expanded hierarchy; expanded Extensions stay grouped by project/user/path, with `npm:`/`git:` package sources and local file paths shown by Pi
-- Global config at `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` (schema version 13). The previous path is migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed files are preserved
+- Global config at `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` (schema version 15). The previous path is migrated and upgraded automatically; unmappable fields are dropped with a warning, while malformed files are preserved
 
 ## License and attribution
 

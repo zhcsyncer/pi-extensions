@@ -38,8 +38,9 @@ async function main(): Promise<void> {
 		assert.equal(loadConfigSync().enabled, false, "legacy config should migrate and retain mapped fields");
 		assert.match(consumeGlanceConfigNotices().join("\n"), /obsolete/, "migration should report discarded fields");
 		await assert.rejects(readFile(legacyConfigPath, "utf8"), /ENOENT/, "verified migration should delete the legacy file");
-		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 13, "migration should write the current schema version");
+		assert.equal(JSON.parse(await readFile(configPath, "utf8")).version, 15, "migration should write the current schema version");
 		assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).workingIndicator, { enabled: true }, "schema migration should persist working indicator enabled by default");
+		assert.equal(JSON.parse(await readFile(configPath, "utf8")).git.worktreeSummary, "status", "schema migration should persist the default working tree status mode");
 		await rm(configPath, { force: true });
 
 		await writeConfigText(configPath, "{");

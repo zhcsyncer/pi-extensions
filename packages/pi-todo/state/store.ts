@@ -1,5 +1,5 @@
 import type { Task } from "../tool/types.js";
-import { EMPTY_STATE, type TaskState } from "./state.js";
+import { createEmptyTaskState, resetTaskState, type TaskState } from "./state.js";
 
 /**
  * Session-local state boundary used by the tool, command, overlay, and replay
@@ -15,7 +15,7 @@ export interface TodoStore {
 }
 
 function freshState(): TaskState {
-	return { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
+	return createEmptyTaskState();
 }
 
 /**
@@ -37,7 +37,7 @@ export function createTodoStore(): TodoStore {
 			state = next;
 		},
 		reset: () => {
-			state = freshState();
+			state = resetTaskState(state);
 		},
 	};
 }

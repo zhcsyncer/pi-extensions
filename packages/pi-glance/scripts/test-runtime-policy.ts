@@ -15,7 +15,7 @@ type RuntimeEventKind =
 	| "editor_thinking_cycle";
 
 type RuntimeSnapshotMode = "none" | "reliable" | "lifecycle" | "message" | "thinking" | "compact";
-type RuntimeGitRefreshMode = "never" | "onWorkspaceChange" | "immediate";
+type RuntimeGitRefreshMode = "never" | "onWorkspaceChange" | "debounced" | "immediate";
 type RuntimeContextPlan = "none" | "refresh" | "clear";
 
 interface RuntimeRefreshPlan {
@@ -32,6 +32,7 @@ interface RuntimeRefreshPlan {
 
 interface RuntimeEventFacts {
 	messageRole?: string;
+	toolName?: string;
 }
 
 interface RuntimePolicyModule {
@@ -101,7 +102,7 @@ assertPlan("session_tree", reliableWithModelImmediate);
 
 assertPlan("turn_start", lifecycleWithModelOnWorkspaceChange);
 
-assertPlan("tool_execution_end", {
+const toolExecutionDebounced: RuntimeRefreshPlan = {
 	ensureConfig: true,
 	ensureState: true,
 	snapshot: "lifecycle",
@@ -109,9 +110,16 @@ assertPlan("tool_execution_end", {
 	refreshModel: false,
 	refreshUsageTotals: false,
 	context: "refresh",
-	git: "immediate",
+	git: "debounced",
 	render: true,
-});
+};
+assertPlan("tool_execution_end", toolExecutionDebounced);
+for (const toolName of ["edit", "write", "bash", "custom_mutator"]) {
+	assertPlan("tool_execution_end", toolExecutionDebounced, { toolName });
+}
+for (const toolName of ["read", "grep", "find", "ls", "web_search", "web_read", "query-docs"]) {
+	assertPlan("tool_execution_end", { ...toolExecutionDebounced, git: "onWorkspaceChange" }, { toolName });
+}
 
 assertPlan("session_compact", {
 	ensureConfig: true,

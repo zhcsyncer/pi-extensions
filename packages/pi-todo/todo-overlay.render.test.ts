@@ -1,6 +1,6 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { StatusIconPreset } from "./config.js";
-import { createMockPi, createMockUI } from "./test-fixtures.js";
+import { createMockPi, createMockUI, startCycle } from "./test-fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTodoStore, registerTodoTool, type TaskAction } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
@@ -28,7 +28,18 @@ async function setup(
 	const store = createTodoStore();
 	registerTodoTool(pi, store);
 	const tool = captured.tools.get("todo")!;
-	for (const p of actions) {
+	const seeded = [...actions];
+	let leadingCreates = 0;
+	while (leadingCreates < seeded.length && seeded[leadingCreates]?.action === "create") leadingCreates += 1;
+	if (leadingCreates >= 2) {
+		const operations = seeded.splice(0, leadingCreates).map((item) => ({
+			action: "create" as const,
+			subject: String(item.subject ?? ""),
+			...(item.status !== undefined ? { status: item.status } : {}),
+		}));
+		seeded.unshift({ action: "batch", operations });
+	}
+	for (const p of seeded) {
 		await tool.execute?.("tc", p as never, undefined as never, undefined as never, {} as never);
 	}
 	const ui = createMockUI() as unknown as ExtensionUIContext;
@@ -61,21 +72,18 @@ describe("TodoOverlay — heading", () => {
 	});
 
 	it("uses the static ASCII Todo icon regardless of task status", async () => {
-		const pending = await setup([{ action: "create", subject: "pending" }]);
+		const pending = await setup([startCycle(["pending"], { firstStatus: "pending" })]);
 		expect(pending.widget.render(200)[0]).toContain("[T]");
 		pending.overlay.dispose();
 
-		const active = await setup([{ action: "create", subject: "active", status: "in_progress" }]);
+		const active = await setup([startCycle(["active"])]);
 		expect(active.widget.render(200)[0]).toContain("[T]");
 		expect(active.widget.render(200)[0]).not.toContain("[>]");
 		active.overlay.dispose();
 	});
 
 	it("uses the configured static Nerd Font Todo icon in the heading", async () => {
-		const { widget, overlay } = await setup(
-			[{ action: "create", subject: "active", status: "in_progress" }],
-			"nerd-font",
-		);
+		const { widget, overlay } = await setup([startCycle(["active"])], "nerd-font");
 		expect(widget.render(200)[0]).toContain("󰝖");
 		overlay.dispose();
 	});
@@ -110,26 +118,20 @@ describe("TodoOverlay — natural-order rendering (no overflow)", () => {
 
 describe("TodoOverlay — per-task formatting", () => {
 	it("pending task uses the default ASCII icon", async () => {
-		const { widget } = await setup([{ action: "create", subject: "pending-task" }]);
+		const { widget } = await setup([startCycle(["pending-task"], { firstStatus: "pending" })]);
 		expect(widget.render(200)[1]).toContain("[ ]");
 		expect(widget.render(200)[1]).toContain("pending-task");
 	});
 
 	it("in_progress task uses the default ASCII icon without duplicate text", async () => {
-		const { widget } = await setup([
-			{ action: "create", subject: "do it" },
-			{ action: "update", id: 1, status: "in_progress" },
-		]);
+		const { widget } = await setup([startCycle(["do it"])]);
 		const line = widget.render(200)[1];
 		expect(line).toContain("[>]");
 		expect(line).toContain("do it");
 	});
 
 	it("uses the configured Unicode symbols", async () => {
-		const { widget, overlay } = await setup(
-			[{ action: "create", subject: "unicode", status: "in_progress" }],
-			"unicode",
-		);
+		const { widget, overlay } = await setup([startCycle(["unicode"])], "unicode");
 		expect(widget.render(200)[1]).toContain("◉");
 		overlay.dispose();
 	});
@@ -137,10 +139,7 @@ describe("TodoOverlay — per-task formatting", () => {
 	it("animates Nerd Font progress frames while a task is in progress", async () => {
 		vi.useFakeTimers();
 		try {
-			const { widget, overlay, tui, tool } = await setup(
-				[{ action: "create", subject: "animated", status: "in_progress" }],
-				"nerd-font",
-			);
+			const { widget, overlay, tui, tool } = await setup([startCycle(["animated"])], "nerd-font");
 			expect(widget.render(200)[1]).toContain("󰪞");
 			vi.advanceTimersByTime(299);
 			expect(tui.requestRender).not.toHaveBeenCalled();
@@ -165,10 +164,7 @@ describe("TodoOverlay — per-task formatting", () => {
 	it("stops and restarts icon animation when presets change", async () => {
 		vi.useFakeTimers();
 		try {
-			const { overlay } = await setup(
-				[{ action: "create", subject: "active", status: "in_progress" }],
-				"ascii",
-			);
+			const { overlay } = await setup([startCycle(["active"])], "ascii");
 			expect(vi.getTimerCount()).toBe(0);
 
 			overlay.setConfig({ statusIcons: "nerd-font", maxWidgetLines: 13 });
@@ -187,7 +183,8 @@ describe("TodoOverlay — per-task formatting", () => {
 
 	it("completed task stays visible until the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
-			{ action: "create", subject: "done" },
+			startCycle(["done"]),
+			{ action: "delete", id: 2 },
 			...completeActions(1),
 		]);
 		const firstRender = widget.render(200);
@@ -200,7 +197,8 @@ describe("TodoOverlay — per-task formatting", () => {
 
 	it("does not reset completed-task hiding when visual config changes", async () => {
 		const { widget, overlay } = await setup([
-			{ action: "create", subject: "done" },
+			startCycle(["done"]),
+			{ action: "delete", id: 2 },
 			...completeActions(1),
 		]);
 		expect(widget.render(200).join("\n")).toContain("done");
@@ -213,25 +211,16 @@ describe("TodoOverlay — per-task formatting", () => {
 	});
 });
 
-describe("TodoOverlay — showIds gate", () => {
-	it("does NOT show #id prefix when no task has blockedBy", async () => {
+describe("TodoOverlay — ordered task rows", () => {
+	it("renders subjects in store order without dependency or id chrome", async () => {
 		const { widget } = await setup([
-			{ action: "create", subject: "a" },
-			{ action: "create", subject: "b" },
+			{ action: "create", subject: "first" },
+			{ action: "create", subject: "second" },
 		]);
 		const out = widget.render(200).join("\n");
+		expect(out.indexOf("first")).toBeLessThan(out.indexOf("second"));
 		expect(out).not.toMatch(/#\d/);
-	});
-
-	it("shows #id prefix and '⛓' dep suffix when any task has blockedBy", async () => {
-		const { widget } = await setup([
-			{ action: "create", subject: "base" },
-			{ action: "create", subject: "follow-up", blockedBy: [1] },
-		]);
-		const out = widget.render(200).join("\n");
-		expect(out).toContain("#1");
-		expect(out).toContain("#2");
-		expect(out).toContain("⛓");
+		expect(out).not.toContain("⛓");
 	});
 });
 
@@ -346,7 +335,7 @@ describe("TodoOverlay — overflow collapse", () => {
 describe("TodoOverlay — width truncation", () => {
 	it("renders without throwing at small widths", async () => {
 		const { widget } = await setup([
-			{ action: "create", subject: "a very long subject that would overflow a narrow column" },
+			startCycle(["a very long subject that would overflow a narrow column"]),
 		]);
 		expect(() => widget.render(20)).not.toThrow();
 	});
@@ -354,8 +343,8 @@ describe("TodoOverlay — width truncation", () => {
 	it("drops completed tasks from counts after the next agent turn starts", async () => {
 		const { widget, overlay } = await setup([
 			{ action: "create", subject: "done" },
-			...completeActions(1),
 			{ action: "create", subject: "next" },
+			...completeActions(1),
 		]);
 		expect(widget.render(200).join("\n")).toContain("Todos (1/2)");
 		const secondRender = widget.render(200).join("\n");
@@ -370,7 +359,7 @@ describe("TodoOverlay — width truncation", () => {
 	});
 
 	it("re-renders reflect live state changes without re-registering", async () => {
-		const { widget, tool } = await setup([{ action: "create", subject: "first" }]);
+		const { widget, tool } = await setup([startCycle(["first"])]);
 		const out1 = widget.render(200).join("\n");
 		expect(out1).toContain("first");
 		await tool.execute?.(

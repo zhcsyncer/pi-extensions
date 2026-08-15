@@ -1,49 +1,55 @@
 import type { TaskState } from "../state/state.js";
 import type { Op } from "../state/state-reducer.js";
-import { deriveBlocks } from "../state/task-graph.js";
-import type { Task, TaskAction, TaskDetails, TaskMutationParams } from "./types.js";
+import type {
+	MutationDetailsV2,
+	QueryDetailsV2,
+	Task,
+	TaskAction,
+	TaskBatchOperation,
+	TaskDetails,
+	TaskMutationAction,
+	TaskMutationParams,
+} from "./types.js";
 
-/**
- * Format a single task as a `[status] #id subject [⛓ #dep,…]` line.
- * Used by the `list` content branch only; the overlay uses
- * `view/format.ts` for its richer presentation.
- */
-function formatListLine(t: Task): string {
-	const block = t.blockedBy?.length ? ` ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
-	return `[${t.status}] #${t.id} ${t.subject}${block}`;
+function formatListLine(task: Task): string {
+	return `[${task.status}] #${task.id} ${task.subject}`;
 }
 
-/**
- * Multi-line presentation for the `get` action: description, blockedBy,
- * reverse blocks, then owner.
- */
-function formatGetLines(task: Task, state: TaskState): string {
-	const blocks = deriveBlocks(state.tasks).get(task.id) ?? [];
+function formatGetLines(task: Task): string {
 	const lines = [`#${task.id} [${task.status}] ${task.subject}`];
 	if (task.description) lines.push(`  description: ${task.description}`);
-	if (task.blockedBy?.length) {
-		lines.push(`  blockedBy: ${task.blockedBy.map((id) => `#${id}`).join(", ")}`);
-	}
-	if (blocks.length) {
-		lines.push(`  blocks: ${blocks.map((id) => `#${id}`).join(", ")}`);
-	}
 	if (task.owner) lines.push(`  owner: ${task.owner}`);
 	return lines.join("\n");
 }
 
-/**
- * Pure formatter: `(op, state) → string`. Closed switch on `op.kind` —
- * adding a new `Op` variant fails to compile here until a branch is added.
- * Create summaries use the status captured by the operation so a later update
- * in the same batch cannot rewrite the audited initial state.
- */
+function formatList(op: Extract<Op, { kind: "list" }>, state: TaskState): string {
+	if (op.statusFilter) {
+		const filtered = state.tasks.filter((task) => task.status === op.statusFilter);
+		return filtered.length === 0 ? "No tasks" : filtered.map(formatListLine).join("\n");
+	}
+
+	if (op.includeDeleted) {
+		return state.tasks.length === 0 ? "No tasks" : state.tasks.map(formatListLine).join("\n");
+	}
+
+	const active = state.tasks.filter(
+		(task) => task.status === "pending" || task.status === "in_progress",
+	);
+	const completedCount = state.tasks.filter((task) => task.status === "completed").length;
+	const lines = active.map(formatListLine);
+	if (completedCount > 0) {
+		lines.push(`${completedCount} completed ${completedCount === 1 ? "task" : "tasks"} hidden`);
+	}
+	return lines.length === 0 ? "No tasks" : lines.join("\n");
+}
+
+/** Pure formatter for the model-visible text portion of a Todo result. */
 export function formatContent(op: Op, state: TaskState): string {
 	switch (op.kind) {
 		case "create": {
-			const t = state.tasks.find((x) => x.id === op.taskId);
-			// Defensive — `op.taskId` always resolves on success path.
-			if (!t) return `Created #${op.taskId} (${op.status})`;
-			return `Created #${t.id}: ${t.subject} (${op.status})`;
+			const task = state.tasks.find((candidate) => candidate.id === op.taskId);
+			if (!task) return `Created #${op.taskId} (${op.status})`;
+			return `Created #${task.id}: ${task.subject} (${op.status})`;
 		}
 		case "update": {
 			const transition = op.fromStatus !== op.toStatus ? ` (${op.fromStatus} → ${op.toStatus})` : "";
@@ -51,16 +57,10 @@ export function formatContent(op: Op, state: TaskState): string {
 		}
 		case "delete":
 			return `Deleted #${op.id}: ${op.subject}`;
-		case "clear":
-			return `Cleared ${op.count} tasks`;
-		case "list": {
-			let view = state.tasks;
-			if (!op.includeDeleted) view = view.filter((t) => t.status !== "deleted");
-			if (op.statusFilter) view = view.filter((t) => t.status === op.statusFilter);
-			return view.length === 0 ? "No tasks" : view.map(formatListLine).join("\n");
-		}
+		case "list":
+			return formatList(op, state);
 		case "get":
-			return formatGetLines(op.task, state);
+			return formatGetLines(op.task);
 		case "batch":
 			return [
 				`Applied ${op.operations.length} todo operations`,
@@ -71,27 +71,89 @@ export function formatContent(op: Op, state: TaskState): string {
 	}
 }
 
+export interface TodoToolResult {
+	content: Array<{ type: "text"; text: string }>;
+	details: TaskDetails;
+}
+
+function copyDefined(
+	target: Record<string, unknown>,
+	source: TaskMutationParams,
+	keys: readonly (keyof TaskMutationParams)[],
+): void {
+	for (const key of keys) {
+		if (source[key] !== undefined) target[key] = source[key];
+	}
+}
+
+function sanitizeBatchOperation(operation: TaskBatchOperation): Record<string, unknown> {
+	const sanitized: Record<string, unknown> = { action: operation.action };
+	switch (operation.action) {
+		case "create":
+			copyDefined(sanitized, operation, ["subject", "description", "status", "owner", "metadata"]);
+			break;
+		case "update":
+			copyDefined(sanitized, operation, ["id", "subject", "description", "status", "owner", "metadata"]);
+			break;
+		case "delete":
+			copyDefined(sanitized, operation, ["id"]);
+			break;
+	}
+	return sanitized;
+}
+
+function sanitizeMutationParams(
+	action: TaskMutationAction,
+	params: TaskMutationParams,
+): Record<string, unknown> {
+	const sanitized: Record<string, unknown> = {};
+	if (params.action !== undefined) sanitized.action = action;
+	switch (action) {
+		case "create":
+			copyDefined(sanitized, params, ["subject", "description", "status", "owner", "metadata"]);
+			break;
+		case "update":
+			copyDefined(sanitized, params, ["id", "subject", "description", "status", "owner", "metadata"]);
+			break;
+		case "delete":
+			copyDefined(sanitized, params, ["id"]);
+			break;
+		case "batch":
+			if (params.operations !== undefined) {
+				sanitized.operations = params.operations.map(sanitizeBatchOperation);
+			}
+			break;
+	}
+	return sanitized;
+}
+
 /**
- * Build the LLM-facing tool envelope after the store has committed the
- * reducer's new state. `details` is the persistence + replay snapshot —
- * `state/replay.ts` consumes this exact shape on session lifecycle events.
- *
- * Mirrors `packages/rpiv-ask-user-question/tool/response-envelope.ts:13-47`.
+ * Mutations emit V2 replay checkpoints with action-scoped current parameters.
+ * Queries emit only a small discriminator, so repeated list/get calls do not
+ * duplicate the live task state in JSONL.
  */
 export function buildToolResult(
 	action: TaskAction,
 	params: TaskMutationParams,
 	state: TaskState,
 	op: Op,
-): { content: Array<{ type: "text"; text: string }>; details: TaskDetails } {
-	const text = formatContent(op, state);
-	const details: TaskDetails = {
-		schemaVersion: 1,
+): TodoToolResult {
+	const content = [{ type: "text" as const, text: formatContent(op, state) }];
+	if (action === "list" || action === "get") {
+		const details: QueryDetailsV2 = {
+			schemaVersion: 2,
+			kind: "query",
+			action,
+		};
+		return { content, details };
+	}
+
+	const details: MutationDetailsV2 = {
+		schemaVersion: 2,
+		kind: "checkpoint",
 		action,
-		params: params as Record<string, unknown>,
-		tasks: state.tasks,
-		nextId: state.nextId,
-		...(op.kind === "error" ? { error: op.message } : {}),
+		params: sanitizeMutationParams(action, params),
+		state,
 	};
-	return { content: [{ type: "text", text }], details };
+	return { content, details };
 }

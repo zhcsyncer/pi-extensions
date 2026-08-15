@@ -18,6 +18,7 @@ import {
 } from "./surface-layout.js";
 import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
 import type { GlanceConfig, GlanceState } from "./types.js";
+import { isBorderWorktreeSummary, renderWorktreeInline } from "./worktree-summary.js";
 
 export type InputSurfaceChromeFocus = "focused" | "unfocused";
 
@@ -197,17 +198,31 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 	const scrollIndicator = input.chrome?.bottomScrollIndicator;
 	const indicatorWidth = Math.min(innerWidth, visibleWidth(scrollIndicator ?? ""));
 	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, indicatorWidth);
+	const hasBorderSummary = isBorderWorktreeSummary(input.config.git.worktreeSummary) && input.state.git.repo;
+	const rawSummary = hasBorderSummary
+		? renderWorktreeInline(input.state.git, availableDetailsBudget, input.styles)
+		: "";
+	const summary = dimmed && rawSummary
+		? input.styles.dim(stripControlsPreservingSpaces(rawSummary))
+		: rawSummary;
+	const summaryReservation = summary ? visibleWidth(summary) + visibleWidth(" · ") : 0;
+	const remainingDetailsBudget = Math.max(0, availableDetailsBudget - summaryReservation);
 	const detailsBudget = input.config.context.progressWidth === "remaining"
-		? availableDetailsBudget
-		: Math.min(availableDetailsBudget, bottomDetailsBudget(innerWidth));
-	const status = renderBottomDetails(input.state, input.config, detailsBudget, { styles: input.styles, dimmed });
+		? remainingDetailsBudget
+		: Math.min(remainingDetailsBudget, bottomDetailsBudget(innerWidth));
+	const detailsStatus = renderBottomDetails(input.state, input.config, detailsBudget, { styles: input.styles, dimmed });
+	const joinedSeparator = input.styles.separator(" · ");
+	const leftStatus = "";
+	const status = summary
+		? [detailsStatus, summary].filter(Boolean).join(joinedSeparator)
+		: detailsStatus;
 	const progressPercent = bottomBorderProgressPercent(input.state, input.config);
 	const contextProgress = progressPercent === undefined
 		? undefined
 		: {
 				percent: progressPercent,
 				maxWidth: input.config.context.progressWidth === "third"
-					? Math.max(0, detailsBudget - visibleWidth(status))
+					? Math.max(0, detailsBudget - visibleWidth(detailsStatus))
 					: undefined,
 			};
 	const risk = contextRiskLevel(progressPercent);
@@ -222,7 +237,7 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 					: input.styles.segments.context.fg;
 	const progressEmpty = dimmed || risk === "unknown" ? input.styles.dim : border;
 	return renderSurfaceChunks(
-		planSurfaceBottomFrame({ width, scrollIndicator, status, contextProgress }).chunks,
+		planSurfaceBottomFrame({ width, scrollIndicator, leftStatus, status, contextProgress }).chunks,
 		{
 			border,
 			status: identity,

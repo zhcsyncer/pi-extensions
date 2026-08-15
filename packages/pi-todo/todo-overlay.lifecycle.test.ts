@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { createMockPi, createMockUI } from "./test-fixtures.js";
+import { createMockPi, createMockUI, startCycle } from "./test-fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTodoStore, registerTodoTool } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
@@ -57,7 +57,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("first update() with non-empty todos registers the widget exactly once", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
@@ -71,7 +71,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("second update() after registration calls tui.requestRender instead of re-registering", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
@@ -91,14 +91,14 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("transition non-empty → empty unregisters the widget", async () => {
 		const { captured, store } = registerTool();
-		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
+		const tool = await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
 		const setWidget = ui.setWidget as ReturnType<typeof vi.fn>;
-		// Delete → then hard-remove via "clear" to leave visibility list empty.
-		await tool.execute?.("tc", { action: "clear" } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 1 } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 2 } as never, undefined as never, undefined as never, {} as never);
 		overlay.update();
 		expect(setWidget).toHaveBeenCalledTimes(2);
 		expect(setWidget.mock.calls[1]).toEqual([WIDGET_KEY, undefined]);
@@ -106,16 +106,17 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("empty → non-empty after empty transition re-registers", async () => {
 		const { captured, store } = registerTool();
-		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
+		const tool = await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
 		overlay.update();
-		await tool.execute?.("tc", { action: "clear" } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 1 } as never, undefined as never, undefined as never, {} as never);
+		await tool.execute?.("tc", { action: "delete", id: 2 } as never, undefined as never, undefined as never, {} as never);
 		overlay.update();
 		await tool.execute?.(
 			"tc",
-			{ action: "create", subject: "b" } as never,
+			startCycle(["b"]) as never,
 			undefined as never,
 			undefined as never,
 			{} as never,
@@ -129,7 +130,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("setUICtx(same ctx) is idempotent", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
@@ -142,7 +143,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("setUICtx(different ctx) resets cached registration; next update re-registers under the new ctx", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui1 = makeCtx();
 		overlay.setUICtx(ui1);
@@ -156,7 +157,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("dispose() unregisters the widget and clears ctx; later update() without setUICtx is a no-op", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
@@ -172,7 +173,7 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("factory invalidate() forces re-registration on next update()", async () => {
 		const { captured, store } = registerTool();
-		await seed(captured, [{ action: "create", subject: "a" }]);
+		await seed(captured, [startCycle(["a"])]);
 		const overlay = new TodoOverlay(store);
 		const ui = makeCtx();
 		overlay.setUICtx(ui);
@@ -192,8 +193,8 @@ describe("TodoOverlay — lifecycle", () => {
 	it("resetCompletedDisplayState() lets replayed completed tasks be shown once again", async () => {
 		const { captured, store } = registerTool();
 		await seed(captured, [
-			{ action: "create", subject: "done" },
-			{ action: "update", id: 1, status: "in_progress" },
+			startCycle(["done"]),
+			{ action: "delete", id: 2 },
 			{ action: "update", id: 1, status: "completed" },
 		]);
 		const overlay = new TodoOverlay(store);
@@ -221,10 +222,17 @@ describe("TodoOverlay — lifecycle", () => {
 
 	it("all-deleted todos count as empty (no widget)", async () => {
 		const { captured, store } = registerTool();
-		const tool = await seed(captured, [{ action: "create", subject: "a" }]);
+		const tool = await seed(captured, [startCycle(["a"])]);
 		await tool.execute?.(
 			"tc",
 			{ action: "update", id: 1, status: "deleted" } as never,
+			undefined as never,
+			undefined as never,
+			{} as never,
+		);
+		await tool.execute?.(
+			"tc",
+			{ action: "update", id: 2, status: "deleted" } as never,
 			undefined as never,
 			undefined as never,
 			{} as never,

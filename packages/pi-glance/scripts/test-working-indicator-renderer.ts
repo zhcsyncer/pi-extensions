@@ -59,8 +59,8 @@ function snapshot(overrides: Partial<WorkingIndicatorSnapshot> = {}): WorkingInd
 
 assert.deepEqual(
 	WORKING_SPINNER_GLYPHS,
-	["·", "·", "✢", "✢", "✱", "✶", "✻", "✽", "✽", "✽", "✽", "✻", "✶", "✱", "✢", "✢", "·"],
-	"spinner should use an eased ping-pong sequence with deliberate endpoint dwell",
+	["·", "·", "✢", "✢", "✱", "✶", "✻", "*", "*", "*", "*", "✻", "✶", "✱", "✢", "✢", "·"],
+	"spinner should use Claude Code's Ghostty peak-frame swap so the dwell stays one column",
 );
 assert.equal(WORKING_SPINNER_GLYPHS.length * 120, 2_040, "spinner cycle should stay close to Claude Code's calmer two-second rhythm");
 assert.ok(safeWorkingSpinnerGlyphs().every((glyph) => visibleWidth(glyph) === 1), "every spinner frame should be exactly one visible column");
