@@ -1,0 +1,63 @@
+{
+  "name": "@zhcsyncer/pi-meter",
+  "version": "0.0.0",
+  "description": "Local usage ledger plus subscription remaining for the Pi coding agent.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "pi-coding-agent",
+    "usage",
+    "analytics",
+    "budget",
+    "subscription",
+    "tokens"
+  ],
+  "author": "zhcsyncer",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-meter"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-meter#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/meter.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1",
+    "@earendil-works/pi-tui": ">=0.84.0 <1"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}

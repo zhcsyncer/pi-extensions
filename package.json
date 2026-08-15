@@ -33,6 +33,7 @@
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
     "packages/pi-plan-mode/package.json",
+    "packages/pi-meter/package.json",
     "packages/pi-todo/config.ts",
     "packages/pi-todo/config-paths.ts",
     "packages/pi-todo/index.ts",
@@ -122,7 +123,8 @@
       "./packages/pi-context7/extensions/context7.ts",
       "./packages/pi-ask-user-question/index.ts",
       "./packages/pi-subagents/src/index.ts",
-      "./packages/pi-fast-mode/extensions/fast-mode.ts"
+      "./packages/pi-fast-mode/extensions/fast-mode.ts",
+      "./packages/pi-meter/extensions/meter.ts"
     ],
     "skills": [
       "./packages/pi-context7/skills"

@@ -12,6 +12,7 @@ PACKAGES=(
   "@zhcsyncer/pi-ask-user-question|packages/pi-ask-user-question/package.json|packages/pi-ask-user-question/CHANGELOG.md|pi-ask-user-question|child"
   "@zhcsyncer/pi-subagents|packages/pi-subagents/package.json|packages/pi-subagents/CHANGELOG.md|pi-subagents|child"
   "@zhcsyncer/pi-fast-mode|packages/pi-fast-mode/package.json|packages/pi-fast-mode/CHANGELOG.md|pi-fast-mode|child"
+  "@zhcsyncer/pi-meter|packages/pi-meter/package.json|packages/pi-meter/CHANGELOG.md|pi-meter|child"
   "pi-provider-volcengine-agent-plan|providers/pi-provider-volcengine-agent-plan/package.json|providers/pi-provider-volcengine-agent-plan/CHANGELOG.md|pi-provider-volcengine-agent-plan|child"
 )
 

@@ -16,6 +16,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
+- [`@zhcsyncer/pi-meter`](./packages/pi-meter) — local usage ledger plus subscription remaining for Claude, Codex, and SuperGrok. Independent of Glance; disable `@pi-plugins/usage` because both register `/usage`.
 
 ## Bundle-private Search Hub
 
@@ -40,7 +41,7 @@ Do **not** load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / 
 
 ## Persistent extension data
 
-Every independent bundle configuration now uses `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`, including Todo, Ask User Question, and Subagents. Existing files are migrated atomically and verified before removal; canonical data wins, while malformed or conflicting legacy files are preserved with a warning. Trusted project overrides for Recap and Search Hub use `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`; Subagents keeps its existing project-over-global settings behavior at the corresponding project path and stores its optional `agent-tool-description.md` beside `config.json`. Configuration relocation does not move custom agents, skills, Pi settings or `auth.json`, memory, schedules, transcripts, session state, or Plan artifacts; those remain in their standard resource/state locations, including `$PI_CODING_AGENT_DIR/plans/`.
+Every independent bundle configuration now uses `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`, including Todo, Ask User Question, Subagents, and Meter. Existing files are migrated atomically and verified before removal; canonical data wins, while malformed or conflicting legacy files are preserved with a warning. Trusted project overrides for Recap and Search Hub use `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`; Subagents keeps its existing project-over-global settings behavior at the corresponding project path and stores its optional `agent-tool-description.md` beside `config.json`. Meter also stores its local ledger and shared quota snapshot under `extension-data/pi-meter/` and migrates `analytics/usage.jsonl` on first load. Configuration relocation does not move custom agents, skills, Pi settings or `auth.json`, memory, schedules, transcripts, session state, or Plan artifacts; those remain in their standard resource/state locations, including `$PI_CODING_AGENT_DIR/plans/`.
 
 ## Install from Git
 
@@ -58,7 +59,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, structured user questions, Fast Mode, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, Fast Mode, Meter, structured user questions, and the private Search Hub fork:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -118,6 +119,12 @@ Install only Fast Mode:
 pi install npm:@zhcsyncer/pi-fast-mode
 ```
 
+Install only Meter:
+
+```bash
+pi install npm:@zhcsyncer/pi-meter
+```
+
 ## Development
 
 Test the root bundle:
@@ -139,11 +146,14 @@ pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 pi --no-extensions -e ./packages/pi-subagents --list-models nope
 pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
+pi --no-extensions -e ./packages/pi-meter --list-models nope
 ```
 
 When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
 
 When testing `pi-subagents`, do not load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / FleetView registration).
+
+When testing `pi-meter`, do not load `@pi-plugins/usage` at the same time (duplicate `/usage`).
 
 ## Releasing
 

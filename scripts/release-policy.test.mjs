@@ -14,6 +14,7 @@ const CONTEXT7 = "@zhcsyncer/pi-context7";
 const ASK_USER_QUESTION = "@zhcsyncer/pi-ask-user-question";
 const SUBAGENTS = "@zhcsyncer/pi-subagents";
 const FAST_MODE = "@zhcsyncer/pi-fast-mode";
+const METER = "@zhcsyncer/pi-meter";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
@@ -92,6 +93,12 @@ test("requires the root package when Subagents releases", () => {
 test("requires the root package when Fast Mode releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([FAST_MODE, "minor"])), [
 		`${FAST_MODE} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Meter releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([METER, "minor"])), [
+		`${METER} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 

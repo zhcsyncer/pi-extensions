@@ -66,9 +66,15 @@
 │   │   └── config.json
 │   ├── pi-ask-user-question/
 │   │   └── config.json
-│   └── pi-subagents/
+│   ├── pi-subagents/
+│   │   ├── config.json
+│   │   └── agent-tool-description.md # 可选的工具描述配置
+│   └── pi-meter/
 │       ├── config.json
-│       └── agent-tool-description.md # 可选的工具描述配置
+│       ├── quota.json              # 共享订阅快照
+│       ├── usage.jsonl             # 本地账本
+│       ├── budgets.json            # 本地上限
+│       └── warned.jsonl            # 一次性预算警告
 └── plans/                       # Plan Mode 状态例外，保持现状
     └── <plan-id>/
         ├── manifest.json
@@ -87,6 +93,7 @@ pi-plan-mode
 pi-todo
 pi-ask-user-question
 pi-subagents
+pi-meter
 ```
 
 ## 项目级配置
@@ -107,7 +114,7 @@ pi-subagents
 - Subagents 保留既有项目覆盖与写入行为：`/agents` → Settings 只写项目 canonical 文件，全局文件仍由用户手工编辑；工具描述同样项目优先；
 - 项目路径实现必须使用 Pi 导出的 `CONFIG_DIR_NAME`，不能硬编码 `.pi`；本文继续用 `.pi` 表示默认目录；
 - Recap/Search Hub 的配置 UI 仍只写全局文件；受信任项目中的旧项目配置会自动迁移。配置预览、覆盖检测、迁移通知和保存后的生效提示必须遵循同一 trust 判断；
-- `pi-glance`、`pi-tool-display-intent`、`pi-plan-mode`、`pi-todo` 和 `pi-ask-user-question` 仍只有全局配置；
+- `pi-glance`、`pi-tool-display-intent`、`pi-plan-mode`、`pi-todo`、`pi-ask-user-question` 和 `pi-meter` 仍只有全局配置；
 - 运行状态不写入项目 `.pi/extension-data/`。
 
 ### 项目旧路径兼容与优先级
@@ -145,6 +152,11 @@ Recap/Search Hub 的项目迁移只在受信任项目中执行；Subagents 不�
 | Subagents | `<project>/.pi/subagents.json` | `<project>/.pi/extension-data/pi-subagents/config.json` | 项目设置，仍覆盖全局且为 UI 写入目标 |
 | Subagents | `$PI_CODING_AGENT_DIR/agent-tool-description.md` | `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/agent-tool-description.md` | 可选全局工具描述 |
 | Subagents | `<project>/.pi/agent-tool-description.md` | `<project>/.pi/extension-data/pi-subagents/agent-tool-description.md` | 可选项目工具描述，项目优先 |
+| Meter | `$PI_CODING_AGENT_DIR/analytics/usage.jsonl` | `$PI_CODING_AGENT_DIR/extension-data/pi-meter/usage.jsonl` | 本地账本；首次加载从 pi-tracker 旧路径迁入 |
+| Meter | `$PI_CODING_AGENT_DIR/analytics/budgets.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-meter/budgets.json` | 本地上限 |
+| Meter | `$PI_CODING_AGENT_DIR/analytics/warned.jsonl` | `$PI_CODING_AGENT_DIR/extension-data/pi-meter/warned.jsonl` | 一次性预算警告 |
+| Meter | （无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-meter/config.json` | 极性、token 细节、TTL |
+| Meter | （无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-meter/quota.json` | 共享订阅快照，不是本地账本 |
 
 ## Search Hub 专项修复
 
@@ -199,6 +211,8 @@ extension-data/<extension-id>/state/
 
 - Search Hub 的 Exa 用量：`pi-search-hub/state/exa-usage.json`；
 - Tool Display Intent 的调试日志：`pi-tool-display-intent/state/debug.log`。
+
+Meter 的 `quota.json`、`usage.jsonl`、`budgets.json` 和 `warned.jsonl` 是扩展内部状态，与 `config.json` 同目录但不属于用户可编辑配置。远端订阅快照不得写入本地账本。
 
 Tool Display Intent 的 `config.legacy.json` 是一次性配置备份，不属于运行状态，保留在该扩展目录根部。
 
