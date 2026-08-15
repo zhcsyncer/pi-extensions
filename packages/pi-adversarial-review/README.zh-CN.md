@@ -67,7 +67,7 @@ Target 形式包括：
 - `--range` — 仅 TUI 的 commit 线：终点固定为捕获时 `HEAD`，任选最早包含的 commit。
 - `--range <A>..<B>` — 精确的 committed-only range，并在扩展拥有、精确指向 B 的 detached worktree 中评审。例如最近 5 个 commit 使用 `--range HEAD~5..HEAD`。
 
-TUI preflight 发现 staged、unstaged 或 untracked 内容时，会在模型选择前明确其覆盖范围。Whole-target `--base` 和 `--local` 无需先 commit，也能冻结并包含这些修改。用户可以继续，或取消后先提交。Committed `--range` 无法包含它们，因此必须明确选择“只继续评审 committed history”，或取消、提交后重跑。已位于 HEAD 历史中的本地 commit 本身就是 committed history，只要所选 target 覆盖它们就会正常进入评审。
+Whole-target `--base` 和 `--local` 会自动冻结 staged、unstaged 和 untracked 内容，TUI 不再询问是否先提交。Committed `--range` 无法包含这些内容，因此 TUI 会询问是只继续评审 committed history，还是取消、提交后重跑。已位于 HEAD 历史中的本地 commit 本身就是 committed history，只要所选 target 覆盖它们就会正常进入评审。
 
 完整要求、focus/需求输入、gating 和大目标处理见[命令参考](./REFERENCE.zh-CN.md#命令参数)。
 

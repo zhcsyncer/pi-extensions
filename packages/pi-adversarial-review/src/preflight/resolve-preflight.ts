@@ -46,7 +46,6 @@ const CHOOSE_COMMIT_PLAN = "Review by commit plan";
 const BACK_TO_LARGE_TARGET = "Back to whole-target choices";
 const REVIEW_LARGE_COMMIT = "Review this large commit";
 const BACK_TO_COMMIT_PLAN = "Back to commit plan";
-const INCLUDE_UNCOMMITTED_CHANGES = "Continue and include uncommitted changes";
 const EXCLUDE_UNCOMMITTED_CHANGES = "Continue with committed range only";
 const CANCEL_TO_COMMIT_FIRST = "Cancel review and commit changes first";
 
@@ -355,21 +354,17 @@ async function confirmUncommittedCoverage(options: {
   committedOnly: boolean;
   signal?: AbortSignal;
 }): Promise<boolean> {
-  if (options.ctx.mode !== "tui" || !hasLocalChanges(options.state)) return true;
+  if (!options.committedOnly || options.ctx.mode !== "tui" || !hasLocalChanges(options.state)) {
+    return true;
+  }
   const kinds = uncommittedChangeSummary(options.state);
-  const { committedOnly } = options;
   const picked = await options.ctx.ui.select(
-    committedOnly
-      ? `Uncommitted changes were found (${kinds}). A commit range contains committed snapshots only, ` +
-        "so these changes will be excluded unless you cancel, commit them, and rerun."
-      : `Uncommitted changes were found (${kinds}). This target can freeze and include them without ` +
-        "creating a commit; cancel if you want to commit them first.",
-    committedOnly
-      ? [EXCLUDE_UNCOMMITTED_CHANGES, CANCEL_TO_COMMIT_FIRST]
-      : [INCLUDE_UNCOMMITTED_CHANGES, CANCEL_TO_COMMIT_FIRST],
+    `Uncommitted changes were found (${kinds}). A commit range contains committed snapshots only, ` +
+      "so these changes will be excluded unless you cancel, commit them, and rerun.",
+    [EXCLUDE_UNCOMMITTED_CHANGES, CANCEL_TO_COMMIT_FIRST],
     options.signal ? { signal: options.signal } : undefined,
   );
-  return picked === (committedOnly ? EXCLUDE_UNCOMMITTED_CHANGES : INCLUDE_UNCOMMITTED_CHANGES);
+  return picked === EXCLUDE_UNCOMMITTED_CHANGES;
 }
 
 function buildAudit(options: {

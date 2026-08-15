@@ -836,8 +836,7 @@ describe("resolveReviewPreflight", () => {
     const interactions: Array<{ title: string; options: string[] }> = [];
     const ctx = context("tui", async (title, options) => {
       interactions.push({ title, options: [...options] });
-      return options.find((option) => option === "Review the whole target") ??
-        options.find((option) => option === "Continue and include uncommitted changes");
+      return options.find((option) => option === "Review the whole target");
     });
     const listRangeStarts = vi.fn();
     const suggestRanges = vi.fn();
@@ -1301,16 +1300,8 @@ describe("resolveReviewPreflight", () => {
     });
   });
 
-  it("asks whether dirty whole-target work should be included without committing", async () => {
-    const ctx = context("tui", async (title, options) => {
-      expect(title).toContain("can freeze and include them without creating a commit");
-      expect(options).toEqual([
-        "Continue and include uncommitted changes",
-        "Cancel review and commit changes first",
-      ]);
-      return options[0];
-    });
-
+  it("includes dirty whole-target work without asking to commit first", async () => {
+    const ctx = context();
     const result = await resolveReviewPreflight({
       ctx,
       target: { mode: "local" },
@@ -1321,14 +1312,7 @@ describe("resolveReviewPreflight", () => {
     });
 
     expect(result?.target).toEqual({ mode: "local" });
-    expect(ctx.ui.select).toHaveBeenCalledWith(
-      expect.stringContaining("staged, unstaged, untracked"),
-      [
-        "Continue and include uncommitted changes",
-        "Cancel review and commit changes first",
-      ],
-      undefined,
-    );
+    expect(ctx.ui.select).not.toHaveBeenCalled();
   });
 
   it("lets a committed-only range stop so dirty work can be committed first", async () => {

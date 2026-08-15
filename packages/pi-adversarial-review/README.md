@@ -67,7 +67,7 @@ Target forms are:
 - `--range` — TUI-only commit-line picker: endpoint fixed at captured `HEAD`, choose any earliest included commit.
 - `--range <A>..<B>` — exact committed-only range reviewed from an extension-owned detached worktree at B. For example, use `--range HEAD~5..HEAD` for the latest five commits.
 
-When TUI preflight finds staged, unstaged, or untracked work, it makes the coverage explicit before model selection. Whole-target `--base` and `--local` review can freeze and include that work without a commit. Users may continue or cancel to commit first. A committed `--range` cannot include it, so users must explicitly continue with committed history only or cancel, commit, and rerun. Local commits already reachable from HEAD are committed history and are included whenever the chosen target covers them.
+Whole-target `--base` and `--local` freeze staged, unstaged, and untracked work automatically; TUI does not ask whether to commit first. A committed `--range` cannot include that work, so TUI asks users to continue with committed history only or cancel, commit, and rerun. Local commits already reachable from HEAD are committed history and are included whenever the chosen target covers them.
 
 See the [command reference](./REFERENCE.md#command-options) for requirements, focus/requirement inputs, gating, and large-target handling.
 

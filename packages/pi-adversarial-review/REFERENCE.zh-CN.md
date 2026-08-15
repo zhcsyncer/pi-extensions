@@ -50,7 +50,7 @@ Reviewer picker 前先运行 preflight。未给出显式 target 时，它会：
 4. remote HEAD 缺失且 `main`、`master` 同时存在时询问 TUI 用户；
 5. 比较当前分支与所选默认分支，形成候选 target。
 
-普通功能分支评审“相对远端默认分支的 committed changes + staged、unstaged、untracked”。同步的默认分支只评审 local work。已经位于 HEAD 历史中的 commit 本身就是 committed history，无需再次提交；只要所选 target 覆盖它们就会进入评审。存在 staged、unstaged 或 untracked 内容时，whole/local target 会明确询问是直接纳入还是取消后先提交。Committed range 则询问是排除这些内容后继续，还是取消、提交并重跑。默认分支含本地提交或已分叉、detached HEAD、进行中的 Git operation、unmerged files、remote/default branch 歧义都必须由 TUI 明确决定。Headless 会 fail-loud，并要求为这些状态显式给出 target。自动推断或交互选择出的“默认分支到 HEAD”target 较大且包含分支 commit 时，普通 TUI setup 会提供固定 HEAD 的连续 commit 线，不调用自动 commit planning。若只有 local changes，则只提供 whole-target 或取消，不显示空 range picker。
+普通功能分支评审“相对远端默认分支的 committed changes + staged、unstaged、untracked”。同步的默认分支只评审 local work。已经位于 HEAD 历史中的 commit 本身就是 committed history，无需再次提交；只要所选 target 覆盖它们就会进入评审。存在 staged、unstaged 或 untracked 内容时，whole/local target 会自动纳入，不再询问是否先提交。Committed range 则询问是排除这些内容后继续，还是取消、提交并重跑。默认分支含本地提交或已分叉、detached HEAD、进行中的 Git operation、unmerged files、remote/default branch 歧义都必须由 TUI 明确决定。Headless 会 fail-loud，并要求为这些状态显式给出 target。自动推断或交互选择出的“默认分支到 HEAD”target 较大且包含分支 commit 时，普通 TUI setup 会提供固定 HEAD 的连续 commit 线，不调用自动 commit planning。若只有 local changes，则只提供 whole-target 或取消，不显示空 range picker。
 
 Fetch 失败时，TUI 可选择 Retry、使用现有 local remote-tracking ref 或 Cancel。Preflight/fetch 进行中按 Escape 会立即取消。Headless 模式直接 fail-loud。Preflight 永不 merge、rebase、reset、checkout 或 prune。
 
