@@ -180,10 +180,11 @@ test("aggregate modal hides individual-only settings without deleting retained v
 		["toolCallLayout", "enableThinkingLabel", "enableNativeUserMessageBox"],
 	);
 	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
-	assert.match(layoutSummary, /theme-colored bounded Activity/);
+	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);
 	assert.match(layoutSummary, /successful rows stay done until replacement/);
-	assert.match(layoutSummary, /Ctrl\+O reveals only changed-file summaries/);
-	assert.match(layoutSummary, /Thinking placeholders are hidden/);
+	assert.match(layoutSummary, /Collapsed errors stay as a failed count/);
+	assert.match(layoutSummary, /Ctrl\+O reveals bounded failure details, per-tool counts, and last targets/);
+	assert.match(layoutSummary, /Agent keeps its original renderer by default/);
 	assert.match(layoutSummary, /retained but inactive/);
 
 	const individual = applySetting(retained, "toolCallLayout", "individual");

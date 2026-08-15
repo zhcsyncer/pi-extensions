@@ -66,6 +66,7 @@ export interface ToolIntentConfig {
 export interface ToolDisplayConfig {
 	debug: boolean;
 	registerToolOverrides: ToolOverrideOwnership;
+	passthroughToolNames: string[];
 	customToolOverrides: Record<string, CustomToolOverrideConfig>;
 	toolIntent: ToolIntentConfig;
 	toolCallLayout: ToolCallLayout;
@@ -101,6 +102,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		edit: true,
 		write: true,
 	},
+	passthroughToolNames: ["Agent"],
 	customToolOverrides: {},
 	toolIntent: {
 		enabled: true,

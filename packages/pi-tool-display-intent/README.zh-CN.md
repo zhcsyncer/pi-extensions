@@ -24,7 +24,7 @@ $ pnpm test — 验证 extension 测试套件
 - 当前调用执行时若漏掉字段，使用按工具区分的确定性 fallback；恢复后未保存摘要的历史调用只显示 target。
 - 渲染前清理终端控制序列，并限制摘要长度。
 - 可选用 Claude Code 风格 TUI：状态标记、`Name(target)` 标题、无背景框调用行和缩进的 `⎿` 结果。
-- 可选用 aggregate 布局，把一次用户请求中由本扩展持有的安全内置工具合并为有界 Activity。
+- 可选用 aggregate 布局，把一次用户请求中的所有已注册工具汇总为有界 Tools，`Agent` 默认保留原 renderer。
 - 保留 fork 自 `pi-tool-display` 的输出折叠、MCP 展示、pending diff、edit/write diff、thinking label 和原生用户消息框。
 - 为自定义工具提供合作式包装 API。
 
@@ -131,21 +131,23 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 ### 工具调用布局
 
-`toolCalls.layout` 默认是 `individual`，完整保留现有逐工具行为。`aggregate` 会把一次用户请求中由本扩展持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` 合并起来：
+`toolCalls.layout` 默认是 `individual`，完整保留现有逐工具行为。`aggregate` 会把一次用户请求中的所有已注册内置、custom、MCP 和延迟加载工具统一汇总：
 
 ```text
-◐ Activity · read ×12 · edit ×8 · bash ×16
+◐ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   ◐ Bash(pnpm test)
 
-✓ Activity · read ×12 · edit ×8 · bash ×17
+✓ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
   ✓ Bash(pnpm test) done
 ```
 
-最新的 aggregate-safe 工具行承载 Activity，同组旧成员占用零行。Activity 最多按 assistant source order 显示三个运行中或刚完成的操作。成功行会先变成 `done`，而不是立即消失；新工具优先替换最早保留的 `done` 行，运行中工具始终优先占用槽位。Pi 报告 agent settled 后，最后的成功行继续停留 1.5 秒，再收进标题计数；失败行保持可见，不会自动收起。
+最新的非 passthrough、非图片工具行承载 Tools，同组旧聚合成员占用零行。计数包含 pending、running、success 和 failed 调用，并保持工具首次出现的顺序。收起时错误只在标题显示 `N failed`。Tools 最多按 assistant source order 显示三个运行中或刚完成的操作；成功行先变成 `done`，新调用替换最早的 `done`，最后的成功行在 Pi 报告 agent settled 1.5 秒后收起。
 
-各工具使用不同的主题感知颜色，其中 `edit` 和 `write` 使用加粗高强调样式。修改文件路径使用主题 accent，新增和删除分别使用 `toolDiffAdded` 与 `toolDiffRemoved`。工具名和状态符号始终保留，不会只靠颜色表达差异。edit/write 还会尽可能显示 unique files 和可准确计算的 `+A −B`；文件统计排在工具计数之前，因此窄窗口也会优先保留。同组会跨越多个底层 assistant/tool turn，只在下一条 user message 开始时结束。
+所有工具使用相同的聚合规则和确定性的主题颜色。Aggregate 刻意不推断或展示文件变更摘要：Bash、custom tool 或子 Agent 修改无法由父 transcript 完整测量。图片结果 fail-open 到原 renderer。`Agent` 默认也保留自身丰富的进度和结果 renderer，但仍计入 Tools；其他逃生工具可加入 `tools.passthrough`。
 
-Aggregate 始终保持有界：瞬态 `done` 行只存在于实时执行，不会在 reload、resume、tree 导航或 compaction 后重建。按 `Ctrl+O` 只展开最多 20 个修改文件路径及每文件可用的 `+A −B`，不会展示组内 output 或 diff body，也不会向本扩展持有的工具 Schema 添加 `displaySummary`。Pi 隐藏 reasoning block 时，aggregate 还会隐藏纯 assistant `Thinking...` 占位行；assistant 文本、错误以及通过 Pi thinking toggle 展开的真实 reasoning 仍正常显示。图片、交互或需注意的结果、passthrough 工具、外部持有的工具以及 unknown/custom tool 都保持独立，不会被静默隐藏。reload、resume、tree 导航和 compaction 会从当前 Session branch 重建 Activity，原始 tool call 与 result 不会被修改或删除。执行时可准确计算的 write diff 数量会保存在不可见的扩展 custom entry 中，因此重建后的 Activity 统计保持稳定，同时不会持久化旧文件内容。
+Aggregate 始终保持有界。按 `Ctrl+O` 最多展开 20 条错误摘要，以及 20 条按工具类型汇总的 `count + last target`；不会展示组内 output、文件内容或 diff body。没有确定性 target 的通用工具只显示名称与计数。Pi 隐藏 reasoning block 时，纯 assistant `Thinking...` 占位行归零；assistant 文本、错误和显式展开的 reasoning 仍正常显示。
+
+聚合只改变交互渲染，不改写或追加 Session tool call/result。reload、resume、tree 导航和 compaction 会从当前 branch 重建投影。Custom tool 的执行期 UI 仍正常运行；其 transcript result 在 aggregate 中收起。切换到 `individual` 并 reload 后，原 renderer 和保存结果会恢复，例如已完成的 `ask_user_question` 问答会重新可见。
 
 Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。layout 变更在 `/reload` 后生效，并重绘整个当前 branch，而不是只影响未来调用。需要检查历史原始详情时，切回 individual 并 reload：
 
@@ -154,7 +156,7 @@ Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置
 /reload
 ```
 
-Aggregate 期间创建的调用没有生成 intent；切回 individual 后，历史行使用确定性 target 和原始保存结果。
+Aggregate 期间创建的本扩展内置工具调用不会生成 `displaySummary`；切回 individual 后，历史行使用确定性 target 和原始保存结果。
 
 `toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，把命令预览放到独立行，并使用 accent 色强调该行的 shell prompt。按 `Ctrl+O` 可查看完整原始命令，并在安全限制内应用 Bash 语法高亮。该配置不影响命令输出。Claude 风格的 Bash 结果无论折叠还是展开，左侧线框都会贯穿到最后一行。
 
@@ -162,7 +164,7 @@ Aggregate 期间创建的调用没有生成 intent；切回 individual 后，历
 
 模型生成的 intent 使用主题的常规 `accent` 色，不加粗、不加背景。确定性的命令、路径和 query 使用普通 `text`；元数据、分隔符和确定性 fallback intent 继续使用 `muted`。
 
-`tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
+`tools.passthrough` 接受任意已注册工具名，让其原 renderer 在 aggregate 中保持可见；它不会禁用工具，该调用仍计入 Tools。`Agent` 默认包含在逃生口中，稀疏序列化时省略。内置工具名同时表示不使用本扩展的 individual renderer override。`tools.custom` 配置 individual 模式使用的 renderer，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
 
 ### 历史配置自动迁移
 

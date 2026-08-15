@@ -24,7 +24,7 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 - Uses deterministic per-tool fallbacks while a current call is executing; restored calls without a stored summary remain target-only.
 - Sanitizes terminal control sequences and bounds displayed intent length.
 - Offers an optional Claude Code-inspired TUI style with status markers, `Name(target)` headers, unboxed rows, and indented `⎿` results.
-- Offers an optional aggregate layout that combines owned safe built-ins into one bounded Activity per user request.
+- Offers an optional aggregate layout that summarizes every registered tool in one bounded Tools view per user request, with `Agent` renderer passthrough by default.
 - Preserves the compact output modes, MCP rendering, pending diff previews, adaptive edit/write diffs, thinking labels, and native user prompt box inherited from `pi-tool-display`.
 - Provides a cooperative API for custom tools.
 
@@ -131,21 +131,23 @@ Every content preview, including custom tools and bash live/error output, uses `
 
 ### Tool call layouts
 
-`toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` combines this extension's owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` calls within one user request:
+`toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` summarizes every registered built-in, custom, MCP, and late-loaded tool within one user request:
 
 ```text
-◐ Activity · read ×12 · edit ×8 · bash ×16
+◐ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   ◐ Bash(pnpm test)
 
-✓ Activity · read ×12 · edit ×8 · bash ×17
+✓ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
   ✓ Bash(pnpm test) done
 ```
 
-The latest aggregate-safe tool row carries Activity; older group members occupy zero rows. Up to three running or recently completed operations appear in assistant source order. A successful row changes to `done` instead of disappearing immediately; a newer tool replaces the oldest retained `done` row, while running tools always take slot priority. After Pi reports the agent settled, the final successful row remains for a 1.5-second grace period and then folds into the header counts. Failures remain visible and do not auto-fold.
+The latest non-passthrough, non-image tool row carries Tools; older aggregated members occupy zero rows. Counts include pending, running, successful, and failed calls and remain in first-seen tool order. Collapsed failures appear only as `N failed` in the header. Up to three running or recently completed operations appear in assistant source order. A success changes to `done`; a newer call replaces the oldest retained `done`, and the final success folds 1.5 seconds after Pi reports the agent settled.
 
-Tools use distinct theme-aware colors, with bold high-emphasis styling for `edit` and `write`. Changed-file paths use the theme accent, while additions and deletions use `toolDiffAdded` and `toolDiffRemoved`. Labels and status symbols remain present, so color is never the only distinction. Edit/write operations also include unique-file and exact available `+A −B` statistics; file statistics are placed before tool counts so they survive narrow headers. Groups continue across low-level assistant/tool turns and end only at the next user message.
+Every tool receives the same aggregate treatment and a deterministic theme color. Aggregate deliberately does not infer or report file-change summaries: edits made through Bash, custom tools, or child Agent sessions cannot be measured completely from the parent transcript. Images fail open to their original renderer. `Agent` also keeps its rich progress/result renderer by default, but still contributes to the Tools count. Other passthrough names can be added through `tools.passthrough`.
 
-Aggregate stays bounded: transient `done` rows are live-only and are not reconstructed after reload, resume, tree navigation, or compaction. `Ctrl+O` expands only up to 20 changed-file paths with per-file available `+A −B` statistics; it never reveals grouped output or diff bodies and does not add `displaySummary` to owned schemas. When Pi hides reasoning blocks, pure assistant `Thinking...` placeholder rows are also suppressed in aggregate, while assistant text, errors, and reasoning revealed with Pi's thinking toggle remain visible. Images, interactive or attention-requiring results, passthrough tools, externally owned tools, and unknown/custom tools remain independent instead of being silently hidden. Reload, resume, tree navigation, and compaction rebuild Activity from the current session branch without changing the stored raw calls or results. Exact write diff counts that were available at execution time are retained in an invisible extension custom entry, so rebuilt Activity statistics stay stable without persisting previous file content.
+Aggregate stays bounded. `Ctrl+O` reveals at most 20 failure summaries and 20 per-tool `count + last target` rows; it never reveals grouped output, file contents, or diff bodies. Generic tools without a deterministic target show only their name and count. When Pi hides reasoning blocks, pure assistant `Thinking...` placeholder rows are suppressed, while assistant text, errors, and explicitly revealed reasoning remain visible.
+
+Aggregation changes only interactive rendering. It does not rewrite or append Session calls/results, and its projection is rebuilt from the current branch after reload, resume, tree navigation, or compaction. A custom tool's execution-time UI still runs; its transcript result is folded in aggregate. Switching to `individual` and reloading restores the original renderer and stored result—for example, completed `ask_user_question` answers become visible again.
 
 Individual-only preferences remain in `config.json` while aggregate is active. The settings TUI hides them, and `/tool-display-intent show` marks them inactive. Layout changes take effect after `/reload` and redraw the whole current branch, not only future calls. To inspect historical raw details, switch back and reload:
 
@@ -154,7 +156,7 @@ Individual-only preferences remain in `config.json` while aggregate is active. T
 /reload
 ```
 
-Calls created while aggregate was active have no generated intent; individual history uses deterministic targets and the original stored results.
+Owned built-ins created while aggregate was active have no generated `displaySummary`; individual history uses deterministic targets and the original stored results.
 
 `toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header, put the command preview on its own row, and emphasize that row's shell prompt with the accent color. `Ctrl+O` reveals the complete original command and applies Bash syntax highlighting within safety limits. This setting does not affect command output. Claude-style Bash results use a connected left gutter through their final row in both collapsed and expanded views.
 
@@ -162,7 +164,7 @@ Path-bearing `read`, `grep`, `find`, `ls`, `edit`, and `write` calls keep short 
 
 Model-written intent uses the theme's regular `accent` color without bold or background styling. Deterministic commands, paths, and queries use normal `text`; metadata, separators, and deterministic fallback intents remain `muted`.
 
-`tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
+`tools.passthrough` accepts any registered tool name whose original renderer should remain visible in aggregate; it does not disable the tool, and the call still contributes to Tools counts. `Agent` is included by default and omitted by sparse serialization. A built-in passthrough name also opts out of this extension's individual renderer override. A `tools.custom` entry configures the renderer used in individual mode, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
 
 ### Automatic legacy migration
 

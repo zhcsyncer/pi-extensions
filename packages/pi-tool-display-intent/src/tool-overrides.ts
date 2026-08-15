@@ -32,7 +32,6 @@ import { Container, Spacer, Text, truncateToWidth, type Component } from "@earen
 import { resolvePiAgentDir } from "./agent-dir.js";
 import {
   AggregateProjection,
-  applyAggregateRendering,
   registerAggregateProjectionEvents,
 } from "./aggregate-activity.js";
 import { renderBashCall } from "./bash-display.js";
@@ -279,13 +278,26 @@ function registerRuntimeTool(
   aggregateProjection?: AggregateProjection,
 ): void {
   const styledTool = applyRuntimeToolCallStyle(tool, getConfig);
-  const aggregateTool = aggregateProjection
-    ? applyAggregateRendering(styledTool, aggregateProjection)
-    : styledTool;
+  if (aggregateProjection) {
+    const originalRenderCall = styledTool.renderCall;
+    if (typeof originalRenderCall === "function") {
+      styledTool.renderCall = function captureAggregateCallTheme(args, theme, context) {
+        aggregateProjection.setRenderTheme(theme);
+        return originalRenderCall.call(styledTool, args, theme, context);
+      };
+    }
+    const originalRenderResult = styledTool.renderResult;
+    if (typeof originalRenderResult === "function") {
+      styledTool.renderResult = function captureAggregateResultTheme(result, options, theme, context) {
+        aggregateProjection.setRenderTheme(theme);
+        return originalRenderResult.call(styledTool, result, options, theme, context);
+      };
+    }
+  }
   const config = getConfig();
   const toolIntent = config.toolIntent;
   const registeredTool = config.toolCallLayout === "individual" && toolIntent.enabled
-    ? withDisplaySummary(aggregateTool as never, {
+    ? withDisplaySummary(styledTool as never, {
         required: true,
         language: toolIntent.language,
         maxLength: toolIntent.maxLength,
@@ -296,7 +308,7 @@ function registerRuntimeTool(
           toolIntent.maxLength,
         ),
       })
-    : aggregateTool;
+    : styledTool;
   pi.registerTool(registeredTool as unknown as ToolDefinition);
 }
 
@@ -1801,6 +1813,7 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
   const api: ToolDisplayApi = {
     version: 1,
     decorateTool<T extends RuntimeToolDefinition>(tool: T, adapter?: ToolDisplayAdapter): T {
+      if (getConfig().toolCallLayout === "aggregate") return tool;
       const resolvedAdapter = resolveAdapter(tool, adapter);
       const kind = getAdapterKind(tool, resolvedAdapter);
       const overrideExisting = resolvedAdapter.overrideExistingRenderers === true;
@@ -1885,8 +1898,16 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
     },
   };
 
-  (globalThis as GlobalWithToolDisplayApi)[TOOL_DISPLAY_API_KEY] = api;
-  drainPendingToolDisplayDecorations(api);
+  const globalWithApi = globalThis as GlobalWithToolDisplayApi;
+  globalWithApi[TOOL_DISPLAY_API_KEY] = api;
+  if (getConfig().toolCallLayout === "aggregate") {
+    // Pending entries belong to this runtime's original tool definitions. Drop
+    // the decoration requests instead of flattening descriptors with a no-op
+    // Object.assign; a later individual reload receives fresh registrations.
+    globalWithApi[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?.splice(0);
+  } else {
+    drainPendingToolDisplayDecorations(api);
+  }
   return api;
 }
 
@@ -1920,7 +1941,10 @@ export function registerToolDisplayOverrides(
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
   const aggregateProjection = getConfig().toolCallLayout === "aggregate"
-    ? new AggregateProjection((toolName) => registeredBuiltInToolOverrides.has(toolName))
+    ? new AggregateProjection((toolName) =>
+        getConfig().passthroughToolNames.includes(toolName) ||
+        ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
+          !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]))
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
     registerRuntimeTool(pi, tool, getConfig, aggregateProjection);
@@ -2121,7 +2145,6 @@ export function registerToolDisplayOverrides(
         previousContent: previous.content,
       };
       recordWriteExecutionMeta(writeExecutionMetaByToolCallId, toolCallId, executionMeta);
-      aggregateProjection?.recordWritePrevious(toolCallId, executionMeta);
 
       return getBuiltInTools(ctx.cwd).write.execute(
         toolCallId,
@@ -2423,7 +2446,7 @@ export function registerToolDisplayOverrides(
     });
   };
 
-  installMcpRegistrationInterceptor();
+  if (!aggregateProjection) installMcpRegistrationInterceptor();
 
   const registerMcpToolOverrides = (): void => {
     const allTools = tryGetAllTools(pi, "MCP tool override discovery failed.");
@@ -2459,13 +2482,17 @@ export function registerToolDisplayOverrides(
 
   pi.on("session_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
+    if (!aggregateProjection) {
+      registerMcpToolOverrides();
+      scheduleMcpToolOverrideDiscovery();
+    }
   });
   pi.on("before_agent_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
+    if (!aggregateProjection) {
+      registerMcpToolOverrides();
+      scheduleMcpToolOverrideDiscovery();
+    }
   });
 
   if (aggregateProjection) {

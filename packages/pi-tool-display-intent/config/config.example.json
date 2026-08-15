@@ -28,7 +28,7 @@
     "thinkingLabel": true
   },
   "tools": {
-    "passthrough": [],
+    "passthrough": ["Agent"],
     "custom": {
       "web_search": {
         "renderer": "generic",

@@ -41,23 +41,21 @@ function previewIndividualConfig(): ToolDisplayConfig {
 async function main(): Promise<void> {
 	const aggregateStub = createApiStub();
 	registerToolDisplayOverrides(aggregateStub.api, () => ({
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		...previewIndividualConfig(),
 		toolCallLayout: "aggregate",
 	}));
 	const aggregateRead = aggregateStub.tools.find((tool) => tool.name === "read");
 	const aggregateSchema = aggregateRead?.parameters as { properties?: Record<string, unknown> };
 	assert.equal(aggregateSchema.properties?.displaySummary, undefined, "aggregate session stores no model intent field");
 
-	const individualStub = createApiStub();
-	registerToolDisplayOverrides(individualStub.api, previewIndividualConfig);
-	const definitions = new Map(individualStub.tools.map((tool) => [tool.name, tool]));
+	const aggregateDefinitions = new Map(aggregateStub.tools.map((tool) => [tool.name, tool]));
 	const theme = {
 		fg: (_color: string, text: string) => text,
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 	};
 	const renderer = createToolHtmlRenderer({
-		getToolDefinition: (name: string) => definitions.get(name),
+		getToolDefinition: (name: string) => aggregateDefinitions.get(name),
 		theme,
 		cwd: process.cwd(),
 		width: 120,
@@ -81,7 +79,16 @@ async function main(): Promise<void> {
 	assert.doesNotMatch(bashCall, /Run command/);
 	assert.doesNotMatch(bashCall, / — /);
 
-	const storedIntent = renderer.renderCall("history-model", "read", {
+	const individualStub = createApiStub();
+	registerToolDisplayOverrides(individualStub.api, previewIndividualConfig);
+	const individualDefinitions = new Map(individualStub.tools.map((tool) => [tool.name, tool]));
+	const individualRenderer = createToolHtmlRenderer({
+		getToolDefinition: (name: string) => individualDefinitions.get(name),
+		theme,
+		cwd: process.cwd(),
+		width: 120,
+	} as never);
+	const storedIntent = individualRenderer.renderCall("history-model", "read", {
 		path: "stored.ts",
 		displaySummary: "Reviewing stored intent",
 	}) ?? "";

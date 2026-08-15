@@ -36,7 +36,7 @@
         "layout": {
           "enum": ["individual", "aggregate"],
           "default": "individual",
-          "description": "Controls whether owned safe built-in tools render individually or as one fixed minimal Activity per user turn."
+          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn."
         },
         "style": {
           "enum": ["compact", "claude"],
@@ -126,8 +126,12 @@
         "passthrough": {
           "type": "array",
           "uniqueItems": true,
+          "default": ["Agent"],
+          "description": "Tool names whose original transcript renderer remains active in aggregate layout. Agent is always included by default. Built-in names also opt out of this extension's individual renderer override.",
           "items": {
-            "enum": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$"
           }
         },
         "custom": {

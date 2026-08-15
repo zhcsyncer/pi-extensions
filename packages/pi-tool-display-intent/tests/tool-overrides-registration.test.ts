@@ -28,6 +28,7 @@ import {
 	withDisplaySummary,
 } from "../tool-display-api-consumer.js";
 import { addDisplaySummaryParameter } from "../src/display-summary.js";
+import { restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { shortenPath } from "../src/render-utils.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
@@ -531,7 +532,7 @@ test("cooperative result presentations share preview rows and skip duplicated ra
 	assert.doesNotMatch(rendered, /duplicate/);
 });
 
-test("aggregate owned built-ins use self shell without displaySummary schemas", () => {
+test("aggregate keeps built-in definitions intact without displaySummary schemas", () => {
 	const { api, registeredTools } = createExtensionApiStub();
 	const config = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -550,11 +551,12 @@ test("aggregate owned built-ins use self shell without displaySummary schemas", 
 	);
 	for (const tool of registeredTools) {
 		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
-		assert.equal(tool.renderShell, "self", `${tool.name} uses self shell in aggregate`);
+		assert.notEqual(tool.renderShell, "self", `${tool.name} keeps its individual renderer shell for reload recovery`);
 		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
 		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
 		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);
 	}
+	restoreAggregateToolExecutions();
 });
 
 test("aggregate history switched back to individual keeps raw detail without inventing intent", () => {
@@ -569,6 +571,7 @@ test("aggregate history switched back to individual keeps raw detail without inv
 	const aggregateSchema = aggregateRead?.parameters as { properties?: Record<string, unknown> };
 	assert.equal(aggregateSchema.properties?.displaySummary, undefined);
 	const storedArgs = { path: "history.ts" };
+	restoreAggregateToolExecutions();
 
 	const individualConfig = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
@@ -657,6 +660,7 @@ test("aggregate respects passthrough and external ownership boundaries", () => {
 	assert.equal(names.has("read"), false, "passthrough read remains independent");
 	assert.equal(names.has("edit"), false, "externally owned edit remains independent");
 	assert.equal(names.has("bash"), true);
+	restoreAggregateToolExecutions();
 });
 
 test("tool intent can be disabled without changing built-in execution schemas", () => {
