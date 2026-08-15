@@ -33,7 +33,13 @@ async function call(tool: ReturnType<typeof setup>["tool"], params: Record<strin
 describe.each(["session_compact", "session_tree"] as const)("%s — stale ctx handling", (event) => {
 	it("keeps the runtime-local state on a stale ctx", async () => {
 		const { captured, tool } = setup();
-		await call(tool, { action: "create", subject: "keep me" });
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "keep me", status: "in_progress" },
+				{ action: "create", subject: "also keep" },
+			],
+		});
 		const handler = captured.events.get(event)?.[0];
 		await expect(handler?.({} as never, throwingCtx(STALE_CTX_MESSAGE) as never)).resolves.toBeUndefined();
 		const listed = await call(tool, { action: "list" });
@@ -51,7 +57,13 @@ describe("extension runtime isolation", () => {
 	it("keeps Todo state separate across two extension instances in one process", async () => {
 		const first = setup();
 		const second = setup();
-		await call(first.tool, { action: "create", subject: "first runtime" });
+		await call(first.tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "first runtime", status: "in_progress" },
+				{ action: "create", subject: "first next" },
+			],
+		});
 
 		const firstList = await call(first.tool, { action: "list" });
 		const secondList = await call(second.tool, { action: "list" });

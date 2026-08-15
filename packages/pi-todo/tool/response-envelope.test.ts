@@ -6,7 +6,9 @@ import type { Task } from "./types.js";
 
 const stateWith = (...tasks: Task[]): TaskState => ({
 	tasks,
-	nextId: Math.max(0, ...tasks.map((t) => t.id)) + 1,
+	nextId: Math.max(0, ...tasks.map((task) => task.id)) + 1,
+	generation: 1,
+	revision: 0,
 });
 
 const t = (over: Partial<Task> & { id: number; subject: string }): Task => ({ status: "pending", ...over });
@@ -25,7 +27,7 @@ describe("formatContent", () => {
 		expect(formatContent(op, state)).toBe("Updated #1 (pending → in_progress)");
 	});
 
-	it("update — omits transition when from === to (e.g. blockedBy-only update)", () => {
+	it("update — omits transition when from === to (e.g. subject-only update)", () => {
 		const state = stateWith(t({ id: 1, subject: "x" }));
 		const op: Op = { kind: "update", id: 1, fromStatus: "pending", toStatus: "pending" };
 		expect(formatContent(op, state)).toBe("Updated #1");
@@ -36,11 +38,7 @@ describe("formatContent", () => {
 		expect(formatContent({ kind: "delete", id: 1, subject: "ship" }, state)).toBe("Deleted #1: ship");
 	});
 
-	it("clear — emits prior count", () => {
-		expect(formatContent({ kind: "clear", count: 4 }, stateWith())).toBe("Cleared 4 tasks");
-	});
-
-	it("list — 'No tasks' when filtered view is empty", () => {
+	it("list — 'No tasks' when no active or completed task exists", () => {
 		const state = stateWith(t({ id: 1, subject: "x", status: "deleted" }));
 		expect(formatContent({ kind: "list", includeDeleted: false }, state)).toBe("No tasks");
 	});
@@ -55,27 +53,15 @@ describe("formatContent", () => {
 		);
 	});
 
-	it("get — multi-line task block with description/blockedBy/owner", () => {
+	it("get — emits description and owner without dependency graph fields", () => {
 		const state = stateWith(
 			t({ id: 1, subject: "root" }),
-			t({ id: 2, subject: "leaf", description: "details", blockedBy: [1], owner: "Sergii" }),
+			t({ id: 2, subject: "leaf", description: "details", owner: "Sergii" }),
 		);
 		const op: Op = { kind: "get", task: state.tasks[1]! };
 		expect(formatContent(op, state)).toBe(
-			"#2 [pending] leaf\n  description: details\n  blockedBy: #1\n  owner: Sergii",
+			"#2 [pending] leaf\n  description: details\n  owner: Sergii",
 		);
-	});
-
-	it("get — emits 'blocks: #id,…' reverse-edge line when other tasks block on it", () => {
-		// task 1 has blockedBy=[2] AND [3] → deriveBlocks(2) = [1], deriveBlocks(3) = [1].
-		// Selecting task 2 should then expose `blocks: #1`.
-		const state = stateWith(
-			t({ id: 1, subject: "ship", blockedBy: [2, 3] }),
-			t({ id: 2, subject: "test" }),
-			t({ id: 3, subject: "lint" }),
-		);
-		const op: Op = { kind: "get", task: state.tasks[1]! };
-		expect(formatContent(op, state)).toBe("#2 [pending] test\n  blocks: #1");
 	});
 
 	it("get — status and subject are sufficient for an in_progress task", () => {
@@ -84,27 +70,36 @@ describe("formatContent", () => {
 		expect(formatContent(op, state)).toBe("#1 [in_progress] build");
 	});
 
-	it("list — statusFilter narrows to a single status", () => {
+	it("list — defaults to active tasks and reports hidden completed count", () => {
 		const state = stateWith(
 			t({ id: 1, subject: "a", status: "pending" }),
 			t({ id: 2, subject: "b", status: "in_progress" }),
 			t({ id: 3, subject: "c", status: "completed" }),
+			t({ id: 4, subject: "d", status: "completed" }),
+			t({ id: 5, subject: "gone", status: "deleted" }),
 		);
-		expect(formatContent({ kind: "list", includeDeleted: false, statusFilter: "in_progress" }, state)).toBe(
-			"[in_progress] #2 b",
+		expect(formatContent({ kind: "list", includeDeleted: false }, state)).toBe(
+			"[pending] #1 a\n[in_progress] #2 b\n2 completed tasks hidden",
 		);
+	});
+
+	it.each([
+		["in_progress", "[in_progress] #2 b"],
+		["completed", "[completed] #3 c"],
+		["deleted", "[deleted] #4 gone"],
+	] as const)("list — explicit %s status queries current live state", (statusFilter, expected) => {
+		const state = stateWith(
+			t({ id: 1, subject: "a", status: "pending" }),
+			t({ id: 2, subject: "b", status: "in_progress" }),
+			t({ id: 3, subject: "c", status: "completed" }),
+			t({ id: 4, subject: "gone", status: "deleted" }),
+		);
+		expect(formatContent({ kind: "list", includeDeleted: false, statusFilter }, state)).toBe(expected);
 	});
 
 	it("list — includeDeleted=true surfaces tombstoned rows", () => {
 		const state = stateWith(t({ id: 1, subject: "x", status: "deleted" }));
 		expect(formatContent({ kind: "list", includeDeleted: true }, state)).toBe("[deleted] #1 x");
-	});
-
-	it("list — '⛓ #id,…' suffix appears when task has blockedBy", () => {
-		const state = stateWith(t({ id: 1, subject: "leaf" }), t({ id: 2, subject: "task", blockedBy: [1] }));
-		expect(formatContent({ kind: "list", includeDeleted: false }, state)).toBe(
-			"[pending] #1 leaf\n[pending] #2 task ⛓ #1",
-		);
 	});
 
 	it("create — defensive fallback when op.taskId is unknown to state", () => {
@@ -138,8 +133,8 @@ describe("formatContent", () => {
 });
 
 describe("buildToolResult", () => {
-	it("envelope.details mirrors the canonical TaskDetails shape on success", () => {
-		const state = stateWith(t({ id: 1, subject: "alpha" }));
+	it("mutation details contain a V2 checkpoint and canonical live state", () => {
+		const state = { ...stateWith(t({ id: 1, subject: "alpha" })), revision: 1 };
 		const env = buildToolResult("create", { subject: "alpha" }, state, {
 			kind: "create",
 			taskId: 1,
@@ -148,21 +143,65 @@ describe("buildToolResult", () => {
 		expect(env).toEqual({
 			content: [{ type: "text", text: "Created #1: alpha (pending)" }],
 			details: {
-				schemaVersion: 1,
+				schemaVersion: 2,
+				kind: "checkpoint",
 				action: "create",
 				params: { subject: "alpha" },
-				tasks: state.tasks,
-				nextId: state.nextId,
+				state,
 			},
 		});
+		expect(env.details).not.toHaveProperty("tasks");
+		expect(env.details).not.toHaveProperty("nextId");
 	});
 
-	it("envelope.details carries error message on op.kind === 'error'", () => {
-		const env = buildToolResult("create", { subject: "" }, stateWith(), {
-			kind: "error",
-			message: "subject required for create",
+	it("drops retired and unknown fields from top-level and nested batch params", () => {
+		const state = { ...stateWith(t({ id: 1, subject: "first" })), revision: 1 };
+		const env = buildToolResult(
+			"batch",
+			{
+				action: "batch",
+				blockedBy: [99],
+				unknown: "drop me",
+				operations: [
+					{
+						action: "create",
+						subject: "first",
+						status: "pending",
+						blockedBy: [99],
+						unknown: "drop me too",
+					},
+					{ action: "update", id: 1, status: "completed", addBlockedBy: [2] },
+					{ action: "delete", id: 2, removeBlockedBy: [1], subject: "ignored" },
+				],
+			},
+			state,
+			{ kind: "batch", operations: [] },
+		);
+		expect(env.details).toMatchObject({
+			kind: "checkpoint",
+			params: {
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "first", status: "pending" },
+					{ action: "update", id: 1, status: "completed" },
+					{ action: "delete", id: 2 },
+				],
+			},
 		});
-		expect(env.details.error).toBe("subject required for create");
-		expect(env.content[0].text).toBe("Error: subject required for create");
+		expect(JSON.stringify(env.details)).not.toContain("blockedBy");
+		expect(JSON.stringify(env.details)).not.toContain("unknown");
+	});
+
+	it.each(["list", "get"] as const)("%s details are lightweight query envelopes", (action) => {
+		const state = stateWith(t({ id: 1, subject: "alpha" }));
+		const op: Op = action === "list"
+			? { kind: "list", includeDeleted: false }
+			: { kind: "get", task: state.tasks[0]! };
+		const env = buildToolResult(action, action === "get" ? { id: 1 } : {}, state, op);
+		expect(env.details).toEqual({ schemaVersion: 2, kind: "query", action });
+		expect(env.details).not.toHaveProperty("state");
+		expect(env.details).not.toHaveProperty("tasks");
+		expect(env.details).not.toHaveProperty("nextId");
+		expect(env.details).not.toHaveProperty("params");
 	});
 });

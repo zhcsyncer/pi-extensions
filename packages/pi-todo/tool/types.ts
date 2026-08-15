@@ -1,5 +1,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
+import type { TaskState } from "../state/state.js";
 
 // ---------------------------------------------------------------------------
 // Tool identity — verbatim string boundary. Tool name "todo" is the
@@ -17,34 +18,57 @@ export const TOOL_LABEL = "Todo";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 
-export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear" | "batch";
-export type TaskBatchOperationAction = "create" | "update" | "delete";
+export type TaskMutationAction = "create" | "update" | "delete" | "batch";
+export type TaskQueryAction = "list" | "get";
+export type TaskAction = TaskMutationAction | TaskQueryAction;
+export type LegacyTaskAction = TaskAction | "clear";
+export type TaskBatchOperationAction = Exclude<TaskMutationAction, "batch">;
 
 export interface Task {
 	id: number;
 	subject: string;
 	description?: string;
 	status: TaskStatus;
-	blockedBy?: number[];
 	owner?: string;
 	metadata?: Record<string, unknown>;
 }
 
-/**
- * Persistence + replay snapshot. Every successful `todo` tool call returns this
- * shape under `details`; `state/replay.ts` reads the latest one from the branch
- * to reconstruct runtime state. Field order and field names are pinned by
- * cross-version replay compatibility.
- */
-export interface TaskDetails {
-	/** Missing only on snapshots written by versions before schema versioning. */
+/** Legacy full-state snapshot emitted by pi-todo V1. */
+export interface TaskDetailsV1 {
+	/** Missing only on snapshots written before schema versioning. */
 	schemaVersion?: 1;
-	action: TaskAction;
+	action: LegacyTaskAction;
 	params: Record<string, unknown>;
 	tasks: Task[];
 	nextId: number;
 	error?: string;
 }
+
+/** V2 mutation results remain branch-aware replay checkpoints. */
+export interface MutationDetailsV2 {
+	schemaVersion: 2;
+	kind: "checkpoint";
+	action: TaskMutationAction;
+	params: Record<string, unknown>;
+	state: TaskState;
+}
+
+/** V2 query results deliberately carry no replayable task state. */
+export interface QueryDetailsV2 {
+	schemaVersion: 2;
+	kind: "query";
+	action: TaskQueryAction;
+}
+
+/** Branch-scoped custom checkpoint written by the user-confirmed reset UI. */
+export interface ResetDetailsV2 {
+	schemaVersion: 2;
+	kind: "checkpoint";
+	action: "reset";
+	state: TaskState;
+}
+
+export type TaskDetails = TaskDetailsV1 | MutationDetailsV2 | QueryDetailsV2;
 
 /**
  * Open-shape input bag the reducer accepts. Stays an interface so the index
@@ -60,9 +84,6 @@ export interface TaskMutationParams {
 	subject?: string;
 	description?: string;
 	status?: TaskStatus;
-	blockedBy?: number[];
-	addBlockedBy?: number[];
-	removeBlockedBy?: number[];
 	owner?: string;
 	metadata?: Record<string, unknown>;
 	id?: number;
@@ -82,39 +103,27 @@ const TodoBatchOperationSchema = Type.Object({
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
 	status: Type.Optional(
 		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
-			description: "Initial create status (pending default) or update target",
+			description: "Initial create status (pending default; create accepts only pending or in_progress) or update target",
 		}),
 	),
-	blockedBy: Type.Optional(Type.Array(Type.Number())),
-	addBlockedBy: Type.Optional(Type.Array(Type.Number())),
-	removeBlockedBy: Type.Optional(Type.Array(Type.Number())),
 	owner: Type.Optional(Type.String()),
 	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	id: Type.Optional(Type.Number()),
 });
 
 export const TodoParamsSchema = Type.Object({
-	action: StringEnum(["create", "update", "list", "get", "delete", "clear", "batch"] as const),
-	subject: Type.Optional(Type.String({ description: "Task subject line (required for create)" })),
+	action: StringEnum(["create", "update", "list", "get", "delete", "batch"] as const),
+	subject: Type.Optional(
+		Type.String({
+			description:
+				"Task subject line (required for create). Top-level create only appends to an already active multi-item cycle; start a fresh cycle with a batch of at least two create operations.",
+		}),
+	),
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
 	status: Type.Optional(
 		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
-			description: "Initial status for create (pending default), target status for update, or list filter",
-		}),
-	),
-	blockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "Initial blockedBy ids (create only)",
-		}),
-	),
-	addBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "Task ids to add to blockedBy (update only, additive merge)",
-		}),
-	),
-	removeBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "Task ids to remove from blockedBy (update only, additive merge)",
+			description:
+				"Initial status for create (pending default; create accepts only pending or in_progress), target status for update, or list filter",
 		}),
 	),
 	owner: Type.Optional(Type.String({ description: "Agent/owner assigned to this task" })),
@@ -130,7 +139,8 @@ export const TodoParamsSchema = Type.Object({
 	),
 	includeDeleted: Type.Optional(
 		Type.Boolean({
-			description: "If true, list action returns deleted (tombstoned) tasks as well. Default: false.",
+			description:
+				"If true and no status filter is set, list returns all live-state statuses. Explicit status filters can query completed or deleted directly. Default: false.",
 		}),
 	),
 	operations: Type.Optional(
@@ -138,7 +148,7 @@ export const TodoParamsSchema = Type.Object({
 			minItems: 1,
 			maxItems: 50,
 			description:
-				"Ordered atomic create/update/delete operations; each sees prior results and all roll back if one fails. Complete or re-queue the active task before starting another.",
+				"Ordered atomic create/update/delete operations. A fresh or terminal cycle is rejected unless this batch includes at least two create operations: set the first to in_progress and leave the rest pending. Each operation sees prior results and all roll back if one fails. Complete or re-queue the active task before starting another.",
 		}),
 	),
 });

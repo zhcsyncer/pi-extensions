@@ -18,28 +18,21 @@ describe("status-aware task text styling", () => {
 	it.each([
 		[
 			task(1, "waiting", "pending"),
-			"<dim>[ ]</dim> <dim>#1</dim> <muted>waiting</muted>",
+			"<dim>[ ]</dim> <muted>waiting</muted>",
 		],
 		[
 			task(2, "working", "in_progress"),
-			"<accent>[>]</accent> <accent>#2</accent> <accent><bold>working</bold></accent>",
+			"<accent>[>]</accent> <accent><bold>working</bold></accent>",
 		],
 		[
 			task(3, "finished", "completed"),
-			"<success>[x]</success> <dim>#3</dim> <dim><strike>finished</strike></dim>",
+			"<success>[x]</success> <dim><strike>finished</strike></dim>",
 		],
 		[
 			task(4, "removed", "deleted"),
-			"<error>[!]</error> <dim>#4</dim> <error><strike>removed</strike></error>",
+			"<error>[!]</error> <error><strike>removed</strike></error>",
 		],
 	] as const)("styles $status overlay rows by status", (value, expected) => {
-		expect(formatOverlayTaskLine(value, theme, true, STATUS_ICON_PRESETS.ascii)).toBe(expected);
-	});
-
-	it("keeps overlay dependency details dim", () => {
-		const value = { ...task(1, "blocked", "pending"), blockedBy: [2, 3] };
-		expect(formatOverlayTaskLine(value, theme, true, STATUS_ICON_PRESETS.ascii)).toContain(
-			"<dim>⛓ #2,#3</dim>",
-		);
+		expect(formatOverlayTaskLine(value, theme, STATUS_ICON_PRESETS.ascii)).toBe(expected);
 	});
 });

@@ -2,7 +2,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { createMockPi, makeTheme } from "./test-fixtures.js";
 import { describe, expect, it } from "vitest";
-import { createTodoStore, registerTodoTool, type TaskDetails, TOOL_NAME } from "./todo.js";
+import { createTodoStore, registerTodoTool, TOOL_NAME } from "./todo.js";
+import type { MutationDetailsV2, QueryDetailsV2 } from "./tool/types.js";
 
 const theme = makeTheme() as unknown as Theme;
 
@@ -25,40 +26,60 @@ describe("registerTodoTool — registration shape", () => {
 		expect(tool.name).toBe("todo");
 		expect(tool.label).toBe("Todo");
 		expect(tool.renderShell).toBe("self");
-		expect(tool.promptSnippet).toContain("task list");
+		expect(tool.promptSnippet).toContain("multi-item execution plan");
+		expect(tool.description).toContain("Never start a one-task Todo cycle");
+		expect(tool.description).toContain("regardless of risk, duration, or importance");
+		expect(tool.description).toContain("at least two independently valuable create operations");
+		expect(tool.description).toContain("Use top-level create only");
+		expect(tool.description).toContain("rejects top-level create and one-create batches");
+		expect(tool.description).toContain("a qualifying batch rolls it over automatically");
 		expect(Array.isArray(tool.promptGuidelines)).toBe(true);
 		expect((tool.promptGuidelines as string[]).length).toBeGreaterThan(0);
 	});
 
-	it("exposes a typebox parameters schema declaring all actions and ordered batch semantics", () => {
+	it("exposes current actions and ordered batch semantics without model-callable clear", () => {
 		const { tool } = setup();
 		const raw = JSON.stringify(tool.parameters);
-		for (const action of ["create", "update", "list", "get", "delete", "clear", "batch"]) {
+		for (const action of ["create", "update", "list", "get", "delete", "batch"]) {
 			expect(raw).toContain(action);
 		}
-		expect(raw).toContain("Initial status for create");
+		expect(raw).not.toContain("clear");
+		expect(tool.description).not.toContain("clear");
+		expect(raw).toContain("create accepts only pending or in_progress");
+		expect(raw).toContain("A fresh or terminal cycle is rejected unless this batch includes at least two create operations");
+		expect(raw).toContain("Top-level create only appends to an already active multi-item cycle");
 		expect(raw).toContain("Ordered atomic");
 		expect(raw).not.toContain("activeForm");
+		expect(raw).not.toContain("blockedBy");
+		expect(raw).not.toContain("addBlockedBy");
+		expect(raw).not.toContain("removeBlockedBy");
 	});
 });
 
 describe("registerTodoTool — execute mutates its injected store", () => {
-	it("create → list returns the seeded row", async () => {
+	it("rejects a singleton create, then checkpoints an append after a multi-create batch", async () => {
 		const { tool } = setup();
-		const r1 = await call(tool, { action: "create", subject: "first" });
-		expect((r1?.details as TaskDetails).action).toBe("create");
-		const r2 = await call(tool, { action: "list" });
-		expect(r2?.content[0]).toMatchObject({ text: expect.stringContaining("first") });
-	});
-
-	it("clear resets store state and nextId", async () => {
-		const { tool } = setup();
-		await call(tool, { action: "create", subject: "a" });
-		await call(tool, { action: "create", subject: "b" });
-		const r = await call(tool, { action: "clear" });
-		const d = r?.details as TaskDetails;
-		expect(d.tasks).toEqual([]);
-		expect(d.nextId).toBe(1);
+		await expect(call(tool, { action: "create", subject: "first" })).rejects.toThrow(
+			"cannot start a one-task Todo cycle",
+		);
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "first", status: "in_progress" },
+				{ action: "create", subject: "second" },
+			],
+		});
+		const created = await call(tool, { action: "create", subject: "third" });
+		const mutation = created?.details as MutationDetailsV2;
+		expect(mutation).toMatchObject({ schemaVersion: 2, kind: "checkpoint", action: "create" });
+		expect(mutation.state.tasks.map((task) => task.subject)).toEqual(["first", "second", "third"]);
+		const listed = await call(tool, { action: "list" });
+		expect(listed?.content[0]).toMatchObject({ text: expect.stringContaining("first") });
+		expect(listed?.details as QueryDetailsV2).toEqual({
+			schemaVersion: 2,
+			kind: "query",
+			action: "list",
+		});
 	});
 
 	it("batch creates and starts the first task in one tool result", async () => {
@@ -67,11 +88,11 @@ describe("registerTodoTool — execute mutates its injected store", () => {
 			action: "batch",
 			operations: [
 				{ action: "create", subject: "first", status: "in_progress" },
-				{ action: "create", subject: "second", blockedBy: [1] },
+				{ action: "create", subject: "second" },
 			],
 		});
-		const details = result?.details as TaskDetails;
-		expect(details.tasks.map(({ subject, status }) => ({ subject, status }))).toEqual([
+		const details = result?.details as MutationDetailsV2;
+		expect(details.state.tasks.map(({ subject, status }) => ({ subject, status }))).toEqual([
 			{ subject: "first", status: "in_progress" },
 			{ subject: "second", status: "pending" },
 		]);
@@ -102,13 +123,18 @@ describe("registerTodoTool — transcript rendering", () => {
 	it("renders no result lines for every successful action", async () => {
 		const { tool } = setup();
 		const results = [
-			await call(tool, { action: "create", subject: "a" }),
+			await call(tool, {
+				action: "batch",
+				operations: [
+					{ action: "create", subject: "a", status: "in_progress" },
+					{ action: "create", subject: "b" },
+				],
+			}),
 			await call(tool, { action: "list" }),
 			await call(tool, { action: "get", id: 1 }),
-			await call(tool, { action: "update", id: 1, status: "in_progress" }),
-			await call(tool, { action: "delete", id: 1 }),
-			await call(tool, { action: "clear" }),
-			await call(tool, { action: "batch", operations: [{ action: "create", subject: "batched" }] }),
+			await call(tool, { action: "update", id: 1, status: "completed" }),
+			await call(tool, { action: "create", subject: "batched" }),
+			await call(tool, { action: "delete", id: 2 }),
 		];
 
 		for (const result of results) {
@@ -119,7 +145,9 @@ describe("registerTodoTool — transcript rendering", () => {
 
 	it("reports reducer validation failures as real tool errors", async () => {
 		const { tool } = setup();
-		await expect(call(tool, { action: "create" })).rejects.toThrow("subject required for create");
+		await expect(call(tool, { action: "create", subject: "alone" })).rejects.toThrow(
+			"cannot start a one-task Todo cycle",
+		);
 	});
 
 	it("reveals every ordered batch operation in expanded mode", () => {
@@ -153,6 +181,13 @@ describe("registerTodoTool — transcript rendering", () => {
 		expect(callNode.render(80).join("\n")).toContain("todo create");
 		expect(callNode.render(80).join("\n")).toContain("audit me");
 
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "first", status: "in_progress" },
+				{ action: "create", subject: "second" },
+			],
+		});
 		const result = await call(tool, { action: "create", subject: "audit me" });
 		const resultNode = tool.renderResult?.(
 			result as never,
@@ -160,7 +195,7 @@ describe("registerTodoTool — transcript rendering", () => {
 			theme,
 			{ isError: false } as never,
 		) as unknown as Text;
-		expect(resultNode.render(80).join("\n")).toContain("Created #1");
+		expect(resultNode.render(80).join("\n")).toContain("Created #3");
 	});
 
 	it("keeps Pi execution errors visible when details are unavailable", () => {
