@@ -11,6 +11,7 @@
  * Settings key: fast-mode.enabled
  * Current switch is in-memory only; it is not stored in the session.
  */
+import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import {
 	clampThinkingLevel,
 	streamOpenAICodexResponses,
@@ -32,7 +33,7 @@ export const SERVICE_TIER = "priority" as const;
 export const SHORTCUT = "ctrl+f";
 export const SHORTCUT_REPEAT_GUARD_MS = 800;
 
-export type ServiceTierOptions = SimpleStreamOptions & {
+export type ServiceTierOptions = ReturnType<typeof buildBaseOptions> & {
 	serviceTier?: typeof SERVICE_TIER;
 	reasoningEffort?: string;
 };
@@ -105,13 +106,15 @@ export function supportsApi(model: FastModeModel | undefined): boolean {
 
 export function buildStreamOptions(
 	model: Model<Api>,
+	context: Context,
 	options: SimpleStreamOptions | undefined,
 	serviceTier: typeof SERVICE_TIER | undefined,
 ): ServiceTierOptions {
+	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clamped = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	const reasoningEffort = clamped === "off" ? undefined : clamped;
 	return {
-		...options,
+		...base,
 		reasoningEffort,
 		...(serviceTier ? { serviceTier } : {}),
 	};
@@ -214,7 +217,7 @@ export default function fastMode(pi: ExtensionAPI): void {
 			return streamOpenAICodexResponses(
 				model as Model<"openai-codex-responses">,
 				context,
-				buildStreamOptions(model, options, tier) as never,
+				buildStreamOptions(model, context, options, tier) as never,
 			);
 		},
 	});
@@ -226,7 +229,7 @@ export default function fastMode(pi: ExtensionAPI): void {
 			return streamOpenAIResponses(
 				model as Model<"openai-responses">,
 				context,
-				buildStreamOptions(model, options, tier) as never,
+				buildStreamOptions(model, context, options, tier) as never,
 			);
 		},
 	});

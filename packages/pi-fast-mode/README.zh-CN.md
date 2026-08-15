@@ -74,7 +74,7 @@ pi install git:github.com/zhcsyncer/pi-extensions
 - `openai-codex` + `openai-codex-responses` 同样如此
 - `xai` + `openai-responses` / `openai-completions` 通过 `before_provider_request` 的 payload `service_tier: "priority"`
 
-`options.maxTokens` 原样透传，没有 32k 上限。
+OpenAI 和 Codex 继续走 Pi 内置 `streamSimple` 的 options 收口，包括默认 `maxTokens` 和剩余上下文 clamp，只在 Fast Mode 开启时加 `serviceTier`。没有额外的 32k 上限。
 
 ## 价格与计费
 
@@ -96,3 +96,5 @@ pi install git:github.com/zhcsyncer/pi-extensions
 ```bash
 pnpm --filter @zhcsyncer/pi-fast-mode check
 ```
+
+包测试会对照已安装的 `@earendil-works/pi-ai` 里 OpenAI 和 Codex 的 `streamSimple` 源码配方。升级 Pi 后请跑这项检查。如果失败，重新阅读这些函数；只有原厂配方增加了新字段时，才更新 `buildStreamOptions`。

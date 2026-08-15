@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import {
 	applyXaiPriorityPayload,
 	buildStreamOptions,
@@ -57,26 +61,86 @@ test("resolveServiceTier injects priority only when the in-memory switch is on",
 	assert.equal(resolveServiceTier(true, model("xai", "openai-completions")), SERVICE_TIER);
 });
 
-test("buildStreamOptions passes maxTokens through and only adds serviceTier when requested", () => {
-	const gpt = {
+function openaiModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
+	return {
 		provider: "openai",
 		id: "gpt-5.6",
 		api: "openai-responses",
+		contextWindow: 128000,
+		maxTokens: 16000,
+		...overrides,
 	} as Model<Api>;
-	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2 };
+}
 
-	assert.deepEqual(buildStreamOptions(gpt, options, undefined), {
-		maxTokens: 64000,
-		temperature: 0.2,
+const emptyContext = { messages: [] } as Context;
+
+test("buildStreamOptions copies Pi streamSimple options and only adds serviceTier", () => {
+	const gpt = openaiModel();
+	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2, apiKey: "test-key" };
+	const expected = {
+		...buildBaseOptions(gpt, emptyContext, options, options.apiKey),
 		reasoningEffort: undefined,
-	});
-	assert.deepEqual(buildStreamOptions(gpt, options, SERVICE_TIER), {
-		maxTokens: 64000,
-		temperature: 0.2,
-		reasoningEffort: undefined,
+	};
+
+	assert.deepEqual(buildStreamOptions(gpt, emptyContext, options, undefined), expected);
+	assert.deepEqual(buildStreamOptions(gpt, emptyContext, options, SERVICE_TIER), {
+		...expected,
 		serviceTier: SERVICE_TIER,
 	});
 });
+
+test("buildStreamOptions keeps Pi maxTokens defaulting and context clamping", () => {
+	const gpt = openaiModel({ contextWindow: 20000, maxTokens: 16000 });
+	const shortContext = { messages: [] } as Context;
+	const longContext = {
+		messages: [
+			{
+				role: "user",
+				content: [{ type: "text", text: "x".repeat(18000) }],
+			},
+		],
+	} as Context;
+
+	const withoutCallerCap = buildStreamOptions(gpt, shortContext, { apiKey: "test-key" }, undefined);
+	assert.equal(
+		withoutCallerCap.maxTokens,
+		buildBaseOptions(gpt, shortContext, { apiKey: "test-key" }, "test-key").maxTokens,
+	);
+
+	const oversized = { maxTokens: 64000, apiKey: "test-key" };
+	const clamped = buildStreamOptions(gpt, longContext, oversized, SERVICE_TIER);
+	assert.ok((clamped.maxTokens ?? 0) < 64000);
+	assert.equal(
+		clamped.maxTokens,
+		buildBaseOptions(gpt, longContext, oversized, oversized.apiKey).maxTokens,
+	);
+	assert.equal(clamped.serviceTier, SERVICE_TIER);
+});
+
+test("OpenAI streamSimple wrappers still match the installed pi-ai recipe", () => {
+	const openaiSource = readInstalledApiSource("openai-responses.js");
+	const codexSource = readInstalledApiSource("openai-codex-responses.js");
+	const recipe =
+		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?buildBaseOptions\(model, context, options, options\?\.apiKey\);[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
+	const codexRecipe =
+		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?buildBaseOptions\(model, context, options, apiKey\);[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
+
+	assert.match(
+		openaiSource,
+		recipe,
+		"pi-ai openai-responses streamSimple changed. Re-read it and update buildStreamOptions if the recipe gained new fields.",
+	);
+	assert.match(
+		codexSource,
+		codexRecipe,
+		"pi-ai openai-codex-responses streamSimple changed. Re-read it and update buildStreamOptions if the recipe gained new fields.",
+	);
+});
+
+function readInstalledApiSource(fileName: string): string {
+	const simpleOptionsUrl = import.meta.resolve("@earendil-works/pi-ai/api/simple-options");
+	return readFileSync(join(dirname(fileURLToPath(simpleOptionsUrl)), fileName), "utf8");
+}
 
 test("applyXaiPriorityPayload only mutates matching xAI payloads when enabled", () => {
 	const payload = { model: "grok-4.6", max_tokens: 8000 };

@@ -74,7 +74,7 @@ The provider list is hardcoded. There is no user allowlist.
 - `openai-codex` + `openai-codex-responses` via the same
 - `xai` + `openai-responses` / `openai-completions` via `before_provider_request` payload `service_tier: "priority"`
 
-`options.maxTokens` is passed through unchanged. There is no 32k clamp.
+OpenAI and Codex keep Pi's built-in `streamSimple` option recipe, including default `maxTokens` and remaining-context clamping, then add `serviceTier` only when Fast Mode is on. There is no extra 32k clamp.
 
 ## Pricing and billing
 
@@ -96,3 +96,5 @@ Do not assume every model is granted priority, and do not assume local cost is a
 ```bash
 pnpm --filter @zhcsyncer/pi-fast-mode check
 ```
+
+The package tests include a source-recipe check against the installed `@earendil-works/pi-ai` OpenAI and Codex `streamSimple` implementations. After bumping Pi, run that check. If it fails, re-read those functions and update `buildStreamOptions` only when the built-in recipe gained new fields.
