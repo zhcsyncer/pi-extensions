@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.19.1
+
+### Patch Changes
+
+- 2d59426: Load Fast Mode without importing `@earendil-works/pi-ai/api/simple-options`, which Pi's extension loader cannot resolve.
+
 ## 0.19.0
 
 ### Minor Changes
