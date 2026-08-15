@@ -66,6 +66,7 @@ const requiredPackFiles = new Map([
 		"packages/pi-subagents/README.zh-CN.md",
 		"packages/pi-subagents/UPSTREAM_SOURCE.md",
 		"packages/pi-fast-mode/extensions/fast-mode.ts",
+		"packages/pi-fast-mode/extensions/stream-options.ts",
 		"packages/pi-fast-mode/README.md",
 		"packages/pi-fast-mode/README.zh-CN.md",
 	]],
@@ -157,6 +158,7 @@ const requiredPackFiles = new Map([
 	]],
 	["./packages/pi-fast-mode", [
 		"extensions/fast-mode.ts",
+		"extensions/stream-options.ts",
 		"README.md",
 		"README.zh-CN.md",
 		"CHANGELOG.md",

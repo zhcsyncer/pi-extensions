@@ -97,4 +97,6 @@ Do not assume every model is granted priority, and do not assume local cost is a
 pnpm --filter @zhcsyncer/pi-fast-mode check
 ```
 
-The package tests include a source-recipe check against the installed `@earendil-works/pi-ai` OpenAI and Codex `streamSimple` implementations. After bumping Pi, run that check. If it fails, re-read those functions and update `buildStreamOptions` only when the built-in recipe gained new fields.
+The extension must not import `@earendil-works/pi-ai/api/*`. Pi's loader aliases `@earendil-works/pi-ai` to `compat.js`, so those deep paths fail at load time. `extensions/stream-options.ts` keeps a local copy of the `streamSimple` option recipe instead.
+
+The package tests compare that local recipe with the installed `@earendil-works/pi-ai` helper, and they also check the OpenAI and Codex `streamSimple` source. After bumping Pi, run that check. If it fails, re-read those functions and update the local recipe only when the built-in one gained new fields.
