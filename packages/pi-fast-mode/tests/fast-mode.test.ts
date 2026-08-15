@@ -6,7 +6,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
+import { buildBaseOptions as installedBuildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import {
 	applyXaiPriorityPayload,
@@ -20,6 +20,7 @@ import {
 	writeDefaultEnabled,
 	type FastModeModel,
 } from "../extensions/fast-mode.ts";
+import { buildBaseOptions } from "../extensions/stream-options.ts";
 
 function model(provider: string, api: string): FastModeModel {
 	return { provider, api };
@@ -73,6 +74,54 @@ function openaiModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
 }
 
 const emptyContext = { messages: [] } as Context;
+
+function importedSpecifiers(source: string): string[] {
+	return Array.from(
+		source.matchAll(/from\s+["']([^"']+)["']/g),
+		(match) => match[1] ?? "",
+	).filter(Boolean);
+}
+
+test("extension runtime stays on loader-safe pi-ai specifiers", () => {
+	const source = readFileSync(
+		join(dirname(fileURLToPath(import.meta.url)), "../extensions/fast-mode.ts"),
+		"utf8",
+	);
+	const helper = readFileSync(
+		join(dirname(fileURLToPath(import.meta.url)), "../extensions/stream-options.ts"),
+		"utf8",
+	);
+	const specifiers = [...importedSpecifiers(source), ...importedSpecifiers(helper)];
+	assert.equal(
+		specifiers.some((specifier) => specifier.startsWith("@earendil-works/pi-ai/api/")),
+		false,
+		"Pi aliases @earendil-works/pi-ai to compat.js, so /api/* imports fail at load time.",
+	);
+	assert.ok(specifiers.includes("@earendil-works/pi-ai/compat"));
+});
+
+test("local buildBaseOptions matches the installed pi-ai recipe", () => {
+	const gpt = openaiModel();
+	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2, apiKey: "test-key" };
+	assert.deepEqual(
+		buildBaseOptions(gpt, emptyContext, options, options.apiKey),
+		installedBuildBaseOptions(gpt, emptyContext, options, options.apiKey),
+	);
+
+	const longContext = {
+		messages: [
+			{
+				role: "user",
+				content: [{ type: "text", text: "x".repeat(18000) }],
+			},
+		],
+	} as Context;
+	const tight = openaiModel({ contextWindow: 20000, maxTokens: 16000 });
+	assert.deepEqual(
+		buildBaseOptions(tight, longContext, { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
+		installedBuildBaseOptions(tight, longContext, { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
+	);
+});
 
 test("buildStreamOptions copies Pi streamSimple options and only adds serviceTier", () => {
 	const gpt = openaiModel();

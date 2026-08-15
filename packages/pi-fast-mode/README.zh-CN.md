@@ -97,4 +97,6 @@ OpenAI 和 Codex 继续走 Pi 内置 `streamSimple` 的 options 收口，包括�
 pnpm --filter @zhcsyncer/pi-fast-mode check
 ```
 
-包测试会对照已安装的 `@earendil-works/pi-ai` 里 OpenAI 和 Codex 的 `streamSimple` 源码配方。升级 Pi 后请跑这项检查。如果失败，重新阅读这些函数；只有原厂配方增加了新字段时，才更新 `buildStreamOptions`。
+扩展不能导入 `@earendil-works/pi-ai/api/*`。Pi 的加载器会把 `@earendil-works/pi-ai` 指到 `compat.js`，这些深路径在加载时会失败。`extensions/stream-options.ts` 因此本地保留一份 `streamSimple` 的 options 收口。
+
+包测试会对照这份本地收口和已安装的 `@earendil-works/pi-ai` helper，也会检查 OpenAI 和 Codex 的 `streamSimple` 源码。升级 Pi 后请跑这项检查。如果失败，重新阅读这些函数；只有原厂配方增加了新字段时，才更新本地收口。

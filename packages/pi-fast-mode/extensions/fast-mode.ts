@@ -11,7 +11,6 @@
  * Settings key: fast-mode.enabled
  * Current switch is in-memory only; it is not stored in the session.
  */
-import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import {
 	clampThinkingLevel,
 	streamOpenAICodexResponses,
@@ -26,6 +25,7 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { buildBaseOptions } from "./stream-options.ts";
 
 export const STATUS_KEY = "fast-mode";
 export const SETTINGS_FIELD = "fast-mode";
