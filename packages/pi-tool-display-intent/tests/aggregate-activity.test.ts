@@ -206,6 +206,26 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
+test("latest assistant narration sits above tool rows and does not consume the tool budget", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-narration-budget");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-1",
+		stopReason: "toolUse",
+		content: [{ type: "text", text: "先定位两边的设计与实现入口" }],
+	});
+	for (const index of [1, 2, 3, 4]) {
+		projection.markStarted(`tool-${index}`, `custom_${index}`, { value: index });
+	}
+	const view = projection.getView("tool-4");
+	assert.equal(view?.latestNarration, "先定位两边的设计与实现入口");
+	assert.deepEqual(view?.displayRows.map((member) => member.toolCallId), ["tool-1", "tool-2", "tool-3"]);
+	const rendered = renderAggregateActivity(view!, 120, plainTheme());
+	assert.match(rendered.join("\n"), /✦ 先定位两边的设计与实现入口/);
+	assert.match(rendered.join("\n"), /custom_1/);
+});
+
 test("a new passthrough call still replaces the oldest retained done row", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-agent-replace");
@@ -326,6 +346,29 @@ test("expanded tool rows leave the Tools ledger and show one summary per call", 
 		assert.match(expandedBash.join("\n"), /└.*Bash\(pnpm test\)/);
 		assert.doesNotMatch(expandedRead.join("\n"), /RAW SECRET|files|\+\d|−\d/);
 		assert.doesNotMatch(expandedBash.join("\n"), /RAW OUTPUT|files|\+\d|−\d/);
+	} finally {
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded Tools summary stays on the first visible framed row after empty thinking", () => {
+	initTheme("dark", false);
+	const projection = createProjection();
+	patchAggregateToolExecutions(projection);
+	try {
+		projection.startUserGroup("user-empty-thinking");
+		projection.ingestAssistantMessage({
+			role: "assistant",
+			id: "assistant-empty",
+			stopReason: "toolUse",
+			content: [{ type: "thinking", thinking: "hidden" }],
+		});
+		projection.markStarted("read-1", "read", { path: "src/a.ts" });
+		const read = createComponent("read", "read-1", { path: "src/a.ts" });
+		read.setExpanded(true);
+		const expanded = read.render(120).join("\n");
+		assert.match(expanded, /Tools.*read ×1/);
+		assert.match(expanded, /[│└].*Read\(src\/a\.ts\)/);
 	} finally {
 		restoreAggregateToolExecutions();
 	}

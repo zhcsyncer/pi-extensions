@@ -33,6 +33,7 @@ export interface AggregateGroup {
 	leaderToolCallId?: string;
 	members: AggregateMember[];
 	framedItemIds: string[];
+	narrationById: Map<string, string>;
 }
 
 export type AggregateFrameEdge = "start" | "continue" | "end" | "only";
@@ -47,6 +48,7 @@ export interface AggregateActivityView {
 	groupId: string;
 	leaderToolCallId: string;
 	hasRunning: boolean;
+	latestNarration?: string;
 	active: AggregateMember[];
 	displayRows: AggregateMember[];
 	activeOverflow: number;
@@ -256,10 +258,17 @@ function toolCallsFromMessage(value: unknown): ToolCallRecord[] {
 }
 
 function messageHasVisibleText(value: unknown): boolean {
-	return messageContent(value).some((entry) => {
+	return firstVisibleAssistantText(value) !== undefined;
+}
+
+function firstVisibleAssistantText(value: unknown): string | undefined {
+	for (const entry of messageContent(value)) {
 		const content = toRecord(entry);
-		return content.type === "text" && typeof content.text === "string" && Boolean(content.text.trim());
-	});
+		if (content.type !== "text" || typeof content.text !== "string") continue;
+		const normalized = normalizeDisplaySummary(content.text, FAILED_SUMMARY_MAX_LENGTH);
+		if (normalized) return normalized;
+	}
+	return undefined;
 }
 
 function isInterimAssistantMessage(value: unknown): boolean {
@@ -327,6 +336,7 @@ export class AggregateProjection {
 	private readonly groupsById = new Map<string, AggregateGroup>();
 	private readonly membersById = new Map<string, AggregateMember>();
 	private readonly framedGroupById = new Map<string, string>();
+	private readonly visibleFrameContent = new Set<string>();
 	private readonly frameInvalidators: FrameInvalidator[] = [];
 	private readonly invalidators = new Map<string, () => void>();
 	private sourceOrder = 0;
@@ -380,6 +390,26 @@ export class AggregateProjection {
 	isFrameStart(itemId: string): boolean {
 		const edge = this.getFrameEdge(itemId);
 		return edge === "start" || edge === "only";
+	}
+
+	shouldHostExpandedSummary(itemId: string): boolean {
+		const items = this.getFramedItemIds(itemId);
+		const firstVisible = items.find((id) => this.hasVisibleFrameContent(id));
+		return firstVisible === itemId;
+	}
+
+	hasVisibleFrameContent(itemId: string): boolean {
+		if (!itemId.startsWith("assistant-before:") && !itemId.startsWith("assistant:")) return true;
+		return this.visibleFrameContent.has(itemId);
+	}
+
+	markFrameContentVisible(itemId: string, visible: boolean): void {
+		if (!itemId) return;
+		const previousHost = this.getFramedItemIds(itemId).find((id) => this.hasVisibleFrameContent(id));
+		if (visible) this.visibleFrameContent.add(itemId);
+		else this.visibleFrameContent.delete(itemId);
+		const nextHost = this.getFramedItemIds(itemId).find((id) => this.hasVisibleFrameContent(id));
+		if (previousHost !== nextHost) this.invalidateIds(previousHost, nextHost, itemId);
 	}
 
 	getViewForGroup(itemId: string): AggregateActivityView | undefined {
@@ -436,6 +466,26 @@ export class AggregateProjection {
 		this.frameInvalidators.push({ id: itemId, invalidate });
 	}
 
+	rememberNarration(itemId: string, text: string, groupId?: string): void {
+		const resolvedGroupId = groupId ?? this.groupIdForFrameItem(itemId);
+		if (!resolvedGroupId || !itemId || !text) return;
+		const group = this.ensureGroup(resolvedGroupId);
+		group.narrationById.set(itemId, text);
+		this.invalidateIds(group.leaderToolCallId);
+	}
+
+	latestNarrationFor(itemId: string): string | undefined {
+		const groupId = this.framedGroupById.get(itemId) ?? this.membersById.get(itemId)?.groupId;
+		if (!groupId) return undefined;
+		const group = this.groupsById.get(groupId);
+		if (!group) return undefined;
+		for (const frameId of [...group.framedItemIds].reverse()) {
+			const narration = group.narrationById.get(frameId);
+			if (narration) return narration;
+		}
+		return undefined;
+	}
+
 	getConnectedRendererCount(): number {
 		return this.invalidators.size;
 	}
@@ -469,9 +519,13 @@ export class AggregateProjection {
 	ingestAssistantMessage(message: unknown): void {
 		if (messageRole(message) !== "assistant") return;
 		const calls = toolCallsFromMessage(message);
-		if (isInterimAssistantMessage(message) && messageHasVisibleText(message)) {
+		if (isInterimAssistantMessage(message)) {
 			const frameId = aggregateAssistantFrameId(message);
-			if (frameId) this.trackFramedItem(frameId, this.activeGroupId, calls[0]?.id);
+			const narration = firstVisibleAssistantText(message);
+			if (frameId && narration) {
+				this.trackFramedItem(frameId, this.activeGroupId, calls[0]?.id);
+				this.rememberNarration(frameId, narration);
+			}
 		}
 		for (const call of calls) {
 			this.addOrUpdateMember(call.id, call.name, call.args, true);
@@ -577,6 +631,7 @@ export class AggregateProjection {
 		this.groupsById.clear();
 		this.membersById.clear();
 		this.framedGroupById.clear();
+		this.visibleFrameContent.clear();
 		this.frameInvalidators.length = 0;
 		this.sourceOrder = 0;
 		this.completionOrder = 0;
@@ -674,6 +729,7 @@ export class AggregateProjection {
 			groupId: group.groupId,
 			leaderToolCallId: toolCallId,
 			hasRunning: grouped.some((entry) => entry.state === "pending" || entry.state === "running"),
+			latestNarration: this.latestNarrationFor(toolCallId),
 			active,
 			displayRows,
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
@@ -686,7 +742,7 @@ export class AggregateProjection {
 	private ensureGroup(groupId: string): AggregateGroup {
 		let group = this.groupsById.get(groupId);
 		if (!group) {
-			group = { groupId, members: [], framedItemIds: [] };
+			group = { groupId, members: [], framedItemIds: [], narrationById: new Map() };
 			this.groups.push(group);
 			this.groupsById.set(groupId, group);
 		}
@@ -887,6 +943,15 @@ export function renderAggregateActivity(
 	}
 
 	const lines = [truncateToWidth(header, safeWidth, "…")];
+	if (view.latestNarration) {
+		let mark = AGGREGATE_ASSISTANT_MARK;
+		try {
+			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
+		} catch {
+			// Theme helpers must not crash the collapsed ledger.
+		}
+		lines.push(truncateToWidth(`  ${mark} ${view.latestNarration}`, safeWidth, "…"));
+	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {
 			lines.push(
@@ -981,7 +1046,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 				activeProjection.getRenderTheme(),
 				activeProjection.getFrameEdge(toolCallId) ?? "only",
 			);
-			if (activeProjection.isFrameStart(toolCallId)) {
+			if (activeProjection.shouldHostExpandedSummary(toolCallId)) {
 				const headerView = activeProjection.getViewForGroup(toolCallId);
 				if (headerView) {
 					return [...padAggregateBlock(renderAggregateActivity(headerView, width, activeProjection.getRenderTheme())), ...detail];

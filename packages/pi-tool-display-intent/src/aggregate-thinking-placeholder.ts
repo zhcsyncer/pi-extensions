@@ -200,8 +200,15 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 		const interim = isInterimAssistantNarration(this);
 		const projection = getActiveAggregateProjection();
+		const trimmed = interim ? trimBlankEdges(next) : next;
 		if (interim) {
 			const frameId = assistantFrameId(this);
+			if (trimmed.length === 0 || !isExpanded(this)) {
+				projection?.markFrameContentVisible(frameId, false);
+				if (trimmed.length === 0) projection?.untrackFramedItem(frameId);
+				else projection?.trackFramedItem(frameId, undefined, firstToolCallId(this.lastMessage));
+				return [];
+			}
 			projection?.trackFramedItem(frameId, undefined, firstToolCallId(this.lastMessage));
 			projection?.connectFrameRenderer(frameId, () => {
 				try {
@@ -210,9 +217,8 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 					// A stale transcript component may already be disposed.
 				}
 			});
-			if (!isExpanded(this)) return [];
+			projection?.markFrameContentVisible(frameId, true);
 		}
-		const trimmed = interim ? trimBlankEdges(next) : next;
 		if (trimmed.length === 0) return [];
 		if (!interim) return trimmed;
 		const theme = resolveAggregateRenderTheme();
@@ -220,7 +226,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		const frameId = assistantFrameId(this);
 		const edge = projection?.getFrameEdge(frameId) ?? "only";
 		const framed = applyAggregateGroupFrame(marked, width, theme, edge);
-		if (projection?.isFrameStart(frameId)) {
+		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {
 				return [...padAggregateBlock(renderAggregateActivity(headerView, width, theme)), ...framed];
