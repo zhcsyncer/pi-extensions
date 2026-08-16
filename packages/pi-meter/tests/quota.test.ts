@@ -162,20 +162,21 @@ describe("refreshQuotaSnapshots", () => {
 });
 
 describe("provider parsers", () => {
-	it("parses SuperGrok weekly creditUsagePercent and product split", () => {
+	it("parses SuperGrok weekly creditUsagePercent and period end, without product split", () => {
 		const parsed = parseSuperGrokBilling({
 			config: {
-				currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", endTime: "2026-08-18T00:00:00Z" },
-				creditUsagePercent: 66,
+				currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-08-10T16:55:31.897623+00:00", end: "2026-08-17T16:55:31.897623+00:00" },
+				creditUsagePercent: 51,
+				billingPeriodEnd: "2026-08-17T16:55:31.897623+00:00",
 				productUsage: [
-					{ product: "GrokBuild", usagePercent: 10 },
-					{ product: "GrokChat", usagePercent: 80 },
+					{ product: "GrokBuild", usagePercent: 50 },
+					{ product: "GrokChat", usagePercent: 1 },
 				],
 			},
 		}, now);
 		expect(parsed.ok).toBe(true);
-		expect(parsed.primary).toMatchObject({ id: "weekly", usedPercent: 66, resetsAt: "2026-08-18T00:00:00Z" });
-		expect(parsed.windows.map((window) => window.label)).toEqual(["Weekly credits", "Build", "Chat"]);
+		expect(parsed.primary).toMatchObject({ id: "weekly", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" });
+		expect(parsed.windows).toEqual([parsed.primary]);
 	});
 
 	it("parses Claude 5h/week windows and Codex used_percent", () => {

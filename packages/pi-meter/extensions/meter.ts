@@ -1,9 +1,9 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { renderChromeLine } from "../src/chrome/widget.ts";
+import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
-import { loadMeterConfig, saveMeterConfig, type MeterConfig } from "../src/config.ts";
+import { loadMeterConfig, parseTokenDetailsArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
 import { addBudgetFlow } from "../src/ledger/budget-add.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
@@ -98,7 +98,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 		}
 		await store.append(record);
 		await checkBudgets(ctx, record);
-		await renderWidget(ctx);
+		await renderChrome(ctx);
 	}
 
 	async function checkBudgets(ctx: ExtensionContext, _record: UsageRecord): Promise<void> {
@@ -122,24 +122,18 @@ export default function piMeter(pi: ExtensionAPI): void {
 		if (fired.length > 0) await store.markWarned(fired);
 	}
 
-	async function renderWidget(ctx: ExtensionContext): Promise<void> {
+	async function renderChrome(ctx: ExtensionContext): Promise<void> {
 		if (ctx.mode !== "tui" || !ctx.hasUI || !store || !config) return;
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		const today = sumToday(await store.readAll());
 		const preferred = preferredProvider(ctx.model);
 		const view = quota ? chromeWindow(quota, preferred) : undefined;
-		ctx.ui.setWidget(
-			WIDGET_KEY,
-			(_tui, theme) => ({
-				render: (width: number) => renderChromeLine({
-					today,
-					tokenDetails: config!.tokenDetails,
-					quota: view,
-					polarity: config!.quotaPolarity,
-				}, width, theme),
-				invalidate() {},
-			}),
-			{ placement: "belowEditor" },
-		);
+		ctx.ui.setStatus(STATUS_KEY, renderStatusText({
+			today,
+			tokenDetails: config.tokenDetails,
+			quota: view,
+			polarity: config.quotaPolarity,
+		}, ctx.ui.theme));
 	}
 
 	async function maybeRefreshQuota(ctx: ExtensionContext, force = false): Promise<void> {
@@ -151,23 +145,26 @@ export default function piMeter(pi: ExtensionAPI): void {
 			minIntervalMs: config.minRefreshIntervalMs,
 		});
 		quota = result.store;
-		await renderWidget(ctx);
+		await renderChrome(ctx);
 	}
 
 	async function persistConfig(next: MeterConfig, ctx: ExtensionContext): Promise<void> {
 		config = next;
 		await saveMeterConfig(next, agentDir);
-		await renderWidget(ctx);
+		await renderChrome(ctx);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		await ensureReady(ctx);
 		warnUsageConflict(ctx);
-		await renderWidget(ctx);
+		await renderChrome(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (ctx.mode === "tui") ctx.ui.setWidget(WIDGET_KEY, undefined);
+		if (ctx.mode === "tui") {
+			ctx.ui.setWidget(WIDGET_KEY, undefined);
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
 	});
 
 	pi.on("message_end", async (event, ctx) => {
@@ -228,7 +225,10 @@ export default function piMeter(pi: ExtensionAPI): void {
 				{ value: "year", label: "year" },
 				{ value: "all", label: "all" },
 				{ value: "import", label: "import", description: "Back-fill from session files" },
-				{ value: "details", label: "details", description: "Toggle token details on the chrome row" },
+				{ value: "details", label: "details", description: "Show or hide token details in the footer status" },
+				{ value: "details on", label: "details on", description: "Show input / output / cache hit" },
+				{ value: "details off", label: "details off", description: "Hide token details" },
+				{ value: "compact", label: "compact", description: "Same as details off" },
 			];
 			return options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
 		},
@@ -239,10 +239,10 @@ export default function piMeter(pi: ExtensionAPI): void {
 				await importHistory(store!, ctx.ui.notify);
 				return;
 			}
-			if (arg === "details" || arg === "details on" || arg === "details off") {
-				const next = arg === "details" ? !config!.tokenDetails : arg.endsWith("on");
-				await persistConfig({ ...config!, tokenDetails: next }, ctx);
-				notify(ctx, `Token details: ${next ? "on" : "off"}`, "info");
+			const details = parseTokenDetailsArg(arg, config!.tokenDetails);
+			if (details !== undefined) {
+				await persistConfig({ ...config!, tokenDetails: details }, ctx);
+				notify(ctx, details ? "Token details on. /analytics details again to hide." : "Token details off.", "info");
 				return;
 			}
 			if (arg === "help" || arg === "?") {
@@ -320,7 +320,7 @@ function printHelp(notify: Notify): void {
 			"  /analytics [today|week|month|6months|year|all]",
 			"      Local ledger dashboard with input / output / cache columns.",
 			"  /analytics import     Back-fill from session JSONL (idempotent).",
-			"  /analytics details    Toggle token details on the chrome row.",
+			"  /analytics details    Toggle token details in the footer status.",
 			"  /budget               View local budgets (does not block requests).",
 			"  /budget add           Add a local budget.",
 			"",

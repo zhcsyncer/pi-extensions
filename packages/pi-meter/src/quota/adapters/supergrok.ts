@@ -6,10 +6,13 @@ import type { QuotaSnapshot, QuotaWindow } from "../types.ts";
 
 export const SUPERGROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 
-function productLabel(id: string): string {
-	if (id === "GrokBuild") return "Build";
-	if (id === "GrokChat") return "Chat";
-	return id;
+function firstIso(...values: unknown[]): string | undefined {
+	for (const value of values) {
+		if (typeof value !== "string") continue;
+		const date = new Date(value);
+		if (!Number.isNaN(date.getTime())) return date.toISOString();
+	}
+	return undefined;
 }
 
 export function parseSuperGrokBilling(payload: unknown, fetchedAt: number): QuotaSnapshot {
@@ -22,36 +25,23 @@ export function parseSuperGrokBilling(payload: unknown, fetchedAt: number): Quot
 	if (usedPercent === undefined) {
 		return { provider: "supergrok", title: "SuperGrok", windows: [], fetchedAt, ok: false, error: "missing creditUsagePercent" };
 	}
-	const resetsAt = typeof period?.endTime === "string"
-		? period.endTime
-		: typeof period?.endsAt === "string"
-			? period.endsAt
-			: undefined;
+	const resetsAt = firstIso(
+		period?.end,
+		period?.endTime,
+		period?.endsAt,
+		config.billingPeriodEnd,
+	);
 	const primary: QuotaWindow = {
 		id: "weekly",
 		label: "Weekly credits",
 		usedPercent,
 		...(resetsAt ? { resetsAt } : {}),
 	};
-	const windows: QuotaWindow[] = [primary];
-	if (Array.isArray(config.productUsage)) {
-		for (const product of config.productUsage) {
-			if (!isRecord(product)) continue;
-			const id = typeof product.product === "string" ? product.product : typeof product.id === "string" ? product.id : undefined;
-			const percent = typeof product.usagePercent === "number" ? product.usagePercent : undefined;
-			if (!id || percent === undefined) continue;
-			windows.push({
-				id,
-				label: productLabel(id),
-				usedPercent: percent,
-			});
-		}
-	}
 	return {
 		provider: "supergrok",
 		title: "SuperGrok",
 		primary,
-		windows,
+		windows: [primary],
 		fetchedAt,
 		ok: true,
 	};

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
-import { displayedPercent, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
+import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
 import { renderUsagePanel } from "../src/chrome/usage-panel.ts";
-import { renderChromeLine } from "../src/chrome/widget.ts";
+import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
 import type { AggRow } from "../src/ledger/types.ts";
 
 const theme = {
@@ -42,78 +41,69 @@ describe("quota polarity and tone", () => {
 	});
 });
 
-describe("chrome row", () => {
+describe("status chrome", () => {
 	const quota = {
 		provider: "supergrok" as const,
 		stale: false,
 		window: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
 	};
 
-	it("defaults to compact tokens/cost and keeps the quota bar on the right", () => {
-		const [line] = renderChromeLine({
+	it("names today's local spend and the weekly remaining window", () => {
+		const plain = strip(renderStatusText({
 			today,
 			tokenDetails: false,
 			quota,
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
-		}, 80, theme);
-		const plain = strip(line);
-		expect(plain).toContain("12.4k");
-		expect(plain).toContain("$0.18");
-		expect(plain).toContain("34%");
-		expect(plain).not.toContain("↑");
-		expect(plain).toMatch(/╶.*╴/);
+		}, theme));
+		expect(plain).toBe("today 12.4k $0.18 · week left ██░░░ 34% (3d)");
 	});
 
-	it("shows input / output / cache hit only when details are on", () => {
-		const [line] = renderChromeLine({
+	it("keeps the window verb when flipping to used", () => {
+		const plain = strip(renderStatusText({
 			today,
 			tokenDetails: true,
 			quota,
 			polarity: "used",
 			now: new Date("2026-08-15T12:00:00Z"),
-		}, 80, theme);
-		const plain = strip(line);
-		expect(plain).toContain("↑12.4k");
-		expect(plain).toContain("↓2.1k");
-		expect(plain).toContain("hit 80k");
+		}, theme));
+		expect(plain).toContain("today ↑12.4k ↓2.1k hit 80k");
+		expect(plain).toContain("week used");
 		expect(plain).toContain("66%");
 	});
 
-	it("drops token details first, then totals, and never exceeds width", () => {
-		const wide = strip(renderChromeLine({ today, tokenDetails: true, quota, polarity: "remaining", now: new Date("2026-08-15T12:00:00Z") }, 80, theme)[0]!);
-		expect(wide).toContain("↑");
-		const mid = strip(renderChromeLine({ today, tokenDetails: true, quota, polarity: "remaining", now: new Date("2026-08-15T12:00:00Z") }, 36, theme)[0]!);
-		expect(mid).not.toContain("↑");
-		expect(mid).toMatch(/%/);
-		const narrow = strip(renderChromeLine({ today, tokenDetails: true, quota, polarity: "remaining", now: new Date("2026-08-15T12:00:00Z") }, 18, theme)[0]!);
-		expect(narrow).toMatch(/%|—|╶/);
-		for (const width of [12, 18, 36, 80]) {
-			for (const line of renderChromeLine({ today, tokenDetails: true, quota, polarity: "remaining", now: new Date("2026-08-15T12:00:00Z") }, width, theme)) {
-				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-			}
-		}
+	it("labels Claude 5h and Codex week windows", () => {
+		expect(quotaWindowKind({ id: "session", label: "Session (5h)" })).toBe("5h");
+		expect(quotaWindowKind({ id: "main-primary", label: "Week limit" })).toBe("week");
+	});
+});
+
+describe("reset time", () => {
+	it("uses the same remaining duration on the chrome row and in /usage", () => {
+		const now = new Date("2026-08-15T17:55:31Z");
+		const resetsAt = "2026-08-17T16:55:31.897Z";
+		expect(formatResetShort(resetsAt, now)).toBe("1d 23h");
+		expect(formatResetLong(resetsAt, now)).toBe("resets in 1d 23h");
 	});
 });
 
 describe("usage panel", () => {
-	it("keeps SuperGrok product split in /usage, not the chrome row", () => {
+	it("shows SuperGrok weekly remaining only", () => {
 		const panel = renderUsagePanel([{
 			provider: "supergrok",
 			title: "SuperGrok",
-			primary: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
+			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			windows: [
-				{ id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
-				{ id: "GrokBuild", label: "Build", usedPercent: 10 },
-				{ id: "GrokChat", label: "Chat", usedPercent: 80 },
+				{ id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			],
 			fetchedAt: Date.parse("2026-08-15T12:00:00Z"),
 			ok: true,
-		}], "remaining", new Date("2026-08-15T12:00:00Z"));
+		}], "remaining", new Date("2026-08-15T17:55:31Z"));
 		expect(panel).toContain("SuperGrok");
 		expect(panel).toContain("Weekly credits");
-		expect(panel).toContain("Build");
-		expect(panel).toContain("Chat");
-		expect(panel).toContain("34%");
+		expect(panel).toContain("49%");
+		expect(panel).toContain("resets in 1d 23h");
+		expect(panel).not.toContain("Build");
+		expect(panel).not.toContain("Chat");
 	});
 });

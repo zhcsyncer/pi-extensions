@@ -57,18 +57,10 @@
 
 不改 Glance，不读 Glance 配置，不往 Glance 右下角塞东西。Glance 的 context 条和顶栏 Tokens 继续只讲 session/context；meter 讲订阅窗口和本地账本。
 
-Pi 公共 API 进不了别人的输入框内部。独立扩展能做到的「输入右下」= **输入框下方一整行，内容靠右**（`setWidget` + `belowEditor`）。不用 `setStatus`：有 Glance 时它会被收成左对齐纯文本，画不了条。
-
-已拍板：一行 caption，右边带短套餐条。视觉跟 `DESIGN.md`——少框、数字 muted、暖色只用来标紧。
+常驻面改走一段 footer `setStatus`（key `pi-meter`），不占 widget 整行。窗口语义写在数字前面：`today` 是本地今天花费，`week left` / `5h left` 是当前订阅窗口。
 
 ```text
-- - - - - - - - - - - - - - - - - - - -
-| >                                      |
-- - - - - - - - - - - - - - - - - - - -
-  12.4k  $0.18          ╶───╸──╴ 66% · 3d
-
-展开 token 细节：
-  ↑12.4k ↓2.1k hit 80k  ╶───╸──╴ 66% · 3d
+today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 窄了先丢掉 token 细节，再丢掉总量/费用，最后留套餐条 + 百分比。
@@ -82,7 +74,7 @@ Pi 公共 API 进不了别人的输入框内部。独立扩展能做到的「输
 
 颜色锚在「还剩多少」，不要两套阈值：剩得多用 muted/普通色，剩余降到约 30% warning（amber），约 15% error（软红）。已用模式只是把同一根条反过来读。
 
-SuperGrok 本机已验证的主窗口是周池 `creditUsagePercent`。Build / Chat 拆分进 `/usage` 面板，不塞进这一行。
+SuperGrok 本机已验证的主窗口是周池 `creditUsagePercent`。Build / Chat 是同一周池的产品拆分，不单独展示。
 
 ## 心智模型
 

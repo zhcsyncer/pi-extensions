@@ -28,6 +28,14 @@ function asPositiveInt(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
+export function parseTokenDetailsArg(arg: string, current: boolean): boolean | undefined {
+	const raw = arg.trim().toLowerCase().replace(/^\/+analytics\s+/, "");
+	if (raw === "details" || raw === "detail" || raw === "details toggle") return !current;
+	if (raw === "details on" || raw === "details=on" || raw === "expand") return true;
+	if (raw === "details off" || raw === "details=off" || raw === "compact") return false;
+	return undefined;
+}
+
 export function parseMeterConfig(value: unknown): MeterConfig {
 	if (!isRecord(value)) return { ...DEFAULT_METER_CONFIG };
 	const polarity = value.quotaPolarity === "used" || value.quotaPolarity === "remaining"

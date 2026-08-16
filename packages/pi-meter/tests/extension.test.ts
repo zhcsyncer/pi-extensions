@@ -29,6 +29,7 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
 	const widgets = new Map<string, { content: unknown; placement?: string }>();
+	const statuses = new Map<string, string>();
 	const notifications: Array<{ message: string; type?: string }> = [];
 	const pi = {
 		on(name: string, handler: Handler) {
@@ -55,6 +56,11 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 		},
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
+			theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+			setStatus: (key: string, text: string | undefined) => {
+				if (text === undefined) statuses.delete(key);
+				else statuses.set(key, text);
+			},
 			setWidget: (key: string, content: unknown, widgetOptions?: { placement?: string }) => {
 				if (content === undefined) widgets.delete(key);
 				else widgets.set(key, { content, placement: widgetOptions?.placement });
@@ -62,7 +68,7 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 			custom: async () => undefined,
 		},
 	} as unknown as ExtensionContext;
-	return { pi, ctx, handlers, commands, widgets, notifications };
+	return { pi, ctx, handlers, commands, widgets, statuses, notifications };
 }
 
 describe("conflict detection", () => {
@@ -114,12 +120,27 @@ describe("extension runtime", () => {
 		expect(raw).not.toContain("creditUsagePercent");
 	});
 
-	it("places the chrome widget below the editor, not via setStatus", async () => {
+	it("toggles token details off after expanding", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, widgets } = harness({ hasUI: true, mode: "tui" });
+		const { pi, ctx, handlers, commands, statuses, notifications } = harness({ hasUI: true, mode: "tui" });
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		expect(widgets.get("zhcsyncer-pi-meter")?.placement).toBe("belowEditor");
+		const analytics = commands.get("analytics");
+		await analytics.handler("details", ctx);
+		expect(statuses.get("pi-meter")).toContain("↑");
+		expect(notifications.at(-1)?.message).toContain("on");
+		await analytics.handler("details", ctx);
+		expect(statuses.get("pi-meter")).not.toContain("↑");
+		expect(notifications.at(-1)?.message).toContain("off");
+	});
+
+	it("publishes one footer status instead of a widget row", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, widgets, statuses } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(widgets.size).toBe(0);
+		expect(statuses.get("pi-meter")).toContain("today");
 	});
 
 	it("migrates analytics/usage.jsonl into extension-data/pi-meter", async () => {

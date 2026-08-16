@@ -38,29 +38,29 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. Di
 |---|---|
 | `/usage` | Claude, Codex, and SuperGrok window percent plus reset time |
 | `/usage refresh` | Force-refresh shared snapshots (still respects the 30s min interval) |
-| `/usage used` / `/usage remaining` | Flip the chrome bar between used and remaining |
+| `/usage used` / `/usage remaining` | Flip the footer status between used and remaining |
 | `/analytics` | Local dashboard by model / project / session, with input / output / cache columns |
 | `/analytics import` | Optional one-time back-fill from session JSONL |
-| `/analytics details` | Toggle input / output / cache hit on the chrome row |
+| `/analytics details` | Toggle input / output / cache hit in the footer status |
 | `/budget` | Local token/cost reminders. They never block requests |
 
 `--no-session` and default memory sub-agents still append to the local ledger when the extension is loaded. Isolated sub-agents (`isolated: true` / `extensions: false`) do not.
 
 ## Persistent chrome
 
-The chrome is one `setWidget` row **below** the editor. It is independent of Glance: it does not read Glance config, does not use `setStatus`, and is never drawn inside Glance's input box.
+The chrome is one footer `setStatus` string (`pi-meter`). It does not take a widget row, and it is not drawn inside Glance's input box. The words name the window so the numbers are not ambiguous:
 
 ```text
-  12.4k  $0.18          ╶───╸──╴ 66% · 3d
+today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 With token details on:
 
 ```text
-  ↑12.4k ↓2.1k hit 80k  ╶───╸──╴ 66% · 3d
+today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
 ```
 
-Narrow terminals drop token details first, then totals, and keep the quota bar last. Quota color follows remaining headroom (about 30% warning, 15% error), even when the numbers show used percent.
+`today` is local spend from the ledger. `week left` / `5h left` is the current subscription window. Quota color follows remaining headroom (about 30% warning, 15% error), even when the numbers show used percent.
 
 ## Two ledgers
 
@@ -69,7 +69,7 @@ Remote remaining and local spend are not the same thing:
 - **Quota** comes from each provider's subscription API and lives in a shared snapshot. It is never written into the local usage log or local budgets.
 - **Ledger** comes from Pi `message_end` usage and is appended per process. `/analytics` and `/budget` only see this book.
 
-SuperGrok uses the verified Grok CLI billing JSON (`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`) with Pi `/login xai` OAuth. It does not call `api.x.ai/v1/api-key` and does not use grok.com gRPC. Build / Chat splits appear in `/usage`, not on the chrome row.
+SuperGrok uses the verified Grok CLI billing JSON (`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`) with Pi `/login xai` OAuth. It does not call `api.x.ai/v1/api-key` and does not use grok.com gRPC. Only the weekly credit pool is shown; product splits such as Build / Chat are omitted.
 
 Subscription fetches run only from `ctx.hasUI === true` root sessions, and only on `agent_settled`, `/usage`, or `model_select`. Shared `quota.json` uses a 60s TTL and a 30s minimum interval. Sub-agents without UI still write the local ledger and never hit subscription APIs.
 

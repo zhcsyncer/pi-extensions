@@ -3,6 +3,7 @@ import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
+import { parseTokenDetailsArg } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
 import type { UsageRecord } from "../src/ledger/types.ts";
 
@@ -112,6 +113,16 @@ describe("local budgets", () => {
 		expect(status.warning).toBe(true);
 		expect(status.exceeded).toBe(false);
 		expect(budgetKey(limit, now)).toContain("cost");
+	});
+});
+
+describe("token details command", () => {
+	it("toggles, and accepts explicit on/off", () => {
+		expect(parseTokenDetailsArg("details", false)).toBe(true);
+		expect(parseTokenDetailsArg("details", true)).toBe(false);
+		expect(parseTokenDetailsArg("details off", true)).toBe(false);
+		expect(parseTokenDetailsArg("compact", true)).toBe(false);
+		expect(parseTokenDetailsArg("today", true)).toBeUndefined();
 	});
 });
 

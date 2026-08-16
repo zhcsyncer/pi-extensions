@@ -18,38 +18,34 @@ export function quotaTone(usedPercent: number): QuotaTone {
 	return "muted";
 }
 
-export function renderQuotaBar(usedPercent: number, polarity: QuotaPolarity, width = 8): string {
-	const ratio = displayedPercent(usedPercent, polarity) / 100;
-	const filled = Math.round(Math.min(1, Math.max(0, ratio)) * width);
-	if (filled <= 0) return `╶${"─".repeat(Math.max(0, width - 1))}╴`;
-	if (filled >= width) return `╶${"─".repeat(Math.max(0, width - 2))}╸╴`;
-	const head = Math.max(0, filled - 1);
-	const tail = Math.max(0, width - filled - 1);
-	return `╶${"─".repeat(head)}╸${"─".repeat(tail)}╴`;
+export function renderQuotaBar(usedPercent: number, polarity: QuotaPolarity, width = 5): string {
+	const filled = Math.round((displayedPercent(usedPercent, polarity) / 100) * width);
+	const clamped = Math.min(width, Math.max(0, filled));
+	return `${"█".repeat(clamped)}${"░".repeat(Math.max(0, width - clamped))}`;
+}
+
+export function formatResetDuration(resetsAt: string | undefined, now: Date): string | undefined {
+	if (!resetsAt) return undefined;
+	const date = new Date(resetsAt);
+	if (Number.isNaN(date.getTime())) return undefined;
+	const delta = date.getTime() - now.getTime();
+	if (delta <= 0) return undefined;
+	const minutes = Math.max(Math.ceil(delta / 60_000), 1);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	const remMinutes = minutes % 60;
+	if (hours < 24) return remMinutes === 0 ? `${hours}h` : `${hours}h ${remMinutes}m`;
+	const days = Math.floor(hours / 24);
+	const remHours = hours % 24;
+	return remHours === 0 ? `${days}d` : `${days}d ${remHours}h`;
 }
 
 export function formatResetShort(resetsAt: string | undefined, now: Date): string | undefined {
-	if (!resetsAt) return undefined;
-	const date = new Date(resetsAt);
-	if (Number.isNaN(date.getTime())) return undefined;
-	const delta = date.getTime() - now.getTime();
-	if (delta <= 0) return "now";
-	const minutes = Math.floor(delta / 60_000);
-	if (minutes < 60) return `${Math.max(minutes, 1)}m`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h`;
-	return `${Math.floor(hours / 24)}d`;
+	return formatResetDuration(resetsAt, now) ?? (resetsAt ? "now" : undefined);
 }
 
 export function formatResetLong(resetsAt: string | undefined, now: Date): string | undefined {
-	if (!resetsAt) return undefined;
-	const date = new Date(resetsAt);
-	if (Number.isNaN(date.getTime())) return undefined;
-	const delta = date.getTime() - now.getTime();
-	if (delta <= 0) return "resets soon";
-	const minutes = Math.max(Math.ceil(delta / 60_000), 0);
-	if (minutes < 60) return `resets in ${minutes}m`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `resets in ${hours}h ${minutes % 60}m`;
-	return `resets in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+	const duration = formatResetDuration(resetsAt, now);
+	if (duration) return `resets in ${duration}`;
+	return resetsAt ? "resets soon" : undefined;
 }

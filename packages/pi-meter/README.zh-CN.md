@@ -38,29 +38,29 @@ pi -e npm:@zhcsyncer/pi-meter
 |---|---|
 | `/usage` | Claude、Codex、SuperGrok 的窗口百分比和重置时间 |
 | `/usage refresh` | 强制刷新共享快照（仍遵守 30s 最小间隔） |
-| `/usage used` / `/usage remaining` | 把常驻条在「已用 / 剩余」之间切换 |
+| `/usage used` / `/usage remaining` | 把底栏 status 在「已用 / 剩余」之间切换 |
 | `/analytics` | 按 model / project / session 看本地账，含 input / output / cache 列 |
 | `/analytics import` | 可选、一次性从 session JSONL 回填 |
-| `/analytics details` | 开关常驻行上的 input / output / cache hit |
+| `/analytics details` | 开关底栏 status 上的 input / output / cache hit |
 | `/budget` | 本地 token/费用提醒。从不拦请求 |
 
 `--no-session` 和默认内存 sub-agent 只要加载了扩展，就会追加本地账本。`isolated: true` / `extensions: false` 的子代理记不到。
 
 ## 常驻 chrome
 
-常驻面是输入框**下方**一整行 `setWidget`。它和 Glance 完全独立：不读 Glance 配置、不用 `setStatus`、也不会画进 Glance 输入框内部。
+常驻面是一段底栏 `setStatus`（key 为 `pi-meter`）。不占 widget 整行，也不画进 Glance 输入框内部。窗口名字写在数字前面，避免看不出这是今天花了还是这周还剩：
 
 ```text
-  12.4k  $0.18          ╶───╸──╴ 66% · 3d
+today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 打开 token 细节后：
 
 ```text
-  ↑12.4k ↓2.1k hit 80k  ╶───╸──╴ 66% · 3d
+today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
 ```
 
-变窄时先丢掉 token 细节，再丢掉总量/费用，最后留套餐条。颜色按还剩多少高亮（大约剩 30% warning、15% error），即使数字显示的是已用百分比。
+`today` 是本地账本今天的花费。`week left` / `5h left` 是当前订阅窗口。颜色按还剩多少高亮（大约剩 30% warning、15% error），即使数字显示的是已用百分比。
 
 ## 两套账
 
@@ -69,7 +69,7 @@ pi -e npm:@zhcsyncer/pi-meter
 - **套餐**来自各家订阅 API，落在共享快照里。不会写入本地用量账本，也不会进入本地 budget。
 - **账本**来自 Pi `message_end` 的 usage，按进程追加。`/analytics` 和 `/budget` 只看这本账。
 
-SuperGrok 走已验证的 Grok CLI 账单 JSON（`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`），鉴权用 Pi `/login xai` OAuth。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。Build / Chat 拆分只出现在 `/usage`，不塞进常驻那一行。
+SuperGrok 走已验证的 Grok CLI 账单 JSON（`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`），鉴权用 Pi `/login xai` OAuth。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。只展示周池，不单独列出 Build / Chat。
 
 订阅请求只从 `ctx.hasUI === true` 的根会话发出，且只在 `agent_settled`、`/usage` 或 `model_select` 时检查。共享 `quota.json` 默认 TTL 60s、最小间隔 30s。没有 UI 的 sub-agent 仍记本地账，但不打订阅 API。
 
