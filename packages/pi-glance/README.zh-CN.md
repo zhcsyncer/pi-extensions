@@ -48,7 +48,7 @@ pi --no-extensions -e ./packages/pi-glance
 - **可组合 Footer**：只渲染其他扩展通过 `ctx.ui.setStatus()` 发布的状态，不再将其全部隐藏。
 - **固定省略 Pi 状态行**：不再重建被 Glance 输入界面替代的两行 workspace/usage/context/model 信息，也不提供启用开关。
 - **右下角详情**：固定启用，仅展示可选的 context 进度条和高亮自动压缩标记。
-- **Git 增强**：dirty、冲突、ahead/behind 和可选 SHA。
+- **Git 增强**：dirty、冲突、上游 ahead/behind、相对 `origin/main` 的 `main↓N` 和可选 SHA。
 - **主题**：新安装默认跟随 Pi theme tokens，也可选择 22 套 Glance 内置配色；不会切换或安装 Pi 主题。
 - **Working indicator**：Claude-inspired 星形动画、shimmer、当前活动、本 cycle 输出 token 与耗时，并自动适配窄终端。
 
@@ -116,7 +116,7 @@ Glance 不是 Pi 主题管理器：不会枚举、切换或安装 Pi UI 主题�
 
 ## Segment 详情
 
-- **Git**：dirty、冲突、ahead/behind、SHA、Working Tree 计数（顶栏或底边右侧）和轮询。
+- **Git**：dirty、冲突、上游 ahead/behind、落后 main 的 `main↓N`、SHA、Working Tree 计数（顶栏或底边右侧）和轮询。
 - **Cost**：累计费用，可隐藏零费用。
 - **Reply speed**：output tokens / wall time，支持自动、1 位或 0 位小数。
 - **Context**：百分比 / tokens 文本、可选右下角进度条（开启后文本跟随到底部且始终含百分比），以及独立 track 或底边样式、三分之一或全部剩余宽度。
@@ -188,13 +188,14 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash -z
 
 - `Dirty marker`：普通 dirty marker 的显示；冲突始终保留。
 - `Ahead / behind`：上游 ahead/behind 计数。
+- `Behind main`：当前分支落后 `origin/main` 时显示 `main↓N`。
 - `SHA`：`off`、`detached`、`always`。
 - `Working tree`：`status`（默认）或 `border right`。
 - `Polling`：`5s`、`15s`（默认）、`30s`、`60s`。
 
 `status` 只在 dirty/conflict 时把唯一文件数和 tracked `+N −N` 并进现有 Git segment，例如 `main * Δ6 +123 −99`。clean 仓库仍然只显示分支名。`border right` 把同一份紧凑概要移到底边右侧，而不是在输入框外再占一行。
 
-刷新以事件驱动为主：session 启动和 cwd 变化立即刷新；edit/write/bash 与未知自定义工具完成后使用 250ms trailing debounce；明确只读工具跳过；`agent_settled` 再校准。兜底轮询默认 15 秒，禁止重叠并在失败/慢场景安全退避；不会安装递归文件 watcher。
+刷新以事件驱动为主：session 启动和 cwd 变化立即刷新；edit/write/bash 与未知自定义工具完成后使用 250ms trailing debounce；明确只读工具跳过；`agent_settled` 再校准。兜底轮询默认 15 秒，禁止重叠并在失败/慢场景安全退避。5 秒 status 轮询不会 `git fetch`；`origin/main` 只在 session 开始、编辑器回到前台，或本地快照超过约 12 分钟时后台更新。`main↓N` 始终相对上次已拿到的本地 `origin/main`。不会安装递归文件 watcher。
 
 `/diff` 会直接在仓库 cwd 运行 revdiff 默认的 uncommitted review。Glance 先停止 Pi TUI、完成 terminal handoff，再启动 TUI；退出、取消和错误路径都会清理临时 annotations 并立即刷新概要。有 annotations 时只回填编辑器供用户确认，不自动发送给 Agent。缺少 revdiff 时，仅 `/diff` 显示安装提示（`brew install umputun/apps/revdiff` 或设置 `REVDIFF_BIN`），不会禁用 Glance 或概要；非 TUI 模式会安全拒绝 terminal handoff。
 

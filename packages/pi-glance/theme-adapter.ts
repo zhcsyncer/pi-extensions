@@ -18,6 +18,7 @@ export interface ResolvedGlanceStyles {
 	readonly strongTitle: TextStyler;
 	readonly dim: TextStyler;
 	readonly success: TextStyler;
+	readonly gitBase: TextStyler;
 	readonly warn: TextStyler;
 	readonly error: TextStyler;
 	readonly separator: TextStyler;
@@ -123,6 +124,7 @@ export function resolveBuiltInGlanceStyles(theme: GlanceThemeName): ResolvedGlan
 		strongTitle: strong(styleFromRgb(palette.title)),
 		dim: styleFromRgb(palette.dim),
 		success: styleFromRgb(palette.segments.git.fg),
+		gitBase: styleFromRgb(palette.segments.context.fg),
 		warn: styleFromRgb(palette.warn),
 		error: styleFromRgb(palette.error),
 		separator: styleFromRgb(palette.separator),
@@ -143,6 +145,7 @@ export function resolvePiThemeStyles(theme: PiThemeLike, options: PiThemeStyleOp
 		strongTitle: strong(styleFromPiTokens(theme, ["accent", "borderAccent", "text"]), theme.bold?.bind(theme)),
 		dim: styleFromPiTokens(theme, ["dim", "muted", "text"]),
 		success: styleFromPiTokens(theme, ["success", "accent", "text"]),
+		gitBase: styleFromPiTokens(theme, ["accent", "text"]),
 		warn: styleFromPiTokens(theme, ["warning", "accent", "text"]),
 		error: styleFromPiTokens(theme, ["error", "warning", "text"]),
 		separator: styleFromPiTokens(theme, ["muted", "dim", "text"]),

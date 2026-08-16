@@ -2476,6 +2476,11 @@ for (const themeId of GLANCE_THEME_IDS) {
 		fg(palette.warn, `${themeId}:bash:sample`),
 		`${themeId}.bashBorder should use the palette warning color`,
 	);
+	assert.equal(
+		styles.gitBase(`${themeId}:gitBase:sample`),
+		fg(palette.segments.context.fg, `${themeId}:gitBase:sample`),
+		`${themeId}.gitBase should use the context segment color, not dirty/conflict/upstream colors`,
+	);
 	for (const segment of SEGMENT_IDS) {
 		const text = `${themeId}:${segment}:segment`;
 		assert.equal(
@@ -2536,6 +2541,7 @@ function fakePiTheme(colors: Partial<Record<PiThemeColorToken, Rgb>>, name = "fa
 	assert.equal(styles.bashBorder("bash"), fg(PI_TOKEN_COLORS.bashMode, "bash"), "Pi Bash border should map to bashMode token");
 	assert.equal(styles.title("title"), fg(PI_TOKEN_COLORS.accent, "title"), "Pi title should map to accent token");
 	assert.equal(styles.strongTitle("strong"), fg(PI_TOKEN_COLORS.accent, "<bold>strong</bold>"), "Pi strong title should combine public accent and bold theme APIs");
+	assert.equal(styles.gitBase("base"), fg(PI_TOKEN_COLORS.accent, "base"), "Pi gitBase should map to accent, not success/warning/error");
 	assert.equal(styles.segments.git.fg("git"), fg(PI_TOKEN_COLORS.success, "git"), "Pi git segment should map to success token");
 	assert.equal(styles.segments.model.fg("model"), fg(PI_TOKEN_COLORS.text, "model"), "Pi model segment should map to text token");
 	assert.equal(styles.segments.context.fg("ctx"), fg(PI_TOKEN_COLORS.accent, "ctx"), "Pi context segment should map to accent token");

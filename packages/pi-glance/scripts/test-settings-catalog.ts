@@ -294,6 +294,13 @@ const gitRows = assertRows(config, "git", [
 		kind: "toggle",
 	},
 	{
+		id: "git.baseBehind",
+		label: "Behind main",
+		value: "on",
+		hint: "Show main↓N when this branch is behind origin/main.",
+		kind: "toggle",
+	},
+	{
 		id: "git.sha",
 		label: "SHA",
 		value: "off",
@@ -506,6 +513,7 @@ assert.equal(rowById(detailsRows, "bottomDetails.autoCompact").apply!(config).bo
 assert.equal(rowById(gitRows, "git.enabled").apply!(config).segments.find((segment) => segment.id === "git")?.enabled, false, "git enabled should toggle off");
 assert.equal(rowById(gitRows, "git.dirtyMarker").apply!(config).git.showDirty, false, "dirty marker should toggle off");
 assert.equal(rowById(gitRows, "git.aheadBehind").apply!(config).git.showAheadBehind, false, "ahead/behind should toggle off");
+assert.equal(rowById(gitRows, "git.baseBehind").apply!(config).git.showBaseBehind, false, "behind main should toggle off");
 assert.equal(rowById(gitRows, "git.sha").apply!(config).git.shaMode, "detached", "sha mode should cycle off -> detached");
 assert.equal(rowById(gitRows, "git.worktreeSummary").apply!(config).git.worktreeSummary, "border-right", "working tree summary should cycle status -> border-right");
 assert.equal(rowById(gitRows, "git.polling").apply!(config).git.pollIntervalMs, 30000, "polling should cycle 15s -> 30s");

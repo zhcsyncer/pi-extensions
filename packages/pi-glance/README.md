@@ -149,7 +149,7 @@ Migration is conservative: schema 14 and older above/left placements become `git
 
 `/glance` keeps segment settings small and display-focused:
 
-- **Git** — dirty marker, upstream counts, SHA, working-tree counts in the status line or bottom-right border, and polling.
+- **Git** — dirty marker, upstream counts, behind-main `main↓N`, SHA, working-tree counts in the status line or bottom-right border, and polling.
 - **Cost** — hide zero cost.
 - **Reply speed** — enabled by default; shows unknown `?`, provisional `~`, or finalized output tokens per wall time in the status line. Precision can be `auto`, `1 digit`, or `0 digits`. It sends no notifications, uses no timers, and does not estimate tokens from text or deltas.
 - **Context** — percent / tokens text, an optional bottom-right progress bar (text moves next to the bar and always includes percent), plus standalone track or border style and one-third or remaining width.
@@ -209,19 +209,21 @@ The Git segment is intentionally quiet:
 - Dirty repositories add `*` in plain mode or `●` in Nerd Font mode.
 - Conflicts add `!` in plain mode or `⚠` in Nerd Font mode.
 - Ahead/behind counts appear when Git reports an upstream, for example `↑2 ↓1`.
+- When the current HEAD is behind the last local `origin/main` snapshot, Glance adds a separately highlighted `main↓N`. This does not change the branch's upstream and stays hidden when the count is 0 or `origin/main` is missing.
 - Non-Git directories hide the Git segment.
 
 Open `/glance`, select **Git**, move to a value with the arrow keys, and press Enter to configure:
 
 - `Dirty marker` — hide/show normal dirty markers; conflict markers stay visible.
 - `Ahead / behind` — hide/show upstream counts.
+- `Behind main` — hide/show `main↓N` when this branch is behind `origin/main`.
 - `SHA` — `off`, `detached`, or `always`.
 - `Working tree` — `status` (default) or `border right`.
 - `Polling` — `5s`, `15s` (default), `30s`, or `60s`.
 
 `status` appends unique file and tracked `+N −N` counts to the existing Git segment when the tree is dirty or conflicted, for example `main * Δ6 +123 −99`. Clean repositories stay as just the branch name. `border right` moves that same compact summary to the bottom-right border instead of adding a row outside the input box.
 
-Git is collected asynchronously and cached. Session start and cwd changes refresh immediately. Mutating or unknown tool completions use a 250ms trailing debounce, explicitly read-only tools are skipped, `agent_settled` recalibrates, and non-overlapping fallback polling defaults to 15 seconds with safe failure backoff. No recursive filesystem watcher is installed.
+Git is collected asynchronously and cached. Session start and cwd changes refresh immediately. Mutating or unknown tool completions use a 250ms trailing debounce, explicitly read-only tools are skipped, `agent_settled` recalibrates, and non-overlapping fallback polling defaults to 15 seconds with safe failure backoff. The 5-second status poll never runs `git fetch`; a separate background `git fetch origin main` may run at session start, when the editor returns to the foreground, or when the shared `origin/main` snapshot is older than about 12 minutes. The `main↓N` count is always compared against the last local `origin/main` already on disk. No recursive filesystem watcher is installed.
 
 `/diff` runs revdiff's default uncommitted review directly in the repository cwd. Pi's TUI is stopped for the terminal handoff and restarted afterward. Exit/cancel/error paths always clean temporary annotations and refresh the summary. If annotations were written, Glance loads them into the editor for confirmation instead of sending them to the Agent. If revdiff is missing, only `/diff` shows the install hint (`brew install umputun/apps/revdiff` or `REVDIFF_BIN`); Glance and the summary remain available. Non-TUI modes decline the terminal handoff safely.
 

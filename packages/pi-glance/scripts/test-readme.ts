@@ -25,6 +25,9 @@ assertReadmeIncludes("standard tracked working tree versus `HEAD`", "README shou
 assertReadmeIncludes("untracked file contents are never read by polling", "README should document untracked polling safety");
 assertReadmeIncludes("250ms trailing debounce", "README should document event-driven Git debounce");
 assertReadmeIncludes("fallback polling defaults to 15 seconds", "README should document fallback polling default");
+assertReadmeIncludes("`main↓N`", "README should document the behind-main marker");
+assertReadmeIncludes("`Behind main`", "README should document the behind-main setting");
+assertReadmeIncludes("The 5-second status poll never runs `git fetch`", "README should keep origin/main fetch off the status poll");
 assertReadmeIncludes("No recursive filesystem watcher is installed", "README should reject recursive watcher behavior");
 assertReadmeIncludes("`/diff` runs revdiff's default uncommitted review", "README should document the primary review entrypoint");
 assertReadmeIncludes("loads them into the editor for confirmation instead of sending them to the Agent", "README should document annotation confirmation behavior");
@@ -55,6 +58,9 @@ assert.ok(readmeZh.includes("Progress bar"), "Chinese README should document con
 assert.ok(readmeZh.includes("未用部分保持细线 `─`，已用部分变为粗线 `━`"), "Chinese README should document border progress glyphs");
 assert.ok(readmeZh.includes("70%（含）到 85%（不含）使用 warning，85% 及以上使用 error"), "Chinese README should document fixed context risk thresholds");
 assert.ok(readmeZh.includes("`status`（默认）或 `border right`"), "Chinese README should document the two Working Tree placements");
+assert.ok(readmeZh.includes("`main↓N`"), "Chinese README should document the behind-main marker");
+assert.ok(readmeZh.includes("`Behind main`"), "Chinese README should document the behind-main setting");
+assert.ok(readmeZh.includes("5 秒 status 轮询不会 `git fetch`"), "Chinese README should keep origin/main fetch off the status poll");
 assert.ok(readmeZh.includes("250ms trailing debounce"), "Chinese README should document event-driven Git debounce");
 assert.ok(readmeZh.includes("兜底轮询默认 15 秒"), "Chinese README should document fallback polling default");
 assert.ok(readmeZh.includes("有 annotations 时只回填编辑器供用户确认，不自动发送给 Agent"), "Chinese README should document annotation confirmation behavior");

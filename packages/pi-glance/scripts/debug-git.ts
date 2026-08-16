@@ -4,6 +4,7 @@ import type { GitConfig } from "../types.js";
 const config: GitConfig = {
 	showDirty: true,
 	showAheadBehind: true,
+	showBaseBehind: true,
 	shaMode: "off",
 	worktreeSummary: "status",
 	timeoutMs: 1000,

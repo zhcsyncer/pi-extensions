@@ -3,7 +3,15 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectGitSnapshot, nextGitRefreshDelay, parseGitNumstat, parseGitStatus } from "../git.js";
+import {
+	collectGitSnapshot,
+	maybeFetchGitBaseRef,
+	nextGitRefreshDelay,
+	parseGitLeftRightCount,
+	parseGitNumstat,
+	parseGitStatus,
+	resetGitBaseCaches,
+} from "../git.js";
 import type { GitConfig, GitSnapshot } from "../types.js";
 
 type ExpectedSnapshot = Partial<Omit<GitSnapshot, "updatedAt">>;
@@ -197,6 +205,7 @@ function assertFixture(fixture: Fixture): void {
 const testConfig: GitConfig = {
 	showDirty: true,
 	showAheadBehind: true,
+	showBaseBehind: true,
 	shaMode: "off",
 	worktreeSummary: "status",
 	timeoutMs: 1000,
@@ -314,6 +323,114 @@ async function assertNonGitSnapshot(): Promise<void> {
 	}
 }
 
+function assertLeftRightCountParsing(): void {
+	assert.deepEqual(parseGitLeftRightCount("8\t1\n"), { left: 8, right: 1 }, "left-right count should parse origin/main...HEAD output");
+	assert.equal(parseGitLeftRightCount(""), undefined, "empty left-right count should stay unknown");
+	assert.equal(parseGitLeftRightCount("not-a-count"), undefined, "invalid left-right count should stay unknown");
+}
+
+function gitCommandKey(args: readonly string[]): string {
+	return args.join(" ");
+}
+
+function createGitExec(handlers: Record<string, { ok?: boolean; stdout?: string } | ((args: readonly string[]) => { ok?: boolean; stdout?: string })>) {
+	const calls: string[][] = [];
+	const exec = async (_cwd: string, args: readonly string[]): Promise<{ ok: boolean; stdout: string }> => {
+		calls.push([...args]);
+		const exact = handlers[gitCommandKey(args)];
+		const match = exact ?? Object.entries(handlers).find(([key]) => gitCommandKey(args).startsWith(key))?.[1];
+		const result = typeof match === "function" ? match(args) : match;
+		return { ok: result?.ok ?? false, stdout: result?.stdout ?? "" };
+	};
+	return { exec, calls };
+}
+
+const CLEAN_STATUS = "# branch.oid 1234567890abcdef1234567890abcdef12345678\n# branch.head feat/glance-main-behind\n";
+const HEAD_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const BASE_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const COMMON_DIR = "/tmp/pi-glance-common.git";
+
+function baseBehindHandlers(overrides: Record<string, { ok?: boolean; stdout?: string }> = {}) {
+	return {
+		"--no-optional-locks status --porcelain=v2 --branch --show-stash -z": { ok: true, stdout: CLEAN_STATUS },
+		"--no-optional-locks rev-parse --git-common-dir": { ok: true, stdout: `${COMMON_DIR}\n` },
+		"--no-optional-locks rev-parse --verify --quiet HEAD^{commit}": { ok: true, stdout: `${HEAD_SHA}\n` },
+		"--no-optional-locks rev-parse --verify --quiet origin/main^{commit}": { ok: true, stdout: `${BASE_SHA}\n` },
+		"--no-optional-locks rev-list --left-right --count origin/main...HEAD": { ok: true, stdout: "8\t3\n" },
+		...overrides,
+	};
+}
+
+async function assertBaseBehindCollection(): Promise<void> {
+	resetGitBaseCaches();
+	const first = createGitExec(baseBehindHandlers());
+	const firstSnapshot = await collectGitSnapshot("/repo", testConfig, { exec: first.exec });
+	assert.equal(firstSnapshot.baseBehind, 8, "base behind should use the left count from origin/main...HEAD");
+	assert.equal(firstSnapshot.upstream, null, "base behind should not invent an upstream");
+	assert.equal(firstSnapshot.ahead, 0, "base behind should not reuse upstream ahead");
+	assert.equal(firstSnapshot.behind, 0, "base behind should not reuse upstream behind");
+	assert.equal(
+		first.calls.some((args) => args.includes("fetch")),
+		false,
+		"status collection should never fetch origin/main",
+	);
+	assert.equal(
+		first.calls.filter((args) => args.includes("rev-list")).length,
+		1,
+		"first collection should run rev-list once",
+	);
+
+	const second = createGitExec(baseBehindHandlers({
+		"--no-optional-locks rev-list --left-right --count origin/main...HEAD": { ok: true, stdout: "99\t0\n" },
+	}));
+	const cached = await collectGitSnapshot("/repo", testConfig, { exec: second.exec });
+	assert.equal(cached.baseBehind, 8, "unchanged HEAD and origin/main SHAs should reuse the cached behind count");
+	assert.equal(
+		second.calls.filter((args) => args.includes("rev-list")).length,
+		0,
+		"cache hit should skip rev-list",
+	);
+
+	resetGitBaseCaches();
+	const missing = createGitExec(baseBehindHandlers({
+		"--no-optional-locks rev-parse --verify --quiet origin/main^{commit}": { ok: false, stdout: "" },
+	}));
+	const missingSnapshot = await collectGitSnapshot("/repo", testConfig, { exec: missing.exec });
+	assert.equal(missingSnapshot.repo, true, "missing origin/main should still produce a repo snapshot");
+	assert.equal(missingSnapshot.baseBehind, 0, "missing origin/main should leave base behind empty");
+	assert.equal(
+		missing.calls.some((args) => args.includes("rev-list")),
+		false,
+		"missing origin/main should not run rev-list",
+	);
+
+	resetGitBaseCaches();
+	const aligned = createGitExec(baseBehindHandlers({
+		"--no-optional-locks rev-list --left-right --count origin/main...HEAD": { ok: true, stdout: "0\t4\n" },
+	}));
+	const alignedSnapshot = await collectGitSnapshot("/repo", testConfig, { exec: aligned.exec });
+	assert.equal(alignedSnapshot.baseBehind, 0, "local-only ahead of origin/main should not invent a behind count");
+}
+
+async function assertBaseRefFetchStaysOffStatusPath(): Promise<void> {
+	resetGitBaseCaches();
+	const fetch = createGitExec({
+		"--no-optional-locks rev-parse --git-common-dir": { ok: true, stdout: `${COMMON_DIR}\n` },
+		"--no-optional-locks fetch --no-tags --quiet origin main": { ok: true, stdout: "" },
+	});
+	assert.equal(await maybeFetchGitBaseRef("/repo", "session", { exec: fetch.exec, nowMs: () => 1_000 }), true, "session start may fetch origin main");
+	assert.equal(
+		fetch.calls.filter((args) => args.includes("fetch")).length,
+		1,
+		"session fetch should run git fetch origin main once",
+	);
+	assert.equal(
+		await maybeFetchGitBaseRef("/repo", "stale", { exec: fetch.exec, nowMs: () => 2_000, staleMs: 12 * 60 * 1000 }),
+		false,
+		"fresh origin/main should not be fetched again from the 5s status path",
+	);
+}
+
 function assertRefreshDelays(): void {
 	const repoSnapshot = parseGitStatus("# branch.oid 1234567890abcdef1234567890abcdef12345678\n# branch.head main\n", NOW);
 	const nonRepoSnapshot = { ...repoSnapshot, repo: false };
@@ -329,10 +446,14 @@ for (const fixture of fixtures) {
 }
 assertNulPorcelainPathsAndDeduplication();
 assertNumstatParsing();
+assertLeftRightCountParsing();
 assertRefreshDelays();
+resetGitBaseCaches();
+await assertBaseBehindCollection();
+await assertBaseRefFetchStaysOffStatusPath();
 await assertNonGitSnapshot();
 await assertUnbornAndSpecialPathCollection();
 await assertRenameAndBinaryCollection();
 
 console.log(`✓ ${fixtures.length} git parser fixtures plus NUL/numstat contracts passed`);
-console.log("✓ git failure, unborn, rename, binary, and refresh-delay checks passed");
+console.log("✓ git failure, unborn, rename, binary, base-behind, and refresh-delay checks passed");

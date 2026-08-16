@@ -23,6 +23,7 @@ export function richInputSurfaceState(): GlanceState {
 			upstream: "origin/main",
 			ahead: 2,
 			behind: 1,
+			baseBehind: 0,
 			staged: 1,
 			unstaged: 1,
 			untracked: 0,

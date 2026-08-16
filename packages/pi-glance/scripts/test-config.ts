@@ -38,6 +38,8 @@ assert.equal(defaults.version, 15, "working tree summary should advance CONFIG_V
 assert.equal(normalizeConfig({ version: 0 }).version, 15, "old raw version should normalize to current schema version");
 assert.equal(normalizeConfig({ version: 999 }).version, 15, "future raw version should normalize to current schema version");
 assert.deepEqual(defaults.workingIndicator, { enabled: true }, "working indicator should default on for the complete experience");
+assert.equal(defaults.git.showBaseBehind, true, "behind-main marker should default on");
+assert.equal(normalizeConfig({ git: { showBaseBehind: false } }).git.showBaseBehind, false, "explicit behind-main off should be preserved");
 assert.equal(defaults.git.worktreeSummary, "status", "working tree summary should default to the Git status line");
 assert.equal(defaults.git.refreshDebounceMs, 250, "Git event refresh should default to a 250ms trailing debounce");
 assert.equal(defaults.git.pollIntervalMs, 15000, "Git fallback polling should default to 15 seconds");
@@ -190,6 +192,7 @@ const userConfig = normalizeConfig({
 	git: {
 		showDirty: false,
 		showAheadBehind: false,
+		showBaseBehind: false,
 		shaMode: "always",
 		worktreeSummary: "border-right",
 		timeoutMs: 2500,
@@ -251,6 +254,7 @@ assert.deepEqual(
 		git: {
 			showDirty: false,
 			showAheadBehind: false,
+			showBaseBehind: false,
 			shaMode: "always",
 			worktreeSummary: "border-right",
 			timeoutMs: 2500,

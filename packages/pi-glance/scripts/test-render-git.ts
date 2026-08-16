@@ -15,6 +15,7 @@ function stateWithGit(git: Partial<GitSnapshot>) {
 			upstream: "origin/main",
 			ahead: 0,
 			behind: 0,
+			baseBehind: 0,
 			staged: 0,
 			unstaged: 0,
 			untracked: 0,
@@ -98,13 +99,41 @@ assert.equal(
 );
 assert.equal(gitLine({ status: "conflict", dirty: true, conflicts: 1 }, undefined), "git main !", "conflict marker defaults on");
 assert.equal(gitLine({ ahead: 2, behind: 1 }), "git main ↑2 ↓1", "ahead/behind defaults on");
-assert.equal(gitLine({ status: "dirty", dirty: true, unstaged: 1, ahead: 2, behind: 1 }, undefined, 48), "git main *", "minimal git keeps status over upstream counts");
+assert.equal(
+	gitLine({ branch: "feat/glance-main-behind", upstream: null, ahead: 0, behind: 0, baseBehind: 8 }),
+	"git feat/glance-main-behind main↓8",
+	"base behind shows without an upstream",
+);
+assert.equal(gitLine({ baseBehind: 0 }), "git main", "aligned base stays quiet");
+assert.equal(gitLine({ ahead: 1, behind: 0, baseBehind: 8 }), "git main ↑1 main↓8", "upstream ahead and base behind can coexist");
+assert.equal(
+	gitLine({ status: "dirty", dirty: true, unstaged: 1, ahead: 2, behind: 1, baseBehind: 8 }, undefined, 48),
+	"git main *",
+	"minimal git keeps dirty or conflict over base and upstream counts",
+);
+assert.equal(
+	gitLine({ ahead: 2, behind: 1, baseBehind: 8 }, undefined, 80),
+	"git main ↑2 ↓1 main↓8",
+	"compact git keeps upstream counts and base behind together",
+);
+assert.equal(
+	gitLine({ ahead: 2, behind: 1, baseBehind: 8 }, undefined, 48),
+	"git main main↓8",
+	"minimal git keeps base behind when there is no dirty or conflict mark",
+);
 assert.equal(
 	gitLine({ ahead: 2, behind: 1 }, (config) => {
 		config.git.showAheadBehind = false;
 	}),
 	"git main",
 	"ahead/behind can be hidden",
+);
+assert.equal(
+	gitLine({ baseBehind: 8 }, (config) => {
+		config.git.showBaseBehind = false;
+	}),
+	"git main",
+	"base behind can be hidden",
 );
 assert.equal(gitLine({}, (config) => (config.git.shaMode = "always")), "git main a1b2c3d", "sha always shows branch sha");
 assert.equal(

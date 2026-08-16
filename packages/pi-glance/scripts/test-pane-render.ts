@@ -60,6 +60,7 @@ function makeState(): GlanceState {
 			upstream: "origin/main",
 			ahead: 1,
 			behind: 0,
+			baseBehind: 0,
 			staged: 0,
 			unstaged: 1,
 			untracked: 0,

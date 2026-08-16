@@ -55,15 +55,33 @@ function gitStatusMark(ctx: SegmentRenderContext): string {
 	return "";
 }
 
+function gitBaseBehindLabel(behind: number): string | undefined {
+	return behind > 0 ? `main↓${behind}` : undefined;
+}
+
+function gitBaseBehindPart(ctx: SegmentRenderContext): string | undefined {
+	if (!ctx.config.git.showBaseBehind) return undefined;
+	return gitBaseBehindLabel(ctx.state.git.baseBehind);
+}
+
+function gitStatusPart(ctx: SegmentRenderContext): string {
+	const status = gitStatusMark(ctx);
+	if (!status) return "";
+	if (ctx.config.git.showDirty || ctx.state.git.status === "conflict") return status;
+	return "";
+}
+
 function gitDetailParts(ctx: SegmentRenderContext): string[] {
 	const git = ctx.state.git;
 	const parts: string[] = [];
-	const status = gitStatusMark(ctx);
-	if (status && (ctx.config.git.showDirty || git.status === "conflict")) parts.push(status);
+	const status = gitStatusPart(ctx);
+	if (status) parts.push(status);
 	if (ctx.config.git.showAheadBehind) {
 		if (git.ahead > 0) parts.push(`↑${git.ahead}`);
 		if (git.behind > 0) parts.push(`↓${git.behind}`);
 	}
+	const baseBehind = gitBaseBehindPart(ctx);
+	if (baseBehind) parts.push(baseBehind);
 	parts.push(...worktreeStatusParts(ctx));
 	return parts;
 }
@@ -73,13 +91,14 @@ function collectGit(ctx: SegmentRenderContext): SegmentData | undefined {
 	if (!git.repo) return undefined;
 	const branch = gitBranchLabel(ctx);
 	const parts = gitDetailParts(ctx);
-	const secondary = parts.join(" ") || undefined;
-	const minimalStatus = git.status === "conflict" || ctx.config.git.showDirty ? gitStatusMark(ctx) : "";
+	const status = gitStatusPart(ctx);
+	const baseBehind = gitBaseBehindPart(ctx);
+	const minimalParts = status ? [status] : baseBehind ? [baseBehind] : [];
 	return {
 		primary: branch,
-		secondary,
+		secondary: parts.join(" ") || undefined,
 		display: {
-			minimal: [branch, minimalStatus].filter(Boolean).join(" "),
+			minimal: [branch, ...minimalParts].join(" ").trim(),
 		},
 	};
 }
@@ -107,6 +126,16 @@ export const gitSegmentFeature = {
 			value: (config: GlanceConfig) => onOff(config.git.showAheadBehind),
 			mutate: (config: GlanceConfig) => {
 				config.git.showAheadBehind = !config.git.showAheadBehind;
+			},
+		},
+		{
+			id: "git.baseBehind",
+			label: "Behind main",
+			hint: "Show main↓N when this branch is behind origin/main.",
+			kind: "toggle",
+			value: (config: GlanceConfig) => onOff(config.git.showBaseBehind),
+			mutate: (config: GlanceConfig) => {
+				config.git.showBaseBehind = !config.git.showBaseBehind;
 			},
 		},
 		{
