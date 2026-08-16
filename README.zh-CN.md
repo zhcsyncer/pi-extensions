@@ -16,7 +16,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
-- [`@zhcsyncer/pi-meter`](./packages/pi-meter) — 本地用量账本，加上 Claude / Codex / SuperGrok 订阅剩余。与 Glance 独立；不要同时加载 `@pi-plugins/usage`，两者都会注册 `/usage`。
+- [`@zhcsyncer/pi-meter`](./packages/pi-meter) — 一条 `/usage` 同时看本地花费和 Claude / Codex / SuperGrok 剩余。合了 `pi-tracker` 与 `@pi-plugins/usage`；不要同时加载后者，两者都会注册 `/usage`。
 
 ## Bundle 私有 Search Hub
 
