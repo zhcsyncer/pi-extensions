@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-extensions
 
+## 0.21.0
+
+### Minor Changes
+
+- 4eff439: Add the optional `toolCalls.layout: "aggregate"` Tools view, with gallery and README screenshots of the collapsed, expanded, and failed ledgers. Every registered built-in, custom, MCP, and late-loaded tool now contributes to one branch-aware summary per user request. The collapsed header shows call and assistant-turn counts. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot; after the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and local completion time. Successful calls remain as replaceable `done` rows before a settled grace-period fold, collapsed failures stay count-only, and `Ctrl+O` restores the original timeline of notes plus one target/status summary per call. Aggregate always renders user prompts as a compact accent-gutter block with vertical padding and hides thinking labels; boxed-user and thinking-label settings stay retained but inactive. `Agent` keeps its original renderer by default, images fail open, collapsed `Thinking...` placeholders are stripped, no file-change statistics are inferred or persisted, and switching back to `individual` restores the original renderers over unchanged raw session calls/results.
+- 4eff439: Show a separately highlighted `main↓N` when the current branch is behind the last local `origin/main` snapshot, without changing upstream tracking. Hide it when upstream `↓N` is already showing that same lag. Hide the dirty lamp when Working Tree file counts are already visible in the Git status or the bottom-right border; conflict markers stay. Add a Glance screenshot for the pi.dev package gallery.
+
 ## 0.20.0
 
 ### Minor Changes
