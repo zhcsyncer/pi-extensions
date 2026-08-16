@@ -50,12 +50,15 @@ function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date
 export function renderStatusText(input: ChromeInput, theme: Theme): string {
 	const now = input.now ?? new Date();
 	const today = theme.fg("muted", todayCaption(input.today, input.tokenDetails));
-	if (!input.quota) return today;
-	const quota = quotaCaption(input.quota, input.polarity, now);
-	return [
-		today,
-		`${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`,
-	].join(theme.fg("dim", " · "));
+	const body = input.quota
+		? (() => {
+			const quota = quotaCaption(input.quota, input.polarity, now);
+			return [today, `${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`].join(theme.fg("dim", " · "));
+		})()
+		: today;
+	// Pi/Glance join foreign statuses with a space. A leading mid-dot keeps
+	// "granted today" from reading as one phrase.
+	return `${theme.fg("dim", "·")} ${body}`;
 }
 
 export function renderChromeLine(input: ChromeInput, _width: number, theme: Theme): string[] {

@@ -60,7 +60,7 @@
 常驻面改走一段 footer `setStatus`（key `pi-meter`），不占 widget 整行。窗口语义写在数字前面：`today` 是本地今天花费，`week left` / `5h left` 是当前订阅窗口。
 
 ```text
-today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
+· today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 窄了先丢掉 token 细节，再丢掉总量/费用，最后留套餐条 + 百分比。

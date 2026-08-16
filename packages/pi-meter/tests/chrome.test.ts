@@ -56,7 +56,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("today 12.4k $0.18 · week left ██░░░ 34% (3d)");
+		expect(plain).toBe("· today 12.4k $0.18 · week left ██░░░ 34% (3d)");
 	});
 
 	it("keeps the window verb when flipping to used", () => {
@@ -67,6 +67,7 @@ describe("status chrome", () => {
 			polarity: "used",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
+		expect(plain.startsWith("· ")).toBe(true);
 		expect(plain).toContain("today ↑12.4k ↓2.1k hit 80k");
 		expect(plain).toContain("week used");
 		expect(plain).toContain("66%");

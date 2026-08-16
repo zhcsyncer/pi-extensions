@@ -51,13 +51,13 @@ pi -e npm:@zhcsyncer/pi-meter
 常驻面是一段底栏 `setStatus`（key 为 `pi-meter`）。不占 widget 整行，也不画进 Glance 输入框内部。窗口名字写在数字前面，避免看不出这是今天花了还是这周还剩：
 
 ```text
-today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
+· today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 打开 token 细节后：
 
 ```text
-today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
+· today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
 ```
 
 `today` 是本地账本今天的花费。`week left` / `5h left` 是当前订阅窗口。颜色按还剩多少高亮（大约剩 30% warning、15% error），即使数字显示的是已用百分比。

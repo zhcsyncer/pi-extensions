@@ -51,13 +51,13 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. Di
 The chrome is one footer `setStatus` string (`pi-meter`). It does not take a widget row, and it is not drawn inside Glance's input box. The words name the window so the numbers are not ambiguous:
 
 ```text
-today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
+· today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
 With token details on:
 
 ```text
-today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
+· today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
 ```
 
 `today` is local spend from the ledger. `week left` / `5h left` is the current subscription window. Quota color follows remaining headroom (about 30% warning, 15% error), even when the numbers show used percent.
