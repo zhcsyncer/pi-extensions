@@ -2,6 +2,8 @@
 
 [简体中文](./README.zh-CN.md)
 
+![Collapsed Tools ledger](./packages/pi-tool-display-intent/assets/demo-aggregate-1.png)
+
 A collection of Pi extensions by zhcsyncer.
 
 ## Packages

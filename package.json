@@ -29,6 +29,7 @@
     "packages/pi-tool-display-intent/tool-display-api-consumer.d.ts",
     "packages/*/config/*.json",
     "packages/*/README*.md",
+    "packages/pi-tool-display-intent/assets/*.png",
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
@@ -128,7 +129,8 @@
     ],
     "skills": [
       "./packages/pi-context7/skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/assets/demo-aggregate-1.png"
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "2.4.0",

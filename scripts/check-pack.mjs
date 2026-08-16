@@ -76,6 +76,9 @@ const requiredPackFiles = new Map([
 		"packages/pi-meter/src/paths.ts",
 		"packages/pi-meter/README.md",
 		"packages/pi-meter/README.zh-CN.md",
+		"packages/pi-tool-display-intent/assets/demo-aggregate-1.png",
+		"packages/pi-tool-display-intent/assets/demo-aggregate-2.png",
+		"packages/pi-tool-display-intent/assets/demo-aggregate-3.png",
 	]],
 	["./packages/pi-recap", [
 		"extensions/recap.ts",

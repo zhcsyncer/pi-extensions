@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+![收起的 Tools 账本](./packages/pi-tool-display-intent/assets/demo-aggregate-1.png)
+
 zhcsyncer 维护的一组 Pi extensions。
 
 ## 包列表

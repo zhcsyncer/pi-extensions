@@ -2,6 +2,8 @@
 
 [中文文档](./README.zh-CN.md)
 
+![Collapsed Tools ledger](./assets/demo-aggregate-1.png)
+
 `pi-tool-display-intent` is a Pi extension that combines compact tool rendering with model-written, user-facing intent phrases.
 
 ```text
@@ -132,6 +134,12 @@ Every content preview, including custom tools and bash live/error output, uses `
 ### Tool call layouts
 
 `toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` summarizes every registered built-in, custom, MCP, and late-loaded tool within one user request:
+
+![Collapsed Tools ledger](./assets/demo-aggregate-1.png)
+
+![Expanded Tools timeline](./assets/demo-aggregate-2.png)
+
+![Failed Tools ledger](./assets/demo-aggregate-3.png)
 
 ```text
 ◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16

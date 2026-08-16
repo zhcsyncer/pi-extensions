@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+![收起的 Tools 账本](./assets/demo-aggregate-1.png)
+
 `pi-tool-display-intent` 是一个 Pi extension，将紧凑的工具展示与模型生成的用户可读意图合并在一起。
 
 ```text
@@ -132,6 +134,12 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 ### 工具调用布局
 
 `toolCalls.layout` 默认是 `individual`，完整保留现有逐工具行为。`aggregate` 会把一次用户请求中的所有已注册内置、custom、MCP 和延迟加载工具统一汇总：
+
+![收起的 Tools 账本](./assets/demo-aggregate-1.png)
+
+![展开的 Tools 时间线](./assets/demo-aggregate-2.png)
+
+![失败的 Tools 账本](./assets/demo-aggregate-3.png)
 
 ```text
 ◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
