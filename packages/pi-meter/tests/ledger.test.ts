@@ -3,7 +3,7 @@ import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
-import { parseTokenDetailsArg } from "../src/config.ts";
+import { parseMeterConfig, parseQuotaVisibleArg, parseTokenDetailsArg } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
 import type { UsageRecord } from "../src/ledger/types.ts";
 
@@ -123,6 +123,16 @@ describe("token details command", () => {
 		expect(parseTokenDetailsArg("details off", true)).toBe(false);
 		expect(parseTokenDetailsArg("compact", true)).toBe(false);
 		expect(parseTokenDetailsArg("today", true)).toBeUndefined();
+		expect(parseQuotaVisibleArg("off", true)).toBe(false);
+		expect(parseQuotaVisibleArg("on", false)).toBe(true);
+		expect(parseQuotaVisibleArg("quota off", true)).toBe(false);
+	});
+
+	it("folds a tracker footer.json preset into one config object", () => {
+		const parsed = parseMeterConfig({ quotaPolarity: "used", tokenDetails: true }, { footerLocal: "today-tokens" });
+		expect(parsed.footer).toEqual({ local: "today-tokens", quota: true, tokenDetails: true });
+		expect(parsed.quota.polarity).toBe("used");
+		expect(parseMeterConfig({ footerPreset: "full" }).footer.local).toBe("today-spend");
 	});
 });
 

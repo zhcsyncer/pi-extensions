@@ -7,9 +7,10 @@
 落地边界：
 
 - 两套账分开：`message_end` → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
-- 常驻 chrome：`setWidget` + `belowEditor` 一行 caption + 短套餐条。不改 Glance，不用 `setStatus`。
+- 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
+- `/usage` 管本地账；`/quota` 管套餐剩余；`/analytics` 只是 `/usage` 别名。
 - 套餐条极性可切；颜色按剩余（约 30% / 15%）。token 条默认真量/费用，`/analytics details` 才露出 in / out / cache hit。
-- 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/usage` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
+- 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/quota` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
 - SuperGrok：`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` + `/login xai`。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。
 - 文档写明与 `@pi-plugins/usage` 互斥；若检测到对方占用 `/usage` 会警告一次。
 

@@ -11,8 +11,6 @@ export interface LedgerStore {
 	saveBudgets(config: BudgetsConfig): Promise<void>;
 	loadWarned(): Promise<Record<string, boolean>>;
 	markWarned(keys: string[]): Promise<void>;
-	loadFooterPreset(): Promise<string | undefined>;
-	saveFooterPreset(preset: string): Promise<void>;
 }
 
 export function serializeUsageRecord(record: UsageRecord): unknown[] {
@@ -148,10 +146,6 @@ export async function migrateLegacyLedger(paths: MeterPaths): Promise<string | u
 			await unlink(paths.legacyWarnedFile);
 			notes.push(`warned.jsonl ${paths.legacyWarnedFile} → ${paths.warnedFile}`);
 		}
-		if (await copyIfMissing(paths.legacyFooterFile, paths.footerFile)) {
-			await unlink(paths.legacyFooterFile);
-			notes.push(`footer.json ${paths.legacyFooterFile} → ${paths.footerFile}`);
-		}
 	});
 	return notes.length > 0 ? `Migrated local meter ledger from analytics/: ${notes.join("; ")}.` : undefined;
 }
@@ -200,21 +194,6 @@ export class FileLedgerStore implements LedgerStore {
 		} catch {
 			// in-memory flag still prevents re-fire this process
 		}
-	}
-
-	async loadFooterPreset(): Promise<string | undefined> {
-		const raw = await readTextFile(this.paths.footerFile);
-		if (!raw) return undefined;
-		try {
-			const parsed = JSON.parse(raw) as unknown;
-			return isRecord(parsed) && typeof parsed.preset === "string" ? parsed.preset : undefined;
-		} catch {
-			return undefined;
-		}
-	}
-
-	async saveFooterPreset(preset: string): Promise<void> {
-		await writeFileAtomically(this.paths.footerFile, `${JSON.stringify({ preset })}\n`);
 	}
 }
 

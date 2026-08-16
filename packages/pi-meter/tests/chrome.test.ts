@@ -50,7 +50,7 @@ describe("status chrome", () => {
 	};
 
 	it("names today's local spend and the weekly remaining window", () => {
-		const local = renderLocalFooter("full", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, false);
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, false);
 		const plain = strip(renderStatusText({
 			local,
 			quota,
@@ -61,7 +61,7 @@ describe("status chrome", () => {
 	});
 
 	it("keeps the window verb when flipping to used", () => {
-		const local = renderLocalFooter("full", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, true);
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, true);
 		const plain = strip(renderStatusText({
 			local,
 			quota,

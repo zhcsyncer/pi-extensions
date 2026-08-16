@@ -3,16 +3,21 @@ import { statusForLimit } from "./budget.ts";
 import { fmtCompactCost, fmtCompactTokens, fmtCost } from "./format.ts";
 import type { AggRow, BudgetLimit, UsageRecord } from "./types.ts";
 
-export type FooterPreset = "off" | "full" | "today-tokens" | "today-cost" | "budget" | "model";
+export type FooterLocal = "today-spend" | "today-tokens" | "today-cost" | "budget" | "model" | "off";
 
-export const FOOTER_PRESETS: { key: FooterPreset; label: string; description: string }[] = [
-	{ key: "full", label: "Today + quota", description: "today spend plus the subscription window" },
+export const FOOTER_LOCALS: { key: FooterLocal; label: string; description: string }[] = [
+	{ key: "today-spend", label: "Today tokens + cost", description: "local tokens and USD spent today" },
 	{ key: "today-tokens", label: "Today tokens", description: "local tokens used today" },
 	{ key: "today-cost", label: "Today cost", description: "local USD spent today, if priced" },
 	{ key: "budget", label: "Budget", description: "most urgent local budget" },
 	{ key: "model", label: "Top model", description: "most-used model today" },
-	{ key: "off", label: "Off", description: "hide local spend; keep the quota window if any" },
+	{ key: "off", label: "Off", description: "hide local spend" },
 ];
+
+/** @deprecated Use FooterLocal. Kept so old footer.json `full` still maps. */
+export type FooterPreset = FooterLocal | "full";
+
+export const FOOTER_PRESETS = FOOTER_LOCALS;
 
 export interface FooterStats {
 	today: AggRow;
@@ -21,9 +26,14 @@ export interface FooterStats {
 	budget: { current: number; max: number; metric: "cost" | "tokens"; pct: number; warning: boolean } | null;
 }
 
-export function parseFooterPreset(value: unknown): FooterPreset | undefined {
+export function parseFooterLocal(value: unknown): FooterLocal | undefined {
+	if (value === "full") return "today-spend";
 	if (typeof value !== "string") return undefined;
-	return FOOTER_PRESETS.some((preset) => preset.key === value) ? value as FooterPreset : undefined;
+	return FOOTER_LOCALS.some((item) => item.key === value) ? value as FooterLocal : undefined;
+}
+
+export function parseFooterPreset(value: unknown): FooterLocal | undefined {
+	return parseFooterLocal(value);
 }
 
 export function computeFooterStats(records: readonly UsageRecord[], limits: readonly BudgetLimit[], now = new Date()): FooterStats {
@@ -51,11 +61,11 @@ export function computeFooterStats(records: readonly UsageRecord[], limits: read
 	};
 }
 
-export function renderLocalFooter(preset: FooterPreset, stats: FooterStats, tokenDetails: boolean): string | undefined {
+export function renderLocalFooter(preset: FooterLocal, stats: FooterStats, tokenDetails: boolean): string | undefined {
 	switch (preset) {
 		case "off":
 			return undefined;
-		case "full":
+		case "today-spend":
 			return todayLine(stats.today, tokenDetails);
 		case "today-tokens":
 			return stats.today.tokens > 0 ? `today ${fmtCompactTokens(stats.today.tokens)}` : undefined;
