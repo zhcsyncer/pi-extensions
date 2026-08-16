@@ -17,6 +17,7 @@ const packagePaths = [
 	"./packages/pi-ask-user-question",
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
+	"./packages/pi-meter",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -69,6 +70,12 @@ const requiredPackFiles = new Map([
 		"packages/pi-fast-mode/extensions/stream-options.ts",
 		"packages/pi-fast-mode/README.md",
 		"packages/pi-fast-mode/README.zh-CN.md",
+		"packages/pi-meter/package.json",
+		"packages/pi-meter/extensions/meter.ts",
+		"packages/pi-meter/src/config.ts",
+		"packages/pi-meter/src/paths.ts",
+		"packages/pi-meter/README.md",
+		"packages/pi-meter/README.zh-CN.md",
 	]],
 	["./packages/pi-recap", [
 		"extensions/recap.ts",
@@ -164,6 +171,16 @@ const requiredPackFiles = new Map([
 		"CHANGELOG.md",
 		"LICENSE",
 	]],
+	["./packages/pi-meter", [
+		"extensions/meter.ts",
+		"src/config.ts",
+		"src/paths.ts",
+		"src/quota/refresh.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+	]],
 	["./providers/pi-provider-volcengine-agent-plan", [
 		"index.ts",
 		"README.md",
@@ -191,6 +208,8 @@ const maintainedReadmes = [
 	"packages/pi-subagents/README.zh-CN.md",
 	"packages/pi-fast-mode/README.md",
 	"packages/pi-fast-mode/README.zh-CN.md",
+	"packages/pi-meter/README.md",
+	"packages/pi-meter/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"packages/pi-todo/README.md",
@@ -250,6 +269,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"packages/pi-fast-mode/README.md",
 	"packages/pi-fast-mode/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-meter/README.md",
+	"packages/pi-meter/README.zh-CN.md",
 );
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",

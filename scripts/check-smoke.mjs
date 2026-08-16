@@ -43,6 +43,7 @@ const packagePaths = [
 	"./packages/pi-ask-user-question",
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
+	"./packages/pi-meter",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 

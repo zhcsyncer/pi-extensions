@@ -16,6 +16,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
+- [`@zhcsyncer/pi-meter`](./packages/pi-meter) — 一条 `/usage` 同时看本地花费和 Claude / Codex / SuperGrok 剩余。合了 `pi-tracker` 与 `@pi-plugins/usage`；不要同时加载后者，两者都会注册 `/usage`。
 
 ## Bundle 私有 Search Hub
 
@@ -40,7 +41,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 扩展持久化数据
 
-Bundle 内所有独立配置现统一使用 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`，包括 Todo、Ask User Question 与 Subagents。旧文件会原子迁移，并在删除前完成验证；canonical 数据优先，格式损坏或冲突的旧文件会保留并提示 warning。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`；Subagents 保留原有项目覆盖全局行为，使用对应项目路径，并把可选 `agent-tool-description.md` 放在 `config.json` 同目录。本次只迁移配置，不移动自定义 agent、skill、Pi `settings.json` 或 `auth.json`、memory、schedule、transcript、session 状态与 Plan artifact；它们继续使用原有 resource/state 位置，包括 `$PI_CODING_AGENT_DIR/plans/`。
+Bundle 内所有独立配置现统一使用 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`，包括 Todo、Ask User Question、Subagents 与 Meter。旧文件会原子迁移，并在删除前完成验证；canonical 数据优先，格式损坏或冲突的旧文件会保留并提示 warning。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`；Subagents 保留原有项目覆盖全局行为，使用对应项目路径，并把可选 `agent-tool-description.md` 放在 `config.json` 同目录。Meter 的本地账本和共享订阅快照也落在 `extension-data/pi-meter/`，首次加载会迁走 `analytics/usage.jsonl`。本次只迁移配置，不移动自定义 agent、skill、Pi `settings.json` 或 `auth.json`、memory、schedule、transcript、session 状态与 Plan artifact；它们继续使用原有 resource/state 位置，包括 `$PI_CODING_AGENT_DIR/plans/`。
 
 ## 从 Git 安装
 
@@ -58,7 +59,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、Subagents、结构化用户问答、Fast Mode，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、Subagents、Fast Mode、Meter、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -106,10 +107,22 @@ pi install npm:@zhcsyncer/pi-context7
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
+仅安装 Subagents：
+
+```bash
+pi install npm:@zhcsyncer/pi-subagents
+```
+
 仅安装 Fast Mode：
 
 ```bash
 pi install npm:@zhcsyncer/pi-fast-mode
+```
+
+仅安装 Meter：
+
+```bash
+pi install npm:@zhcsyncer/pi-meter
 ```
 
 ## 开发
@@ -133,11 +146,14 @@ pi --no-extensions -e ./packages/pi-context7 --list-models nope
 pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
 pi --no-extensions -e ./packages/pi-subagents --list-models nope
 pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
+pi --no-extensions -e ./packages/pi-meter --list-models nope
 ```
 
 测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。
 
 测试 `pi-subagents` 时，不要同时加载 `@tintinweb/pi-subagents`（会双注册 `Agent` / FleetView）。
+
+测试 `pi-meter` 时，不要同时加载 `@pi-plugins/usage`（会双注册 `/usage`）。
 
 ## 发版
 
