@@ -89,13 +89,13 @@ pending / running / success / failed / needsAttention
 ### 首行
 
 ```text
-◐ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
 ```
 
 失败时：
 
 ```text
-! Tools · 2 failed · read ×12 · web_search ×3 · bash ×16
+! Tools (31 calls · 4 turns) · 2 failed · read ×12 · web_search ×3 · bash ×16
 ```
 
 规则：
@@ -109,15 +109,15 @@ pending / running / success / failed / needsAttention
 ### 当前与 done 槽位
 
 ```text
-◐ Tools · read ×12 · bash ×16
+◐ Tools (16 calls · 3 turns) · read ×12 · bash ×16
   ◐ Bash(pnpm test)
 ```
 
-成功后：
+整轮结束后：
 
 ```text
-✓ Tools · read ×12 · bash ×17
-  ✓ Bash(pnpm test) done
+✓ Tools (17 calls · 3 turns) · read ×12 · bash ×17
+  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
 - 最多显示 3 个 active/recent-done 行；
@@ -137,10 +137,11 @@ pending / running / success / failed / needsAttention
 `Ctrl+O` 离开 Tools 账本，并按原时间线恢复中途旁白和逐条调用概要：
 
 ```text
-✓ Tools · read ×1 · bash ×1
-  │ ✦ 先定位两边的设计与实现入口，再对照分组、渲染和边界。
+✓ Tools (3 calls · 2 turns) · read ×1 · bash ×1
+  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
+  │ › 先定位两边的设计与实现入口，再对照分组、渲染和边界。
   │ ✓ Read(src/index.ts)
-  │ ✦ 先把两边的设计文档和关键实现读清楚。
+  │ › 先把两边的设计文档和关键实现读清楚。
   │ ! Bash(pnpm test): 1 test failed
   └ ✓ ask_user_question
 ```
@@ -148,7 +149,7 @@ pending / running / success / failed / needsAttention
 - 汇总条留在框外，没有边线；
 - 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
 - 展开内容共用一条贯通边线：中间行 `│`，最后一行 `└`；
-- 旁白行用 `✦` 与工具概要区分；
+- 旁白行用 `›` 与工具概要区分；收起账本不展示任何 assistant 旁白；
 - 有 deterministic target 时显示目标；
 - generic custom tool 不猜参数含义，只显示名称；
 - 失败行附带一行错误摘要；

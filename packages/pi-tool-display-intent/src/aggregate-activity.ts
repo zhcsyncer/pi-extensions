@@ -28,12 +28,24 @@ export interface AggregateMember {
 	completionOrder?: number;
 }
 
+export interface AggregateUsageTotals {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
 export interface AggregateGroup {
 	groupId: string;
 	leaderToolCallId?: string;
 	members: AggregateMember[];
 	framedItemIds: string[];
 	narrationById: Map<string, string>;
+	agentTurnIds: string[];
+	usageByKey: Map<string, AggregateUsageTotals>;
+	settled: boolean;
+	startedAtMs?: number;
+	endedAtMs?: number;
 }
 
 export type AggregateFrameEdge = "start" | "continue" | "end" | "only";
@@ -49,6 +61,12 @@ export interface AggregateActivityView {
 	leaderToolCallId: string;
 	hasRunning: boolean;
 	latestNarration?: string;
+	callCount: number;
+	agentTurnCount: number;
+	settled: boolean;
+	durationMs?: number;
+	completedAtMs?: number;
+	usage?: AggregateUsageTotals;
 	active: AggregateMember[];
 	displayRows: AggregateMember[];
 	activeOverflow: number;
@@ -105,7 +123,7 @@ const FAILED_SUMMARY_MAX_LENGTH = 200;
 const ACTIVE_ROW_LIMIT = 3;
 const AGGREGATE_FRAME_CONTINUE = "  │ ";
 const AGGREGATE_FRAME_END = "  └ ";
-export const AGGREGATE_ASSISTANT_MARK = "✦";
+export const AGGREGATE_ASSISTANT_MARK = "›";
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
 
@@ -315,6 +333,93 @@ function isAssistantTerminalFailure(message: unknown): boolean {
 	return reason === "aborted" || reason === "error";
 }
 
+function parseTimestampMs(value: unknown): number | undefined {
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value === "string" && value.trim()) {
+		const parsed = Date.parse(value);
+		if (Number.isFinite(parsed)) return parsed;
+	}
+	return undefined;
+}
+
+function messageTimestampMs(value: unknown, fallback?: unknown): number | undefined {
+	return parseTimestampMs(toRecord(value).timestamp) ?? parseTimestampMs(fallback);
+}
+
+function emptyUsage(): AggregateUsageTotals {
+	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+}
+
+function usageFromUnknown(value: unknown): AggregateUsageTotals | undefined {
+	const usage = toRecord(toRecord(value).usage);
+	const input = typeof usage.input === "number" && Number.isFinite(usage.input) ? usage.input : 0;
+	const output = typeof usage.output === "number" && Number.isFinite(usage.output) ? usage.output : 0;
+	const cacheRead = typeof usage.cacheRead === "number" && Number.isFinite(usage.cacheRead) ? usage.cacheRead : 0;
+	const cacheWrite = typeof usage.cacheWrite === "number" && Number.isFinite(usage.cacheWrite) ? usage.cacheWrite : 0;
+	if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) return undefined;
+	return { input, output, cacheRead, cacheWrite };
+}
+
+function sumUsage(usageByKey: Map<string, AggregateUsageTotals>): AggregateUsageTotals | undefined {
+	const totals = emptyUsage();
+	let hasUsage = false;
+	for (const usage of usageByKey.values()) {
+		hasUsage = true;
+		totals.input += usage.input;
+		totals.output += usage.output;
+		totals.cacheRead += usage.cacheRead;
+		totals.cacheWrite += usage.cacheWrite;
+	}
+	return hasUsage ? totals : undefined;
+}
+
+export function formatCompactTokenCount(count: number): string {
+	if (count < 1000) return String(count);
+	if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+	if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+	if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+	return `${Math.round(count / 1_000_000)}M`;
+}
+
+export function formatAggregateDuration(ms: number): string {
+	const totalSeconds = Math.max(0, Math.round(ms / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h${minutes}m${seconds}s`;
+	if (minutes > 0) return `${minutes}m${seconds}s`;
+	return `${seconds}s`;
+}
+
+export function formatAggregateClock(ms: number): string {
+	const date = new Date(ms);
+	const year = String(date.getFullYear());
+	const month = String(date.getMonth() + 1).padStart(2, "0");
+	const day = String(date.getDate()).padStart(2, "0");
+	const hours = String(date.getHours()).padStart(2, "0");
+	const minutes = String(date.getMinutes()).padStart(2, "0");
+	const seconds = String(date.getSeconds()).padStart(2, "0");
+	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+export function formatAggregateStatsLine(
+	view: Pick<AggregateActivityView, "settled" | "durationMs" | "completedAtMs" | "usage">,
+): string | undefined {
+	if (!view.settled) return undefined;
+	const parts: string[] = [];
+	if (typeof view.durationMs === "number") parts.push(`took ${formatAggregateDuration(view.durationMs)}`);
+	if (view.usage) {
+		const tokenParts: string[] = [];
+		if (view.usage.input) tokenParts.push(`↑${formatCompactTokenCount(view.usage.input)}`);
+		if (view.usage.output) tokenParts.push(`↓${formatCompactTokenCount(view.usage.output)}`);
+		if (view.usage.cacheRead) tokenParts.push(`R${formatCompactTokenCount(view.usage.cacheRead)}`);
+		if (view.usage.cacheWrite) tokenParts.push(`W${formatCompactTokenCount(view.usage.cacheWrite)}`);
+		if (tokenParts.length > 0) parts.push(`tok ${tokenParts.join(" ")}`);
+	}
+	if (typeof view.completedAtMs === "number") parts.push(`at ${formatAggregateClock(view.completedAtMs)}`);
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 function assistantFailureSummary(message: unknown): string {
 	const record = toRecord(message);
 	if (record.stopReason === "aborted") return "Operation aborted.";
@@ -474,6 +579,48 @@ export class AggregateProjection {
 		this.invalidateIds(group.leaderToolCallId);
 	}
 
+	rememberAgentTurn(message: unknown): void {
+		const group = this.ensureActiveGroup();
+		const id = aggregateAssistantFrameId(message)
+			?? (typeof toRecord(message).id === "string" ? `assistant:${toRecord(message).id}` : undefined)
+			?? `assistant-turn:${group.agentTurnIds.length + 1}`;
+		if (!group.agentTurnIds.includes(id)) group.agentTurnIds.push(id);
+		this.rememberUsage(id, message);
+		this.rememberEndedAt(messageTimestampMs(message));
+	}
+
+	rememberUsage(key: string, value: unknown): void {
+		const usage = usageFromUnknown(value);
+		if (!key || !usage) return;
+		const group = this.ensureActiveGroup();
+		group.usageByKey.set(key, usage);
+		this.invalidateIds(group.leaderToolCallId);
+	}
+
+	rememberStartedAt(timestampMs: number | undefined): void {
+		if (timestampMs === undefined) return;
+		const group = this.ensureActiveGroup();
+		if (group.startedAtMs === undefined || timestampMs < group.startedAtMs) group.startedAtMs = timestampMs;
+		this.invalidateIds(group.leaderToolCallId);
+	}
+
+	rememberEndedAt(timestampMs: number | undefined): void {
+		if (timestampMs === undefined) return;
+		this.rememberStartedAt(timestampMs);
+		const group = this.ensureActiveGroup();
+		if (group.endedAtMs === undefined || timestampMs > group.endedAtMs) group.endedAtMs = timestampMs;
+		this.invalidateIds(group.leaderToolCallId);
+	}
+
+	markGroupSettled(groupId = this.activeGroupId, endedAtMs?: number): void {
+		if (!groupId) return;
+		const group = this.groupsById.get(groupId);
+		if (!group || group.settled) return;
+		group.settled = true;
+		this.rememberEndedAt(endedAtMs ?? (group.endedAtMs === undefined ? Date.now() : undefined));
+		this.invalidateIds(group.leaderToolCallId);
+	}
+
 	latestNarrationFor(itemId: string): string | undefined {
 		const groupId = this.framedGroupById.get(itemId) ?? this.membersById.get(itemId)?.groupId;
 		if (!groupId) return undefined;
@@ -490,12 +637,17 @@ export class AggregateProjection {
 		return this.invalidators.size;
 	}
 
-	startUserGroup(groupId?: string): string {
-		this.collapseRetainedDone();
+	startUserGroup(groupId?: string, startedAtMs?: number, options: { collapseRetainedDone?: boolean } = {}): string {
+		if (options.collapseRetainedDone !== false) this.collapseRetainedDone();
 		const resolvedId = groupId || `live-user-${++this.liveGroupSequence}`;
-		this.ensureGroup(resolvedId);
+		const group = this.ensureGroup(resolvedId);
 		this.activeGroupId = resolvedId;
 		this.initialized = true;
+		const fromId = resolvedId.startsWith("live-user-")
+			? parseTimestampMs(resolvedId.slice("live-user-".length))
+			: undefined;
+		this.rememberStartedAt(startedAtMs ?? fromId);
+		group.settled = false;
 		return resolvedId;
 	}
 
@@ -518,6 +670,7 @@ export class AggregateProjection {
 
 	ingestAssistantMessage(message: unknown): void {
 		if (messageRole(message) !== "assistant") return;
+		this.rememberAgentTurn(message);
 		const calls = toolCallsFromMessage(message);
 		if (isInterimAssistantMessage(message)) {
 			const frameId = aggregateAssistantFrameId(message);
@@ -538,6 +691,24 @@ export class AggregateProjection {
 		}
 	}
 
+	ingestToolResult(
+		message: unknown,
+		options: { retainDone?: boolean; fallbackTimestamp?: unknown } = {},
+	): void {
+		if (messageRole(message) !== "toolResult") return;
+		const record = toRecord(message);
+		if (typeof record.toolCallId === "string") {
+			const member = this.membersById.get(record.toolCallId);
+			if (!member || !this.isPassthrough(member.toolName)) {
+				this.rememberUsage(`tool:${record.toolCallId}`, message);
+			}
+			this.markComplete(record.toolCallId, record, record.isError === true, {
+				retainDone: options.retainDone,
+			});
+		}
+		this.rememberEndedAt(messageTimestampMs(message, options.fallbackTimestamp));
+	}
+
 	markStarted(toolCallId: string, toolName: string, args: unknown): void {
 		const normalizedName = normalizeToolName(toolName);
 		if (!normalizedName) return;
@@ -546,6 +717,8 @@ export class AggregateProjection {
 		member.state = "running";
 		member.retainedDone = false;
 		member.completionOrder = undefined;
+		const group = this.groupsById.get(member.groupId);
+		if (group) group.settled = false;
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
 
@@ -643,12 +816,17 @@ export class AggregateProjection {
 			if (!message) continue;
 			const role = messageRole(message);
 			if (role === "user") {
-				this.activeGroupId = entryId(entry, `restored-user-${++fallbackGroupIndex}`);
-				this.ensureGroup(this.activeGroupId);
+				const restoredId = entryId(entry, `restored-user-${++fallbackGroupIndex}`);
+				this.startUserGroup(
+					restoredId,
+					messageTimestampMs(message, toRecord(entry).timestamp),
+					{ collapseRetainedDone: false },
+				);
 				continue;
 			}
 			if (role === "assistant") {
 				this.ingestAssistantMessage(message);
+				this.rememberEndedAt(messageTimestampMs(message, toRecord(entry).timestamp));
 				for (const call of toolCallsFromMessage(message)) {
 					const member = this.membersById.get(call.id);
 					if (!member) continue;
@@ -659,16 +837,20 @@ export class AggregateProjection {
 				continue;
 			}
 			if (role === "toolResult") {
-				const record = toRecord(message);
-				if (typeof record.toolCallId === "string") {
-					this.markComplete(record.toolCallId, record, record.isError === true, { retainDone: false });
-				}
+				this.ingestToolResult(message, {
+					retainDone: false,
+					fallbackTimestamp: toRecord(entry).timestamp,
+				});
 			}
 		}
 
 		this.initialized = true;
 		this.markUnsettledInterrupted();
-		for (const group of this.groups) this.recomputeLeader(group.groupId);
+		for (const group of this.groups) {
+			this.recomputeLeader(group.groupId);
+			group.settled = group.members.length > 0
+				&& !group.members.some((member) => member.state === "pending" || member.state === "running");
+		}
 		const staleInvalidators: Array<() => void> = [];
 		for (const [toolCallId, invalidate] of this.invalidators) {
 			if (this.membersById.get(toolCallId)?.visible !== true) {
@@ -730,6 +912,14 @@ export class AggregateProjection {
 			leaderToolCallId: toolCallId,
 			hasRunning: grouped.some((entry) => entry.state === "pending" || entry.state === "running"),
 			latestNarration: this.latestNarrationFor(toolCallId),
+			callCount: grouped.length,
+			agentTurnCount: Math.max(1, group.agentTurnIds.length),
+			settled: group.settled,
+			durationMs: group.startedAtMs !== undefined && group.endedAtMs !== undefined
+				? Math.max(0, group.endedAtMs - group.startedAtMs)
+				: undefined,
+			completedAtMs: group.endedAtMs,
+			usage: sumUsage(group.usageByKey),
 			active,
 			displayRows,
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
@@ -742,7 +932,15 @@ export class AggregateProjection {
 	private ensureGroup(groupId: string): AggregateGroup {
 		let group = this.groupsById.get(groupId);
 		if (!group) {
-			group = { groupId, members: [], framedItemIds: [], narrationById: new Map() };
+			group = {
+				groupId,
+				members: [],
+				framedItemIds: [],
+				narrationById: new Map(),
+				agentTurnIds: [],
+				usageByKey: new Map(),
+				settled: false,
+			};
 			this.groups.push(group);
 			this.groupsById.set(groupId, group);
 		}
@@ -935,7 +1133,11 @@ export function renderAggregateActivity(
 	const hasFailure = view.failedCount > 0;
 	const marker = hasFailure ? "!" : view.hasRunning ? "◐" : "✓";
 	const markerColor = hasFailure ? "error" : view.hasRunning ? "warning" : "success";
-	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Tools") ?? "Tools")}`;
+	const totals = theme.fg(
+		"muted",
+		` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"})`,
+	);
+	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Tools") ?? "Tools")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
 	for (const summary of view.toolSummaries) {
 		header += theme.fg("muted", " · ");
@@ -943,14 +1145,9 @@ export function renderAggregateActivity(
 	}
 
 	const lines = [truncateToWidth(header, safeWidth, "…")];
-	if (view.latestNarration) {
-		let mark = AGGREGATE_ASSISTANT_MARK;
-		try {
-			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
-		} catch {
-			// Theme helpers must not crash the collapsed ledger.
-		}
-		lines.push(truncateToWidth(`  ${mark} ${view.latestNarration}`, safeWidth, "…"));
+	const stats = formatAggregateStatsLine(view);
+	if (stats) {
+		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
 	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {
@@ -1131,11 +1328,18 @@ export function registerAggregateProjectionEvents(
 		if (messageRole(event.message) === "user") {
 			clearSettleTimer();
 			const timestamp = toRecord(event.message).timestamp;
-			projection.startUserGroup(typeof timestamp === "number" ? `live-user-${timestamp}` : undefined);
+			projection.startUserGroup(
+				typeof timestamp === "number" ? `live-user-${timestamp}` : undefined,
+				parseTimestampMs(timestamp),
+			);
 		}
 	});
 	pi.on("message_update", async (event) => projection.ingestAssistantMessage(event.message));
-	pi.on("message_end", async (event) => projection.ingestAssistantMessage(event.message));
+	pi.on("message_end", async (event) => {
+		const role = messageRole(event.message);
+		if (role === "assistant") projection.ingestAssistantMessage(event.message);
+		else if (role === "toolResult") projection.ingestToolResult(event.message);
+	});
 	pi.on("tool_execution_start", async (event) => {
 		clearSettleTimer();
 		projection.markStarted(event.toolCallId, event.toolName, event.args);
@@ -1146,6 +1350,7 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("agent_settled", async () => {
 		projection.markUnsettledInterrupted();
+		projection.markGroupSettled();
 		clearSettleTimer();
 		settleTimer = setTimeout(() => {
 			settleTimer = undefined;

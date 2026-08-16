@@ -277,6 +277,17 @@ test("native user message renderer inserts one blank spacer line before the box"
   assert.match(rendered[1] ?? "", /^╭/);
 });
 
+test("compact native user message renderer drops the outer spacer and inner padding", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["Original user content"],
+  };
+
+  patchNativeUserMessagePrototype(prototype, () => undefined, () => true, () => true);
+  const rendered = prototype.render(24);
+  assert.match(rendered[0] ?? "", /^╭/);
+  assert.equal(rendered.filter((line) => line.includes("│")).length, 1);
+});
+
 test("native user message renderer wraps body at the padded content width", () => {
   const contentWidth = 16;
   const totalWidth = contentWidth + 4;

@@ -107,7 +107,7 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
 		expandable.setExpanded(true);
 		const expanded = component.render(100);
-		assert.match(expanded.join("\n"), /│.*✦.*先定位两边的设计与实现入口/);
+		assert.match(expanded.join("\n"), /│.*›.*先定位两边的设计与实现入口/);
 		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
 		assert.doesNotMatch(expanded.join("\n"), /Thinking\.\.\./);
 
@@ -139,7 +139,7 @@ test("final assistant conclusions stay unmarked and do not use a captured Pi the
 		const rendered = render(assistant([
 			{ type: "text", text: "Visible answer" },
 		], { stopReason: "stop" }), true).join("\n");
-		assert.doesNotMatch(rendered, /✦/);
+		assert.doesNotMatch(rendered, /›|✦/);
 		assert.match(rendered, /Visible answer/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();

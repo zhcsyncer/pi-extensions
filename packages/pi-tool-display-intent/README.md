@@ -134,18 +134,18 @@ Every content preview, including custom tools and bash live/error output, uses `
 `toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` summarizes every registered built-in, custom, MCP, and late-loaded tool within one user request:
 
 ```text
-◐ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   ◐ Bash(pnpm test)
 
-✓ Tools · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
-  ✓ Bash(pnpm test) done
+✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
+  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
 The latest non-passthrough, non-image tool row carries Tools; older aggregated members occupy zero rows. Counts include pending, running, successful, and failed calls and remain in first-seen tool order. Collapsed failures appear only as `N failed` in the header. Up to three running or recently completed operations appear in assistant source order. A success changes to `done`; a newer call replaces the oldest retained `done`, and the final success folds 1.5 seconds after Pi reports the agent settled.
 
 Every tool receives the same aggregate treatment and a deterministic theme color. Aggregate deliberately does not infer or report file-change summaries: edits made through Bash, custom tools, or child Agent sessions cannot be measured completely from the parent transcript. Images fail open to their original renderer. `Agent` also keeps its rich progress/result renderer by default, but still contributes to the Tools count. Other passthrough names can be added through `tools.passthrough`.
 
-While collapsed, aggregate stays one Tools ledger: failures appear only as `N failed`, at most three running or recent-done rows stay visible, and mid-turn assistant narration is hidden. The final assistant conclusion stays visible. `Ctrl+O` keeps the unframed Tools summary and opens a Bash-style result gutter beneath it: mid-turn notes return in place with a `✦` mark, and each call shows one compact target/status line. The last row uses `└`; earlier rows keep `│`. Expanded rows still do not dump output, file contents, or diff bodies. When Pi hides reasoning blocks, collapsed `Thinking...` placeholders are stripped; errors and explicitly revealed reasoning remain visible.
+While collapsed, aggregate stays one Tools ledger: failures appear only as `N failed`, at most three running or recent-done rows stay visible, and every assistant note stays hidden, including the latest mid-turn line. After the turn settles, a muted receipt under the header shows wall-clock duration, main-chain `↑` / `↓` tokens plus cache `R` / `W`, and local completion time. The final assistant conclusion stays outside the ledger. `Ctrl+O` keeps the unframed Tools summary and opens a Bash-style result gutter beneath it: mid-turn notes return in place with a `›` mark, and each call shows one compact target/status line. The last row uses `└`; earlier rows keep `│`. Expanded rows still do not dump output, file contents, or diff bodies. When Pi hides reasoning blocks, collapsed `Thinking...` placeholders are stripped; errors and explicitly revealed reasoning remain visible.
 
 Aggregation changes only interactive rendering. It does not rewrite or append Session calls/results, and its projection is rebuilt from the current branch after reload, resume, tree navigation, or compaction. A custom tool's execution-time UI still runs; its transcript result is folded in aggregate. Switching to `individual` and reloading restores the original renderer and stored result—for example, completed `ask_user_question` answers become visible again.
 

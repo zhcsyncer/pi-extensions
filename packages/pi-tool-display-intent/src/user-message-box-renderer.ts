@@ -40,6 +40,7 @@ interface CachedUserMessageMarkdownRenderer {
 interface CachedUserMessageFinalOutput {
   width: number;
   theme: UserMessageTheme | undefined;
+  compact: boolean;
   hasMarkdownState: boolean;
   text?: string;
   markdownTheme?: unknown;
@@ -56,7 +57,7 @@ const MIN_BORDER_WIDTH = 8;
 const TITLE_TEXT = " user ";
 const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
 const USER_MESSAGE_TOP_MARGIN_LINES = 1;
-const USER_MESSAGE_PATCH_VERSION = 8;
+const USER_MESSAGE_PATCH_VERSION = 9;
 const MAX_USER_MESSAGE_MARKDOWN_TEXT_LENGTH = 100_000;
 const MAX_USER_MESSAGE_MARKDOWN_LINE_COUNT = 2_000;
 
@@ -212,8 +213,9 @@ function hasSameFinalOutputState(
   width: number,
   theme: UserMessageTheme | undefined,
   markdownState: UserMessageMarkdownState | undefined,
+  compact: boolean,
 ): boolean {
-  if (cached.width !== width || cached.theme !== theme) {
+  if (cached.width !== width || cached.theme !== theme || cached.compact !== compact) {
     return false;
   }
 
@@ -237,11 +239,13 @@ function toFinalOutputCacheEntry(
   theme: UserMessageTheme | undefined,
   markdownState: UserMessageMarkdownState | undefined,
   output: string[],
+  compact: boolean,
 ): CachedUserMessageFinalOutput {
   if (!markdownState) {
     return {
       width,
       theme,
+      compact,
       hasMarkdownState: false,
       output,
     };
@@ -250,6 +254,7 @@ function toFinalOutputCacheEntry(
   return {
     width,
     theme,
+    compact,
     hasMarkdownState: true,
     text: markdownState.text,
     markdownTheme: markdownState.theme,
@@ -354,6 +359,7 @@ export function patchNativeUserMessagePrototype(
   prototype: PatchableUserMessagePrototype,
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
+  isCompact?: () => boolean,
 ): void {
   const finalOutputCache = new WeakMap<object, CachedUserMessageFinalOutput>();
   const originalBodyLineCache = new WeakMap<object, CachedUserMessageBodyLines>();
@@ -377,9 +383,10 @@ export function patchNativeUserMessagePrototype(
         }
 
         const theme = getTheme();
+        const compact = isCompact?.() === true;
         if (canCacheFinalOutput) {
           const cached = finalOutputCache.get(this as object);
-          if (cached && hasSameFinalOutputState(cached, safeWidth, theme, markdownState)) {
+          if (cached && hasSameFinalOutputState(cached, safeWidth, theme, markdownState, compact)) {
             return cached.output;
           }
         }
@@ -393,12 +400,14 @@ export function patchNativeUserMessagePrototype(
           originalBodyLineCache,
         );
         const contentLines = normalizeUserMessageContentLines(lines);
-        const paddedContentLines = addUserMessageVerticalPadding(
-          contentLines.length > 0 ? contentLines : [""],
-        );
+        const paddedContentLines = compact
+          ? (contentLines.length > 0 ? contentLines : [""])
+          : addUserMessageVerticalPadding(
+            contentLines.length > 0 ? contentLines : [""],
+          );
 
         const output = [
-          ...Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => ""),
+          ...(compact ? [] : Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => "")),
           buildTopBorder(safeWidth, theme),
           ...paddedContentLines.map((renderLine) =>
             wrapContentLine(renderLine, safeWidth, theme),
@@ -409,7 +418,7 @@ export function patchNativeUserMessagePrototype(
         if (canCacheFinalOutput) {
           finalOutputCache.set(
             this as object,
-            toFinalOutputCacheEntry(safeWidth, theme, markdownState, output),
+            toFinalOutputCacheEntry(safeWidth, theme, markdownState, output, compact),
           );
         }
 

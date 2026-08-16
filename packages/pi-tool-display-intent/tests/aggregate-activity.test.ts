@@ -9,6 +9,7 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
+	formatAggregateClock,
 	formatAggregateTarget,
 	patchAggregateToolExecutions,
 	registerAggregateProjectionEvents,
@@ -206,7 +207,7 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
-test("latest assistant narration sits above tool rows and does not consume the tool budget", () => {
+test("collapsed Tools ledger keeps the latest narration off the tool budget and off the ledger", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-narration-budget");
 	projection.ingestAssistantMessage({
@@ -220,10 +221,67 @@ test("latest assistant narration sits above tool rows and does not consume the t
 	}
 	const view = projection.getView("tool-4");
 	assert.equal(view?.latestNarration, "先定位两边的设计与实现入口");
+	assert.equal(view?.callCount, 4);
+	assert.equal(view?.agentTurnCount, 1);
+	assert.equal(view?.settled, false);
 	assert.deepEqual(view?.displayRows.map((member) => member.toolCallId), ["tool-1", "tool-2", "tool-3"]);
 	const rendered = renderAggregateActivity(view!, 120, plainTheme());
-	assert.match(rendered.join("\n"), /✦ 先定位两边的设计与实现入口/);
+	assert.match(rendered.join("\n"), /Tools \(4 calls · 1 turn\)/);
+	assert.doesNotMatch(rendered.join("\n"), /先定位两边的设计与实现入口|›|↑|↓/);
 	assert.match(rendered.join("\n"), /custom_1/);
+});
+
+test("settled Tools ledger shows duration, tokens, cache, and completion time under the header", () => {
+	const startedAt = Date.parse("2026-04-08T14:30:00");
+	const endedAt = Date.parse("2026-04-08T14:32:14");
+	const projection = createProjection();
+	const branch = [
+		{
+			type: "message",
+			id: "user-stats",
+			timestamp: startedAt,
+			message: { role: "user", content: "request", timestamp: startedAt },
+		},
+		{
+			type: "message",
+			id: "assistant-stats",
+			timestamp: endedAt,
+			message: {
+				role: "assistant",
+				content: [{ type: "toolCall", ...call("read-stats", "read", { path: "a.ts" }) }],
+				stopReason: "toolUse",
+				timestamp: endedAt,
+				usage: { input: 62_000, output: 8_400, cacheRead: 120_000, cacheWrite: 4_100 },
+			},
+		},
+		{
+			type: "message",
+			id: "result-stats",
+			timestamp: endedAt,
+			message: {
+				role: "toolResult",
+				toolCallId: "read-stats",
+				toolName: "read",
+				content: [{ type: "text", text: "ok" }],
+				isError: false,
+				timestamp: endedAt,
+			},
+		},
+	];
+	projection.rebuild(branch, messages(branch));
+	const view = projection.getView("read-stats");
+	assert.equal(view?.settled, true);
+	assert.equal(view?.durationMs, endedAt - startedAt);
+	assert.deepEqual(view?.usage, {
+		input: 62_000,
+		output: 8_400,
+		cacheRead: 120_000,
+		cacheWrite: 4_100,
+	});
+	const rendered = renderAggregateActivity(view!, 120, plainTheme());
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.equal(rendered[1], `  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at ${formatAggregateClock(endedAt)}`);
+	assert.doesNotMatch(rendered.join("\n"), /›/);
 });
 
 test("a new passthrough call still replaces the oldest retained done row", () => {
@@ -307,7 +365,7 @@ test("rendered Tools header keeps failed first and treats every tool uniformly",
 	const view = projection.getView("custom-1");
 	assert.ok(view);
 	const rendered = renderAggregateActivity(view, 500, plainTheme()).join("\n");
-	assert.match(rendered, /^! Tools · 1 failed · read ×1 · edit ×1 · custom_probe ×1/m);
+	assert.match(rendered, /^! Tools \(3 calls · 1 turn\) · 1 failed · read ×1 · edit ×1 · custom_probe ×1/m);
 	assert.doesNotMatch(rendered, /network exploded/);
 	const failed = projection.getMember("custom-1");
 	assert.ok(failed);
