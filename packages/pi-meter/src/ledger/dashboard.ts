@@ -1,7 +1,7 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { aggregate, dimensionKey, sumRows } from "./aggregate.ts";
 import { DIMENSIONS, WINDOWS } from "./enums.ts";
-import { fmtBar, fmtCost, fmtNum, padRight } from "./format.ts";
+import { fmtBar, fmtCompactTokens, fmtCost, fmtNum, padRight } from "./format.ts";
 import type { AggRow, BudgetStatus, Dimension, UsageRecord, WindowKey } from "./types.ts";
 
 export interface DashboardData {
@@ -142,17 +142,21 @@ export class Dashboard {
 		}
 
 		const costCell = (row: AggRow): string => (row.costKnown ? fmtCost(row.cost) : "n/a");
-		const barW = 12;
+		const barW = 10;
 		const numW = 10;
 		const gap = 2;
 		const marker = 2;
-		const fixed = marker + barW + numW * 5 + gap * 6;
+		const numCols = 6;
+		const fixed = marker + barW + numW * numCols + gap * (numCols + 1);
 		const maxLabel = Math.max(visibleWidth(dim.label), ...rows.map((row) => visibleWidth(row.label)));
 		const nameW = Math.min(Math.max(14, maxLabel + 2), Math.max(14, width - fixed));
+		const ruleW = Math.min(width, marker + nameW + barW + numW * numCols + gap * (numCols + 1));
 		const header =
 			padRight(`  ${t.fg("dim", dim.label)}`, marker + nameW) +
 			"  " +
 			padRight(t.fg("dim", "usage"), barW) +
+			"  " +
+			padRight(t.fg("dim", "tokens"), numW) +
 			"  " +
 			padRight(t.fg("dim", "in"), numW) +
 			"  " +
@@ -164,7 +168,7 @@ export class Dashboard {
 			"  " +
 			padRight(t.fg("dim", "cost"), numW);
 		lines.push(truncateToWidth(header, width));
-		lines.push(t.fg("border", "─".repeat(Math.min(width, marker + nameW + barW + numW * 5 + gap * 6))));
+		lines.push(t.fg("border", "─".repeat(ruleW)));
 
 		const maxTokens = rows[0]?.tokens ?? 1;
 		const pageStart = this.scroll;
@@ -180,31 +184,35 @@ export class Dashboard {
 				"  " +
 				t.fg("accent", padRight(fmtBar(ratio, barW), barW)) +
 				"  " +
-				padRight(t.fg("text", fmtNum(row.input)), numW) +
+				padRight(t.fg("text", fmtCompactTokens(row.tokens)), numW) +
 				"  " +
-				padRight(t.fg("text", fmtNum(row.output)), numW) +
+				padRight(t.fg("text", fmtCompactTokens(row.input)), numW) +
 				"  " +
-				padRight(t.fg("muted", fmtNum(row.cacheRead)), numW) +
+				padRight(t.fg("text", fmtCompactTokens(row.output)), numW) +
 				"  " +
-				padRight(t.fg("muted", fmtNum(row.cacheWrite)), numW) +
+				padRight(t.fg("muted", fmtCompactTokens(row.cacheRead)), numW) +
+				"  " +
+				padRight(t.fg("muted", fmtCompactTokens(row.cacheWrite)), numW) +
 				"  " +
 				padRight(t.fg(row.costKnown ? "success" : "dim", costCell(row)), numW);
 			lines.push(truncateToWidth(line, width));
 		}
 
-		lines.push(t.fg("border", "─".repeat(Math.min(width, marker + nameW + barW + numW * 5 + gap * 6))));
+		lines.push(t.fg("border", "─".repeat(ruleW)));
 		const totalLine =
 			padRight("  " + t.fg("accent", t.bold("Total")), marker + nameW) +
 			"  " +
 			" ".repeat(barW) +
 			"  " +
-			padRight(t.fg("accent", fmtNum(total.input)), numW) +
+			padRight(t.fg("accent", fmtCompactTokens(total.tokens)), numW) +
 			"  " +
-			padRight(t.fg("accent", fmtNum(total.output)), numW) +
+			padRight(t.fg("accent", fmtCompactTokens(total.input)), numW) +
 			"  " +
-			padRight(t.fg("accent", fmtNum(total.cacheRead)), numW) +
+			padRight(t.fg("accent", fmtCompactTokens(total.output)), numW) +
 			"  " +
-			padRight(t.fg("accent", fmtNum(total.cacheWrite)), numW) +
+			padRight(t.fg("accent", fmtCompactTokens(total.cacheRead)), numW) +
+			"  " +
+			padRight(t.fg("accent", fmtCompactTokens(total.cacheWrite)), numW) +
 			"  " +
 			padRight(t.fg("accent", costCell(total)), numW);
 		lines.push(truncateToWidth(totalLine, width));
@@ -217,7 +225,7 @@ export class Dashboard {
 				const limit = status.limit;
 				const metricTxt = limit.metric === "cost"
 					? `$${status.current.toFixed(2)}/$${limit.max.toFixed(2)}`
-					: `${fmtNum(status.current)}/${fmtNum(limit.max)}`;
+					: `${fmtCompactTokens(status.current)}/${fmtCompactTokens(limit.max)}`;
 				const color = status.exceeded ? "error" : status.warning ? "warning" : "dim";
 				lines.push(t.fg(color, `  ${limit.scope} ${limit.period} ${limit.metric}: ${metricTxt} (${status.pct.toFixed(0)}%)`));
 			}

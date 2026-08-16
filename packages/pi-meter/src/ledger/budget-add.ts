@@ -36,7 +36,7 @@ export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
 			value: String(value),
 			label: metric === "cost" ? `$${value}` : value.toLocaleString("en-US"),
 		})),
-		{ value: "other", label: "Other…", description: "use /budget add <scope> <period> <metric> <max>" },
+		{ value: "other", label: "Other…", description: "use /usage budget add <scope> <period> <metric> <max>" },
 	]);
 	if (maxStr === null || maxStr === "other") return null;
 

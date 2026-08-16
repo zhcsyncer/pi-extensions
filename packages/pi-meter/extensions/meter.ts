@@ -3,14 +3,14 @@ import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
-import { loadMeterConfig, parseQuotaVisibleArg, parseTokenDetailsArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
+import { loadMeterConfig, parseQuotaVisibleArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
 import { addBudgetFlow, pickSelect, type BudgetUi } from "../src/ledger/budget-add.ts";
 import { computeFooterStats, FOOTER_LOCALS, parseFooterLocal, renderLocalFooter, type FooterLocal } from "../src/ledger/footer.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { Dashboard } from "../src/ledger/dashboard.ts";
 import { DIMENSIONS } from "../src/ledger/enums.ts";
-import { fmtCost, fmtNum } from "../src/ledger/format.ts";
+import { fmtCompactTokens, fmtCost, fmtNum } from "../src/ledger/format.ts";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { parseSession, diffRecords, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
@@ -79,7 +79,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 			conflictWarned = true;
 			notify(
 				ctx,
-				"@zhcsyncer/pi-meter and @pi-plugins/usage both register /usage. Disable @pi-plugins/usage; this package uses /usage for the local ledger and /quota for subscription remaining.",
+				"@zhcsyncer/pi-meter and @pi-plugins/usage both register /usage. Disable @pi-plugins/usage; this package uses /usage for the local ledger and subscription remaining.",
 				"warning",
 			);
 		} catch {
@@ -129,7 +129,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		const records = await store.readAll();
 		const limits = (await store.loadBudgets()).limits;
-		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits), config.footer.tokenDetails);
+		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits));
 		const preferred = preferredProvider(ctx.model);
 		const view = config.footer.quota && quota ? chromeWindow(quota, preferred) : undefined;
 		ctx.ui.setStatus(STATUS_KEY, renderStatusText({
@@ -182,10 +182,8 @@ export default function piMeter(pi: ExtensionAPI): void {
 		await maybeRefreshQuota(ctx);
 	});
 
-	async function handleQuotaCommand(args: string, ctx: ExtensionContext): Promise<void> {
-		await ensureReady(ctx);
+	async function handleQuota(arg: string, ctx: ExtensionContext): Promise<void> {
 		warnUsageConflict(ctx);
-		const arg = args.trim().toLowerCase();
 		const visible = parseQuotaVisibleArg(arg, config!.footer.quota);
 		if (visible !== undefined) {
 			await persistConfig({
@@ -203,12 +201,11 @@ export default function piMeter(pi: ExtensionAPI): void {
 			notify(ctx, `Quota polarity: ${arg}`, "info");
 			return;
 		}
-		const force = arg === "refresh";
 		if (arg && arg !== "refresh") {
-			notify(ctx, "Unknown /quota argument. Try refresh, used, remaining, on, or off.", "warning");
+			notify(ctx, "Unknown /usage quota argument. Try refresh, used, remaining, on, or off.", "warning");
 			return;
 		}
-		await maybeRefreshQuota(ctx, force);
+		await maybeRefreshQuota(ctx, arg === "refresh");
 		const snapshots = QUOTA_PROVIDERS.map((id) => quota?.providers[id]).filter((item): item is NonNullable<typeof item> => item !== undefined);
 		const missing = QUOTA_PROVIDERS.filter((id) => !quota?.providers[id]).map((id) => ({
 			provider: id,
@@ -222,23 +219,6 @@ export default function piMeter(pi: ExtensionAPI): void {
 		notify(ctx, report, usageSeverity([...snapshots, ...missing], config!.quota.polarity));
 	}
 
-	const quotaCompletions = (prefix: string) => {
-		const options = [
-			{ value: "refresh", label: "refresh", description: "Force-refresh shared snapshots" },
-			{ value: "used", label: "used", description: "Show used percent" },
-			{ value: "remaining", label: "remaining", description: "Show remaining percent" },
-			{ value: "on", label: "on", description: "Show the quota window in the footer" },
-			{ value: "off", label: "off", description: "Hide the quota window" },
-		];
-		return options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
-	};
-
-	pi.registerCommand("quota", {
-		description: "Subscription remaining for Claude, Codex, and SuperGrok",
-		getArgumentCompletions: quotaCompletions,
-		handler: handleQuotaCommand,
-	});
-
 	const usageCompletions = (prefix: string) => {
 		const options = [
 			{ value: "today", label: "today" },
@@ -247,13 +227,16 @@ export default function piMeter(pi: ExtensionAPI): void {
 			{ value: "6months", label: "6months" },
 			{ value: "year", label: "year" },
 			{ value: "all", label: "all" },
+			{ value: "quota", label: "quota", description: "Subscription remaining" },
+			{ value: "quota refresh", label: "quota refresh", description: "Force-refresh shared snapshots" },
+			{ value: "quota used", label: "quota used" },
+			{ value: "quota remaining", label: "quota remaining" },
+			{ value: "quota on", label: "quota on", description: "Show the quota window in the footer" },
+			{ value: "quota off", label: "quota off", description: "Hide the quota window" },
 			{ value: "import", label: "import", description: "Back-fill from session files" },
 			{ value: "footer", label: "footer", description: "Choose the local usage summary" },
 			...FOOTER_LOCALS.map((preset) => ({ value: `footer ${preset.key}`, label: `footer ${preset.key}`, description: preset.description })),
-			{ value: "details", label: "details", description: "Show or hide token details in the local summary" },
-			{ value: "details on", label: "details on", description: "Show input / output / cache hit" },
-			{ value: "details off", label: "details off", description: "Hide token details" },
-			{ value: "compact", label: "compact", description: "Same as details off" },
+			{ value: "budget", label: "budget", description: "View local budgets" },
 		];
 		return options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
 	};
@@ -265,17 +248,16 @@ export default function piMeter(pi: ExtensionAPI): void {
 			await importHistory(store!, ctx.ui.notify);
 			return;
 		}
-		if (arg === "footer" || arg.startsWith("footer ")) {
-			await handleFooter(arg.slice("footer".length).trim(), config!, persistConfig, ctx);
+		if (arg === "quota" || arg.startsWith("quota ")) {
+			await handleQuota(arg.slice("quota".length).trim(), ctx);
 			return;
 		}
-		const details = parseTokenDetailsArg(arg, config!.footer.tokenDetails);
-		if (details !== undefined) {
-			await persistConfig({
-				...config!,
-				footer: { ...config!.footer, tokenDetails: details },
-			}, ctx);
-			notify(ctx, details ? "Token details on. /usage details again to hide." : "Token details off.", "info");
+		if (arg === "budget" || arg.startsWith("budget ")) {
+			await handleBudget(arg.slice("budget".length).trim(), store!, session, ctx);
+			return;
+		}
+		if (arg === "footer" || arg.startsWith("footer ")) {
+			await handleFooter(arg.slice("footer".length).trim(), config!, persistConfig, ctx);
 			return;
 		}
 		if (arg === "help" || arg === "?") {
@@ -292,7 +274,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 			return;
 		}
 		if (arg.length > 0) {
-			notify(ctx, "Unknown /usage argument. Try footer, details, import, or a time window.", "warning");
+			notify(ctx, "Unknown /usage argument. Try quota, footer, import, budget, or a time window.", "warning");
 			return;
 		}
 		if (ctx.mode !== "tui") {
@@ -305,6 +287,9 @@ export default function piMeter(pi: ExtensionAPI): void {
 			case "dashboard":
 				await openDashboard("today", store!, session, ctx);
 				break;
+			case "quota":
+				await handleQuota("", ctx);
+				break;
 			case "footer":
 				await handleFooter("", config!, persistConfig, ctx);
 				break;
@@ -312,7 +297,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 				await importHistory(store!, ctx.ui.notify);
 				break;
 			case "budget":
-				viewBudgets((await store!.loadBudgets()).limits, ctx.ui.notify);
+				await handleBudget("", store!, session, ctx);
 				break;
 			case "help":
 				printHelp(ctx.ui.notify);
@@ -321,33 +306,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 	};
 
 	pi.registerCommand("usage", {
-		description: "Local usage ledger — dashboard, footer, import, token details",
+		description: "Local usage ledger and subscription remaining",
 		getArgumentCompletions: usageCompletions,
 		handler: handleUsageCommand,
-	});
-
-	pi.registerCommand("analytics", {
-		description: "Alias for /usage — local ledger",
-		getArgumentCompletions: usageCompletions,
-		handler: handleUsageCommand,
-	});
-
-	pi.registerCommand("budget", {
-		description: "View and add local token/cost budgets",
-		handler: async (args, ctx) => {
-			await ensureReady(ctx);
-			const arg = args.trim();
-			if (arg.startsWith("add")) {
-				await addBudget(arg.slice(3).trim(), store!, session, ctx);
-				return;
-			}
-			const budgets = await store!.loadBudgets();
-			viewBudgets(budgets.limits, ctx.ui.notify);
-		},
 	});
 }
 
-type UsageMenuChoice = "dashboard" | "footer" | "import" | "budget" | "help";
+type UsageMenuChoice = "dashboard" | "quota" | "footer" | "import" | "budget" | "help";
 
 async function pickUsageMenu(ctx: ExtensionContext): Promise<UsageMenuChoice | null> {
 	return pickSelect<UsageMenuChoice>(
@@ -355,12 +320,21 @@ async function pickUsageMenu(ctx: ExtensionContext): Promise<UsageMenuChoice | n
 		"Usage",
 		[
 			{ value: "dashboard", label: "Dashboard", description: "Local ledger by model / project / session" },
+			{ value: "quota", label: "Quota", description: "Subscription remaining for Claude, Codex, and SuperGrok" },
 			{ value: "footer", label: "Local summary", description: "What local usage the footer shows" },
 			{ value: "budget", label: "Budgets", description: "View local token/cost reminders" },
 			{ value: "import", label: "Import history", description: "Back-fill from session JSONL" },
 			{ value: "help", label: "Help", description: "Command reference" },
 		],
 	);
+}
+
+async function handleBudget(arg: string, store: FileLedgerStore, session: SessionBits, ctx: ExtensionContext): Promise<void> {
+	if (arg.startsWith("add")) {
+		await addBudget(arg.slice(3).trim(), store, session, ctx);
+		return;
+	}
+	viewBudgets((await store.loadBudgets()).limits, ctx.ui.notify);
 }
 
 async function handleFooter(
@@ -423,7 +397,7 @@ async function openDashboard(
 
 function viewBudgets(limits: BudgetLimit[], notify: Notify): void {
 	if (limits.length === 0) {
-		notify("No local budgets. Use /budget add.", "info");
+		notify("No local budgets. Use /usage budget add.", "info");
 		return;
 	}
 	const lines = limits.map((limit, index) => {
@@ -438,21 +412,18 @@ function printHelp(notify: Notify): void {
 		[
 			"pi-meter commands:",
 			"",
-			"  /usage                       Open the local usage menu (TUI).",
+			"  /usage                       Open the menu (TUI).",
 			"  /usage [today|week|month|6months|year|all]",
-			"      Local ledger dashboard with input / output / cache columns.",
+			"      Local ledger dashboard with tokens plus input / output / cache.",
+			"  /usage quota [refresh|used|remaining|on|off]",
+			"      Subscription remaining for Claude, Codex, and SuperGrok.",
 			"  /usage footer [today-spend|today-tokens|today-cost|budget|model|off]",
 			"      Choose the local usage summary.",
 			"  /usage import         Back-fill from session JSONL (idempotent).",
-			"  /usage details        Toggle token details in the local summary.",
-			"  /analytics            Alias for /usage.",
-			"  /quota [refresh|used|remaining|on|off]",
-			"      Subscription remaining for Claude, Codex, and SuperGrok.",
-			"  /budget               View local budgets (does not block requests).",
-			"  /budget add           Add a local budget.",
+			"  /usage budget [add]   View or add a local budget.",
 			"",
 			"Data: $PI_CODING_AGENT_DIR/extension-data/pi-meter/",
-			"Disable @pi-plugins/usage — it conflicts with /usage (local ledger) and /quota.",
+			"Disable @pi-plugins/usage — it also registers /usage.",
 		].join("\n"),
 		"info",
 	);
@@ -466,10 +437,10 @@ function printReport(records: UsageRecord[], window: WindowKey, notify: Notify):
 		out.push(`\nBy ${dim.label}:`);
 		for (const row of rows.slice(0, 10)) {
 			out.push(
-				`  ${row.label.padEnd(28)} in ${fmtNum(row.input).padStart(10)}  out ${fmtNum(row.output).padStart(10)}  cr ${fmtNum(row.cacheRead).padStart(10)}  cw ${fmtNum(row.cacheWrite).padStart(10)}  ${fmtCost(row.cost).padStart(10)}`,
+				`  ${row.label.padEnd(28)} ${fmtCompactTokens(row.tokens).padStart(10)}  in ${fmtCompactTokens(row.input).padStart(10)}  out ${fmtCompactTokens(row.output).padStart(10)}  cr ${fmtCompactTokens(row.cacheRead).padStart(10)}  cw ${fmtCompactTokens(row.cacheWrite).padStart(10)}  ${fmtCost(row.cost).padStart(10)}`,
 			);
 		}
-		out.push(`  ${"TOTAL".padEnd(28)} in ${fmtNum(total.input).padStart(10)}  out ${fmtNum(total.output).padStart(10)}  cr ${fmtNum(total.cacheRead).padStart(10)}  cw ${fmtNum(total.cacheWrite).padStart(10)}  ${fmtCost(total.cost).padStart(10)}`);
+		out.push(`  ${"TOTAL".padEnd(28)} ${fmtCompactTokens(total.tokens).padStart(10)}  in ${fmtCompactTokens(total.input).padStart(10)}  out ${fmtCompactTokens(total.output).padStart(10)}  cr ${fmtCompactTokens(total.cacheRead).padStart(10)}  cw ${fmtCompactTokens(total.cacheWrite).padStart(10)}  ${fmtCost(total.cost).padStart(10)}`);
 	}
 	notify(out.join("\n"), "info");
 }
@@ -535,7 +506,7 @@ async function addBudget(arg: string, store: FileLedgerStore, session: SessionBi
 		const warn = parts[4] !== undefined ? Number(parts[4]) : 0.8;
 		if (!VALID_SCOPES.includes(scope) || !VALID_PERIODS.includes(period) || !VALID_METRICS.includes(metric) || !(max > 0)) {
 			ctx.ui.notify(
-				`Invalid. Usage: /budget add <scope:${VALID_SCOPES.join("|")}> <period:${VALID_PERIODS.join("|")}> <metric:${VALID_METRICS.join("|")}> <max> [warn]`,
+				`Invalid. Usage: /usage budget add <scope:${VALID_SCOPES.join("|")}> <period:${VALID_PERIODS.join("|")}> <metric:${VALID_METRICS.join("|")}> <max> [warn]`,
 				"warning",
 			);
 			return;
@@ -546,7 +517,7 @@ async function addBudget(arg: string, store: FileLedgerStore, session: SessionBi
 		return;
 	}
 	if (ctx.mode !== "tui") {
-		ctx.ui.notify("Interactive /budget add needs TUI. Use: /budget add <scope> <period> <metric> <max>", "warning");
+		ctx.ui.notify("Interactive /usage budget add needs TUI. Use: /usage budget add <scope> <period> <metric> <max>", "warning");
 		return;
 	}
 	const limit = await addBudgetFlow({ custom: ctx.ui.custom.bind(ctx.ui) as BudgetUi["custom"] });

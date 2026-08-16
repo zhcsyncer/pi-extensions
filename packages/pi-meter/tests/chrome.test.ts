@@ -50,7 +50,7 @@ describe("status chrome", () => {
 	};
 
 	it("names today's local spend and the weekly remaining window", () => {
-		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, false);
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
 		const plain = strip(renderStatusText({
 			local,
 			quota,
@@ -61,7 +61,7 @@ describe("status chrome", () => {
 	});
 
 	it("keeps the window verb when flipping to used", () => {
-		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, true);
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
 		const plain = strip(renderStatusText({
 			local,
 			quota,
@@ -69,7 +69,7 @@ describe("status chrome", () => {
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
 		expect(plain.startsWith("· ")).toBe(true);
-		expect(plain).toContain("today ↑12.4k ↓2.1k hit 80k");
+		expect(plain).toContain("today 12.4k $0.18");
 		expect(plain).toContain("week used");
 		expect(plain).toContain("66%");
 	});
@@ -79,7 +79,7 @@ describe("status chrome", () => {
 		const stats = computeFooterStats([
 			{ ts: now.getTime(), sid: "s", cwd: "/p", model: "xai/grok-4", in: 12400, out: 0, cR: 0, cW: 0, tot: 12400, cost: 0.18, costKnown: true },
 		], [], now);
-		const local = renderLocalFooter("today-tokens", stats, false);
+		const local = renderLocalFooter("today-tokens", stats);
 		expect(local).toBe("today 12.4k");
 		const plain = strip(renderStatusText({
 			local,

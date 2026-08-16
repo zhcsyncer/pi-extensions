@@ -10,7 +10,6 @@ export interface MeterConfig {
 	footer: {
 		local: FooterLocal;
 		quota: boolean;
-		tokenDetails: boolean;
 	};
 	quota: {
 		polarity: QuotaPolarity;
@@ -23,7 +22,6 @@ export const DEFAULT_METER_CONFIG: MeterConfig = {
 	footer: {
 		local: "today-spend",
 		quota: true,
-		tokenDetails: false,
 	},
 	quota: {
 		polarity: "remaining",
@@ -45,14 +43,6 @@ function asPositiveInt(value: unknown, fallback: number): number {
 
 function asBoolean(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
-}
-
-export function parseTokenDetailsArg(arg: string, current: boolean): boolean | undefined {
-	const raw = arg.trim().toLowerCase().replace(/^\/+(?:analytics|usage)\s+/, "");
-	if (raw === "details" || raw === "detail" || raw === "details toggle") return !current;
-	if (raw === "details on" || raw === "details=on" || raw === "expand") return true;
-	if (raw === "details off" || raw === "details=off" || raw === "compact") return false;
-	return undefined;
 }
 
 export function parseQuotaVisibleArg(arg: string, current: boolean): boolean | undefined {
@@ -80,7 +70,6 @@ export function parseMeterConfig(value: unknown, extras: { footerLocal?: unknown
 		footer: {
 			local,
 			quota: asBoolean(footer.quota, DEFAULT_METER_CONFIG.footer.quota),
-			tokenDetails: asBoolean(footer.tokenDetails, record.tokenDetails === true),
 		},
 		quota: {
 			polarity,

@@ -61,12 +61,12 @@ export function computeFooterStats(records: readonly UsageRecord[], limits: read
 	};
 }
 
-export function renderLocalFooter(preset: FooterLocal, stats: FooterStats, tokenDetails: boolean): string | undefined {
+export function renderLocalFooter(preset: FooterLocal, stats: FooterStats): string | undefined {
 	switch (preset) {
 		case "off":
 			return undefined;
 		case "today-spend":
-			return todayLine(stats.today, tokenDetails);
+			return todayLine(stats.today);
 		case "today-tokens":
 			return stats.today.tokens > 0 ? `today ${fmtCompactTokens(stats.today.tokens)}` : undefined;
 		case "today-cost":
@@ -80,10 +80,7 @@ export function renderLocalFooter(preset: FooterLocal, stats: FooterStats, token
 	}
 }
 
-function todayLine(today: AggRow, details: boolean): string {
-	if (details) {
-		return `today ↑${fmtCompactTokens(today.input)} ↓${fmtCompactTokens(today.output)} hit ${fmtCompactTokens(today.cacheRead)}`;
-	}
+function todayLine(today: AggRow): string {
 	const tokens = fmtCompactTokens(today.tokens);
 	const cost = today.costKnown ? fmtCompactCost(today.cost) : undefined;
 	return cost ? `today ${tokens} ${cost}` : `today ${tokens}`;

@@ -3,7 +3,7 @@ import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
-import { parseMeterConfig, parseQuotaVisibleArg, parseTokenDetailsArg } from "../src/config.ts";
+import { parseMeterConfig, parseQuotaVisibleArg } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
 import type { UsageRecord } from "../src/ledger/types.ts";
 
@@ -68,10 +68,38 @@ describe("aggregation", () => {
 		const grok = rows.find((row) => row.key === "xai/grok-4")!;
 		expect(grok).toMatchObject({ input: 100, output: 20, cacheRead: 80, cacheWrite: 10, tokens: 210, turns: 1 });
 		const total = sumRows(rows);
+		expect(total.tokens).toBe(276);
 		expect(total.input).toBe(150);
 		expect(total.output).toBe(25);
 		expect(total.cacheRead).toBe(90);
 		expect(total.cacheWrite).toBe(11);
+	});
+});
+
+describe("compact token format", () => {
+	it("uses k / M / B for dashboard-scale counts", async () => {
+		const { fmtCompactTokens } = await import("../src/ledger/format.ts");
+		expect(fmtCompactTokens(34)).toBe("34");
+		expect(fmtCompactTokens(34_000)).toBe("34k");
+		expect(fmtCompactTokens(4_300_000)).toBe("4.3M");
+		expect(fmtCompactTokens(5_350_000_000)).toBe("5.35B");
+	});
+});
+
+describe("dashboard", () => {
+	it("prints compact token counts next to the in/out/cache split", async () => {
+		const { Dashboard } = await import("../src/ledger/dashboard.ts");
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+		const view = new Dashboard({
+			records: [rec({ tot: 4_300_000, in: 34_000, out: 210, cR: 5_350_000_000, cW: 80 })],
+			budgets: [],
+		}, theme, "all");
+		const text = view.render(160).join("\n");
+		expect(text).toMatch(/tokens/);
+		expect(text).toContain("4.3M");
+		expect(text).toContain("34k");
+		expect(text).toContain("5.35B");
+		expect(text).toMatch(/Total/);
 	});
 });
 
@@ -116,21 +144,17 @@ describe("local budgets", () => {
 	});
 });
 
-describe("token details command", () => {
-	it("toggles, and accepts explicit on/off", () => {
-		expect(parseTokenDetailsArg("details", false)).toBe(true);
-		expect(parseTokenDetailsArg("details", true)).toBe(false);
-		expect(parseTokenDetailsArg("details off", true)).toBe(false);
-		expect(parseTokenDetailsArg("compact", true)).toBe(false);
-		expect(parseTokenDetailsArg("today", true)).toBeUndefined();
+describe("config parsing", () => {
+	it("toggles quota visibility", () => {
 		expect(parseQuotaVisibleArg("off", true)).toBe(false);
 		expect(parseQuotaVisibleArg("on", false)).toBe(true);
 		expect(parseQuotaVisibleArg("quota off", true)).toBe(false);
+		expect(parseQuotaVisibleArg("quota", true)).toBe(false);
 	});
 
 	it("folds a tracker footer.json preset into one config object", () => {
-		const parsed = parseMeterConfig({ quotaPolarity: "used", tokenDetails: true }, { footerLocal: "today-tokens" });
-		expect(parsed.footer).toEqual({ local: "today-tokens", quota: true, tokenDetails: true });
+		const parsed = parseMeterConfig({ quotaPolarity: "used" }, { footerLocal: "today-tokens" });
+		expect(parsed.footer).toEqual({ local: "today-tokens", quota: true });
 		expect(parsed.quota.polarity).toBe("used");
 		expect(parseMeterConfig({ footerPreset: "full" }).footer.local).toBe("today-spend");
 	});

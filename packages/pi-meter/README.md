@@ -28,24 +28,22 @@ pi -e npm:@zhcsyncer/pi-meter
 
 ## Mutual exclusion
 
-Do **not** load `@pi-plugins/usage` at the same time. That plugin also registers `/usage`. This package uses `/usage` for the local ledger and `/quota` for subscription remaining. Disable `@pi-plugins/usage` after installing. If both are present, pi-meter warns once and continues.
+Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. Disable that plugin after installing this package. If both are present, pi-meter warns once and continues.
 
-`pi-tracker` can coexist for comparison, but this package owns `/usage` and `/budget` for the local ledger. `/analytics` remains an alias for `/usage`.
+`pi-tracker` can coexist for comparison, but this package owns `/usage` for the local ledger and subscription remaining.
 
 ## Commands
 
 | Command | What you see |
 |---|---|
-| `/usage` | TUI menu: dashboard, local summary, budgets, import |
+| `/usage` | TUI menu: dashboard, quota, local summary, budgets, import |
+| `/usage quota` | Claude, Codex, and SuperGrok window percent plus reset time |
+| `/usage quota refresh` | Force-refresh shared snapshots |
+| `/usage quota used` / `remaining` | Flip the quota half of the footer |
+| `/usage quota on` / `off` | Show or hide the quota half of the footer |
 | `/usage footer` | Local summary: today tokens + cost, tokens, cost, budget, model, or off |
 | `/usage import` | Optional one-time back-fill from session JSONL |
-| `/usage details` | Toggle input / output / cache hit in the local summary |
-| `/analytics` | Alias for `/usage` |
-| `/quota` | Claude, Codex, and SuperGrok window percent plus reset time |
-| `/quota refresh` | Force-refresh shared snapshots (still respects the 30s min interval) |
-| `/quota used` / `/quota remaining` | Flip the quota half of the footer between used and remaining |
-| `/quota on` / `/quota off` | Show or hide the quota half of the footer |
-| `/budget` | Local token/cost reminders. They never block requests |
+| `/usage budget` | Local token/cost reminders. They never block requests |
 
 `--no-session` and default memory sub-agents still append to the local ledger when the extension is loaded. Isolated sub-agents (`isolated: true` / `extensions: false`) do not.
 
@@ -57,24 +55,18 @@ The chrome is one footer `setStatus` string (`pi-meter`). It does not take a wid
 · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
-With token details on:
-
-```text
-· today ↑12.4k ↓2.1k hit 80k · week left ███░░ 49% (1d 23h)
-```
-
-`today` is local spend from `/usage`. `week left` / `5h left` is the current `/quota` window. Quota color follows remaining headroom (about 30% warning, 15% error), even when the numbers show used percent.
+`today` is local spend. `week left` / `5h left` is the current quota window. Quota color follows remaining headroom (about 30% warning, 15% error), even when the numbers show used percent.
 
 ## Two ledgers
 
 Remote remaining and local spend are not the same thing:
 
 - **Quota** comes from each provider's subscription API and lives in a shared snapshot. It is never written into the local usage log or local budgets.
-- **Usage** comes from Pi `message_end` usage and is appended per process. `/usage` and `/budget` only see this book.
+- **Usage** comes from Pi `message_end` usage and is appended per process. `/usage` only sees this book for the local half.
 
 SuperGrok uses the verified Grok CLI billing JSON (`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`) with Pi `/login xai` OAuth. It does not call `api.x.ai/v1/api-key` and does not use grok.com gRPC. Only the weekly credit pool is shown; product splits such as Build / Chat are omitted.
 
-Subscription fetches run only from `ctx.hasUI === true` root sessions, and only on `agent_settled`, `/quota`, or `model_select`. Shared `quota.json` uses a 60s TTL and a 30s minimum interval. Sub-agents without UI still write the local ledger and never hit subscription APIs.
+Subscription fetches run only from `ctx.hasUI === true` root sessions, and only on `agent_settled`, `/usage quota`, or `model_select`. Shared `quota.json` uses a 60s TTL and a 30s minimum interval. Sub-agents without UI still write the local ledger and never hit subscription APIs.
 
 ## Storage
 
@@ -98,8 +90,7 @@ Optional `config.json`:
 {
   "footer": {
     "local": "today-spend",
-    "quota": true,
-    "tokenDetails": false
+    "quota": true
   },
   "quota": {
     "polarity": "remaining",
@@ -109,7 +100,7 @@ Optional `config.json`:
 }
 ```
 
-`/usage footer`, `/usage details`, `/quota on|off`, and `/quota used|remaining` all write this file. Auth stays in Pi `/login`; this package never prints tokens, emails, or user ids.
+`/usage footer` and `/usage quota …` write this file. Auth stays in Pi `/login`; this package never prints tokens, emails, or user ids.
 
 ## Local development
 

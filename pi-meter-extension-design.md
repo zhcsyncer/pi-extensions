@@ -8,9 +8,9 @@
 
 - 两套账分开：`message_end` → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
 - 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
-- `/usage` 管本地账；`/quota` 管套餐剩余；`/analytics` 只是 `/usage` 别名。
-- 套餐条极性可切；颜色按剩余（约 30% / 15%）。token 条默认真量/费用，`/analytics details` 才露出 in / out / cache hit。
-- 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/quota` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
+- 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`。
+- 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要只显示紧凑的今日总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
+- 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/usage quota` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
 - SuperGrok：`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` + `/login xai`。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。
 - 文档写明与 `@pi-plugins/usage` 互斥；若检测到对方占用 `/usage` 会警告一次。
 
@@ -31,7 +31,7 @@
 不是「把两个现成包缝在一起」。产品名是仪表，不是拼接名。
 
 - 包名：`@zhcsyncer/pi-meter`
-- 一句话：本地用量账本，加上订阅剩余。`--no-session` 和默认 sub-agent 也会即时落盘；`/usage` 看套餐，`/analytics` 看花在哪。
+- 一句话：本地用量账本，加上订阅剩余。`--no-session` 和默认 sub-agent 也会即时落盘；`/usage` 看本地账，`/usage quota` 看套餐。
 
 ## 为何两套账，不合成一本
 
@@ -46,13 +46,13 @@
 
 ## 用户能感知的行为
 
-- `/usage`：Claude、Codex、SuperGrok 的窗口百分比和重置时间；可强制刷新快照。
+- `/usage`：本地看板。维度仍是 model / project / session；列能看到 tokens 总量和 in / out / cache 拆分。
+- `/usage quota`：Claude、Codex、SuperGrok 的窗口百分比和重置时间；可强制刷新快照。
 - 常驻 chrome 与 Glance **完全独立**：不改 Glance、不占用其右下角、不改其顶栏 Tokens。Glance 在场时，meter 是输入框外多出来的一行。
-- 套餐条极性可选「已用」或「剩余」；token 条可关细节（input / output / cache hit）。
-- `/analytics`：本地看板。维度仍是 model / project / session；列能看到 tokens 拆分，不只是一坨 `totalTokens`。
-- `/budget`：本地上限提醒，不拦请求。预算警告可以闪一下，不占常驻条。
+- 套餐条极性可选「已用」或「剩余」。本地摘要只显示紧凑的今日总量/费用。
+- `/usage budget`：本地上限提醒，不拦请求。预算警告可以闪一下，不占常驻条。
 - `--no-session`、默认内存 sub-agent：只要扩展加载进该进程，用量进独立账本。
-- 旧 session 可选 `/analytics import` 回填；装好之后的新用量不靠 import。
+- 旧 session 可选 `/usage import` 回填；装好之后的新用量不靠 import。
 
 ## 常驻 TUI：caption 行 + 短套餐条
 
@@ -64,7 +64,7 @@
 · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
 ```
 
-窄了先丢掉 token 细节，再丢掉总量/费用，最后留套餐条 + 百分比。
+窄了先丢掉总量/费用，最后留套餐条 + 百分比。
 
 ## 套餐条极性与高亮
 
@@ -88,7 +88,7 @@ SuperGrok 本机已验证的主窗口是周池 `creditUsagePercent`。Build / Ch
 
 message_end
   ──► 本地账本 JSONL（每个进程自己追加）
-  ──► token 条 /analytics /budget
+  ──► token 条 /usage /usage budget
 
 session JSONL 只用于一次性回填。
 ```
@@ -170,10 +170,10 @@ Claude / Codex 仍走 `@pi-plugins/usage` 现有官方订阅接口，本方案�
 
 1. `--no-session` 跑一轮后，独立账本有对应 assistant 记录；关掉 session 文件也不丢。
 2. 默认（非 isolated）sub-agent 的用量进同一本账，能按 model 看到。
-3. `/analytics` 能读出 input / output / cache read / cache write，不是只有 total。
-4. 已 `/login xai` 时，`/usage` 能显示 SuperGrok 当前窗口百分比和重置时间。
+3. `/usage` 看板能读出 tokens 总量以及 input / output / cache read / cache write。
+4. 已 `/login xai` 时，`/usage quota` 能显示 SuperGrok 当前窗口百分比和重置时间。
 5. 常驻套餐条不依赖 Glance；切已用/剩余时，数字（和若有的条子）一起反转。
-6. token 条默认紧凑；打开细节后能看到 input / output / cache hit。
+6. 本地摘要只显示紧凑的今日总量/费用。
 7. 两个并行 UI session 在 TTL 内不会各自打订阅 API；无 UI 的 sub-agent 进程不打。
 8. Claude 或 Codex 接口失败时，另外两家和本地记账仍可用。
 9. 不与仍启用的 `@pi-plugins/usage` 双注册 `/usage`——文档写明互斥；若能检测重复则警告。

@@ -8,13 +8,17 @@ export function fmtCost(n: number): string {
 }
 
 export function fmtCompactTokens(n: number): string {
+	if (!Number.isFinite(n)) return "n/a";
+	const sign = n < 0 ? "-" : "";
 	const abs = Math.abs(n);
-	if (abs < 1000) return String(Math.round(n));
-	if (abs < 1_000_000) {
-		const value = n / 1000;
-		return `${trimFloat(value)}k`;
+	if (abs < 1000) return `${sign}${Math.round(abs)}`;
+	if (abs >= 1_000_000_000) return `${sign}${formatScaled(abs / 1_000_000_000, 2, "B")}`;
+	if (abs >= 1_000_000) {
+		const million = formatScaled(abs / 1_000_000, 2, "M");
+		return million === "1000M" ? `${sign}1B` : `${sign}${million}`;
 	}
-	return `${trimFloat(n / 1_000_000)}M`;
+	const thousand = formatScaled(abs / 1000, 1, "k");
+	return thousand === "1000k" ? `${sign}1M` : `${sign}${thousand}`;
 }
 
 export function fmtCompactCost(n: number): string | undefined {
@@ -29,9 +33,9 @@ export function fmtBar(ratio: number, width: number): string {
 	return "█".repeat(filled) + "░".repeat(Math.max(0, width - filled));
 }
 
-function trimFloat(n: number): string {
-	const rounded = Math.round(n * 10) / 10;
-	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+function formatScaled(value: number, decimals: number, suffix: string): string {
+	const rounded = Number(value.toFixed(decimals));
+	return `${rounded}${suffix}`;
 }
 
 export function padRight(str: string, width: number, visible = (value: string) => [...value.replace(/\x1b\[[0-9;]*m/g, "")].length): string {

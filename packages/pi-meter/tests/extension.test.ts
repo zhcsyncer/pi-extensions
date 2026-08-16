@@ -91,11 +91,11 @@ describe("conflict detection", () => {
 });
 
 describe("extension runtime", () => {
-	it("registers usage, analytics alias, quota, and budget without touching Glance", async () => {
+	it("registers only /usage", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
 		const { pi, commands } = harness();
 		piMeter(pi);
-		expect([...commands.keys()].sort()).toEqual(["analytics", "budget", "quota", "usage"]);
+		expect([...commands.keys()]).toEqual(["usage"]);
 	});
 
 	it("appends a local ledger row on message_end even without a session file", async () => {
@@ -118,20 +118,6 @@ describe("extension runtime", () => {
 		expect(raw).toContain("ephemeral");
 		expect(raw).toContain("11");
 		expect(raw).not.toContain("creditUsagePercent");
-	});
-
-	it("toggles token details off after expanding", async () => {
-		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, commands, statuses, notifications } = harness({ hasUI: true, mode: "tui" });
-		piMeter(pi);
-		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		const usage = commands.get("usage");
-		await usage.handler("details", ctx);
-		expect(statuses.get("pi-meter")).toContain("↑");
-		expect(notifications.at(-1)?.message).toContain("on");
-		await usage.handler("details", ctx);
-		expect(statuses.get("pi-meter")).not.toContain("↑");
-		expect(notifications.at(-1)?.message).toContain("off");
 	});
 
 	it("publishes one footer status instead of a widget row", async () => {
@@ -161,9 +147,9 @@ describe("extension runtime", () => {
 		await commands.get("usage").handler("footer today-tokens", ctx);
 		expect(notifications.at(-1)?.message).toContain("Today tokens");
 		expect(statuses.get("pi-meter")).toContain("today 12.4k");
-		await commands.get("quota").handler("off", ctx);
+		await commands.get("usage").handler("quota off", ctx);
 		expect(JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"))).toMatchObject({
-			footer: { local: "today-tokens", quota: false, tokenDetails: false },
+			footer: { local: "today-tokens", quota: false },
 		});
 	});
 
