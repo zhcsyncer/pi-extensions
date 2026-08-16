@@ -9,10 +9,10 @@ import {
 	type BtwLaunchTiming,
 	type LaunchBtwOptions,
 } from "../src/btw/launch.ts";
-import { BTW_LAUNCH_DRAFT_COMMAND, createBtwPayload } from "../src/btw/types.ts";
+import { createBtwPayload } from "../src/btw/types.ts";
 import type { LaunchState } from "../src/btw/protocol.ts";
 
-function payload() {
+function payload(overrides: { draftQuestion?: string } = {}) {
 	return createBtwPayload({
 		createdAt: "2026-08-09T12:00:00.000Z",
 		parentSessionId: "session-1",
@@ -23,7 +23,7 @@ function payload() {
 		parentToolSchemaFingerprint: "tools-v1",
 		parentThinkingLevel: "high",
 		messages: [{ role: "user", content: [{ type: "text", text: "parent" }], timestamp: 0 } as never],
-		draftQuestion: "question",
+		draftQuestion: overrides.draftQuestion ?? "question",
 		launchId: "abcdef123456",
 		capability: "c".repeat(64),
 	});
@@ -71,6 +71,7 @@ class FakeClient implements BtwLaunchClient {
 	splitError?: Error;
 	startError?: Error;
 	startErrors: Error[] = [];
+	promptError?: Error;
 	closeError?: Error;
 	splitPaneId = "w1:p2";
 	async splitPane(options: unknown) {
@@ -91,6 +92,13 @@ class FakeClient implements BtwLaunchClient {
 		if (error) throw error;
 		const typed = options as { name: string; paneId: string };
 		this.agents.set(typed.name, typed.paneId);
+	}
+	async promptAgent(target: string, prompt: string, signal?: AbortSignal) {
+		this.calls.push({ name: "prompt-agent", args: [target, prompt] });
+		signal?.throwIfAborted();
+		if (this.promptError) throw this.promptError;
+		const paneId = this.agents.get(target) ?? this.splitPaneId;
+		return { paneId, name: target };
 	}
 	async getPane(paneId: string) {
 		this.calls.push({ name: "get", args: [paneId] });
@@ -144,6 +152,8 @@ describe("BTW fresh-pane agent startup", () => {
 		expect(starts).toHaveLength(3);
 		expect(starts.map((call) => (call.args[0] as { timeoutMs: number }).timeoutMs))
 			.toEqual([40_000, 39_750, 39_250]);
+		expect(client.calls.filter((call) => call.name === "prompt-agent"))
+			.toEqual([{ name: "prompt-agent", args: ["btw-sessio-abcdef", "question"] }]);
 		expect(timing.waits).toEqual([250, 500]);
 		expect(store.states.map((state) => state.status)).toEqual(["pane_created", "child_ready"]);
 		expect(store.removed).toEqual([]);
@@ -160,6 +170,7 @@ describe("BTW fresh-pane agent startup", () => {
 		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
 			.rejects.toBe(failure);
 		expect(client.calls.filter((call) => call.name === "start-agent")).toHaveLength(1);
+		expect(client.calls.filter((call) => call.name === "prompt-agent")).toHaveLength(0);
 		expect(timing.waits).toEqual([]);
 		expect(client.calls.filter((call) => call.name === "close"))
 			.toEqual([{ name: "close", args: ["w1:p2"] }]);
@@ -181,6 +192,7 @@ describe("BTW fresh-pane agent startup", () => {
 		expect(starts.map((call) => (call.args[0] as { timeoutMs: number }).timeoutMs))
 			.toEqual([40_000, 39_750, 39_250, 38_250, 37_250]);
 		expect(timing.waits).toEqual([250, 500, 1_000, 1_000]);
+		expect(client.calls.filter((call) => call.name === "prompt-agent")).toHaveLength(0);
 		expect(client.calls.filter((call) => call.name === "close"))
 			.toEqual([{ name: "close", args: ["w1:p2"] }]);
 		expect(store.states.map((state) => state.status)).toEqual(["pane_created"]);
@@ -248,13 +260,39 @@ describe("BTW launch cleanup", () => {
 			"--no-session",
 			"--model", "openai/gpt",
 			"--thinking", "high",
-			BTW_LAUNCH_DRAFT_COMMAND,
 		]);
 		expect(agent.args.join(" ")).not.toContain(value.capability);
 		expect(agent.args.join(" ")).not.toContain(value.draftQuestion);
+		expect(client.calls.filter((call) => call.name === "prompt-agent"))
+			.toEqual([{ name: "prompt-agent", args: ["btw-sessio-abcdef", "question"] }]);
 		expect(store.states.map((state) => state.status)).toEqual(["pane_created", "child_ready"]);
 		expect(store.states.every((state) => state.agentName === "btw-sessio-abcdef")).toBe(true);
 		expect(store.removed).toEqual([]);
+	});
+
+	it("does not prompt an empty child after interactive start", async () => {
+		const { launcher, client, store } = launch();
+		await expect(launcher.launch({
+			payload: payload({ draftQuestion: "" }),
+			payloadPath: "/private/payload.json",
+			runtime,
+		})).resolves.toEqual({ paneId: "w1:p2", agentName: "btw-sessio-abcdef" });
+		expect(client.calls.filter((call) => call.name === "prompt-agent")).toHaveLength(0);
+		expect(store.states.map((state) => state.status)).toEqual(["pane_created", "child_ready"]);
+	});
+
+	it("closes the owned pane when the post-ready prompt fails", async () => {
+		const client = new FakeClient();
+		const failure = new Error("prompt unavailable");
+		client.promptError = failure;
+		const store = new FakeStore();
+		const { launcher } = launch(client, store);
+		await expect(launcher.launch({ payload: payload(), payloadPath: "/private/payload.json", runtime }))
+			.rejects.toBe(failure);
+		expect(client.calls.filter((call) => call.name === "start-agent")).toHaveLength(1);
+		expect(client.calls.filter((call) => call.name === "prompt-agent")).toHaveLength(1);
+		expect(client.calls.at(-1)).toEqual({ name: "close", args: ["w1:p2"] });
+		expect(store.removed).toEqual(["/private/payload.json"]);
 	});
 
 	it("does not retry a busy-shaped untyped startup failure and clears its owned pane", async () => {

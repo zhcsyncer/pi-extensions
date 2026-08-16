@@ -10,7 +10,7 @@ import { BTW_PAYLOAD_ENV, buildChildPiArgs, type BtwPayload } from "./types.ts";
 
 export type BtwLaunchClient = Pick<
 	HerdrClient,
-	"splitPane" | "closePane" | "startAgent" | "getPane" | "getAgent"
+	"splitPane" | "closePane" | "startAgent" | "promptAgent" | "getPane" | "getAgent"
 >;
 export type BtwLaunchStore = Pick<BtwContextStore, "mutateLaunchState" | "remove">;
 
@@ -92,8 +92,14 @@ export class BtwLauncher {
 				name: agentName,
 				kind: "pi",
 				paneId,
-				args: buildChildPiArgs(payload, payload.metadata.model, payload.parentThinkingLevel),
+				args: buildChildPiArgs(payload.metadata.model, payload.parentThinkingLevel),
 			}, signal);
+			const question = payload.draftQuestion.trim();
+			if (question) {
+				// Herdr start succeeds only after idle/blocked. Submit after that so a
+				// launch question cannot keep the child in working through the start wait.
+				await this.client.promptAgent(agentName, question, signal);
+			}
 			// The same cross-process lock also protects a child session that binds
 			// while agent start is returning; mutateLaunchState preserves that identity.
 			await this.store.mutateLaunchState(

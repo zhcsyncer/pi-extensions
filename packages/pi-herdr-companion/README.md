@@ -125,7 +125,7 @@ From the child:
 /btw help
 ```
 
-A launch takes a static snapshot of the current parent branch, shares its cwd, and inherits its model and thinking level. The child uses Pi's normal default tools. A supplied question is submitted immediately; bare `/btw` opens an empty child. The child is a separate visible Pi process, and its conversation does not enter the parent until an explicit merge.
+A launch takes a static snapshot of the current parent branch, shares its cwd, and inherits its model and thinking level. The child uses Pi's normal default tools. A supplied question is submitted only after the child is interactively ready; bare `/btw` opens an empty child. The child is a separate visible Pi process, and its conversation does not enter the parent until an explicit merge.
 
 The child is **temporary and not saved as a Pi session**. Closing it before merge permanently loses the unmerged child conversation. Private coordination files may remain briefly for delivery and cleanup, but they are not a recoverable transcript.
 

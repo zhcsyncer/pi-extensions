@@ -17,7 +17,6 @@ import {
 } from "../src/btw/protocol.ts";
 import { BTW_HELP, parseBtwCommand } from "../src/btw/router.ts";
 import {
-	BTW_LAUNCH_DRAFT_COMMAND,
 	buildChildPiArgs,
 	createBtwPayload,
 	isBtwPayload,
@@ -80,16 +79,11 @@ describe("BTW payload and cache path", () => {
 		expect(isBtwPayload({ ...value, draftQuestion: 42 })).toBe(false);
 	});
 
-	it("uses Pi default tools and auto-submits only a non-empty launch question", () => {
-		const value = payload();
-		const args = buildChildPiArgs(value, "openai/gpt", "high");
-		expect(args).toContain(BTW_LAUNCH_DRAFT_COMMAND);
-		expect(args.join(" ")).not.toContain(value.capability);
-		expect(args.join(" ")).not.toContain(value.draftQuestion);
+	it("starts the child with inherited model/thinking and Pi default tools", () => {
+		const args = buildChildPiArgs("openai/gpt", "high");
+		expect(args).toEqual(["--no-session", "--model", "openai/gpt", "--thinking", "high"]);
 		expect(args).not.toContain("--tools");
 		expect(args).not.toContain("--no-tools");
-		expect(buildChildPiArgs(payload({ draftQuestion: "" }), "openai/gpt", "high"))
-			.not.toContain(BTW_LAUNCH_DRAFT_COMMAND);
 	});
 
 	it("keeps the parent cache prefix without dropping child-specific prompt handlers", () => {

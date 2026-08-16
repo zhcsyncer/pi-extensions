@@ -2,7 +2,7 @@ import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { registerBtwChild, type ChildStorePort } from "../src/btw/child.ts";
 import { fingerprintActiveToolSchemas, fingerprintSystemPrompt } from "../src/btw/cache-mode.ts";
-import { BTW_LAUNCH_DRAFT_ARG, createBtwPayload, type BtwPayload } from "../src/btw/types.ts";
+import { createBtwPayload, type BtwPayload } from "../src/btw/types.ts";
 import type { LaunchState, MergeAck, MergeRequest } from "../src/btw/protocol.ts";
 
 const tools = [{
@@ -169,7 +169,7 @@ async function registerAcceptedChild(
 }
 
 describe("BTW child session lifecycle", () => {
-	it("auto-submits a non-empty launch question exactly once", async () => {
+	it("does not treat leftover launch-draft args as a child command that submits the question", async () => {
 		const value = payload({ draftQuestion: "investigate the failure" });
 		const store = new FakeStore(value, {
 			version: 1,
@@ -190,14 +190,14 @@ describe("BTW child session lifecycle", () => {
 			payloadPath: "/private/payload.json",
 			runtime: { inside: true, paneId: "w1:p2", socketPath: "/tmp/herdr" },
 		});
-		const { ctx } = context("first-child-session");
+		const { ctx, notifications } = context("first-child-session");
 		await emit(h.handlers, "session_start", { reason: "startup" }, ctx);
-		await h.commands.get("btw")?.handler(BTW_LAUNCH_DRAFT_ARG, ctx);
-		await h.commands.get("btw")?.handler(BTW_LAUNCH_DRAFT_ARG, ctx);
-		expect(h.sentUserMessages).toEqual(["investigate the failure"]);
+		await h.commands.get("btw")?.handler("--launch-draft", ctx);
+		expect(h.sentUserMessages).toEqual([]);
+		expect(notifications.at(-1)?.message).toContain("/btw merge");
 	});
 
-	it("disables replay, merge, ack cleanup, and launch draft after /new changes the session ID", async () => {
+	it("disables replay, merge, and ack cleanup after /new changes the session ID", async () => {
 		const value = payload();
 		const store = new FakeStore(value, {
 			version: 1,

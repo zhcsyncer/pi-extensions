@@ -125,7 +125,7 @@ POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 
 /btw help
 ```
 
-Launch 会取得当前父分支的静态快照、共享 cwd，并继承 parent 的 model 与 thinking level。Child 使用 Pi 的正常默认工具。提供 question 时会立即提交；单独执行 `/btw` 则打开空白 child。Child 是独立且可见的 Pi 进程；只有显式 merge 后，它的对话才会进入父会话。
+Launch 会取得当前父分支的静态快照、共享 cwd，并继承 parent 的 model 与 thinking level。Child 使用 Pi 的正常默认工具。提供 question 时，会等 child 进入可交互状态后再提交；单独执行 `/btw` 则打开空白 child。Child 是独立且可见的 Pi 进程；只有显式 merge 后，它的对话才会进入父会话。
 
 Child 是**临时的，不会保存为 Pi session**。在 merge 前关闭它，会永久丢失尚未合回的 child 对话。用于投递和清理的私有协调文件可能短暂保留，但它们不是可恢复的 transcript。
 

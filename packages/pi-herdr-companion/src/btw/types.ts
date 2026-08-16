@@ -3,8 +3,6 @@ import type { SessionContext } from "@earendil-works/pi-coding-agent";
 
 export const BTW_PAYLOAD_VERSION = 1 as const;
 export const BTW_PAYLOAD_ENV = "PI_HERDR_COMPANION_BTW_PAYLOAD";
-export const BTW_LAUNCH_DRAFT_ARG = "--launch-draft";
-export const BTW_LAUNCH_DRAFT_COMMAND = `/btw ${BTW_LAUNCH_DRAFT_ARG}`;
 
 export type AgentMessage = SessionContext["messages"][number];
 
@@ -89,13 +87,12 @@ export function isBtwPayload(value: unknown): value is BtwPayload {
 	return typeof value.draftQuestion === "string";
 }
 
-export function buildChildPiArgs(payload: BtwPayload, model: string, thinking: string): string[] {
+export function buildChildPiArgs(model: string, thinking: string): string[] {
 	return [
 		"--no-session",
 		"--model",
 		model,
 		"--thinking",
 		thinking,
-		...(payload.draftQuestion.trim() ? [BTW_LAUNCH_DRAFT_COMMAND] : []),
 	];
 }

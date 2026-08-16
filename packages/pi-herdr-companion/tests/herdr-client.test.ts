@@ -175,12 +175,12 @@ describe("HerdrClient argv and response contracts", () => {
 			name: "btw-parent-123",
 			kind: "pi",
 			paneId: "w1:p2",
-			args: ["--no-session", "--model", "openai/gpt", "/btw --launch-draft"],
+			args: ["--no-session", "--model", "openai/gpt"],
 			timeoutMs: 40_000,
 		});
 		expect(calls[0]?.args).toEqual([
 			"agent", "start", "btw-parent-123", "--kind", "pi", "--pane", "w1:p2",
-			"--timeout", "40000", "--", "--no-session", "--model", "openai/gpt", "/btw --launch-draft",
+			"--timeout", "40000", "--", "--no-session", "--model", "openai/gpt",
 		]);
 		expect(calls[0]?.options.timeout).toBe(45_000);
 	});

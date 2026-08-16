@@ -31,7 +31,7 @@ import {
 	type MergeRequest,
 } from "./protocol.ts";
 import { BTW_HELP, parseBtwCommand } from "./router.ts";
-import { BTW_LAUNCH_DRAFT_ARG, type BtwPayload } from "./types.ts";
+import type { BtwPayload } from "./types.ts";
 
 export type ChildStorePort = Pick<
 	BtwContextStore,
@@ -322,19 +322,11 @@ export async function registerBtwChild(
 		});
 	}
 
-	let launchDraftPending = Boolean(payload?.draftQuestion.trim());
 	pi.registerCommand("btw", {
 		description: "Side thread: merge into the exact parent session, or show help",
 		handler: async (args, ctx) => {
 			if (!sideThreadEnabled) {
 				ctx.ui.notify(`BTW side-thread behavior is disabled: ${bindingReason}. Continue as an independent Pi session.`, "warning");
-				return;
-			}
-			if (args.trim() === BTW_LAUNCH_DRAFT_ARG) {
-				if (launchDraftPending && payload) {
-					launchDraftPending = false;
-					pi.sendUserMessage(payload.draftQuestion);
-				}
 				return;
 			}
 			const route = parseBtwCommand(args);
@@ -441,7 +433,6 @@ export async function registerBtwChild(
 		sideThreadEnabled = binding.bound;
 		bindingReason = binding.reason ?? "bound";
 		if (!binding.bound) {
-			launchDraftPending = false;
 			stopAckPolling();
 			ctx.ui.notify(`BTW side-thread behavior is disabled: ${bindingReason}. Parent context will not be replayed or merged.`, "warning");
 			ctx.ui.setWidget("herdr-companion-btw", [
