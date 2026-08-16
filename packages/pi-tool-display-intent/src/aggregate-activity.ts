@@ -648,6 +648,11 @@ export class AggregateProjection {
 	}
 
 	startUserGroup(groupId?: string, startedAtMs?: number, options: { collapseRetainedDone?: boolean } = {}): string {
+		const previousGroupId = this.activeGroupId;
+		if (previousGroupId && previousGroupId !== groupId) {
+			this.markUnsettledInterrupted();
+			this.markGroupSettled(previousGroupId, startedAtMs);
+		}
 		if (options.collapseRetainedDone !== false) this.collapseRetainedDone();
 		const resolvedId = groupId || `live-user-${++this.liveGroupSequence}`;
 		const group = this.ensureGroup(resolvedId);

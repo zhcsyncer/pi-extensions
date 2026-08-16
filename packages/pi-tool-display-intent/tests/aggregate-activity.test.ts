@@ -293,6 +293,37 @@ test("settled Tools ledger shows duration, tokens, cache, and completion time un
 	assert.doesNotMatch(rendered.join("\n"), /›/);
 });
 
+test("a steered follow-up user message settles the previous Tools ledger", () => {
+	const startedAt = Date.parse("2026-04-08T14:30:00");
+	const steeredAt = Date.parse("2026-04-08T14:31:20");
+	const projection = createProjection();
+	projection.startUserGroup("user-before-steer", startedAt);
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-before-steer",
+		stopReason: "toolUse",
+		timestamp: startedAt + 20_000,
+		content: [
+			{ type: "text", text: "合并已完成。接下来按 AGENTS.md 审视受影响包的用户可见 README：只留来源差异、功能和用法。" },
+			{ type: "toolCall", ...call("read-before-steer", "read", { path: "README.md" }) },
+		],
+		usage: { input: 1_200, output: 80, cacheRead: 0, cacheWrite: 0 },
+	});
+	projection.markStarted("read-before-steer", "read", { path: "README.md" });
+	const live = projection.getView("read-before-steer");
+	assert.equal(live?.settled, false);
+	assert.match(renderAggregateActivity(live!, 160, plainTheme()).join("\n"), /› 合并已完成/);
+
+	projection.startUserGroup("user-after-steer", steeredAt);
+	const settled = projection.getView("read-before-steer");
+	assert.equal(settled?.settled, true);
+	assert.equal(settled?.failedCount, 1);
+	assert.equal(settled?.durationMs, steeredAt - startedAt);
+	const rendered = renderAggregateActivity(settled!, 160, plainTheme());
+	assert.match(rendered.join("\n"), /took 1m20s/);
+	assert.doesNotMatch(rendered.join("\n"), /›|合并已完成/);
+});
+
 test("a new passthrough call still replaces the oldest retained done row", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-agent-replace");
