@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.7.0
+
+### Minor Changes
+
+- 4eff439: Show a separately highlighted `main↓N` when the current branch is behind the last local `origin/main` snapshot, without changing upstream tracking. Hide it when upstream `↓N` is already showing that same lag. Hide the dirty lamp when Working Tree file counts are already visible in the Git status or the bottom-right border; conflict markers stay. Add a Glance screenshot for the pi.dev package gallery.
+
 ## 0.6.0
 
 ### Minor Changes
