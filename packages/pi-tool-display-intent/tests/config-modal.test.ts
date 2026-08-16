@@ -177,7 +177,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "enableThinkingLabel", "enableNativeUserMessageBox"],
+		["toolCallLayout"],
 	);
 	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
 	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);

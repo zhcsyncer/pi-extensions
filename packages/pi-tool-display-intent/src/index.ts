@@ -107,7 +107,9 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
     () => initial.config.toolCallLayout === "aggregate",
   );
   registerNativeUserMessageBox(pi, getConfig);
-  registerThinkingLabeling(pi, () => getConfig().enableThinkingLabel);
+  registerThinkingLabeling(pi, () =>
+    getConfig().toolCallLayout !== "aggregate" && getConfig().enableThinkingLabel,
+  );
 
   pi.registerCommand("tool-display-intent", {
     description: "Configure intent-aware tool rendering",

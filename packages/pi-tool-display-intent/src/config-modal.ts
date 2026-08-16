@@ -37,6 +37,8 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"diffViewMode",
 	"diffIndicatorMode",
 	"diffCollapsedMode",
+	"enableThinkingLabel",
+	"enableNativeUserMessageBox",
 ]);
 
 function toOnOff(value: boolean): string {
@@ -109,7 +111,7 @@ export function buildInspectorSettings(
 					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
 					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
-					"Agent keeps its original renderer by default. Individual-tool settings are retained but inactive.",
+					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool, thinking-label, and boxed-user settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
@@ -297,6 +299,7 @@ export function buildInspectorSettings(
 			inspectorSummary: [
 				"Adds an explicit Thinking: label to supported provider reasoning blocks.",
 				"Presentation labels are removed before model context is sent.",
+				"This setting is inactive in aggregate, which hides thinking labels.",
 			],
 			inspectorOptions: [
 				"on — show the transcript label",
@@ -314,7 +317,7 @@ export function buildInspectorSettings(
 			inspectorTitle: "User Message Style",
 			inspectorSummary: [
 				"Controls whether user prompts use a bordered box or Pi's default transcript style.",
-				"Aggregate keeps the box but drops the extra top spacer and inner padding so the prompt stays compact.",
+				"This setting is inactive in aggregate, which always uses a compact accent-gutter block with vertical padding.",
 			],
 			inspectorOptions: [
 				"boxed — bordered native user prompt box",

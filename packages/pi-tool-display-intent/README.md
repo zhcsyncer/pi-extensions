@@ -115,7 +115,7 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | `toolCalls` | `layout`, `style`, `bashCommandPreviewRows` | Individual or aggregate calls, call framing, and the wrapped-row budget for collapsed Bash command arguments. |
 | `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
 | `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `collapsedMode`, `wordWrap` | Edit/write diff presentation. `collapsedMode: summary` shows only the +N -M stats line before Ctrl+O for the densest transcript; `body` (default) keeps the `collapsedRows` preview. |
-| `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
+| `transcript` | `userMessageStyle`, `thinkingLabel` | Individual-only user boxes and reasoning labels. Aggregate always uses a compact accent-gutter user prompt with vertical padding and hides thinking labels. |
 | `tools` | `passthrough`, `custom` | Renderer ownership and explicitly listed custom tools. |
 | `advanced` | `expandedRows`, `truncationHints`, `rtkCompactionHints`, `debug` | Expansion safety and diagnostics. |
 

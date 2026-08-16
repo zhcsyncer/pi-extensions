@@ -277,15 +277,18 @@ test("native user message renderer inserts one blank spacer line before the box"
   assert.match(rendered[1] ?? "", /^╭/);
 });
 
-test("compact native user message renderer drops the outer spacer and inner padding", () => {
+test("aggregate native user message renderer uses a guttered prompt with vertical padding", () => {
   const prototype: PatchableUserMessagePrototype = {
     render: () => ["Original user content"],
   };
 
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true, () => true);
-  const rendered = prototype.render(24);
-  assert.match(rendered[0] ?? "", /^╭/);
-  assert.equal(rendered.filter((line) => line.includes("│")).length, 1);
+  const rendered = prototype.render(40);
+  assert.equal(rendered.length, 3);
+  assert.match(rendered[0] ?? "", /^▎\s*$/);
+  assert.match(rendered[1] ?? "", /^▎ Original user content/);
+  assert.match(rendered[2] ?? "", /^▎\s*$/);
+  assert.doesNotMatch(rendered.join("\n"), /╭|╰|│|>/);
 });
 
 test("native user message renderer wraps body at the padded content width", () => {
