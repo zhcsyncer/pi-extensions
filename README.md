@@ -2,16 +2,24 @@
 
 [简体中文](./README.zh-CN.md)
 
-![Collapsed Tools ledger](./packages/pi-tool-display-intent/assets/demo-aggregate-1.png)
-
 A collection of Pi extensions by zhcsyncer.
 
 ## Packages
 
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — recent activity recap extension with optional session title and nearest-layer Herdr pane or tmux window naming.
 - [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — compact tool rendering with model-written intent phrases, RPC-visible summaries, an optional all-tool per-request Tools summary, stable `done` rows, adaptive diffs, and bounded Bash call previews.
+
+  ![Collapsed Tools ledger](./packages/pi-tool-display-intent/assets/demo-aggregate-1.png)
+
+  ![Expanded Tools timeline](./packages/pi-tool-display-intent/assets/demo-aggregate-2.png)
+
+  ![Failed Tools ledger](./packages/pi-tool-display-intent/assets/demo-aggregate-3.png)
+
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — cycle-bounded task overlay with atomic multi-item batches, confirmed `/todo` reset, and no dependency graph; live lists stay on active work across compaction and resume.
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable statuses, working-tree counts in the Git status line or bottom-right border, `/diff` review, and a theme-aware Claude-inspired working indicator.
+
+  ![pi-glance demo](./packages/pi-glance/assets/demo.png)
+
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
