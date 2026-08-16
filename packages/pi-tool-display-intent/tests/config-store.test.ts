@@ -42,6 +42,7 @@ test("legacy normalization maps result modes, clamps rows, and discards bashColl
 	});
 
 	assert.equal(config.resultMode, "compact");
+	assert.equal(config.toolCallLayout, "individual");
 	assert.equal(config.previewRows, 80);
 	assert.equal(config.bashOutputMode, "preview");
 	assert.equal(config.expandedPreviewMaxRows, 0);
@@ -167,7 +168,7 @@ test("legacy config migrates to simple v2 and reports discarded bash rows throug
 		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
 		assert.deepEqual(persisted.transcript, { userMessageStyle: "default" });
 		assert.deepEqual(persisted.tools, {
-			passthrough: ["grep"],
+			passthrough: ["Agent", "grep"],
 			custom: {
 				web_search: { renderer: "generic", mode: "summary" },
 			},
@@ -209,7 +210,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 		writeFileSync(configFile, `${JSON.stringify({
 			version: 2,
 			intent: { enabled: false, language: "en", maxLength: 64 },
-			toolCalls: { style: "claude", bashCommandPreviewRows: 3 },
+			toolCalls: { layout: "aggregate", style: "claude", bashCommandPreviewRows: 3 },
 			results: { mode: "summary", previewRows: 20 },
 			diff: {
 				layout: "split",
@@ -220,7 +221,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 			},
 			transcript: { userMessageStyle: "default", thinkingLabel: false },
 			tools: {
-				passthrough: ["read", "write"],
+				passthrough: ["Agent", "read", "write", "custom_ui"],
 				custom: {
 					custom_mcp: { renderer: "mcp", mode: "preview" },
 				},
@@ -236,6 +237,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
 		assert.equal(loaded.config.resultMode, "summary");
+		assert.equal(loaded.config.toolCallLayout, "aggregate");
 		assert.equal(loaded.config.readOutputMode, "summary");
 		assert.equal(loaded.config.searchOutputMode, "count");
 		assert.equal(loaded.config.mcpOutputMode, "summary");
@@ -244,6 +246,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 		assert.equal(loaded.config.bashCommandPreviewRows, 3);
 		assert.equal(loaded.config.registerToolOverrides.read, false);
 		assert.equal(loaded.config.registerToolOverrides.write, false);
+		assert.deepEqual(loaded.config.passthroughToolNames, ["Agent", "read", "write", "custom_ui"]);
 		assert.deepEqual(loaded.config.customToolOverrides.custom_mcp, {
 			kind: "mcp",
 			outputMode: "preview",
@@ -262,19 +265,56 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		resultMode: "preview",
 		previewRows: 16,
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
+		toolCallLayout: "aggregate",
 		bashCommandPreviewRows: 2,
 		enableThinkingLabel: false,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
 	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
 	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
-	assert.deepEqual(serialized.toolCalls, { bashCommandPreviewRows: 2 });
+	assert.deepEqual(serialized.toolCalls, { layout: "aggregate", bashCommandPreviewRows: 2 });
 	assert.deepEqual(serialized.transcript, { thinkingLabel: false });
 
 	withTempDir("pi-tool-display-config-roundtrip-", (dir) => {
 		const configFile = join(dir, "config.json");
 		writeFileSync(configFile, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
 		assert.deepEqual(loadToolDisplayConfig(configFile).config, config);
+	});
+});
+
+test("default Agent passthrough stays sparse while arbitrary escape tools round-trip", () => {
+	const defaults = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(defaults.tools, undefined);
+	const config = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		passthroughToolNames: ["Agent", "custom_ui"],
+	});
+	const serialized = serializeToolDisplayConfigV2(config);
+	assert.deepEqual(serialized.tools, { passthrough: ["Agent", "custom_ui"] });
+	withTempDir("pi-tool-display-config-passthrough-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+		assert.deepEqual(loadToolDisplayConfig(configFile).config.passthroughToolNames, ["Agent", "custom_ui"]);
+	});
+
+	const aggregateEverything = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		passthroughToolNames: [],
+	});
+	assert.deepEqual(serializeToolDisplayConfigV2(aggregateEverything).tools, { passthrough: [] });
+});
+
+test("default individual layout stays sparse and old v2 configs remain compatible", () => {
+	const serialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(serialized.toolCalls, undefined);
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.toolCallLayout, "individual");
+
+	withTempDir("pi-tool-display-config-old-v2-layout-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, '{"version":2,"results":{"mode":"summary"}}\n', "utf8");
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.config.toolCallLayout, "individual");
 	});
 });
 
@@ -362,7 +402,7 @@ test("v2 upgrade drops invalid schema, duplicate passthrough entries, and invali
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
 		assert.match(loaded.notice ?? "", /\$schema: expected string/);
-		assert.match(loaded.notice ?? "", /tools\.passthrough\.1: duplicate built-in tool/);
+		assert.match(loaded.notice ?? "", /tools\.passthrough\.1: duplicate tool name/);
 		assert.match(loaded.notice ?? "", /tools\.custom\.read: expected a non-empty trimmed non-built-in tool name/);
 		assert.match(loaded.notice ?? "", /tools\.custom\. padded : expected a non-empty trimmed non-built-in tool name/);
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as { tools?: { passthrough?: string[]; custom?: Record<string, unknown> } };

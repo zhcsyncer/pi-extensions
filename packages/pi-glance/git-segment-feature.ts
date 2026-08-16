@@ -27,10 +27,13 @@ function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): str
 	return mode === "border-right" ? "border right" : "status";
 }
 
+function worktreeHasVisibleSummary(ctx: SegmentRenderContext): boolean {
+	return ctx.state.git.status !== "clean" && ctx.state.git.worktree.files > 0;
+}
+
 function worktreeStatusParts(ctx: SegmentRenderContext): string[] {
-	if (ctx.config.git.worktreeSummary !== "status") return [];
+	if (ctx.config.git.worktreeSummary !== "status" || !worktreeHasVisibleSummary(ctx)) return [];
 	const worktree = ctx.state.git.worktree;
-	if (ctx.state.git.status === "clean" || worktree.files <= 0) return [];
 	const parts = [`Δ${worktree.files}`];
 	if (worktree.additions !== null && worktree.deletions !== null) {
 		parts.push(`+${worktree.additions}`, `−${worktree.deletions}`);
@@ -55,15 +58,40 @@ function gitStatusMark(ctx: SegmentRenderContext): string {
 	return "";
 }
 
+function gitBaseBehindLabel(behind: number): string | undefined {
+	return behind > 0 ? `main↓${behind}` : undefined;
+}
+
+function gitShowsUpstreamBehind(ctx: SegmentRenderContext): boolean {
+	return ctx.config.git.showAheadBehind && ctx.state.git.behind > 0;
+}
+
+function gitBaseBehindPart(ctx: SegmentRenderContext): string | undefined {
+	if (!ctx.config.git.showBaseBehind) return undefined;
+	if (gitShowsUpstreamBehind(ctx)) return undefined;
+	return gitBaseBehindLabel(ctx.state.git.baseBehind);
+}
+
+function gitStatusPart(ctx: SegmentRenderContext): string {
+	const status = gitStatusMark(ctx);
+	if (!status) return "";
+	if (ctx.state.git.status === "conflict") return status;
+	if (!ctx.config.git.showDirty) return "";
+	if (worktreeHasVisibleSummary(ctx)) return "";
+	return status;
+}
+
 function gitDetailParts(ctx: SegmentRenderContext): string[] {
 	const git = ctx.state.git;
 	const parts: string[] = [];
-	const status = gitStatusMark(ctx);
-	if (status && (ctx.config.git.showDirty || git.status === "conflict")) parts.push(status);
+	const status = gitStatusPart(ctx);
+	if (status) parts.push(status);
 	if (ctx.config.git.showAheadBehind) {
 		if (git.ahead > 0) parts.push(`↑${git.ahead}`);
 		if (git.behind > 0) parts.push(`↓${git.behind}`);
 	}
+	const baseBehind = gitBaseBehindPart(ctx);
+	if (baseBehind) parts.push(baseBehind);
 	parts.push(...worktreeStatusParts(ctx));
 	return parts;
 }
@@ -73,13 +101,14 @@ function collectGit(ctx: SegmentRenderContext): SegmentData | undefined {
 	if (!git.repo) return undefined;
 	const branch = gitBranchLabel(ctx);
 	const parts = gitDetailParts(ctx);
-	const secondary = parts.join(" ") || undefined;
-	const minimalStatus = git.status === "conflict" || ctx.config.git.showDirty ? gitStatusMark(ctx) : "";
+	const status = gitStatusPart(ctx);
+	const baseBehind = gitBaseBehindPart(ctx);
+	const minimalParts = status ? [status] : baseBehind ? [baseBehind] : [];
 	return {
 		primary: branch,
-		secondary,
+		secondary: parts.join(" ") || undefined,
 		display: {
-			minimal: [branch, minimalStatus].filter(Boolean).join(" "),
+			minimal: [branch, ...minimalParts].join(" ").trim(),
 		},
 	};
 }
@@ -92,7 +121,7 @@ export const gitSegmentFeature = {
 		{
 			id: "git.dirtyMarker",
 			label: "Dirty marker",
-			hint: "Conflicts always stay visible.",
+			hint: "Off when file counts show. Conflicts stay.",
 			kind: "toggle",
 			value: (config: GlanceConfig) => onOff(config.git.showDirty),
 			mutate: (config: GlanceConfig) => {
@@ -107,6 +136,16 @@ export const gitSegmentFeature = {
 			value: (config: GlanceConfig) => onOff(config.git.showAheadBehind),
 			mutate: (config: GlanceConfig) => {
 				config.git.showAheadBehind = !config.git.showAheadBehind;
+			},
+		},
+		{
+			id: "git.baseBehind",
+			label: "Behind main",
+			hint: "Show main↓N when this branch is behind origin/main.",
+			kind: "toggle",
+			value: (config: GlanceConfig) => onOff(config.git.showBaseBehind),
+			mutate: (config: GlanceConfig) => {
+				config.git.showBaseBehind = !config.git.showBaseBehind;
 			},
 		},
 		{

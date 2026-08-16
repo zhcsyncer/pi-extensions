@@ -32,6 +32,7 @@ const styles: ResolvedGlanceStyles = {
 	strongTitle: marker("strongTitle"),
 	dim: marker("dim"),
 	success: marker("success"),
+	gitBase: marker("gitBase"),
 	warn: marker("warn"),
 	error: marker("error"),
 	separator: marker("separator"),

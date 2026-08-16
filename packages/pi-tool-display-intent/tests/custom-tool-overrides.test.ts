@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
 import { normalizeToolDisplayConfig } from "../src/config-store.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
@@ -206,6 +207,30 @@ test("listed generic custom tool override replaces existing extension renderers 
 	assert.equal(renderToolResult(disabledTool, "ignored"), "RAW DISABLED RESULT");
 	assert.equal(renderToText(unlistedTool.renderCall?.({}, createTheme())), "RAW UNLISTED CALL");
 	assert.equal(renderToolResult(unlistedTool, "ignored"), "RAW UNLISTED RESULT");
+});
+
+test("aggregate layout preserves configured custom definitions beneath the global Tools patch", async () => {
+	const customTool: RuntimeTool = {
+		name: "custom_probe",
+		description: "A configured custom tool whose definition remains intact under aggregate rendering.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["RAW CUSTOM CALL"] }),
+		renderResult: () => ({ render: () => ["RAW CUSTOM RESULT"] }),
+	};
+	const config = buildConfigWithCustomOverrides(
+		{ custom_probe: { outputMode: "summary" } },
+		{ toolCallLayout: "aggregate" },
+	);
+	const { api, eventHandlers } = createExtensionApiStub([]);
+	registerToolDisplayOverrides(api, () => config);
+	await runLifecycle(eventHandlers);
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(customTool);
+
+	assert.equal(renderToText(customTool.renderCall?.({ query: "alpha" }, createTheme())), "RAW CUSTOM CALL");
+	assert.doesNotMatch(renderToText(customTool.renderCall?.({}, createTheme())), /Tools/);
+	assert.equal(renderToolResult(customTool, "alpha\nbeta\n"), "RAW CUSTOM RESULT");
+	restoreAggregateToolExecutions();
 });
 
 test("custom tool override defaults kind to generic unless the user chooses mcp", async () => {

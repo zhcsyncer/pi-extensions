@@ -8,6 +8,16 @@ import type { GlanceConfig, GlanceState, SegmentRenderContext, SegmentRenderResu
 
 const RESET = "\x1b[0m";
 
+const GIT_BASE_BEHIND_PATTERN = /main↓[0-9]+/;
+
+function applyGitSegmentStyle(styles: ResolvedGlanceStyles, text: string): string {
+	const match = text.match(GIT_BASE_BEHIND_PATTERN);
+	if (!match || match.index === undefined) return styles.segments.git.fg(text);
+	const start = match.index;
+	const end = start + match[0].length;
+	return `${styles.segments.git.fg(text.slice(0, start))}${styles.gitBase(text.slice(start, end))}${styles.segments.git.fg(text.slice(end))}`;
+}
+
 function applyInlineSegmentStyle(segment: SegmentRenderResult, styles: ResolvedGlanceStyles, text: string): string {
 	if (segment.id === "context") {
 		const match = text.match(/([0-9]+(?:\.[0-9]+)?)%/);
@@ -16,6 +26,7 @@ function applyInlineSegmentStyle(segment: SegmentRenderResult, styles: ResolvedG
 		if (risk === "warning") return styles.warn(text);
 		return styles.segments.context.fg(text);
 	}
+	if (segment.id === "git") return applyGitSegmentStyle(styles, text);
 	return styles.segments[segment.id].fg(text);
 }
 

@@ -553,7 +553,11 @@ test("bash call spinner appears only while execution is active", async () => {
 	await eventHandlers.before_agent_start?.();
 
 	const bashTool = registeredTools.find((tool) => tool.name === "bash");
-	const idle = renderToolCall(bashTool, { command: "npm test" });
+	const idle = renderToolCall(
+		bashTool,
+		{ command: "npm test" },
+		{ executionStarted: true, isPartial: false },
+	);
 	assert.equal(idle.output, "$ npm test — Run command");
 
 	let invalidateCount = 0;

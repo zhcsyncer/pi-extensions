@@ -30,6 +30,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
+import {
+  AggregateProjection,
+  registerAggregateProjectionEvents,
+} from "./aggregate-activity.js";
 import { renderBashCall } from "./bash-display.js";
 import {
   normalizeDisplaySummary,
@@ -42,6 +46,11 @@ import {
 } from "./display-summary-fallback.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { registerCleanup } from "./disposable.js";
+import {
+  clearLiveToolCalls,
+  registerLiveToolCallEvents,
+  shouldShowDeterministicFallback,
+} from "./live-tool-call.js";
 import {
   compactOutputLines,
   countNonEmptyLines,
@@ -266,10 +275,28 @@ function registerRuntimeTool(
   pi: ExtensionAPI,
   tool: RuntimeToolDefinition,
   getConfig: ConfigGetter,
+  aggregateProjection?: AggregateProjection,
 ): void {
   const styledTool = applyRuntimeToolCallStyle(tool, getConfig);
-  const toolIntent = getConfig().toolIntent;
-  const registeredTool = toolIntent.enabled
+  if (aggregateProjection) {
+    const originalRenderCall = styledTool.renderCall;
+    if (typeof originalRenderCall === "function") {
+      styledTool.renderCall = function captureAggregateCallTheme(args, theme, context) {
+        aggregateProjection.setRenderTheme(theme);
+        return originalRenderCall.call(styledTool, args, theme, context);
+      };
+    }
+    const originalRenderResult = styledTool.renderResult;
+    if (typeof originalRenderResult === "function") {
+      styledTool.renderResult = function captureAggregateResultTheme(result, options, theme, context) {
+        aggregateProjection.setRenderTheme(theme);
+        return originalRenderResult.call(styledTool, result, options, theme, context);
+      };
+    }
+  }
+  const config = getConfig();
+  const toolIntent = config.toolIntent;
+  const registeredTool = config.toolCallLayout === "individual" && toolIntent.enabled
     ? withDisplaySummary(styledTool as never, {
         required: true,
         language: toolIntent.language,
@@ -514,9 +541,13 @@ function formatDisplaySummarySuffix(
   toolName: string,
   theme: RenderTheme,
   config: ToolDisplayConfig,
+  context?: ToolRenderContextLike,
 ): string {
   const summary = resolveDisplaySummaryForTool(args, toolName, config.toolIntent);
-  if (!summary) {
+  if (
+    !summary ||
+    (summary.source === "fallback" && !shouldShowDeterministicFallback(context))
+  ) {
     return "";
   }
 
@@ -1331,7 +1362,7 @@ function formatMcpCallLine(
       : toolLabel.startsWith("MCP ")
         ? toolLabel.slice("MCP ".length)
         : toolLabel;
-  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config, context);
   const line = config.toolCallStyle === "claude"
     ? formatClaudeToolCall("mcp", theme.fg("text", target), argSuffix, intentSuffix, theme, context)
     : `${theme.fg("toolTitle", theme.bold("MCP"))} ${theme.fg("text", target)}${argSuffix}${intentSuffix}`;
@@ -1481,7 +1512,7 @@ function formatGenericToolCallLine(
 ): Text {
   const argRecord = toRecord(stripDisplaySummary(args));
   const presentation = resolveCallPresentation(argRecord, adapter);
-  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config, context);
 
   if (presentation) {
     const metadata = presentation.metadata?.length
@@ -1522,7 +1553,7 @@ function formatSearchCallLine(
   config: ToolDisplayConfig,
   context?: ToolRenderContextLike,
 ): Component {
-  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config);
+  const intentSuffix = formatDisplaySummarySuffix(args, toolName, theme, config, context);
   return renderPathCall(
     path,
     (displayPath) => {
@@ -1596,7 +1627,7 @@ function renderReadDisplayCall(
     const to = limit !== undefined ? from + limit - 1 : undefined;
     suffix = to ? `:${from}-${to}` : `:${from}`;
   }
-  const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config) : "";
+  const intentSuffix = config ? formatDisplaySummarySuffix(args, "read", theme, config, context) : "";
   return renderPathCall(
     path,
     (displayPath) => {
@@ -1661,7 +1692,7 @@ function renderEditDisplayCall(
   const lineCount = adapter.getEditLineCount?.(args) ?? getEditLineCount(args);
   const config = getConfig();
   const lineCountSuffix = formatLineCountSuffix(lineCount, theme);
-  const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config);
+  const intentSuffix = formatDisplaySummarySuffix(args, "edit", theme, config, context);
   const summaryComponent = renderPathCall(
     path,
     (displayPath) => config.toolCallStyle === "claude"
@@ -1782,6 +1813,7 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
   const api: ToolDisplayApi = {
     version: 1,
     decorateTool<T extends RuntimeToolDefinition>(tool: T, adapter?: ToolDisplayAdapter): T {
+      if (getConfig().toolCallLayout === "aggregate") return tool;
       const resolvedAdapter = resolveAdapter(tool, adapter);
       const kind = getAdapterKind(tool, resolvedAdapter);
       const overrideExisting = resolvedAdapter.overrideExistingRenderers === true;
@@ -1866,8 +1898,16 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
     },
   };
 
-  (globalThis as GlobalWithToolDisplayApi)[TOOL_DISPLAY_API_KEY] = api;
-  drainPendingToolDisplayDecorations(api);
+  const globalWithApi = globalThis as GlobalWithToolDisplayApi;
+  globalWithApi[TOOL_DISPLAY_API_KEY] = api;
+  if (getConfig().toolCallLayout === "aggregate") {
+    // Pending entries belong to this runtime's original tool definitions. Drop
+    // the decoration requests instead of flattening descriptors with a no-op
+    // Object.assign; a later individual reload receives fresh registrations.
+    globalWithApi[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?.splice(0);
+  } else {
+    drainPendingToolDisplayDecorations(api);
+  }
   return api;
 }
 
@@ -1885,8 +1925,10 @@ export function registerToolDisplayOverrides(
   getConfig: ConfigGetter,
 ): void {
   clearBuiltInToolCache();
+  registerLiveToolCallEvents(pi);
   const toolDisplayApi = installToolDisplayApi(getConfig);
   registerCleanup(() => {
+    clearLiveToolCalls();
     restoreToolPropertyDescriptors(decoratedToolDescriptors, decoratedTools);
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
     if (globalWithApi[TOOL_DISPLAY_API_KEY] === toolDisplayApi) {
@@ -1894,12 +1936,18 @@ export function registerToolDisplayOverrides(
     }
   });
   const bootstrapTools = getBuiltInTools(process.cwd());
-  const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
-    registerRuntimeTool(pi, tool, getConfig);
   const builtInPromptMetadata = createLazyPromptMetadata(bootstrapTools);
   const clonedParameters = createLazyClonedParameters(bootstrapTools);
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
+  const aggregateProjection = getConfig().toolCallLayout === "aggregate"
+    ? new AggregateProjection((toolName) =>
+        getConfig().passthroughToolNames.includes(toolName) ||
+        ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
+          !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]))
+    : undefined;
+  const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
+    registerRuntimeTool(pi, tool, getConfig, aggregateProjection);
 
   const isExternallyOwnedBuiltInTool = (toolName: BuiltInToolOverrideName): boolean => {
     const allTools = tryGetAllTools(pi, "Built-in tool override ownership discovery unavailable during extension load; registering renderer for pre-bind history rendering.");
@@ -2092,10 +2140,11 @@ export function registerToolDisplayOverrides(
     prepareArguments: getToolPrepareArguments(bootstrapTools.write),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const previous = captureExistingWriteContent(ctx.cwd, params.path);
-      recordWriteExecutionMeta(writeExecutionMetaByToolCallId, toolCallId, {
+      const executionMeta = {
         fileExistedBeforeWrite: previous.existed,
         previousContent: previous.content,
-      });
+      };
+      recordWriteExecutionMeta(writeExecutionMetaByToolCallId, toolCallId, executionMeta);
 
       return getBuiltInTools(ctx.cwd).write.execute(
         toolCallId,
@@ -2116,7 +2165,7 @@ export function registerToolDisplayOverrides(
         ? formatWriteCallSuffix(lineCount, sizeBytes, theme)
         : "";
       const config = getConfig();
-      const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config);
+      const intentSuffix = formatDisplaySummarySuffix(args, "write", theme, config, context);
       const summaryComponent = renderPathCall(
         path,
         (displayPath) => config.toolCallStyle === "claude"
@@ -2397,7 +2446,7 @@ export function registerToolDisplayOverrides(
     });
   };
 
-  installMcpRegistrationInterceptor();
+  if (!aggregateProjection) installMcpRegistrationInterceptor();
 
   const registerMcpToolOverrides = (): void => {
     const allTools = tryGetAllTools(pi, "MCP tool override discovery failed.");
@@ -2433,12 +2482,20 @@ export function registerToolDisplayOverrides(
 
   pi.on("session_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
+    if (!aggregateProjection) {
+      registerMcpToolOverrides();
+      scheduleMcpToolOverrideDiscovery();
+    }
   });
   pi.on("before_agent_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
+    if (!aggregateProjection) {
+      registerMcpToolOverrides();
+      scheduleMcpToolOverrideDiscovery();
+    }
   });
+
+  if (aggregateProjection) {
+    registerAggregateProjectionEvents(pi, aggregateProjection);
+  }
 }

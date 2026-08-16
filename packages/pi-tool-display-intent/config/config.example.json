@@ -7,6 +7,7 @@
     "maxLength": 96
   },
   "toolCalls": {
+    "layout": "individual",
     "style": "claude",
     "bashCommandPreviewRows": 1
   },
@@ -27,7 +28,7 @@
     "thinkingLabel": true
   },
   "tools": {
-    "passthrough": [],
+    "passthrough": ["Agent"],
     "custom": {
       "web_search": {
         "renderer": "generic",

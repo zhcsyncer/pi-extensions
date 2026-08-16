@@ -148,6 +148,7 @@ function gitSnapshotsEqual(a: GitSnapshot, b: GitSnapshot): boolean {
 		a.upstream === b.upstream &&
 		a.ahead === b.ahead &&
 		a.behind === b.behind &&
+		a.baseBehind === b.baseBehind &&
 		a.staged === b.staged &&
 		a.unstaged === b.unstaged &&
 		a.untracked === b.untracked &&

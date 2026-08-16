@@ -33,6 +33,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "layout": {
+          "enum": ["individual", "aggregate"],
+          "default": "individual",
+          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn. Aggregate stays collapsed as a Tools ledger. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows; after the turn settles, assistant notes hide and a receipt shows duration, tokens, cache, and completion time. Ctrl+O restores the original timeline of notes plus one target/status summary per call."
+        },
         "style": {
           "enum": ["compact", "claude"],
           "default": "compact"
@@ -121,8 +126,12 @@
         "passthrough": {
           "type": "array",
           "uniqueItems": true,
+          "default": ["Agent"],
+          "description": "Tool names whose original transcript renderer remains active in aggregate layout. Agent is always included by default. Built-in names also opt out of this extension's individual renderer override.",
           "items": {
-            "enum": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$"
           }
         },
         "custom": {

@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultConfig } from "../config.js";
+import type { GitBaseRefFetchReason } from "../git.js";
 import { createGlanceRuntime, type CreateGitRefresherOptions, type GlancePaneResult, type GlanceRuntimeAdapters, type RuntimeGitRefresher, type RuntimeShowPaneOptions } from "../runtime.js";
 import type { StateSessionEntry } from "../runtime-snapshot.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "../types.js";
@@ -71,6 +72,8 @@ export interface RuntimeGitHarness {
 	schedules: Array<boolean | undefined>;
 	disposeCount: number;
 	options?: CreateGitRefresherOptions;
+	baseFetches: Array<{ cwd: string; reason: GitBaseRefFetchReason }>;
+	fetchGitBaseRef?: (cwd: string, reason: GitBaseRefFetchReason) => Promise<boolean>;
 }
 
 export interface RuntimeHarnessOptions {
@@ -122,6 +125,7 @@ export function runtimeGitSnapshot(branch = "main"): GitSnapshot {
 		upstream: null,
 		ahead: 0,
 		behind: 0,
+		baseBehind: 0,
 		staged: 0,
 		unstaged: 1,
 		untracked: 0,
@@ -186,6 +190,7 @@ export function createGitHarness(): RuntimeGitHarness {
 		created: 0,
 		schedules: [],
 		disposeCount: 0,
+		baseFetches: [],
 		create: (options) => {
 			harness.created++;
 			harness.options = options;
@@ -195,6 +200,10 @@ export function createGitHarness(): RuntimeGitHarness {
 					harness.disposeCount++;
 				},
 			};
+		},
+		fetchGitBaseRef: async (cwd, reason) => {
+			harness.baseFetches.push({ cwd, reason });
+			return false;
 		},
 	};
 	return harness;
@@ -385,6 +394,7 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 			return result;
 		},
 		createGitRefresher: options.git?.create,
+		fetchGitBaseRef: options.git?.fetchGitBaseRef,
 		reviewWorkingTree: options.reviewWorkingTree,
 		workingIndicator:
 			options.workingIndicator ??

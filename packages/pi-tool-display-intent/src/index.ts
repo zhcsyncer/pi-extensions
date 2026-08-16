@@ -12,6 +12,7 @@ import {
   detectToolDisplayCapabilities,
   type ToolDisplayCapabilities,
 } from "./capabilities.js";
+import { registerAggregateThinkingPlaceholderSuppression } from "./aggregate-thinking-placeholder.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
 import { registerThinkingLabeling } from "./thinking-label.js";
@@ -47,6 +48,7 @@ function toolRegistrationChanged(
     previous.toolIntent.enabled !== next.toolIntent.enabled ||
     previous.toolIntent.language !== next.toolIntent.language ||
     previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
+    previous.toolCallLayout !== next.toolCallLayout ||
     previous.toolCallStyle !== next.toolCallStyle;
   return ownershipChanged || intentSchemaChanged;
 }
@@ -93,15 +95,21 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
     if (requiresReload) {
       ctx.ui.notify(
-        "Tool ownership, intent schema, or call frame updates apply after /reload.",
+        "Tool ownership, layout, intent schema, or call frame updates apply after /reload.",
         "warning",
       );
     }
   };
 
   registerToolDisplayOverrides(pi, getEffectiveConfig);
+  registerAggregateThinkingPlaceholderSuppression(
+    pi,
+    () => initial.config.toolCallLayout === "aggregate",
+  );
   registerNativeUserMessageBox(pi, getConfig);
-  registerThinkingLabeling(pi, () => getConfig().enableThinkingLabel);
+  registerThinkingLabeling(pi, () =>
+    getConfig().toolCallLayout !== "aggregate" && getConfig().enableThinkingLabel,
+  );
 
   pi.registerCommand("tool-display-intent", {
     description: "Configure intent-aware tool rendering",

@@ -10,6 +10,7 @@ import type { GlanceConfig, GlanceState } from "./types.js";
 export interface GlanceEditorOptions {
 	readonly editorOptions?: EditorOptions;
 	readonly renderStyleContext?: GlanceRenderStyleContext;
+	readonly onForeground?: () => void;
 }
 
 function stripBorderColor(line: string, borderColor: (text: string) => string): string {
@@ -53,6 +54,7 @@ export class GlanceEditor extends CustomEditor {
 	private cachedProviderCount = -1;
 	private cachedStatusStyleKey = "";
 	private cachedStatus = "";
+	private lastFocused: boolean | undefined;
 
 	constructor(
 		tui: TUI,
@@ -131,6 +133,8 @@ export class GlanceEditor extends CustomEditor {
 		if (lines.length < 2) return lines;
 
 		const isFocused = this.focused;
+		if (this.lastFocused === false && isFocused) this.glanceOptions?.onForeground?.();
+		this.lastFocused = isFocused;
 		const modeLabel = this.bashModeLabel();
 
 		const topOriginal = lines[0] ?? "";

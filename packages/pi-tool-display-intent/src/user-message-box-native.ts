@@ -20,11 +20,13 @@ function getUserMessagePrototype(): PatchableUserMessagePrototype {
 function patchUserMessageRender(
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
+  isCompact: () => boolean,
 ): void {
   patchNativeUserMessagePrototype(
     getUserMessagePrototype(),
     getTheme,
     isEnabled,
+    isCompact,
   );
 }
 
@@ -44,9 +46,11 @@ export default function registerNativeUserMessageBox(
   let activeTheme: UserMessageTheme | undefined;
 
   const getTheme = (): UserMessageTheme | undefined => activeTheme;
-  const isEnabled = (): boolean => getConfig().enableNativeUserMessageBox;
+  const isAggregate = (): boolean => getConfig().toolCallLayout === "aggregate";
+  const isEnabled = (): boolean => isAggregate() || getConfig().enableNativeUserMessageBox;
+  const isCompact = (): boolean => isAggregate();
 
-  patchUserMessageRender(getTheme, isEnabled);
+  patchUserMessageRender(getTheme, isEnabled, isCompact);
 
   onReloadShutdown(pi, () => {
     restoreUserMessageRender();
@@ -55,12 +59,12 @@ export default function registerNativeUserMessageBox(
   });
 
   pi.on("before_agent_start", async () => {
-    patchUserMessageRender(getTheme, isEnabled);
+    patchUserMessageRender(getTheme, isEnabled, isCompact);
   });
 
   pi.on("session_start", async (_event, ctx) => {
     activeTheme = ctx?.ui?.theme as unknown as UserMessageTheme;
-    patchUserMessageRender(getTheme, isEnabled);
+    patchUserMessageRender(getTheme, isEnabled, isCompact);
   });
 
 }

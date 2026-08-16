@@ -29,6 +29,7 @@
     "packages/pi-tool-display-intent/tool-display-api-consumer.d.ts",
     "packages/*/config/*.json",
     "packages/*/README*.md",
+    "packages/pi-tool-display-intent/assets/*.png",
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
@@ -54,6 +55,7 @@
     "packages/pi-todo/UPSTREAM_CHANGELOG.md",
     "packages/pi-todo/UPSTREAM_SOURCE.md",
     "packages/pi-glance/*.ts",
+    "packages/pi-glance/assets/**",
     "packages/pi-glance/UPSTREAM_LICENSE",
     "packages/pi-glance/UPSTREAM_SOURCE.md",
     "packages/pi-search-hub/package.json",
@@ -128,7 +130,8 @@
     ],
     "skills": [
       "./packages/pi-context7/skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-glance/assets/demo.png"
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "2.4.0",

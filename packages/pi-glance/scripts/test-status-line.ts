@@ -94,6 +94,39 @@ const singleSegmentParityCases: Array<{ id: SegmentId; state: GlanceState; text:
 	{ id: "model", state: modelState(1), text: "ai GPT 5.5" },
 ];
 
+{
+	const palette = PALETTES.light;
+	const state = testState({
+		git: {
+			repo: true,
+			branch: "feat/glance-main-behind",
+			detached: false,
+			sha: "a1b2c3d",
+			upstream: null,
+			ahead: 1,
+			behind: 0,
+			baseBehind: 8,
+			staged: 0,
+			unstaged: 0,
+			untracked: 0,
+			conflicts: 0,
+			dirty: false,
+			status: "clean",
+			updatedAt: 0,
+		},
+	});
+	const line = rawLine(["git"], state, 120, 1, (config) => {
+		useTheme(config, "light");
+	});
+	assert.equal(
+		line,
+		`${fg(palette.segments.git.fg, "git feat/glance-main-behind ↑1 ")}${fg(palette.segments.context.fg, "main↓8")}${fg(palette.segments.git.fg, "")}${RESET}`,
+		"base behind should use a distinct highlight from the rest of the Git segment",
+	);
+	assert.equal(line.includes(fgSeq(palette.warn)), false, "base behind should not reuse the dirty/conflict warning color");
+	assert.equal(line.includes(fgSeq(palette.error)), false, "base behind should not reuse the error color");
+}
+
 for (const themeId of GLANCE_THEME_IDS) {
 	const palette = PALETTES[themeId];
 	for (const { id, state, text } of singleSegmentParityCases) {

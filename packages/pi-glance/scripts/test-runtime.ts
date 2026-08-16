@@ -195,6 +195,7 @@ for (const matrixCase of [
 	assert.equal(isPromiseLike(result), false, "sessionStart should stay synchronous for enabled config");
 	assert.deepEqual(test.surfaceCalls, ["setWidget:clear", "setFooter:install", "setEditorComponent:install"], "enabled TUI sessionStart should clear legacy widgets and install footer/editor without taking Header ownership");
 	assert.deepEqual(git.schedules, [true], "enabled sessionStart should schedule an immediate git refresh through the adapter");
+	assert.deepEqual(git.baseFetches, [{ cwd: "/repo", reason: "session" }], "enabled sessionStart should request a non-blocking origin/main fetch");
 	assert.equal(harness.getLoadConfigCalls(), 0, "sessionStart should not call the async loadConfig adapter");
 }
 
@@ -207,6 +208,7 @@ for (const matrixCase of [
 	assert.equal(isPromiseLike(result), false, "sessionStart should stay synchronous for disabled config");
 	assert.deepEqual(test.surfaceCalls, ["setWidget:clear", "setEditorComponent:clear", "setFooter:clear"], "disabled TUI sessionStart should synchronously restore widget, editor, and footer");
 	assert.equal(git.created, 0, "disabled sessionStart should not create a git refresher");
+	assert.deepEqual(git.baseFetches, [], "disabled sessionStart should not fetch origin/main");
 	assert.equal(harness.getLoadConfigCalls(), 0, "disabled sessionStart should not call the async loadConfig adapter");
 }
 
@@ -227,6 +229,15 @@ for (const matrixCase of [
 	assert.ok(darkEditorFrame.includes("<<pi-theme:dark:"), "live editor should lazily render status content with current dark Pi theme tokens");
 	currentPiTheme.name = "light";
 	const lightEditorFrame = editor.render(100).join("\n");
+	editor.focused = false;
+	editor.render(100);
+	editor.focused = true;
+	editor.render(100);
+	assert.deepEqual(
+		git.baseFetches.map((fetch) => fetch.reason),
+		["session", "focus"],
+		"returning the editor to the foreground should request a non-blocking origin/main fetch",
+	);
 	assert.ok(lightEditorFrame.includes("<<pi-theme:light:"), "live editor should re-read current Pi theme tokens on later renders");
 	assert.equal(lightEditorFrame.includes("<<pi-theme:dark:"), false, "live editor should not reuse stale dark Pi ANSI after a theme switch");
 	currentPiTheme.name = "my-dark-theme";

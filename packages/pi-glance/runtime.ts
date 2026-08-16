@@ -2,7 +2,7 @@ import { getAgentDir, SettingsManager, type ExtensionCommandContext, type Extens
 import { handleDiffCommand } from "./diff-review.js";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
-import { GitRefresher } from "./git.js";
+import { GitRefresher, maybeFetchGitBaseRef, type GitBaseRefFetchReason } from "./git.js";
 import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
@@ -37,6 +37,7 @@ export interface GlanceRuntimeAdapters {
 	consumeConfigNotices?(): string[];
 	showPane(initial: GlanceConfig, ctx: ExtensionCommandContext, previewState?: GlanceState, options?: RuntimeShowPaneOptions): Promise<GlancePaneResult>;
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
+	fetchGitBaseRef?(cwd: string, reason: GitBaseRefFetchReason): Promise<boolean>;
 	nowMs?: () => number;
 	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
 	reviewWorkingTree?: (ctx: ExtensionCommandContext) => Promise<unknown>;
@@ -158,6 +159,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			getCwd: () => refreshSession.getState()?.workspace.path,
 			onSnapshot: (cwd, snapshot) => {
 				refreshSession.applyGitSnapshot(cwd, snapshot);
+				if (snapshot.repo) requestBaseRefFetch("stale");
 			},
 		});
 		return gitRefresher;
@@ -165,6 +167,16 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 
 	function scheduleGitRefresh(immediate = false): void {
 		gitRefresher?.schedule(immediate);
+	}
+
+	function requestBaseRefFetch(reason: GitBaseRefFetchReason): void {
+		if (!getConfig().git.showBaseBehind) return;
+		const cwd = refreshSession.getState()?.workspace.path;
+		if (!cwd) return;
+		const fetchBase = adapters.fetchGitBaseRef ?? maybeFetchGitBaseRef;
+		void fetchBase(cwd, reason).then((fetched) => {
+			if (fetched) scheduleGitRefresh(true);
+		});
 	}
 
 	function clearFooter(): void {
@@ -211,6 +223,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		const generation = invalidateUiOwnership();
 
 		ensureGitRefresher().schedule(true);
+		requestBaseRefFetch("session");
 		// Clear any legacy keyed Working Tree widget from earlier builds so it cannot
 		// stack above todo/plan/recap widgets after the summary moved into the editor surface.
 		ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
@@ -236,7 +249,10 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				() => {
 					void refreshSession.execute("editor_thinking_cycle", ctx);
 				},
-				renderStyleContext ? { renderStyleContext } : undefined,
+				{
+					onForeground: () => requestBaseRefFetch("focus"),
+					...(renderStyleContext ? { renderStyleContext } : {}),
+				},
 			);
 		});
 	}

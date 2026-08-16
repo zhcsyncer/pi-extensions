@@ -31,6 +31,7 @@ function sanitizeUserMessageAnsi(text: string): string {
 export function applyUserMessageBackground(
   theme: UserMessageBackgroundTheme | undefined,
   text: string,
+  background: string = USER_MESSAGE_BACKGROUND,
 ): string {
   if (!text) {
     return text;
@@ -43,7 +44,7 @@ export function applyUserMessageBackground(
 
   try {
     if (typeof theme.getBgAnsi === "function") {
-      return `${theme.getBgAnsi(USER_MESSAGE_BACKGROUND)}${sanitized}${ANSI_BG_RESET}`;
+      return `${theme.getBgAnsi(background)}${sanitized}${ANSI_BG_RESET}`;
     }
   } catch (themeError) {
     void themeError;
@@ -51,7 +52,7 @@ export function applyUserMessageBackground(
 
   try {
     if (typeof theme.bg === "function") {
-      return theme.bg(USER_MESSAGE_BACKGROUND, sanitized);
+      return theme.bg(background, sanitized);
     }
   } catch (themeError) {
     void themeError;

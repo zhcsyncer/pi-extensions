@@ -60,6 +60,7 @@ function makeState(): GlanceState {
 			upstream: "origin/main",
 			ahead: 1,
 			behind: 0,
+			baseBehind: 0,
 			staged: 0,
 			unstaged: 1,
 			untracked: 0,
@@ -665,13 +666,13 @@ assertContains(gitValues, "[Enter] change", "value column should describe changi
 
 const dirtyLines = plainRender(gitPane.component);
 const dirtyText = dirtyLines.join("\n");
-assertContains(dirtyText, "Conflicts always stay visible.", "selected hint should render for dirty marker");
+assertContains(dirtyText, "Off when file counts show. Conflicts stay.", "selected hint should render for dirty marker");
 const dirtyHelpIndex = helpIndex(dirtyLines);
 
 press(gitPane.component, "\x1b[B");
 const aheadLines = plainRender(gitPane.component);
 const aheadText = aheadLines.join("\n");
-assertNotContains(aheadText, "Conflicts always stay visible.", "hint should change with the selected setting");
+assertNotContains(aheadText, "Conflicts stay.", "hint should change with the selected setting");
 assert.equal(helpIndex(aheadLines), dirtyHelpIndex, "help row should stay vertically stable when selected hint changes");
 
 const interaction = await makePane();

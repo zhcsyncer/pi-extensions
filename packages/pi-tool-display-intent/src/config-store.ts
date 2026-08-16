@@ -23,6 +23,7 @@ import {
 	DIFF_INDICATOR_MODES,
 	DIFF_VIEW_MODES,
 	RESULT_DISPLAY_MODES,
+	TOOL_CALL_LAYOUTS,
 	TOOL_CALL_STYLES,
 	TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 	TOOL_DISPLAY_CONFIG_VERSION,
@@ -96,6 +97,12 @@ function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
 		: DEFAULT_TOOL_DISPLAY_CONFIG.bashOutputMode;
 }
 
+function toToolCallLayout(value: unknown): ToolDisplayConfig["toolCallLayout"] {
+	return TOOL_CALL_LAYOUTS.includes(value as ToolDisplayConfig["toolCallLayout"])
+		? (value as ToolDisplayConfig["toolCallLayout"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallLayout;
+}
+
 function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
 	return TOOL_CALL_STYLES.includes(value as ToolDisplayConfig["toolCallStyle"])
 		? (value as ToolDisplayConfig["toolCallStyle"])
@@ -149,6 +156,7 @@ function cloneDefaultConfig(): ToolDisplayConfig {
 	return {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		registerToolOverrides: { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides },
+		passthroughToolNames: [...DEFAULT_TOOL_DISPLAY_CONFIG.passthroughToolNames],
 		customToolOverrides: cloneCustomToolOverrides(DEFAULT_TOOL_DISPLAY_CONFIG.customToolOverrides),
 		toolIntent: { ...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent },
 	};
@@ -191,13 +199,19 @@ function normalizeToolOverrideOwnership(
 	return overrides;
 }
 
+function normalizePassthroughToolNames(rawNames: unknown): string[] {
+	if (!Array.isArray(rawNames)) return [...DEFAULT_TOOL_DISPLAY_CONFIG.passthroughToolNames];
+	const names = new Set<string>();
+	for (const rawName of rawNames) {
+		if (typeof rawName !== "string" || !rawName.trim() || rawName.trim() !== rawName) continue;
+		names.add(rawName);
+	}
+	return [...names];
+}
+
 function normalizeV2ToolOwnership(rawTools: unknown): ToolOverrideOwnership {
 	const tools = toRecord(rawTools);
-	const passthrough = new Set(
-		Array.isArray(tools.passthrough)
-			? tools.passthrough.filter((name): name is string => typeof name === "string")
-			: [],
-	);
+	const passthrough = new Set(normalizePassthroughToolNames(tools.passthrough));
 	const ownership = { ...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides };
 	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
 		ownership[toolName] = !passthrough.has(toolName);
@@ -299,15 +313,22 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 	const rawToolIntent = hasOwn(source, "toolIntent") ? source.toolIntent : source.displaySummary;
 	const resultResolution = resolveLegacyResultMode(source);
 	const resultConfig = getToolResultModeConfig(resultResolution.mode);
+	const registerToolOverrides = normalizeToolOverrideOwnership(
+		source.registerToolOverrides,
+		source.registerReadToolOverride,
+	);
+	const passthroughToolNames = new Set(normalizePassthroughToolNames(source.passthroughToolNames));
+	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
+		if (!registerToolOverrides[toolName]) passthroughToolNames.add(toolName);
+	}
 
 	return {
 		debug: toBoolean(source.debug, DEFAULT_TOOL_DISPLAY_CONFIG.debug),
-		registerToolOverrides: normalizeToolOverrideOwnership(
-			source.registerToolOverrides,
-			source.registerReadToolOverride,
-		),
+		registerToolOverrides,
+		passthroughToolNames: [...passthroughToolNames],
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
+		toolCallLayout: toToolCallLayout(source.toolCallLayout),
 		toolCallStyle: toToolCallStyle(source.toolCallStyle),
 		bashCommandPreviewRows: clampNumber(
 			source.bashCommandPreviewRows,
@@ -444,7 +465,8 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["layout", "style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateOptionalEnum(toolCalls, "layout", TOOL_CALL_LAYOUTS, "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
 	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
 
@@ -477,10 +499,10 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 		} else {
 			const seen = new Set<unknown>();
 			for (const [index, toolName] of tools.passthrough.entries()) {
-				if (!(BUILT_IN_TOOL_OVERRIDE_NAMES as readonly unknown[]).includes(toolName)) {
-					errors.push(`tools.passthrough.${index}: unknown built-in tool`);
+				if (typeof toolName !== "string" || !toolName.trim() || toolName.trim() !== toolName) {
+					errors.push(`tools.passthrough.${index}: expected a non-empty trimmed tool name`);
 				} else if (seen.has(toolName)) {
-					errors.push(`tools.passthrough.${index}: duplicate built-in tool`);
+					errors.push(`tools.passthrough.${index}: duplicate tool name`);
 				}
 				seen.add(toolName);
 			}
@@ -565,8 +587,10 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		debug: advanced.debug,
 		resultMode: mode,
 		registerToolOverrides: normalizeV2ToolOwnership(tools),
+		passthroughToolNames: tools.passthrough,
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
+		toolCallLayout: toolCalls.layout,
 		toolCallStyle: toolCalls.style,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
 		enableNativeUserMessageBox:
@@ -608,6 +632,7 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	assignSection(output, "intent", intent);
 
 	const toolCalls: Record<string, unknown> = {};
+	if (config.toolCallLayout !== defaults.toolCallLayout) toolCalls.layout = config.toolCallLayout;
 	if (config.toolCallStyle !== defaults.toolCallStyle) toolCalls.style = config.toolCallStyle;
 	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
 		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
@@ -637,10 +662,14 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	assignSection(output, "transcript", transcript);
 
 	const tools: Record<string, unknown> = {};
-	const passthrough = BUILT_IN_TOOL_OVERRIDE_NAMES.filter(
-		(toolName) => !config.registerToolOverrides[toolName],
-	);
-	if (passthrough.length > 0) tools.passthrough = passthrough;
+	const passthrough = new Set(config.passthroughToolNames);
+	for (const toolName of BUILT_IN_TOOL_OVERRIDE_NAMES) {
+		if (!config.registerToolOverrides[toolName]) passthrough.add(toolName);
+	}
+	const passthroughNames = [...passthrough];
+	if (!isDeepStrictEqual(passthroughNames, defaults.passthroughToolNames)) {
+		tools.passthrough = passthroughNames;
+	}
 	if (Object.keys(config.customToolOverrides).length > 0) {
 		tools.custom = Object.fromEntries(
 			Object.entries(config.customToolOverrides).map(([toolName, override]) => [
@@ -685,7 +714,7 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 
 const LEGACY_CONFIG_KEYS = new Set([
 	"version", "enabled", "debug", "displaySummary", "toolIntent", "registerToolOverrides", "registerReadToolOverride",
-	"customToolOverrides", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
+	"customToolOverrides", "toolCallLayout", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
 	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "enableThinkingLabel", "previewRows",
 	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
 	"diffCollapsedRows", "diffCollapsedLines", "diffCollapsedMode", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",

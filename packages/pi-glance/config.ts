@@ -102,6 +102,7 @@ export function defaultConfig(): GlanceConfig {
 		git: {
 			showDirty: true,
 			showAheadBehind: true,
+			showBaseBehind: true,
 			shaMode: "off",
 			worktreeSummary: "status",
 			timeoutMs: 1500,
@@ -307,6 +308,7 @@ export function normalizeConfig(raw: unknown): GlanceConfig {
 		git: {
 			showDirty: parseBool(git.showDirty, defaults.git.showDirty),
 			showAheadBehind: parseBool(git.showAheadBehind, defaults.git.showAheadBehind),
+			showBaseBehind: parseBool(git.showBaseBehind, defaults.git.showBaseBehind),
 			shaMode: parseStringEnum(git.shaMode, GIT_SHA_MODES, defaults.git.shaMode),
 			worktreeSummary: parseWorktreeSummary(git.worktreeSummary, defaults.git.worktreeSummary),
 			timeoutMs: parseIntAtLeast(git.timeoutMs, defaults.git.timeoutMs, 100),
@@ -345,7 +347,7 @@ const CONFIG_SHAPE: Record<string, ReadonlySet<string> | undefined> = {
 	editor: new Set(["minContentRows", "topMarginRows"]),
 	display: new Set(["showProvider", "workspaceLabel"]),
 	model: new Set(["customNames", "showThinking"]),
-	git: new Set(["showDirty", "showAheadBehind", "shaMode", "worktreeSummary", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
+	git: new Set(["showDirty", "showAheadBehind", "showBaseBehind", "shaMode", "worktreeSummary", "timeoutMs", "refreshDebounceMs", "pollIntervalMs"]),
 	context: new Set(["text", "progress", "progressStyle", "progressWidth"]),
 	cost: new Set(["hideZero"]),
 	tokens: new Set(["display", "cache"]),

@@ -42,6 +42,8 @@ interface EditorConfig {
 export interface GitConfig {
 	showDirty: boolean;
 	showAheadBehind: boolean;
+	/** Show `main↓N` when HEAD is behind the local `origin/main` snapshot. */
+	showBaseBehind: boolean;
 	shaMode: GitShaMode;
 	worktreeSummary: WorktreeSummaryMode;
 	timeoutMs: number;
@@ -149,6 +151,8 @@ export interface GitSnapshot {
 	upstream: string | null;
 	ahead: number;
 	behind: number;
+	/** Commits on `origin/main` not in HEAD. 0 when missing, unknown, or not behind. */
+	baseBehind: number;
 	staged: number;
 	unstaged: number;
 	untracked: number;

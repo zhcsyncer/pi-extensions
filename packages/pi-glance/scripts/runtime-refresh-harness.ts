@@ -71,6 +71,7 @@ export function gitSnapshot(branchOrOverrides: string | Partial<GitSnapshot> = "
 		upstream: null,
 		ahead: 0,
 		behind: 0,
+		baseBehind: 0,
 		staged: 0,
 		unstaged: repo ? 1 : 0,
 		untracked: 0,

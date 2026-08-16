@@ -154,7 +154,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 
 	const narrow = renderInputSurfaceFrame({ state, config, width: 48, styles, body: { kind: "editor", lines: [""] } });
 	const narrowTop = stripAnsi(narrow[0] ?? "");
-	assert.ok(narrowTop.includes("git main *"), "narrow normal frame should preserve the first configured status segment");
+	assert.ok(narrowTop.includes("git main"), "narrow normal frame should preserve the first configured status segment");
 	assert.ok(narrowTop.includes("$ $0.042"), "narrow normal frame should preserve a middle status segment that the old title-first budget dropped");
 	assert.ok(narrowTop.includes("ctx 23%"), "narrow normal frame should protect the rightmost status segment that fits the status-first budget");
 	assert.equal(narrowTop.includes("ai Sonnet 4"), false, "narrow status should still evict segments from the configured right edge");
@@ -171,7 +171,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	const wide = renderInputSurfaceFrame({ state, config, width: 120, styles, body: { kind: "editor", lines: [""] } });
 	const wideTop = stripAnsi(wide[0] ?? "");
 	assert.ok(wideTop.includes("07_pi-glance"), "wide normal frame should keep the full workspace title");
-	for (const expected of ["git main *", "$ $0.042", "ctx 23%", "ai anthropic/Sonnet 4 high"]) {
+	for (const expected of ["git main ↑2 ↓1", "$ $0.042", "ctx 23%", "ai anthropic/Sonnet 4 high"]) {
 		assert.ok(wideTop.includes(expected), `wide normal frame should keep status ${expected}`);
 	}
 	assertExactFrameWidth(wide, 120, "wide coexistence frame");
@@ -187,7 +187,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	const bashTop = stripAnsi(bash[0] ?? "");
 	assert.ok(bashTop.includes("Bash"), "Bash mode label should keep the interactive left slot on narrow frames");
 	assert.equal(bashTop.includes("07_pi"), false, "Bash mode label should replace the workspace title");
-	assert.ok(bashTop.includes("git main *") && bashTop.includes("$ $0.042"), "Bash mode should leave its remaining width to earlier status segments");
+	assert.ok(bashTop.includes("git main") && bashTop.includes("$ $0.042"), "Bash mode should leave its remaining width to earlier status segments");
 	assert.equal(bashTop.includes("ctx 23%"), false, "Bash mode should take width before later status segments");
 	assertExactFrameWidth(bash, 40, "narrow Bash frame");
 
@@ -202,7 +202,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	const scrolledTop = stripAnsi(scrolled[0] ?? "");
 	assert.ok(scrolledTop.includes("─── ↑ 7 more"), "top scroll indicator should keep the interactive left slot on narrow frames");
 	assert.equal(scrolledTop.includes("07_pi"), false, "top scroll indicator should replace the workspace title");
-	assert.ok(scrolledTop.includes("git main *") && scrolledTop.includes("$ $0.042"), "top scroll indicator should leave remaining width to earlier status segments");
+	assert.ok(scrolledTop.includes("git main") && scrolledTop.includes("$ $0.042"), "top scroll indicator should leave remaining width to earlier status segments");
 	assert.equal(scrolledTop.includes("ctx 23%"), false, "top scroll indicator should take width before later status segments");
 	assertExactFrameWidth(scrolled, 40, "narrow scrolled frame");
 
