@@ -188,7 +188,7 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash -z
 
 - `Dirty marker`：文件计数还没出现时显示/隐藏脏灯；冲突始终保留。
 - `Ahead / behind`：上游 ahead/behind 计数。
-- `Behind main`：当前分支落后 `origin/main` 时显示 `main↓N`。
+- `Behind main`：当前分支落后 `origin/main` 时显示 `main↓N`；上游 `↓N` 已经在报同一件事时不再重复。
 - `SHA`：`off`、`detached`、`always`。
 - `Working tree`：`status`（默认）或 `border right`。
 - `Polling`：`5s`、`15s`（默认）、`30s`、`60s`。

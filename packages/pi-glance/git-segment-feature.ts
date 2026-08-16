@@ -62,8 +62,13 @@ function gitBaseBehindLabel(behind: number): string | undefined {
 	return behind > 0 ? `main↓${behind}` : undefined;
 }
 
+function gitShowsUpstreamBehind(ctx: SegmentRenderContext): boolean {
+	return ctx.config.git.showAheadBehind && ctx.state.git.behind > 0;
+}
+
 function gitBaseBehindPart(ctx: SegmentRenderContext): string | undefined {
 	if (!ctx.config.git.showBaseBehind) return undefined;
+	if (gitShowsUpstreamBehind(ctx)) return undefined;
 	return gitBaseBehindLabel(ctx.state.git.baseBehind);
 }
 

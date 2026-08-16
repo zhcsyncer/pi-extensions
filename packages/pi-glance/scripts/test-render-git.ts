@@ -141,6 +141,18 @@ assert.equal(
 assert.equal(gitLine({ status: "conflict", dirty: true, conflicts: 1 }, undefined), "git main !", "conflict marker defaults on");
 assert.equal(gitLine({ ahead: 2, behind: 1 }), "git main ↑2 ↓1", "ahead/behind defaults on");
 assert.equal(
+	gitLine({ ahead: 0, behind: 2, baseBehind: 2 }),
+	"git main ↓2",
+	"upstream behind origin/main should not repeat as main↓N",
+);
+assert.equal(
+	gitLine({ ahead: 0, behind: 2, baseBehind: 2 }, (config) => {
+		config.git.showAheadBehind = false;
+	}),
+	"git main main↓2",
+	"hidden upstream behind should still allow main↓N",
+);
+assert.equal(
 	gitLine({ branch: "feat/glance-main-behind", upstream: null, ahead: 0, behind: 0, baseBehind: 8 }),
 	"git feat/glance-main-behind main↓8",
 	"base behind shows without an upstream",
@@ -148,7 +160,7 @@ assert.equal(
 assert.equal(gitLine({ baseBehind: 0 }), "git main", "aligned base stays quiet");
 assert.equal(gitLine({ ahead: 1, behind: 0, baseBehind: 8 }), "git main ↑1 main↓8", "upstream ahead and base behind can coexist");
 assert.equal(
-	gitLine({ status: "dirty", dirty: true, unstaged: 1, ahead: 2, behind: 1, baseBehind: 8 }, undefined, 48),
+	gitLine({ status: "dirty", dirty: true, unstaged: 1, ahead: 2, behind: 0, baseBehind: 8 }, undefined, 48),
 	"git main *",
 	"minimal git keeps the dirty lamp when worktree counts are unknown",
 );
@@ -159,7 +171,7 @@ assert.equal(
 			dirty: true,
 			unstaged: 1,
 			ahead: 2,
-			behind: 1,
+			behind: 0,
 			baseBehind: 8,
 			worktree: {
 				staged: [],
@@ -178,14 +190,19 @@ assert.equal(
 	"minimal git keeps base behind after the dirty lamp yields to worktree counts",
 );
 assert.equal(
-	gitLine({ ahead: 2, behind: 1, baseBehind: 8 }, undefined, 80),
-	"git main ↑2 ↓1 main↓8",
-	"compact git keeps upstream counts and base behind together",
+	gitLine({ ahead: 2, behind: 0, baseBehind: 8 }, undefined, 80),
+	"git main ↑2 main↓8",
+	"compact git keeps upstream ahead and base behind together",
 );
 assert.equal(
-	gitLine({ ahead: 2, behind: 1, baseBehind: 8 }, undefined, 48),
+	gitLine({ ahead: 2, behind: 0, baseBehind: 8 }, undefined, 48),
 	"git main main↓8",
 	"minimal git keeps base behind when there is no dirty or conflict mark",
+);
+assert.equal(
+	gitLine({ ahead: 0, behind: 2, baseBehind: 2 }, undefined, 48),
+	"git main",
+	"minimal git keeps quiet when the only remaining count would duplicate upstream behind",
 );
 assert.equal(
 	gitLine({ ahead: 2, behind: 1 }, (config) => {

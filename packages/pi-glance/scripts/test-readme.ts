@@ -29,6 +29,7 @@ assertReadmeIncludes("250ms trailing debounce", "README should document event-dr
 assertReadmeIncludes("fallback polling defaults to 15 seconds", "README should document fallback polling default");
 assertReadmeIncludes("`main↓N`", "README should document the behind-main marker");
 assertReadmeIncludes("`Behind main`", "README should document the behind-main setting");
+assertReadmeIncludes("or upstream `↓N` is already showing that same lag", "README should hide main↓N when upstream behind already covers origin/main");
 assertReadmeIncludes("The 5-second status poll never runs `git fetch`", "README should keep origin/main fetch off the status poll");
 assertReadmeIncludes("No recursive filesystem watcher is installed", "README should reject recursive watcher behavior");
 assertReadmeIncludes("`/diff` runs revdiff's default uncommitted review", "README should document the primary review entrypoint");
@@ -64,6 +65,7 @@ assert.ok(readmeZh.includes("`main Δ6 +123 −99`"), "Chinese README should sho
 assert.ok(readmeZh.includes("这些计数可见时不再亮脏灯"), "Chinese README should hide the dirty lamp when worktree counts are visible");
 assert.ok(readmeZh.includes("`main↓N`"), "Chinese README should document the behind-main marker");
 assert.ok(readmeZh.includes("`Behind main`"), "Chinese README should document the behind-main setting");
+assert.ok(readmeZh.includes("上游 `↓N` 已经在报同一件事时不再重复"), "Chinese README should hide main↓N when upstream behind already covers origin/main");
 assert.ok(readmeZh.includes("5 秒 status 轮询不会 `git fetch`"), "Chinese README should keep origin/main fetch off the status poll");
 assert.ok(readmeZh.includes("250ms trailing debounce"), "Chinese README should document event-driven Git debounce");
 assert.ok(readmeZh.includes("兜底轮询默认 15 秒"), "Chinese README should document fallback polling default");

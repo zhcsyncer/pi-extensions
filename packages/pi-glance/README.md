@@ -209,7 +209,7 @@ The Git segment is intentionally quiet:
 - Dirty repositories add `*` in plain mode or `●` in Nerd Font mode, unless Working Tree file counts are already visible in the Git status or the bottom-right border.
 - Conflicts add `!` in plain mode or `⚠` in Nerd Font mode.
 - Ahead/behind counts appear when Git reports an upstream, for example `↑2 ↓1`.
-- When the current HEAD is behind the last local `origin/main` snapshot, Glance adds a separately highlighted `main↓N`. This does not change the branch's upstream and stays hidden when the count is 0 or `origin/main` is missing.
+- When the current HEAD is behind the last local `origin/main` snapshot, Glance adds a separately highlighted `main↓N`. This does not change the branch's upstream and stays hidden when the count is 0, `origin/main` is missing, or upstream `↓N` is already showing that same lag.
 - Non-Git directories hide the Git segment.
 
 Open `/glance`, select **Git**, move to a value with the arrow keys, and press Enter to configure:
