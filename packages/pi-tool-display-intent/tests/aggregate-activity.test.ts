@@ -207,7 +207,7 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
-test("in-progress Tools ledger pins the latest narration below the tool rows", () => {
+test("in-progress Tools ledger pins the latest narration above the tool rows", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-narration-budget");
 	projection.ingestAssistantMessage({
@@ -230,8 +230,8 @@ test("in-progress Tools ledger pins the latest narration below the tool rows", (
 	assert.match(rendered.join("\n"), /custom_1/);
 	assert.match(rendered.join("\n"), /› 先定位两边的设计与实现入口/);
 	assert.ok(
-		rendered.findIndex((line) => line.includes("custom_1"))
-			< rendered.findIndex((line) => line.includes("先定位两边的设计与实现入口")),
+		rendered.findIndex((line) => line.includes("先定位两边的设计与实现入口"))
+			< rendered.findIndex((line) => /◐ custom_1(?:\s|$)/.test(line)),
 	);
 	const wrapped = renderAggregateActivity({
 		...view!,

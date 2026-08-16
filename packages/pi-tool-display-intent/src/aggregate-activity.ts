@@ -1159,6 +1159,22 @@ export function renderAggregateActivity(
 	if (stats) {
 		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
 	}
+	if (!view.settled && view.latestNarration) {
+		let mark = AGGREGATE_ASSISTANT_MARK;
+		try {
+			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
+		} catch {
+			// Theme helpers must not crash the collapsed ledger.
+		}
+		const prefix = `  ${mark} `;
+		const wrapped = wrapTextWithAnsi(view.latestNarration, Math.max(1, safeWidth - visibleWidth(prefix)))
+			.slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
+		const rows = wrapped.length > 0 ? wrapped : [view.latestNarration];
+		for (const [index, row] of rows.entries()) {
+			const rowPrefix = index === 0 ? prefix : "    ";
+			lines.push(`${rowPrefix}${row}`);
+		}
+	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {
 			lines.push(
@@ -1182,22 +1198,6 @@ export function renderAggregateActivity(
 		lines.push(
 			truncateToWidth(theme.fg("muted", `  … ${view.activeOverflow} more active`), safeWidth, "…"),
 		);
-	}
-	if (!view.settled && view.latestNarration) {
-		let mark = AGGREGATE_ASSISTANT_MARK;
-		try {
-			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
-		} catch {
-			// Theme helpers must not crash the collapsed ledger.
-		}
-		const prefix = `  ${mark} `;
-		const wrapped = wrapTextWithAnsi(view.latestNarration, Math.max(1, safeWidth - visibleWidth(prefix)))
-			.slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
-		const rows = wrapped.length > 0 ? wrapped : [view.latestNarration];
-		for (const [index, row] of rows.entries()) {
-			const rowPrefix = index === 0 ? prefix : "    ";
-			lines.push(`${rowPrefix}${row}`);
-		}
 	}
 	return lines;
 }
