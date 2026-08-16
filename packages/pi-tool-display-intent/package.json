@@ -18,6 +18,7 @@
     "tool-display-api-consumer.d.ts",
     "config/config.example.json",
     "config/config.schema.json",
+    "assets",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
@@ -66,7 +67,8 @@
   "pi": {
     "extensions": [
       "./extensions/tool-display-intent.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/assets/demo-aggregate-1.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.0 <1",

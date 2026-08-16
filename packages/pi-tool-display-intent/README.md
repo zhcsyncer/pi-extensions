@@ -2,6 +2,8 @@
 
 [中文文档](./README.zh-CN.md)
 
+![Collapsed Tools ledger](./assets/demo-aggregate-1.png)
+
 `pi-tool-display-intent` is a Pi extension that combines compact tool rendering with model-written, user-facing intent phrases.
 
 ```text
@@ -21,9 +23,10 @@ The model writes `displaySummary` as part of the normal tool call. The extension
 - Shows the intent beside deterministic metadata such as paths, commands, patterns, and diff information.
 - Strips the presentation field before calling the original tool implementation.
 - Keeps the raw field available to Pi RPC consumers and retains it in later model context so follow-up calls keep producing intent.
-- Uses deterministic per-tool fallbacks when a model or historical call omits the field.
+- Uses deterministic per-tool fallbacks while a current call is executing; restored calls without a stored summary remain target-only.
 - Sanitizes terminal control sequences and bounds displayed intent length.
 - Offers an optional Claude Code-inspired TUI style with status markers, `Name(target)` headers, unboxed rows, and indented `⎿` results.
+- Offers an optional aggregate layout that summarizes every registered tool in one bounded Tools view per user request, with `Agent` renderer passthrough by default.
 - Preserves the compact output modes, MCP rendering, pending diff previews, adaptive edit/write diffs, thinking labels, and native user prompt box inherited from `pi-tool-display`.
 - Provides a cooperative API for custom tools.
 
@@ -68,12 +71,14 @@ Direct commands:
 ```text
 /tool-display-intent show
 /tool-display-intent reset
+/tool-display-intent layout individual
+/tool-display-intent layout aggregate
 /tool-display-intent mode compact
 /tool-display-intent mode summary
 /tool-display-intent mode preview
 ```
 
-Tool ownership and intent-schema changes take effect after `/reload`. Legacy `preset minimal|balanced|detailed`, `opencode`, and `verbose` command names remain accepted as aliases.
+Tool ownership, layout, intent-schema, and renderer-shell changes take effect after `/reload`. Legacy `preset minimal|balanced|detailed`, `opencode`, and `verbose` command names remain accepted as aliases.
 
 ## Configuration
 
@@ -93,6 +98,7 @@ When `PI_CODING_AGENT_DIR` is unset, Pi's default agent directory is used. Debug
     "language": "en"
   },
   "toolCalls": {
+    "layout": "aggregate",
     "style": "claude",
     "bashCommandPreviewRows": 1
   },
@@ -108,10 +114,10 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 | Section | Configurable fields | Purpose |
 |---|---|---|
 | `intent` | `enabled`, `language`, `maxLength` | Model-written tool intent. |
-| `toolCalls` | `style`, `bashCommandPreviewRows` | Call framing and the wrapped-row budget for collapsed Bash command arguments. |
+| `toolCalls` | `layout`, `style`, `bashCommandPreviewRows` | Individual or aggregate calls, call framing, and the wrapped-row budget for collapsed Bash command arguments. |
 | `results` | `mode`, `previewRows` | Result amount and one shared wrapped-row preview budget. |
 | `diff` | `layout`, `indicators`, `splitMinWidth`, `collapsedRows`, `collapsedMode`, `wordWrap` | Edit/write diff presentation. `collapsedMode: summary` shows only the +N -M stats line before Ctrl+O for the densest transcript; `body` (default) keeps the `collapsedRows` preview. |
-| `transcript` | `userMessageStyle`, `thinkingLabel` | User messages and reasoning labels. |
+| `transcript` | `userMessageStyle`, `thinkingLabel` | Individual-only user boxes and reasoning labels. Aggregate always uses a compact accent-gutter user prompt with vertical padding and hides thinking labels. |
 | `tools` | `passthrough`, `custom` | Renderer ownership and explicitly listed custom tools. |
 | `advanced` | `expandedRows`, `truncationHints`, `rtkCompactionHints`, `debug` | Expansion safety and diagnostics. |
 
@@ -125,13 +131,49 @@ See [`config/config.example.json`](./config/config.example.json) for every confi
 
 Every content preview, including custom tools and bash live/error output, uses `results.previewRows`. Its supported range is `2`–`80`, and it counts terminal rows after wrapping, so a minified JSON object, base64 payload, or other long single line cannot bypass the limit. A stored v2 value of `1` is migrated to `2`; `advanced.expandedRows` separately caps expanded output.
 
+### Tool call layouts
+
+`toolCalls.layout` defaults to `individual`, which preserves the complete existing per-tool behavior. `aggregate` summarizes every registered built-in, custom, MCP, and late-loaded tool within one user request:
+
+![Collapsed Tools ledger](./assets/demo-aggregate-1.png)
+
+![Expanded Tools timeline](./assets/demo-aggregate-2.png)
+
+![Failed Tools ledger](./assets/demo-aggregate-3.png)
+
+```text
+◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+  › 先对照两边入口
+  ◐ Bash(pnpm test)
+
+✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
+  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
+```
+
+The latest non-passthrough, non-image tool row carries Tools; older aggregated members occupy zero rows. Counts include pending, running, successful, and failed calls and remain in first-seen tool order. Collapsed failures appear only as `N failed` in the header. Up to three running or recently completed operations appear in assistant source order. A success changes to `done`; a newer call replaces the oldest retained `done`, and the final success folds 1.5 seconds after Pi reports the agent settled.
+
+Every tool receives the same aggregate treatment and a deterministic theme color. Aggregate deliberately does not infer or report file-change summaries: edits made through Bash, custom tools, or child Agent sessions cannot be measured completely from the parent transcript. Images fail open to their original renderer. `Agent` also keeps its rich progress/result renderer by default, but still contributes to the Tools count. Other passthrough names can be added through `tools.passthrough`.
+
+While collapsed, aggregate stays one Tools ledger: failures appear only as `N failed`, and at most three running or recent-done rows stay visible. While the turn is still running, the latest assistant note is pinned under the header, above the tool rows, and does not use a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows wall-clock duration, main-chain `↑` / `↓` tokens plus cache `R` / `W`, and local completion time. The final assistant conclusion stays outside the ledger. `Ctrl+O` keeps the unframed Tools summary and opens a Bash-style result gutter beneath it: mid-turn notes return in place with a `›` mark, and each call shows one compact target/status line. The last row uses `└`; earlier rows keep `│`. Expanded rows still do not dump output, file contents, or diff bodies. When Pi hides reasoning blocks, collapsed `Thinking...` placeholders are stripped; errors and explicitly revealed reasoning remain visible.
+
+Aggregation changes only interactive rendering. It does not rewrite or append Session calls/results, and its projection is rebuilt from the current branch after reload, resume, tree navigation, or compaction. A custom tool's execution-time UI still runs; its transcript result is folded in aggregate. Switching to `individual` and reloading restores the original renderer and stored result—for example, completed `ask_user_question` answers become visible again.
+
+Individual-only preferences remain in `config.json` while aggregate is active. The settings TUI hides them, and `/tool-display-intent show` marks them inactive. Layout changes take effect after `/reload` and redraw the whole current branch, not only future calls. To inspect historical raw details, switch back and reload:
+
+```text
+/tool-display-intent layout individual
+/reload
+```
+
+Owned built-ins created while aggregate was active have no generated `displaySummary`; individual history uses deterministic targets and the original stored results.
+
 `toolCalls.bashCommandPreviewRows` is a separate `1`–`8` wrapped-row budget for Bash command arguments and defaults to `1`. Short commands stay inline. Long or multiline commands collapse with exact line/size metadata; Claude-style calls keep intent in the header, put the command preview on its own row, and emphasize that row's shell prompt with the accent color. `Ctrl+O` reveals the complete original command and applies Bash syntax highlighting within safety limits. This setting does not affect command output. Claude-style Bash results use a connected left gutter through their final row in both collapsed and expanded views.
 
 Path-bearing `read`, `grep`, `find`, `ls`, `edit`, and `write` calls keep short paths unchanged. When a full call header would wrap, the collapsed view removes middle path segments while preserving useful leading directories and the basename. `Ctrl+O` restores every path segment and lets the full header wrap normally; home paths remain normalized with `~`.
 
 Model-written intent uses the theme's regular `accent` color without bold or background styling. Deterministic commands, paths, and queries use normal `text`; metadata, separators, and deterministic fallback intents remain `muted`.
 
-`tools.passthrough` lists built-in tools whose renderer should remain untouched; it does not disable those tools. A `tools.custom` entry exists only when decoration is enabled, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
+`tools.passthrough` accepts any registered tool name whose original renderer should remain visible in aggregate; it does not disable the tool, and the call still contributes to Tools counts. `Agent` is included by default and omitted by sparse serialization. A built-in passthrough name also opts out of this extension's individual renderer override. A `tools.custom` entry configures the renderer used in individual mode, for example: `"web_search": { "renderer": "generic", "mode": "summary" }`. The bundle-private Search Hub already uses the cooperative API, so it needs no such entry unless you want to pin a mode instead of inheriting `results.mode`.
 
 ### Automatic legacy migration
 
@@ -147,7 +189,7 @@ On first load, the extension automatically moves the previous config path, legac
 
 `bashCollapsedLines` is intentionally discarded because all previews now share `results.previewRows`. Deprecated `displaySummary.required`, `displaySummary.showInTui`, unknown fields, and invalid values that cannot be mapped are also discarded. The Pi status bar reports the exact affected field paths. Malformed JSON and unsupported future schema versions are preserved and use defaults instead. Run `/reload` after editing the file directly.
 
-When `intent.enabled` is on, `displaySummary` is required in owned built-in schemas and always shown in TUI. If an old or incomplete call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
+When `intent.enabled` is on in the `individual` layout, `displaySummary` is required in owned built-in schemas and always shown in TUI. If a current executing call omits it, the renderer shows a deterministic fallback and `prepareArguments` backfills the raw arguments. Restored calls with no stored summary remain target-only, so aggregate history does not acquire invented intent after switching layouts. Since Pi emits the initial `tool_execution_start` before preparation, RPC clients should still provide their own fallback for that first event.
 
 ## Custom tools
 
@@ -208,7 +250,7 @@ The raw call remains suitable for RPC UI progress:
 }
 ```
 
-The extension retains `displaySummary` in later model context. This small token cost gives the model valid recent examples and prevents resumed or multi-turn runs from teaching the model to omit the required field. Persisted Session and RPC history keep the same argument as well.
+In the individual layout, the extension retains `displaySummary` in later model context. This small token cost gives the model valid recent examples and prevents resumed or multi-turn runs from teaching the model to omit the required field. Persisted Session and RPC history keep the same argument as well. Aggregate does not register or generate this field.
 
 ## Security and cost
 

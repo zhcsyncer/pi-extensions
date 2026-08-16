@@ -7,6 +7,7 @@ import type { InspectorSettingItem } from "./settings-inspector-modal.js";
 import {
 	DIFF_COLLAPSED_MODES,
 	RESULT_DISPLAY_MODES,
+	TOOL_CALL_LAYOUTS,
 	type ToolDisplayConfig,
 } from "./types.js";
 
@@ -26,6 +27,19 @@ interface ModalOverlayOptions {
 const PREVIEW_ROW_VALUES = ["2", "4", "8", "12", "20", "40"] as const;
 const BASH_COMMAND_PREVIEW_ROW_VALUES = ["1", "2", "3", "4"] as const;
 const MODE_COMMAND_HINT = RESULT_DISPLAY_MODES.join("|");
+const LAYOUT_COMMAND_HINT = TOOL_CALL_LAYOUTS.join("|");
+const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
+	"resultMode",
+	"previewRows",
+	"toolIntentEnabled",
+	"toolCallStyle",
+	"bashCommandPreviewRows",
+	"diffViewMode",
+	"diffIndicatorMode",
+	"diffCollapsedMode",
+	"enableThinkingLabel",
+	"enableNativeUserMessageBox",
+]);
 
 function toOnOff(value: boolean): string {
 	return value ? "on" : "off";
@@ -38,6 +52,7 @@ function toolOwnershipSummary(config: ToolDisplayConfig): string {
 
 function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCapabilities): string {
 	const parts = [
+		`layout=${config.toolCallLayout}`,
 		`results=${config.resultMode}/${config.previewRows}rows`,
 		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
 		`toolCalls=${config.toolCallStyle}/bash${config.bashCommandPreviewRows}rows`,
@@ -49,6 +64,9 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`diffWrap=${toOnOff(config.diffWordWrap)}`,
 		`ownership={${toolOwnershipSummary(config)}}`,
 	];
+	if (config.toolCallLayout === "aggregate") {
+		parts.push("individualSettings=retained (inactive in aggregate layout)");
+	}
 	parts.push(capabilities.hasMcpTooling ? "mcp=available" : "mcp=unavailable");
 	parts.push(
 		capabilities.hasRtkOptimizer
@@ -76,12 +94,40 @@ function buildAdvancedNotes(
 	];
 }
 
-function buildInspectorSettings(
+export function buildInspectorSettings(
 	config: ToolDisplayConfig,
 	capabilities: ToolDisplayCapabilities,
 ): InspectorSettingItem[] {
 	const configPath = shortenPath(getToolDisplayConfigPath());
-	return [
+	const settings: InspectorSettingItem[] = [
+		{
+			id: "toolCallLayout",
+			label: "Tool call layout",
+			currentValue: config.toolCallLayout,
+			values: TOOL_CALL_LAYOUTS,
+			inspectorTitle: "Tool Call Layout",
+			inspectorSummary: config.toolCallLayout === "aggregate"
+				? [
+					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
+					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
+					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
+					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool, thinking-label, and boxed-user settings are retained but inactive.",
+				]
+				: [
+					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
+					"Aggregate summarizes every registered tool in one bounded Tools view per user turn.",
+				],
+			inspectorOptions: [
+				"individual — preserve the complete existing per-tool display (default)",
+				"aggregate — summarize tools and hide mid-turn narration; Ctrl+O restores the timeline",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Changing the layout updates tool schemas and renderer shells after /reload and redraws the whole current branch.",
+				"Aggregate never generates displaySummary or reveals grouped output/diff bodies.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["layout", "individual", "aggregate", "tools", "summary", "reload"],
+		},
 		{
 			id: "resultMode",
 			label: "Tool result mode",
@@ -253,6 +299,7 @@ function buildInspectorSettings(
 			inspectorSummary: [
 				"Adds an explicit Thinking: label to supported provider reasoning blocks.",
 				"Presentation labels are removed before model context is sent.",
+				"This setting is inactive in aggregate, which hides thinking labels.",
 			],
 			inspectorOptions: [
 				"on — show the transcript label",
@@ -270,6 +317,7 @@ function buildInspectorSettings(
 			inspectorTitle: "User Message Style",
 			inspectorSummary: [
 				"Controls whether user prompts use a bordered box or Pi's default transcript style.",
+				"This setting is inactive in aggregate, which always uses a compact accent-gutter block with vertical padding.",
 			],
 			inspectorOptions: [
 				"boxed — bordered native user prompt box",
@@ -280,10 +328,15 @@ function buildInspectorSettings(
 			searchTerms: ["user", "message", "style", "box", "prompt"],
 		},
 	];
+	return config.toolCallLayout === "aggregate"
+		? settings.filter((setting) => !INDIVIDUAL_ONLY_SETTING_IDS.has(setting.id))
+		: settings;
 }
 
-function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
+export function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
 	switch (id) {
+		case "toolCallLayout":
+			return { ...config, toolCallLayout: value as ToolDisplayConfig["toolCallLayout"] };
 		case "resultMode": {
 			const mode = parseToolDisplayMode(value);
 			return mode ? applyToolDisplayMode(config, mode) : config;
@@ -380,6 +433,21 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 	);
 }
 
+function applyLayoutCommand(
+	candidate: string,
+	ctx: ExtensionCommandContext,
+	controller: ToolDisplayConfigController,
+): boolean {
+	const layout = TOOL_CALL_LAYOUTS.find((entry) => entry === candidate);
+	if (!layout) {
+		ctx.ui.notify(`Unknown tool call layout. Use: /tool-display-intent layout ${LAYOUT_COMMAND_HINT}`, "warning");
+		return true;
+	}
+	controller.setConfig({ ...controller.getConfig(), toolCallLayout: layout }, ctx);
+	ctx.ui.notify(`Tool call layout set to ${layout}. Run /reload to apply.`, "info");
+	return true;
+}
+
 function applyModeCommand(
 	candidate: string,
 	ctx: ExtensionCommandContext,
@@ -412,13 +480,16 @@ export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext
 		ctx.ui.notify("Tool display settings reset to defaults.", "info");
 		return true;
 	}
+	if (normalized.startsWith("layout ")) {
+		return applyLayoutCommand(normalized.slice("layout ".length).trim(), ctx, controller);
+	}
 	if (normalized.startsWith("mode ")) {
 		return applyModeCommand(normalized.slice("mode ".length).trim(), ctx, controller);
 	}
 	if (normalized.startsWith("preset ")) {
 		return applyModeCommand(normalized.slice("preset ".length).trim(), ctx, controller);
 	}
-	ctx.ui.notify(`Usage: /tool-display-intent [show|reset|mode ${MODE_COMMAND_HINT}]`, "warning");
+	ctx.ui.notify(`Usage: /tool-display-intent [show|reset|layout ${LAYOUT_COMMAND_HINT}|mode ${MODE_COMMAND_HINT}]`, "warning");
 	return true;
 }
 

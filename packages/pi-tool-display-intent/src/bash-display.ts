@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { resolveDisplaySummaryForTool } from "./display-summary-fallback.js";
 import { registerCleanup, registerTimer } from "./disposable.js";
+import { shouldShowDeterministicFallback } from "./live-tool-call.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import {
 	formatClaudeStatusMarker,
@@ -50,6 +51,7 @@ interface BashSpinnerStateCarrier {
 
 interface BashCallRenderContextLike {
 	executionStarted: boolean;
+	argsComplete?: boolean;
 	expanded?: boolean;
 	isError?: boolean;
 	isPartial: boolean;
@@ -183,6 +185,7 @@ function buildBashCallPresentation(
 	spinnerFrame?: string,
 	elapsedMs?: number,
 	toolIntentConfig?: BashToolIntentConfig,
+	context?: BashCallRenderContextLike,
 ): BashCallPresentation {
 	const commandDisplay = buildCommandDisplay(args);
 	const shellSuffix =
@@ -202,7 +205,10 @@ function buildBashCallPresentation(
 	const displaySummary = toolIntentConfig
 		? resolveDisplaySummaryForTool(args, "bash", toolIntentConfig)
 		: undefined;
-	const intentSuffix = displaySummary
+	const intentSuffix = displaySummary && !(
+		displaySummary.source === "fallback" &&
+		!shouldShowDeterministicFallback(context)
+	)
 		? `${theme.fg("muted", " — ")}${theme.fg(displaySummary.source === "model" ? "accent" : "muted", displaySummary.text)}`
 		: "";
 
@@ -398,6 +404,7 @@ export class BashCallComponent implements Component {
 			spinnerFrame,
 			elapsedMs,
 			toolIntentConfig,
+			context,
 		);
 		const content = buildCollapsedBashCallText(
 			presentation,

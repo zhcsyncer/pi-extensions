@@ -19,6 +19,8 @@ import {
 	createReadToolDefinition,
 	createWriteTool,
 	createWriteToolDefinition,
+	initTheme,
+	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -26,6 +28,7 @@ import {
 	withDisplaySummary,
 } from "../tool-display-api-consumer.js";
 import { addDisplaySummaryParameter } from "../src/display-summary.js";
+import { restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { shortenPath } from "../src/render-utils.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
@@ -44,10 +47,11 @@ interface RegisteredToolLike {
 	renderResult?: (...args: unknown[]) => unknown;
 }
 
-interface ToolEventHandlers {
-	session_start?: () => Promise<void> | void;
-	before_agent_start?: () => Promise<void> | void;
-}
+type ToolEventHandler = (event?: any, ctx?: any) => Promise<void> | void;
+type ToolEventHandlers = Partial<Record<
+	"session_start" | "before_agent_start" | "tool_execution_start" | "tool_execution_end",
+	ToolEventHandler
+>>;
 
 interface ExecutableToolLike extends RegisteredToolLike {
 	execute: (...args: unknown[]) => Promise<{ content?: Array<{ type: string; text?: string }> }>;
@@ -92,7 +96,7 @@ function createExtensionApiStub(allTools: unknown[] = []): {
 		registerTool(tool: RegisteredToolLike): void {
 			registeredTools.push(tool);
 		},
-		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
+		on(event: keyof ToolEventHandlers, handler: ToolEventHandler): void {
 			eventHandlers[event] = handler;
 		},
 		getAllTools(): unknown[] {
@@ -341,6 +345,68 @@ test("built-in renderers use accent for model intent and muted for fallback inte
 	assert.match(fallbackIntent.render(160).join("\n"), /<muted>Read file<\/muted>/);
 });
 
+test("live ToolExecutionComponent shows fallback after args complete while restored rows stay target-only", async () => {
+	initTheme("dark", false);
+	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const read = registeredTools.find((tool) => tool.name === "read");
+	assert.ok(read);
+
+	const ui = { requestRender() {} };
+	const row = new ToolExecutionComponent(
+		"read",
+		"read-live-fallback",
+		{ path: "sample.txt" },
+		{},
+		read as never,
+		ui as never,
+		process.cwd(),
+	);
+	row.setArgsComplete();
+	await eventHandlers.tool_execution_start?.({
+		toolCallId: "read-live-fallback",
+		toolName: "read",
+		args: { path: "sample.txt" },
+	});
+	row.markExecutionStarted();
+	assert.match(row.render(160).join("\n"), /Read file/);
+
+	await eventHandlers.tool_execution_end?.({
+		toolCallId: "read-live-fallback",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "done" }] },
+		isError: false,
+	});
+	row.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
+	assert.doesNotMatch(row.render(160).join("\n"), /Read file/);
+
+	const bash = registeredTools.find((tool) => tool.name === "bash");
+	assert.ok(bash?.renderCall);
+	await eventHandlers.tool_execution_start?.({
+		toolCallId: "bash-live-fallback",
+		toolName: "bash",
+		args: { command: "pnpm test" },
+	});
+	const bashCall = bash.renderCall(
+		{ command: "pnpm test" },
+		{ fg: (_color: string, value: string) => value, bold: (value: string) => value },
+		{
+			toolCallId: "bash-live-fallback",
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			state: {},
+		},
+	) as { render(width: number): string[] };
+	assert.match(bashCall.render(160).join("\n"), /Run command/);
+	await eventHandlers.tool_execution_end?.({
+		toolCallId: "bash-live-fallback",
+		toolName: "bash",
+		result: { content: [] },
+		isError: false,
+	});
+});
+
 test("cooperative custom tools can share intent, execution stripping, and inherited result rendering", async () => {
 	const { api } = createExtensionApiStub();
 	const config = {
@@ -464,6 +530,137 @@ test("cooperative result presentations share preview rows and skip duplicated ra
 	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
 	assert.equal(rendered, "↳ Remote · 2 values\nalpha\nbeta");
 	assert.doesNotMatch(rendered, /duplicate/);
+});
+
+test("aggregate keeps built-in definitions intact without displaySummary schemas", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+		toolCallStyle: "compact" as const,
+		toolIntent: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
+			enabled: true,
+		},
+	};
+	registerToolDisplayOverrides(api, () => config);
+
+	assert.deepEqual(
+		registeredTools.map((tool) => tool.name).sort(),
+		["bash", "edit", "find", "grep", "ls", "read", "write"],
+	);
+	for (const tool of registeredTools) {
+		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
+		assert.notEqual(tool.renderShell, "self", `${tool.name} keeps its individual renderer shell for reload recovery`);
+		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
+		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
+		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);
+	}
+	restoreAggregateToolExecutions();
+});
+
+test("aggregate history switched back to individual keeps raw detail without inventing intent", () => {
+	initTheme("dark", false);
+	const aggregateConfig = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+	};
+	const aggregateStub = createExtensionApiStub();
+	registerToolDisplayOverrides(aggregateStub.api, () => aggregateConfig);
+	const aggregateRead = aggregateStub.registeredTools.find((tool) => tool.name === "read");
+	const aggregateSchema = aggregateRead?.parameters as { properties?: Record<string, unknown> };
+	assert.equal(aggregateSchema.properties?.displaySummary, undefined);
+	const storedArgs = { path: "history.ts" };
+	restoreAggregateToolExecutions();
+
+	const individualConfig = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "individual" as const,
+		resultMode: "preview" as const,
+		readOutputMode: "preview" as const,
+		searchOutputMode: "preview" as const,
+		mcpOutputMode: "preview" as const,
+		bashOutputMode: "preview" as const,
+	};
+	const individualStub = createExtensionApiStub();
+	registerToolDisplayOverrides(individualStub.api, () => individualConfig);
+	const individualRead = individualStub.registeredTools.find((tool) => tool.name === "read");
+	assert.ok(individualRead);
+	const component = new ToolExecutionComponent(
+		"read",
+		"aggregate-history-read",
+		storedArgs,
+		{},
+		individualRead as never,
+		{ requestRender() {} } as never,
+		process.cwd(),
+	);
+	component.updateResult({
+		content: [{ type: "text", text: "original result" }],
+		details: {},
+		isError: false,
+	});
+	const rendered = component.render(120).join("\n");
+	assert.match(rendered, /history\.ts/);
+	assert.match(rendered, /original result/);
+	assert.doesNotMatch(rendered, /Read file/);
+	assert.doesNotMatch(rendered, / — /);
+});
+
+test("all individual built-ins suppress fallback intent on restored calls", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
+	const cases: Array<{ name: string; args: Record<string, unknown> }> = [
+		{ name: "read", args: { path: "history.ts" } },
+		{ name: "grep", args: { pattern: "needle", path: "src" } },
+		{ name: "find", args: { pattern: "*.ts", path: "src" } },
+		{ name: "ls", args: { path: "src" } },
+		{ name: "bash", args: { command: "pnpm test" } },
+		{ name: "edit", args: { path: "history.ts", edits: [{ oldText: "a", newText: "b" }] } },
+		{ name: "write", args: { path: "history.ts", content: "content" } },
+	];
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+	for (const entry of cases) {
+		const component = byName.get(entry.name)?.renderCall?.(
+			entry.args,
+			theme,
+			{ executionStarted: false, isPartial: false, argsComplete: false, state: {} },
+		) as { render(width: number): string[] };
+		assert.doesNotMatch(component.render(160).join("\n"), / — /, `${entry.name} does not invent intent`);
+	}
+});
+
+test("historical model-written intent remains visible when it was actually stored", () => {
+	const { api, registeredTools } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
+	const read = registeredTools.find((tool) => tool.name === "read");
+	const component = read?.renderCall?.(
+		{ path: "history.ts", displaySummary: "Reviewing stored history" },
+		{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
+		{ executionStarted: false, isPartial: false },
+	) as { render(width: number): string[] };
+	assert.match(component.render(120).join("\n"), /Reviewing stored history/);
+});
+
+test("aggregate respects passthrough and external ownership boundaries", () => {
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+		registerToolOverrides: {
+			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
+			read: false,
+		},
+	};
+	const { api, registeredTools } = createExtensionApiStub([
+		{ name: "edit", sourceInfo: { source: "local", path: "/extensions/interactive-edit.ts" } },
+	]);
+	registerToolDisplayOverrides(api, () => config);
+	const names = new Set(registeredTools.map((tool) => tool.name));
+	assert.equal(names.has("read"), false, "passthrough read remains independent");
+	assert.equal(names.has("edit"), false, "externally owned edit remains independent");
+	assert.equal(names.has("bash"), true);
+	restoreAggregateToolExecutions();
 });
 
 test("tool intent can be disabled without changing built-in execution schemas", () => {

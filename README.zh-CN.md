@@ -2,12 +2,14 @@
 
 [English](./README.md)
 
+![收起的 Tools 账本](./packages/pi-tool-display-intent/assets/demo-aggregate-1.png)
+
 zhcsyncer 维护的一组 Pi extensions。
 
 ## 包列表
 
 - [`@zhcsyncer/pi-recap`](./packages/pi-recap) — 最近活动回顾扩展，可选同步 Session 标题，并自动命名最近一层 Herdr pane 或 tmux window。
-- [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、自适应 diff 和受限的 Bash 调用预览。
+- [`@zhcsyncer/pi-tool-display-intent`](./packages/pi-tool-display-intent) — 紧凑工具展示，支持模型生成的 intent、RPC 可见摘要、可选按用户请求汇总全部工具的 Tools、稳定 `done` 行、自适应 diff 和受限的 Bash 调用预览。
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — 周期有界的 Todo overlay：原子多任务 batch、确认后的 `/todo` reset、无依赖图；live 列表只保留当前活动工作，可跨 compact/resume。
 - [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留可组合状态，并把 Working Tree 计数放进 Git 状态或底边右侧，提供 `/diff` review 以及跟随主题的 Claude-inspired working indicator。
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。

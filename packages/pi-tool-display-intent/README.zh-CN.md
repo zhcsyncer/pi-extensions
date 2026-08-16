@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+![收起的 Tools 账本](./assets/demo-aggregate-1.png)
+
 `pi-tool-display-intent` 是一个 Pi extension，将紧凑的工具展示与模型生成的用户可读意图合并在一起。
 
 ```text
@@ -21,9 +23,10 @@ $ pnpm test — 验证 extension 测试套件
 - 在 TUI 中同时展示模型意图与路径、命令、pattern、diff 等确定性信息。
 - 调用原始工具前剥离纯展示字段，保持工具执行语义不变。
 - 在 Pi RPC 原始事件及后续模型上下文中保留该字段，让 follow-up 调用继续生成意图。
-- 模型或历史调用漏掉字段时，使用按工具区分的确定性 fallback。
+- 当前调用执行时若漏掉字段，使用按工具区分的确定性 fallback；恢复后未保存摘要的历史调用只显示 target。
 - 渲染前清理终端控制序列，并限制摘要长度。
 - 可选用 Claude Code 风格 TUI：状态标记、`Name(target)` 标题、无背景框调用行和缩进的 `⎿` 结果。
+- 可选用 aggregate 布局，把一次用户请求中的所有已注册工具汇总为有界 Tools，`Agent` 默认保留原 renderer。
 - 保留 fork 自 `pi-tool-display` 的输出折叠、MCP 展示、pending diff、edit/write diff、thinking label 和原生用户消息框。
 - 为自定义工具提供合作式包装 API。
 
@@ -68,12 +71,14 @@ pi --no-extensions -e ./packages/pi-tool-display-intent
 ```text
 /tool-display-intent show
 /tool-display-intent reset
+/tool-display-intent layout individual
+/tool-display-intent layout aggregate
 /tool-display-intent mode compact
 /tool-display-intent mode summary
 /tool-display-intent mode preview
 ```
 
-修改工具 ownership 或意图 Schema 后需要执行 `/reload`。历史命令 `preset minimal|balanced|detailed`、`opencode` 和 `verbose` 仍作为兼容别名接受。
+修改工具 ownership、layout、意图 Schema 或 renderer shell 后需要执行 `/reload`。历史命令 `preset minimal|balanced|detailed`、`opencode` 和 `verbose` 仍作为兼容别名接受。
 
 ## 配置
 
@@ -93,6 +98,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
     "language": "zh-CN"
   },
   "toolCalls": {
+    "layout": "aggregate",
     "style": "claude",
     "bashCommandPreviewRows": 1
   },
@@ -108,10 +114,10 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 | 分组 | 可配置字段 | 作用 |
 |---|---|---|
 | `intent` | `enabled`、`language`、`maxLength` | 模型生成的工具调用意图。 |
-| `toolCalls` | `style`、`bashCommandPreviewRows` | 调用外框和 Bash 命令参数折叠后的视觉行预算。 |
+| `toolCalls` | `layout`、`style`、`bashCommandPreviewRows` | 逐工具或聚合布局、调用外框和 Bash 命令参数折叠后的视觉行预算。 |
 | `results` | `mode`、`previewRows` | 结果显示量和统一的折行后视觉行预算。 |
 | `diff` | `layout`、`indicators`、`splitMinWidth`、`collapsedRows`、`collapsedMode`、`wordWrap` | edit/write diff 展示。`collapsedMode: summary` 在 Ctrl+O 前只显示 +N -M 统计行，最省空间；`body`（默认）保留 `collapsedRows` 行的预览。 |
-| `transcript` | `userMessageStyle`、`thinkingLabel` | 用户消息和 reasoning 标签。 |
+| `transcript` | `userMessageStyle`、`thinkingLabel` | 仅 individual 生效的用户消息框和 reasoning 标签。Aggregate 固定用左侧强调色细杠、浅灰底和上下内边距的用户行，并隐藏 thinking 标签。 |
 | `tools` | `passthrough`、`custom` | renderer ownership 和明确列出的自定义工具。 |
 | `advanced` | `expandedRows`、`truncationHints`、`rtkCompactionHints`、`debug` | 展开安全上限和诊断。 |
 
@@ -125,13 +131,49 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 所有内容预览，包括 custom tool、bash 流式和错误输出，都使用 `results.previewRows`，支持范围为 `2`–`80`。它统计终端折行后的视觉行，因此压缩 JSON、base64 或其他超长单行无法绕过限制。已有 v2 配置中的 `1` 会迁移为 `2`；`advanced.expandedRows` 单独限制展开后的输出。
 
+### 工具调用布局
+
+`toolCalls.layout` 默认是 `individual`，完整保留现有逐工具行为。`aggregate` 会把一次用户请求中的所有已注册内置、custom、MCP 和延迟加载工具统一汇总：
+
+![收起的 Tools 账本](./assets/demo-aggregate-1.png)
+
+![展开的 Tools 时间线](./assets/demo-aggregate-2.png)
+
+![失败的 Tools 账本](./assets/demo-aggregate-3.png)
+
+```text
+◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+  › 先对照两边入口
+  ◐ Bash(pnpm test)
+
+✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
+  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
+```
+
+最新的非 passthrough、非图片工具行承载 Tools，同组旧聚合成员占用零行。计数包含 pending、running、success 和 failed 调用，并保持工具首次出现的顺序。收起时错误只在标题显示 `N failed`。Tools 最多按 assistant source order 显示三个运行中或刚完成的操作；成功行先变成 `done`，新调用替换最早的 `done`，最后的成功行在 Pi 报告 agent settled 1.5 秒后收起。
+
+所有工具使用相同的聚合规则和确定性的主题颜色。Aggregate 刻意不推断或展示文件变更摘要：Bash、custom tool 或子 Agent 修改无法由父 transcript 完整测量。图片结果 fail-open 到原 renderer。`Agent` 默认也保留自身丰富的进度和结果 renderer，但仍计入 Tools；其他逃生工具可加入 `tools.passthrough`。
+
+收起时 aggregate 仍是一条 Tools 账本：错误只显示 `N failed`，最多保留 3 条运行中或刚完成的行。进行中会把最新一条 assistant 旁白钉在汇总头下方、工具行上方，不占工具预算。整轮结束后，所有旁白收起，汇总条下方用 mute 收据显示墙钟耗时、主链 `↑` / `↓` token 以及 cache `R` / `W`、本地完成时间。最终结论仍在账本外。按 `Ctrl+O` 后仍保留无边线的 Tools 汇总条，并在下方按原时间线展开，类似 Bash 结果的贯通 `│/└`：中途文字回到原来的位置，并以 `›` 标记；每一条调用各自显示一行目标/状态概要。最后一行用 `└`，前面的行用 `│`。展开行仍不会泄露 output、文件内容或 diff body。Pi 隐藏 reasoning block 时，收起的 `Thinking...` 占位行会被剥掉；错误和显式展开的 reasoning 仍保留。
+
+聚合只改变交互渲染，不改写或追加 Session tool call/result。reload、resume、tree 导航和 compaction 会从当前 branch 重建投影。Custom tool 的执行期 UI 仍正常运行；其 transcript result 在 aggregate 中收起。切换到 `individual` 并 reload 后，原 renderer 和保存结果会恢复，例如已完成的 `ask_user_question` 问答会重新可见。
+
+Aggregate 期间，individual-only 偏好仍保留在 `config.json` 中；设置 TUI 会隐藏它们，`/tool-display-intent show` 会标记为 inactive。layout 变更在 `/reload` 后生效，并重绘整个当前 branch，而不是只影响未来调用。需要检查历史原始详情时，切回 individual 并 reload：
+
+```text
+/tool-display-intent layout individual
+/reload
+```
+
+Aggregate 期间创建的本扩展内置工具调用不会生成 `displaySummary`；切回 individual 后，历史行使用确定性 target 和原始保存结果。
+
 `toolCalls.bashCommandPreviewRows` 单独控制 Bash 命令参数折叠后的视觉行预算，可设为 `1`–`8`，默认是 `1`。短命令保持行内展示；长命令或多行命令会附带准确的行数和大小信息。Claude 风格会把 intent 留在标题行，把命令预览放到独立行，并使用 accent 色强调该行的 shell prompt。按 `Ctrl+O` 可查看完整原始命令，并在安全限制内应用 Bash 语法高亮。该配置不影响命令输出。Claude 风格的 Bash 结果无论折叠还是展开，左侧线框都会贯穿到最后一行。
 
 带路径的 `read`、`grep`、`find`、`ls`、`edit`、`write` 调用会原样保留短路径。如果完整调用标题即将折行，折叠视图会省略路径中段，同时保留有辨识度的开头目录和文件名。按 `Ctrl+O` 会恢复全部路径段，并允许完整标题正常折行；Home 路径仍统一显示为 `~`。
 
 模型生成的 intent 使用主题的常规 `accent` 色，不加粗、不加背景。确定性的命令、路径和 query 使用普通 `text`；元数据、分隔符和确定性 fallback intent 继续使用 `muted`。
 
-`tools.passthrough` 表示继续使用原 renderer 的内置工具，不会禁用工具。`tools.custom` 条目存在即启用展示装饰，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
+`tools.passthrough` 接受任意已注册工具名，让其原 renderer 在 aggregate 中保持可见；它不会禁用工具，该调用仍计入 Tools。`Agent` 默认包含在逃生口中，稀疏序列化时省略。内置工具名同时表示不使用本扩展的 individual renderer override。`tools.custom` 配置 individual 模式使用的 renderer，例如：`"web_search": { "renderer": "generic", "mode": "summary" }`。bundle 私有的 Search Hub 已使用合作式 API，因此无需该配置；只有想固定模式而不继承 `results.mode` 时才需要添加。
 
 ### 历史配置自动迁移
 
@@ -147,7 +189,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json
 
 `bashCollapsedLines` 会直接丢弃，因为所有预览统一使用 `results.previewRows`。废弃的 `displaySummary.required`、`displaySummary.showInTui`、未知字段和无法映射的无效值也会被丢弃；Pi 状态栏会报告准确字段路径。格式损坏的 JSON 和未来版本 schema 会原样保留并回退默认值。直接编辑配置后执行 `/reload` 重新读取。
 
-启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。旧 Session 或不完整 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
+在 `individual` 布局启用 `intent.enabled` 后，`displaySummary` 在本 extension 持有的内置工具 Schema 中固定为必填并始终显示。当前正在执行的 tool call 缺少字段时，renderer 会显示确定性 fallback，`prepareArguments` 也会在校验前回填参数；恢复出的历史调用如果没有已保存摘要，则只显示 target，避免 aggregate 历史在切换布局后获得伪造 intent。由于 Pi 在参数准备前发送第一次 `tool_execution_start`，RPC 客户端仍应为该初始事件自行 fallback。
 
 ## 自定义工具
 
@@ -208,7 +250,7 @@ RPC UI 可以直接读取原始调用：
 }
 ```
 
-extension 会在后续模型上下文中保留 `displaySummary`。这会增加少量 token，但能给模型持续提供正确示例，避免恢复旧 Session 或连续工具 turn 时反向教会模型省略必填字段。持久化 Session 与 RPC 历史同样保留该参数。
+在 individual 布局中，extension 会在后续模型上下文中保留 `displaySummary`。这会增加少量 token，但能给模型持续提供正确示例，避免恢复旧 Session 或连续工具 turn 时反向教会模型省略必填字段。持久化 Session 与 RPC 历史同样保留该参数。Aggregate 不注册、也不生成这个字段。
 
 ## 安全与成本
 

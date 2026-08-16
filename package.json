@@ -29,6 +29,7 @@
     "packages/pi-tool-display-intent/tool-display-api-consumer.d.ts",
     "packages/*/config/*.json",
     "packages/*/README*.md",
+    "packages/pi-tool-display-intent/assets/*.png",
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
