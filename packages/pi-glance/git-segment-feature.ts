@@ -27,10 +27,13 @@ function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): str
 	return mode === "border-right" ? "border right" : "status";
 }
 
+function worktreeHasVisibleSummary(ctx: SegmentRenderContext): boolean {
+	return ctx.state.git.status !== "clean" && ctx.state.git.worktree.files > 0;
+}
+
 function worktreeStatusParts(ctx: SegmentRenderContext): string[] {
-	if (ctx.config.git.worktreeSummary !== "status") return [];
+	if (ctx.config.git.worktreeSummary !== "status" || !worktreeHasVisibleSummary(ctx)) return [];
 	const worktree = ctx.state.git.worktree;
-	if (ctx.state.git.status === "clean" || worktree.files <= 0) return [];
 	const parts = [`Δ${worktree.files}`];
 	if (worktree.additions !== null && worktree.deletions !== null) {
 		parts.push(`+${worktree.additions}`, `−${worktree.deletions}`);
@@ -67,8 +70,10 @@ function gitBaseBehindPart(ctx: SegmentRenderContext): string | undefined {
 function gitStatusPart(ctx: SegmentRenderContext): string {
 	const status = gitStatusMark(ctx);
 	if (!status) return "";
-	if (ctx.config.git.showDirty || ctx.state.git.status === "conflict") return status;
-	return "";
+	if (ctx.state.git.status === "conflict") return status;
+	if (!ctx.config.git.showDirty) return "";
+	if (worktreeHasVisibleSummary(ctx)) return "";
+	return status;
 }
 
 function gitDetailParts(ctx: SegmentRenderContext): string[] {
@@ -111,7 +116,7 @@ export const gitSegmentFeature = {
 		{
 			id: "git.dirtyMarker",
 			label: "Dirty marker",
-			hint: "Conflicts always stay visible.",
+			hint: "Off when file counts show. Conflicts stay.",
 			kind: "toggle",
 			value: (config: GlanceConfig) => onOff(config.git.showDirty),
 			mutate: (config: GlanceConfig) => {

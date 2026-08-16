@@ -89,7 +89,7 @@ pnpm debug:git
 - Nerd icons need a Nerd Font or Symbols Nerd Font fallback. If icons look like boxes, choose `plain`.
 - pi-glance does not auto-detect, install, or bundle terminal fonts.
 - Other extensions' `ctx.ui.setStatus()` values remain visible below the editor. Glance permanently omits Pi's two informational footer rows because the input surface already shows those primary facts; there is no setting to restore them.
-- New installs keep working-tree counts in the Git status line, for example `main * Δ6 +123 −99`. Open `/glance` → **Git** → `Working tree` to choose `status` (default) or `border right`.
+- New installs keep working-tree counts in the Git status line, for example `main Δ6 +123 −99`. The dirty lamp stays off while those counts are visible. Open `/glance` → **Git** → `Working tree` to choose `status` (default) or `border right`.
 - Working-tree counts cover staged, unstaged, conflict, and untracked paths once per unique current path. `+N −N` is the standard tracked working tree versus `HEAD`; binary or failed/timeout statistics are omitted rather than guessed, and untracked file contents are never read by polling.
 - Bottom-right details are always active and have no master switch. Turn on `/glance` → **Context** → `Progress bar` to move context text next to a bottom-right bar (the label always includes percent), then choose a standalone `track` or a progress-aware `border` plus `one third` or `remaining` width. Auto-compaction is shown when enabled and can be hidden under **Bottom details**.
 - Reply speed is enabled by default and appears between cost and context. It shows output tokens per wall time: `?` means no trusted measurement yet, `~42 tok/s` is a provisional current-run checkpoint from completed turns, and `42 tok/s` is the finalized agent-end measurement.
@@ -206,7 +206,7 @@ pi-glance never renders full absolute paths in the title: home paths are shorten
 The Git segment is intentionally quiet:
 
 - Clean repositories show only the branch name.
-- Dirty repositories add `*` in plain mode or `●` in Nerd Font mode.
+- Dirty repositories add `*` in plain mode or `●` in Nerd Font mode, unless Working Tree file counts are already visible in the Git status or the bottom-right border.
 - Conflicts add `!` in plain mode or `⚠` in Nerd Font mode.
 - Ahead/behind counts appear when Git reports an upstream, for example `↑2 ↓1`.
 - When the current HEAD is behind the last local `origin/main` snapshot, Glance adds a separately highlighted `main↓N`. This does not change the branch's upstream and stays hidden when the count is 0 or `origin/main` is missing.
@@ -214,14 +214,14 @@ The Git segment is intentionally quiet:
 
 Open `/glance`, select **Git**, move to a value with the arrow keys, and press Enter to configure:
 
-- `Dirty marker` — hide/show normal dirty markers; conflict markers stay visible.
+- `Dirty marker` — hide/show the dirty lamp when file counts are not already visible; conflict markers stay visible.
 - `Ahead / behind` — hide/show upstream counts.
 - `Behind main` — hide/show `main↓N` when this branch is behind `origin/main`.
 - `SHA` — `off`, `detached`, or `always`.
 - `Working tree` — `status` (default) or `border right`.
 - `Polling` — `5s`, `15s` (default), `30s`, or `60s`.
 
-`status` appends unique file and tracked `+N −N` counts to the existing Git segment when the tree is dirty or conflicted, for example `main * Δ6 +123 −99`. Clean repositories stay as just the branch name. `border right` moves that same compact summary to the bottom-right border instead of adding a row outside the input box.
+`status` appends unique file and tracked `+N −N` counts to the existing Git segment when the tree is dirty or conflicted, for example `main Δ6 +123 −99`. The dirty lamp stays off while those counts are visible. Clean repositories stay as just the branch name. `border right` moves that same compact summary to the bottom-right border and also hides the dirty lamp from the Git status; conflict markers stay.
 
 Git is collected asynchronously and cached. Session start and cwd changes refresh immediately. Mutating or unknown tool completions use a 250ms trailing debounce, explicitly read-only tools are skipped, `agent_settled` recalibrates, and non-overlapping fallback polling defaults to 15 seconds with safe failure backoff. The 5-second status poll never runs `git fetch`; a separate background `git fetch origin main` may run at session start, when the editor returns to the foreground, or when the shared `origin/main` snapshot is older than about 12 minutes. The `main↓N` count is always compared against the last local `origin/main` already on disk. No recursive filesystem watcher is installed.
 

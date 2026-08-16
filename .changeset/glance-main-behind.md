@@ -3,4 +3,4 @@
 "@zhcsyncer/pi-glance": minor
 ---
 
-Show a separately highlighted `main↓N` when the current branch is behind the last local `origin/main` snapshot, without changing upstream tracking.
+Show a separately highlighted `main↓N` when the current branch is behind the last local `origin/main` snapshot, without changing upstream tracking. Hide the dirty lamp when Working Tree file counts are already visible in the Git status or the bottom-right border; conflict markers stay.

@@ -21,6 +21,8 @@ assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_set
 assertReadmeIncludes("public `agent_settled` lifecycle event", "README should explain the minimum Pi version");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
 assertReadmeIncludes("`status` (default) or `border right`", "README should document the two Working Tree placements");
+assertReadmeIncludes("unless Working Tree file counts are already visible", "README should hide the dirty lamp when worktree counts are visible");
+assertReadmeIncludes("`main Δ6 +123 −99`", "README should show worktree counts without the dirty lamp");
 assertReadmeIncludes("standard tracked working tree versus `HEAD`", "README should document tracked numstat semantics");
 assertReadmeIncludes("untracked file contents are never read by polling", "README should document untracked polling safety");
 assertReadmeIncludes("250ms trailing debounce", "README should document event-driven Git debounce");
@@ -58,6 +60,8 @@ assert.ok(readmeZh.includes("Progress bar"), "Chinese README should document con
 assert.ok(readmeZh.includes("未用部分保持细线 `─`，已用部分变为粗线 `━`"), "Chinese README should document border progress glyphs");
 assert.ok(readmeZh.includes("70%（含）到 85%（不含）使用 warning，85% 及以上使用 error"), "Chinese README should document fixed context risk thresholds");
 assert.ok(readmeZh.includes("`status`（默认）或 `border right`"), "Chinese README should document the two Working Tree placements");
+assert.ok(readmeZh.includes("`main Δ6 +123 −99`"), "Chinese README should show worktree counts without the dirty lamp");
+assert.ok(readmeZh.includes("这些计数可见时不再亮脏灯"), "Chinese README should hide the dirty lamp when worktree counts are visible");
 assert.ok(readmeZh.includes("`main↓N`"), "Chinese README should document the behind-main marker");
 assert.ok(readmeZh.includes("`Behind main`"), "Chinese README should document the behind-main setting");
 assert.ok(readmeZh.includes("5 秒 status 轮询不会 `git fetch`"), "Chinese README should keep origin/main fetch off the status poll");

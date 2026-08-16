@@ -54,8 +54,8 @@ assert.equal(
 			deletions: 99,
 		},
 	}),
-	"git main * Δ6 +123 −99",
-	"status mode should append unique file and tracked +/− counts",
+	"git main Δ6 +123 −99",
+	"status mode should replace the dirty lamp with unique file and tracked +/− counts",
 );
 assert.equal(
 	gitLine(
@@ -77,8 +77,8 @@ assert.equal(
 			config.git.worktreeSummary = "border-right";
 		},
 	),
-	"git main *",
-	"border-right should keep worktree counts out of the Git status line",
+	"git main",
+	"border-right should keep worktree counts and the dirty lamp out of the Git status line",
 );
 assert.equal(
 	gitLine({ status: "dirty", dirty: true, unstaged: 1 }, (config) => {
@@ -97,6 +97,47 @@ assert.equal(
 	"git main !",
 	"conflict marker remains visible when dirty marker is disabled",
 );
+assert.equal(
+	gitLine({
+		status: "conflict",
+		dirty: true,
+		conflicts: 1,
+		worktree: {
+			staged: [],
+			unstaged: [],
+			untracked: [],
+			conflicts: ["conflict.ts"],
+			files: 1,
+			additions: 2,
+			deletions: 1,
+		},
+	}),
+	"git main ! Δ1 +2 −1",
+	"conflict marker stays next to worktree counts",
+);
+assert.equal(
+	gitLine(
+		{
+			status: "conflict",
+			dirty: true,
+			conflicts: 1,
+			worktree: {
+				staged: [],
+				unstaged: [],
+				untracked: [],
+				conflicts: ["conflict.ts"],
+				files: 1,
+				additions: 2,
+				deletions: 1,
+			},
+		},
+		(config) => {
+			config.git.worktreeSummary = "border-right";
+		},
+	),
+	"git main !",
+	"conflict marker remains when worktree counts move to the border",
+);
 assert.equal(gitLine({ status: "conflict", dirty: true, conflicts: 1 }, undefined), "git main !", "conflict marker defaults on");
 assert.equal(gitLine({ ahead: 2, behind: 1 }), "git main ↑2 ↓1", "ahead/behind defaults on");
 assert.equal(
@@ -109,7 +150,32 @@ assert.equal(gitLine({ ahead: 1, behind: 0, baseBehind: 8 }), "git main ↑1 mai
 assert.equal(
 	gitLine({ status: "dirty", dirty: true, unstaged: 1, ahead: 2, behind: 1, baseBehind: 8 }, undefined, 48),
 	"git main *",
-	"minimal git keeps dirty or conflict over base and upstream counts",
+	"minimal git keeps the dirty lamp when worktree counts are unknown",
+);
+assert.equal(
+	gitLine(
+		{
+			status: "dirty",
+			dirty: true,
+			unstaged: 1,
+			ahead: 2,
+			behind: 1,
+			baseBehind: 8,
+			worktree: {
+				staged: [],
+				unstaged: ["changed.ts"],
+				untracked: [],
+				conflicts: [],
+				files: 6,
+				additions: 123,
+				deletions: 99,
+			},
+		},
+		undefined,
+		48,
+	),
+	"git main main↓8",
+	"minimal git keeps base behind after the dirty lamp yields to worktree counts",
 );
 assert.equal(
 	gitLine({ ahead: 2, behind: 1, baseBehind: 8 }, undefined, 80),

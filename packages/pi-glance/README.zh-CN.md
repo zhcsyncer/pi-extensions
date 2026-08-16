@@ -56,7 +56,7 @@ pi --no-extensions -e ./packages/pi-glance
 
 - 普通终端字体默认使用 `plain` 图标；`nerd` 图标需要 Nerd Font 或 Symbols Nerd Font fallback。
 - 其他扩展的 `ctx.ui.setStatus()` 状态默认保留在输入框下方。
-- 新安装默认把 Working Tree 计数放进顶栏 Git，例如 `main * Δ6 +123 −99`。进入 `/glance` → **Git** → `Working tree` 可在 `status`（默认）和 `border right` 之间切换。
+- 新安装默认把 Working Tree 计数放进顶栏 Git，例如 `main Δ6 +123 −99`。这些计数可见时顶栏不再亮脏灯。进入 `/glance` → **Git** → `Working tree` 可在 `status`（默认）和 `border right` 之间切换。
 - 文件数覆盖 staged、unstaged、conflict、untracked，并按当前路径去重。`+N −N` 使用 tracked Working Tree 相对 `HEAD` 的标准统计；binary、失败或超时时省略无法可靠计算的统计，轮询不会读取 untracked 文件内容。
 - 聚焦输入框的普通边框使用所选 Color source，不再跟随 thinking level。Bash 是唯一动态例外：`!` 使用该颜色来源的 Bash 色并显示 `Bash`，`!!` 显示 `Bash · no context`。
 - 长输入最大高度、内部滚动、`↑/↓ N more`、自动补全和大段粘贴 marker 都继续使用 Pi 原生行为。
@@ -186,14 +186,14 @@ git --no-optional-locks status --porcelain=v2 --branch --show-stash -z
 
 可在 `/glance` → **Git** 中配置：
 
-- `Dirty marker`：普通 dirty marker 的显示；冲突始终保留。
+- `Dirty marker`：文件计数还没出现时显示/隐藏脏灯；冲突始终保留。
 - `Ahead / behind`：上游 ahead/behind 计数。
 - `Behind main`：当前分支落后 `origin/main` 时显示 `main↓N`。
 - `SHA`：`off`、`detached`、`always`。
 - `Working tree`：`status`（默认）或 `border right`。
 - `Polling`：`5s`、`15s`（默认）、`30s`、`60s`。
 
-`status` 只在 dirty/conflict 时把唯一文件数和 tracked `+N −N` 并进现有 Git segment，例如 `main * Δ6 +123 −99`。clean 仓库仍然只显示分支名。`border right` 把同一份紧凑概要移到底边右侧，而不是在输入框外再占一行。
+`status` 只在 dirty/conflict 时把唯一文件数和 tracked `+N −N` 并进现有 Git segment，例如 `main Δ6 +123 −99`。这些计数可见时不再亮脏灯。clean 仓库仍然只显示分支名。`border right` 把同一份紧凑概要移到底边右侧，顶栏也不再亮脏灯；冲突标记仍保留。
 
 刷新以事件驱动为主：session 启动和 cwd 变化立即刷新；edit/write/bash 与未知自定义工具完成后使用 250ms trailing debounce；明确只读工具跳过；`agent_settled` 再校准。兜底轮询默认 15 秒，禁止重叠并在失败/慢场景安全退避。5 秒 status 轮询不会 `git fetch`；`origin/main` 只在 session 开始、编辑器回到前台，或本地快照超过约 12 分钟时后台更新。`main↓N` 始终相对上次已拿到的本地 `origin/main`。不会安装递归文件 watcher。
 

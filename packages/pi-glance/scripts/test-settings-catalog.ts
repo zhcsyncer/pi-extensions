@@ -283,7 +283,7 @@ const gitRows = assertRows(config, "git", [
 		id: "git.dirtyMarker",
 		label: "Dirty marker",
 		value: "on",
-		hint: "Conflicts always stay visible.",
+		hint: "Off when file counts show. Conflicts stay.",
 		kind: "toggle",
 	},
 	{
