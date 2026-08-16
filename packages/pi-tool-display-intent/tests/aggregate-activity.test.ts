@@ -612,4 +612,33 @@ test("deterministic targets never invent intent for generic custom tools", () =>
 	assert.equal(formatAggregateTarget({ toolName: "read", args: { path: "/tmp/a.ts" } }), "Read(/tmp/a.ts)");
 	assert.equal(formatAggregateTarget({ toolName: "grep", args: { pattern: "x", path: "src" } }), "Search(/x/ in src)");
 	assert.equal(formatAggregateTarget({ toolName: "custom_probe", args: { displaySummary: "Secret intent" } }), "custom_probe");
+	assert.equal(
+		formatAggregateTarget({ toolName: "read", args: { path: "/tmp/\x1b]8;;https://evil.example\x07secret.ts" } }),
+		"Read(/tmp/secret.ts)",
+	);
+});
+
+test("streaming assistant updates keep one turn identity after the first tool call appears", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-stable-turn");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-stream",
+		stopReason: "pending",
+		content: [{ type: "text", text: "先定位两边的设计与实现入口" }],
+		usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0 },
+	});
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-stream",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "先定位两边的设计与实现入口" },
+			{ type: "toolCall", ...call("read-stream", "read", { path: "a.ts" }) },
+		],
+		usage: { input: 12, output: 4, cacheRead: 0, cacheWrite: 0 },
+	});
+	const view = projection.getView("read-stream");
+	assert.equal(view?.agentTurnCount, 1);
+	assert.deepEqual(view?.usage, { input: 12, output: 4, cacheRead: 0, cacheWrite: 0 });
 });

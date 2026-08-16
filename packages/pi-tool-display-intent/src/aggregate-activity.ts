@@ -217,11 +217,15 @@ function normalizeTargetText(value: unknown, fallback: string): string {
 	return normalizeDisplaySummary(value, 400) ?? fallback;
 }
 
+function formatAggregatePath(args: unknown): string {
+	return normalizeTargetText(shortenPath(getPath(args) ?? "."), ".");
+}
+
 export function formatAggregateTarget(
 	member: Pick<AggregateMember, "toolName" | "args">,
 ): string {
 	const args = member.args;
-	const path = shortenPath(getPath(args) ?? ".");
+	const path = formatAggregatePath(args);
 	switch (member.toolName) {
 		case "read":
 			return `Read(${path})`;
@@ -304,6 +308,13 @@ function isInterimAssistantMessage(value: unknown): boolean {
 export function aggregateAssistantFrameId(message: unknown): string | undefined {
 	const firstToolId = toolCallsFromMessage(message)[0]?.id;
 	if (firstToolId) return `assistant-before:${firstToolId}`;
+	const record = toRecord(message);
+	if (typeof record.id === "string" && record.id.trim()) return `assistant:${record.id}`;
+	if (typeof record.timestamp === "number") return `assistant:${record.timestamp}`;
+	return undefined;
+}
+
+export function aggregateAssistantTurnId(message: unknown): string | undefined {
 	const record = toRecord(message);
 	if (typeof record.id === "string" && record.id.trim()) return `assistant:${record.id}`;
 	if (typeof record.timestamp === "number") return `assistant:${record.timestamp}`;
@@ -582,9 +593,7 @@ export class AggregateProjection {
 
 	rememberAgentTurn(message: unknown): void {
 		const group = this.ensureActiveGroup();
-		const id = aggregateAssistantFrameId(message)
-			?? (typeof toRecord(message).id === "string" ? `assistant:${toRecord(message).id}` : undefined)
-			?? `assistant-turn:${group.agentTurnIds.length + 1}`;
+		const id = aggregateAssistantTurnId(message) ?? `assistant-turn:${group.agentTurnIds.length + 1}`;
 		if (!group.agentTurnIds.includes(id)) group.agentTurnIds.push(id);
 		this.rememberUsage(id, message);
 		this.rememberEndedAt(messageTimestampMs(message));
