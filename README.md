@@ -16,7 +16,7 @@ A collection of Pi extensions by zhcsyncer.
   ![Failed Tools ledger](./packages/pi-tool-display-intent/assets/demo-aggregate-3.png)
 
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — cycle-bounded task overlay with atomic multi-item batches, confirmed `/todo` reset, and no dependency graph; live lists stay on active work across compaction and resume.
-- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable statuses, working-tree counts in the Git status line or bottom-right border, `/diff` review, and a theme-aware Claude-inspired working indicator.
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — maintained `pi-glance` fork with composable statuses, a single-slot editor stash, working-tree counts in the Git status line or bottom-right border, `/diff` review, and a theme-aware Claude-inspired working indicator.
 
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 

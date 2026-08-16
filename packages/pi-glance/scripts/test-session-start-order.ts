@@ -22,6 +22,7 @@ function createPi(): CapturedPi {
 			handlers.set(event, handler);
 		},
 		registerCommand: () => undefined,
+		registerShortcut: () => undefined,
 		getThinkingLevel: () => "off",
 	} as unknown as ExtensionAPI;
 	return { api, handlers };
@@ -46,8 +47,11 @@ function createContext(calls: string[], mode: "tui" | "rpc" | "json" | "print" =
 			getCwd: () => process.cwd(),
 			getEntries: () => [],
 			getBranch: () => [],
+			getSessionFile: () => undefined,
 		},
 		ui: {
+			getEditorText: () => "",
+			setEditorText: () => undefined,
 			setWorkingMessage: (message?: string) => calls.push(message === undefined ? "setWorkingMessage:restore" : "setWorkingMessage:set"),
 			setWorkingIndicator: (options?: unknown) => calls.push(options === undefined ? "setWorkingIndicator:restore" : "setWorkingIndicator:set"),
 			setWidget: (_key: string, factory: unknown) => calls.push(factory ? "setWidget:install" : "setWidget:clear"),

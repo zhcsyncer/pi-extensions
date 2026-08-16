@@ -20,7 +20,7 @@
 
 ## TUI 与模型上下文边界
 
-本展示改动严格限定为 TUI 投影；同批实现的双层生命周期属于关联计划 [`plan-lifecycle-plan.md`](./plan-lifecycle-plan.md)，不属于 renderer 自身职责：
+本展示改动严格限定为 TUI 投影；同批实现的双层生命周期属于关联计划 [`plan-lifecycle.md`](./plan-lifecycle.md)，不属于 renderer 自身职责：
 
 - 不修改工具名称、Schema、参数或 prompt guidance。
 - 不增加 `displaySummary`，避免改变模型 tool call arguments 和 token 使用。

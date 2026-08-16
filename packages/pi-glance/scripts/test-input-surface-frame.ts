@@ -206,6 +206,44 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 	assert.equal(scrolledTop.includes("ctx 23%"), false, "top scroll indicator should take width before later status segments");
 	assertExactFrameWidth(scrolled, 40, "narrow scrolled frame");
 
+	const stashed = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 80,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { stashOccupied: true },
+	});
+	const stashedTop = stripAnsi(stashed[0] ?? "");
+	assert.ok(stashedTop.includes("stash"), "occupied stash should show a short left-border mark");
+	assertExactFrameWidth(stashed, 80, "occupied stash frame");
+
+	const stashWithBash = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 48,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { stashOccupied: true, modeLabel: "Bash" },
+	});
+	const stashWithBashTop = stripAnsi(stashWithBash[0] ?? "");
+	assert.ok(stashWithBashTop.includes("Bash · s"), "Bash label should keep the left slot and shrink the stash mark");
+	assert.equal(stashWithBashTop.includes("stash"), false, "Bash label should not keep the full stash word");
+	assertExactFrameWidth(stashWithBash, 48, "Bash plus stash frame");
+
+	const stashWithScroll = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 48,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { stashOccupied: true, topScrollIndicator: "─── ↑ 7 more " },
+	});
+	const stashWithScrollTop = stripAnsi(stashWithScroll[0] ?? "");
+	assert.ok(stashWithScrollTop.includes("─ s ") && stashWithScrollTop.includes("↑ 7 more"), "scroll indicator should keep the left slot and shrink the stash mark");
+	assert.equal(stashWithScrollTop.includes("stash"), false, "scroll indicator should not keep the full stash word");
+	assertExactFrameWidth(stashWithScroll, 48, "scrolled plus stash frame");
+
 	const reorderedConfig = defaultConfig();
 	reorderedConfig.editor.topMarginRows = 0;
 	reorderedConfig.editor.minContentRows = 2;

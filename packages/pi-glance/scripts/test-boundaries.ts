@@ -12,7 +12,11 @@ const FOOTER_MODULE = "footer.ts";
 const STATUS_LINE_MODULE = "status-line.ts";
 const INPUT_SURFACE_FRAME_MODULE = "input-surface-frame.ts";
 const WORKTREE_SUMMARY_MODULE = "worktree-summary.ts";
-const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", WORKTREE_SUMMARY_MODULE, INPUT_SURFACE_FRAME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
+const INPUT_STASH_MODULE = "input-stash.ts";
+const INPUT_STASH_CHROME_MODULE = "input-stash-chrome.ts";
+const INPUT_STASH_STORE_MODULE = "input-stash-store.ts";
+const INPUT_STASH_RUNTIME_MODULE = "input-stash-runtime.ts";
+const RENDER_MODULES = new Set(["editor.ts", "renderer.ts", "pane.ts", "segments.ts", "surface-layout.ts", WORKTREE_SUMMARY_MODULE, INPUT_SURFACE_FRAME_MODULE, INPUT_STASH_CHROME_MODULE, FOOTER_MODULE, STATUS_LINE_MODULE]);
 const INDEX_MODULE = "index.ts";
 const PURE_CONFIG_OPTIONS_MODULE = "config-options.ts";
 const SEGMENT_DISPLAY_PRIMITIVES_MODULE = "segment-display-primitives.ts";
@@ -433,7 +437,7 @@ function assertInputSurfaceFrameSeamImports(files: SourceFile[]): void {
 	const inputSurfaceFrame = files.find((candidate) => basename(candidate.path) === INPUT_SURFACE_FRAME_MODULE);
 	assert.ok(inputSurfaceFrame, "input-surface-frame.ts frame composition seam should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./context-risk.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js", "./worktree-summary.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-tui", "./bottom-details.js", "./context-risk.js", "./input-stash-chrome.js", "./status-line.js", "./surface-layout.js", "./theme-adapter.js", "./types.js", "./worktree-summary.js"]);
 	const forbiddenLocalSpecifiers = new Set([
 		"./editor.js",
 		"./renderer.js",
@@ -877,6 +881,57 @@ function assertProviderCountSnapshotSeam(files: SourceFile[]): void {
 	if (!/new Set<string>\(\)/.test(runtimeSnapshot.text)) fail(`${runtimeSnapshot.path}: provider count should deduplicate provider names`);
 }
 
+function assertInputStashSeams(files: SourceFile[]): void {
+	const machine = files.find((candidate) => basename(candidate.path) === INPUT_STASH_MODULE);
+	assert.ok(machine, "input-stash.ts pure decision seam should exist");
+	for (const specifier of importSpecifiers(machine)) {
+		fail(`${machine.path}: stash decision seam should be import-free, found ${specifier}`);
+	}
+	if (!machine.text.includes("export function resolveInputStashAction")) fail(`${machine.path}: stash decision seam should expose resolveInputStashAction`);
+
+	const chrome = files.find((candidate) => basename(candidate.path) === INPUT_STASH_CHROME_MODULE);
+	assert.ok(chrome, "input-stash-chrome.ts chrome seam should exist");
+	for (const specifier of importSpecifiers(chrome)) {
+		fail(`${chrome.path}: stash chrome seam should be import-free, found ${specifier}`);
+	}
+
+	const store = files.find((candidate) => basename(candidate.path) === INPUT_STASH_STORE_MODULE);
+	assert.ok(store, "input-stash-store.ts persistence seam should exist");
+	const storeAllowed = new Set(["node:crypto", "node:fs", "node:path", "@earendil-works/pi-coding-agent", "./input-stash.js"]);
+	for (const specifier of importSpecifiers(store)) {
+		if (!storeAllowed.has(specifier)) fail(`${store.path}: stash store must not import ${specifier}`);
+	}
+	if (!namedImportsFrom(store, "@earendil-works/pi-coding-agent").includes("getAgentDir")) {
+		fail(`${store.path}: stash store must resolve paths through getAgentDir`);
+	}
+	if (store.text.includes("~/.pi/agent") || store.text.includes(".pi/agent")) fail(`${store.path}: stash store must not hardcode the agent directory`);
+
+	const controller = files.find((candidate) => basename(candidate.path) === INPUT_STASH_RUNTIME_MODULE);
+	assert.ok(controller, "input-stash-runtime.ts side-effect seam should exist");
+	const controllerAllowed = new Set(["@earendil-works/pi-coding-agent", "./input-stash.js", "./input-stash-store.js"]);
+	for (const match of controller.text.matchAll(/(?:import|export)\s+(type\s+)?(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/g)) {
+		const specifier = match[2]!;
+		if (!controllerAllowed.has(specifier)) fail(`${controller.path}: stash runtime must not import ${specifier}`);
+	}
+	if (controller.text.includes("./input-surface-frame.js") || controller.text.includes("./runtime-refresh-session.js")) {
+		fail(`${controller.path}: stash runtime must stay off the refresh-session and frame seams`);
+	}
+
+	const runtime = files.find((candidate) => basename(candidate.path) === "runtime.ts");
+	assert.ok(runtime, "runtime.ts should exist");
+	if (!importSpecifiers(runtime).includes("./input-stash-runtime.js")) fail(`${runtime.path}: runtime should own stash side effects`);
+	if (importSpecifiers(runtime).includes("./input-stash-chrome.js")) fail(`${runtime.path}: runtime must not import stash chrome`);
+	if (/RuntimeRefreshSession[\s\S]*inputStash|inputStash[\s\S]*RuntimeRefreshSession/.test(runtime.text) && runtime.text.includes("refreshSession.execute(\"input_stash\"")) {
+		fail(`${runtime.path}: stash updates must not go through RuntimeRefreshSession`);
+	}
+
+	const editor = files.find((candidate) => basename(candidate.path) === "editor.ts");
+	assert.ok(editor, "editor.ts should exist");
+	for (const specifier of importSpecifiers(editor)) {
+		if (specifier.startsWith("./input-stash")) fail(`${editor.path}: editor must not import stash modules directly`);
+	}
+}
+
 function assertIndexThinWiring(files: SourceFile[]): void {
 	const index = files.find((candidate) => basename(candidate.path) === INDEX_MODULE);
 	assert.ok(index, "index.ts should exist");
@@ -975,6 +1030,7 @@ assertStatusLineConsumers(sourceFiles);
 assertStateModulePiFree(sourceFiles);
 assertFooterSeams(sourceFiles);
 assertProviderCountSnapshotSeam(sourceFiles);
+assertInputStashSeams(sourceFiles);
 assertIndexThinWiring(sourceFiles);
 assertSegmentDisplayPrimitivesPureModule(sourceFiles);
 assertConfigOptionsPureModule(sourceFiles);

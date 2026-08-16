@@ -1,0 +1,66 @@
+# Glance 输入框单槽暂存
+
+状态：已落地
+
+目标包：`@zhcsyncer/pi-glance`
+
+## 为什么做
+
+输入框里已经写了一段还没提交的指令，临时要腾地方跑另一条（常是 `/reload` 或别的 slash）。Pi 的输入框本身不跨 reload / 进程重启；Glance 已经占着编辑器和边框，所以暂存在这里，不另开扩展。
+
+## 用户能感知的行为
+
+单槽。同一快捷键只做收起 / 拿回；丢掉是另一把键。
+
+| 当前框 | 槽 | 主快捷键 |
+|---|---|---|
+| 有字 | 空 | 收进槽，清空输入框 |
+| 空 | 有 | 倒回框，清空槽 |
+| 有字 | 有 | 第一次 notify「再按一次覆盖当前输入」；连按用槽盖掉当前，槽清空。正在写的那份不再保留 |
+| 空 | 空 | 无操作 |
+
+丢掉：第二把键，按一下就清槽，只 notify，不再确认。不经过输入框。
+
+边框左侧常驻短标记，表示槽里还有东西。不预览正文。Bash 标签和 `↑ N more` 仍优先占左侧；有它们时标记让位或缩成最短形式。
+
+## 活过什么
+
+按 **session 文件** 认同一会话：
+
+- `/reload`、退出后再 `resume` 同一 session：槽还在。
+- `/new`、打开别的 session、fork：不带走。
+
+`/reload` 或再进同一会话时，若输入框是空的，自动倒回并清空槽。框里已有字则不动，继续挂标记。
+
+接受这条副作用：收起 A 是为了腾地方写 B，却先 `/reload`——A 会被倒回去，得再收一次。
+
+## 持久化
+
+不进 session JSONL。`pi.appendEntry()` 只能追加，收起 / 拿回 / 丢掉每次都会再写一整份正文，旧副本永远留在文件里，还会跟着 `/tree` 走。暂存只要「当前这一份，覆盖写」。
+
+路径：
+
+```text
+$PI_CODING_AGENT_DIR/extension-data/pi-glance/state/input-stash.json
+```
+
+和 `config.json` 分开，避免暂存去脏 `/glance` settings。无暂存时删掉对应条目或整个文件，不留空壳。按 `sessionManager.getSessionFile()` 做 key；没有 session 文件（ephemeral）则只活在当前进程内存，不写盘。
+
+文件是一张 session → 正文 的映射，单槽、覆盖写。不存历史，不跟 branch。
+
+## 不做
+
+- 多槽、预览正文、自动提交。
+- 把暂存写进 session、config，或项目 `.pi/`。
+- 换会话 / `/new` / fork 自动带走或自动倒回。
+- 改 Pi 内置编辑器历史或 kill ring。
+
+## 快捷键
+
+主键 `ctrl+alt+s` 收起 / 拿回，副键 `ctrl+alt+u` 丢掉。出现在 `/hotkeys`。
+
+## 实现边界
+
+状态计算可纯测：给定「框是否有字 / 槽是否有内容 / 是否在确认窗口内」，输出收起、拿回、进入确认、覆盖、丢掉或无操作。
+
+写盘与 `setEditorText` 是副作用，集中在 Glance runtime。自动倒回只在 TUI `session_start`（含 `reload` / `resume`）且框为空时做一次。

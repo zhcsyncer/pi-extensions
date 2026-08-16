@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { defaultConfig } from "../config.js";
 import type { GitBaseRefFetchReason } from "../git.js";
+import { createInputStashStore } from "../input-stash-store.js";
 import { createGlanceRuntime, type CreateGitRefresherOptions, type GlancePaneResult, type GlanceRuntimeAdapters, type RuntimeGitRefresher, type RuntimeShowPaneOptions } from "../runtime.js";
 import type { StateSessionEntry } from "../runtime-snapshot.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "../types.js";
@@ -39,6 +40,8 @@ export interface RuntimeTestContextOptions {
 	entries?: StateSessionEntry[];
 	branch?: StateSessionEntry[];
 	sessionName?: string;
+	sessionFile?: string;
+	editorText?: string;
 	usingOAuth?: boolean;
 	invokeFooterFactory?: boolean;
 	uiTheme?: unknown;
@@ -63,6 +66,9 @@ export interface RuntimeTestContext {
 	setSessionEntries(entries: StateSessionEntry[]): void;
 	setSessionBranch(branch: StateSessionEntry[]): void;
 	setSessionName(name: string | undefined): void;
+	setSessionFile(sessionFile: string | undefined): void;
+	getEditorText(): string;
+	setEditorText(text: string): void;
 	setUiTheme(theme: unknown): void;
 }
 
@@ -85,6 +91,8 @@ export interface RuntimeHarnessOptions {
 	git?: RuntimeGitHarness;
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
+	nowMs?: () => number;
+	createInputStashStore?: GlanceRuntimeAdapters["createInputStashStore"];
 	workingIndicator?: GlanceRuntimeAdapters["workingIndicator"];
 	reviewWorkingTree?: GlanceRuntimeAdapters["reviewWorkingTree"];
 }
@@ -227,6 +235,8 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	let entries: StateSessionEntry[] = options.entries ?? [];
 	let branch: StateSessionEntry[] = options.branch ?? [];
 	let sessionName = options.sessionName;
+	let sessionFile: string | undefined = options.sessionFile ?? "/tmp/session.jsonl";
+	let editorText = options.editorText ?? "";
 	let uiTheme = options.uiTheme;
 	const mode = options.mode ?? "tui";
 	const hasUI = options.hasUI ?? (mode === "tui" || mode === "rpc");
@@ -259,6 +269,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 		sessionManager: {
 			getCwd: () => cwd,
 			getSessionName: () => sessionName,
+			getSessionFile: () => sessionFile,
 			getEntries: () => {
 				entryReads++;
 				return entries;
@@ -274,6 +285,10 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 				return uiTheme;
 			},
 			notify: (message: string, type?: "info" | "warning" | "error") => notifications.push({ message, type }),
+			getEditorText: () => editorText,
+			setEditorText: (text: string) => {
+				editorText = text;
+			},
 			setWorkingMessage: (message?: string) => workingMessages.push(message),
 			setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => workingIndicators.push(options),
 			setWidget: (_key: string, factory: unknown) => {
@@ -327,6 +342,13 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 		},
 		setSessionName: (nextName: string | undefined) => {
 			sessionName = nextName;
+		},
+		setSessionFile: (nextSessionFile: string | undefined) => {
+			sessionFile = nextSessionFile;
+		},
+		getEditorText: () => editorText,
+		setEditorText: (text: string) => {
+			editorText = text;
 		},
 		setUiTheme: (theme: unknown) => {
 			uiTheme = theme;
@@ -396,6 +418,8 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 		createGitRefresher: options.git?.create,
 		fetchGitBaseRef: options.git?.fetchGitBaseRef,
 		reviewWorkingTree: options.reviewWorkingTree,
+		nowMs: options.nowMs,
+		createInputStashStore: options.createInputStashStore ?? (() => createInputStashStore({ persist: false })),
 		workingIndicator:
 			options.workingIndicator ??
 			{

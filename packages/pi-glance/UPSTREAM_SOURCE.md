@@ -18,3 +18,4 @@ The production source and upstream tests were copied from that tag before local 
 - Add a switchable, theme-aware Claude-inspired working indicator for activity, current-cycle output, and elapsed time.
 - Add a theme-aware Git Working Tree summary that defaults into the Git status line, with an optional bottom-right border placement, tracked diff statistics, resilient refresh scheduling, and `/diff` revdiff review handoff.
 - Add a separately highlighted `main↓N` when HEAD is behind the last local `origin/main` snapshot, without changing the branch upstream.
+- Add a single-slot editor stash with restore/discard shortcuts and a left-border mark for unrestored drafts.

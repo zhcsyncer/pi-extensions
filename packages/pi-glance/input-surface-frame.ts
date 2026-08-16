@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "./bottom-details.js";
+import { inputStashMark, resolveInputStashChrome } from "./input-stash-chrome.js";
 import { contextRiskLevel } from "./context-risk.js";
 import { renderGlanceLine } from "./status-line.js";
 import {
@@ -38,6 +39,7 @@ export interface InputSurfaceFrameChrome {
 	showTitle?: boolean;
 	border?: TextStyler;
 	modeLabel?: string;
+	stashOccupied?: boolean;
 	topScrollIndicator?: string;
 	bottomScrollIndicator?: string;
 }
@@ -90,10 +92,18 @@ function activeBorder(input: InputSurfaceFrameInput): TextStyler {
 function interactiveTopLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "innerWidth">) {
 	const scrollIndicator = input.chrome?.topScrollIndicator;
 	const modeLabel = input.chrome?.modeLabel?.trim();
-	if (!scrollIndicator && !modeLabel) return undefined;
+	const stash = inputStashMark(
+		resolveInputStashChrome({
+			occupied: input.chrome?.stashOccupied === true,
+			hasModeLabel: Boolean(modeLabel),
+			hasScrollIndicator: Boolean(scrollIndicator),
+		}),
+	);
+	if (!scrollIndicator && !modeLabel && !stash) return undefined;
 
-	const mode = modeLabel ? `─ ${modeLabel} ` : "";
-	const text = truncateToWidth(`${mode}${scrollIndicator ?? "─"}`, Math.max(1, metrics.innerWidth), "");
+	const prefix = modeLabel && stash ? `─ ${modeLabel} · ${stash}` : modeLabel ? `─ ${modeLabel}` : stash ? `─ ${stash}` : "";
+	const gap = prefix ? " " : "";
+	const text = truncateToWidth(`${prefix}${gap}${scrollIndicator ?? (prefix ? "─" : "")}`, Math.max(1, metrics.innerWidth), "");
 	const chunks = [{ role: "border" as const, text }];
 	return { chunks, width: visibleWidth(text) };
 }

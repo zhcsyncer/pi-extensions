@@ -16,7 +16,7 @@ zhcsyncer 维护的一组 Pi extensions。
   ![失败的 Tools 账本](./packages/pi-tool-display-intent/assets/demo-aggregate-3.png)
 
 - [`@zhcsyncer/pi-todo`](./packages/pi-todo) — 周期有界的 Todo overlay：原子多任务 batch、确认后的 `/todo` reset、无依赖图；live 列表只保留当前活动工作，可跨 compact/resume。
-- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留可组合状态，并把 Working Tree 计数放进 Git 状态或底边右侧，提供 `/diff` review 以及跟随主题的 Claude-inspired working indicator。
+- [`@zhcsyncer/pi-glance`](./packages/pi-glance) — `pi-glance` 的维护 fork，保留可组合状态和输入框单槽暂存，并把 Working Tree 计数放进 Git 状态或底边右侧，提供 `/diff` review 以及跟随主题的 Claude-inspired working indicator。
 
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 

@@ -28,6 +28,12 @@ assertReadmeIncludes("`main↓N`", "README should document the behind-main marke
 assertReadmeIncludes("`Behind main`", "README should document the behind-main setting");
 assertReadmeIncludes("or upstream `↓N` is already showing that same lag", "README should hide main↓N when upstream behind already covers origin/main");
 assertReadmeIncludes("`/diff` hands the terminal to optional", "README should document the primary review entrypoint");
+assertReadmeIncludes("`Ctrl+Alt+S` stashes or restores", "README should document the editor stash shortcut");
+assertReadmeIncludes("`Ctrl+Alt+U` discards the stash", "README should document the discard shortcut");
+assertReadmeIncludes("The left border shows a short mark", "README should document the unrestored-draft border mark");
+assertReadmeIncludes("Reloading or resuming the same session restores it automatically if the editor is empty", "README should document empty-editor restore after reload/resume");
+assertReadmeExcludes("input-stash.json", "README should not document stash storage layout");
+assertReadmeExcludes("1500ms", "README should not document the confirm-window timeout");
 assertReadmeIncludes("never sent automatically", "README should document annotation confirmation behavior");
 assertReadmeIncludes("only `/diff` shows the install hint", "README should isolate missing revdiff from Glance startup");
 assertReadmeIncludes("**Bottom details**", "README should document the remaining bottom-details settings category");
@@ -56,6 +62,11 @@ assert.ok(readmeZh.includes("`main↓N`"), "Chinese README should document the b
 assert.ok(readmeZh.includes("`Behind main`"), "Chinese README should document the behind-main setting");
 assert.ok(readmeZh.includes("上游 `↓N` 已经在报同一件事时不显示"), "Chinese README should hide main↓N when upstream behind already covers origin/main");
 assert.ok(readmeZh.includes("只回填编辑器供你确认"), "Chinese README should document annotation confirmation behavior");
+assert.ok(readmeZh.includes("`Ctrl+Alt+S` 收起或拿回"), "Chinese README should document the editor stash shortcut");
+assert.ok(readmeZh.includes("`Ctrl+Alt+U` 丢掉暂存"), "Chinese README should document the discard shortcut");
+assert.ok(readmeZh.includes("左边框会挂一个短标记"), "Chinese README should document the unrestored-draft border mark");
+assert.ok(readmeZh.includes("输入框是空的会自动倒回"), "Chinese README should document empty-editor restore after reload/resume");
+assert.equal(readmeZh.includes("input-stash.json"), false, "Chinese README should not document stash storage layout");
 assertReadmeIncludes("Icons` default to `plain`", "README should state that icons default to plain");
 assertReadmeIncludes("`nerd` needs a Nerd Font", "README should state that nerd icons are opt-in");
 assertReadmeIncludes("If icons look like boxes, choose `plain`", "README should explain the plain fallback when icons render as boxes");
@@ -64,6 +75,7 @@ assertReadmeIncludes("Fork difference:", "README should clearly mark the working
 assertReadmeIncludes("upstream `pi-glance` 0.5.3 does not include it", "README should distinguish the working indicator from upstream capabilities");
 assert.ok(upstreamSource.includes("switchable, theme-aware Claude-inspired working indicator"), "upstream source record should list the working indicator among local differences");
 assert.ok(upstreamSource.includes("defaults into the Git status line"), "upstream source record should list the Working Tree summary among local differences");
+assert.ok(upstreamSource.includes("single-slot editor stash"), "upstream source record should list the editor stash among local differences");
 assertReadmeIncludes("not an official Anthropic component", "README should rule out official Anthropic provenance");
 assertReadmeIncludes("does not change the Agent, prompts, models, tools, messages, or session behavior", "README should document display-only behavior");
 assertReadmeIncludes("one `Enabled: on/off` switch", "README should document the single working-indicator toggle");
