@@ -64,7 +64,7 @@ pnpm debug:git
 ## What you see
 
 
-![pi-glance demo](https://raw.githubusercontent.com/LinYS77/pi-glance/main/assets/demo.gif)
+![pi-glance demo](./assets/demo.png)
 
 
 | | | |

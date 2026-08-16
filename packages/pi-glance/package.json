@@ -38,6 +38,7 @@
   },
   "files": [
     "*.ts",
+    "assets",
     "README.md",
     "README.zh-CN.md",
     "LICENSE",
@@ -51,7 +52,8 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-glance/assets/demo.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.80.0 <1",

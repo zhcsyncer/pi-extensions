@@ -54,6 +54,7 @@
     "packages/pi-todo/UPSTREAM_CHANGELOG.md",
     "packages/pi-todo/UPSTREAM_SOURCE.md",
     "packages/pi-glance/*.ts",
+    "packages/pi-glance/assets/**",
     "packages/pi-glance/UPSTREAM_LICENSE",
     "packages/pi-glance/UPSTREAM_SOURCE.md",
     "packages/pi-search-hub/package.json",
@@ -128,7 +129,8 @@
     ],
     "skills": [
       "./packages/pi-context7/skills"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-glance/assets/demo.png"
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "2.4.0",

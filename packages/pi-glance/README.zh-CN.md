@@ -41,6 +41,8 @@ pi --no-extensions -e ./packages/pi-glance
 
 ## 你会看到什么
 
+![pi-glance demo](./assets/demo.png)
+
 - **圆角编辑器**：可配置最小 2 / 3 / 4 行和顶部 0 / 1 / 2 行间距，并保留 Pi 原生自动补全、粘贴和滚动能力。
 - **工作区标题**：展示目录名，或安全缩短后的 `~/...` 路径。
 - **顶部状态**：Git、费用、Reply speed、context、可选 tokens 和模型。

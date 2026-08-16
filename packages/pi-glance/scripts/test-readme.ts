@@ -16,6 +16,8 @@ function assertReadmeExcludes(fragment: string, message: string): void {
 }
 
 assertReadmeIncludes("maintained fork", "README should identify this package as a maintained fork");
+assertReadmeIncludes("./assets/demo.png", "README should use the local Glance demo screenshot");
+assertReadmeExcludes("LinYS77/pi-glance/main/assets/demo.gif", "README should not keep the upstream demo gif as the user-facing screenshot");
 assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should install the scoped fork package");
 assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_settled-compatible Pi baseline");
 assertReadmeIncludes("public `agent_settled` lifecycle event", "README should explain the minimum Pi version");
@@ -55,6 +57,7 @@ assert.equal(defaultConfig().git.worktreeSummary, "status", "README Working Tree
 assert.equal(defaultConfig().git.refreshDebounceMs, 250, "README Git debounce should stay aligned with defaultConfig");
 assert.equal(defaultConfig().git.pollIntervalMs, 15000, "README Git polling should stay aligned with defaultConfig");
 assert.ok(readmeZh.includes("pi install npm:@zhcsyncer/pi-glance"), "Chinese README should document scoped install");
+assert.ok(readmeZh.includes("./assets/demo.png"), "Chinese README should use the local Glance demo screenshot");
 assert.ok(readmeZh.includes("Footer 组合"), "Chinese README should document footer composition");
 assert.ok(readmeZh.includes("右下角详情"), "Chinese README should document bottom-right details");
 assert.ok(readmeZh.includes("Progress bar"), "Chinese README should document context progress mode");
