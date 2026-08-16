@@ -28,30 +28,9 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
 - [`@zhcsyncer/pi-meter`](./packages/pi-meter) — local spend plus Claude / Codex / SuperGrok remaining in one `/usage` command. Combines `pi-tracker` and `@pi-plugins/usage`; disable the latter because both register `/usage`.
 
-## Bundle-private Search Hub
+## Notes
 
-The aggregate `@zhcsyncer/pi-extensions` package includes the private Search Hub fork and registers its `web_search` and `web_read` tools. Search Hub is not published as a standalone npm package; install the root bundle to use it.
-
-This fork keeps upstream multi-backend search and page extraction while integrating model-written `displaySummary` intents, semantic query/URL call lines, backend and reader status, and the shared tool-display result modes. See the [Search Hub documentation](./packages/pi-search-hub/README.md) or its [Simplified Chinese version](./packages/pi-search-hub/README.zh-CN.md) for configuration and local behavior.
-
-## Context7
-
-`@zhcsyncer/pi-context7` is a maintained fork of Context7 documentation tools. It can be installed on its own or used through the root bundle, which embeds and registers the same extension and skill.
-
-This fork keeps upstream tool descriptions, model-facing result text, and the full skill while adding compact local `renderCall` / `renderResult` rows, AbortSignal-aware fetches, and HTTP error throwing for correct Pi tool-error marking. Set `CONTEXT7_API_KEY` for higher quotas. See the [Context7 documentation](./packages/pi-context7/README.md) or its [Simplified Chinese version](./packages/pi-context7/README.zh-CN.md).
-
-## Subagents
-
-`@zhcsyncer/pi-subagents` is a maintained fork of [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3. It can be installed on its own or used through the root bundle, which embeds and registers the same extension. Upstream runtime (Agent / steer / resume / FleetView / notifications) is unchanged; this fork changes **how progress is shown**:
-
-- Conversation overlay defaults to **Prompt · one-line Steps · Result** (not a full toolResult dump)
-- Main-transcript tool rows are collapsible; expand uses Markdown; call/result rows show **model** and **effort**
-
-Do **not** load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / FleetView registration). Upstream pin and the full local-diff checklist: [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md). User-facing comparison tables: [English package README](./packages/pi-subagents/README.md) (default) / [简体中文](./packages/pi-subagents/README.zh-CN.md).
-
-## Persistent extension data
-
-Every independent bundle configuration now uses `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`, including Todo, Ask User Question, Subagents, and Meter. Existing files are migrated atomically and verified before removal; canonical data wins, while malformed or conflicting legacy files are preserved with a warning. Trusted project overrides for Recap and Search Hub use `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`; Subagents keeps its existing project-over-global settings behavior at the corresponding project path and stores its optional `agent-tool-description.md` beside `config.json`. Meter also stores its local ledger and shared quota snapshot under `extension-data/pi-meter/` and migrates `analytics/usage.jsonl` on first load. Configuration relocation does not move custom agents, skills, Pi settings or `auth.json`, memory, schedules, transcripts, session state, or Plan artifacts; those remain in their standard resource/state locations, including `$PI_CODING_AGENT_DIR/plans/`.
+Search Hub ships only in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
 ## Install from Git
 
@@ -134,36 +113,6 @@ Install only Meter:
 ```bash
 pi install npm:@zhcsyncer/pi-meter
 ```
-
-## Development
-
-Test the root bundle:
-
-```bash
-pi -e . --list-models nope
-```
-
-Test a package directly:
-
-```bash
-pi -e ./packages/pi-recap --list-models nope
-pi --no-extensions -e ./packages/pi-tool-display-intent
-pi --no-extensions -e ./packages/pi-todo --list-models nope
-pi --no-extensions -e ./packages/pi-glance
-pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
-pi --no-extensions -e ./packages/pi-search-hub --list-models nope
-pi --no-extensions -e ./packages/pi-context7 --list-models nope
-pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
-pi --no-extensions -e ./packages/pi-subagents --list-models nope
-pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
-pi --no-extensions -e ./packages/pi-meter --list-models nope
-```
-
-When testing `pi-tool-display-intent`, do not load the original `pi-tool-display` or `pi-tool-display-summary` at the same time because all three can own the same built-in tool names.
-
-When testing `pi-subagents`, do not load `@tintinweb/pi-subagents` at the same time (duplicate `Agent` / FleetView registration).
-
-When testing `pi-meter`, do not load `@pi-plugins/usage` at the same time (duplicate `/usage`).
 
 ## Releasing
 

@@ -28,30 +28,9 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
 - [`@zhcsyncer/pi-meter`](./packages/pi-meter) — 一条 `/usage` 同时看本地花费和 Claude / Codex / SuperGrok 剩余。合了 `pi-tracker` 与 `@pi-plugins/usage`；不要同时加载后者，两者都会注册 `/usage`。
 
-## Bundle 私有 Search Hub
+## 说明
 
-聚合包 `@zhcsyncer/pi-extensions` 内置私有 Search Hub fork，并注册其 `web_search` 和 `web_read` 工具。Search Hub 不作为独立 npm 包发布；需要安装根 bundle 才能使用。
-
-该 fork 保留上游多后端搜索和页面提取能力，同时集成模型生成的 `displaySummary` intent、语义化 query/URL 调用行、backend 和 reader 状态，以及共享的工具结果展示模式。配置与本地行为详见 [Search Hub 中文文档](./packages/pi-search-hub/README.zh-CN.md) 或其 [英文版本](./packages/pi-search-hub/README.md)。
-
-## Context7
-
-`@zhcsyncer/pi-context7` 是维护中的 Context7 文档工具 fork。可以单独安装，也可以通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展与 Skill。
-
-该 fork 保留上游工具描述、面向模型的结果文本和完整 Skill，同时加入本地紧凑 `renderCall` / `renderResult` 行、AbortSignal 感知的 fetch，以及非 2xx HTTP 抛错以便 Pi 正确标记 tool error。更高配额请设置 `CONTEXT7_API_KEY`。详见 [Context7 中文文档](./packages/pi-context7/README.zh-CN.md) 或其 [英文版本](./packages/pi-context7/README.md)。
-
-## Subagents
-
-`@zhcsyncer/pi-subagents` 是 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 的维护 fork。可单独安装，也可通过根 bundle 使用；根 bundle 会嵌入并注册同一扩展。上游运行时（Agent / steer / resume / FleetView / 通知）不变；本 fork 主要改 **进展怎么显示**：
-
-- 对话 overlay 默认 **Prompt · 一行 Steps · Result**（不再 dump 整墙 toolResult）
-- 主 transcript tool 行可折叠；展开为 Markdown；调用/结果行显示 **model** 与 **effort**
-
-**不要**与 `@tintinweb/pi-subagents` 同时加载（会双注册 `Agent` / FleetView）。上游钉扎与差异清单：[`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)。对比表默认英文：[package README](./packages/pi-subagents/README.md) / [简体中文](./packages/pi-subagents/README.zh-CN.md)。
-
-## 扩展持久化数据
-
-Bundle 内所有独立配置现统一使用 `$PI_CODING_AGENT_DIR/extension-data/<extension-id>/config.json`，包括 Todo、Ask User Question、Subagents 与 Meter。旧文件会原子迁移，并在删除前完成验证；canonical 数据优先，格式损坏或冲突的旧文件会保留并提示 warning。Recap 与 Search Hub 在受信任项目中的覆盖配置使用 `<cwd>/<CONFIG_DIR_NAME>/extension-data/<extension-id>/config.json`；Subagents 保留原有项目覆盖全局行为，使用对应项目路径，并把可选 `agent-tool-description.md` 放在 `config.json` 同目录。Meter 的本地账本和共享订阅快照也落在 `extension-data/pi-meter/`，首次加载会迁走 `analytics/usage.jsonl`。本次只迁移配置，不移动自定义 agent、skill、Pi `settings.json` 或 `auth.json`、memory、schedule、transcript、session 状态与 Plan artifact；它们继续使用原有 resource/state 位置，包括 `$PI_CODING_AGENT_DIR/plans/`。
+Search Hub 只随根 bundle 提供。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
 ## 从 Git 安装
 
@@ -134,36 +113,6 @@ pi install npm:@zhcsyncer/pi-fast-mode
 ```bash
 pi install npm:@zhcsyncer/pi-meter
 ```
-
-## 开发
-
-测试根 bundle：
-
-```bash
-pi -e . --list-models nope
-```
-
-直接测试单个 package：
-
-```bash
-pi -e ./packages/pi-recap --list-models nope
-pi --no-extensions -e ./packages/pi-tool-display-intent
-pi --no-extensions -e ./packages/pi-todo --list-models nope
-pi --no-extensions -e ./packages/pi-glance
-pi --no-extensions -e ./packages/pi-plan-mode --list-models nope
-pi --no-extensions -e ./packages/pi-search-hub --list-models nope
-pi --no-extensions -e ./packages/pi-context7 --list-models nope
-pi --no-extensions -e ./packages/pi-ask-user-question --list-models nope
-pi --no-extensions -e ./packages/pi-subagents --list-models nope
-pi --no-extensions -e ./packages/pi-fast-mode --list-models nope
-pi --no-extensions -e ./packages/pi-meter --list-models nope
-```
-
-测试 `pi-tool-display-intent` 时，不要同时加载原始 `pi-tool-display` 或 `pi-tool-display-summary`，因为三者都可能持有同名内置工具。
-
-测试 `pi-subagents` 时，不要同时加载 `@tintinweb/pi-subagents`（会双注册 `Agent` / FleetView）。
-
-测试 `pi-meter` 时，不要同时加载 `@pi-plugins/usage`（会双注册 `/usage`）。
 
 ## 发版
 
