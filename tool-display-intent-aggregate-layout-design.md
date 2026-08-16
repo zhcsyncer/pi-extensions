@@ -111,6 +111,7 @@ pending / running / success / failed / needsAttention
 ```text
 ◐ Tools (16 calls · 3 turns) · read ×12 · bash ×16
   ◐ Bash(pnpm test)
+  › 先对照两边入口
 ```
 
 整轮结束后：
@@ -149,7 +150,7 @@ pending / running / success / failed / needsAttention
 - 汇总条留在框外，没有边线；
 - 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
 - 展开内容共用一条贯通边线：中间行 `│`，最后一行 `└`；
-- 旁白行用 `›` 与工具概要区分；收起账本不展示任何 assistant 旁白；
+- 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在工具行下方，整轮结束后再全部收起；
 - 有 deterministic target 时显示目标；
 - generic custom tool 不猜参数含义，只显示名称；
 - 失败行附带一行错误摘要；

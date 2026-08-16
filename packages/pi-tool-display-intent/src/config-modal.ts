@@ -107,7 +107,7 @@ export function buildInspectorSettings(
 			inspectorSummary: config.toolCallLayout === "aggregate"
 				? [
 					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
-					"Collapsed errors stay as a failed count. The ledger hides every assistant note, including the latest one. After the turn settles, a muted receipt under the header shows duration, tokens, cache, and completion time.",
+					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the tool rows without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
 					"Agent keeps its original renderer by default. Individual-tool settings are retained but inactive.",
 				]

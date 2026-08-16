@@ -207,7 +207,7 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
-test("collapsed Tools ledger keeps the latest narration off the tool budget and off the ledger", () => {
+test("in-progress Tools ledger pins the latest narration below the tool rows", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-narration-budget");
 	projection.ingestAssistantMessage({
@@ -227,8 +227,17 @@ test("collapsed Tools ledger keeps the latest narration off the tool budget and 
 	assert.deepEqual(view?.displayRows.map((member) => member.toolCallId), ["tool-1", "tool-2", "tool-3"]);
 	const rendered = renderAggregateActivity(view!, 120, plainTheme());
 	assert.match(rendered.join("\n"), /Tools \(4 calls · 1 turn\)/);
-	assert.doesNotMatch(rendered.join("\n"), /先定位两边的设计与实现入口|›|↑|↓/);
 	assert.match(rendered.join("\n"), /custom_1/);
+	assert.match(rendered.join("\n"), /› 先定位两边的设计与实现入口/);
+	assert.ok(
+		rendered.findIndex((line) => line.includes("custom_1"))
+			< rendered.findIndex((line) => line.includes("先定位两边的设计与实现入口")),
+	);
+	const wrapped = renderAggregateActivity({
+		...view!,
+		latestNarration: "先定位两边的设计与实现入口，再对照分组、渲染、状态和边界。",
+	}, 24, plainTheme());
+	assert.ok(wrapped.filter((line) => /先定位|再对照|分组|渲染/.test(line)).length >= 2);
 });
 
 test("settled Tools ledger shows duration, tokens, cache, and completion time under the header", () => {

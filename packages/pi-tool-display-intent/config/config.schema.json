@@ -36,7 +36,7 @@
         "layout": {
           "enum": ["individual", "aggregate"],
           "default": "individual",
-          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn. Aggregate stays collapsed as a Tools ledger, hides assistant narration, and after the turn settles shows duration, tokens, cache, and completion time; Ctrl+O restores the original timeline of notes plus one target/status summary per call."
+          "description": "Controls whether tools use their individual renderers or one bounded all-tool Tools summary per user turn. Aggregate stays collapsed as a Tools ledger. While the turn is running, the latest assistant note stays pinned under the tool rows; after the turn settles, assistant notes hide and a receipt shows duration, tokens, cache, and completion time. Ctrl+O restores the original timeline of notes plus one target/status summary per call."
         },
         "style": {
           "enum": ["compact", "claude"],

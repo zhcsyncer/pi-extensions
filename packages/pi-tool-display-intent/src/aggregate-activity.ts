@@ -3,7 +3,7 @@ import {
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { normalizeDisplaySummary } from "./display-summary.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 import { shortenPath } from "./render-utils.js";
@@ -124,6 +124,7 @@ const ACTIVE_ROW_LIMIT = 3;
 const AGGREGATE_FRAME_CONTINUE = "  │ ";
 const AGGREGATE_FRAME_END = "  └ ";
 export const AGGREGATE_ASSISTANT_MARK = "›";
+const COLLAPSED_NARRATION_ROW_LIMIT = 3;
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
 
@@ -1181,6 +1182,22 @@ export function renderAggregateActivity(
 		lines.push(
 			truncateToWidth(theme.fg("muted", `  … ${view.activeOverflow} more active`), safeWidth, "…"),
 		);
+	}
+	if (!view.settled && view.latestNarration) {
+		let mark = AGGREGATE_ASSISTANT_MARK;
+		try {
+			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
+		} catch {
+			// Theme helpers must not crash the collapsed ledger.
+		}
+		const prefix = `  ${mark} `;
+		const wrapped = wrapTextWithAnsi(view.latestNarration, Math.max(1, safeWidth - visibleWidth(prefix)))
+			.slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
+		const rows = wrapped.length > 0 ? wrapped : [view.latestNarration];
+		for (const [index, row] of rows.entries()) {
+			const rowPrefix = index === 0 ? prefix : "    ";
+			lines.push(`${rowPrefix}${row}`);
+		}
 	}
 	return lines;
 }
