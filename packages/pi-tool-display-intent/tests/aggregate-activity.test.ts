@@ -389,8 +389,10 @@ test("expanded tool rows leave the Tools ledger and show one summary per call", 
 		bash.updateResult({ content: [{ type: "text", text: "RAW OUTPUT" }], isError: false });
 		projection.collapseRetainedDone();
 
-		const collapsedLeader = bash.render(120).join("\n");
-		assert.match(collapsedLeader, /Tools.*read ×1.*bash ×1/);
+		const collapsedLeader = bash.render(120);
+		assert.equal(collapsedLeader[0], "");
+		assert.equal(collapsedLeader[collapsedLeader.length - 1], "");
+		assert.match(collapsedLeader.join("\n"), /Tools.*read ×1.*bash ×1/);
 		assert.deepEqual(read.render(120), []);
 
 		read.setExpanded(true);
@@ -398,6 +400,9 @@ test("expanded tool rows leave the Tools ledger and show one summary per call", 
 		const expandedRead = read.render(120);
 		const expandedBash = bash.render(120);
 		assert.match(expandedRead.join("\n"), /Tools.*read ×1.*bash ×1/);
+		assert.doesNotMatch(expandedRead.join("\n"), /Tools[^\n]*\n\n.*[│└]/);
+		assert.doesNotMatch(expandedRead.join("\n"), /[│└][^\n]*\n\n/);
+		assert.notEqual(expandedRead[expandedRead.length - 1], "");
 		assert.doesNotMatch(expandedRead.join("\n"), /│.*Tools/);
 		assert.doesNotMatch(expandedBash.join("\n"), /Tools.*read ×1.*bash ×1/);
 		assert.match(expandedRead.join("\n"), /│.*Read\(src\/a\.ts\)/);

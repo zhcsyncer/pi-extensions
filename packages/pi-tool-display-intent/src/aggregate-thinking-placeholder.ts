@@ -7,7 +7,7 @@ import {
 	aggregateAssistantFrameId,
 	applyAggregateGroupFrame,
 	getActiveAggregateProjection,
-	padAggregateBlock,
+	attachExpandedAggregateSummary,
 	renderAggregateActivity,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
@@ -200,7 +200,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 		const interim = isInterimAssistantNarration(this);
 		const projection = getActiveAggregateProjection();
-		const trimmed = interim ? trimBlankEdges(next) : next;
+		const trimmed = trimBlankEdges(next);
 		if (interim) {
 			const frameId = assistantFrameId(this);
 			if (trimmed.length === 0 || !isExpanded(this)) {
@@ -220,7 +220,11 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			projection?.markFrameContentVisible(frameId, true);
 		}
 		if (trimmed.length === 0) return [];
-		if (!interim) return trimmed;
+		if (!interim) {
+			// Pi prefixes visible assistant text with Spacer(1). Drop that so it
+			// does not stack with the Tools ledger's trailing blank.
+			return visibleText(next[0] ?? "") === "" ? next.slice(1) : next;
+		}
 		const theme = resolveAggregateRenderTheme();
 		const marked = decorateAssistantLines(trimmed, theme);
 		const frameId = assistantFrameId(this);
@@ -229,7 +233,10 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {
-				return [...padAggregateBlock(renderAggregateActivity(headerView, width, theme)), ...framed];
+				return attachExpandedAggregateSummary(
+					renderAggregateActivity(headerView, width, theme),
+					framed,
+				);
 			}
 		}
 		return framed;

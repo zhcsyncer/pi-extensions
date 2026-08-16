@@ -53,12 +53,14 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 			[],
 		);
 
-		const withText = render(assistant([
+		const withTextLines = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
 			{ type: "text", text: "Visible answer" },
-		], { stopReason: "stop" }), true).join("\n");
+		], { stopReason: "stop" }), true);
+		const withText = withTextLines.join("\n");
 		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
+		assert.notEqual(withTextLines[0], "");
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },

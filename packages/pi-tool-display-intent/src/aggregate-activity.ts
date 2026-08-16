@@ -1108,6 +1108,15 @@ export function padAggregateBlock(lines: readonly string[]): string[] {
 	return lines.length > 0 ? ["", ...lines, ""] : [];
 }
 
+export function attachExpandedAggregateSummary(
+	header: readonly string[],
+	detail: readonly string[],
+): string[] {
+	if (header.length === 0) return [...detail];
+	if (detail.length === 0) return padAggregateBlock(header);
+	return ["", ...header, ...detail];
+}
+
 export function renderAggregateMemberRow(
 	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
 	width: number,
@@ -1246,7 +1255,10 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 			if (activeProjection.shouldHostExpandedSummary(toolCallId)) {
 				const headerView = activeProjection.getViewForGroup(toolCallId);
 				if (headerView) {
-					return [...padAggregateBlock(renderAggregateActivity(headerView, width, activeProjection.getRenderTheme())), ...detail];
+					return attachExpandedAggregateSummary(
+						renderAggregateActivity(headerView, width, activeProjection.getRenderTheme()),
+						detail,
+					);
 				}
 			}
 			return detail;
