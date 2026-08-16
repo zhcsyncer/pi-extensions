@@ -7,14 +7,14 @@ export interface BudgetUi {
 }
 
 export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
-	const scope = await pick<Scope>(ui, "Scope", [
+	const scope = await pickSelect<Scope>(ui, "Scope", [
 		{ value: "global", label: "Global", description: "across all sessions and projects" },
 		{ value: "session", label: "Session", description: "current session only" },
 		{ value: "project", label: "Project", description: "the current project (cwd)" },
 	]);
 	if (!scope) return null;
 
-	const period = await pick<Period>(ui, "Period", [
+	const period = await pickSelect<Period>(ui, "Period", [
 		{ value: "day", label: "Day" },
 		{ value: "week", label: "Week" },
 		{ value: "month", label: "Month" },
@@ -22,7 +22,7 @@ export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
 	]);
 	if (!period) return null;
 
-	const metric = await pick<Metric>(ui, "Metric", [
+	const metric = await pickSelect<Metric>(ui, "Metric", [
 		{ value: "cost", label: "Cost ($)", description: "local USD spend" },
 		{ value: "tot", label: "Total tokens" },
 		{ value: "in", label: "Input tokens" },
@@ -31,7 +31,7 @@ export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
 	if (!metric) return null;
 
 	const presets = metric === "cost" ? [1, 5, 10, 25, 50, 100] : [50_000, 100_000, 250_000, 500_000, 1_000_000, 5_000_000];
-	const maxStr = await pick<string>(ui, `Max ${metric === "cost" ? "(USD)" : "(tokens)"}`, [
+	const maxStr = await pickSelect<string>(ui, `Max ${metric === "cost" ? "(USD)" : "(tokens)"}`, [
 		...presets.map((value) => ({
 			value: String(value),
 			label: metric === "cost" ? `$${value}` : value.toLocaleString("en-US"),
@@ -40,7 +40,7 @@ export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
 	]);
 	if (maxStr === null || maxStr === "other") return null;
 
-	const warnStr = await pick<string>(ui, "Warn at", [
+	const warnStr = await pickSelect<string>(ui, "Warn at", [
 		{ value: "0.5", label: "50%" },
 		{ value: "0.8", label: "80%", description: "default" },
 		{ value: "0.9", label: "90%" },
@@ -51,7 +51,7 @@ export async function addBudgetFlow(ui: BudgetUi): Promise<BudgetLimit | null> {
 	return { scope, period, metric, max: Number(maxStr), warn: Number(warnStr) };
 }
 
-async function pick<T extends string>(ui: BudgetUi, title: string, items: SelectItem[]): Promise<T | null> {
+export async function pickSelect<T extends string>(ui: BudgetUi, title: string, items: SelectItem[]): Promise<T | null> {
 	return ui.custom<T>((tui, theme, _kb, done) => {
 		const container = new Container();
 		container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));

@@ -1,15 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { QuotaPolarity } from "../config.ts";
-import { fmtCompactCost, fmtCompactTokens } from "../ledger/format.ts";
-import type { AggRow } from "../ledger/types.ts";
 import type { QuotaWindowView } from "../quota/policy.ts";
 import { displayedPercent, formatResetShort, quotaTone, renderQuotaBar } from "./format.ts";
 
 export const STATUS_KEY = "pi-meter";
 
 export interface ChromeInput {
-	today: AggRow;
-	tokenDetails: boolean;
+	local?: string;
 	quota?: QuotaWindowView;
 	polarity: QuotaPolarity;
 	now?: Date;
@@ -25,15 +22,6 @@ export function quotaWindowKind(window: { id: string; label: string }): string {
 	return first ? first.toLowerCase() : "quota";
 }
 
-function todayCaption(today: AggRow, details: boolean): string {
-	if (details) {
-		return `today ↑${fmtCompactTokens(today.input)} ↓${fmtCompactTokens(today.output)} hit ${fmtCompactTokens(today.cacheRead)}`;
-	}
-	const tokens = fmtCompactTokens(today.tokens);
-	const cost = today.costKnown ? fmtCompactCost(today.cost) : undefined;
-	return cost ? `today ${tokens} ${cost}` : `today ${tokens}`;
-}
-
 function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date): { label: string; value: string; tone: ReturnType<typeof quotaTone> } {
 	const kind = quotaWindowKind(quota.window);
 	const verb = polarity === "remaining" ? "left" : "used";
@@ -47,20 +35,21 @@ function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date
 	};
 }
 
-export function renderStatusText(input: ChromeInput, theme: Theme): string {
+export function renderStatusText(input: ChromeInput, theme: Theme): string | undefined {
 	const now = input.now ?? new Date();
-	const today = theme.fg("muted", todayCaption(input.today, input.tokenDetails));
-	const body = input.quota
-		? (() => {
-			const quota = quotaCaption(input.quota, input.polarity, now);
-			return [today, `${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`].join(theme.fg("dim", " · "));
-		})()
-		: today;
+	const parts: string[] = [];
+	if (input.local) parts.push(theme.fg("muted", input.local));
+	if (input.quota) {
+		const quota = quotaCaption(input.quota, input.polarity, now);
+		parts.push(`${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`);
+	}
+	if (parts.length === 0) return undefined;
 	// Pi/Glance join foreign statuses with a space. A leading mid-dot keeps
 	// "granted today" from reading as one phrase.
-	return `${theme.fg("dim", "·")} ${body}`;
+	return `${theme.fg("dim", "·")} ${parts.join(theme.fg("dim", " · "))}`;
 }
 
 export function renderChromeLine(input: ChromeInput, _width: number, theme: Theme): string[] {
-	return [renderStatusText(input, theme)];
+	const text = renderStatusText(input, theme);
+	return text ? [text] : [];
 }

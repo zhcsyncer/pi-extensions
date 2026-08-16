@@ -39,7 +39,8 @@ pi -e npm:@zhcsyncer/pi-meter
 | `/usage` | Claude、Codex、SuperGrok 的窗口百分比和重置时间 |
 | `/usage refresh` | 强制刷新共享快照（仍遵守 30s 最小间隔） |
 | `/usage used` / `/usage remaining` | 把底栏 status 在「已用 / 剩余」之间切换 |
-| `/analytics` | 按 model / project / session 看本地账，含 input / output / cache 列 |
+| `/analytics` | TUI 菜单：看板、footer 预设、budget、回填 |
+| `/analytics footer` | 恢复原来的 tracker footer：今日 token / 费用 / budget / 主模型，或今天花费 + 套餐窗口 |
 | `/analytics import` | 可选、一次性从 session JSONL 回填 |
 | `/analytics details` | 开关底栏 status 上的 input / output / cache hit |
 | `/budget` | 本地 token/费用提醒。从不拦请求 |
@@ -85,7 +86,7 @@ budgets.json   本地上限
 warned.jsonl   一次性预算警告
 ```
 
-若已有 pi-tracker 的 `analytics/usage.jsonl`，第一次加载会迁到这个目录。
+若已有 pi-tracker 的 `analytics/usage.jsonl` 和 `analytics/footer.json`，第一次加载会迁到这个目录。
 
 ## 配置
 

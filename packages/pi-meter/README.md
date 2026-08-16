@@ -39,7 +39,8 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. Di
 | `/usage` | Claude, Codex, and SuperGrok window percent plus reset time |
 | `/usage refresh` | Force-refresh shared snapshots (still respects the 30s min interval) |
 | `/usage used` / `/usage remaining` | Flip the footer status between used and remaining |
-| `/analytics` | Local dashboard by model / project / session, with input / output / cache columns |
+| `/analytics` | TUI menu: dashboard, footer preset, budgets, import |
+| `/analytics footer` | Restore the old tracker footer: today tokens / cost / budget / model, or the combined today + quota view |
 | `/analytics import` | Optional one-time back-fill from session JSONL |
 | `/analytics details` | Toggle input / output / cache hit in the footer status |
 | `/budget` | Local token/cost reminders. They never block requests |
@@ -85,7 +86,7 @@ budgets.json   local limits
 warned.jsonl   one-shot budget warnings
 ```
 
-An existing `analytics/usage.jsonl` from pi-tracker is migrated into this directory on first load.
+An existing `analytics/usage.jsonl` and `analytics/footer.json` from pi-tracker are migrated into this directory on first load.
 
 ## Configuration
 

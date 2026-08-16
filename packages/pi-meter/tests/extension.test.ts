@@ -143,14 +143,39 @@ describe("extension runtime", () => {
 		expect(statuses.get("pi-meter")).toContain("today");
 	});
 
-	it("migrates analytics/usage.jsonl into extension-data/pi-meter", async () => {
+	it("restores the tracker footer preset from /analytics footer", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, statuses, notifications } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("message_end")?.[0]?.({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				provider: "xai",
+				model: "grok-4",
+				timestamp: Date.now(),
+				usage: { input: 12400, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 12400, cost: { total: 0.18 } },
+			},
+		}, ctx);
+		await commands.get("analytics").handler("footer today-tokens", ctx);
+		expect(notifications.at(-1)?.message).toContain("Today tokens");
+		expect(statuses.get("pi-meter")).toContain("today 12.4k");
+		expect(JSON.parse(readFileSync(getMeterPaths(agentDir).footerFile, "utf8"))).toEqual({ preset: "today-tokens" });
+	});
+
+	it("migrates analytics/usage.jsonl and footer.json into extension-data/pi-meter", async () => {
 		const legacy = join(agentDir, "analytics");
 		mkdirSync(legacy, { recursive: true });
 		writeFileSync(join(legacy, "usage.jsonl"), "[1,\"s\",\"/p\",\"xai/grok\",1,2,3,4,10,0.1,1]\n");
+		writeFileSync(join(legacy, "footer.json"), "{\"preset\":\"today-tokens\"}\n");
 		const { store, migration } = await createLedgerStore(agentDir);
 		expect(migration).toContain("usage.jsonl");
+		expect(migration).toContain("footer.json");
 		const records = await store.readAll();
 		expect(records[0]).toMatchObject({ model: "xai/grok", in: 1, out: 2, cR: 3, cW: 4 });
+		expect(await store.loadFooterPreset()).toBe("today-tokens");
 		expect(() => readFileSync(join(legacy, "usage.jsonl"))).toThrow();
+		expect(() => readFileSync(join(legacy, "footer.json"))).toThrow();
 	});
 });

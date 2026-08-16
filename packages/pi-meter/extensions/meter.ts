@@ -5,12 +5,13 @@ import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { loadMeterConfig, parseTokenDetailsArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
-import { addBudgetFlow } from "../src/ledger/budget-add.ts";
+import { addBudgetFlow, pickSelect, type BudgetUi } from "../src/ledger/budget-add.ts";
+import { computeFooterStats, FOOTER_PRESETS, parseFooterPreset, renderLocalFooter, type FooterPreset } from "../src/ledger/footer.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { Dashboard } from "../src/ledger/dashboard.ts";
 import { DIMENSIONS } from "../src/ledger/enums.ts";
 import { fmtCost, fmtNum } from "../src/ledger/format.ts";
-import { aggregate, sumRows, sumToday } from "../src/ledger/aggregate.ts";
+import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { parseSession, diffRecords, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
 import { parseWindowArg, sessionIdFrom } from "../src/ledger/time.ts";
@@ -41,6 +42,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 	let quota: QuotaStoreFile | undefined;
 	let session: SessionBits = { sessionId: "ephemeral", cwd: "" };
 	let conflictWarned = false;
+	let footerPreset: FooterPreset = "full";
 
 	async function ensureReady(ctx: ExtensionContext): Promise<void> {
 		session = {
@@ -52,6 +54,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 			store = created.store;
 			if (created.migration) notify(ctx, created.migration, "info");
 			warned = await store.loadWarned();
+			footerPreset = parseFooterPreset(await store.loadFooterPreset()) ?? "full";
 		}
 		if (!config) {
 			const loaded = await loadMeterConfig(agentDir);
@@ -125,12 +128,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 	async function renderChrome(ctx: ExtensionContext): Promise<void> {
 		if (ctx.mode !== "tui" || !ctx.hasUI || !store || !config) return;
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
-		const today = sumToday(await store.readAll());
+		const records = await store.readAll();
+		const limits = (await store.loadBudgets()).limits;
+		const local = renderLocalFooter(footerPreset, computeFooterStats(records, limits), config.tokenDetails);
 		const preferred = preferredProvider(ctx.model);
 		const view = quota ? chromeWindow(quota, preferred) : undefined;
 		ctx.ui.setStatus(STATUS_KEY, renderStatusText({
-			today,
-			tokenDetails: config.tokenDetails,
+			local,
 			quota: view,
 			polarity: config.quotaPolarity,
 		}, ctx.ui.theme));
@@ -215,7 +219,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("analytics", {
-		description: "Local usage ledger — dashboard, import, token details",
+		description: "Local usage ledger — dashboard, footer, import, token details",
 		getArgumentCompletions: (prefix) => {
 			const options = [
 				{ value: "today", label: "today" },
@@ -225,6 +229,8 @@ export default function piMeter(pi: ExtensionAPI): void {
 				{ value: "year", label: "year" },
 				{ value: "all", label: "all" },
 				{ value: "import", label: "import", description: "Back-fill from session files" },
+				{ value: "footer", label: "footer", description: "Choose the local footer status" },
+				...FOOTER_PRESETS.map((preset) => ({ value: `footer ${preset.key}`, label: `footer ${preset.key}`, description: preset.description })),
 				{ value: "details", label: "details", description: "Show or hide token details in the footer status" },
 				{ value: "details on", label: "details on", description: "Show input / output / cache hit" },
 				{ value: "details off", label: "details off", description: "Hide token details" },
@@ -239,6 +245,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 				await importHistory(store!, ctx.ui.notify);
 				return;
 			}
+			if (arg === "footer" || arg.startsWith("footer ")) {
+				await handleFooter(arg.slice("footer".length).trim(), store!, (preset) => {
+					footerPreset = preset;
+				}, ctx);
+				await renderChrome(ctx);
+				return;
+			}
 			const details = parseTokenDetailsArg(arg, config!.tokenDetails);
 			if (details !== undefined) {
 				await persistConfig({ ...config!, tokenDetails: details }, ctx);
@@ -249,12 +262,45 @@ export default function piMeter(pi: ExtensionAPI): void {
 				printHelp(ctx.ui.notify);
 				return;
 			}
-			const window = parseWindowArg(arg) ?? "today";
-			if (ctx.mode !== "tui") {
-				printReport(await store!.readAll(), window, ctx.ui.notify);
+			const window = parseWindowArg(arg);
+			if (window) {
+				if (ctx.mode !== "tui") {
+					printReport(await store!.readAll(), window, ctx.ui.notify);
+					return;
+				}
+				await openDashboard(window, store!, session, ctx);
 				return;
 			}
-			await openDashboard(window, store!, session, ctx);
+			if (arg.length > 0) {
+				notify(ctx, "Unknown /analytics argument. Try footer, details, import, or a time window.", "warning");
+				return;
+			}
+			if (ctx.mode !== "tui") {
+				printReport(await store!.readAll(), "today", ctx.ui.notify);
+				return;
+			}
+			const choice = await pickAnalyticsMenu(ctx);
+			if (!choice) return;
+			switch (choice) {
+				case "dashboard":
+					await openDashboard("today", store!, session, ctx);
+					break;
+				case "footer":
+					await handleFooter("", store!, (preset) => {
+						footerPreset = preset;
+					}, ctx);
+					await renderChrome(ctx);
+					break;
+				case "import":
+					await importHistory(store!, ctx.ui.notify);
+					break;
+				case "budget":
+					viewBudgets((await store!.loadBudgets()).limits, ctx.ui.notify);
+					break;
+				case "help":
+					printHelp(ctx.ui.notify);
+					break;
+			}
 		},
 	});
 
@@ -271,6 +317,57 @@ export default function piMeter(pi: ExtensionAPI): void {
 			viewBudgets(budgets.limits, ctx.ui.notify);
 		},
 	});
+}
+
+type AnalyticsMenuChoice = "dashboard" | "footer" | "import" | "budget" | "help";
+
+async function pickAnalyticsMenu(ctx: ExtensionContext): Promise<AnalyticsMenuChoice | null> {
+	return pickSelect<AnalyticsMenuChoice>(
+		{ custom: ctx.ui.custom.bind(ctx.ui) as BudgetUi["custom"] },
+		"Analytics",
+		[
+			{ value: "dashboard", label: "Dashboard", description: "Local ledger by model / project / session" },
+			{ value: "footer", label: "Footer preset", description: "What the footer status shows for local spend" },
+			{ value: "budget", label: "Budgets", description: "View local token/cost reminders" },
+			{ value: "import", label: "Import history", description: "Back-fill from session JSONL" },
+			{ value: "help", label: "Help", description: "Command reference" },
+		],
+	);
+}
+
+async function handleFooter(
+	arg: string,
+	store: FileLedgerStore,
+	onChange: (preset: FooterPreset) => void,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (arg.length > 0) {
+		const preset = parseFooterPreset(arg);
+		if (!preset) {
+			ctx.ui.notify(`Unknown footer. Options: ${FOOTER_PRESETS.map((item) => item.key).join(", ")}`, "warning");
+			return;
+		}
+		await store.saveFooterPreset(preset);
+		onChange(preset);
+		ctx.ui.notify(`Footer: ${FOOTER_PRESETS.find((item) => item.key === preset)?.label ?? preset}`, "info");
+		return;
+	}
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify(`Usage: /analytics footer <${FOOTER_PRESETS.map((item) => item.key).join("|")}>`, "info");
+		return;
+	}
+	const choice = await pickSelect<FooterPreset>(
+		{ custom: ctx.ui.custom.bind(ctx.ui) as BudgetUi["custom"] },
+		"Footer preset",
+		FOOTER_PRESETS.map((preset) => ({ value: preset.key, label: preset.label, description: preset.description })),
+	);
+	if (!choice) {
+		ctx.ui.notify("Footer unchanged", "info");
+		return;
+	}
+	await store.saveFooterPreset(choice);
+	onChange(choice);
+	ctx.ui.notify(`Footer: ${FOOTER_PRESETS.find((item) => item.key === choice)?.label ?? choice}`, "info");
 }
 
 async function openDashboard(
@@ -317,8 +414,11 @@ function printHelp(notify: Notify): void {
 			"",
 			"  /usage [refresh|used|remaining]",
 			"      Subscription windows for Claude, Codex, and SuperGrok.",
+			"  /analytics                    Open the interactive menu (TUI).",
 			"  /analytics [today|week|month|6months|year|all]",
 			"      Local ledger dashboard with input / output / cache columns.",
+			"  /analytics footer [full|today-tokens|today-cost|budget|model|off]",
+			"      Choose the local footer status. Quota stays beside it.",
 			"  /analytics import     Back-fill from session JSONL (idempotent).",
 			"  /analytics details    Toggle token details in the footer status.",
 			"  /budget               View local budgets (does not block requests).",
@@ -438,5 +538,3 @@ async function saveLimit(store: FileLedgerStore, limit: BudgetLimit, notify: Not
 	const metricTxt = limit.metric === "cost" ? `$${limit.max}` : `${fmtNum(limit.max)} tok`;
 	notify(`Added local budget: ${limit.scope}/${limit.period}/${limit.metric} = ${metricTxt} (warn ${limit.warn ?? 0.8})`, "info");
 }
-
-type BudgetUi = { custom: <T>(build: (tui: any, theme: any, kb: any, done: (value: T | null) => void) => any) => Promise<T | null> };

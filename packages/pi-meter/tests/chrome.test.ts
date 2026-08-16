@@ -3,6 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
 import { renderUsagePanel } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
+import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
 import type { AggRow } from "../src/ledger/types.ts";
 
 const theme = {
@@ -23,8 +24,8 @@ const today: AggRow = {
 	turns: 3,
 };
 
-function strip(line: string): string {
-	return line.replace(/\x1b\[[0-9;]*m/g, "");
+function strip(line: string | undefined): string {
+	return (line ?? "").replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 describe("quota polarity and tone", () => {
@@ -49,9 +50,9 @@ describe("status chrome", () => {
 	};
 
 	it("names today's local spend and the weekly remaining window", () => {
+		const local = renderLocalFooter("full", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, false);
 		const plain = strip(renderStatusText({
-			today,
-			tokenDetails: false,
+			local,
 			quota,
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
@@ -60,9 +61,9 @@ describe("status chrome", () => {
 	});
 
 	it("keeps the window verb when flipping to used", () => {
+		const local = renderLocalFooter("full", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null }, true);
 		const plain = strip(renderStatusText({
-			today,
-			tokenDetails: true,
+			local,
 			quota,
 			polarity: "used",
 			now: new Date("2026-08-15T12:00:00Z"),
@@ -71,6 +72,22 @@ describe("status chrome", () => {
 		expect(plain).toContain("today ↑12.4k ↓2.1k hit 80k");
 		expect(plain).toContain("week used");
 		expect(plain).toContain("66%");
+	});
+
+	it("can restore the tracker today-tokens footer without losing quota", () => {
+		const now = new Date(2026, 7, 15, 18, 0, 0);
+		const stats = computeFooterStats([
+			{ ts: now.getTime(), sid: "s", cwd: "/p", model: "xai/grok-4", in: 12400, out: 0, cR: 0, cW: 0, tot: 12400, cost: 0.18, costKnown: true },
+		], [], now);
+		const local = renderLocalFooter("today-tokens", stats, false);
+		expect(local).toBe("today 12.4k");
+		const plain = strip(renderStatusText({
+			local,
+			quota,
+			polarity: "remaining",
+			now: new Date("2026-08-15T12:00:00Z"),
+		}, theme));
+		expect(plain).toBe("· today 12.4k · week left ██░░░ 34% (3d)");
 	});
 
 	it("labels Claude 5h and Codex week windows", () => {

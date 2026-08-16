@@ -10,10 +10,12 @@ export interface MeterPaths {
 	usageFile: string;
 	budgetsFile: string;
 	warnedFile: string;
+	footerFile: string;
 	legacyAnalyticsDir: string;
 	legacyUsageFile: string;
 	legacyBudgetsFile: string;
 	legacyWarnedFile: string;
+	legacyFooterFile: string;
 }
 
 export function getMeterPaths(agentDir = getAgentDir()): MeterPaths {
@@ -26,9 +28,11 @@ export function getMeterPaths(agentDir = getAgentDir()): MeterPaths {
 		usageFile: join(dataDir, "usage.jsonl"),
 		budgetsFile: join(dataDir, "budgets.json"),
 		warnedFile: join(dataDir, "warned.jsonl"),
+		footerFile: join(dataDir, "footer.json"),
 		legacyAnalyticsDir,
 		legacyUsageFile: join(legacyAnalyticsDir, "usage.jsonl"),
 		legacyBudgetsFile: join(legacyAnalyticsDir, "budgets.json"),
 		legacyWarnedFile: join(legacyAnalyticsDir, "warned.jsonl"),
+		legacyFooterFile: join(legacyAnalyticsDir, "footer.json"),
 	};
 }
