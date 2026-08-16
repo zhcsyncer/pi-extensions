@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-meter",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Local usage ledger plus subscription remaining for the Pi coding agent.",
   "keywords": [
     "pi-package",
