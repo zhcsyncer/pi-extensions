@@ -1,6 +1,6 @@
 # Volcengine Agent Plan 扩展 · 套餐余量与 tier 自动刷新方案
 
-> 当前实现：[`../index.ts`](../index.ts)（独立 npm 子包的单文件扩展入口）。
+> 当前实现：[`../../../providers/pi-provider-volcengine-agent-plan/index.ts`](../../../providers/pi-provider-volcengine-agent-plan/index.ts)（独立 npm 子包的单文件扩展入口）。
 > 本文档仅描述尚未实现的可选增量方案，不代表当前已发布能力。
 
 ## 1. 目标
@@ -91,7 +91,6 @@ Node 内置 `crypto` 即可实现（约 80 行），无需引入 `@volcengine/op
 
 ```
 providers/pi-provider-volcengine-agent-plan/
-├── docs/quota-auto-refresh-design.md  # 本文档
 ├── index.ts                           # provider 注册与扩展事件
 ├── volc-sign.ts                       # 火山 v4 签名（纯函数，无 IO）
 ├── ark-api.ts                         # GetAFPUsage 调用与响应解析（可注入 fetch）

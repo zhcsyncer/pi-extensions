@@ -3,6 +3,9 @@ import { handleDiffCommand } from "./diff-review.js";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { GitRefresher, maybeFetchGitBaseRef, type GitBaseRefFetchReason } from "./git.js";
+import { INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./input-stash.js";
+import { createInputStashStore, type InputStashStore } from "./input-stash-store.js";
+import { InputStashController } from "./input-stash-runtime.js";
 import { readPiUiTheme, resolveRuntimeRenderStyleContext } from "./render-style-context.js";
 import { RuntimeRefreshSession, type RuntimeAgentEndInput, type RuntimeMessageEndInput, type RuntimeTurnEndInput } from "./runtime-refresh-session.js";
 import type { GlanceRenderStyleContext } from "./theme-adapter.js";
@@ -10,6 +13,8 @@ import { readPiAmbientTone } from "./theme-tone.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
 import { WORKTREE_WIDGET_KEY } from "./worktree-summary.js";
 import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters, type WorkingMessageUpdateEvent } from "./working-indicator.js";
+
+export { INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT };
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
 
@@ -39,6 +44,9 @@ export interface GlanceRuntimeAdapters {
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	fetchGitBaseRef?(cwd: string, reason: GitBaseRefFetchReason): Promise<boolean>;
 	nowMs?: () => number;
+	setTimeout?: (callback: () => void, ms: number) => unknown;
+	clearTimeout?: (id: unknown) => void;
+	createInputStashStore?: () => InputStashStore;
 	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
 	reviewWorkingTree?: (ctx: ExtensionCommandContext) => Promise<unknown>;
 }
@@ -64,6 +72,10 @@ export interface GlanceRuntime {
 		openPane(args: string, ctx: ExtensionCommandContext): Promise<void>;
 		openDiff(args: string, ctx: ExtensionCommandContext): Promise<void>;
 		refreshGit(): void;
+	};
+	shortcuts: {
+		stashOrRestore(ctx: ExtensionContext): void;
+		discard(ctx: ExtensionContext): void;
 	};
 	events: {
 		sessionStart(event: unknown, ctx: ExtensionContext): void;
@@ -110,6 +122,12 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 	let readTerminalWidth = () => 80;
 	let uiGeneration = 0;
 	const nowMs = adapters.nowMs ?? Date.now;
+	const inputStash = new InputStashController(adapters.createInputStashStore?.() ?? createInputStashStore(), {
+		nowMs: () => nowMs(),
+		requestRender: () => renderNow(),
+		setTimeout: adapters.setTimeout ?? setTimeout,
+		clearTimeout: adapters.clearTimeout ?? clearTimeout,
+	});
 	const workingIndicator = createWorkingIndicatorController({
 		getConfig,
 		getThinkingLevel: () => adapters.getThinkingLevel(),
@@ -251,6 +269,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				},
 				{
 					onForeground: () => requestBaseRefFetch("focus"),
+					getStashOccupied: () => inputStash.occupied(ctx),
 					...(renderStyleContext ? { renderStyleContext } : {}),
 				},
 			);
@@ -297,12 +316,23 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				ctx.ui.notify("pi-glance configuration saved", "info");
 			},
 		},
+		shortcuts: {
+			stashOrRestore: (ctx) => {
+				if (!isTuiMode(ctx) || config?.enabled !== true) return;
+				inputStash.handlePrimary(ctx);
+			},
+			discard: (ctx) => {
+				if (!isTuiMode(ctx) || config?.enabled !== true) return;
+				inputStash.handleSecondary(ctx);
+			},
+		},
 		events: {
 			sessionStart: (_event, ctx) => {
 				config = adapters.loadConfigSync();
 				for (const notice of adapters.consumeConfigNotices?.() ?? []) ctx.ui.notify?.(notice, "warning");
 				refreshSession.sessionStart(ctx);
 				installInputSurface(ctx);
+				if (isTuiMode(ctx) && getConfig().enabled) inputStash.restoreOnSessionStart(ctx);
 			},
 			sessionShutdown: async (_event, ctx) => {
 				workingIndicator.shutdown();

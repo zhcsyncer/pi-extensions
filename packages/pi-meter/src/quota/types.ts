@@ -1,4 +1,4 @@
-export type QuotaProviderId = "claude" | "codex" | "supergrok";
+export type QuotaProviderId = "claude" | "codex" | "supergrok" | "ollama";
 
 export interface QuotaWindow {
 	id: string;
@@ -35,4 +35,17 @@ export interface QuotaRefreshDecision {
 
 export const QUOTA_TTL_MS = 60_000;
 export const QUOTA_MIN_INTERVAL_MS = 30_000;
-export const QUOTA_PROVIDERS: readonly QuotaProviderId[] = ["claude", "codex", "supergrok"];
+export const QUOTA_PROVIDERS: readonly QuotaProviderId[] = ["claude", "codex", "supergrok", "ollama"];
+
+export function quotaProviderTitle(id: QuotaProviderId): string {
+	switch (id) {
+		case "claude":
+			return "Claude";
+		case "codex":
+			return "OpenAI Codex";
+		case "supergrok":
+			return "SuperGrok";
+		case "ollama":
+			return "Ollama Cloud";
+	}
+}

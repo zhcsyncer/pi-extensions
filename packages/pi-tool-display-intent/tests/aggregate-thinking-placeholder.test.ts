@@ -12,6 +12,7 @@ import {
 } from "../src/aggregate-activity.ts";
 import {
 	isInterimAssistantNarration,
+	omitThinkingContentBlocks,
 	patchAggregateThinkingPlaceholders,
 	restoreAggregateThinkingPlaceholders,
 } from "../src/aggregate-thinking-placeholder.ts";
@@ -60,7 +61,7 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 		const withText = withTextLines.join("\n");
 		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
-		assert.notEqual(withTextLines[0], "");
+		assert.equal(withTextLines[0], "");
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
@@ -121,6 +122,52 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 	}
 });
 
+test("a direct final answer keeps a blank row under the user prompt", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-direct-final");
+		const message = assistant([
+			{ type: "text", text: "就是：换地方画 Tools，上面照样空一行。" },
+		], { id: "assistant-direct-final", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const rendered = createComponent(message, true).render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /换地方画 Tools/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("a final answer after Tools does not stack a second blank on the ledger", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-after-tools");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-tools" }));
+		projection.markStarted("read-1", "read", { path: "a.ts" });
+		const message = assistant([
+			{ type: "text", text: "对照完了。" },
+		], { id: "assistant-after-tools", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const rendered = createComponent(message, true).render(100);
+		assert.notEqual(rendered[0], "");
+		assert.match(rendered.join("\n"), /对照完了/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("final assistant conclusions stay unmarked and do not use a captured Pi theme", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
@@ -170,6 +217,89 @@ test("aggregate thinking patch preserves a later outer renderer wrapper", () => 
 		);
 	} finally {
 		prototype.render = patched;
+		restoreAggregateThinkingPlaceholders();
+	}
+});
+
+test("a stop message keeps only the final text outside the Tools frame", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-stop-text");
+		const message = assistant([
+			{ type: "thinking", thinking: "The user asked me to implement S-M15-12. Let me write a clear Chinese summary" },
+			{ type: "text", text: "已按你的拍板直接改生产..." },
+		], { id: "assistant-stop", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const collapsed = component.render(100);
+		assert.doesNotMatch(collapsed.join("\n"), /The user asked me|S-M15-12|Thinking\.\.\./);
+		assert.match(collapsed.join("\n"), /已按你的拍板直接改生产/);
+		assert.doesNotMatch(collapsed.join("\n"), /›|│|└/);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.doesNotMatch(expanded.join("\n"), /The user asked me|S-M15-12|Thinking\.\.\./);
+		assert.match(expanded.join("\n"), /已按你的拍板直接改生产/);
+		assert.doesNotMatch(expanded.join("\n"), /›|│|└/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("mid-turn thinking is not framed as narration", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-thinking-only");
+		const message = assistant([
+			{ type: "thinking", thinking: "The user wants me to inspect the current renderer first." },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-thinking-only" });
+		projection.ingestAssistantMessage(message);
+		const frameId = "assistant-before:read-1";
+		assert.equal(projection.getFramedItemIds(frameId).includes(frameId), false);
+
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), true);
+		assert.deepEqual(component.render(100), []);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.deepEqual(expanded, []);
+		assert.doesNotMatch(expanded.join("\n"), /›|The user wants me/);
+		assert.equal(projection.getFramedItemIds(frameId).includes(frameId), false);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("overlapping thinking and final text keep the final text", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const phrase = "modify the aggregate projection to use WeakMap";
+		const message = assistant([
+			{ type: "thinking", thinking: `I should ${phrase} and then present this clearly.` },
+			{ type: "text", text: phrase },
+		], { id: "assistant-overlap", stopReason: "stop" });
+		const stripped = omitThinkingContentBlocks(message) as { content: Array<{ type: string }> };
+		assert.deepEqual(stripped.content.map((block) => block.type), ["text"]);
+		const rendered = createComponent(message, false).render(100).join("\n");
+		assert.match(rendered, /modify the aggregate projection to use WeakMap/);
+		assert.doesNotMatch(rendered, /present this clearly|Thinking\.\.\./);
+	} finally {
 		restoreAggregateThinkingPlaceholders();
 	}
 });

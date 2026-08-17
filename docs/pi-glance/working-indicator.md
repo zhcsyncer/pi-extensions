@@ -222,7 +222,9 @@ packages/pi-glance/
 ├── working-indicator-state.ts       # 纯生命周期、token/accounting、tool 并发状态
 ├── working-indicator-renderer.ts    # glyph、grapheme shimmer、宽度降级、文案
 ├── working-indicator.ts             # Pi UI controller、timer、主题重装与 cleanup
-└── docs/working-indicator-plan.md    # 本方案
+└── …
+
+docs/pi-glance/working-indicator.md   # 本方案
 ```
 
 可按实现需要调整文件名，但必须保持：状态计算可纯测、渲染可纯测、Pi 事件编排与 timer 副作用集中。

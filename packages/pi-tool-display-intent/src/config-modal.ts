@@ -37,7 +37,6 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"diffViewMode",
 	"diffIndicatorMode",
 	"diffCollapsedMode",
-	"enableThinkingLabel",
 	"enableNativeUserMessageBox",
 ]);
 
@@ -57,7 +56,6 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
 		`toolCalls=${config.toolCallStyle}/bash${config.bashCommandPreviewRows}rows`,
 		`userMessage=${config.enableNativeUserMessageBox ? "boxed" : "default"}`,
-		`thinkingLabel=${toOnOff(config.enableThinkingLabel)}`,
 		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
 		`diffRows=${config.diffCollapsedRows}`,
 		`diffFold=${config.diffCollapsedMode}`,
@@ -111,7 +109,7 @@ export function buildInspectorSettings(
 					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
 					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
-					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool, thinking-label, and boxed-user settings are retained but inactive.",
+					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool and boxed-user settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
@@ -291,25 +289,6 @@ export function buildInspectorSettings(
 			searchTerms: ["diff", "collapsed", "summary", "body", "fold", "compact", "ctrl+o"],
 		},
 		{
-			id: "enableThinkingLabel",
-			label: "Thinking label",
-			currentValue: toOnOff(config.enableThinkingLabel),
-			values: ["on", "off"],
-			inspectorTitle: "Thinking Label",
-			inspectorSummary: [
-				"Adds an explicit Thinking: label to supported provider reasoning blocks.",
-				"Presentation labels are removed before model context is sent.",
-				"This setting is inactive in aggregate, which hides thinking labels.",
-			],
-			inspectorOptions: [
-				"on — show the transcript label",
-				"off — leave Pi's reasoning presentation unchanged",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
-			inspectorPath: configPath,
-			searchTerms: ["thinking", "reasoning", "label", "transcript"],
-		},
-		{
 			id: "enableNativeUserMessageBox",
 			label: "User message style",
 			currentValue: config.enableNativeUserMessageBox ? "boxed" : "default",
@@ -355,8 +334,6 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 				...config,
 				bashCommandPreviewRows: parseNumber(value, config.bashCommandPreviewRows),
 			};
-		case "enableThinkingLabel":
-			return { ...config, enableThinkingLabel: value === "on" };
 		case "enableNativeUserMessageBox":
 			return { ...config, enableNativeUserMessageBox: value === "boxed" };
 		case "diffViewMode":

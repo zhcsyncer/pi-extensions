@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
-import { renderUsagePanel } from "../src/chrome/usage-panel.ts";
+import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
+import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
+import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
 import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
 import type { AggRow } from "../src/ledger/types.ts";
+import { OLLAMA_API_KEY_ERROR } from "../src/quota/auth.ts";
+import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -94,6 +98,43 @@ describe("status chrome", () => {
 		expect(quotaWindowKind({ id: "session", label: "Session (5h)" })).toBe("5h");
 		expect(quotaWindowKind({ id: "main-primary", label: "Week limit" })).toBe("week");
 	});
+
+	it("renders an Ollama session window without a reset countdown", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "ollama-cloud/glm", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "ollama",
+				stale: false,
+				window: { id: "session", label: "Session (5h)", usedPercent: 72 },
+			},
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · 5h left █░░░░ 28%");
+		expect(plain).not.toContain("(");
+	});
+
+	it("names an unsupported provider instead of a foreign quota bar", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "ollama/llama", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quotaHint: { label: "ollama", value: "no quota window" },
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · ollama · no quota window");
+		expect(plain).not.toContain("week left");
+		expect(plain).not.toContain("█");
+	});
+
+	it("uses quota n/a when the current provider name is empty", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quotaHint: { label: "quota n/a", value: "no quota window" },
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · quota n/a · no quota window");
+	});
 });
 
 describe("reset time", () => {
@@ -105,23 +146,166 @@ describe("reset time", () => {
 	});
 });
 
+function snapshot(over: Partial<QuotaSnapshot> & Pick<QuotaSnapshot, "provider" | "title">): QuotaSnapshot {
+	return {
+		windows: [],
+		fetchedAt: Date.parse("2026-08-15T12:00:00Z"),
+		ok: true,
+		...over,
+	};
+}
+
+describe("footer settings dashboard", () => {
+	it("previews and saves all footer settings together", () => {
+		const dash = new FooterSettingsDashboard({
+			local: "today-spend",
+			quota: { visible: true, polarity: "remaining" },
+		}, {
+			stats: { today, todayTurns: 3, topModel: "ollama-cloud/glm", budget: null },
+			quota: {
+				provider: "ollama",
+				stale: false,
+				window: { id: "session", label: "Session (5h)", usedPercent: 72 },
+			},
+		}, {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		});
+		const initial = strip(dash.render(100).join("\n"));
+		expect(initial).toContain("pi-meter — footer settings");
+		expect(initial).toContain("today 12.4k $0.18");
+		expect(initial).toContain("5h left");
+
+		dash.handleInput(" ");
+		dash.handleInput("\x1b[B");
+		dash.handleInput(" ");
+		dash.handleInput("\x1b[B");
+		dash.handleInput(" ");
+		let saved: ReturnType<typeof dash.settings> | undefined;
+		dash.onDone = (value) => { saved = value; };
+		dash.handleInput("q");
+		expect(saved).toEqual({
+			local: "today-tokens",
+			quota: { visible: false, polarity: "used" },
+		});
+		const changed = strip(dash.render(100).join("\n"));
+		expect(changed).toContain("today 12.4k");
+		expect(changed).not.toContain("5h used");
+	});
+});
+
+describe("quota dashboard", () => {
+	it("shows the quota report in a temporary dashboard that closes with q", () => {
+		const dash = new QuotaDashboard([snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
+			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+			stale: true,
+		})], "remaining", {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		}, new Date("2026-08-15T12:00:00Z"));
+		let closed = false;
+		dash.onDone = () => { closed = true; };
+		const panel = strip(dash.render(80).join("\n"));
+		expect(panel).toContain("pi-meter — subscription quota");
+		expect(panel).toContain("display: remaining");
+		expect(panel).toContain("SuperGrok (stale)");
+		expect(panel).toContain("49%");
+		expect(panel).toContain("[q] close");
+		dash.handleInput("q");
+		expect(closed).toBe(true);
+	});
+});
+
 describe("usage panel", () => {
 	it("shows SuperGrok weekly remaining only", () => {
-		const panel = renderUsagePanel([{
+		const panel = renderUsagePanel([snapshot({
 			provider: "supergrok",
 			title: "SuperGrok",
 			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			windows: [
 				{ id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			],
-			fetchedAt: Date.parse("2026-08-15T12:00:00Z"),
-			ok: true,
-		}], "remaining", new Date("2026-08-15T17:55:31Z"));
+		})], "remaining", new Date("2026-08-15T17:55:31Z"));
 		expect(panel).toContain("SuperGrok");
 		expect(panel).toContain("Weekly credits");
 		expect(panel).toContain("49%");
 		expect(panel).toContain("resets in 1d 23h");
 		expect(panel).not.toContain("Build");
 		expect(panel).not.toContain("Chat");
+	});
+
+	it("summarizes unsigned-in providers at the bottom without warning", () => {
+		const snapshots = [
+			snapshot({
+				provider: "claude",
+				title: "Claude",
+				ok: false,
+				error: "no subscription OAuth credentials — run /login",
+			}),
+			snapshot({
+				provider: "codex",
+				title: "OpenAI Codex",
+				primary: { id: "week", label: "Week limit", usedPercent: 20 },
+				windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+			}),
+			snapshot({
+				provider: "supergrok",
+				title: "SuperGrok",
+				ok: false,
+				error: "no snapshot yet",
+			}),
+		];
+		const panel = renderUsagePanel(snapshots, "remaining");
+		expect(panel).toContain("OpenAI Codex");
+		expect(panel).toContain("Week limit");
+		expect(panel).toMatch(/OpenAI Codex[\s\S]*Not signed in: Claude, SuperGrok — run \/login$/);
+		expect(panel).not.toContain("no subscription OAuth credentials");
+		expect(panel).not.toContain("no snapshot yet");
+		expect(panel).not.toMatch(/^Claude\n/);
+		expect(panel).not.toMatch(/^SuperGrok\n/m);
+		expect(usageSeverity(snapshots, "remaining")).toBe("info");
+	});
+
+	it("still warns for real refresh errors and low remaining", () => {
+		const failed = [
+			snapshot({
+				provider: "claude",
+				title: "Claude",
+				ok: false,
+				error: "HTTP 500",
+			}),
+			snapshot({
+				provider: "supergrok",
+				title: "SuperGrok",
+				ok: false,
+				error: "no subscription OAuth credentials — run /login",
+			}),
+		];
+		const failedPanel = renderUsagePanel(failed, "remaining");
+		expect(failedPanel).toContain("Claude\n  HTTP 500");
+		expect(failedPanel.endsWith("Not signed in: SuperGrok — run /login")).toBe(true);
+		expect(usageSeverity(failed, "remaining")).toBe("warning");
+
+		const low = [snapshot({
+			provider: "claude",
+			title: "Claude",
+			windows: [{ id: "session", label: "Session (5h)", usedPercent: 70 }],
+		})];
+		expect(usageSeverity(low, "remaining")).toBe("warning");
+	});
+
+	it("treats a missing Ollama Cloud API key as unsigned-in", () => {
+		const snapshots = [snapshot({
+			provider: "ollama",
+			title: "Ollama Cloud",
+			ok: false,
+			error: OLLAMA_API_KEY_ERROR,
+		})];
+		const panel = renderUsagePanel(snapshots, "remaining");
+		expect(panel).toBe("Not signed in: Ollama Cloud — run /login");
+		expect(usageSeverity(snapshots, "remaining")).toBe("info");
 	});
 });

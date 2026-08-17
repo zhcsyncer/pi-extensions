@@ -112,10 +112,6 @@
         "userMessageStyle": {
           "enum": ["boxed", "default"],
           "default": "boxed"
-        },
-        "thinkingLabel": {
-          "type": "boolean",
-          "default": true
         }
       }
     },

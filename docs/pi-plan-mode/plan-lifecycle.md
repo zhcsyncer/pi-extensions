@@ -2,7 +2,7 @@
 
 状态：已实现
 
-关联计划：[`submit-plan-tool-display-plan.md`](./submit-plan-tool-display-plan.md)
+关联计划：[`submit-plan-tool-display.md`](./submit-plan-tool-display.md)
 
 ## 问题
 

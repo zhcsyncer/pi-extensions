@@ -1,12 +1,13 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fetchClaudeQuota } from "./adapters/claude.ts";
 import { fetchCodexQuota } from "./adapters/codex.ts";
+import { fetchOllamaQuota } from "./adapters/ollama.ts";
 import { fetchSuperGrokQuota } from "./adapters/supergrok.ts";
 import { decideRefresh, markAttempt, putSnapshot, withStaleFlags } from "./policy.ts";
 import { sanitizeQuotaError } from "./sanitize.ts";
 import { loadQuotaStore, saveQuotaStore } from "./store.ts";
 import type { QuotaProviderId, QuotaSnapshot, QuotaStoreFile } from "./types.ts";
-import { QUOTA_PROVIDERS } from "./types.ts";
+import { QUOTA_PROVIDERS, quotaProviderTitle } from "./types.ts";
 
 export type QuotaFetcher = (
 	ctx: Pick<ExtensionContext, "modelRegistry">,
@@ -17,6 +18,7 @@ export const DEFAULT_FETCHERS: Record<QuotaProviderId, QuotaFetcher> = {
 	claude: fetchClaudeQuota,
 	codex: fetchCodexQuota,
 	supergrok: fetchSuperGrokQuota,
+	ollama: fetchOllamaQuota,
 };
 
 export function preferredProvider(model: { provider?: string } | undefined): QuotaProviderId | undefined {
@@ -27,6 +29,8 @@ export function preferredProvider(model: { provider?: string } | undefined): Quo
 			return "codex";
 		case "xai":
 			return "supergrok";
+		case "ollama-cloud":
+			return "ollama";
 		default:
 			return undefined;
 	}
@@ -74,7 +78,7 @@ export async function refreshQuotaSnapshots(
 		} catch (error) {
 			store = putSnapshot(store, {
 				provider,
-				title: provider === "claude" ? "Claude" : provider === "codex" ? "OpenAI Codex" : "SuperGrok",
+				title: quotaProviderTitle(provider),
 				windows: [],
 				fetchedAt: now,
 				ok: false,

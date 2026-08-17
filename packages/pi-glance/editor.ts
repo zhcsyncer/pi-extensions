@@ -11,6 +11,7 @@ export interface GlanceEditorOptions {
 	readonly editorOptions?: EditorOptions;
 	readonly renderStyleContext?: GlanceRenderStyleContext;
 	readonly onForeground?: () => void;
+	readonly getStashOccupied?: () => boolean;
 }
 
 function stripBorderColor(line: string, borderColor: (text: string) => string): string {
@@ -157,6 +158,7 @@ export class GlanceEditor extends CustomEditor {
 			chrome: {
 				focus: isFocused ? "focused" : "unfocused",
 				...(modeLabel ? { border: styles.bashBorder, modeLabel } : {}),
+				stashOccupied: this.glanceOptions?.getStashOccupied?.() === true,
 				topScrollIndicator: this.extractScrollIndicator(topOriginal, metrics.safeWidth),
 				bottomScrollIndicator: this.extractScrollIndicator(bottomOriginal, metrics.safeWidth),
 			},

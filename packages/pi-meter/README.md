@@ -13,7 +13,7 @@ This package combines two existing Pi extensions:
 | Source | What you already know | What this package changes |
 |---|---|---|
 | [`pi-tracker`](https://github.com/alpertarhan/pi-tracker) | Local token/cost ledger, dashboard, budgets, session import | Those live under `/usage`, not `/analytics`. Counts use `34k` / `4.3M` / `5.35B`. |
-| [`@pi-plugins/usage`](https://github.com/k3dom/pi-plugins/tree/main/plugins/usage) | Claude and Codex subscription windows | Those live under `/usage quota`. SuperGrok is included. |
+| [`@pi-plugins/usage`](https://github.com/k3dom/pi-plugins/tree/main/plugins/usage) | Claude and Codex subscription windows | Those live under `/usage quota`. SuperGrok and Ollama Cloud are included. |
 
 Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If both are present, this package warns once and continues.
 
@@ -27,10 +27,15 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
   · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
   ```
 
+  ![Meter footer](./assets/demo-meter-status.png)
+
 - Local dashboard by model, project, or session.
-- Claude, Codex, and SuperGrok remaining after `/login` for that provider.
+- Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider.
+- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. Models with no subscription window show a muted footer hint.
 - Optional local budgets. They warn; they never block requests.
 - Optional one-time import from older session files.
+
+  ![Quota dashboard](./assets/demo-quota-dashboard.png)
 
 `--no-session` and ordinary sub-agents still record local usage. Isolated sub-agents do not.
 
@@ -61,11 +66,9 @@ Then restart Pi or run `/reload`. If `@pi-plugins/usage` is already in `settings
 | Command | What you see |
 |---|---|
 | `/usage` | Menu: dashboard, quota, footer, budgets, import |
-| `/usage quota` | Claude, Codex, and SuperGrok remaining plus reset time |
-| `/usage quota refresh` | Refresh subscription windows now |
-| `/usage quota used` / `remaining` | Show used or remaining in the footer |
-| `/usage quota on` / `off` | Show or hide the quota half of the footer |
-| `/usage footer` | Choose the local half: today spend, tokens, cost, budget, model, or off |
+| `/usage quota` | Open the remaining/reset-time dashboard for Claude, Codex, SuperGrok, and Ollama Cloud |
+| `/usage quota refresh` | Refresh subscription windows and open the dashboard |
+| `/usage footer` | Configure the local summary, quota visibility, and used/remaining display |
 | `/usage import` | Back-fill from session files |
 | `/usage budget` | View or add a local budget |
 

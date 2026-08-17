@@ -36,6 +36,7 @@
   "files": [
     "extensions/",
     "src/",
+    "assets/",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
@@ -47,7 +48,8 @@
   "pi": {
     "extensions": [
       "./extensions/meter.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-meter/assets/demo-meter-status.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.84.0 <1",

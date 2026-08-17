@@ -54,7 +54,9 @@
 │   │   └── state/
 │   │       └── exa-usage.json
 │   ├── pi-glance/
-│   │   └── config.json
+│   │   ├── config.json
+│   │   └── state/
+│   │       └── input-stash.json        # 输入框单槽暂存，按 session 覆盖写
 │   ├── pi-tool-display-intent/
 │   │   ├── config.json
 │   │   ├── config.legacy.json        # 已存在或 schema 迁移时生成的一次性备份
@@ -140,6 +142,7 @@ Recap/Search Hub 的项目迁移只在受信任项目中执行；Subagents 不�
 | Search Hub | `<project>/.pi/search.json` | `<project>/.pi/extension-data/pi-search-hub/config.json` | 受信任项目覆盖 |
 | Search Hub | `$PI_CODING_AGENT_DIR/exa-usage.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json` | 运行状态，不是配置 |
 | Pi Glance | `$PI_CODING_AGENT_DIR/pi-glance/config.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` | 全局配置 |
+| Pi Glance | （无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-glance/state/input-stash.json` | 输入框单槽暂存；按 session 覆盖写，不进 session JSONL |
 | Tool Display Intent | `$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json` | 全局配置 |
 | Tool Display Intent | `$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.legacy.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.legacy.json` | 已存在或 schema 迁移生成的一次性配置备份 |
 | Tool Display Intent | `$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/debug/debug.log` | `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/state/debug.log` | 调试运行状态；不存在时不创建 |
@@ -210,7 +213,8 @@ extension-data/<extension-id>/state/
 当前明确迁入该层的状态包括：
 
 - Search Hub 的 Exa 用量：`pi-search-hub/state/exa-usage.json`；
-- Tool Display Intent 的调试日志：`pi-tool-display-intent/state/debug.log`。
+- Tool Display Intent 的调试日志：`pi-tool-display-intent/state/debug.log`；
+- Glance 输入框单槽暂存：`pi-glance/state/input-stash.json`。按当前 session 覆盖写，不进 session JSONL。
 
 Meter 的 `quota.json`、`usage.jsonl`、`budgets.json` 和 `warned.jsonl` 是扩展内部状态，与 `config.json` 同目录但不属于用户可编辑配置。远端订阅快照不得写入本地账本。
 
@@ -219,6 +223,8 @@ Tool Display Intent 的 `config.legacy.json` 是一次性配置备份，不属�
 ### Session 状态
 
 与 Pi Session branch 语义绑定的数据继续使用 `pi.appendEntry()` 或 tool result details，不搬入 `extension-data`。Pi Todo 和 Recap 历史属于此类。Todo 因此同时拥有全局展示/guidance 配置与独立的 Session 任务历史，两者边界不能混淆。
+
+Glance 输入暂存不属于 Session 状态：它按当前 session 定位，但只要「当前这一份」、覆盖写。不走 JSONL append，也不跟 `/tree` 分支。见 [`pi-glance/input-stash.md`](./pi-glance/input-stash.md)。
 
 ### Subagents 资源与运行状态
 

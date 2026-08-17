@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { consumeGlanceConfigNotices, loadConfig, loadConfigSync, saveConfig } from "./config.js";
 import { showGlancePane } from "./pane.js";
-import { createGlanceRuntime } from "./runtime.js";
+import { createGlanceRuntime, INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./runtime.js";
 
 export default function piGlance(pi: ExtensionAPI): void {
 	const runtime = createGlanceRuntime({
@@ -21,6 +21,16 @@ export default function piGlance(pi: ExtensionAPI): void {
 	pi.registerCommand("diff", {
 		description: "Review the current Git working tree with revdiff",
 		handler: runtime.commands.openDiff,
+	});
+
+	pi.registerShortcut(INPUT_STASH_PRIMARY_SHORTCUT, {
+		description: "Stash or restore the editor draft",
+		handler: runtime.shortcuts.stashOrRestore,
+	});
+
+	pi.registerShortcut(INPUT_STASH_SECONDARY_SHORTCUT, {
+		description: "Discard the stashed editor draft",
+		handler: runtime.shortcuts.discard,
 	});
 
 	pi.on("session_start", runtime.events.sessionStart);

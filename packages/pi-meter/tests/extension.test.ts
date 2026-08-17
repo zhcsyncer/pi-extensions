@@ -25,12 +25,34 @@ afterEach(() => {
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown | Promise<unknown>;
 
-function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile?: string } = {}) {
+interface TestCustomComponent {
+	render: (width: number) => string[];
+	invalidate: () => void;
+	handleInput?: (data: string) => void;
+}
+
+type TestCustomFactory = (
+	tui: { requestRender: () => void },
+	theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
+	keybindings: unknown,
+	done: (value?: unknown) => void,
+) => TestCustomComponent;
+
+function harness(options: {
+	hasUI?: boolean;
+	mode?: "tui" | "print";
+	sessionFile?: string;
+	model?: { provider?: string; id?: string };
+	getApiKeyForProvider?: (provider: string) => Promise<string | undefined>;
+	customInputs?: string[];
+} = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
 	const widgets = new Map<string, { content: unknown; placement?: string }>();
 	const statuses = new Map<string, string>();
 	const notifications: Array<{ message: string; type?: string }> = [];
+	const customComponents: TestCustomComponent[] = [];
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
 	const pi = {
 		on(name: string, handler: Handler) {
 			const list = handlers.get(name) ?? [];
@@ -48,15 +70,17 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 		hasUI: options.hasUI ?? false,
 		mode: options.mode ?? (options.hasUI ? "tui" : "print"),
 		cwd: "/work",
-		model: { provider: "xai", id: "grok-4" },
-		modelRegistry: { getApiKeyForProvider: async () => undefined },
+		model: options.model ?? { provider: "xai", id: "grok-4" },
+		modelRegistry: {
+			getApiKeyForProvider: options.getApiKeyForProvider ?? (async () => undefined),
+		},
 		sessionManager: {
 			getSessionFile: () => options.sessionFile,
 			getSessionId: () => "sess",
 		},
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
-			theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+			theme,
 			setStatus: (key: string, text: string | undefined) => {
 				if (text === undefined) statuses.delete(key);
 				else statuses.set(key, text);
@@ -65,10 +89,16 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 				if (content === undefined) widgets.delete(key);
 				else widgets.set(key, { content, placement: widgetOptions?.placement });
 			},
-			custom: async () => undefined,
+			custom: async (factory: TestCustomFactory) => {
+				let result: unknown;
+				const component = factory({ requestRender() {} }, theme, {}, (value) => { result = value; });
+				customComponents.push(component);
+				for (const input of options.customInputs ?? []) component.handleInput?.(input);
+				return result;
+			},
 		},
 	} as unknown as ExtensionContext;
-	return { pi, ctx, handlers, commands, widgets, statuses, notifications };
+	return { pi, ctx, handlers, commands, widgets, statuses, notifications, customComponents };
 }
 
 describe("conflict detection", () => {
@@ -96,6 +126,31 @@ describe("extension runtime", () => {
 		const { pi, commands } = harness();
 		piMeter(pi);
 		expect([...commands.keys()]).toEqual(["usage"]);
+	});
+
+	it("exposes only the consolidated footer and quota arguments", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, commands } = harness();
+		piMeter(pi);
+		const definition = commands.get("usage");
+		const values = definition.getArgumentCompletions("").map((item: { value: string }) => item.value);
+		expect(values).toContain("footer");
+		expect(values).toContain("quota");
+		expect(values).toContain("quota refresh");
+		for (const removed of [
+			"quota on",
+			"quota off",
+			"quota used",
+			"quota remaining",
+			"footer today-spend",
+			"footer today-tokens",
+			"footer today-cost",
+			"footer budget",
+			"footer model",
+			"footer off",
+		]) {
+			expect(values).not.toContain(removed);
+		}
 	});
 
 	it("appends a local ledger row on message_end even without a session file", async () => {
@@ -127,11 +182,16 @@ describe("extension runtime", () => {
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		expect(widgets.size).toBe(0);
 		expect(statuses.get("pi-meter")).toContain("today");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
-	it("writes footer local and quota visibility into one config.json", async () => {
+	it("writes all footer settings from one dashboard into config.json", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, commands, statuses, notifications } = harness({ hasUI: true, mode: "tui" });
+		const { pi, ctx, handlers, commands, statuses, notifications, customComponents } = harness({
+			hasUI: true,
+			mode: "tui",
+			customInputs: [" ", "\x1b[B", " ", "\x1b[B", " ", "q"],
+		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		await handlers.get("message_end")?.[0]?.({
@@ -144,13 +204,54 @@ describe("extension runtime", () => {
 				usage: { input: 12400, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 12400, cost: { total: 0.18 } },
 			},
 		}, ctx);
-		await commands.get("usage").handler("footer today-tokens", ctx);
-		expect(notifications.at(-1)?.message).toContain("Today tokens");
+		await commands.get("usage").handler("footer", ctx);
+		expect(customComponents).toHaveLength(1);
+		expect(notifications).toEqual([]);
 		expect(statuses.get("pi-meter")).toContain("today 12.4k");
-		await commands.get("usage").handler("quota off", ctx);
-		expect(JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"))).toMatchObject({
-			footer: { local: "today-tokens", quota: false },
+		const saved = JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"));
+		expect(saved).toMatchObject({
+			footer: {
+				local: "today-tokens",
+				quota: { visible: false, polarity: "used" },
+			},
+			quota: { snapshotTtlMs: 60_000, minRefreshIntervalMs: 30_000 },
 		});
+		expect(saved.quota).not.toHaveProperty("polarity");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("migrates existing footer quota settings into the grouped config", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.configFile, `${JSON.stringify({
+			footer: { local: "model", quota: false },
+			quota: { polarity: "used", snapshotTtlMs: 90_000, minRefreshIntervalMs: 45_000 },
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		const migrated = JSON.parse(readFileSync(paths.configFile, "utf8"));
+		expect(migrated).toEqual({
+			footer: {
+				local: "model",
+				quota: { visible: false, polarity: "used" },
+			},
+			quota: { snapshotTtlMs: 90_000, minRefreshIntervalMs: 45_000 },
+		});
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("rejects removed footer and quota setting arguments", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("quota off", ctx);
+		expect(notifications.at(-1)?.message).toBe("Unknown /usage quota argument. Try refresh.");
+		await commands.get("usage").handler("footer today-tokens", ctx);
+		expect(notifications.at(-1)?.message).toContain("Unknown /usage argument");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
 	it("migrates analytics/usage.jsonl and folds footer.json into config.json", async () => {
@@ -167,5 +268,191 @@ describe("extension runtime", () => {
 		const loaded = await loadMeterConfig(agentDir);
 		expect(loaded.config.footer.local).toBe("today-tokens");
 		expect(() => readFileSync(join(legacy, "footer.json"))).toThrow();
+	});
+
+	it("idle TUI status follows another session's local cache without calling APIs", async () => {
+		const polls: Array<() => unknown> = [];
+		vi.spyOn(globalThis, "setInterval").mockImplementation((fn) => {
+			polls.push(fn as () => unknown);
+			return Object.assign(1, { unref() {} }) as unknown as ReturnType<typeof setInterval>;
+		});
+		vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {});
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		const writeQuota = (usedPercent: number, fetchedAt = Date.now()) => {
+			writeFileSync(paths.quotaFile, `${JSON.stringify({
+				version: 1,
+				ttlMs: 60_000,
+				minIntervalMs: 30_000,
+				providers: {
+					supergrok: {
+						provider: "supergrok",
+						title: "SuperGrok",
+						primary: { id: "weekly", label: "Weekly credits", usedPercent, resetsAt: "2026-08-17T16:55:31.897Z" },
+						windows: [{ id: "weekly", label: "Weekly credits", usedPercent, resetsAt: "2026-08-17T16:55:31.897Z" }],
+						fetchedAt,
+						ok: true,
+					},
+				},
+				lastAttemptAt: { supergrok: fetchedAt },
+			})}\n`);
+		};
+		writeQuota(51);
+		const { STATUS_CACHE_POLL_MS } = await import("../src/chrome/status-cache.ts");
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("49%");
+		expect(statuses.get("pi-meter")).not.toContain("stale");
+		expect(setInterval).toHaveBeenCalledWith(expect.any(Function), STATUS_CACHE_POLL_MS);
+		expect(polls).toHaveLength(1);
+
+		writeQuota(80);
+		writeFileSync(paths.usageFile, `${JSON.stringify([Date.now(), "other", "/p", "xai/grok-4", 12400, 0, 0, 0, 12400, 0.18, 1])}\n`);
+		await polls[0]?.();
+		expect(statuses.get("pi-meter")).toContain("today 12.4k $0.18");
+		expect(statuses.get("pi-meter")).toContain("20%");
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		writeQuota(90, Date.now() - 120_000);
+		await polls[0]?.();
+		expect(statuses.get("pi-meter")).toContain("10%");
+		expect(statuses.get("pi-meter")).toContain("stale");
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+		writeQuota(5);
+		await polls[0]?.();
+		expect(statuses.has("pi-meter")).toBe(false);
+	});
+
+	it("keeps a supported provider's quota window in the footer", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				supergrok: {
+					provider: "supergrok",
+					title: "SuperGrok",
+					primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
+					windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("week left");
+		expect(statuses.get("pi-meter")).toContain("49%");
+		expect(statuses.get("pi-meter")).not.toContain("no quota window");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("does not show another provider's quota window for local ollama", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				claude: {
+					provider: "claude",
+					title: "Claude",
+					primary: { id: "session", label: "Session (5h)", usedPercent: 42, resetsAt: "2026-08-15T17:00:00Z" },
+					windows: [{ id: "session", label: "Session (5h)", usedPercent: 42, resetsAt: "2026-08-15T17:00:00Z" }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama", id: "llama3" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("ollama");
+		expect(statuses.get("pi-meter")).toContain("no quota window");
+		expect(statuses.get("pi-meter")).not.toContain("5h left");
+		expect(statuses.get("pi-meter")).not.toContain("week left");
+		expect(statuses.get("pi-meter")).not.toContain("█");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("shows Ollama Cloud session remaining in the footer after a refresh", async () => {
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"ollama-cloud": { type: "api_key", key: "stored-but-not-used" },
+		})}\n`);
+		const fetchSpy = vi.fn(async (url: string) => {
+			if (String(url).includes("ollama.com/api/usage")) {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({ limits: { session: { usage: 0.72 }, weekly: { usage: 0.1 } }, plan: "pro" }),
+				};
+			}
+			return { ok: false, status: 401, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchSpy);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama-cloud", id: "glm-5.2" },
+			getApiKeyForProvider: async (provider) => provider === "ollama-cloud" ? "ollama-live-key" : undefined,
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("agent_settled")?.[0]?.({ type: "agent_settled" }, ctx);
+		const footer = statuses.get("pi-meter");
+		expect(footer).toContain("today");
+		expect(footer).toContain("5h left");
+		expect(footer).toContain("28%");
+		expect(footer).not.toContain("(");
+		expect(footer).not.toContain("no quota window");
+		expect(fetchSpy).toHaveBeenCalledWith(
+			expect.stringContaining("ollama.com/api/usage"),
+			expect.anything(),
+		);
+		expect(JSON.stringify(statuses)).not.toContain("ollama-live-key");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("shows unsigned-in Ollama Cloud in a quota dashboard without a notification", async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications, customComponents } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama-cloud", id: "glm-5.2" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("quota", ctx);
+		expect(notifications).toEqual([]);
+		expect(customComponents).toHaveLength(1);
+		const dashboard = customComponents[0]?.render(100).join("\n") ?? "";
+		expect(dashboard).toContain("pi-meter — subscription quota");
+		expect(dashboard).toMatch(/Not signed in:.*Ollama Cloud.*run \/login/);
+		expect(dashboard).not.toContain("no Ollama Cloud API key");
+		expect(fetchSpy).not.toHaveBeenCalled();
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 });

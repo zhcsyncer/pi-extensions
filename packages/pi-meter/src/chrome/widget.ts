@@ -8,6 +8,7 @@ export const STATUS_KEY = "pi-meter";
 export interface ChromeInput {
 	local?: string;
 	quota?: QuotaWindowView;
+	quotaHint?: { label: string; value: string };
 	polarity: QuotaPolarity;
 	now?: Date;
 }
@@ -42,6 +43,8 @@ export function renderStatusText(input: ChromeInput, theme: Theme): string | und
 	if (input.quota) {
 		const quota = quotaCaption(input.quota, input.polarity, now);
 		parts.push(`${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`);
+	} else if (input.quotaHint) {
+		parts.push(theme.fg("muted", input.quotaHint.label), theme.fg("muted", input.quotaHint.value));
 	}
 	if (parts.length === 0) return undefined;
 	// Pi/Glance join foreign statuses with a space. A leading mid-dot keeps

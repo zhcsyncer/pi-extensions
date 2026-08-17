@@ -29,6 +29,25 @@ function accountIdFromToken(token: string): string | undefined {
 	return undefined;
 }
 
+export const OLLAMA_API_KEY_ERROR = "no Ollama Cloud API key — set OLLAMA_CLOUD_API_KEY or run /login";
+
+export async function resolveApiKeyAccess(
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+	providerId: string,
+): Promise<{ ok: true; apiKey: string } | { ok: false; error: string }> {
+	const stored = readStoredCredential(providerId);
+	if (stored?.type !== "api_key") {
+		return { ok: false, error: OLLAMA_API_KEY_ERROR };
+	}
+	try {
+		const apiKey = await ctx.modelRegistry.getApiKeyForProvider(providerId);
+		if (!apiKey) return { ok: false, error: OLLAMA_API_KEY_ERROR };
+		return { ok: true, apiKey };
+	} catch (error) {
+		return { ok: false, error: sanitizeQuotaError(error) };
+	}
+}
+
 export async function resolveOAuthAccess(
 	ctx: Pick<ExtensionContext, "modelRegistry">,
 	providerId: string,

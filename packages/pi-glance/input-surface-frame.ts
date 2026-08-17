@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "./bottom-details.js";
+import { inputStashMark, resolveInputStashChrome } from "./input-stash-chrome.js";
 import { contextRiskLevel } from "./context-risk.js";
 import { renderGlanceLine } from "./status-line.js";
 import {
@@ -38,6 +39,7 @@ export interface InputSurfaceFrameChrome {
 	showTitle?: boolean;
 	border?: TextStyler;
 	modeLabel?: string;
+	stashOccupied?: boolean;
 	topScrollIndicator?: string;
 	bottomScrollIndicator?: string;
 }
@@ -90,12 +92,26 @@ function activeBorder(input: InputSurfaceFrameInput): TextStyler {
 function interactiveTopLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "innerWidth">) {
 	const scrollIndicator = input.chrome?.topScrollIndicator;
 	const modeLabel = input.chrome?.modeLabel?.trim();
-	if (!scrollIndicator && !modeLabel) return undefined;
+	const stash = inputStashMark(
+		resolveInputStashChrome({
+			occupied: input.chrome?.stashOccupied === true,
+			hasModeLabel: Boolean(modeLabel),
+			hasScrollIndicator: Boolean(scrollIndicator),
+		}),
+	);
+	if (!scrollIndicator && !modeLabel && !stash) return undefined;
 
-	const mode = modeLabel ? `─ ${modeLabel} ` : "";
-	const text = truncateToWidth(`${mode}${scrollIndicator ?? "─"}`, Math.max(1, metrics.innerWidth), "");
-	const chunks = [{ role: "border" as const, text }];
-	return { chunks, width: visibleWidth(text) };
+	const prefix = modeLabel ? `─ ${modeLabel}${stash ? " · " : " "}` : stash ? "─ " : "";
+	const suffix = scrollIndicator ?? (prefix || stash ? "─" : "");
+	const budget = Math.max(1, metrics.innerWidth);
+	const mark = stash ? truncateToWidth(stash, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(suffix)), "") : "";
+	const remainder = truncateToWidth(suffix, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(mark)), "");
+	const chunks = [
+		{ role: "border" as const, text: prefix },
+		...(mark ? [{ role: "status" as const, text: mark }] : []),
+		{ role: "border" as const, text: remainder },
+	].filter((part) => part.text);
+	return { chunks, width: visibleWidth(`${prefix}${mark}${remainder}`) };
 }
 
 function workspaceTitlePlan(
@@ -136,7 +152,7 @@ function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfac
 	const rendered = renderSurfaceChunks(plan.chunks, {
 		border,
 		title,
-		status: identity,
+		status: interactiveLeft && input.chrome?.stashOccupied ? (dimChrome ? input.styles.dim : input.styles.warn) : identity,
 		text: identity,
 		dim: border,
 	});
