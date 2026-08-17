@@ -13,13 +13,13 @@ function sanitizeStatusText(text: string): string {
 
 export function renderExtensionStatusLine(statuses: ReadonlyMap<string, string>, width: number, theme: Theme): string | undefined {
 	if (width <= 0 || statuses.size === 0) return undefined;
-	const parts = Array.from(statuses.entries())
+	const stash = sanitizeStatusText(statuses.get(INPUT_STASH_STATUS_KEY) ?? "");
+	const rest = Array.from(statuses.entries())
+		.filter(([key]) => key !== INPUT_STASH_STATUS_KEY)
 		.sort(([a], [b]) => a.localeCompare(b))
-		.flatMap(([key, status]) => {
-			const sanitized = sanitizeStatusText(status);
-			if (!sanitized) return [];
-			return [key === INPUT_STASH_STATUS_KEY ? theme.fg("warning", sanitized) : sanitized];
-		});
+		.map(([, status]) => sanitizeStatusText(status))
+		.filter(Boolean);
+	const parts = stash ? [theme.fg("warning", stash), ...rest] : rest;
 	const text = parts.join(" ");
 	return text ? truncateToWidth(text, width, theme.fg("dim", "...")) : undefined;
 }

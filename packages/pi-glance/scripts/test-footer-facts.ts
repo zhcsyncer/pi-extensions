@@ -83,4 +83,20 @@ function footerData(statuses: ReadonlyMap<string, string> = new Map()): Readonly
 	);
 }
 
+{
+	const theme = {
+		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+		bold: (text: string) => text,
+	} as unknown as Theme;
+	const statuses = new Map([
+		["fast-mode", "fast: on · Ctrl+F"],
+		[INPUT_STASH_STATUS_KEY, "Press again to discard “throw away”"],
+	]);
+	assert.equal(
+		renderExtensionStatusLine(statuses, 80, theme),
+		"<warning>Press again to discard “throw away”</warning> fast: on · Ctrl+F",
+		"input-stash confirm prompts should stay left of other extension statuses",
+	);
+}
+
 console.log("✓ status-only footer checks passed");
