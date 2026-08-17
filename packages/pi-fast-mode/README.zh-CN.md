@@ -35,7 +35,7 @@ pi install git:github.com/zhcsyncer/pi-extensions
 /fast off
 ```
 
-切换或设置**当前**内存开关。`Ctrl+F` 是同一个开关，带短时防抖，按住键不会连续翻转。
+切换或设置**当前**内存开关。`Ctrl+F` 是同一个开关，带短时防抖，按住键不会连续翻转，松开也不会再切换。
 
 ```text
 /fast default on

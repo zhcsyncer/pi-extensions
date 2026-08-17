@@ -21,7 +21,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey } from "@earendil-works/pi-tui";
+import { isKeyRelease, matchesKey } from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -290,6 +290,12 @@ export default function fastMode(pi: ExtensionAPI): void {
 		shortcutRepeatGuard = undefined;
 		shortcutLatched = false;
 		unsubscribeTerminalInput = ctx.ui.onTerminalInput((data) => {
+			// Kitty flag 2 emits press and release; matchesKey matches both.
+			// Consume the release so it does not reach the editor (also bound to
+			// ctrl+f), but only toggle on press.
+			if (isKeyRelease(data)) {
+				return matchesKey(data, SHORTCUT) ? { consume: true } : undefined;
+			}
 			if (!matchesKey(data, SHORTCUT)) return undefined;
 
 			if (!shortcutLatched) {

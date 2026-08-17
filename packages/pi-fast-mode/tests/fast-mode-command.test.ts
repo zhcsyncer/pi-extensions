@@ -6,6 +6,7 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import fastMode, {
 	loadDefaultEnabled,
+	SHORTCUT_REPEAT_GUARD_MS,
 	STATUS_KEY,
 	writeDefaultEnabled,
 } from "../extensions/fast-mode.ts";
@@ -13,6 +14,8 @@ import fastMode, {
 type RegisteredCommand = {
 	handler: (args: string, ctx: ExtensionContext) => Promise<void> | void;
 };
+
+const KITTY_CTRL_F_RELEASE = "\x1b[102;5:3u";
 
 function createCtx(statuses: Array<string | undefined>, notifies: string[]) {
 	return {
@@ -34,6 +37,39 @@ function createCtx(statuses: Array<string | undefined>, notifies: string[]) {
 			},
 		},
 	} as unknown as ExtensionContext;
+}
+
+function createInputCtx(statuses: Array<string | undefined>, notifies: string[]) {
+	let inputHandler: ((data: string) => { consume: true } | undefined) | undefined;
+	const ctx = {
+		model: { provider: "openai", id: "gpt-5.6", api: "openai-responses" },
+		ui: {
+			theme: {
+				fg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			},
+			setStatus(key: string, value: string | undefined) {
+				assert.equal(key, STATUS_KEY);
+				statuses.push(value);
+			},
+			notify(message: string) {
+				notifies.push(message);
+			},
+			onTerminalInput(handler: (data: string) => { consume: true } | undefined) {
+				inputHandler = handler;
+				return () => {
+					inputHandler = undefined;
+				};
+			},
+		},
+	} as unknown as ExtensionContext;
+	return {
+		ctx,
+		handle(data: string) {
+			assert.ok(inputHandler);
+			return inputHandler(data);
+		},
+	};
 }
 
 async function withLoadedExtension<T>(
@@ -96,42 +132,59 @@ test("Ctrl+F consumes the key and keeps the repeat guard", async () => {
 	await withLoadedExtension(async ({ handlers }) => {
 		const statuses: Array<string | undefined> = [];
 		const notifies: string[] = [];
-		let inputHandler: ((data: string) => { consume: true } | undefined) | undefined;
-		const ctx = {
-			model: { provider: "openai", id: "gpt-5.6", api: "openai-responses" },
-			ui: {
-				theme: {
-					fg: (_color: string, text: string) => text,
-					bold: (text: string) => text,
-				},
-				setStatus(key: string, value: string | undefined) {
-					assert.equal(key, STATUS_KEY);
-					statuses.push(value);
-				},
-				notify(message: string) {
-					notifies.push(message);
-				},
-				onTerminalInput(handler: (data: string) => { consume: true } | undefined) {
-					inputHandler = handler;
-					return () => {
-						inputHandler = undefined;
-					};
-				},
-			},
-		} as unknown as ExtensionContext;
+		const { ctx, handle } = createInputCtx(statuses, notifies);
 		const sessionStart = handlers.get("session_start");
 		assert.ok(sessionStart);
 
 		sessionStart({ reason: "startup" }, ctx);
-		assert.ok(inputHandler);
-		assert.equal(inputHandler("x"), undefined);
+		assert.equal(handle("x"), undefined);
 
-		assert.deepEqual(inputHandler("\u0006"), { consume: true });
+		assert.deepEqual(handle("\u0006"), { consume: true });
 		assert.match(String(statuses.at(-1)), /FAST/);
 		const afterFirst = statuses.at(-1);
 
-		assert.deepEqual(inputHandler("\u0006"), { consume: true });
+		assert.deepEqual(handle("\u0006"), { consume: true });
 		assert.equal(statuses.at(-1), afterFirst);
+	});
+});
+
+test("Kitty Ctrl+F release is consumed and does not toggle", async () => {
+	await withLoadedExtension(async ({ handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const { ctx, handle } = createInputCtx(statuses, notifies);
+		const sessionStart = handlers.get("session_start");
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.deepEqual(handle("\u0006"), { consume: true });
+		assert.match(String(statuses.at(-1)), /FAST/);
+		const afterPress = statuses.at(-1);
+
+		assert.deepEqual(handle(KITTY_CTRL_F_RELEASE), { consume: true });
+		assert.equal(statuses.at(-1), afterPress);
+		assert.equal(notifies.at(-1)?.includes("Fast mode OFF"), false);
+	});
+});
+
+test("Kitty Ctrl+F release after the repeat guard expires still does not toggle", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	await withLoadedExtension(async ({ handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const { ctx, handle } = createInputCtx(statuses, notifies);
+		const sessionStart = handlers.get("session_start");
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.deepEqual(handle("\u0006"), { consume: true });
+		assert.match(String(statuses.at(-1)), /FAST/);
+		const afterPress = statuses.at(-1);
+
+		t.mock.timers.tick(SHORTCUT_REPEAT_GUARD_MS);
+		assert.deepEqual(handle(KITTY_CTRL_F_RELEASE), { consume: true });
+		assert.equal(statuses.at(-1), afterPress);
+		assert.equal(notifies.at(-1)?.includes("Fast mode OFF"), false);
 	});
 });
 
