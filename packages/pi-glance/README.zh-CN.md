@@ -33,7 +33,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 `/glance` 打开设置和实时输入界面预览。`/diff` 把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅未提交 Working Tree；annotations 只回填编辑器供你确认，不会自动发送。缺少 revdiff 时，仅 `/diff` 显示安装提示。
 
-`Ctrl+S` 收起或拿回当前输入框草稿。`Ctrl+Q` 丢掉暂存。槽里还有未取回内容时，左边框会挂一个短标记。同一会话 `/reload` 或 resume 后，若输入框是空的会自动倒回。
+`Ctrl+S` 收起或拿回当前输入框草稿。`Ctrl+Q` 连按两次丢掉暂存。槽里还有未取回内容时，左边框会挂一个短标记。同一会话 `/reload` 或 resume 后，若输入框是空的会自动倒回。
 
 ## 你会看到什么
 
@@ -46,7 +46,7 @@ pi install npm:@zhcsyncer/pi-glance
 - **`/glance` 面板**：通用设置、segment 顺序和各项选项。
 - **失焦变暗**：滚动聊天时界面变安静。
 - **主题**：默认跟随 Pi theme tokens，也可选 22 套 Glance 配色。
-- **输入暂存**：`Ctrl+S` 收起/拿回，`Ctrl+Q` 丢掉；边框提示未取回的草稿。
+- **输入暂存**：`Ctrl+S` 收起/拿回，`Ctrl+Q` 连按两次丢掉；边框提示未取回的草稿。
 - **Working indicator**：spinner、当前活动、本 cycle 输出和耗时。
 
 其他扩展的 `ctx.ui.setStatus()` 仍显示在输入框下方。Glance 不恢复 Pi 那两行信息 Footer。

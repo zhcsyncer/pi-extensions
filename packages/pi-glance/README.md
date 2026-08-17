@@ -37,7 +37,7 @@ Needs Pi 0.80.4 or newer.
 
 `/glance` opens settings with a live input-surface preview. `/diff` hands the terminal to optional [`revdiff`](https://revdiff.com/) for an uncommitted working-tree review; annotations return to the editor for you to confirm and are never sent automatically. If revdiff is missing, only `/diff` shows the install hint.
 
-`Ctrl+S` stashes or restores the current editor draft. `Ctrl+Q` discards the stash. The left border shows a short mark while a draft is waiting. Reloading or resuming the same session restores it automatically if the editor is empty.
+`Ctrl+S` stashes or restores the current editor draft. `Ctrl+Q` discards the stash after a second press. The left border shows a short mark while a draft is waiting. Reloading or resuming the same session restores it automatically if the editor is empty.
 
 ## What you see
 
@@ -52,7 +52,7 @@ Needs Pi 0.80.4 or newer.
 | ⚙️ | **`/glance` pane** | General settings, segment order, and per-segment options |
 | 💤 | **Dim unfocused** | Surface quiets when you scroll the chat |
 | 🎨 | **Themes** | Follow Pi theme tokens by default, with 22 Glance palettes as fallback |
-| 📥 | **Editor stash** | `Ctrl+S` stashes or restores, `Ctrl+Q` discards; the border marks an unrestored draft |
+| 📥 | **Editor stash** | `Ctrl+S` stashes or restores, `Ctrl+Q` discards after a second press; the border marks an unrestored draft |
 | ✢ | **Working indicator** | Spinner, activity, current-cycle output, and elapsed time |
 
 Other extensions' `ctx.ui.setStatus()` values remain visible below the editor. Glance does not restore Pi's two informational footer rows.

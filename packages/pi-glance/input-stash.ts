@@ -21,7 +21,10 @@ export function isInputStashConfirmArmed(armedAtMs: number | undefined, nowMs: n
 }
 
 export function resolveInputStashAction(input: InputStashDecisionInput): InputStashAction {
-	if (input.key === "secondary") return input.slotHasContent ? "discard" : "noop";
+	if (input.key === "secondary") {
+		if (!input.slotHasContent) return "noop";
+		return input.confirmArmed ? "discard" : "arm-confirm";
+	}
 	if (input.editorHasText && !input.slotHasContent) return "stash";
 	if (!input.editorHasText && input.slotHasContent) return "restore";
 	if (input.editorHasText && input.slotHasContent) return input.confirmArmed ? "overwrite" : "arm-confirm";

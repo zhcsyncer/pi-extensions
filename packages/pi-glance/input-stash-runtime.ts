@@ -7,7 +7,8 @@ import {
 } from "./input-stash.js";
 import type { InputStashStore } from "./input-stash-store.js";
 
-export const INPUT_STASH_CONFIRM_NOTIFY = "Press again to replace the current input with the stashed draft.";
+export const INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY = "Press again to replace the current input with the stashed draft.";
+export const INPUT_STASH_DISCARD_CONFIRM_NOTIFY = "Press again to discard the stashed draft.";
 export const INPUT_STASH_DISCARD_NOTIFY = "Discarded the stashed draft.";
 
 export interface InputStashRuntimeHost {
@@ -37,6 +38,7 @@ function writeEditorText(ctx: ExtensionContext, text: string): void {
 
 export class InputStashController {
 	private confirmArmedAtMs: number | undefined;
+	private confirmKind: "overwrite" | "discard" | undefined;
 
 	constructor(
 		private readonly store: InputStashStore,
@@ -49,7 +51,7 @@ export class InputStashController {
 
 	refresh(): void {
 		this.store.refresh();
-		this.confirmArmedAtMs = undefined;
+		this.disarmConfirm();
 	}
 
 	handlePrimary(ctx: ExtensionContext): void {
@@ -69,7 +71,7 @@ export class InputStashController {
 		if (!inputHasText(stored) || stored === undefined) return;
 		writeEditorText(ctx, stored);
 		this.store.clear(key);
-		this.confirmArmedAtMs = undefined;
+		this.disarmConfirm();
 		this.host.requestRender();
 	}
 
@@ -78,10 +80,11 @@ export class InputStashController {
 		const sessionFile = sessionFileOf(ctx);
 		const editorText = readEditorText(ctx);
 		const stored = this.store.get(sessionFile);
+		const expectedKind = key === "secondary" ? "discard" : "overwrite";
 		const action = resolveInputStashAction({
 			editorHasText: inputHasText(editorText),
 			slotHasContent: inputHasText(stored),
-			confirmArmed: isInputStashConfirmArmed(this.confirmArmedAtMs, nowMs),
+			confirmArmed: this.confirmKind === expectedKind && isInputStashConfirmArmed(this.confirmArmedAtMs, nowMs),
 			key,
 		});
 
@@ -89,35 +92,41 @@ export class InputStashController {
 			case "stash":
 				this.store.set(sessionFile, editorText);
 				writeEditorText(ctx, "");
-				this.confirmArmedAtMs = undefined;
+				this.disarmConfirm();
 				this.host.requestRender();
 				return;
 			case "restore":
 				if (stored === undefined) return;
 				writeEditorText(ctx, stored);
 				this.store.clear(sessionFile);
-				this.confirmArmedAtMs = undefined;
+				this.disarmConfirm();
 				this.host.requestRender();
 				return;
 			case "arm-confirm":
 				this.confirmArmedAtMs = nowMs;
-				ctx.ui.notify(INPUT_STASH_CONFIRM_NOTIFY, "info");
+				this.confirmKind = expectedKind;
+				ctx.ui.notify(expectedKind === "discard" ? INPUT_STASH_DISCARD_CONFIRM_NOTIFY : INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY, "info");
 				return;
 			case "overwrite":
 				if (stored === undefined) return;
 				writeEditorText(ctx, stored);
 				this.store.clear(sessionFile);
-				this.confirmArmedAtMs = undefined;
+				this.disarmConfirm();
 				this.host.requestRender();
 				return;
 			case "discard":
 				this.store.clear(sessionFile);
-				this.confirmArmedAtMs = undefined;
+				this.disarmConfirm();
 				ctx.ui.notify(INPUT_STASH_DISCARD_NOTIFY, "info");
 				this.host.requestRender();
 				return;
 			case "noop":
 				return;
 		}
+	}
+
+	private disarmConfirm(): void {
+		this.confirmArmedAtMs = undefined;
+		this.confirmKind = undefined;
 	}
 }

@@ -14,7 +14,7 @@ import {
 } from "../input-stash.js";
 import { INPUT_STASH_MARK_FULL, INPUT_STASH_MARK_SHORT, resolveInputStashChrome } from "../input-stash-chrome.js";
 import { createInputStashStore, getInputStashPath } from "../input-stash-store.js";
-import { INPUT_STASH_CONFIRM_NOTIFY, INPUT_STASH_DISCARD_NOTIFY } from "../input-stash-runtime.js";
+import { INPUT_STASH_DISCARD_CONFIRM_NOTIFY, INPUT_STASH_DISCARD_NOTIFY, INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY } from "../input-stash-runtime.js";
 import { renderInputSurfaceFrame } from "../input-surface-frame.js";
 import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
 import { createGitHarness, createRuntimeHarness, createRuntimeTestContext } from "./runtime-harness.js";
@@ -40,7 +40,8 @@ function assertAction(
 	assertAction({ editorHasText: true, slotHasContent: true, confirmArmed: false, key: "primary" }, "arm-confirm", "full editor and occupied slot should ask for confirmation first");
 	assertAction({ editorHasText: true, slotHasContent: true, confirmArmed: true, key: "primary" }, "overwrite", "confirmed second press should overwrite the current editor");
 	assertAction({ editorHasText: false, slotHasContent: false, confirmArmed: false, key: "primary" }, "noop", "empty editor and empty slot should do nothing");
-	assertAction({ editorHasText: true, slotHasContent: true, confirmArmed: false, key: "secondary" }, "discard", "secondary key should discard an occupied slot");
+	assertAction({ editorHasText: true, slotHasContent: true, confirmArmed: false, key: "secondary" }, "arm-confirm", "secondary key should ask for confirmation before discarding");
+	assertAction({ editorHasText: false, slotHasContent: true, confirmArmed: true, key: "secondary" }, "discard", "confirmed second discard press should clear the slot");
 	assertAction({ editorHasText: false, slotHasContent: false, confirmArmed: false, key: "secondary" }, "noop", "secondary key should do nothing when the slot is empty");
 	assertAction({ editorHasText: true, slotHasContent: false, confirmArmed: true, key: "secondary" }, "noop", "secondary key should ignore an empty slot even if confirm is armed");
 
@@ -115,7 +116,7 @@ function assertAction(
 	assert.equal(test.getEditorText(), "current", "first conflict press should leave the current editor alone");
 	assert.equal(store.get(sessionFile), "stashed", "first conflict press should keep the slot");
 	assert.equal(
-		test.notifications.some((notification) => notification.message === INPUT_STASH_CONFIRM_NOTIFY && notification.type === "info"),
+		test.notifications.some((notification) => notification.message === INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY && notification.type === "info"),
 		true,
 		"first conflict press should notify before overwriting",
 	);
@@ -128,12 +129,20 @@ function assertAction(
 	test.setEditorText("keep current");
 	const notificationsBeforeDiscard = test.notifications.length;
 	harness.runtime.shortcuts.discard(test.ctx);
-	assert.equal(test.getEditorText(), "keep current", "discard should not change the editor");
-	assert.equal(store.has(sessionFile), false, "discard should clear the slot");
+	assert.equal(test.getEditorText(), "keep current", "first discard press should leave the editor alone");
+	assert.equal(store.get(sessionFile), "throw away", "first discard press should keep the slot");
+	assert.equal(
+		test.notifications.slice(notificationsBeforeDiscard).some((notification) => notification.message === INPUT_STASH_DISCARD_CONFIRM_NOTIFY && notification.type === "info"),
+		true,
+		"first discard press should notify before clearing the slot",
+	);
+	harness.runtime.shortcuts.discard(test.ctx);
+	assert.equal(test.getEditorText(), "keep current", "confirmed discard should not change the editor");
+	assert.equal(store.has(sessionFile), false, "confirmed discard should clear the slot");
 	assert.equal(
 		test.notifications.slice(notificationsBeforeDiscard).some((notification) => notification.message === INPUT_STASH_DISCARD_NOTIFY && notification.type === "info"),
 		true,
-		"discard should notify once",
+		"confirmed discard should notify once it cleared the slot",
 	);
 
 	test.setEditorText("   ");
@@ -160,6 +169,31 @@ function assertAction(
 	harness.runtime.shortcuts.stashOrRestore(test.ctx);
 	assert.equal(test.getEditorText(), "current", "an expired confirm window should not overwrite");
 	assert.equal(store.get(sessionFile), "stashed", "an expired confirm window should keep the slot");
+}
+
+{
+	let nowMs = 0;
+	const sessionFile = "/tmp/session.jsonl";
+	const store = createInputStashStore({ persist: false });
+	store.set(sessionFile, "throw away");
+	const test = createRuntimeTestContext({ sessionFile, editorText: "keep current" });
+	const harness = createRuntimeHarness({
+		loadConfigSyncConfig: defaultConfig(),
+		git: createGitHarness(),
+		nowMs: () => nowMs,
+		createInputStashStore: () => store,
+	});
+	harness.runtime.events.sessionStart({}, test.ctx);
+	harness.runtime.shortcuts.discard(test.ctx);
+	nowMs = INPUT_STASH_CONFIRM_WINDOW_MS;
+	harness.runtime.shortcuts.discard(test.ctx);
+	assert.equal(test.getEditorText(), "keep current", "an expired discard window should not change the editor");
+	assert.equal(store.get(sessionFile), "throw away", "an expired discard window should keep the slot");
+	assert.equal(
+		test.notifications.filter((notification) => notification.message === INPUT_STASH_DISCARD_CONFIRM_NOTIFY).length,
+		2,
+		"an expired discard window should ask for confirmation again",
+	);
 }
 
 {
