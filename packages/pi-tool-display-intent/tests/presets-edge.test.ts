@@ -67,7 +67,6 @@ test("applying a result mode preserves preview rows and independent settings", (
 		toolCallStyle: "claude",
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
 		enableNativeUserMessageBox: false,
-		enableThinkingLabel: false,
 		diffViewMode: "split",
 		diffIndicatorMode: "none",
 		diffSplitMinWidth: 160,
@@ -91,7 +90,6 @@ test("applying a result mode preserves preview rows and independent settings", (
 	assert.equal(applied.toolCallStyle, "claude");
 	assert.deepEqual(applied.toolIntent, current.toolIntent);
 	assert.equal(applied.enableNativeUserMessageBox, false);
-	assert.equal(applied.enableThinkingLabel, false);
 	assert.equal(applied.diffViewMode, "split");
 	assert.equal(applied.diffCollapsedRows, 48);
 	assert.equal(applied.showTruncationHints, true);
@@ -106,7 +104,6 @@ test("independent setting changes do not change detected result mode", () => {
 		{ ...summary, debug: !summary.debug },
 		{ ...summary, previewRows: summary.previewRows + 1 },
 		{ ...summary, toolCallStyle: "claude" },
-		{ ...summary, enableThinkingLabel: false },
 		{ ...summary, diffWordWrap: false },
 	];
 	for (const variant of variants) {

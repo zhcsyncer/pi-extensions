@@ -198,6 +198,8 @@ Aggregate 不用文本统计替代图片。
 
 投影按 session / ExtensionAPI 隔离，不存在一份可被后来者覆盖的进程级绘制账本。同进程后加载的 Explore、另一个 pane 或 `/btw` 可以有自己的账本，但不得抢走宿主 TUI 正在使用的投影指针，也不得用自己的 branch 重建宿主账本。没有独立 TUI 的子会话不接管全局 renderer patch。`session_shutdown` 只清自己的账本，未到最后一个存活实例时不得卸掉宿主补丁。
 
+本扩展不再给 thinking 正文加 `Thinking:` 展示前缀，也不再为此改写 session 或在 `context` 事件里回剥标签。旧配置里的 `transcript.thinkingLabel` 按未知字段丢掉。
+
 投影只存在于当前扩展运行时，并从所属 Session branch 重建。Custom tool 原 result 因此可在 individual 恢复。
 
 本扩展持有的 built-in 在 aggregate 下不注册 `displaySummary`，所以未来模型调用不会为这些工具生成 intent；这改变未来 tool schema，不改变已有历史消息。Interactive Tools 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。

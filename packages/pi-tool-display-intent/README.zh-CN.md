@@ -73,7 +73,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 进行中时，最新一条 assistant 旁白停在标题下。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。`Ctrl+O` 展开原时间线，不倾倒文件内容或 diff。图片和 `Agent` 仍用原 renderer。切回：`/tool-display-intent layout individual` 再 `/reload`。
 
-Aggregate 固定用左侧强调色细杠的用户行，并隐藏 thinking 标签。
+Aggregate 固定用左侧强调色细杠的用户行。
 
 ## 设置
 

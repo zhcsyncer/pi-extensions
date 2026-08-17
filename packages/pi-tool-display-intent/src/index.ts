@@ -15,7 +15,6 @@ import {
 import { registerAggregateThinkingPlaceholderSuppression } from "./aggregate-thinking-placeholder.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
 import { disposeAll, resetDisposed } from "./disposable.js";
-import { registerThinkingLabeling } from "./thinking-label.js";
 import registerNativeUserMessageBox from "./user-message-box-native.js";
 import {
   BUILT_IN_TOOL_OVERRIDE_NAMES,
@@ -107,9 +106,6 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
     () => initial.config.toolCallLayout === "aggregate",
   );
   registerNativeUserMessageBox(pi, getConfig);
-  registerThinkingLabeling(pi, () =>
-    getConfig().toolCallLayout !== "aggregate" && getConfig().enableThinkingLabel,
-  );
 
   pi.registerCommand("tool-display-intent", {
     description: "Configure intent-aware tool rendering",

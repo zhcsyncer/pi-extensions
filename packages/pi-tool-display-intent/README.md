@@ -73,7 +73,7 @@ Layout and ownership changes take effect after `/reload`.
 
 While a turn is running, the latest assistant note stays under the header. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. `Ctrl+O` expands the original timeline without dumping file contents or diffs. Images and `Agent` keep their original renderers. Switch back with `/tool-display-intent layout individual` then `/reload`.
 
-Aggregate always uses a compact accent-gutter user prompt and hides thinking labels.
+Aggregate always uses a compact accent-gutter user prompt.
 
 ## Settings
 
