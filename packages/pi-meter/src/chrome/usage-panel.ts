@@ -1,11 +1,27 @@
 import { displayedPercent, formatResetLong, quotaTone } from "./format.ts";
 import type { QuotaPolarity } from "../config.ts";
+import { OLLAMA_API_KEY_ERROR } from "../quota/auth.ts";
 import type { QuotaSnapshot, QuotaWindow } from "../quota/types.ts";
 
 function bar(usedPercent: number, polarity: QuotaPolarity, width = 10): string {
 	const ratio = displayedPercent(usedPercent, polarity) / 100;
 	const filled = Math.round(Math.min(1, Math.max(0, ratio)) * width);
 	return `[${"█".repeat(filled)}${"░".repeat(Math.max(0, width - filled))}]`;
+}
+
+const UNSIGNED_IN_ERRORS = new Set([
+	"no subscription OAuth credentials — run /login",
+	"no snapshot yet",
+	OLLAMA_API_KEY_ERROR,
+]);
+
+function isUnsignedIn(snapshot: QuotaSnapshot): boolean {
+	return !snapshot.ok && snapshot.error !== undefined && UNSIGNED_IN_ERRORS.has(snapshot.error);
+}
+
+function unsignedInHint(snapshots: readonly QuotaSnapshot[]): string | undefined {
+	if (snapshots.length === 0) return undefined;
+	return `Not signed in: ${snapshots.map((snapshot) => snapshot.title).join(", ")} — run /login`;
 }
 
 function formatWindow(window: QuotaWindow, polarity: QuotaPolarity, now: Date): string {
@@ -23,7 +39,12 @@ export function renderUsagePanel(
 	now: Date = new Date(),
 ): string {
 	const blocks: string[] = [];
+	const unsignedIn: QuotaSnapshot[] = [];
 	for (const snapshot of snapshots) {
+		if (isUnsignedIn(snapshot)) {
+			unsignedIn.push(snapshot);
+			continue;
+		}
 		const stale = snapshot.stale ? " (stale)" : "";
 		if (!snapshot.ok) {
 			blocks.push(`${snapshot.title}${stale}\n  ${snapshot.error ?? "unavailable"}`);
@@ -36,12 +57,14 @@ export function renderUsagePanel(
 		const rows = snapshot.windows.map((window) => formatWindow(window, polarity, now));
 		blocks.push([`${snapshot.title}${stale}`, ...rows].join("\n"));
 	}
-	if (blocks.length === 0) return "No subscription snapshots yet.";
-	return blocks.join("\n\n");
+	const hint = unsignedInHint(unsignedIn);
+	if (blocks.length === 0) return hint ?? "No subscription snapshots yet.";
+	return hint ? `${blocks.join("\n\n")}\n\n${hint}` : blocks.join("\n\n");
 }
 
 export function usageSeverity(snapshots: readonly QuotaSnapshot[], polarity: QuotaPolarity): "info" | "warning" {
 	for (const snapshot of snapshots) {
+		if (isUnsignedIn(snapshot)) continue;
 		if (!snapshot.ok) return "warning";
 		for (const window of snapshot.windows) {
 			const tone = quotaTone(window.usedPercent);

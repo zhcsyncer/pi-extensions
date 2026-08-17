@@ -13,7 +13,7 @@
 | 来源 | 你已经熟悉的部分 | 本包改了什么 |
 |---|---|---|
 | [`pi-tracker`](https://github.com/alpertarhan/pi-tracker) | 本地 token/费用账本、看板、budget、session 回填 | 这些都在 `/usage` 下，不再用 `/analytics`。数字写成 `34k` / `4.3M` / `5.35B`。 |
-| [`@pi-plugins/usage`](https://github.com/k3dom/pi-plugins/tree/main/plugins/usage) | Claude、Codex 订阅窗口 | 这些都在 `/usage quota` 下。另外加上 SuperGrok。 |
+| [`@pi-plugins/usage`](https://github.com/k3dom/pi-plugins/tree/main/plugins/usage) | Claude、Codex 订阅窗口 | 这些都在 `/usage quota` 下。另外加上 SuperGrok 和 Ollama Cloud。 |
 
 **不要**同时加载 `@pi-plugins/usage`。两者都会注册 `/usage`。若两者同时在场，本包会警告一次并继续运行。
 
@@ -28,7 +28,7 @@
   ```
 
 - 按模型、项目或 session 看本地看板。
-- `/login` 对应账号后，可看 Claude、Codex、SuperGrok 剩余。
+- `/login` 对应账号后，可看 Claude、Codex、SuperGrok、Ollama Cloud 剩余。
 - 可选本地 budget。只会提醒，从不拦请求。
 - 可选、一次性从旧 session 文件回填。
 
@@ -61,11 +61,9 @@ pi -e npm:@zhcsyncer/pi-meter
 | 命令 | 你会看到什么 |
 |---|---|
 | `/usage` | 菜单：看板、套餐、底栏、budget、回填 |
-| `/usage quota` | Claude、Codex、SuperGrok 剩余和重置时间 |
-| `/usage quota refresh` | 立刻刷新订阅窗口 |
-| `/usage quota used` / `remaining` | 底栏显示已用或剩余 |
-| `/usage quota on` / `off` | 开关底栏上的套餐半截 |
-| `/usage footer` | 选择本地半截：今日花费、token、费用、budget、主模型，或关掉 |
+| `/usage quota` | 打开 Claude、Codex、SuperGrok、Ollama Cloud 的剩余额度与重置时间看板 |
+| `/usage quota refresh` | 刷新订阅窗口并打开看板 |
+| `/usage footer` | 配置本地摘要、配额显示开关以及已用/剩余模式 |
 | `/usage import` | 从 session 文件回填 |
 | `/usage budget` | 查看或添加本地 budget |
 

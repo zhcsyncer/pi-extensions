@@ -3,7 +3,7 @@ import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
-import { parseMeterConfig, parseQuotaVisibleArg } from "../src/config.ts";
+import { parseMeterConfig } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
 import type { UsageRecord } from "../src/ledger/types.ts";
 
@@ -145,18 +145,26 @@ describe("local budgets", () => {
 });
 
 describe("config parsing", () => {
-	it("toggles quota visibility", () => {
-		expect(parseQuotaVisibleArg("off", true)).toBe(false);
-		expect(parseQuotaVisibleArg("on", false)).toBe(true);
-		expect(parseQuotaVisibleArg("quota off", true)).toBe(false);
-		expect(parseQuotaVisibleArg("quota", true)).toBe(false);
+	it("folds legacy footer preferences into the grouped footer config", () => {
+		const parsed = parseMeterConfig({
+			footer: { quota: false },
+			quota: { polarity: "used", snapshotTtlMs: 90_000 },
+		}, { footerLocal: "today-tokens" });
+		expect(parsed.footer).toEqual({
+			local: "today-tokens",
+			quota: { visible: false, polarity: "used" },
+		});
+		expect(parsed.quota).toMatchObject({ snapshotTtlMs: 90_000, minRefreshIntervalMs: 30_000 });
+		expect(parseMeterConfig({ footerPreset: "full" }).footer.local).toBe("today-spend");
 	});
 
-	it("folds a tracker footer.json preset into one config object", () => {
-		const parsed = parseMeterConfig({ quotaPolarity: "used" }, { footerLocal: "today-tokens" });
-		expect(parsed.footer).toEqual({ local: "today-tokens", quota: true });
-		expect(parsed.quota.polarity).toBe("used");
-		expect(parseMeterConfig({ footerPreset: "full" }).footer.local).toBe("today-spend");
+	it("prefers the grouped footer quota settings over legacy fields", () => {
+		const parsed = parseMeterConfig({
+			footer: { quota: { visible: true, polarity: "remaining" } },
+			quota: { polarity: "used" },
+			quotaPolarity: "used",
+		});
+		expect(parsed.footer.quota).toEqual({ visible: true, polarity: "remaining" });
 	});
 });
 

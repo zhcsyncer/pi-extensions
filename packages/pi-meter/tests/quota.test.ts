@@ -1,13 +1,17 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseClaudeUsage } from "../src/quota/adapters/claude.ts";
 import { parseCodexUsage } from "../src/quota/adapters/codex.ts";
+import { fetchOllamaQuota, OLLAMA_USAGE_URL, parseOllamaUsage } from "../src/quota/adapters/ollama.ts";
 import { parseSuperGrokBilling } from "../src/quota/adapters/supergrok.ts";
+import { readLocalQuotaCache } from "../src/chrome/status-cache.ts";
+import { OLLAMA_API_KEY_ERROR } from "../src/quota/auth.ts";
 import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot } from "../src/quota/policy.ts";
-import { refreshQuotaSnapshots } from "../src/quota/refresh.ts";
+import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import { sanitizeQuotaError } from "../src/quota/sanitize.ts";
+import { saveQuotaStore } from "../src/quota/store.ts";
 import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const now = Date.parse("2026-08-15T12:00:00Z");
@@ -61,11 +65,23 @@ describe("refreshQuotaSnapshots", () => {
 		return dir;
 	}
 
+	it("rereads a shared snapshot and only marks stale locally", async () => {
+		const dir = agentDir();
+		await saveQuotaStore(putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			fetchedAt: now - 120_000,
+		})), dir);
+		const cached = await readLocalQuotaCache(dir, { ttlMs: 60_000, minIntervalMs: 30_000 }, now);
+		expect(cached.providers.supergrok).toMatchObject({ ok: true, stale: true, fetchedAt: now - 120_000 });
+	});
+
 	it("does not call subscription APIs without UI", async () => {
 		const fetchers = {
 			claude: vi.fn(),
 			codex: vi.fn(),
 			supergrok: vi.fn(),
+			ollama: vi.fn(),
 		};
 		const result = await refreshQuotaSnapshots(
 			{ hasUI: false, modelRegistry: {} as never },
@@ -76,6 +92,7 @@ describe("refreshQuotaSnapshots", () => {
 		expect(fetchers.claude).not.toHaveBeenCalled();
 		expect(fetchers.codex).not.toHaveBeenCalled();
 		expect(fetchers.supergrok).not.toHaveBeenCalled();
+		expect(fetchers.ollama).not.toHaveBeenCalled();
 	});
 
 	it("keeps other providers when one adapter throws", async () => {
@@ -98,12 +115,18 @@ describe("refreshQuotaSnapshots", () => {
 						title: "SuperGrok",
 						fetchedAt,
 					}),
+					ollama: async (_ctx, fetchedAt = now) => snapshot({
+						provider: "ollama",
+						title: "Ollama Cloud",
+						fetchedAt,
+					}),
 				},
 			},
 		);
 		expect(result.store.providers.claude).toMatchObject({ ok: false, error: "request failed" });
 		expect(result.store.providers.codex?.ok).toBe(true);
 		expect(result.store.providers.supergrok?.ok).toBe(true);
+		expect(result.store.providers.ollama?.ok).toBe(true);
 	});
 
 	it("keeps other providers when one adapter fails", async () => {
@@ -134,6 +157,11 @@ describe("refreshQuotaSnapshots", () => {
 						windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 66 }],
 						fetchedAt,
 					}),
+					ollama: async (_ctx, fetchedAt = now) => snapshot({
+						provider: "ollama",
+						title: "Ollama Cloud",
+						fetchedAt,
+					}),
 				},
 			},
 		);
@@ -150,12 +178,17 @@ describe("refreshQuotaSnapshots", () => {
 		const claude = vi.fn(async (_ctx, fetchedAt = now) => snapshot({ fetchedAt }));
 		await refreshQuotaSnapshots({ hasUI: true, modelRegistry: {} as never }, dir, {
 			now,
-			fetchers: { claude, codex: async () => snapshot({ provider: "codex", fetchedAt: now }), supergrok: async () => snapshot({ provider: "supergrok", fetchedAt: now }) },
+			fetchers: {
+				claude,
+				codex: async () => snapshot({ provider: "codex", fetchedAt: now }),
+				supergrok: async () => snapshot({ provider: "supergrok", fetchedAt: now }),
+				ollama: async () => snapshot({ provider: "ollama", fetchedAt: now }),
+			},
 		});
 		expect(claude).toHaveBeenCalledTimes(1);
 		await refreshQuotaSnapshots({ hasUI: true, modelRegistry: {} as never }, dir, {
 			now: now + 10_000,
-			fetchers: { claude, codex: vi.fn(), supergrok: vi.fn() },
+			fetchers: { claude, codex: vi.fn(), supergrok: vi.fn(), ollama: vi.fn() },
 		});
 		expect(claude).toHaveBeenCalledTimes(1);
 	});
@@ -199,5 +232,110 @@ describe("provider parsers", () => {
 
 	it("never echoes tokens or emails from adapter errors", () => {
 		expect(sanitizeQuotaError(new Error("Bearer eyJabc token=secret user@x.ai"))).toBe("request failed");
+	});
+
+	it("maps only ollama-cloud models onto the Ollama quota adapter", () => {
+		expect(preferredProvider({ provider: "ollama-cloud" })).toBe("ollama");
+		expect(preferredProvider({ provider: "ollama" })).toBeUndefined();
+	});
+
+	it("parses Ollama Cloud session and weekly fractions without a reset time", () => {
+		const parsed = parseOllamaUsage({
+			plan: "pro",
+			limits: {
+				session: { usage: 0.28, models: [{ name: "glm-5.2", request_count: 12 }] },
+				weekly: { usage: 0.1 },
+				extra: { remaining: 4 },
+			},
+		}, now);
+		expect(parsed.ok).toBe(true);
+		expect(parsed.title).toBe("Ollama Cloud (pro)");
+		expect(parsed.primary).toMatchObject({ id: "session", label: "Session (5h)", usedPercent: 28 });
+		expect(parsed.primary?.resetsAt).toBeUndefined();
+		expect(parsed.windows.map((window) => window.id)).toEqual(["session", "weekly", "extra"]);
+		expect(parsed.windows[1]).toMatchObject({ id: "weekly", label: "Weekly (7d)", usedPercent: 10 });
+		expect(parsed.windows[2]).toMatchObject({ id: "extra", usedPercent: 0, note: "balance 4" });
+	});
+
+	it("rejects garbage or incomplete Ollama usage payloads without throwing", () => {
+		expect(parseOllamaUsage(null, now)).toMatchObject({ ok: false, error: "unexpected response" });
+		expect(parseOllamaUsage({ limits: { session: { usage: 0.2 } } }, now)).toMatchObject({
+			ok: false,
+			error: "missing session or weekly usage",
+		});
+	});
+});
+
+describe("fetchOllamaQuota", () => {
+	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	let agentDir: string;
+
+	afterEach(() => {
+		rmSync(agentDir, { recursive: true, force: true });
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+	});
+
+	function prepareAgentDir(): void {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-meter-ollama-"));
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+	}
+
+	it("fails closed without an API key and never echoes a secret", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn();
+		const result = await fetchOllamaQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "ollama-secret-key" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(result.ok).toBe(false);
+		expect(result.error).toBe(OLLAMA_API_KEY_ERROR);
+		expect(result.error).toContain("no Ollama Cloud API key");
+		expect(JSON.stringify(result)).not.toContain("ollama-secret-key");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("sends the resolved key to the usage endpoint and parses a 200 body", async () => {
+		prepareAgentDir();
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"ollama-cloud": { type: "api_key", key: "stored-but-not-used" },
+		})}\n`);
+		const fetchImpl = vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			json: async () => ({ limits: { session: { usage: 0.28 }, weekly: { usage: 0.1 } }, plan: "pro" }),
+		}));
+		const result = await fetchOllamaQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "ollama-live-key" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(fetchImpl).toHaveBeenCalledWith(OLLAMA_USAGE_URL, expect.objectContaining({
+			headers: expect.objectContaining({
+				Authorization: "Bearer ollama-live-key",
+				Accept: "application/json",
+			}),
+		}));
+		expect(result).toMatchObject({
+			ok: true,
+			title: "Ollama Cloud (pro)",
+			primary: { id: "session", usedPercent: 28 },
+		});
+		expect(result.primary?.resetsAt).toBeUndefined();
+	});
+
+	it("returns a sanitized HTTP error on 401", async () => {
+		prepareAgentDir();
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"ollama-cloud": { type: "api_key", key: "stored-but-not-used" },
+		})}\n`);
+		const fetchImpl = vi.fn(async () => ({
+			ok: false,
+			status: 401,
+			json: async () => ({ error: "Bearer ollama-live-key rejected" }),
+		}));
+		const result = await fetchOllamaQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "ollama-live-key" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(result.ok).toBe(false);
+		expect(result.error).toBe("HTTP 401");
+		expect(JSON.stringify(result)).not.toContain("ollama-live-key");
 	});
 });

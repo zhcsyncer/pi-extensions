@@ -9,10 +9,12 @@ export type QuotaPolarity = "used" | "remaining";
 export interface MeterConfig {
 	footer: {
 		local: FooterLocal;
-		quota: boolean;
+		quota: {
+			visible: boolean;
+			polarity: QuotaPolarity;
+		};
 	};
 	quota: {
-		polarity: QuotaPolarity;
 		snapshotTtlMs: number;
 		minRefreshIntervalMs: number;
 	};
@@ -21,10 +23,12 @@ export interface MeterConfig {
 export const DEFAULT_METER_CONFIG: MeterConfig = {
 	footer: {
 		local: "today-spend",
-		quota: true,
+		quota: {
+			visible: true,
+			polarity: "remaining",
+		},
 	},
 	quota: {
-		polarity: "remaining",
 		snapshotTtlMs: 60_000,
 		minRefreshIntervalMs: 30_000,
 	},
@@ -45,23 +49,19 @@ function asBoolean(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
-export function parseQuotaVisibleArg(arg: string, current: boolean): boolean | undefined {
-	const raw = arg.trim().toLowerCase();
-	if (raw === "on" || raw === "quota on" || raw === "quota=on") return true;
-	if (raw === "off" || raw === "quota off" || raw === "quota=off") return false;
-	if (raw === "quota" || raw === "quota toggle") return !current;
-	return undefined;
+function asQuotaPolarity(value: unknown, fallback: QuotaPolarity): QuotaPolarity {
+	return value === "used" || value === "remaining" ? value : fallback;
 }
 
 export function parseMeterConfig(value: unknown, extras: { footerLocal?: unknown } = {}): MeterConfig {
 	const record = isRecord(value) ? value : {};
 	const footer = isRecord(record.footer) ? record.footer : {};
+	const footerQuota = isRecord(footer.quota) ? footer.quota : {};
 	const quota = isRecord(record.quota) ? record.quota : {};
-	const polarity = record.quotaPolarity === "used" || record.quotaPolarity === "remaining"
-		? record.quotaPolarity
-		: quota.polarity === "used" || quota.polarity === "remaining"
-			? quota.polarity
-			: DEFAULT_METER_CONFIG.quota.polarity;
+	const legacyPolarity = asQuotaPolarity(
+		record.quotaPolarity,
+		asQuotaPolarity(quota.polarity, DEFAULT_METER_CONFIG.footer.quota.polarity),
+	);
 	const local = parseFooterLocal(footer.local)
 		?? parseFooterLocal(extras.footerLocal)
 		?? parseFooterLocal(record.footerPreset)
@@ -69,14 +69,33 @@ export function parseMeterConfig(value: unknown, extras: { footerLocal?: unknown
 	return {
 		footer: {
 			local,
-			quota: asBoolean(footer.quota, DEFAULT_METER_CONFIG.footer.quota),
+			quota: {
+				visible: asBoolean(
+					footerQuota.visible,
+					asBoolean(footer.quota, DEFAULT_METER_CONFIG.footer.quota.visible),
+				),
+				polarity: asQuotaPolarity(footerQuota.polarity, legacyPolarity),
+			},
 		},
 		quota: {
-			polarity,
 			snapshotTtlMs: asPositiveInt(quota.snapshotTtlMs ?? record.snapshotTtlMs, DEFAULT_METER_CONFIG.quota.snapshotTtlMs),
 			minRefreshIntervalMs: asPositiveInt(quota.minRefreshIntervalMs ?? record.minRefreshIntervalMs, DEFAULT_METER_CONFIG.quota.minRefreshIntervalMs),
 		},
 	};
+}
+
+function needsConfigShapeMigration(value: Record<string, unknown>): boolean {
+	const footer = isRecord(value.footer) ? value.footer : {};
+	const footerQuota = isRecord(footer.quota) ? footer.quota : undefined;
+	const quota = isRecord(value.quota) ? value.quota : {};
+	return !footerQuota
+		|| typeof footerQuota.visible !== "boolean"
+		|| (footerQuota.polarity !== "used" && footerQuota.polarity !== "remaining")
+		|| "polarity" in quota
+		|| "quotaPolarity" in value
+		|| "snapshotTtlMs" in value
+		|| "minRefreshIntervalMs" in value
+		|| "footerPreset" in value;
 }
 
 async function readJsonRecord(path: string): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; reason?: string }> {
@@ -116,9 +135,14 @@ export async function loadMeterConfig(agentDir = getAgentDir()): Promise<LoadedM
 	}
 	const config = parseMeterConfig(canonical.ok ? canonical.value : {}, extras);
 	const notes: string[] = [];
+	const shapeMigration = canonical.ok && needsConfigShapeMigration(canonical.value);
 	if (!canonical.ok && extras.footerLocal) notes.push(`footer preset ${extras.footerLocal}`);
 	if (canonical.ok && extras.footerLocal && !isRecord(canonical.value.footer)) notes.push(`footer preset ${extras.footerLocal}`);
-	const needsWrite = !canonical.ok || Boolean(extras.footerLocal) || (canonical.ok && !isRecord(canonical.value.footer));
+	if (shapeMigration) notes.push("footer quota settings");
+	const needsWrite = !canonical.ok
+		|| Boolean(extras.footerLocal)
+		|| (canonical.ok && !isRecord(canonical.value.footer))
+		|| shapeMigration;
 	if (needsWrite) {
 		try {
 			await saveMeterConfig(config, agentDir);
