@@ -1,5 +1,5 @@
-export const INPUT_STASH_PRIMARY_SHORTCUT = "ctrl+alt+s";
-export const INPUT_STASH_SECONDARY_SHORTCUT = "ctrl+alt+u";
+export const INPUT_STASH_PRIMARY_SHORTCUT = "ctrl+s";
+export const INPUT_STASH_SECONDARY_SHORTCUT = "ctrl+q";
 export const INPUT_STASH_CONFIRM_WINDOW_MS = 1500;
 
 export type InputStashKey = "primary" | "secondary";

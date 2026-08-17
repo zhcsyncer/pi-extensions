@@ -57,7 +57,7 @@ $PI_CODING_AGENT_DIR/extension-data/pi-glance/state/input-stash.json
 
 ## 快捷键
 
-主键 `ctrl+alt+s` 收起 / 拿回，副键 `ctrl+alt+u` 丢掉。出现在 `/hotkeys`。
+主键收起 / 拿回，副键丢掉。出现在 `/hotkeys`。选能过当前终端链路、且不和输入框常用动作打架的组合。
 
 ## 实现边界
 
