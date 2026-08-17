@@ -35,7 +35,7 @@ pi install git:github.com/zhcsyncer/pi-extensions
 /fast off
 ```
 
-Toggle or set the **current** in-memory switch. `Ctrl+F` is the same toggle, with a short repeat guard so a held key does not flip the switch repeatedly.
+Toggle or set the **current** in-memory switch. `Ctrl+F` is the same toggle, with a short repeat guard so a held key does not flip the switch repeatedly. Releasing the key does not toggle again.
 
 ```text
 /fast default on
