@@ -3,7 +3,7 @@ import {
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { normalizeDisplaySummary } from "./display-summary.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 import { shortenPath } from "./render-utils.js";
@@ -87,6 +87,7 @@ interface ToolCallRecord {
 }
 
 interface SessionContextLike {
+	hasUI?: boolean;
 	sessionManager?: {
 		getBranch(): unknown[];
 		buildSessionContext?(): { messages?: unknown[] };
@@ -125,6 +126,10 @@ const AGGREGATE_FRAME_CONTINUE = "  │ ";
 const AGGREGATE_FRAME_END = "  └ ";
 export const AGGREGATE_ASSISTANT_MARK = "›";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
+const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
+const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
+const NARRATION_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
 
@@ -284,25 +289,82 @@ function messageHasVisibleText(value: unknown): boolean {
 	return firstVisibleAssistantText(value) !== undefined;
 }
 
+export function normalizeAssistantNarration(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const sanitized = value
+		.replace(OSC_SEQUENCE_PATTERN, "")
+		.replace(ANSI_SEQUENCE_PATTERN, "")
+		.replace(NARRATION_CONTROL_PATTERN, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+	if (!sanitized) return undefined;
+	return sanitized.length > COLLAPSED_NARRATION_SOURCE_MAX_LENGTH
+		? sanitized.slice(0, COLLAPSED_NARRATION_SOURCE_MAX_LENGTH)
+		: sanitized;
+}
+
 function firstVisibleAssistantText(value: unknown): string | undefined {
 	for (const entry of messageContent(value)) {
 		const content = toRecord(entry);
 		if (content.type !== "text" || typeof content.text !== "string") continue;
-		const normalized = normalizeDisplaySummary(content.text, FAILED_SUMMARY_MAX_LENGTH);
+		const normalized = normalizeAssistantNarration(content.text);
 		if (normalized) return normalized;
 	}
 	return undefined;
 }
 
+function isVisuallyBlank(line: string): boolean {
+	return visibleWidth(line) === 0;
+}
+
+function trimRenderedEdges(lines: readonly string[]): string[] {
+	const kept = [...lines];
+	while (kept.length > 0 && isVisuallyBlank(kept[0]!)) kept.shift();
+	while (kept.length > 0 && isVisuallyBlank(kept[kept.length - 1]!)) kept.pop();
+	return kept;
+}
+
+function renderNarrationMarkdownLines(text: string, width: number): string[] {
+	try {
+		const lines = trimRenderedEdges(new Markdown(text, 0, 0, getMarkdownTheme()).render(width));
+		if (lines.length > 0) return lines;
+	} catch {
+		// Public markdown fallbacks and unbound Pi theme helpers must not crash the ledger.
+	}
+	const wrapped = wrapTextWithAnsi(text.replace(/\s+/g, " ").trim(), width);
+	return wrapped.length > 0 ? wrapped : [text];
+}
+
+export function renderCollapsedAssistantNarration(
+	text: string,
+	width: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || !text) return [];
+	let mark = AGGREGATE_ASSISTANT_MARK;
+	try {
+		mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
+	} catch {
+		// Theme helpers must not crash the collapsed ledger.
+	}
+	const prefix = `  ${mark} `;
+	const continuation = "    ";
+	const contentWidth = Math.max(1, safeWidth - visibleWidth(prefix));
+	const rows = renderNarrationMarkdownLines(text, contentWidth).slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
+	return rows.map((row, index) => {
+		const linePrefix = index === 0 ? prefix : continuation;
+		return truncateToWidth(`${linePrefix}${row}`, safeWidth, "…");
+	});
+}
+
 function isInterimAssistantMessage(value: unknown): boolean {
 	const reason = toRecord(value).stopReason;
 	if (reason === "error" || reason === "aborted" || reason === "length" || reason === "stop") return false;
-	if (reason === "toolUse") return true;
-	if (toolCallsFromMessage(value).length > 0) return true;
-	return messageContent(value).some((entry) => {
-		const content = toRecord(entry);
-		return content.type === "thinking" && typeof content.thinking === "string" && Boolean(content.thinking.trim());
-	});
+	return reason === "toolUse" || toolCallsFromMessage(value).length > 0;
 }
 
 export function aggregateAssistantFrameId(message: unknown): string | undefined {
@@ -438,14 +500,50 @@ function assistantFailureSummary(message: unknown): string {
 	return normalizeDisplaySummary(record.errorMessage, FAILED_SUMMARY_MAX_LENGTH) ?? "Assistant turn failed.";
 }
 
-let activeAggregateProjection: AggregateProjection | undefined;
+const projectionsByOwner = new WeakMap<object, AggregateProjection>();
+const liveProjections = new Set<AggregateProjection>();
+let hostAggregateProjection: AggregateProjection | undefined;
 
-export function getActiveAggregateProjection(): AggregateProjection | undefined {
-	return activeAggregateProjection;
+function rememberProjection(owner: object | undefined, projection: AggregateProjection): void {
+	liveProjections.add(projection);
+	if (owner) projectionsByOwner.set(owner, projection);
 }
 
-export function resolveAggregateRenderTheme(): AggregateRenderTheme {
-	return activeAggregateProjection?.getRenderTheme() ?? publicThemeFallback();
+function forgetProjection(owner: object | undefined, projection: AggregateProjection): void {
+	liveProjections.delete(projection);
+	if (owner) projectionsByOwner.delete(owner);
+	if (hostAggregateProjection === projection) hostAggregateProjection = undefined;
+}
+
+function claimHostProjection(owner: object | undefined, projection: AggregateProjection): boolean {
+	rememberProjection(owner, projection);
+	if (!hostAggregateProjection) {
+		hostAggregateProjection = projection;
+		return true;
+	}
+	return hostAggregateProjection === projection;
+}
+
+export function getActiveAggregateProjection(): AggregateProjection | undefined {
+	return hostAggregateProjection;
+}
+
+export function resolveAggregateProjection(
+	preferred?: AggregateProjection,
+	...hints: unknown[]
+): AggregateProjection | undefined {
+	if (preferred) return preferred;
+	for (const hint of hints) {
+		if (typeof hint !== "string" || !hint) continue;
+		for (const projection of liveProjections) {
+			if (projection.getMember(hint) || projection.getFrameEdge(hint)) return projection;
+		}
+	}
+	return hostAggregateProjection;
+}
+
+export function resolveAggregateRenderTheme(preferred?: AggregateProjection): AggregateRenderTheme {
+	return preferred?.getRenderTheme() ?? hostAggregateProjection?.getRenderTheme() ?? publicThemeFallback();
 }
 
 export class AggregateProjection {
@@ -483,6 +581,17 @@ export class AggregateProjection {
 
 	getGroups(): readonly AggregateGroup[] {
 		return this.groups;
+	}
+
+	hasPaintedToolsLedger(message?: unknown): boolean {
+		const turnId = aggregateAssistantTurnId(message);
+		if (turnId) {
+			for (const group of this.groups) {
+				if (group.agentTurnIds.includes(turnId)) return Boolean(group.leaderToolCallId);
+			}
+		}
+		const active = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		return Boolean(active?.leaderToolCallId);
 	}
 
 	getMember(toolCallId: string): AggregateMember | undefined {
@@ -1174,26 +1283,13 @@ export function renderAggregateActivity(
 		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
 	}
 	if (!view.settled && view.latestNarration) {
-		let mark = AGGREGATE_ASSISTANT_MARK;
-		try {
-			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
-		} catch {
-			// Theme helpers must not crash the collapsed ledger.
-		}
-		const prefix = `  ${mark} `;
-		const wrapped = wrapTextWithAnsi(view.latestNarration, Math.max(1, safeWidth - visibleWidth(prefix)))
-			.slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
-		const rows = wrapped.length > 0 ? wrapped : [view.latestNarration];
-		for (const [index, row] of rows.entries()) {
-			const rowPrefix = index === 0 ? prefix : "    ";
-			lines.push(`${rowPrefix}${row}`);
-		}
+		lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
 	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {
 			lines.push(
 				truncateToWidth(
-					`  ${theme.fg("success", "✓")} ${formatColoredTarget(row, theme)} ${theme.fg("success", "done")}`,
+					`  ${theme.fg("success", "✓")} ${formatColoredTarget(row, theme)}`,
 					safeWidth,
 					"…",
 				),
@@ -1232,12 +1328,12 @@ function createComponentInvalidator(component: PatchableToolExecution): () => vo
 }
 
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
-	activeAggregateProjection = projection;
+	claimHostProjection(undefined, projection);
 	const prototype = getToolExecutionPrototype();
 	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (existing) {
 		if (prototype.render === existing.patchedRender || existing.projection !== undefined) {
-			existing.projection = projection;
+			// A later session must not steal the already-painting host ledger.
 			return;
 		}
 		// A wrapper installed before us may restore its own original render after
@@ -1251,9 +1347,10 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 	state.originalRender = prototype.render as AggregateToolExecutionPatchState["originalRender"];
 	state.projection = projection;
 	state.patchedRender = function renderAggregateToolExecution(width: number): string[] {
-		const activeProjection = state.projection;
 		const toolName = normalizeToolName(this.toolName);
 		const toolCallId = typeof this.toolCallId === "string" ? this.toolCallId : undefined;
+		const activeProjection = resolveAggregateProjection(undefined, toolCallId)
+			?? state.projection;
 		if (!activeProjection || !toolName || !toolCallId) {
 			return state.originalRender.call(this, width);
 		}
@@ -1305,7 +1402,8 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 }
 
 export function restoreAggregateToolExecutions(): void {
-	activeAggregateProjection = undefined;
+	hostAggregateProjection = undefined;
+	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (!state) return;
@@ -1347,22 +1445,29 @@ export function registerAggregateProjectionEvents(
 		clearSettleTimer();
 		rebuildProjectionFromContext(projection, ctx);
 	};
+	const adoptHostIfNeeded = () => {
+		// A later session may keep its own ledger, but must not steal the host
+		// prototype pointer or rebuild the already-painting host projection.
+		if (claimHostProjection(pi, projection)) patchAggregateToolExecutions(projection);
+	};
 
-	patchAggregateToolExecutions(projection);
+	adoptHostIfNeeded();
 	onReloadShutdown(pi, () => {
 		clearSettleTimer();
-		restoreAggregateToolExecutions();
+		forgetProjection(pi, projection);
+		// Only the last live ledger may drop the shared renderer patch.
+		if (liveProjections.size === 0) restoreAggregateToolExecutions();
 		registeredApis.delete(pi);
 	});
 	if (registeredApis.has(pi)) return;
 	registeredApis.add(pi);
 
 	pi.on("session_start", async (_event, ctx) => {
-		patchAggregateToolExecutions(projection);
+		if (ctx?.hasUI !== false) adoptHostIfNeeded();
 		rebuild(ctx);
 	});
 	pi.on("before_agent_start", async (_event, ctx) => {
-		patchAggregateToolExecutions(projection);
+		if (ctx?.hasUI !== false) adoptHostIfNeeded();
 		rebuild(ctx);
 	});
 	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));

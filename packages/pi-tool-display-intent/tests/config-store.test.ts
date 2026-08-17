@@ -219,7 +219,7 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 				collapsedRows: 40,
 				wordWrap: false,
 			},
-			transcript: { userMessageStyle: "default", thinkingLabel: false },
+			transcript: { userMessageStyle: "default" },
 			tools: {
 				passthrough: ["Agent", "read", "write", "custom_ui"],
 				custom: {
@@ -252,7 +252,6 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 			outputMode: "preview",
 		});
 		assert.equal(loaded.config.enableNativeUserMessageBox, false);
-		assert.equal(loaded.config.enableThinkingLabel, false);
 		assert.equal(loaded.config.diffCollapsedRows, 40);
 		assert.equal(loaded.config.expandedPreviewMaxRows, 300);
 		assert.equal(loaded.config.debug, true);
@@ -267,13 +266,12 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
 		toolCallLayout: "aggregate",
 		bashCommandPreviewRows: 2,
-		enableThinkingLabel: false,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
 	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
 	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
 	assert.deepEqual(serialized.toolCalls, { layout: "aggregate", bashCommandPreviewRows: 2 });
-	assert.deepEqual(serialized.transcript, { thinkingLabel: false });
+	assert.equal(serialized.transcript, undefined);
 
 	withTempDir("pi-tool-display-config-roundtrip-", (dir) => {
 		const configFile = join(dir, "config.json");
@@ -336,6 +334,28 @@ test("v2 diff.collapsedMode serializes sparsely and round-trips", () => {
 	const bodySerialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(bodySerialized.diff, undefined);
 	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.diffCollapsedMode, "body");
+});
+
+test("removed thinkingLabel is dropped from existing v2 configs", () => {
+	withTempDir("pi-tool-display-config-thinking-label-", (dir) => {
+		const configFile = join(dir, "config.json");
+		const original = `${JSON.stringify({
+			version: 2,
+			results: { mode: "compact" },
+			transcript: { userMessageStyle: "default", thinkingLabel: false },
+		}, null, 2)}\n`;
+		writeFileSync(configFile, original, "utf8");
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal("enableThinkingLabel" in loaded.config, false);
+		assert.match(loaded.notice ?? "", /transcript\.thinkingLabel: unknown setting/);
+		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
+			transcript?: { thinkingLabel?: boolean; userMessageStyle?: string };
+		};
+		assert.equal(persisted.transcript?.thinkingLabel, undefined);
+		assert.equal(persisted.transcript?.userMessageStyle, "default");
+	});
 });
 
 test("invalid or old v2 fields are dropped with paths and rewritten", () => {

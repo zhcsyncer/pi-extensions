@@ -342,10 +342,6 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			source.enableNativeUserMessageBox,
 			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		),
-		enableThinkingLabel: toBoolean(
-			source.enableThinkingLabel,
-			DEFAULT_TOOL_DISPLAY_CONFIG.enableThinkingLabel,
-		),
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
 			2,
@@ -487,9 +483,8 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
-	validateKnownKeys(transcript, ["userMessageStyle", "thinkingLabel"], "transcript.", errors);
+	validateKnownKeys(transcript, ["userMessageStyle"], "transcript.", errors);
 	validateOptionalEnum(transcript, "userMessageStyle", ["boxed", "default"], "transcript.", errors);
-	validateOptionalBoolean(transcript, "thinkingLabel", "transcript.", errors);
 
 	const tools = getV2Section(source, "tools", errors);
 	validateKnownKeys(tools, ["passthrough", "custom"], "tools.", errors);
@@ -599,7 +594,6 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 				: transcript.userMessageStyle === "boxed"
 					? true
 					: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
-		enableThinkingLabel: transcript.thinkingLabel,
 		previewRows: results.previewRows,
 		expandedPreviewMaxRows: advanced.expandedRows,
 		diffViewMode: diff.layout,
@@ -655,9 +649,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	const transcript: Record<string, unknown> = {};
 	if (config.enableNativeUserMessageBox !== defaults.enableNativeUserMessageBox) {
 		transcript.userMessageStyle = config.enableNativeUserMessageBox ? "boxed" : "default";
-	}
-	if (config.enableThinkingLabel !== defaults.enableThinkingLabel) {
-		transcript.thinkingLabel = config.enableThinkingLabel;
 	}
 	assignSection(output, "transcript", transcript);
 
@@ -715,7 +706,7 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 const LEGACY_CONFIG_KEYS = new Set([
 	"version", "enabled", "debug", "displaySummary", "toolIntent", "registerToolOverrides", "registerReadToolOverride",
 	"customToolOverrides", "toolCallLayout", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
-	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "enableThinkingLabel", "previewRows",
+	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "previewRows",
 	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
 	"diffCollapsedRows", "diffCollapsedLines", "diffCollapsedMode", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",
 	"bashCollapsedLines", "bashCollapsedRows",

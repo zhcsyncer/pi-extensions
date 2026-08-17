@@ -11,10 +11,13 @@ import {
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
 	formatAggregateClock,
 	formatAggregateTarget,
+	getActiveAggregateProjection,
+	normalizeAssistantNarration,
 	patchAggregateToolExecutions,
 	registerAggregateProjectionEvents,
 	renderAggregateActivity,
 	renderAggregateMemberRow,
+	renderCollapsedAssistantNarration,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
 
@@ -84,6 +87,10 @@ function plainTheme() {
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 	};
+}
+
+function visibleText(value: string): string {
+	return value.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 function createTool(name: string, callText = `ORIGINAL ${name}`, resultText = `RESULT ${name}`) {
@@ -238,6 +245,47 @@ test("in-progress Tools ledger pins the latest narration above the tool rows", (
 		latestNarration: "先定位两边的设计与实现入口，再对照分组、渲染、状态和边界。",
 	}, 24, plainTheme());
 	assert.ok(wrapped.filter((line) => /先定位|再对照|分组|渲染/.test(line)).length >= 2);
+});
+
+test("collapsed narration keeps markdown source and renders inline styles", () => {
+	initTheme("dark", false);
+	const projection = createProjection();
+	projection.startUserGroup("user-narration-markdown");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-md",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "先对照 **两边入口** 和 `src/index.ts`" },
+			{ type: "toolCall", ...call("read-md", "read", { path: "src/index.ts" }) },
+		],
+	});
+	projection.markStarted("read-md", "read", { path: "src/index.ts" });
+	const view = projection.getView("read-md");
+	assert.equal(view?.latestNarration, "先对照 **两边入口** 和 `src/index.ts`");
+	const rendered = visibleText(renderAggregateActivity(view!, 120, plainTheme()).join("\n"));
+	assert.match(rendered, /› 先对照 两边入口 和 src\/index\.ts/);
+	assert.doesNotMatch(rendered, /\*\*|`/);
+});
+
+test("collapsed narration markdown stays within the three-row pin", () => {
+	initTheme("dark", false);
+	const rendered = renderCollapsedAssistantNarration(
+		["# 入口", "", "- 一边", "- 另一边", "- 还要第三项", "- 不应出现"].join("\n"),
+		80,
+		plainTheme(),
+	);
+	assert.ok(rendered.length > 0 && rendered.length <= 3);
+	assert.match(visibleText(rendered.join("\n")), /入口/);
+	assert.doesNotMatch(visibleText(rendered.join("\n")), /不应出现/);
+});
+
+test("normalizeAssistantNarration keeps markdown structure and drops control noise", () => {
+	assert.equal(
+		normalizeAssistantNarration("先对照 **两边入口**\u0007\n\n`src/index.ts`"),
+		"先对照 **两边入口**\n\n`src/index.ts`",
+	);
+	assert.equal(normalizeAssistantNarration("   \n\n  "), undefined);
 });
 
 test("settled Tools ledger shows duration, tokens, cache, and completion time under the header", () => {
@@ -497,7 +545,7 @@ test("prototype patch aggregates an arbitrary custom tool without changing its d
 		projection.markComplete("custom-1", { content: [{ type: "text", text: "ok" }] }, false);
 		component.updateResult({ content: [{ type: "text", text: "RAW CUSTOM RESULT" }], isError: false });
 		const completed = component.render(120).join("\n");
-		assert.match(completed, /custom_probe.*done/);
+		assert.match(completed, /✓.*custom_probe/);
 		assert.doesNotMatch(completed, /ORIGINAL CUSTOM|RAW CUSTOM/);
 		assert.equal(customTool.renderCall?.().render(120).join("\n").trimEnd(), "ORIGINAL CUSTOM CALL");
 	} finally {
@@ -672,4 +720,79 @@ test("streaming assistant updates keep one turn identity after the first tool ca
 	const view = projection.getView("read-stream");
 	assert.equal(view?.agentTurnCount, 1);
 	assert.deepEqual(view?.usage, { input: 12, output: 4, cacheRead: 0, cacheWrite: 0 });
+});
+
+test("a later child projection cannot steal the host Tools ledger", () => {
+	initTheme("dark", false);
+	const host = createProjection();
+	const child = createProjection();
+	patchAggregateToolExecutions(host);
+	try {
+		host.startUserGroup("host-user");
+		host.markStarted("host-read", "read", { path: "src/a.ts" });
+		const hostRow = createComponent("read", "host-read", { path: "src/a.ts" });
+		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+
+		patchAggregateToolExecutions(child);
+		child.rebuild([]);
+		assert.equal(getActiveAggregateProjection(), host);
+		assert.equal(host.getMember("host-read")?.toolName, "read");
+		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+		assert.notDeepEqual(hostRow.render(120), []);
+	} finally {
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("child session_start and before_agent_start keep the host ledger pointer", async () => {
+	initTheme("dark", false);
+	const host = createProjection();
+	const child = createProjection();
+	const hostHandlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();
+	const childHandlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();
+	const hostApi = {
+		on(event: string, handler: (event: any, ctx?: any) => unknown) {
+			hostHandlers.set(event, [...(hostHandlers.get(event) ?? []), handler]);
+		},
+	} as unknown as ExtensionAPI;
+	const childApi = {
+		on(event: string, handler: (event: any, ctx?: any) => unknown) {
+			childHandlers.set(event, [...(childHandlers.get(event) ?? []), handler]);
+		},
+	} as unknown as ExtensionAPI;
+	const hostCtx = {
+		hasUI: true,
+		sessionManager: {
+			getBranch: () => [
+				userEntry("host-user"),
+				assistantEntry("host-assistant", [call("host-read", "read", { path: "src/a.ts" })]),
+			],
+			buildSessionContext: () => ({ messages: [] }),
+		},
+	};
+	const childCtx = {
+		hasUI: false,
+		sessionManager: {
+			getBranch: () => [],
+			buildSessionContext: () => ({ messages: [] }),
+		},
+	};
+	registerAggregateProjectionEvents(hostApi, host);
+	try {
+		await hostHandlers.get("session_start")?.[0]?.({}, hostCtx);
+		host.markStarted("host-read", "read", { path: "src/a.ts" });
+		assert.equal(getActiveAggregateProjection(), host);
+
+		registerAggregateProjectionEvents(childApi, child);
+		await childHandlers.get("session_start")?.[0]?.({}, childCtx);
+		await childHandlers.get("before_agent_start")?.[0]?.({}, childCtx);
+
+		assert.equal(getActiveAggregateProjection(), host);
+		assert.equal(host.getMember("host-read")?.toolName, "read");
+		assert.equal(child.getMember("host-read"), undefined);
+	} finally {
+		await childHandlers.get("session_shutdown")?.[0]?.({ reason: "reload" });
+		await hostHandlers.get("session_shutdown")?.[0]?.({ reason: "reload" });
+		restoreAggregateToolExecutions();
+	}
 });

@@ -24,8 +24,7 @@
     "wordWrap": true
   },
   "transcript": {
-    "userMessageStyle": "boxed",
-    "thinkingLabel": true
+    "userMessageStyle": "boxed"
   },
   "tools": {
     "passthrough": ["Agent"],

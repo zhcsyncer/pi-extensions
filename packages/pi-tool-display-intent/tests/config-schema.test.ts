@@ -42,6 +42,7 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 			results?: { properties?: Record<string, unknown> };
 			toolCalls?: { properties?: Record<string, unknown> };
 			tools?: { properties?: Record<string, unknown> };
+			transcript?: { properties?: Record<string, unknown> };
 			diff?: { properties?: Record<string, unknown> };
 		};
 	};
@@ -61,6 +62,9 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);
 	assert.equal(schema.properties?.extension, undefined);
+	const transcript = schema.properties?.transcript as { properties?: Record<string, unknown> } | undefined;
+	assert.ok(transcript?.properties?.userMessageStyle);
+	assert.equal(transcript?.properties?.thinkingLabel, undefined);
 	const collapsedMode = schema.properties?.diff?.properties?.collapsedMode as { enum?: string[]; default?: string } | undefined;
 	assert.deepEqual(collapsedMode?.enum, ["body", "summary"]);
 	assert.equal(collapsedMode?.default, "body");

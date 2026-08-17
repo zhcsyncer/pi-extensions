@@ -6,9 +6,9 @@ import {
 	AGGREGATE_ASSISTANT_MARK,
 	aggregateAssistantFrameId,
 	applyAggregateGroupFrame,
-	getActiveAggregateProjection,
 	attachExpandedAggregateSummary,
 	renderAggregateActivity,
+	resolveAggregateProjection,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
@@ -16,6 +16,7 @@ import { onReloadShutdown } from "./extension-lifecycle.js";
 interface PatchableAssistantMessage {
 	render(width: number): string[];
 	setExpanded?(expanded: boolean): void;
+	updateContent?(message: unknown, isStreaming?: boolean): void;
 	invalidate?: () => void;
 	hideThinkingBlock?: unknown;
 	hiddenThinkingLabel?: unknown;
@@ -51,6 +52,7 @@ const DEFAULT_HIDDEN_THINKING_LABEL = "Thinking...";
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const registeredApis = new WeakSet<ExtensionAPI>();
+let thinkingPatchOwnerCount = 0;
 
 function toRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -102,6 +104,48 @@ export function shouldHideCollapsedThinkingPlaceholder(component: unknown): bool
 	});
 }
 
+function messageContentBlocks(message: unknown): unknown[] {
+	const content = toRecord(message).content;
+	return Array.isArray(content) ? content : [];
+}
+
+function messageHasNarrationText(message: unknown): boolean {
+	return messageContentBlocks(message).some((entry) => {
+		const block = toRecord(entry);
+		return block.type === "text" && typeof block.text === "string" && Boolean(block.text.trim());
+	});
+}
+
+export function omitThinkingContentBlocks(message: unknown): unknown {
+	if (!message || typeof message !== "object") return message;
+	const content = messageContentBlocks(message);
+	const next = content.filter((entry) => toRecord(entry).type !== "thinking");
+	if (next.length === content.length) return message;
+	return { ...toRecord(message), content: next };
+}
+
+function renderWithoutThinkingBlocks(
+	component: PatchableAssistantMessage,
+	originalRender: (this: PatchableAssistantMessage, width: number) => string[],
+	width: number,
+): string[] {
+	const originalMessage = component.lastMessage;
+	const stripped = omitThinkingContentBlocks(originalMessage);
+	if (stripped === originalMessage || typeof component.updateContent !== "function") {
+		return originalRender.call(component, width);
+	}
+	try {
+		component.updateContent(stripped);
+		return originalRender.call(component, width);
+	} finally {
+		try {
+			component.updateContent(originalMessage);
+		} catch {
+			// Restore must stay fail-open so a later invalidate can rebuild.
+		}
+	}
+}
+
 export function isInterimAssistantNarration(component: unknown): boolean {
 	const message = toRecord(toRecord(component).lastMessage);
 	const stopReason = message.stopReason;
@@ -109,12 +153,7 @@ export function isInterimAssistantNarration(component: unknown): boolean {
 		return false;
 	}
 	if (stopReason === "toolUse") return true;
-	const content = message.content;
-	if (!Array.isArray(content)) return false;
-	return content.some((blockValue) => {
-		const block = toRecord(blockValue);
-		return block.type === "toolCall" || (block.type === "thinking" && typeof block.thinking === "string" && Boolean(block.thinking.trim()));
-	});
+	return messageContentBlocks(message).some((blockValue) => toRecord(blockValue).type === "toolCall");
 }
 
 /** @deprecated Use shouldHideCollapsedThinkingPlaceholder. */
@@ -191,25 +230,31 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 	};
 	state.patchedRender = function renderAggregateAssistantMessage(width: number): string[] {
-		const lines = state.originalRender.call(this, width);
-		if (!state.isAggregateEnabled()) return lines;
+		if (!state.isAggregateEnabled()) return state.originalRender.call(this, width);
 
-		let next = lines;
-		if (this.hideThinkingBlock === true && shouldHideCollapsedThinkingPlaceholder(this)) {
-			next = stripCollapsedThinkingPlaceholderLines(next, resolveHiddenThinkingLabel(this));
-		}
+		const hideThinking = this.hideThinkingBlock === true;
 		const interim = isInterimAssistantNarration(this);
-		const projection = getActiveAggregateProjection();
+		const hasNarrationText = messageHasNarrationText(this.lastMessage);
+		const stopReason = toRecord(this.lastMessage).stopReason;
+		// Thinking is never narration. Drop thinking blocks before render so
+		// overlapping final text cannot be mistaken for reasoning.
+		const stripThinkingBody = hideThinking || interim || (stopReason === "stop" && hasNarrationText);
+		const lines = stripThinkingBody
+			? renderWithoutThinkingBlocks(this, state.originalRender, width)
+			: state.originalRender.call(this, width);
+		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
+		const toolCallId = firstToolCallId(this.lastMessage);
+		const frameId = assistantFrameId(this);
+		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
 		const trimmed = trimBlankEdges(next);
 		if (interim) {
-			const frameId = assistantFrameId(this);
-			if (trimmed.length === 0 || !isExpanded(this)) {
+			if (!hasNarrationText || trimmed.length === 0 || !isExpanded(this)) {
 				projection?.markFrameContentVisible(frameId, false);
-				if (trimmed.length === 0) projection?.untrackFramedItem(frameId);
-				else projection?.trackFramedItem(frameId, undefined, firstToolCallId(this.lastMessage));
+				if (!hasNarrationText || trimmed.length === 0) projection?.untrackFramedItem(frameId);
+				else projection?.trackFramedItem(frameId, undefined, toolCallId);
 				return [];
 			}
-			projection?.trackFramedItem(frameId, undefined, firstToolCallId(this.lastMessage));
+			projection?.trackFramedItem(frameId, undefined, toolCallId);
 			projection?.connectFrameRenderer(frameId, () => {
 				try {
 					this.invalidate?.();
@@ -221,13 +266,15 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 		if (trimmed.length === 0) return [];
 		if (!interim) {
-			// Pi prefixes visible assistant text with Spacer(1). Drop that so it
-			// does not stack with the Tools ledger's trailing blank.
-			return visibleText(next[0] ?? "") === "" ? next.slice(1) : next;
+			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
+			// Put that gap back after the user prompt; leave it off when a Tools
+			// ledger already supplied the trailing blank.
+			const stackedOnTools = projection?.hasPaintedToolsLedger(this.lastMessage) === true;
+			if (stackedOnTools) return next;
+			return visibleText(next[0] ?? "") === "" ? next : ["", ...next];
 		}
-		const theme = resolveAggregateRenderTheme();
+		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
-		const frameId = assistantFrameId(this);
 		const edge = projection?.getFrameEdge(frameId) ?? "only";
 		const framed = applyAggregateGroupFrame(marked, width, theme, edge);
 		if (projection?.shouldHostExpandedSummary(frameId)) {
@@ -271,13 +318,18 @@ export function registerAggregateThinkingPlaceholderSuppression(
 	pi: ExtensionAPI,
 	isAggregateEnabled: () => boolean,
 ): void {
-	if (registeredApis.has(pi)) return;
-	registeredApis.add(pi);
+	if (!registeredApis.has(pi)) {
+		registeredApis.add(pi);
+		thinkingPatchOwnerCount += 1;
+	}
 	patchAggregateThinkingPlaceholders(isAggregateEnabled);
 
 	onReloadShutdown(pi, () => {
-		restoreAggregateThinkingPlaceholders();
-		registeredApis.delete(pi);
+		if (registeredApis.has(pi)) {
+			registeredApis.delete(pi);
+			thinkingPatchOwnerCount = Math.max(0, thinkingPatchOwnerCount - 1);
+		}
+		if (thinkingPatchOwnerCount === 0) restoreAggregateThinkingPlaceholders();
 	});
 	pi.on("session_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));
 	pi.on("before_agent_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));

@@ -74,7 +74,6 @@ export interface ToolDisplayConfig {
 	bashCommandPreviewRows: number;
 	resultMode: ResultDisplayMode;
 	enableNativeUserMessageBox: boolean;
-	enableThinkingLabel: boolean;
 	readOutputMode: ReadOutputMode;
 	searchOutputMode: SearchOutputMode;
 	mcpOutputMode: McpOutputMode;
@@ -114,7 +113,6 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	bashCommandPreviewRows: 1,
 	resultMode: "compact",
 	enableNativeUserMessageBox: true,
-	enableThinkingLabel: true,
 	readOutputMode: "hidden",
 	searchOutputMode: "hidden",
 	mcpOutputMode: "hidden",
