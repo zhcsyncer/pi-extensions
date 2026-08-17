@@ -3,11 +3,19 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
+  isUserMessageExpanded,
   patchNativeUserMessagePrototype,
   type PatchableUserMessagePrototype,
+  type UserMessageSteerPresentation,
   type UserMessageTheme,
 } from "./user-message-box-renderer.js";
 import { unregisterUserMessageRenderPrototypePatch } from "./user-message-box-patch.js";
+import { extractUserMessageMarkdownState } from "./user-message-box-markdown.js";
+import {
+  getActiveAggregateProjection,
+  renderExpandedAggregateSteer,
+  resolveAggregateRenderTheme,
+} from "./aggregate-activity.js";
 import type { ToolDisplayConfig } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 
@@ -15,6 +23,43 @@ const registeredNativeUserMessageApis = new WeakSet<ExtensionAPI>();
 
 function getUserMessagePrototype(): PatchableUserMessagePrototype {
   return UserMessageComponent.prototype as unknown as PatchableUserMessagePrototype;
+}
+
+function readUserMessageText(instance: object): string | undefined {
+  const text = (instance as { text?: unknown }).text;
+  if (typeof text === "string") return text;
+  return extractUserMessageMarkdownState(instance)?.text;
+}
+
+export function resolveAggregateSteerUserPresentation(
+  instance: object,
+  width: number,
+): UserMessageSteerPresentation | undefined {
+  const projection = getActiveAggregateProjection();
+  if (!projection) return undefined;
+  const text = readUserMessageText(instance);
+  const steer = projection.matchSteerForComponent(instance, text);
+  if (!steer) return undefined;
+  projection.connectFrameRenderer(steer.id, () => {
+    try {
+      (instance as { invalidate?: () => void }).invalidate?.();
+    } catch {
+      // A stale transcript component may already be disposed.
+    }
+  });
+  if (!isUserMessageExpanded(instance)) {
+    projection.markFrameContentVisible(steer.id, false);
+    return { hide: true };
+  }
+  projection.markFrameContentVisible(steer.id, true);
+  return {
+    lines: renderExpandedAggregateSteer(
+      steer.text,
+      width,
+      resolveAggregateRenderTheme(projection),
+      projection.getFrameEdge(steer.id) ?? "only",
+    ),
+  };
 }
 
 function patchUserMessageRender(
@@ -27,6 +72,7 @@ function patchUserMessageRender(
     getTheme,
     isEnabled,
     isCompact,
+    (instance, width) => isCompact() ? resolveAggregateSteerUserPresentation(instance, width) : undefined,
   );
 }
 

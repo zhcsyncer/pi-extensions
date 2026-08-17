@@ -2,14 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	AssistantMessageComponent,
+	ToolExecutionComponent,
+	UserMessageComponent,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
 	patchAggregateToolExecutions,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
+import {
+	patchNativeUserMessagePrototype,
+	type PatchableUserMessagePrototype,
+} from "../src/user-message-box-renderer.ts";
+import { resolveAggregateSteerUserPresentation } from "../src/user-message-box-native.ts";
+import { unregisterUserMessageRenderPrototypePatch } from "../src/user-message-box-patch.ts";
 import {
 	isInterimAssistantNarration,
 	omitThinkingContentBlocks,
@@ -280,6 +289,90 @@ test("mid-turn thinking is not framed as narration", () => {
 		assert.doesNotMatch(expanded.join("\n"), /›|The user wants me/);
 		assert.equal(projection.getFramedItemIds(frameId).includes(frameId), false);
 	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded timeline keeps a steer between tools and later narration", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	const userPrototype = UserMessageComponent.prototype as unknown as PatchableUserMessagePrototype;
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	patchNativeUserMessagePrototype(
+		userPrototype,
+		() => undefined,
+		() => true,
+		() => true,
+		resolveAggregateSteerUserPresentation,
+	);
+	try {
+		projection.startUserGroup("user-timeline");
+		const first = assistant([
+			{ type: "text", text: "先读 README" },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "README.md" } },
+		], { id: "assistant-first" });
+		projection.ingestAssistantMessage(first);
+		projection.markStarted("read-1", "read", { path: "README.md" });
+		projection.markComplete("read-1", { content: [{ type: "text", text: "ok" }] }, false);
+		projection.ingestUserMessage({
+			role: "user",
+			content: "先确定方案",
+			timestamp: 2,
+		});
+		const second = assistant([
+			{ type: "text", text: "按新约束改" },
+			{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "README.md" } },
+		], { id: "assistant-second" });
+		projection.ingestAssistantMessage(second);
+		projection.markStarted("edit-1", "edit", { path: "README.md" });
+
+		const tool = (name: string, id: string, args: Record<string, unknown>) =>
+			new ToolExecutionComponent(
+				name,
+				id,
+				args,
+				{},
+				{
+					name,
+					label: name,
+					description: name,
+					parameters: { type: "object", properties: {} },
+					execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+					renderCall: () => new Text(name, 0, 0),
+					renderResult: () => new Text(name, 0, 0),
+				} as never,
+				{ requestRender() {} } as never,
+				process.cwd(),
+			);
+		const read = tool("read", "read-1", { path: "README.md" });
+		const edit = tool("edit", "edit-1", { path: "README.md" });
+		const steer = new UserMessageComponent("先确定方案");
+		const firstAssistant = createComponent(first, true);
+		const secondAssistant = createComponent(second, true);
+
+		assert.deepEqual(steer.render(100), []);
+		assert.doesNotMatch(steer.render(100).join("\n"), /▎|↳/);
+
+		for (const component of [firstAssistant, secondAssistant, read, edit, steer] as Array<{ setExpanded(expanded: boolean): void }>) {
+			component.setExpanded(true);
+		}
+
+		const firstNarration = firstAssistant.render(100).join("\n");
+		const readRow = read.render(100).join("\n");
+		const steerRow = steer.render(100).join("\n");
+		const secondNarration = secondAssistant.render(100).join("\n");
+		const editRow = edit.render(100).join("\n");
+		assert.match(firstNarration, /│.*›.*先读 README/);
+		assert.match(readRow, /│.*Read\(README\.md\)/);
+		assert.match(steerRow, /│.*↳.*先确定方案/);
+		assert.doesNotMatch(steerRow, /▎/);
+		assert.match(secondNarration, /│.*›.*按新约束改/);
+		assert.match(editRow, /└.*Edit\(README\.md\)/);
+	} finally {
+		unregisterUserMessageRenderPrototypePatch(userPrototype);
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
 	}

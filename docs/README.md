@@ -14,6 +14,7 @@
 | [pi-fast-mode/extension.md](./pi-fast-mode/extension.md) | 已落地 | 同模型 Fast / Priority：内存开关、loader 红线 |
 | [pi-herdr-companion/extension.md](./pi-herdr-companion/extension.md) | 已落地 | Herdr 可见进程、临时 `/btw`、blocked；worker 实现保留但不注册 |
 | [pi-tool-display-intent/aggregate-layout.md](./pi-tool-display-intent/aggregate-layout.md) | 已落地 | aggregate Tools 账本：按请求汇总、不改执行与历史 |
+| [pi-tool-display-intent/aggregate-steer.md](./pi-tool-display-intent/aggregate-steer.md) | 已落地 | steer 留在同一轮：钉顶首行、标题计数、展开后时间线高亮 |
 | [pi-todo/active-plan-lifecycle.md](./pi-todo/active-plan-lifecycle.md) | 已落地 | Todo 有界周期与 checkpoint 收缩 |
 | [pi-subagents/background-duplication.md](./pi-subagents/background-duplication.md) | 已落地 | 后台委派重复工作的根因与修复边界 |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |

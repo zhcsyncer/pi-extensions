@@ -12,6 +12,7 @@ import {
   shouldBypassUserMessageMarkdownRebuild,
   createUserMessageMarkdownLineRenderer,
 } from "../src/user-message-box-renderer.ts";
+import { unregisterUserMessageRenderPrototypePatch } from "../src/user-message-box-patch.ts";
 import {
   addUserMessageVerticalPadding,
   applyUserMessageBackground,
@@ -905,4 +906,85 @@ test("nativeRender builds correct box structure with all required line types", (
   assert.ok(rendered.length >= 5);
   assert.equal(rendered.filter((l) => l.includes("│")).length, 4); // 2 content + 2 padding
   assert.equal(rendered.filter((l) => l.includes("╭") || l.includes("╰")).length, 2);
+});
+
+test("aggregate collapsed steer user boxes render at zero height", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ hide: true }),
+  );
+  assert.deepEqual(prototype.render(40), []);
+});
+
+test("aggregate expanded steer user boxes use an accent ↳ instead of the task gutter", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ lines: ["  │ ↳ 先确定方案"] }),
+  );
+  const rendered = prototype.render(40);
+  assert.match(rendered.join("\n"), /↳ 先确定方案/);
+  assert.doesNotMatch(rendered.join("\n"), /▎/);
+  assert.doesNotMatch(rendered.join("\n"), /╭|╰/);
+});
+
+test("aggregate original user prompts keep the gutter when they are not steers", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["原始任务"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => undefined,
+  );
+  const rendered = prototype.render(40);
+  assert.match(rendered.join("\n"), /▎ 原始任务/);
+  assert.doesNotMatch(rendered.join("\n"), /↳/);
+});
+
+test("individual user boxes ignore aggregate steer presentation", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => false,
+    () => ({ hide: true }),
+  );
+  const rendered = prototype.render(40);
+  assert.ok(rendered.some((line) => line.includes("╭")));
+  assert.match(rendered.join("\n"), /先确定方案/);
+});
+
+test("unregistering the user message patch restores the original renderer", () => {
+  const originalRender = () => ["orig"];
+  const prototype: PatchableUserMessagePrototype = {
+    render: originalRender,
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ hide: true }),
+  );
+  assert.deepEqual(prototype.render(40), []);
+  unregisterUserMessageRenderPrototypePatch(prototype);
+  assert.deepEqual(prototype.render(40), ["orig"]);
+  assert.equal(prototype.setExpanded, undefined);
 });
