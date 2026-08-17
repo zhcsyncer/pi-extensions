@@ -11,6 +11,7 @@ import {
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
 	formatAggregateClock,
 	formatAggregateTarget,
+	getActiveAggregateProjection,
 	patchAggregateToolExecutions,
 	registerAggregateProjectionEvents,
 	renderAggregateActivity,
@@ -497,7 +498,7 @@ test("prototype patch aggregates an arbitrary custom tool without changing its d
 		projection.markComplete("custom-1", { content: [{ type: "text", text: "ok" }] }, false);
 		component.updateResult({ content: [{ type: "text", text: "RAW CUSTOM RESULT" }], isError: false });
 		const completed = component.render(120).join("\n");
-		assert.match(completed, /custom_probe.*done/);
+		assert.match(completed, /✓.*custom_probe/);
 		assert.doesNotMatch(completed, /ORIGINAL CUSTOM|RAW CUSTOM/);
 		assert.equal(customTool.renderCall?.().render(120).join("\n").trimEnd(), "ORIGINAL CUSTOM CALL");
 	} finally {
@@ -672,4 +673,79 @@ test("streaming assistant updates keep one turn identity after the first tool ca
 	const view = projection.getView("read-stream");
 	assert.equal(view?.agentTurnCount, 1);
 	assert.deepEqual(view?.usage, { input: 12, output: 4, cacheRead: 0, cacheWrite: 0 });
+});
+
+test("a later child projection cannot steal the host Tools ledger", () => {
+	initTheme("dark", false);
+	const host = createProjection();
+	const child = createProjection();
+	patchAggregateToolExecutions(host);
+	try {
+		host.startUserGroup("host-user");
+		host.markStarted("host-read", "read", { path: "src/a.ts" });
+		const hostRow = createComponent("read", "host-read", { path: "src/a.ts" });
+		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+
+		patchAggregateToolExecutions(child);
+		child.rebuild([]);
+		assert.equal(getActiveAggregateProjection(), host);
+		assert.equal(host.getMember("host-read")?.toolName, "read");
+		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+		assert.notDeepEqual(hostRow.render(120), []);
+	} finally {
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("child session_start and before_agent_start keep the host ledger pointer", async () => {
+	initTheme("dark", false);
+	const host = createProjection();
+	const child = createProjection();
+	const hostHandlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();
+	const childHandlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();
+	const hostApi = {
+		on(event: string, handler: (event: any, ctx?: any) => unknown) {
+			hostHandlers.set(event, [...(hostHandlers.get(event) ?? []), handler]);
+		},
+	} as unknown as ExtensionAPI;
+	const childApi = {
+		on(event: string, handler: (event: any, ctx?: any) => unknown) {
+			childHandlers.set(event, [...(childHandlers.get(event) ?? []), handler]);
+		},
+	} as unknown as ExtensionAPI;
+	const hostCtx = {
+		hasUI: true,
+		sessionManager: {
+			getBranch: () => [
+				userEntry("host-user"),
+				assistantEntry("host-assistant", [call("host-read", "read", { path: "src/a.ts" })]),
+			],
+			buildSessionContext: () => ({ messages: [] }),
+		},
+	};
+	const childCtx = {
+		hasUI: false,
+		sessionManager: {
+			getBranch: () => [],
+			buildSessionContext: () => ({ messages: [] }),
+		},
+	};
+	registerAggregateProjectionEvents(hostApi, host);
+	try {
+		await hostHandlers.get("session_start")?.[0]?.({}, hostCtx);
+		host.markStarted("host-read", "read", { path: "src/a.ts" });
+		assert.equal(getActiveAggregateProjection(), host);
+
+		registerAggregateProjectionEvents(childApi, child);
+		await childHandlers.get("session_start")?.[0]?.({}, childCtx);
+		await childHandlers.get("before_agent_start")?.[0]?.({}, childCtx);
+
+		assert.equal(getActiveAggregateProjection(), host);
+		assert.equal(host.getMember("host-read")?.toolName, "read");
+		assert.equal(child.getMember("host-read"), undefined);
+	} finally {
+		await childHandlers.get("session_shutdown")?.[0]?.({ reason: "reload" });
+		await hostHandlers.get("session_shutdown")?.[0]?.({ reason: "reload" });
+		restoreAggregateToolExecutions();
+	}
 });

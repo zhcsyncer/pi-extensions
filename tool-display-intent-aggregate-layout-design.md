@@ -15,10 +15,10 @@
 - 一次用户请求中的 built-in、custom、MCP 和延迟加载工具统一计数。
 - Tools 首行直接展示每类工具的总调用次数和失败总数。
 - 当前工具显示确定性 target；无法可靠提取 target 的 custom tool 只显示名称。
-- 成功行先标记 `done`，由下一调用替换；最终成功行在 agent settled 后延迟收起。
+- 成功行用 `✓` 表示，由下一调用替换；最终成功行在 agent settled 后延迟收起。
 - 收起时错误只显示总数；夹在工具之间的中途旁白默认隐藏，最终结论仍可见。
 - `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用各自显示一行目标/状态概要。
-- aggregate 下剥掉收起的 `Thinking...` 占位行，但不隐藏错误或显式展开的 reasoning。
+- thinking 不是旁白，也不进入展开边框；aggregate 剥掉收起的 `Thinking...` 占位和 thinking 正文，但不隐藏错误。显式展开且没有最终 text 时，reasoning 仍可单独查看。
 - 原始 tool call/result 保持可恢复；切回 individual 后原 renderer 重新展示历史详情。
 
 ## 非目标
@@ -149,7 +149,8 @@ pending / running / success / failed / needsAttention
 
 - 汇总条留在框外，没有边线；
 - 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
-- 展开内容共用一条贯通边线：中间行 `│`，最后一行 `└`；
+- 展开内容共用一条贯通边线：中间行 `│`，同一 group 只有一条 `└`；
+- 展开只框工具调用和中途 text；thinking 不标 `›`、不进框；最终结论区留在框外；
 - 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在汇总头下方、工具行上方，整轮结束后再全部收起；
 - 有 deterministic target 时显示目标；
 - generic custom tool 不猜参数含义，只显示名称；
@@ -195,7 +196,9 @@ Aggregate 不用文本统计替代图片。
 - reasoning；
 - 文件变更统计 custom entry。
 
-投影只存在于当前扩展运行时，并从 Session branch 重建。Custom tool 原 result 因此可在 individual 恢复。
+投影按 session / ExtensionAPI 隔离，不存在一份可被后来者覆盖的进程级绘制账本。同进程后加载的 Explore、另一个 pane 或 `/btw` 可以有自己的账本，但不得抢走宿主 TUI 正在使用的投影指针，也不得用自己的 branch 重建宿主账本。没有独立 TUI 的子会话不接管全局 renderer patch。`session_shutdown` 只清自己的账本，未到最后一个存活实例时不得卸掉宿主补丁。
+
+投影只存在于当前扩展运行时，并从所属 Session branch 重建。Custom tool 原 result 因此可在 individual 恢复。
 
 本扩展持有的 built-in 在 aggregate 下不注册 `displaySummary`，所以未来模型调用不会为这些工具生成 intent；这改变未来 tool schema，不改变已有历史消息。Interactive Tools 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。
 
@@ -255,5 +258,5 @@ ctx.sessionManager.buildSessionContext()?.messages
 10. 非 leader 成员真实零高度，无 Spacer、空 Box 或背景行。
 11. reload/resume/tree/compaction 后 counts、leader、failed 正确，瞬态 done 不恢复。
 12. 聚合不改写 Session call/result，不向模型上下文注入 Tools 数据。
-13. 收起的 `Thinking...` 占位和中途旁白被隐藏；最终结论、错误和显式 reasoning 保留。
+13. 收起的 `Thinking...` 占位、thinking 正文和中途旁白被隐藏；最终结论、错误保留。thinking 不当旁白，不进展开边框。
 14. HTML export 与 individual 历史 renderer 保持可用。

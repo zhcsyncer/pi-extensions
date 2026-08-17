@@ -173,3 +173,67 @@ test("aggregate thinking patch preserves a later outer renderer wrapper", () => 
 		restoreAggregateThinkingPlaceholders();
 	}
 });
+
+test("a stop message keeps only the final text outside the Tools frame", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-stop-text");
+		const message = assistant([
+			{ type: "thinking", thinking: "The user asked me to implement S-M15-12. Let me write a clear Chinese summary" },
+			{ type: "text", text: "已按你的拍板直接改生产..." },
+		], { id: "assistant-stop", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const collapsed = component.render(100);
+		assert.doesNotMatch(collapsed.join("\n"), /The user asked me|S-M15-12|Thinking\.\.\./);
+		assert.match(collapsed.join("\n"), /已按你的拍板直接改生产/);
+		assert.doesNotMatch(collapsed.join("\n"), /›|│|└/);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.doesNotMatch(expanded.join("\n"), /The user asked me|S-M15-12|Thinking\.\.\./);
+		assert.match(expanded.join("\n"), /已按你的拍板直接改生产/);
+		assert.doesNotMatch(expanded.join("\n"), /›|│|└/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("mid-turn thinking is not framed as narration", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-thinking-only");
+		const message = assistant([
+			{ type: "thinking", thinking: "The user wants me to inspect the current renderer first." },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-thinking-only" });
+		projection.ingestAssistantMessage(message);
+		const frameId = "assistant-before:read-1";
+		assert.equal(projection.getFramedItemIds(frameId).includes(frameId), false);
+
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), true);
+		assert.deepEqual(component.render(100), []);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.deepEqual(expanded, []);
+		assert.doesNotMatch(expanded.join("\n"), /›|The user wants me/);
+		assert.equal(projection.getFramedItemIds(frameId).includes(frameId), false);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});

@@ -87,6 +87,7 @@ interface ToolCallRecord {
 }
 
 interface SessionContextLike {
+	hasUI?: boolean;
 	sessionManager?: {
 		getBranch(): unknown[];
 		buildSessionContext?(): { messages?: unknown[] };
@@ -297,12 +298,7 @@ function firstVisibleAssistantText(value: unknown): string | undefined {
 function isInterimAssistantMessage(value: unknown): boolean {
 	const reason = toRecord(value).stopReason;
 	if (reason === "error" || reason === "aborted" || reason === "length" || reason === "stop") return false;
-	if (reason === "toolUse") return true;
-	if (toolCallsFromMessage(value).length > 0) return true;
-	return messageContent(value).some((entry) => {
-		const content = toRecord(entry);
-		return content.type === "thinking" && typeof content.thinking === "string" && Boolean(content.thinking.trim());
-	});
+	return reason === "toolUse" || toolCallsFromMessage(value).length > 0;
 }
 
 export function aggregateAssistantFrameId(message: unknown): string | undefined {
@@ -438,14 +434,50 @@ function assistantFailureSummary(message: unknown): string {
 	return normalizeDisplaySummary(record.errorMessage, FAILED_SUMMARY_MAX_LENGTH) ?? "Assistant turn failed.";
 }
 
-let activeAggregateProjection: AggregateProjection | undefined;
+const projectionsByOwner = new WeakMap<object, AggregateProjection>();
+const liveProjections = new Set<AggregateProjection>();
+let hostAggregateProjection: AggregateProjection | undefined;
 
-export function getActiveAggregateProjection(): AggregateProjection | undefined {
-	return activeAggregateProjection;
+function rememberProjection(owner: object | undefined, projection: AggregateProjection): void {
+	liveProjections.add(projection);
+	if (owner) projectionsByOwner.set(owner, projection);
 }
 
-export function resolveAggregateRenderTheme(): AggregateRenderTheme {
-	return activeAggregateProjection?.getRenderTheme() ?? publicThemeFallback();
+function forgetProjection(owner: object | undefined, projection: AggregateProjection): void {
+	liveProjections.delete(projection);
+	if (owner) projectionsByOwner.delete(owner);
+	if (hostAggregateProjection === projection) hostAggregateProjection = undefined;
+}
+
+function claimHostProjection(owner: object | undefined, projection: AggregateProjection): boolean {
+	rememberProjection(owner, projection);
+	if (!hostAggregateProjection) {
+		hostAggregateProjection = projection;
+		return true;
+	}
+	return hostAggregateProjection === projection;
+}
+
+export function getActiveAggregateProjection(): AggregateProjection | undefined {
+	return hostAggregateProjection;
+}
+
+export function resolveAggregateProjection(
+	preferred?: AggregateProjection,
+	...hints: unknown[]
+): AggregateProjection | undefined {
+	if (preferred) return preferred;
+	for (const hint of hints) {
+		if (typeof hint !== "string" || !hint) continue;
+		for (const projection of liveProjections) {
+			if (projection.getMember(hint) || projection.getFrameEdge(hint)) return projection;
+		}
+	}
+	return hostAggregateProjection;
+}
+
+export function resolveAggregateRenderTheme(preferred?: AggregateProjection): AggregateRenderTheme {
+	return preferred?.getRenderTheme() ?? hostAggregateProjection?.getRenderTheme() ?? publicThemeFallback();
 }
 
 export class AggregateProjection {
@@ -1193,7 +1225,7 @@ export function renderAggregateActivity(
 		if (row.state === "success") {
 			lines.push(
 				truncateToWidth(
-					`  ${theme.fg("success", "✓")} ${formatColoredTarget(row, theme)} ${theme.fg("success", "done")}`,
+					`  ${theme.fg("success", "✓")} ${formatColoredTarget(row, theme)}`,
 					safeWidth,
 					"…",
 				),
@@ -1232,12 +1264,12 @@ function createComponentInvalidator(component: PatchableToolExecution): () => vo
 }
 
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
-	activeAggregateProjection = projection;
+	claimHostProjection(undefined, projection);
 	const prototype = getToolExecutionPrototype();
 	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (existing) {
 		if (prototype.render === existing.patchedRender || existing.projection !== undefined) {
-			existing.projection = projection;
+			// A later session must not steal the already-painting host ledger.
 			return;
 		}
 		// A wrapper installed before us may restore its own original render after
@@ -1251,9 +1283,10 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 	state.originalRender = prototype.render as AggregateToolExecutionPatchState["originalRender"];
 	state.projection = projection;
 	state.patchedRender = function renderAggregateToolExecution(width: number): string[] {
-		const activeProjection = state.projection;
 		const toolName = normalizeToolName(this.toolName);
 		const toolCallId = typeof this.toolCallId === "string" ? this.toolCallId : undefined;
+		const activeProjection = resolveAggregateProjection(undefined, toolCallId)
+			?? state.projection;
 		if (!activeProjection || !toolName || !toolCallId) {
 			return state.originalRender.call(this, width);
 		}
@@ -1305,7 +1338,8 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 }
 
 export function restoreAggregateToolExecutions(): void {
-	activeAggregateProjection = undefined;
+	hostAggregateProjection = undefined;
+	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (!state) return;
@@ -1347,22 +1381,29 @@ export function registerAggregateProjectionEvents(
 		clearSettleTimer();
 		rebuildProjectionFromContext(projection, ctx);
 	};
+	const adoptHostIfNeeded = () => {
+		// A later session may keep its own ledger, but must not steal the host
+		// prototype pointer or rebuild the already-painting host projection.
+		if (claimHostProjection(pi, projection)) patchAggregateToolExecutions(projection);
+	};
 
-	patchAggregateToolExecutions(projection);
+	adoptHostIfNeeded();
 	onReloadShutdown(pi, () => {
 		clearSettleTimer();
-		restoreAggregateToolExecutions();
+		forgetProjection(pi, projection);
+		// Only the last live ledger may drop the shared renderer patch.
+		if (liveProjections.size === 0) restoreAggregateToolExecutions();
 		registeredApis.delete(pi);
 	});
 	if (registeredApis.has(pi)) return;
 	registeredApis.add(pi);
 
 	pi.on("session_start", async (_event, ctx) => {
-		patchAggregateToolExecutions(projection);
+		if (ctx?.hasUI !== false) adoptHostIfNeeded();
 		rebuild(ctx);
 	});
 	pi.on("before_agent_start", async (_event, ctx) => {
-		patchAggregateToolExecutions(projection);
+		if (ctx?.hasUI !== false) adoptHostIfNeeded();
 		rebuild(ctx);
 	});
 	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));
