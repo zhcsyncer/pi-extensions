@@ -44,6 +44,7 @@ function harness(options: {
 	sessionFile?: string;
 	model?: { provider?: string; id?: string };
 	getApiKeyForProvider?: (provider: string) => Promise<string | undefined>;
+	customInputs?: string[];
 } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
@@ -89,8 +90,11 @@ function harness(options: {
 				else widgets.set(key, { content, placement: widgetOptions?.placement });
 			},
 			custom: async (factory: TestCustomFactory) => {
-				customComponents.push(factory({ requestRender() {} }, theme, {}, () => {}));
-				return undefined;
+				let result: unknown;
+				const component = factory({ requestRender() {} }, theme, {}, (value) => { result = value; });
+				customComponents.push(component);
+				for (const input of options.customInputs ?? []) component.handleInput?.(input);
+				return result;
 			},
 		},
 	} as unknown as ExtensionContext;
@@ -122,6 +126,31 @@ describe("extension runtime", () => {
 		const { pi, commands } = harness();
 		piMeter(pi);
 		expect([...commands.keys()]).toEqual(["usage"]);
+	});
+
+	it("exposes only the consolidated footer and quota arguments", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, commands } = harness();
+		piMeter(pi);
+		const definition = commands.get("usage");
+		const values = definition.getArgumentCompletions("").map((item: { value: string }) => item.value);
+		expect(values).toContain("footer");
+		expect(values).toContain("quota");
+		expect(values).toContain("quota refresh");
+		for (const removed of [
+			"quota on",
+			"quota off",
+			"quota used",
+			"quota remaining",
+			"footer today-spend",
+			"footer today-tokens",
+			"footer today-cost",
+			"footer budget",
+			"footer model",
+			"footer off",
+		]) {
+			expect(values).not.toContain(removed);
+		}
 	});
 
 	it("appends a local ledger row on message_end even without a session file", async () => {
@@ -156,9 +185,13 @@ describe("extension runtime", () => {
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
-	it("writes footer local and quota visibility into one config.json", async () => {
+	it("writes all footer settings from one dashboard into config.json", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, commands, statuses, notifications } = harness({ hasUI: true, mode: "tui" });
+		const { pi, ctx, handlers, commands, statuses, notifications, customComponents } = harness({
+			hasUI: true,
+			mode: "tui",
+			customInputs: [" ", "\x1b[B", " ", "\x1b[B", " ", "q"],
+		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		await handlers.get("message_end")?.[0]?.({
@@ -171,13 +204,53 @@ describe("extension runtime", () => {
 				usage: { input: 12400, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 12400, cost: { total: 0.18 } },
 			},
 		}, ctx);
-		await commands.get("usage").handler("footer today-tokens", ctx);
-		expect(notifications.at(-1)?.message).toContain("Today tokens");
+		await commands.get("usage").handler("footer", ctx);
+		expect(customComponents).toHaveLength(1);
+		expect(notifications).toEqual([]);
 		expect(statuses.get("pi-meter")).toContain("today 12.4k");
-		await commands.get("usage").handler("quota off", ctx);
-		expect(JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"))).toMatchObject({
-			footer: { local: "today-tokens", quota: false },
+		const saved = JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"));
+		expect(saved).toMatchObject({
+			footer: {
+				local: "today-tokens",
+				quota: { visible: false, polarity: "used" },
+			},
+			quota: { snapshotTtlMs: 60_000, minRefreshIntervalMs: 30_000 },
 		});
+		expect(saved.quota).not.toHaveProperty("polarity");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("migrates existing footer quota settings into the grouped config", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.configFile, `${JSON.stringify({
+			footer: { local: "model", quota: false },
+			quota: { polarity: "used", snapshotTtlMs: 90_000, minRefreshIntervalMs: 45_000 },
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		const migrated = JSON.parse(readFileSync(paths.configFile, "utf8"));
+		expect(migrated).toEqual({
+			footer: {
+				local: "model",
+				quota: { visible: false, polarity: "used" },
+			},
+			quota: { snapshotTtlMs: 90_000, minRefreshIntervalMs: 45_000 },
+		});
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("rejects removed footer and quota setting arguments", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("quota off", ctx);
+		expect(notifications.at(-1)?.message).toBe("Unknown /usage quota argument. Try refresh.");
+		await commands.get("usage").handler("footer today-tokens", ctx);
+		expect(notifications.at(-1)?.message).toContain("Unknown /usage argument");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
@@ -306,7 +379,7 @@ describe("extension runtime", () => {
 			lastAttemptAt: {},
 		})}\n`);
 		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, statuses, commands } = harness({
+		const { pi, ctx, handlers, statuses } = harness({
 			hasUI: true,
 			mode: "tui",
 			model: { provider: "ollama", id: "llama3" },
@@ -319,10 +392,6 @@ describe("extension runtime", () => {
 		expect(statuses.get("pi-meter")).not.toContain("5h left");
 		expect(statuses.get("pi-meter")).not.toContain("week left");
 		expect(statuses.get("pi-meter")).not.toContain("█");
-		await commands.get("usage").handler("quota off", ctx);
-		expect(statuses.get("pi-meter")).toContain("today");
-		expect(statuses.get("pi-meter")).not.toContain("no quota window");
-		expect(statuses.get("pi-meter")).not.toContain("ollama");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 

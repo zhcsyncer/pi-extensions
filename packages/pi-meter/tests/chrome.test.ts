@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
+import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
 import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
@@ -153,6 +154,45 @@ function snapshot(over: Partial<QuotaSnapshot> & Pick<QuotaSnapshot, "provider" 
 		...over,
 	};
 }
+
+describe("footer settings dashboard", () => {
+	it("previews and saves all footer settings together", () => {
+		const dash = new FooterSettingsDashboard({
+			local: "today-spend",
+			quota: { visible: true, polarity: "remaining" },
+		}, {
+			stats: { today, todayTurns: 3, topModel: "ollama-cloud/glm", budget: null },
+			quota: {
+				provider: "ollama",
+				stale: false,
+				window: { id: "session", label: "Session (5h)", usedPercent: 72 },
+			},
+		}, {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		});
+		const initial = strip(dash.render(100).join("\n"));
+		expect(initial).toContain("pi-meter — footer settings");
+		expect(initial).toContain("today 12.4k $0.18");
+		expect(initial).toContain("5h left");
+
+		dash.handleInput(" ");
+		dash.handleInput("\x1b[B");
+		dash.handleInput(" ");
+		dash.handleInput("\x1b[B");
+		dash.handleInput(" ");
+		let saved: ReturnType<typeof dash.settings> | undefined;
+		dash.onDone = (value) => { saved = value; };
+		dash.handleInput("q");
+		expect(saved).toEqual({
+			local: "today-tokens",
+			quota: { visible: false, polarity: "used" },
+		});
+		const changed = strip(dash.render(100).join("\n"));
+		expect(changed).toContain("today 12.4k");
+		expect(changed).not.toContain("5h used");
+	});
+});
 
 describe("quota dashboard", () => {
 	it("shows the quota report in a temporary dashboard that closes with q", () => {

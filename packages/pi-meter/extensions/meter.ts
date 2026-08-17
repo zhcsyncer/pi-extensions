@@ -1,14 +1,15 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
 import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { readLocalQuotaCache, STATUS_CACHE_POLL_MS } from "../src/chrome/status-cache.ts";
 import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
-import { loadMeterConfig, parseQuotaVisibleArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
+import { loadMeterConfig, saveMeterConfig, type MeterConfig } from "../src/config.ts";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
 import { addBudgetFlow, pickSelect, type BudgetUi } from "../src/ledger/budget-add.ts";
-import { computeFooterStats, FOOTER_LOCALS, parseFooterLocal, renderLocalFooter, type FooterLocal } from "../src/ledger/footer.ts";
+import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import { Dashboard } from "../src/ledger/dashboard.ts";
 import { DIMENSIONS } from "../src/ledger/enums.ts";
@@ -164,7 +165,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 		const limits = (await store.loadBudgets()).limits;
 		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits));
 		const preferred = preferredProvider(ctx.model);
-		const showQuota = config.footer.quota;
+		const showQuota = config.footer.quota.visible;
 		const view = showQuota && preferred && quota ? chromeWindow(quota, preferred) : undefined;
 		const quotaHint = showQuota && !preferred
 			? {
@@ -176,7 +177,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 			local,
 			quota: view,
 			quotaHint,
-			polarity: config.quota.polarity,
+			polarity: config.footer.quota.polarity,
 		}, ctx.ui.theme);
 		if (hasStatus && text === lastStatusText) return;
 		hasStatus = true;
@@ -238,25 +239,8 @@ export default function piMeter(pi: ExtensionAPI): void {
 
 	async function handleQuota(arg: string, ctx: ExtensionContext): Promise<void> {
 		warnUsageConflict(ctx);
-		const visible = parseQuotaVisibleArg(arg, config!.footer.quota);
-		if (visible !== undefined) {
-			await persistConfig({
-				...config!,
-				footer: { ...config!.footer, quota: visible },
-			}, ctx);
-			notify(ctx, visible ? "Quota window on." : "Quota window off.", "info");
-			return;
-		}
-		if (arg === "used" || arg === "remaining") {
-			await persistConfig({
-				...config!,
-				quota: { ...config!.quota, polarity: arg },
-			}, ctx);
-			notify(ctx, `Quota polarity: ${arg}`, "info");
-			return;
-		}
 		if (arg && arg !== "refresh") {
-			notify(ctx, "Unknown /usage quota argument. Try refresh, used, remaining, on, or off.", "warning");
+			notify(ctx, "Unknown /usage quota argument. Try refresh.", "warning");
 			return;
 		}
 		await maybeRefreshQuota(ctx, arg === "refresh");
@@ -271,11 +255,11 @@ export default function piMeter(pi: ExtensionAPI): void {
 		}));
 		const reportSnapshots = [...snapshots, ...missing];
 		if (ctx.mode === "tui") {
-			await openQuotaDashboard(reportSnapshots, config!.quota.polarity, ctx);
+			await openQuotaDashboard(reportSnapshots, config!.footer.quota.polarity, ctx);
 			return;
 		}
-		const report = renderUsagePanel(reportSnapshots, config!.quota.polarity);
-		notify(ctx, report, usageSeverity(reportSnapshots, config!.quota.polarity));
+		const report = renderUsagePanel(reportSnapshots, config!.footer.quota.polarity);
+		notify(ctx, report, usageSeverity(reportSnapshots, config!.footer.quota.polarity));
 	}
 
 	const usageCompletions = (prefix: string) => {
@@ -288,13 +272,8 @@ export default function piMeter(pi: ExtensionAPI): void {
 			{ value: "all", label: "all" },
 			{ value: "quota", label: "quota", description: "Subscription remaining" },
 			{ value: "quota refresh", label: "quota refresh", description: "Force-refresh shared snapshots" },
-			{ value: "quota used", label: "quota used" },
-			{ value: "quota remaining", label: "quota remaining" },
-			{ value: "quota on", label: "quota on", description: "Show the quota window in the footer" },
-			{ value: "quota off", label: "quota off", description: "Hide the quota window" },
 			{ value: "import", label: "import", description: "Back-fill from session files" },
-			{ value: "footer", label: "footer", description: "Choose the local usage summary" },
-			...FOOTER_LOCALS.map((preset) => ({ value: `footer ${preset.key}`, label: `footer ${preset.key}`, description: preset.description })),
+			{ value: "footer", label: "footer", description: "Configure the footer" },
 			{ value: "budget", label: "budget", description: "View local budgets" },
 		];
 		return options.filter((option) => option.value.startsWith(prefix.trim().toLowerCase()));
@@ -315,8 +294,8 @@ export default function piMeter(pi: ExtensionAPI): void {
 			await handleBudget(arg.slice("budget".length).trim(), store!, session, ctx);
 			return;
 		}
-		if (arg === "footer" || arg.startsWith("footer ")) {
-			await handleFooter(arg.slice("footer".length).trim(), config!, persistConfig, ctx);
+		if (arg === "footer") {
+			await handleFooter(config!, store!, quota, persistConfig, ctx);
 			return;
 		}
 		if (arg === "help" || arg === "?") {
@@ -350,7 +329,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 				await handleQuota("", ctx);
 				break;
 			case "footer":
-				await handleFooter("", config!, persistConfig, ctx);
+				await handleFooter(config!, store!, quota, persistConfig, ctx);
 				break;
 			case "import":
 				await importHistory(store!, ctx.ui.notify);
@@ -380,7 +359,7 @@ async function pickUsageMenu(ctx: ExtensionContext): Promise<UsageMenuChoice | n
 		[
 			{ value: "dashboard", label: "Dashboard", description: "Local ledger by model / project / session" },
 			{ value: "quota", label: "Quota", description: "Subscription remaining for Claude, Codex, SuperGrok, and Ollama Cloud" },
-			{ value: "footer", label: "Local summary", description: "What local usage the footer shows" },
+			{ value: "footer", label: "Footer settings", description: "Configure local summary and quota display" },
 			{ value: "budget", label: "Budgets", description: "View local token/cost reminders" },
 			{ value: "import", label: "Import history", description: "Back-fill from session JSONL" },
 			{ value: "help", label: "Help", description: "Command reference" },
@@ -397,41 +376,52 @@ async function handleBudget(arg: string, store: FileLedgerStore, session: Sessio
 }
 
 async function handleFooter(
-	arg: string,
 	config: MeterConfig,
+	store: FileLedgerStore,
+	quota: QuotaStoreFile | undefined,
 	persist: (next: MeterConfig, ctx: ExtensionContext) => Promise<void>,
 	ctx: ExtensionContext,
 ): Promise<void> {
-	if (arg.length > 0) {
-		const local = parseFooterLocal(arg);
-		if (!local) {
-			ctx.ui.notify(`Unknown footer. Options: ${FOOTER_LOCALS.map((item) => item.key).join(", ")}`, "warning");
-			return;
-		}
-		await persist({ ...config, footer: { ...config.footer, local } }, ctx);
-		ctx.ui.notify(`Footer: ${FOOTER_LOCALS.find((item) => item.key === local)?.label ?? local}`, "info");
-		return;
-	}
 	if (ctx.mode !== "tui") {
-		ctx.ui.notify(`Usage: /usage footer <${FOOTER_LOCALS.map((item) => item.key).join("|")}>`, "info");
+		ctx.ui.notify("/usage footer requires TUI mode.", "warning");
 		return;
 	}
-	const choice = await pickSelect<FooterLocal>(
-		{ custom: ctx.ui.custom.bind(ctx.ui) as BudgetUi["custom"] },
-		"Local footer",
-		FOOTER_LOCALS.map((preset) => ({ value: preset.key, label: preset.label, description: preset.description })),
-	);
-	if (!choice) {
-		ctx.ui.notify("Footer unchanged", "info");
-		return;
-	}
-	await persist({ ...config, footer: { ...config.footer, local: choice } }, ctx);
-	ctx.ui.notify(`Footer: ${FOOTER_LOCALS.find((item) => item.key === choice)?.label ?? choice}`, "info");
+	const records = await store.readAll();
+	const limits = (await store.loadBudgets()).limits;
+	const preferred = preferredProvider(ctx.model);
+	const quotaView = preferred && quota ? chromeWindow(quota, preferred) : undefined;
+	const quotaHint = !preferred
+		? {
+			label: ctx.model?.provider?.trim() || "quota n/a",
+			value: "no quota window",
+		}
+		: undefined;
+	const next = await ctx.ui.custom<MeterConfig["footer"]>((tui, theme, _kb, done) => {
+		const dash = new FooterSettingsDashboard(config.footer, {
+			stats: computeFooterStats(records, limits),
+			quota: quotaView,
+			quotaHint,
+		}, {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		});
+		dash.onDone = done;
+		return {
+			render: (width: number) => dash.render(width),
+			invalidate: () => dash.invalidate(),
+			handleInput: (data: string) => {
+				dash.handleInput(data);
+				tui.requestRender();
+			},
+		};
+	});
+	if (!next) return;
+	await persist({ ...config, footer: next }, ctx);
 }
 
 async function openQuotaDashboard(
 	snapshots: readonly QuotaSnapshot[],
-	polarity: MeterConfig["quota"]["polarity"],
+	polarity: MeterConfig["footer"]["quota"]["polarity"],
 	ctx: ExtensionContext,
 ): Promise<void> {
 	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
@@ -496,10 +486,10 @@ function printHelp(notify: Notify): void {
 			"  /usage                       Open the menu (TUI).",
 			"  /usage [today|week|month|6months|year|all]",
 			"      Local ledger dashboard with tokens plus input / output / cache.",
-			"  /usage quota [refresh|used|remaining|on|off]",
+			"  /usage quota [refresh]",
 			"      Subscription remaining for Claude, Codex, SuperGrok, and Ollama Cloud.",
-			"  /usage footer [today-spend|today-tokens|today-cost|budget|model|off]",
-			"      Choose the local usage summary.",
+			"  /usage footer",
+			"      Configure local summary, quota visibility, and used/remaining display.",
 			"  /usage import         Back-fill from session JSONL (idempotent).",
 			"  /usage budget [add]   View or add a local budget.",
 			"",

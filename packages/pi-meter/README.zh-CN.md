@@ -62,10 +62,8 @@ pi -e npm:@zhcsyncer/pi-meter
 |---|---|
 | `/usage` | 菜单：看板、套餐、底栏、budget、回填 |
 | `/usage quota` | 打开 Claude、Codex、SuperGrok、Ollama Cloud 的剩余额度与重置时间看板 |
-| `/usage quota refresh` | 立刻刷新订阅窗口 |
-| `/usage quota used` / `remaining` | 底栏显示已用或剩余 |
-| `/usage quota on` / `off` | 开关底栏上的套餐半截 |
-| `/usage footer` | 选择本地半截：今日花费、token、费用、budget、主模型，或关掉 |
+| `/usage quota refresh` | 刷新订阅窗口并打开看板 |
+| `/usage footer` | 配置本地摘要、配额显示开关以及已用/剩余模式 |
 | `/usage import` | 从 session 文件回填 |
 | `/usage budget` | 查看或添加本地 budget |
 
