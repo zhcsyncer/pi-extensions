@@ -25,7 +25,7 @@ afterEach(() => {
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown | Promise<unknown>;
 
-function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile?: string } = {}) {
+function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile?: string; model?: { provider?: string; id?: string } } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
 	const widgets = new Map<string, { content: unknown; placement?: string }>();
@@ -48,7 +48,7 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 		hasUI: options.hasUI ?? false,
 		mode: options.mode ?? (options.hasUI ? "tui" : "print"),
 		cwd: "/work",
-		model: { provider: "xai", id: "grok-4" },
+		model: options.model ?? { provider: "xai", id: "grok-4" },
 		modelRegistry: { getApiKeyForProvider: async () => undefined },
 		sessionManager: {
 			getSessionFile: () => options.sessionFile,
@@ -228,5 +228,75 @@ describe("extension runtime", () => {
 		writeQuota(5);
 		await polls[0]?.();
 		expect(statuses.has("pi-meter")).toBe(false);
+	});
+
+	it("keeps a supported provider's quota window in the footer", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				supergrok: {
+					provider: "supergrok",
+					title: "SuperGrok",
+					primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
+					windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("week left");
+		expect(statuses.get("pi-meter")).toContain("49%");
+		expect(statuses.get("pi-meter")).not.toContain("no quota window");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("does not show another provider's quota window for local ollama", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				claude: {
+					provider: "claude",
+					title: "Claude",
+					primary: { id: "session", label: "Session (5h)", usedPercent: 42, resetsAt: "2026-08-15T17:00:00Z" },
+					windows: [{ id: "session", label: "Session (5h)", usedPercent: 42, resetsAt: "2026-08-15T17:00:00Z" }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses, commands } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama", id: "llama3" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("ollama");
+		expect(statuses.get("pi-meter")).toContain("no quota window");
+		expect(statuses.get("pi-meter")).not.toContain("5h left");
+		expect(statuses.get("pi-meter")).not.toContain("week left");
+		expect(statuses.get("pi-meter")).not.toContain("█");
+		await commands.get("usage").handler("quota off", ctx);
+		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).not.toContain("no quota window");
+		expect(statuses.get("pi-meter")).not.toContain("ollama");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 });

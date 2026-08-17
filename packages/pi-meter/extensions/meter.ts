@@ -163,10 +163,18 @@ export default function piMeter(pi: ExtensionAPI): void {
 		const limits = (await store.loadBudgets()).limits;
 		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits));
 		const preferred = preferredProvider(ctx.model);
-		const view = config.footer.quota && quota ? chromeWindow(quota, preferred) : undefined;
+		const showQuota = config.footer.quota;
+		const view = showQuota && preferred && quota ? chromeWindow(quota, preferred) : undefined;
+		const quotaHint = showQuota && !preferred
+			? {
+				label: ctx.model?.provider?.trim() || "quota n/a",
+				value: "no quota window",
+			}
+			: undefined;
 		const text = renderStatusText({
 			local,
 			quota: view,
+			quotaHint,
 			polarity: config.quota.polarity,
 		}, ctx.ui.theme);
 		if (hasStatus && text === lastStatusText) return;

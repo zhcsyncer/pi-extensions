@@ -95,6 +95,28 @@ describe("status chrome", () => {
 		expect(quotaWindowKind({ id: "session", label: "Session (5h)" })).toBe("5h");
 		expect(quotaWindowKind({ id: "main-primary", label: "Week limit" })).toBe("week");
 	});
+
+	it("names an unsupported provider instead of a foreign quota bar", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "ollama/llama", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quotaHint: { label: "ollama", value: "no quota window" },
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · ollama · no quota window");
+		expect(plain).not.toContain("week left");
+		expect(plain).not.toContain("█");
+	});
+
+	it("uses quota n/a when the current provider name is empty", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quotaHint: { label: "quota n/a", value: "no quota window" },
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · quota n/a · no quota window");
+	});
 });
 
 describe("reset time", () => {
