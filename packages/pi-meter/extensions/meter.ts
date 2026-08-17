@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { readLocalQuotaCache, STATUS_CACHE_POLL_MS } from "../src/chrome/status-cache.ts";
 import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
@@ -19,7 +20,7 @@ import { parseWindowArg, sessionIdFrom } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { chromeWindow } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
-import type { QuotaStoreFile } from "../src/quota/types.ts";
+import type { QuotaSnapshot, QuotaStoreFile } from "../src/quota/types.ts";
 import { QUOTA_PROVIDERS, quotaProviderTitle } from "../src/quota/types.ts";
 
 const WIDGET_KEY = "zhcsyncer-pi-meter";
@@ -268,8 +269,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 			ok: false,
 			error: "no snapshot yet",
 		}));
-		const report = renderUsagePanel([...snapshots, ...missing], config!.quota.polarity);
-		notify(ctx, report, usageSeverity([...snapshots, ...missing], config!.quota.polarity));
+		const reportSnapshots = [...snapshots, ...missing];
+		if (ctx.mode === "tui") {
+			await openQuotaDashboard(reportSnapshots, config!.quota.polarity, ctx);
+			return;
+		}
+		const report = renderUsagePanel(reportSnapshots, config!.quota.polarity);
+		notify(ctx, report, usageSeverity(reportSnapshots, config!.quota.polarity));
 	}
 
 	const usageCompletions = (prefix: string) => {
@@ -421,6 +427,28 @@ async function handleFooter(
 	}
 	await persist({ ...config, footer: { ...config.footer, local: choice } }, ctx);
 	ctx.ui.notify(`Footer: ${FOOTER_LOCALS.find((item) => item.key === choice)?.label ?? choice}`, "info");
+}
+
+async function openQuotaDashboard(
+	snapshots: readonly QuotaSnapshot[],
+	polarity: MeterConfig["quota"]["polarity"],
+	ctx: ExtensionContext,
+): Promise<void> {
+	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+		const dash = new QuotaDashboard(snapshots, polarity, {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		});
+		dash.onDone = () => done();
+		return {
+			render: (width: number) => dash.render(width),
+			invalidate: () => dash.invalidate(),
+			handleInput: (data: string) => {
+				dash.handleInput(data);
+				tui.requestRender();
+			},
+		};
+	});
 }
 
 async function openDashboard(

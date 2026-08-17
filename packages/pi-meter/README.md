@@ -61,7 +61,7 @@ Then restart Pi or run `/reload`. If `@pi-plugins/usage` is already in `settings
 | Command | What you see |
 |---|---|
 | `/usage` | Menu: dashboard, quota, footer, budgets, import |
-| `/usage quota` | Claude, Codex, SuperGrok, and Ollama Cloud remaining plus reset time |
+| `/usage quota` | Open the remaining/reset-time dashboard for Claude, Codex, SuperGrok, and Ollama Cloud |
 | `/usage quota refresh` | Refresh subscription windows now |
 | `/usage quota used` / `remaining` | Show used or remaining in the footer |
 | `/usage quota on` / `off` | Show or hide the quota half of the footer |

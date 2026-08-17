@@ -61,7 +61,7 @@ pi -e npm:@zhcsyncer/pi-meter
 | 命令 | 你会看到什么 |
 |---|---|
 | `/usage` | 菜单：看板、套餐、底栏、budget、回填 |
-| `/usage quota` | Claude、Codex、SuperGrok、Ollama Cloud 剩余和重置时间 |
+| `/usage quota` | 打开 Claude、Codex、SuperGrok、Ollama Cloud 的剩余额度与重置时间看板 |
 | `/usage quota refresh` | 立刻刷新订阅窗口 |
 | `/usage quota used` / `remaining` | 底栏显示已用或剩余 |
 | `/usage quota on` / `off` | 开关底栏上的套餐半截 |

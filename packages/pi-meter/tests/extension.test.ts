@@ -25,6 +25,19 @@ afterEach(() => {
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown | Promise<unknown>;
 
+interface TestCustomComponent {
+	render: (width: number) => string[];
+	invalidate: () => void;
+	handleInput?: (data: string) => void;
+}
+
+type TestCustomFactory = (
+	tui: { requestRender: () => void },
+	theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
+	keybindings: unknown,
+	done: (value?: unknown) => void,
+) => TestCustomComponent;
+
 function harness(options: {
 	hasUI?: boolean;
 	mode?: "tui" | "print";
@@ -37,6 +50,8 @@ function harness(options: {
 	const widgets = new Map<string, { content: unknown; placement?: string }>();
 	const statuses = new Map<string, string>();
 	const notifications: Array<{ message: string; type?: string }> = [];
+	const customComponents: TestCustomComponent[] = [];
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
 	const pi = {
 		on(name: string, handler: Handler) {
 			const list = handlers.get(name) ?? [];
@@ -64,7 +79,7 @@ function harness(options: {
 		},
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
-			theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+			theme,
 			setStatus: (key: string, text: string | undefined) => {
 				if (text === undefined) statuses.delete(key);
 				else statuses.set(key, text);
@@ -73,10 +88,13 @@ function harness(options: {
 				if (content === undefined) widgets.delete(key);
 				else widgets.set(key, { content, placement: widgetOptions?.placement });
 			},
-			custom: async () => undefined,
+			custom: async (factory: TestCustomFactory) => {
+				customComponents.push(factory({ requestRender() {} }, theme, {}, () => {}));
+				return undefined;
+			},
 		},
 	} as unknown as ExtensionContext;
-	return { pi, ctx, handlers, commands, widgets, statuses, notifications };
+	return { pi, ctx, handlers, commands, widgets, statuses, notifications, customComponents };
 }
 
 describe("conflict detection", () => {
@@ -347,11 +365,11 @@ describe("extension runtime", () => {
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
-	it("treats a missing Ollama Cloud key as unsigned-in on /usage quota", async () => {
+	it("shows unsigned-in Ollama Cloud in a quota dashboard without a notification", async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal("fetch", fetchSpy);
 		const { default: piMeter } = await import("../extensions/meter.ts");
-		const { pi, ctx, handlers, commands, notifications } = harness({
+		const { pi, ctx, handlers, commands, notifications, customComponents } = harness({
 			hasUI: true,
 			mode: "tui",
 			model: { provider: "ollama-cloud", id: "glm-5.2" },
@@ -359,10 +377,12 @@ describe("extension runtime", () => {
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		await commands.get("usage").handler("quota", ctx);
-		const last = notifications.at(-1);
-		expect(last?.type).toBe("info");
-		expect(last?.message).toMatch(/Not signed in:.*Ollama Cloud.*run \/login/);
-		expect(last?.message).not.toContain("no Ollama Cloud API key");
+		expect(notifications).toEqual([]);
+		expect(customComponents).toHaveLength(1);
+		const dashboard = customComponents[0]?.render(100).join("\n") ?? "";
+		expect(dashboard).toContain("pi-meter — subscription quota");
+		expect(dashboard).toMatch(/Not signed in:.*Ollama Cloud.*run \/login/);
+		expect(dashboard).not.toContain("no Ollama Cloud API key");
 		expect(fetchSpy).not.toHaveBeenCalled();
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
+import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
 import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
@@ -152,6 +153,31 @@ function snapshot(over: Partial<QuotaSnapshot> & Pick<QuotaSnapshot, "provider" 
 		...over,
 	};
 }
+
+describe("quota dashboard", () => {
+	it("shows the quota report in a temporary dashboard that closes with q", () => {
+		const dash = new QuotaDashboard([snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
+			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+			stale: true,
+		})], "remaining", {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		}, new Date("2026-08-15T12:00:00Z"));
+		let closed = false;
+		dash.onDone = () => { closed = true; };
+		const panel = strip(dash.render(80).join("\n"));
+		expect(panel).toContain("pi-meter — subscription quota");
+		expect(panel).toContain("display: remaining");
+		expect(panel).toContain("SuperGrok (stale)");
+		expect(panel).toContain("49%");
+		expect(panel).toContain("[q] close");
+		dash.handleInput("q");
+		expect(closed).toBe(true);
+	});
+});
 
 describe("usage panel", () => {
 	it("shows SuperGrok weekly remaining only", () => {
