@@ -12,10 +12,12 @@ import {
 	formatAggregateClock,
 	formatAggregateTarget,
 	getActiveAggregateProjection,
+	normalizeAssistantNarration,
 	patchAggregateToolExecutions,
 	registerAggregateProjectionEvents,
 	renderAggregateActivity,
 	renderAggregateMemberRow,
+	renderCollapsedAssistantNarration,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
 
@@ -85,6 +87,10 @@ function plainTheme() {
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 	};
+}
+
+function visibleText(value: string): string {
+	return value.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 function createTool(name: string, callText = `ORIGINAL ${name}`, resultText = `RESULT ${name}`) {
@@ -239,6 +245,47 @@ test("in-progress Tools ledger pins the latest narration above the tool rows", (
 		latestNarration: "先定位两边的设计与实现入口，再对照分组、渲染、状态和边界。",
 	}, 24, plainTheme());
 	assert.ok(wrapped.filter((line) => /先定位|再对照|分组|渲染/.test(line)).length >= 2);
+});
+
+test("collapsed narration keeps markdown source and renders inline styles", () => {
+	initTheme("dark", false);
+	const projection = createProjection();
+	projection.startUserGroup("user-narration-markdown");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-md",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "先对照 **两边入口** 和 `src/index.ts`" },
+			{ type: "toolCall", ...call("read-md", "read", { path: "src/index.ts" }) },
+		],
+	});
+	projection.markStarted("read-md", "read", { path: "src/index.ts" });
+	const view = projection.getView("read-md");
+	assert.equal(view?.latestNarration, "先对照 **两边入口** 和 `src/index.ts`");
+	const rendered = visibleText(renderAggregateActivity(view!, 120, plainTheme()).join("\n"));
+	assert.match(rendered, /› 先对照 两边入口 和 src\/index\.ts/);
+	assert.doesNotMatch(rendered, /\*\*|`/);
+});
+
+test("collapsed narration markdown stays within the three-row pin", () => {
+	initTheme("dark", false);
+	const rendered = renderCollapsedAssistantNarration(
+		["# 入口", "", "- 一边", "- 另一边", "- 还要第三项", "- 不应出现"].join("\n"),
+		80,
+		plainTheme(),
+	);
+	assert.ok(rendered.length > 0 && rendered.length <= 3);
+	assert.match(visibleText(rendered.join("\n")), /入口/);
+	assert.doesNotMatch(visibleText(rendered.join("\n")), /不应出现/);
+});
+
+test("normalizeAssistantNarration keeps markdown structure and drops control noise", () => {
+	assert.equal(
+		normalizeAssistantNarration("先对照 **两边入口**\u0007\n\n`src/index.ts`"),
+		"先对照 **两边入口**\n\n`src/index.ts`",
+	);
+	assert.equal(normalizeAssistantNarration("   \n\n  "), undefined);
 });
 
 test("settled Tools ledger shows duration, tokens, cache, and completion time under the header", () => {

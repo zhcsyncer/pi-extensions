@@ -127,7 +127,8 @@ pending / running / success / failed / needsAttention
 - retained done 总数硬限制为 3，隐藏旧行不得稍后回弹；
 - agent settled 后最终 done 保留 1.5 秒再收起；
 - 新工具出现会取消旧的 settled 计时；
-- done 仅是实时 UI 状态，历史重建不恢复。
+- done 仅是实时 UI 状态，历史重建不恢复；
+- 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开。
 
 ### 错误
 

@@ -3,7 +3,7 @@ import {
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { normalizeDisplaySummary } from "./display-summary.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 import { shortenPath } from "./render-utils.js";
@@ -126,6 +126,10 @@ const AGGREGATE_FRAME_CONTINUE = "  │ ";
 const AGGREGATE_FRAME_END = "  └ ";
 export const AGGREGATE_ASSISTANT_MARK = "›";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
+const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
+const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
+const NARRATION_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
 
@@ -285,14 +289,76 @@ function messageHasVisibleText(value: unknown): boolean {
 	return firstVisibleAssistantText(value) !== undefined;
 }
 
+export function normalizeAssistantNarration(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const sanitized = value
+		.replace(OSC_SEQUENCE_PATTERN, "")
+		.replace(ANSI_SEQUENCE_PATTERN, "")
+		.replace(NARRATION_CONTROL_PATTERN, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+	if (!sanitized) return undefined;
+	return sanitized.length > COLLAPSED_NARRATION_SOURCE_MAX_LENGTH
+		? sanitized.slice(0, COLLAPSED_NARRATION_SOURCE_MAX_LENGTH)
+		: sanitized;
+}
+
 function firstVisibleAssistantText(value: unknown): string | undefined {
 	for (const entry of messageContent(value)) {
 		const content = toRecord(entry);
 		if (content.type !== "text" || typeof content.text !== "string") continue;
-		const normalized = normalizeDisplaySummary(content.text, FAILED_SUMMARY_MAX_LENGTH);
+		const normalized = normalizeAssistantNarration(content.text);
 		if (normalized) return normalized;
 	}
 	return undefined;
+}
+
+function isVisuallyBlank(line: string): boolean {
+	return visibleWidth(line) === 0;
+}
+
+function trimRenderedEdges(lines: readonly string[]): string[] {
+	const kept = [...lines];
+	while (kept.length > 0 && isVisuallyBlank(kept[0]!)) kept.shift();
+	while (kept.length > 0 && isVisuallyBlank(kept[kept.length - 1]!)) kept.pop();
+	return kept;
+}
+
+function renderNarrationMarkdownLines(text: string, width: number): string[] {
+	try {
+		const lines = trimRenderedEdges(new Markdown(text, 0, 0, getMarkdownTheme()).render(width));
+		if (lines.length > 0) return lines;
+	} catch {
+		// Public markdown fallbacks and unbound Pi theme helpers must not crash the ledger.
+	}
+	const wrapped = wrapTextWithAnsi(text.replace(/\s+/g, " ").trim(), width);
+	return wrapped.length > 0 ? wrapped : [text];
+}
+
+export function renderCollapsedAssistantNarration(
+	text: string,
+	width: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || !text) return [];
+	let mark = AGGREGATE_ASSISTANT_MARK;
+	try {
+		mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
+	} catch {
+		// Theme helpers must not crash the collapsed ledger.
+	}
+	const prefix = `  ${mark} `;
+	const continuation = "    ";
+	const contentWidth = Math.max(1, safeWidth - visibleWidth(prefix));
+	const rows = renderNarrationMarkdownLines(text, contentWidth).slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
+	return rows.map((row, index) => {
+		const linePrefix = index === 0 ? prefix : continuation;
+		return truncateToWidth(`${linePrefix}${row}`, safeWidth, "…");
+	});
 }
 
 function isInterimAssistantMessage(value: unknown): boolean {
@@ -1206,20 +1272,7 @@ export function renderAggregateActivity(
 		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
 	}
 	if (!view.settled && view.latestNarration) {
-		let mark = AGGREGATE_ASSISTANT_MARK;
-		try {
-			mark = theme.fg("muted", AGGREGATE_ASSISTANT_MARK);
-		} catch {
-			// Theme helpers must not crash the collapsed ledger.
-		}
-		const prefix = `  ${mark} `;
-		const wrapped = wrapTextWithAnsi(view.latestNarration, Math.max(1, safeWidth - visibleWidth(prefix)))
-			.slice(0, COLLAPSED_NARRATION_ROW_LIMIT);
-		const rows = wrapped.length > 0 ? wrapped : [view.latestNarration];
-		for (const [index, row] of rows.entries()) {
-			const rowPrefix = index === 0 ? prefix : "    ";
-			lines.push(`${rowPrefix}${row}`);
-		}
+		lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
 	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {
