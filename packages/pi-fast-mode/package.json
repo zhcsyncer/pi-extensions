@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-fast-mode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Same-model Fast / Priority scheduling for Pi on OpenAI and xAI.",
   "repository": {
     "type": "git",

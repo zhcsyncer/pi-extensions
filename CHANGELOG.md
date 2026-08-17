@@ -1,5 +1,24 @@
 # @zhcsyncer/pi-extensions
 
+## 0.22.0
+
+### Minor Changes
+
+- 1768c9d: Glance 输入框增加单槽暂存：快捷键收起/拿回，边框提示未取回内容，同一会话的 /reload 与 resume 后空框自动倒回。
+
+### Patch Changes
+
+- 1768c9d: Keep the aggregate Tools ledger on the host session when Explore or another in-process session starts, and stop treating thinking as mid-turn narration or a final answer.
+- 1768c9d: Render the in-progress aggregate Tools note as Markdown, keeping the three-line pin.
+- 1768c9d: Keep a blank row between the aggregate user prompt and a direct final answer, and only drop it when a Tools ledger is already providing that gap.
+- 1768c9d: Consolidate local summary, quota visibility, and used/remaining display under `/usage footer`, and remove the former direct setting arguments.
+- 1768c9d: Idle TUI sessions pick up shared quota and local spend from disk on a slow timer, without calling subscription APIs.
+- 1768c9d: Show Ollama Cloud remaining in `/usage quota` and the footer for `ollama-cloud` models.
+- 1768c9d: Open `/usage quota` in a temporary TUI dashboard so the report does not remain in the chat transcript.
+- 1768c9d: Summarize unsigned-in quota providers at the bottom of `/usage quota` instead of treating each missing login as a warning.
+- 1768c9d: Show a muted "no quota window" hint in the footer when the current model has no subscription remaining.
+- 1768c9d: Remove the Thinking label that rewrote stored reasoning text. Existing `transcript.thinkingLabel` settings are dropped.
+
 ## 0.21.0
 
 ### Minor Changes
