@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0
+
+### Minor Changes
+
+- 0c23485: Add the standalone `@zhcsyncer/pi-herdr-companion` package with immutable runtime context and mode-agnostic process/blocked support that remain strictly silent outside Herdr or with incomplete caller identity, while `/btw` and settings stay TUI-only; branch-safe `herdr_process` panes whose server-scoped terminal identity follows moves across Herdr tabs and workspaces, whose lifecycle cleanup verifies live terminal identity and leaves visible orphans rather than risk closing an unowned Pane, whose provisional starts remain visible and shutdown-cancellable, and whose TUI adds a navigable below-editor process widget plus compact action-aware tool rendering; private self-deleting Bash command scripts on POSIX that prevent Fish or another interactive pane shell from reinterpreting model-authored Bash, a Windows-safe raw default, and an explicit raw-pane escape hatch; ephemeral `/btw` side threads with immediate question submission, inherited parent model/thinking, Pi-default tools, the configured process split direction, and bounded fresh-shell retries, cache-prefix replay with session-neutral parent/child BTW guidance that preserves child handlers, atomic first-session binding, uniquely named candidate locks, conservative stale cleanup, request-deduplicated parent recovery, and acknowledgement-gated child closure; a unified runtime/process/blocked `/herdr-config` TUI at the standard `extension-data/pi-herdr-companion/config.json` path; and generic event/tool blocked rules that preserve unchanged in-flight state across configuration saves. The Subagents FleetView and the Process Widget coordinate below-editor navigation ownership so FleetView does not steal arrow keys after the process list is activated. The root tarball embeds the package sources for release consistency but does not auto-enable the extension.
+
 ## Unreleased
 
 Initial public release will be cut by Changesets from `0.0.0`.
