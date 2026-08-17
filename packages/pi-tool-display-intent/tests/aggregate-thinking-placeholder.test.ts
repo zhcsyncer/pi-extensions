@@ -12,6 +12,7 @@ import {
 } from "../src/aggregate-activity.ts";
 import {
 	isInterimAssistantNarration,
+	omitThinkingContentBlocks,
 	patchAggregateThinkingPlaceholders,
 	restoreAggregateThinkingPlaceholders,
 } from "../src/aggregate-thinking-placeholder.ts";
@@ -235,5 +236,24 @@ test("mid-turn thinking is not framed as narration", () => {
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
+	}
+});
+
+test("overlapping thinking and final text keep the final text", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const phrase = "modify the aggregate projection to use WeakMap";
+		const message = assistant([
+			{ type: "thinking", thinking: `I should ${phrase} and then present this clearly.` },
+			{ type: "text", text: phrase },
+		], { id: "assistant-overlap", stopReason: "stop" });
+		const stripped = omitThinkingContentBlocks(message) as { content: Array<{ type: string }> };
+		assert.deepEqual(stripped.content.map((block) => block.type), ["text"]);
+		const rendered = createComponent(message, false).render(100).join("\n");
+		assert.match(rendered, /modify the aggregate projection to use WeakMap/);
+		assert.doesNotMatch(rendered, /present this clearly|Thinking\.\.\./);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
 	}
 });

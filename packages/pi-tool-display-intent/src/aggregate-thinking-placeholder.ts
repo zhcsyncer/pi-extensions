@@ -16,6 +16,7 @@ import { onReloadShutdown } from "./extension-lifecycle.js";
 interface PatchableAssistantMessage {
 	render(width: number): string[];
 	setExpanded?(expanded: boolean): void;
+	updateContent?(message: unknown, isStreaming?: boolean): void;
 	invalidate?: () => void;
 	hideThinkingBlock?: unknown;
 	hiddenThinkingLabel?: unknown;
@@ -108,15 +109,6 @@ function messageContentBlocks(message: unknown): unknown[] {
 	return Array.isArray(content) ? content : [];
 }
 
-function assistantThinkingBodies(message: unknown): string[] {
-	return messageContentBlocks(message).flatMap((entry) => {
-		const block = toRecord(entry);
-		if (block.type !== "thinking" || typeof block.thinking !== "string") return [];
-		const normalized = block.thinking.replace(/\s+/g, " ").trim();
-		return normalized ? [normalized] : [];
-	});
-}
-
 function messageHasNarrationText(message: unknown): boolean {
 	return messageContentBlocks(message).some((entry) => {
 		const block = toRecord(entry);
@@ -124,19 +116,34 @@ function messageHasNarrationText(message: unknown): boolean {
 	});
 }
 
-export function stripAggregateThinkingLines(
-	lines: readonly string[],
-	message: unknown,
-	label = DEFAULT_HIDDEN_THINKING_LABEL,
+export function omitThinkingContentBlocks(message: unknown): unknown {
+	if (!message || typeof message !== "object") return message;
+	const content = messageContentBlocks(message);
+	const next = content.filter((entry) => toRecord(entry).type !== "thinking");
+	if (next.length === content.length) return message;
+	return { ...toRecord(message), content: next };
+}
+
+function renderWithoutThinkingBlocks(
+	component: PatchableAssistantMessage,
+	originalRender: (this: PatchableAssistantMessage, width: number) => string[],
+	width: number,
 ): string[] {
-	const withoutPlaceholder = stripCollapsedThinkingPlaceholderLines(lines, label);
-	const thinking = assistantThinkingBodies(message);
-	if (thinking.length === 0) return withoutPlaceholder;
-	return trimBlankEdges(withoutPlaceholder.filter((line) => {
-		const vis = visibleText(line);
-		if (!vis) return true;
-		return !thinking.some((body) => body.includes(vis) || vis.includes(body));
-	}));
+	const originalMessage = component.lastMessage;
+	const stripped = omitThinkingContentBlocks(originalMessage);
+	if (stripped === originalMessage || typeof component.updateContent !== "function") {
+		return originalRender.call(component, width);
+	}
+	try {
+		component.updateContent(stripped);
+		return originalRender.call(component, width);
+	} finally {
+		try {
+			component.updateContent(originalMessage);
+		} catch {
+			// Restore must stay fail-open so a later invalidate can rebuild.
+		}
+	}
 }
 
 export function isInterimAssistantNarration(component: unknown): boolean {
@@ -223,19 +230,19 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 	};
 	state.patchedRender = function renderAggregateAssistantMessage(width: number): string[] {
-		const lines = state.originalRender.call(this, width);
-		if (!state.isAggregateEnabled()) return lines;
+		if (!state.isAggregateEnabled()) return state.originalRender.call(this, width);
 
 		const hideThinking = this.hideThinkingBlock === true;
 		const interim = isInterimAssistantNarration(this);
 		const hasNarrationText = messageHasNarrationText(this.lastMessage);
 		const stopReason = toRecord(this.lastMessage).stopReason;
-		// Thinking is never narration. A stop message with user-facing text only
-		// keeps that text; explicitly revealed thinking-only reasoning stays unframed.
+		// Thinking is never narration. Drop thinking blocks before render so
+		// overlapping final text cannot be mistaken for reasoning.
 		const stripThinkingBody = hideThinking || interim || (stopReason === "stop" && hasNarrationText);
-		const next = stripThinkingBody
-			? stripAggregateThinkingLines(lines, this.lastMessage, resolveHiddenThinkingLabel(this))
-			: stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
+		const lines = stripThinkingBody
+			? renderWithoutThinkingBlocks(this, state.originalRender, width)
+			: state.originalRender.call(this, width);
+		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
 		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
