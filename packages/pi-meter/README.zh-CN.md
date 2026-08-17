@@ -27,10 +27,15 @@
   · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
   ```
 
+  ![Meter 底栏](./assets/demo-meter-status.png)
+
 - 按模型、项目或 session 看本地看板。
 - `/login` 对应账号后，可看 Claude、Codex、SuperGrok、Ollama Cloud 剩余。
+- `/usage quota` 打开临时看板。未登录的提供商收在底部一条淡提示。当前模型没有订阅窗口时，底栏也只给一条淡提示。
 - 可选本地 budget。只会提醒，从不拦请求。
 - 可选、一次性从旧 session 文件回填。
+
+  ![套餐看板](./assets/demo-quota-dashboard.png)
 
 `--no-session` 和普通 sub-agent 仍会记本地账。隔离的子代理记不到。
 

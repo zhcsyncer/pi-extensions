@@ -28,6 +28,7 @@
   },
   "files": [
     "extensions",
+    "assets",
     "CHANGELOG.md",
     "README.md",
     "README.zh-CN.md",
@@ -39,7 +40,8 @@
   "pi": {
     "extensions": [
       "./extensions/fast-mode.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-fast-mode/assets/demo-fast-mode-status.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

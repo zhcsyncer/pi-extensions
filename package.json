@@ -30,6 +30,8 @@
     "packages/*/config/*.json",
     "packages/*/README*.md",
     "packages/pi-tool-display-intent/assets/*.png",
+    "packages/pi-fast-mode/assets/**",
+    "packages/pi-meter/assets/**",
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",

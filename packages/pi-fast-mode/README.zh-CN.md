@@ -62,19 +62,20 @@ pi install git:github.com/zhcsyncer/pi-extensions
 
 ## 状态栏
 
+![Fast Mode 底栏状态](./assets/demo-fast-mode-status.png)
+
 - 支持的模型，开启：`⚡ FAST` 加上 `priority if granted`
 - 支持的模型，关闭：暗色 `fast: off · Ctrl+F`
 - 不支持的模型：隐藏状态，并且不改请求
 
 ## 支持的提供商
 
-提供商列表是写死的，没有用户白名单。
+提供商列表是固定的，没有用户白名单。
 
-- `openai` + `openai-responses` 通过 `registerProvider` 和 `options.serviceTier = "priority"`
-- `openai-codex` + `openai-codex-responses` 同样如此
-- `xai` + `openai-responses` / `openai-completions` 通过 `before_provider_request` 的 payload `service_tier: "priority"`
+- OpenAI 和 Codex 在 Fast Mode 开启时请求 `priority`。
+- xAI 在 Fast Mode 开启时请求 `priority`。
 
-OpenAI 和 Codex 继续走 Pi 内置 `streamSimple` 的 options 收口，包括默认 `maxTokens` 和剩余上下文 clamp，只在 Fast Mode 开启时加 `serviceTier`。没有额外的 32k 上限。
+不支持的模型隐藏底栏状态，并且不改请求。
 
 ## 价格与计费
 
@@ -90,13 +91,3 @@ OpenAI 和 Codex 继续走 Pi 内置 `streamSimple` 的 options 收口，包括�
 - 同一 Pi 进程里的 `/new`、`/resume`、`/fork` 会保留当前开关。
 - `/reload` 或进程重启会从 `settings.json` 重新读取 `fast-mode.enabled`。
 - `/fast default on|off` 只写设置里的默认值。
-
-## 开发
-
-```bash
-pnpm --filter @zhcsyncer/pi-fast-mode check
-```
-
-扩展不能导入 `@earendil-works/pi-ai/api/*`。Pi 的加载器会把 `@earendil-works/pi-ai` 指到 `compat.js`，这些深路径在加载时会失败。`extensions/stream-options.ts` 因此本地保留一份 `streamSimple` 的 options 收口。
-
-包测试会对照这份本地收口和已安装的 `@earendil-works/pi-ai` helper，也会检查 OpenAI 和 Codex 的 `streamSimple` 源码。升级 Pi 后请跑这项检查。如果失败，重新阅读这些函数；只有原厂配方增加了新字段时，才更新本地收口。

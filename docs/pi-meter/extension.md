@@ -2,16 +2,17 @@
 
 ## 实现状态
 
-已实现（第一期，包 `@zhcsyncer/pi-meter`，尚未走 version PR / 发版）。
+已实现（包 `@zhcsyncer/pi-meter`，准备随本次集合发版）。
 
 落地边界：
 
 - 两套账分开：`message_end` → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
 - 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
-- 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`。
+- 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`（临时看板，不留在聊天记录里）。
 - 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要只显示紧凑的今日总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
 - 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/usage quota` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
 - SuperGrok：`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` + `/login xai`。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。
+- Ollama Cloud 是第四家订阅窗口，跟 Claude / Codex / SuperGrok 并列，不进本地账本。
 - 文档写明与 `@pi-plugins/usage` 互斥；若检测到对方占用 `/usage` 会警告一次。
 
 本机已安装、仅作对照的第三方包：
@@ -47,7 +48,10 @@
 ## 用户能感知的行为
 
 - `/usage`：本地看板。维度仍是 model / project / session；列能看到 tokens 总量和 in / out / cache 拆分。
-- `/usage quota`：Claude、Codex、SuperGrok 的窗口百分比和重置时间；可强制刷新快照。
+- `/usage quota`：临时看板看 Claude、Codex、SuperGrok、Ollama Cloud 的窗口百分比和重置时间；未登录的提供商收成底部一条淡提示，不逐条警告。
+- `/usage footer`：本地摘要、配额显隐、已用/剩余都收在这里，不再用直接参数。
+- 当前模型没有订阅窗口时，底栏给一条淡提示，不假装有额度。
+- 空闲 TUI 只从磁盘慢刷共享快照和本地花费，不再打订阅 API。
 - 常驻 chrome 与 Glance **完全独立**：不改 Glance、不占用其右下角、不改其顶栏 Tokens。Glance 在场时，meter 是输入框外多出来的一行。
 - 套餐条极性可选「已用」或「剩余」。本地摘要只显示紧凑的今日总量/费用。
 - `/usage budget`：本地上限提醒，不拦请求。预算警告可以闪一下，不占常驻条。
@@ -98,7 +102,7 @@ session JSONL 只用于一次性回填。
 - **账本**：捕获、落盘、聚合、本地 budget、token 条。变更原因是「Pi 报了一次 usage」。
 - **套餐**：各 provider adapter + 共享快照 + `/usage`。变更原因是「那家订阅 API 又改了」。
 - **chrome**：套餐条 + token 条怎么画、极性、详略。变更原因是「人怎么扫一眼」，不碰拉接口。
-- SuperGrok / Claude / Codex 各是独立 adapter。一家挂了只让那一节失败，不拖垮另外两家，也不拖垮本地记账。
+- SuperGrok / Claude / Codex / Ollama Cloud 各是独立 adapter。一家挂了只让那一节失败，不拖垮另外几家，也不拖垮本地记账。
 
 ## 订阅快照：落定时拉，再加最小间隔
 
@@ -131,7 +135,7 @@ session JSONL 只用于一次性回填。
 - 子代理 `isolated: true` / `extensions: false` / 排除本扩展时记不到——这是加载边界，不假装全覆盖。
 - 安装后用户需关掉 `@pi-plugins/usage`，避免两个 `/usage`。
 - 非 UI 进程不打订阅 API。
-- 常驻套餐条不走 `setStatus`。
+- 常驻套餐条走 footer `setStatus`，不占 widget 整行，不改 Glance。
 
 ## 已验证的外部事实（2026-08-15，本机 `/login xai` OAuth）
 
@@ -150,7 +154,7 @@ Claude / Codex 仍走 `@pi-plugins/usage` 现有官方订阅接口，本方案�
 做：
 
 - 新包 `@zhcsyncer/pi-meter`，同时提供套餐面和账本面。
-- SuperGrok 作为 `/usage` 第三家供应商。
+- SuperGrok 和 Ollama Cloud 作为 `/usage quota` 的后两家供应商。
 - 共享订阅快照；UI 根会话才刷新。
 - 常驻 chrome：输入框下一行 caption + 短套餐条，与 Glance 独立；极性已用/剩余可切；token 条可关细节。
 - 订阅刷新：仅 hasUI 根会话在 settled / `/usage` / 切模型时拉；共享快照 + 最小间隔。
@@ -175,5 +179,5 @@ Claude / Codex 仍走 `@pi-plugins/usage` 现有官方订阅接口，本方案�
 5. 常驻套餐条不依赖 Glance；切已用/剩余时，数字（和若有的条子）一起反转。
 6. 本地摘要只显示紧凑的今日总量/费用。
 7. 两个并行 UI session 在 TTL 内不会各自打订阅 API；无 UI 的 sub-agent 进程不打。
-8. Claude 或 Codex 接口失败时，另外两家和本地记账仍可用。
+8. Claude 或 Codex 接口失败时，另外几家和本地记账仍可用。
 9. 不与仍启用的 `@pi-plugins/usage` 双注册 `/usage`——文档写明互斥；若能检测重复则警告。

@@ -88,6 +88,8 @@ Aggregate 固定用左侧强调色细杠的用户行。
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |
 | `tools.passthrough` | aggregate 里仍用原 renderer 的工具 |
 
+旧的 `transcript.thinkingLabel` 设置会被丢掉。
+
 ## 自定义工具
 
 若要同一意图字段，在 `pi.registerTool` **之前**包装：

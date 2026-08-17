@@ -11,6 +11,8 @@
 | [pi-glance/input-stash.md](./pi-glance/input-stash.md) | 已落地 | 输入框单槽暂存：快捷键、边框提示、按 session 覆盖写 |
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |
 | [pi-meter/extension.md](./pi-meter/extension.md) | 已落地 | 本地账本与订阅剩余两套账 |
+| [pi-fast-mode/extension.md](./pi-fast-mode/extension.md) | 已落地 | 同模型 Fast / Priority：内存开关、loader 红线 |
+| [pi-tool-display-intent/aggregate-layout.md](./pi-tool-display-intent/aggregate-layout.md) | 已落地 | aggregate Tools 账本：按请求汇总、不改执行与历史 |
 | [pi-todo/active-plan-lifecycle.md](./pi-todo/active-plan-lifecycle.md) | 已落地 | Todo 有界周期与 checkpoint 收缩 |
 | [pi-subagents/background-duplication.md](./pi-subagents/background-duplication.md) | 已落地 | 后台委派重复工作的根因与修复边界 |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |

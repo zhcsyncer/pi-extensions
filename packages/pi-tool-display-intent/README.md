@@ -88,6 +88,8 @@ Open `/tool-display-intent` or edit the example at [`config/config.example.json`
 | `diff.collapsedMode` | `body` preview, or `summary` stats only |
 | `tools.passthrough` | Tools that keep their original renderer in aggregate |
 
+Older `transcript.thinkingLabel` settings are ignored.
+
 ## Custom tools
 
 Wrap the tool **before** `pi.registerTool` if you want the same intent field:

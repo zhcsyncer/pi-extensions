@@ -27,10 +27,15 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
   · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
   ```
 
+  ![Meter footer](./assets/demo-meter-status.png)
+
 - Local dashboard by model, project, or session.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider.
+- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. Models with no subscription window show a muted footer hint.
 - Optional local budgets. They warn; they never block requests.
 - Optional one-time import from older session files.
+
+  ![Quota dashboard](./assets/demo-quota-dashboard.png)
 
 `--no-session` and ordinary sub-agents still record local usage. Isolated sub-agents do not.
 

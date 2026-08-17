@@ -62,19 +62,20 @@ The supported settings key is `fast-mode.enabled` in Pi `settings.json`:
 
 ## Footer
 
+![Fast Mode footer status](./assets/demo-fast-mode-status.png)
+
 - Supported model, on: `⚡ FAST` plus `priority if granted`
 - Supported model, off: dim `fast: off · Ctrl+F`
 - Unsupported model: hide the status and do not mutate the request
 
 ## Supported providers
 
-The provider list is hardcoded. There is no user allowlist.
+The provider list is fixed. There is no user allowlist.
 
-- `openai` + `openai-responses` via `registerProvider` and `options.serviceTier = "priority"`
-- `openai-codex` + `openai-codex-responses` via the same
-- `xai` + `openai-responses` / `openai-completions` via `before_provider_request` payload `service_tier: "priority"`
+- OpenAI and Codex request `priority` when Fast Mode is on.
+- xAI requests `priority` when Fast Mode is on.
 
-OpenAI and Codex keep Pi's built-in `streamSimple` option recipe, including default `maxTokens` and remaining-context clamping, then add `serviceTier` only when Fast Mode is on. There is no extra 32k clamp.
+Unsupported models hide the footer and leave the request unchanged.
 
 ## Pricing and billing
 
@@ -90,13 +91,3 @@ Do not assume every model is granted priority, and do not assume local cost is a
 - `/new`, `/resume`, and `/fork` in the same Pi process keep the current switch.
 - `/reload` or a process restart reloads `fast-mode.enabled` from `settings.json`.
 - `/fast default on|off` writes only the settings default.
-
-## Development
-
-```bash
-pnpm --filter @zhcsyncer/pi-fast-mode check
-```
-
-The extension must not import `@earendil-works/pi-ai/api/*`. Pi's loader aliases `@earendil-works/pi-ai` to `compat.js`, so those deep paths fail at load time. `extensions/stream-options.ts` keeps a local copy of the `streamSimple` option recipe instead.
-
-The package tests compare that local recipe with the installed `@earendil-works/pi-ai` helper, and they also check the OpenAI and Codex `streamSimple` source. After bumping Pi, run that check. If it fails, re-read those functions and update the local recipe only when the built-in one gained new fields.
