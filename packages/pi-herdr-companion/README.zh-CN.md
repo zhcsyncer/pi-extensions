@@ -2,32 +2,31 @@
 
 [English](./README.md)
 
-一个供 Pi 在 [Herdr](https://herdr.dev) 中使用的独立扩展，提供可见的长跑进程 Pane、最小异步 Pi Worker 派发、临时 `/btw` 支线、可配置的 blocked 状态上报和统一设置界面。
+供 Pi 在 [Herdr](https://herdr.dev) 中使用的独立扩展。提供可见的长跑进程 Pane、临时 `/btw` 支线、可配置的 blocked 上报，以及一个设置界面。
 
-## 提供的能力
+Pi 不在 Herdr 中，或 Herdr 无法识别当前 Pane 时，扩展保持静默。
 
-| 能力 | 用户获得什么 |
-| --- | --- |
-| Herdr 上下文 | Pi 获得稳定的 Herdr caller 身份，不必反复探测焦点或环境。 |
-| 托管进程 | 启动、检查和停止 owned 长跑命令，并提供可导航的 TUI Process Widget。 |
-| Pi Worker | 在已有 Herdr Pane 启动一个 Pi Worker，并异步接收其显式最终报告。 |
-| `/btw` 支线 | 在临时 Pi 对话中探索问题，并且只在你明确要求时合回父会话。 |
-| Blocked 上报 | 让 Herdr 将已配置的工具或扩展事件显示为 blocked。 |
-| 统一设置 | 通过 `/herdr-config` 配置 runtime guidance、进程默认值和 blocked 上报。 |
+## 来源
 
-## 前置条件与安装
+`/btw` 产品行为改编自 MIT 许可的 [`pi-herdr-btw`](https://www.npmjs.com/package/pi-herdr-btw) 0.3.0。托管进程、blocked 上报和 `/herdr-config` 是本包原作。
 
-- Node.js 22.19+
-- Pi 0.84+
-- 核心进程管理需要 Herdr 0.7.5+（开发基于 Herdr 0.8.0）
-- POSIX 默认进程 shell 需要 Bash；Windows 使用 Pane 自身的 shell
-- 安装 Herdr 的 Pi integration：
+## 功能
+
+- `herdr_process` 在可见的 Herdr Pane 里启动、列出、检查和停止托管的长跑命令。
+- Pi TUI 在 editor 下方显示进程列表：`→` 激活，`↑` / `↓` 选择，`s` 确认后停止，`Esc` 回到 editor。
+- `/btw` 打开临时支线。只有你主动 merge 后，内容才会回到父会话。
+- 已配置的工具和扩展事件可以在 Herdr 里显示为 blocked。
+- `/herdr-config` 编辑 runtime guidance、进程默认值和 blocked 规则。
+
+## 安装
+
+需要 Node.js 22.19+、Pi 0.84+、Herdr 0.7.5+（对着 0.8.0 开发）。还要安装 Herdr 的 Pi integration：
 
 ```bash
 herdr integration install pi
 ```
 
-安装独立包：
+独立安装：
 
 ```bash
 pi install npm:@zhcsyncer/pi-herdr-companion
@@ -39,34 +38,13 @@ pi install npm:@zhcsyncer/pi-herdr-companion
 pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 ```
 
-聚合包 `@zhcsyncer/pi-extensions` 为保持发版一致性包含了这些源码，但**不会**启用 Companion。请单独安装，或在 Pi 中显式添加它。
+`@zhcsyncer/pi-extensions` 为发版一致性内嵌了这些源码，但**不会**启用 Companion。请单独安装。
 
-当 Pi 不在 Herdr 中，或 Herdr 无法识别 caller Pane 时，扩展保持完全静默。`herdr_process`、`herdr_worker` 与 blocked 上报可用于 TUI、RPC、JSON 和 print mode；`/btw` 与 `/herdr-config` 只在 Pi TUI mode 中可用。
+`herdr_process` 和 blocked 上报可用于 TUI、RPC、JSON 和 print mode。`/btw` 与 `/herdr-config` 需要 Pi TUI。
 
-## 最小 Pi Worker
+## 进程
 
-当一个已有 Herdr Pane 已停在可用 shell prompt，且需要它异步执行一个 Pi 任务时，使用 `herdr_worker`：
-
-```json
-{"paneId":"w1:p4","name":"reviewer","prompt":"检查当前 diff，只报告可执行的问题。"}
-```
-
-Worker name 必须在 live Herdr agent 中唯一，并匹配 `[a-z][a-z0-9_-]{0,31}`。仅在首次实际派发时，caller 才会复用已有 Herdr agent name，或根据当前 Pi session ID 懒生成并设置一个稳定 name。只加载 Companion 不会把普通 Pi session 自动改名。
-
-工具会在指定 Pane 启动带短 callback contract 的 `pi`，再把任务正文作为普通 user prompt 提交；它不使用 `--wait`，提交后即返回。Worker 必须发送一次且仅一次以 `[pi-herdr-worker-report:v1]` 开头的最终成功或确认失败报告。Parent 会把这条由 Herdr 到达的普通输入改为触发式 Pi `followUp`，因此 parent 忙碌时到达的报告不会 steer 当前 turn。Herdr `idle` 与 `done` 刻意不作为完成信号。
-
-这是在线 best-effort handoff，不是持久任务系统。Parent 与 Worker 必须在同一 Herdr server 中保持在线，直到报告完成交换。它不提供持久化、任务账本、轮询、状态跟踪、重启恢复、重试、批次、Pane/Worktree 创建或自动 cleanup。若 Pi 已启动但任务 prompt 尚未被接受就失败，可能留下需要手工检查或清理的空闲 Worker。
-
-## 托管进程
-
-开发服务器、预览、watcher 等需要持续可见的长跑命令应使用 `herdr_process`：
-
-- `start` 创建 owned Pane，并可等待 readiness。
-- `list` 显示 owned Pane 及其当前状态。
-- `logs` 读取受限的近期输出。
-- `stop` 只关闭 Companion 创建并登记的 Pane。
-
-示例：
+开发服务器、预览和 watcher 用 `herdr_process`：
 
 ```json
 {"action":"start","label":"dev","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}
@@ -75,39 +53,17 @@ Worker name 必须在 live Herdr agent 中唯一，并匹配 `[a-z][a-z0-9_-]{0,
 {"action":"stop","target":"dev"}
 ```
 
-默认向下拆分 `0.35`，使用 Pi 当前工作目录，不改变焦点，readiness timeout 为 60 秒，lifetime 为 `session`。`/btw` 使用同一个默认拆分方向。
+`stop` 只关闭本扩展创建的 Pane。默认向下拆分 `0.35`，使用 Pi 当前工作目录，等待 readiness 60 秒，`lifetime` 为 `session`。`/btw` 使用同一个拆分方向。
 
-### TUI Process Widget
+POSIX 默认 `shell: "bash"`，避免 Fish 或其他 interactive pane shell 改写命令。只有命令必须用那个 shell 时才选 `shell: "pane"`。Windows 默认 `pane`。
 
-只要存在托管进程，Pi TUI 就会在 editor 下方显示实时进程列表。Editor 为空时：
+`session` Pane 随这次 Pi session 结束而关闭（`quit`、`/new`、`/resume`、`/fork`）。`persistent` Pane 一直留到你停止。`/reload` 和 `/tree` 两种都会保留。命令如果已经回到 shell，日志会留到 teardown 或 `stop`。
 
-- 按 `→` 激活列表；
-- 用 `↑` / `↓` 选择进程；
-- 按 `s` 并二次确认，通过与 `herdr_process stop` 相同的 ownership 检查停止进程；
-- 按 `Esc` 返回 editor。
+Widget 不提供 Logs；模型要读输出时用 `herdr_process logs`，这样不会抢焦点。停止含有 agent session 的 Pane 也会关掉那个 session。
 
-Widget 会标记包含 agent session 的 Pane，并在 Stop 前明确提示该 session 也会关闭。Widget 不重复提供 Logs：模型需要在不切换焦点时检查输出，仍使用 `herdr_process logs`。Transcript 中的 Tool row 默认保持紧凑；展开 Pi Tool 输出后可查看 command、当前位置、进程行或受限的完整日志正文。
+## `/btw`
 
-POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 Pane interactive shell 重新解释。只有命令明确使用该 shell 的语法时才选择 `shell: "pane"`。Windows 默认使用 `pane`，不提供 Bash transport。
-
-`readyMatch` 与 `readyRegex` 不能同时使用。Readiness marker 不应被启动命令本身的回显满足；必要时请使用更具体的 marker 或 anchored regex。
-
-### 进程生命周期
-
-| 事件 | `session` | `persistent` |
-| --- | --- | --- |
-| `/reload` 或 `/tree` | 保留并刷新当前 Pane 地址 | 保留并刷新当前 Pane 地址 |
-| quit、`/new`、`/resume` 或 `/fork` | 正常 teardown 时关闭 | 保留在 owning session 中 |
-| 命令退出并返回 shell | 保留日志，直到 teardown 或 `stop` | 保留日志，直到 `stop` |
-| 手工关闭 Pane | 下次刷新状态时从托管进程列表移除 | 同左 |
-
-仍在等待 readiness 的 start 会在 Pi session reload 或切换时取消并关闭。Owned Pane 移动到其他 Tab 或 Workspace 后，public Pane ID 会变化，但只要仍是同一 Herdr server 内的同一 live terminal，Companion 就会继续关联它。
-
-生命周期清理在关闭 Pane 前，会刷新 Herdr live Pane 列表并核对保存的 terminal identity。若无法完成核验，Companion 会保留这个在 Herdr 中可见的 Pane/进程供手工清理，而不是冒险关闭 caller Pane 或不属于它的 Pane。请使用 `herdr_process list` 和 `stop`，或直接在 Herdr 中关闭已经确认的 Pane。
-
-## 临时 `/btw` 支线
-
-父会话命令：
+父会话：
 
 ```text
 /btw
@@ -117,7 +73,7 @@ POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 
 /btw help
 ```
 
-子会话命令：
+子会话：
 
 ```text
 /btw merge <parent follow-up prompt>
@@ -125,43 +81,24 @@ POSIX 默认使用 `shell: "bash"`，因此 Bash 语法不会被 Fish 或其他 
 /btw help
 ```
 
-Launch 会取得当前父分支的静态快照、共享 cwd，并继承 parent 的 model 与 thinking level。Child 使用 Pi 的正常默认工具。提供 question 时，会等 child 进入可交互状态后再提交；单独执行 `/btw` 则打开空白 child。Child 是独立且可见的 Pi 进程；只有显式 merge 后，它的对话才会进入父会话。
+Child 是同一工作目录里另一扇可见的 Pi。它继承父会话的 model 和 thinking level，并使用 Pi 的正常默认工具。有 question 时会等 child 就绪再发送；单独 `/btw` 打开空白 child。
 
-Child 是**临时的，不会保存为 Pi session**。在 merge 前关闭它，会永久丢失尚未合回的 child 对话。用于投递和清理的私有协调文件可能短暂保留，但它们不是可恢复的 transcript。
+Child 是**临时的，不会存成 Pi session**。merge 前关掉，未合回的对话会丢失。Merge 把近期的 user/assistant 文本发到原来的父会话，不带 tool call、thinking 和 image。父会话关闭或忙碌时，重新打开同一个父会话再执行 `/btw merge`。
 
-Merge 会把 child 的 user/assistant 文本发送到准确的父会话。Tool call、thinking 和 image 不会合入，并且只保留 48 KiB 限制内最新的文本。如果 parent 已关闭或正忙，请求会等待；重新打开准确的父会话后，可使用 `/btw merge` 扫描 pending request。
+不要同时加载另一个注册 `/btw` 的扩展。在 child 里执行 `/new`、`/resume` 或 `/fork` 会断开 merge；`/reload` 不会。
 
-Parent 确认投递后，child 通常会聚焦 parent 并自行关闭。如果 Herdr 无法确认 focus 或 cleanup，child 会保持打开并提示需要手工关闭的内容。
+## Blocked 上报
 
-Pi session ID 不变时，child 可以正常 `/reload`。在 child 中执行 `/new`、`/resume` 或 `/fork` 会改变其身份并断开与 parent 的关联；此后 merge 不再可用，只能把 child 作为独立 Pi session 继续使用。
+已配置的工具在执行期间，或已配置的扩展事件 payload 为 `{ active: true }` 时，Herdr 可以显示 blocked 标签。`{ active: false }` 清除事件。默认把 `ask_user_question` 显示为 `question`。
 
-## Blocked 状态上报
-
-Companion 可以把两类已配置 source 上报为 Herdr blocked：
-
-- Pi tool 执行期间；
-- 扩展事件 payload 为 `{ active: true }` 时，并由 `{ active: false }` 清除。
-
-每条规则使用准确 source name 和显示 label。默认把 `ask_user_question` 上报为 `question`；扩展事件规则默认为空。
-
-## 配置
-
-在 Pi TUI mode 中打开设置界面：
+## 设置
 
 ```text
 /herdr-config
+/herdr-config reset
 ```
 
-`/herdr-config reset` 会重置全部 Companion 设置。
-
-配置只保存在：
-
-```text
-$PI_CODING_AGENT_DIR/extension-data/pi-herdr-companion/config.json
-# 默认：~/.pi/agent/extension-data/pi-herdr-companion/config.json
-```
-
-只有保存设置后才会创建文件。
+`/herdr-config` 改的是草稿。**Save and close** 才写入；**Discard changes** 关闭且不保存；**Reset draft** 把草稿换成包装箱默认值，仍要保存才写盘。`/herdr-config reset` 会立刻把已保存文件恢复为默认。
 
 ```json
 {
@@ -184,33 +121,8 @@ $PI_CODING_AGENT_DIR/extension-data/pi-herdr-companion/config.json
 }
 ```
 
-以上示例使用 POSIX shell 默认值；Windows 使用 `"defaultShell": "pane"`。`runtime.injectSystemPrompt` 控制是否在每次模型调用的 system prompt 中追加 Herdr guidance；关闭它不会禁用工具本身。
-
-Blocked rule editor 每行填写一条 `exact_name = Herdr label`：
-
-```text
-review:blocked = review
-approval_tool = approval
-```
-
-## 运行限制
-
-- 保持 Herdr 托管的 Pi integration；Companion 不会替代它。
-- 不要同时加载另一个注册 `/btw` 的扩展，否则 Pi 会显示带后缀的重复命令。
-- Parent snapshot 是静态的，且 parent 与 child 共享 cwd；并发文件修改、Git 操作、server 和 port 可能冲突。
-- Process 或 host hard crash 无法保证 Pane cleanup。请恢复 owning session 后使用 `herdr_process list`/`stop`，或在 Herdr 中关闭已知 Pane。
-- Terminal identity 只在同一 Herdr server/socket 内有效，冷重启后不会沿用；Companion 会移除 stale ownership，而不会把它应用到另一个 terminal。
-- 托管进程 ownership 只覆盖 `herdr_process` 创建的 Pane。`herdr_worker` 只在 caller 提供的 Pane 中启动 Pi，不接管 Pane ownership 或 cleanup；通用 layout、worktree 与 agent 控制仍由 Herdr CLI 提供。
-
-## 开发
-
-```bash
-pnpm --filter @zhcsyncer/pi-herdr-companion typecheck
-pnpm --filter @zhcsyncer/pi-herdr-companion test
-pnpm --filter @zhcsyncer/pi-herdr-companion check
-npm pack --dry-run ./packages/pi-herdr-companion
-```
+Windows 使用 `"defaultShell": "pane"`。关掉 `injectSystemPrompt` 只是不再追加 Herdr guidance，工具仍可用。Blocked rule editor 每行写一条 `exact_name = Herdr label`。
 
 ## 许可证
 
-MIT。`/btw` 产品行为和部分私有协调机制改编自 Oscar Gabriel 的 MIT 许可 [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw)。保留声明与来源记录见 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) 和 [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md)。
+MIT。`/btw` 行为改编自 Oscar Gabriel 的 MIT 许可 [`pi-herdr-btw@0.3.0`](https://www.npmjs.com/package/pi-herdr-btw)。声明见 [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE) 和 [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md)。

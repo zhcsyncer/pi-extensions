@@ -141,14 +141,17 @@ describe.sequential("extension registration gates", () => {
 		expect([...h.handlers.keys()]).toEqual(["session_start"]);
 		const ctx = sessionContext(mode);
 		await emitSnapshot(h.handlers, "session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(h.tools).toEqual(["herdr_process", "herdr_worker"]);
+		expect(h.tools).toEqual(["herdr_process"]);
 		expect(h.commands).toEqual([]);
 		expect(h.handlers.get("context")).toBeUndefined();
+		expect(h.handlers.get("input")).toBeUndefined();
 		const before = h.handlers.get("before_agent_start") ?? [];
 		expect(before).toHaveLength(1);
 		const result = await before[0]?.({ systemPrompt: "base" }, ctx) as { systemPrompt: string };
 		expect(result).toMatchObject({ systemPrompt: expect.stringContaining("pane: w1:p1") });
 		expect(result.systemPrompt).not.toContain("/btw");
+		expect(result.systemPrompt).not.toContain("herdr_worker");
+		expect(result.systemPrompt).not.toContain("[pi-herdr-worker-report:v1]");
 		expect(ctx.notifications).toEqual([]);
 		await emitSnapshot(h.handlers, "session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 	});
@@ -167,8 +170,11 @@ describe.sequential("extension registration gates", () => {
 			const result = await handler({ systemPrompt }, ctx) as { systemPrompt?: string } | undefined;
 			if (result?.systemPrompt) systemPrompt = result.systemPrompt;
 		}
+		expect(h.tools).toEqual(["herdr_process"]);
 		expect(systemPrompt).toContain("pane: w1:p1");
 		expect(systemPrompt).not.toContain("/btw");
+		expect(systemPrompt).not.toContain("herdr_worker");
+		expect(systemPrompt).not.toContain("[pi-herdr-worker-report:v1]");
 		await emitSnapshot(h.handlers, "session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 	});
 
@@ -182,16 +188,20 @@ describe.sequential("extension registration gates", () => {
 
 		const ctx = sessionContext("tui");
 		await emitSnapshot(h.handlers, "session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(h.tools).toEqual(["herdr_process", "herdr_worker"]);
+		expect(h.tools).toEqual(["herdr_process"]);
 		expect(h.commands).toEqual(expect.arrayContaining(["btw", "herdr-config"]));
 		expect(h.tools).not.toContain("btw");
+		expect(h.tools).not.toContain("herdr_worker");
 		expect(h.tools).not.toContain("herdr_blocked");
+		expect(h.handlers.get("input")).toBeUndefined();
 
 		const before = h.handlers.get("before_agent_start") ?? [];
 		expect(before).toHaveLength(1);
 		const result = await before[0]?.({ systemPrompt: "base" }, ctx) as { systemPrompt: string };
 		expect(result).toMatchObject({ systemPrompt: expect.stringContaining("pane: w1:p1") });
 		expect(result.systemPrompt).toContain("/btw");
+		expect(result.systemPrompt).not.toContain("herdr_worker");
+		expect(result.systemPrompt).not.toContain("[pi-herdr-worker-report:v1]");
 
 		await emitSnapshot(h.handlers, "session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 	});

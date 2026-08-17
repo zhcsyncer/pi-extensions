@@ -24,7 +24,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
-- [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, minimal asynchronous Pi Worker dispatch, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
+- [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
 

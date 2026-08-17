@@ -29,11 +29,6 @@ import {
 	captureRuntimeSnapshot,
 	hasUsableHerdrRuntime,
 } from "./runtime.ts";
-import {
-	HerdrWorkerDispatcher,
-	registerHerdrWorkerReportInput,
-	registerHerdrWorkerTool,
-} from "./worker.ts";
 
 export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise<void> {
 	// These caller facts are intentionally captured exactly once per extension instance.
@@ -93,8 +88,8 @@ export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise
 		});
 		processManager = manager;
 		registerHerdrProcessTool(pi, manager);
-		registerHerdrWorkerReportInput(pi);
-		registerHerdrWorkerTool(pi, new HerdrWorkerDispatcher(client, runtime));
+		// worker.ts stays in-tree, but herdr_worker is not registered: its
+		// prompt/report contract leaks into Agent/subagent context.
 
 		let processSessionContext: ExtensionContext | undefined;
 		const startProcessSession = async (event: SessionStartEvent, ctx: ExtensionContext): Promise<void> => {
