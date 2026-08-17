@@ -101,11 +101,17 @@ function interactiveTopLeftPlan(input: InputSurfaceFrameInput, metrics: Pick<Inp
 	);
 	if (!scrollIndicator && !modeLabel && !stash) return undefined;
 
-	const prefix = modeLabel && stash ? `─ ${modeLabel} · ${stash}` : modeLabel ? `─ ${modeLabel}` : stash ? `─ ${stash}` : "";
-	const gap = prefix ? " " : "";
-	const text = truncateToWidth(`${prefix}${gap}${scrollIndicator ?? (prefix ? "─" : "")}`, Math.max(1, metrics.innerWidth), "");
-	const chunks = [{ role: "border" as const, text }];
-	return { chunks, width: visibleWidth(text) };
+	const prefix = modeLabel ? `─ ${modeLabel}${stash ? " · " : " "}` : stash ? "─ " : "";
+	const suffix = scrollIndicator ?? (prefix || stash ? "─" : "");
+	const budget = Math.max(1, metrics.innerWidth);
+	const mark = stash ? truncateToWidth(stash, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(suffix)), "") : "";
+	const remainder = truncateToWidth(suffix, Math.max(0, budget - visibleWidth(prefix) - visibleWidth(mark)), "");
+	const chunks = [
+		{ role: "border" as const, text: prefix },
+		...(mark ? [{ role: "status" as const, text: mark }] : []),
+		{ role: "border" as const, text: remainder },
+	].filter((part) => part.text);
+	return { chunks, width: visibleWidth(`${prefix}${mark}${remainder}`) };
 }
 
 function workspaceTitlePlan(
@@ -146,7 +152,7 @@ function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfac
 	const rendered = renderSurfaceChunks(plan.chunks, {
 		border,
 		title,
-		status: identity,
+		status: interactiveLeft && input.chrome?.stashOccupied ? (dimChrome ? input.styles.dim : input.styles.warn) : identity,
 		text: identity,
 		dim: border,
 	});

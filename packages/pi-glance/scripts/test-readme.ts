@@ -31,7 +31,7 @@ assertReadmeIncludes("`/diff` hands the terminal to optional", "README should do
 assertReadmeIncludes("`Ctrl+Shift+S` stashes or restores", "README should document the editor stash shortcut");
 assertReadmeIncludes("`Ctrl+Shift+U` discards the stash after a second press", "README should document the discard shortcut");
 assertReadmeIncludes("Confirm prompts appear under the editor", "README should document the clearable confirm prompt");
-assertReadmeIncludes("The left border shows a short mark", "README should document the unrestored-draft border mark");
+assertReadmeIncludes("The left border shows a highlighted `!stash` mark", "README should document the unrestored-draft border mark");
 assertReadmeIncludes("Reloading or resuming the same session restores it automatically if the editor is empty", "README should document empty-editor restore after reload/resume");
 assertReadmeExcludes("input-stash.json", "README should not document stash storage layout");
 assertReadmeExcludes("1500ms", "README should not document the confirm-window timeout");
@@ -66,7 +66,7 @@ assert.ok(readmeZh.includes("只回填编辑器供你确认"), "Chinese README s
 assert.ok(readmeZh.includes("`Ctrl+Shift+S` 收起或拿回"), "Chinese README should document the editor stash shortcut");
 assert.ok(readmeZh.includes("`Ctrl+Shift+U` 连按两次丢掉"), "Chinese README should document the discard shortcut");
 assert.ok(readmeZh.includes("确认提示出现在输入框下方"), "Chinese README should document the clearable confirm prompt");
-assert.ok(readmeZh.includes("左边框会挂一个短标记"), "Chinese README should document the unrestored-draft border mark");
+assert.ok(readmeZh.includes("`!stash`"), "Chinese README should document the unrestored-draft border mark");
 assert.ok(readmeZh.includes("输入框是空的会自动倒回"), "Chinese README should document empty-editor restore after reload/resume");
 assert.equal(readmeZh.includes("input-stash.json"), false, "Chinese README should not document stash storage layout");
 assertReadmeIncludes("Icons` default to `plain`", "README should state that icons default to plain");

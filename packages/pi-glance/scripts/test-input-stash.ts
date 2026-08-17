@@ -252,17 +252,17 @@ function assertAction(
 	const state = richInputSurfaceState();
 	const styles = resolveBuiltInGlanceStyles(config.theme.light);
 
-	const occupied = stripAnsi(
-		renderInputSurfaceFrame({
-			state,
-			config,
-			width: 80,
-			styles,
-			body: { kind: "editor", lines: [""] },
-			chrome: { stashOccupied: true },
-		})[0] ?? "",
-	);
+	const occupiedRaw = renderInputSurfaceFrame({
+		state,
+		config,
+		width: 80,
+		styles,
+		body: { kind: "editor", lines: [""] },
+		chrome: { stashOccupied: true },
+	})[0] ?? "";
+	const occupied = stripAnsi(occupiedRaw);
 	assert.ok(occupied.includes(INPUT_STASH_MARK_FULL), "occupied slot should show the short stash mark on the top border");
+	assert.ok(occupiedRaw.includes(styles.warn(INPUT_STASH_MARK_FULL)), "occupied stash mark should use warning color");
 	assert.equal(occupied.includes("leave me"), false, "stash chrome should not preview the stored draft");
 
 	const bash = stripAnsi(
@@ -288,7 +288,7 @@ function assertAction(
 			chrome: { stashOccupied: true, topScrollIndicator: "─── ↑ 7 more " },
 		})[0] ?? "",
 	);
-	assert.ok(scrolled.includes(`─ ${INPUT_STASH_MARK_SHORT} `) && scrolled.includes("↑ 7 more"), "scroll indicator should keep the left slot and shrink the stash mark");
+	assert.ok(scrolled.includes(`─ ${INPUT_STASH_MARK_SHORT}`) && scrolled.includes("↑ 7 more"), "scroll indicator should keep the left slot and shrink the stash mark");
 	assert.equal(scrolled.includes(INPUT_STASH_MARK_FULL), false, "scroll indicator should not keep the full stash word");
 
 	const editor = new GlanceEditor(

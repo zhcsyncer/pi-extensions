@@ -1,5 +1,5 @@
-export const INPUT_STASH_MARK_FULL = "stash";
-export const INPUT_STASH_MARK_SHORT = "s";
+export const INPUT_STASH_MARK_FULL = "!stash";
+export const INPUT_STASH_MARK_SHORT = "!";
 
 export type InputStashChromeKind = "full" | "short" | "hidden";
 

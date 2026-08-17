@@ -215,7 +215,7 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 		chrome: { stashOccupied: true },
 	});
 	const stashedTop = stripAnsi(stashed[0] ?? "");
-	assert.ok(stashedTop.includes("stash"), "occupied stash should show a short left-border mark");
+	assert.ok(stashedTop.includes("!stash"), "occupied stash should show a short left-border mark");
 	assertExactFrameWidth(stashed, 80, "occupied stash frame");
 
 	const stashWithBash = renderInputSurfaceFrame({
@@ -227,8 +227,8 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 		chrome: { stashOccupied: true, modeLabel: "Bash" },
 	});
 	const stashWithBashTop = stripAnsi(stashWithBash[0] ?? "");
-	assert.ok(stashWithBashTop.includes("Bash · s"), "Bash label should keep the left slot and shrink the stash mark");
-	assert.equal(stashWithBashTop.includes("stash"), false, "Bash label should not keep the full stash word");
+	assert.ok(stashWithBashTop.includes("Bash · !"), "Bash label should keep the left slot and shrink the stash mark");
+	assert.equal(stashWithBashTop.includes("!stash"), false, "Bash label should not keep the full stash word");
 	assertExactFrameWidth(stashWithBash, 48, "Bash plus stash frame");
 
 	const stashWithScroll = renderInputSurfaceFrame({
@@ -240,8 +240,8 @@ for (const theme of ["light", "dark", "high-contrast-light"] as const) {
 		chrome: { stashOccupied: true, topScrollIndicator: "─── ↑ 7 more " },
 	});
 	const stashWithScrollTop = stripAnsi(stashWithScroll[0] ?? "");
-	assert.ok(stashWithScrollTop.includes("─ s ") && stashWithScrollTop.includes("↑ 7 more"), "scroll indicator should keep the left slot and shrink the stash mark");
-	assert.equal(stashWithScrollTop.includes("stash"), false, "scroll indicator should not keep the full stash word");
+	assert.ok(stashWithScrollTop.includes("─ !") && stashWithScrollTop.includes("↑ 7 more"), "scroll indicator should keep the left slot and shrink the stash mark");
+	assert.equal(stashWithScrollTop.includes("!stash"), false, "scroll indicator should not keep the full stash word");
 	assertExactFrameWidth(stashWithScroll, 48, "scrolled plus stash frame");
 
 	const reorderedConfig = defaultConfig();
