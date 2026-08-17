@@ -24,6 +24,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
+- [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
 
@@ -103,6 +104,12 @@ Install only structured user questions:
 pi install npm:@zhcsyncer/pi-ask-user-question
 ```
 
+Install the standalone Herdr companion (not auto-enabled by the root bundle):
+
+```bash
+pi install npm:@zhcsyncer/pi-herdr-companion
+```
+
 Install only Subagents:
 
 ```bash
@@ -148,3 +155,5 @@ MIT
 `pi-ask-user-question` is forked from MIT-licensed [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0. The exact revision and preserved notices are recorded in [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-ask-user-question/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE).
 
 `pi-subagents` is forked from MIT-licensed [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 (`c10b1836256e760da75296ccd4e57a77ada1325e`). The exact revision, local UI deltas, and preserved notices are recorded in [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-subagents/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE).
+
+`pi-herdr-companion` adapts `/btw` behavior and private mailbox patterns from MIT-licensed [`pi-herdr-btw`](https://github.com/oscabriel/pi-herdr-btw) 0.3.0. The exact tarball provenance and preserved notice are recorded in [`packages/pi-herdr-companion/UPSTREAM_SOURCE.md`](./packages/pi-herdr-companion/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-herdr-companion/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-herdr-companion/UPSTREAM_LICENSE).

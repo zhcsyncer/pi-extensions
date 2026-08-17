@@ -41,6 +41,7 @@ const packagePaths = [
 	"./packages/pi-search-hub",
 	"./packages/pi-context7",
 	"./packages/pi-ask-user-question",
+	"./packages/pi-herdr-companion",
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
 	"./packages/pi-meter",

@@ -1,9 +1,10 @@
 import { Editor, visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentManager } from "../src/agent-manager.js";
 import type { AgentRecord } from "../src/types.js";
 import { type AgentActivity, getDisplayName } from "../src/ui/agent-widget.js";
 import { FleetList, type FleetUICtx, formatFleetElapsed, formatFleetTokens } from "../src/ui/fleet-list.js";
+import { claimTuiNavigation, releaseTuiNavigation } from "../src/ui/navigation-owner.js";
 
 // ---- Key sequences (see node_modules/@earendil-works/pi-tui/dist/keys.js) ----
 const DOWN = "\x1b[B";
@@ -14,6 +15,11 @@ const ESC = "\x1b";
 const ENTER = "\r";
 // Kitty-protocol key-RELEASE for ↓ (event type 3) — listeners receive these too.
 const DOWN_RELEASE = "\x1b[1;1:3B";
+
+afterEach(() => {
+  releaseTuiNavigation("subagents-fleet");
+  releaseTuiNavigation("herdr-processes");
+});
 
 const theme = {
   fg: (color: string, text: string) => {
@@ -155,6 +161,20 @@ describe("FleetList navigation", () => {
   it("also activates on ← (matches the '← for agents' hint)", () => {
     const h = harness([makeRecord()]);
     expect(h.press(LEFT)).toEqual({ consume: true });
+    h.fleet.dispose();
+  });
+
+  it("does not steal activation or arrow keys from another below-editor navigator", () => {
+    const h = harness([makeRecord()]);
+    expect(claimTuiNavigation("herdr-processes")).toBe(true);
+    try {
+      expect(h.press(DOWN)).toBeUndefined();
+      expect(h.press(UP)).toBeUndefined();
+      expect(h.render().some(line => line.includes("enter view"))).toBe(false);
+    } finally {
+      releaseTuiNavigation("herdr-processes");
+      h.fleet.dispose();
+    }
   });
 
   it("does NOT activate when the prompt is non-empty (typing is preserved)", () => {

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Coordinate FleetView keyboard ownership with other below-editor navigators so an activated Herdr Process Widget keeps its arrow-key navigation.
+- Manual Agent-tool background completions now use `steer` delivery, including custom agents whose frontmatter resolves to background, so results reach the parent before its next model call instead of starving behind a long tool loop. Scheduled and RPC completions retain detached `followUp` delivery, foreground results remain inline, and the Agent guidance now requires foreground for prerequisite results plus non-overlapping background work with targeted verification rather than repeated evidence collection.
+
 ## 0.1.4
 
 ### Patch Changes
@@ -29,11 +36,3 @@
 ### Minor Changes
 
 - 983adbb: Add a maintained fork of `@tintinweb/pi-subagents@0.14.3` with a ConversationViewer that defaults to dispatch prompt, one-line tool step summaries, and final/current result instead of full tool-result dumps. Failed or cancelled bash executions show as error steps. Compact collapsible TUI for Agent / get_subagent_result / steer_subagent (Markdown when expanded), with model and effort chips on tool call/result rows. Honesty fixes: queued status/activity, failure `isError` shell mapping, resume chips from stored invocation, steered/stopped overlay chrome, dangling-step settle, stricter header peel and failure heuristics. Embed and register the package in the root `@zhcsyncer/pi-extensions` bundle.
-
-## Unreleased
-
-### Fixed
-
-- Manual Agent-tool background completions now use `steer` delivery, including custom agents whose frontmatter resolves to background, so results reach the parent before its next model call instead of starving behind a long tool loop. Scheduled and RPC completions retain detached `followUp` delivery, foreground results remain inline, and the Agent guidance now requires foreground for prerequisite results plus non-overlapping background work with targeted verification rather than repeated evidence collection.
-
-Initial public release will be cut by Changesets from `0.0.0`.

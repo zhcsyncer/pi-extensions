@@ -12,6 +12,7 @@ const GLANCE = "@zhcsyncer/pi-glance";
 const PLAN_MODE = "@zhcsyncer/pi-plan-mode";
 const CONTEXT7 = "@zhcsyncer/pi-context7";
 const ASK_USER_QUESTION = "@zhcsyncer/pi-ask-user-question";
+const HERDR_COMPANION = "@zhcsyncer/pi-herdr-companion";
 const SUBAGENTS = "@zhcsyncer/pi-subagents";
 const FAST_MODE = "@zhcsyncer/pi-fast-mode";
 const METER = "@zhcsyncer/pi-meter";
@@ -81,6 +82,12 @@ test("requires the root package when Context7 releases", () => {
 test("requires the root package when Ask User Question releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([ASK_USER_QUESTION, "minor"])), [
 		`${ASK_USER_QUESTION} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Herdr Companion releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([HERDR_COMPANION, "minor"])), [
+		`${HERDR_COMPANION} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 

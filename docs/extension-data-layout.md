@@ -68,6 +68,10 @@
 │   │   └── config.json
 │   ├── pi-ask-user-question/
 │   │   └── config.json
+│   ├── pi-herdr-companion/
+│   │   ├── config.json
+│   │   ├── process-scripts/      # 0700、启动后自删的私有 Bash transport artifact
+│   │   └── btw/                  # socket-scoped 私有 side-thread 状态
 │   ├── pi-subagents/
 │   │   ├── config.json
 │   │   └── agent-tool-description.md # 可选的工具描述配置
@@ -94,6 +98,7 @@ pi-tool-display-intent
 pi-plan-mode
 pi-todo
 pi-ask-user-question
+pi-herdr-companion
 pi-subagents
 pi-meter
 ```
@@ -116,7 +121,7 @@ pi-meter
 - Subagents 保留既有项目覆盖与写入行为：`/agents` → Settings 只写项目 canonical 文件，全局文件仍由用户手工编辑；工具描述同样项目优先；
 - 项目路径实现必须使用 Pi 导出的 `CONFIG_DIR_NAME`，不能硬编码 `.pi`；本文继续用 `.pi` 表示默认目录；
 - Recap/Search Hub 的配置 UI 仍只写全局文件；受信任项目中的旧项目配置会自动迁移。配置预览、覆盖检测、迁移通知和保存后的生效提示必须遵循同一 trust 判断；
-- `pi-glance`、`pi-tool-display-intent`、`pi-plan-mode`、`pi-todo`、`pi-ask-user-question` 和 `pi-meter` 仍只有全局配置；
+- `pi-glance`、`pi-tool-display-intent`、`pi-plan-mode`、`pi-todo`、`pi-ask-user-question`、`pi-herdr-companion` 和 `pi-meter` 仍只有全局配置；
 - 运行状态不写入项目 `.pi/extension-data/`。
 
 ### 项目旧路径兼容与优先级
@@ -151,6 +156,7 @@ Recap/Search Hub 的项目迁移只在受信任项目中执行；Subagents 不�
 | Pi Todo | `$XDG_CONFIG_HOME/rpiv-todo/config.json`（通常为 `~/.config/rpiv-todo/config.json`） | `$PI_CODING_AGENT_DIR/extension-data/pi-todo/config.json` | 全局展示/guidance 配置 |
 | Pi Todo | Session JSONL custom entries | **保持不变** | 任务历史属于 Session 状态 |
 | Ask User Question | `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`（回退 `~/.config/rpiv-ask-user-question/config.json`） | `$PI_CODING_AGENT_DIR/extension-data/pi-ask-user-question/config.json` | 全局配置 |
+| Herdr Companion | （新扩展，无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-herdr-companion/config.json` | 首次发布直接使用 canonical 全局配置；`process-scripts/` 为自删/限龄私有 transport artifact，`btw/` 为 socket-scoped 私有运行状态 |
 | Subagents | `$PI_CODING_AGENT_DIR/subagents.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json` | 全局设置 |
 | Subagents | `<project>/.pi/subagents.json` | `<project>/.pi/extension-data/pi-subagents/config.json` | 项目设置，仍覆盖全局且为 UI 写入目标 |
 | Subagents | `$PI_CODING_AGENT_DIR/agent-tool-description.md` | `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/agent-tool-description.md` | 可选全局工具描述 |
@@ -332,6 +338,7 @@ Exa 用量是会持续变化的运行状态，迁移不能与增量更新分开�
 6. Todo 与 Ask User Question：迁移 XDG/`~/.config` 全局配置，保持各自字段验证与默认语义。
 7. Subagents：迁移全局/项目设置和工具描述 override，同时保持 agents、skills、memory、schedules 与 transcripts 等资源路径不变。
 8. 全仓扫描旧路径字面量，补齐根 README、示例和发布说明。
+9. Herdr Companion：首次发布直接使用 canonical 全局配置，保留 `btw/` 私有状态在同一 extension-data namespace，并提供统一配置 TUI。
 
 ## 验收标准
 
@@ -343,6 +350,7 @@ Exa 用量是会持续变化的运行状态，迁移不能与增量更新分开�
 6. Tool Display Intent 的 `config.legacy.json` 与 `debug/debug.log` 按迁移表处理，不在旧目录继续写入调试日志。
 7. Todo 与 Ask User Question 的旧 XDG/`~/.config` 配置可安全迁移，字段验证、默认值和 guidance 语义不变；Todo 任务历史仍在 Session 中。
 8. Subagents 的全局/项目设置及工具描述可安全迁移；custom agents、Pi/native skills/settings、memory、schedules、transcripts 和其他资源路径不变。
-9. `$PI_CODING_AGENT_DIR/plans/` 在 Plan Mode 迁移前后保持完全相同。
-10. 不产生 `secrets.json`，不改变现有 credential 解析和 Provider `auth.json` 行为。
-11. 新旧路径不双写，文档、帮助文本与实现使用同一组 canonical path。
+9. Herdr Companion 的配置直接位于 `extension-data/pi-herdr-companion/config.json`，不提供未发布版本的旧路径或 schema 兼容；process script 保持私有、自删且限龄，BTW 私有状态仍按 socket namespace 隔离。
+10. `$PI_CODING_AGENT_DIR/plans/` 在 Plan Mode 迁移前后保持完全相同。
+11. 不产生 `secrets.json`，不改变现有 credential 解析和 Provider `auth.json` 行为。
+12. 新旧路径不双写，文档、帮助文本与实现使用同一组 canonical path。

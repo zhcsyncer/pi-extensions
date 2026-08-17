@@ -17,9 +17,15 @@ import type { AgentRecord } from "../types.js";
 import { getLifetimeTotal } from "../usage.js";
 import { type AgentActivity, formatMs, getDisplayName, styleDuration, type Theme } from "./agent-widget.js";
 import { ConversationViewer, VIEWPORT_HEIGHT_PCT } from "./conversation-viewer.js";
+import {
+  claimTuiNavigation,
+  releaseTuiNavigation,
+  tuiNavigationOwnedByOther,
+} from "./navigation-owner.js";
 
 /** Widget key for the below-editor fleet list. */
 const FLEET_KEY = "fleet";
+const FLEET_NAVIGATION_OWNER = "subagents-fleet";
 /** Max agent rows shown at once; extras collapse into a "↓ N more" indicator. */
 const MAX_AGENT_ROWS = 5;
 /** Re-render cadence so elapsed/token stats tick while agents run. */
@@ -100,7 +106,10 @@ export class FleetList {
   setEnabled(enabled: boolean): void {
     if (enabled === this.enabled) return;
     this.enabled = enabled;
-    if (!enabled) this.active = false;
+    if (!enabled) {
+      releaseTuiNavigation(FLEET_NAVIGATION_OWNER);
+      this.active = false;
+    }
     this.update();
   }
 
@@ -136,6 +145,7 @@ export class FleetList {
     if (this.ui && this.widgetRegistered) this.ui.setWidget(FLEET_KEY, undefined);
     this.widgetRegistered = false;
     this.tui = undefined;
+    releaseTuiNavigation(FLEET_NAVIGATION_OWNER);
     this.active = false;
     // Null last so a `viewerClose()` microtask above can't re-register the widget.
     this.ui = undefined;
@@ -153,6 +163,7 @@ export class FleetList {
         this.tui = undefined;
       }
       if (this.timer) { clearInterval(this.timer); this.timer = undefined; }
+      releaseTuiNavigation(FLEET_NAVIGATION_OWNER);
       this.active = false;
       this.selectedIndex = 0;
       return;
@@ -217,6 +228,12 @@ export class FleetList {
     if (isKeyRelease(data)) return undefined;
     // While an overlay is open, let it own all input.
     if (this.viewerClose) return undefined;
+    // Another below-editor navigator may already own the arrow keys. This
+    // check runs before activation so listener registration order is irrelevant.
+    if (tuiNavigationOwnedByOther(FLEET_NAVIGATION_OWNER)) {
+      if (this.active) this.deactivate();
+      return undefined;
+    }
     // Input listeners fire BEFORE the focused component, and dialogs
     // (ctx.ui.select/confirm/input, pi's own menus) swap the prompt editor out
     // while getEditorText() still reads the detached — empty — editor. So when
@@ -229,7 +246,8 @@ export class FleetList {
     if (!this.active) {
       // Activate: ↓ or ← at an empty prompt moves focus into the list.
       const isActivator = matchesKey(data, "down") || matchesKey(data, "left");
-      if (isActivator && this.agentRecords().length > 0 && this.ui.getEditorText() === "") {
+      if (isActivator && this.agentRecords().length > 0 && this.ui.getEditorText() === "" &&
+        claimTuiNavigation(FLEET_NAVIGATION_OWNER)) {
         this.active = true;
         this.selectedIndex = 0;
         this.update();
@@ -273,6 +291,7 @@ export class FleetList {
   }
 
   private deactivate(): void {
+    releaseTuiNavigation(FLEET_NAVIGATION_OWNER);
     this.active = false;
     this.selectedIndex = 0;
     this.update();
