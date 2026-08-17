@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
-import { renderUsagePanel } from "../src/chrome/usage-panel.ts";
+import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
 import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
 import type { AggRow } from "../src/ledger/types.ts";
+import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -105,23 +106,90 @@ describe("reset time", () => {
 	});
 });
 
+function snapshot(over: Partial<QuotaSnapshot> & Pick<QuotaSnapshot, "provider" | "title">): QuotaSnapshot {
+	return {
+		windows: [],
+		fetchedAt: Date.parse("2026-08-15T12:00:00Z"),
+		ok: true,
+		...over,
+	};
+}
+
 describe("usage panel", () => {
 	it("shows SuperGrok weekly remaining only", () => {
-		const panel = renderUsagePanel([{
+		const panel = renderUsagePanel([snapshot({
 			provider: "supergrok",
 			title: "SuperGrok",
 			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			windows: [
 				{ id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" },
 			],
-			fetchedAt: Date.parse("2026-08-15T12:00:00Z"),
-			ok: true,
-		}], "remaining", new Date("2026-08-15T17:55:31Z"));
+		})], "remaining", new Date("2026-08-15T17:55:31Z"));
 		expect(panel).toContain("SuperGrok");
 		expect(panel).toContain("Weekly credits");
 		expect(panel).toContain("49%");
 		expect(panel).toContain("resets in 1d 23h");
 		expect(panel).not.toContain("Build");
 		expect(panel).not.toContain("Chat");
+	});
+
+	it("summarizes unsigned-in providers at the bottom without warning", () => {
+		const snapshots = [
+			snapshot({
+				provider: "claude",
+				title: "Claude",
+				ok: false,
+				error: "no subscription OAuth credentials — run /login",
+			}),
+			snapshot({
+				provider: "codex",
+				title: "OpenAI Codex",
+				primary: { id: "week", label: "Week limit", usedPercent: 20 },
+				windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+			}),
+			snapshot({
+				provider: "supergrok",
+				title: "SuperGrok",
+				ok: false,
+				error: "no snapshot yet",
+			}),
+		];
+		const panel = renderUsagePanel(snapshots, "remaining");
+		expect(panel).toContain("OpenAI Codex");
+		expect(panel).toContain("Week limit");
+		expect(panel).toMatch(/OpenAI Codex[\s\S]*Not signed in: Claude, SuperGrok — run \/login$/);
+		expect(panel).not.toContain("no subscription OAuth credentials");
+		expect(panel).not.toContain("no snapshot yet");
+		expect(panel).not.toMatch(/^Claude\n/);
+		expect(panel).not.toMatch(/^SuperGrok\n/m);
+		expect(usageSeverity(snapshots, "remaining")).toBe("info");
+	});
+
+	it("still warns for real refresh errors and low remaining", () => {
+		const failed = [
+			snapshot({
+				provider: "claude",
+				title: "Claude",
+				ok: false,
+				error: "HTTP 500",
+			}),
+			snapshot({
+				provider: "supergrok",
+				title: "SuperGrok",
+				ok: false,
+				error: "no subscription OAuth credentials — run /login",
+			}),
+		];
+		const failedPanel = renderUsagePanel(failed, "remaining");
+		expect(failedPanel).toContain("Claude\n  HTTP 500");
+		expect(failedPanel.endsWith("Not signed in: SuperGrok — run /login")).toBe(true);
+		expect(usageSeverity(failed, "remaining")).toBe("warning");
+
+		const low = [snapshot({
+			provider: "claude",
+			title: "Claude",
+			windows: [{ id: "session", label: "Session (5h)", usedPercent: 70 }],
+		})];
+		expect(usageSeverity(low, "remaining")).toBe("warning");
 	});
 });
