@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import type { ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import { renderExtensionStatusLine, StatusOnlyFooter } from "../footer.js";
+import { INPUT_STASH_STATUS_KEY } from "../input-stash.js";
 import { setProviderCount } from "../state.js";
 import type { GlanceState } from "../types.js";
 import { testState } from "./helpers.js";
@@ -64,6 +65,22 @@ function footerData(statuses: ReadonlyMap<string, string> = new Map()): Readonly
 	const statuses = new Map([ ["todo", "3 tasks pending"] ]);
 	const footer = new StatusOnlyFooter({ theme: fakeTheme(), footerData: footerData(statuses) });
 	assert.deepEqual(footer.render(80), ["3 tasks pending"], "footer should preserve extension statuses without optional Pi informational rows");
+}
+
+{
+	const theme = {
+		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+		bold: (text: string) => text,
+	} as unknown as Theme;
+	const statuses = new Map([
+		[INPUT_STASH_STATUS_KEY, "Press again to discard “throw away”"],
+		["todo", "3 tasks pending"],
+	]);
+	assert.equal(
+		renderExtensionStatusLine(statuses, 80, theme),
+		"<warning>Press again to discard “throw away”</warning> 3 tasks pending",
+		"input-stash confirm prompts should use warning color in the footer",
+	);
 }
 
 console.log("✓ status-only footer checks passed");

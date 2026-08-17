@@ -37,7 +37,7 @@ Needs Pi 0.80.4 or newer.
 
 `/glance` opens settings with a live input-surface preview. `/diff` hands the terminal to optional [`revdiff`](https://revdiff.com/) for an uncommitted working-tree review; annotations return to the editor for you to confirm and are never sent automatically. If revdiff is missing, only `/diff` shows the install hint.
 
-`Ctrl+S` stashes or restores the current editor draft. `Ctrl+Q` discards the stash after a second press. The left border shows a short mark while a draft is waiting. Reloading or resuming the same session restores it automatically if the editor is empty.
+`Ctrl+S` stashes or restores the current editor draft. `Ctrl+Q` discards the stash after a second press. Confirm prompts appear under the editor with a short draft preview and disappear if you wait. The left border shows a short mark while a draft is waiting. Reloading or resuming the same session restores it automatically if the editor is empty.
 
 ## What you see
 

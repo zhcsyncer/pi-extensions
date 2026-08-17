@@ -44,6 +44,8 @@ export interface GlanceRuntimeAdapters {
 	createGitRefresher?: (options: CreateGitRefresherOptions) => RuntimeGitRefresher;
 	fetchGitBaseRef?(cwd: string, reason: GitBaseRefFetchReason): Promise<boolean>;
 	nowMs?: () => number;
+	setTimeout?: (callback: () => void, ms: number) => unknown;
+	clearTimeout?: (id: unknown) => void;
 	createInputStashStore?: () => InputStashStore;
 	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
 	reviewWorkingTree?: (ctx: ExtensionCommandContext) => Promise<unknown>;
@@ -123,6 +125,8 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 	const inputStash = new InputStashController(adapters.createInputStashStore?.() ?? createInputStashStore(), {
 		nowMs: () => nowMs(),
 		requestRender: () => renderNow(),
+		setTimeout: adapters.setTimeout ?? setTimeout,
+		clearTimeout: adapters.clearTimeout ?? clearTimeout,
 	});
 	const workingIndicator = createWorkingIndicatorController({
 		getConfig,

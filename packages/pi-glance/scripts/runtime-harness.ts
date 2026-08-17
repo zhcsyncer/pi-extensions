@@ -69,6 +69,7 @@ export interface RuntimeTestContext {
 	setSessionFile(sessionFile: string | undefined): void;
 	getEditorText(): string;
 	setEditorText(text: string): void;
+	getStatus(key: string): string | undefined;
 	setUiTheme(theme: unknown): void;
 }
 
@@ -92,6 +93,8 @@ export interface RuntimeHarnessOptions {
 	getThinkingLevel?: () => string;
 	getAutoCompactionEnabled?: () => boolean;
 	nowMs?: () => number;
+	setTimeout?: GlanceRuntimeAdapters["setTimeout"];
+	clearTimeout?: GlanceRuntimeAdapters["clearTimeout"];
 	createInputStashStore?: GlanceRuntimeAdapters["createInputStashStore"];
 	workingIndicator?: GlanceRuntimeAdapters["workingIndicator"];
 	reviewWorkingTree?: GlanceRuntimeAdapters["reviewWorkingTree"];
@@ -237,6 +240,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 	let sessionName = options.sessionName;
 	let sessionFile: string | undefined = options.sessionFile ?? "/tmp/session.jsonl";
 	let editorText = options.editorText ?? "";
+	const statuses = new Map<string, string>();
 	let uiTheme = options.uiTheme;
 	const mode = options.mode ?? "tui";
 	const hasUI = options.hasUI ?? (mode === "tui" || mode === "rpc");
@@ -288,6 +292,10 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 			getEditorText: () => editorText,
 			setEditorText: (text: string) => {
 				editorText = text;
+			},
+			setStatus: (key: string, text: string | undefined) => {
+				if (text === undefined) statuses.delete(key);
+				else statuses.set(key, text);
 			},
 			setWorkingMessage: (message?: string) => workingMessages.push(message),
 			setWorkingIndicator: (options?: { frames?: string[]; intervalMs?: number }) => workingIndicators.push(options),
@@ -350,6 +358,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 		setEditorText: (text: string) => {
 			editorText = text;
 		},
+		getStatus: (key: string) => statuses.get(key),
 		setUiTheme: (theme: unknown) => {
 			uiTheme = theme;
 		},
@@ -419,6 +428,8 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 		fetchGitBaseRef: options.git?.fetchGitBaseRef,
 		reviewWorkingTree: options.reviewWorkingTree,
 		nowMs: options.nowMs,
+		setTimeout: options.setTimeout,
+		clearTimeout: options.clearTimeout,
 		createInputStashStore: options.createInputStashStore ?? (() => createInputStashStore({ persist: false })),
 		workingIndicator:
 			options.workingIndicator ??

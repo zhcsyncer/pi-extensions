@@ -8,13 +8,16 @@ import { defaultConfig } from "../config.js";
 import { GlanceEditor } from "../editor.js";
 import {
 	INPUT_STASH_CONFIRM_WINDOW_MS,
+	INPUT_STASH_STATUS_KEY,
+	formatInputStashConfirmPrompt,
 	inputHasText,
 	isInputStashConfirmArmed,
+	previewStashedDraft,
 	resolveInputStashAction,
 } from "../input-stash.js";
 import { INPUT_STASH_MARK_FULL, INPUT_STASH_MARK_SHORT, resolveInputStashChrome } from "../input-stash-chrome.js";
 import { createInputStashStore, getInputStashPath } from "../input-stash-store.js";
-import { INPUT_STASH_DISCARD_CONFIRM_NOTIFY, INPUT_STASH_DISCARD_NOTIFY, INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY } from "../input-stash-runtime.js";
+import { INPUT_STASH_DISCARD_NOTIFY } from "../input-stash-runtime.js";
 import { renderInputSurfaceFrame } from "../input-surface-frame.js";
 import { resolveBuiltInGlanceStyles } from "../theme-adapter.js";
 import { createGitHarness, createRuntimeHarness, createRuntimeTestContext } from "./runtime-harness.js";
@@ -48,6 +51,10 @@ function assertAction(
 	assert.equal(isInputStashConfirmArmed(0, INPUT_STASH_CONFIRM_WINDOW_MS - 1), true, "confirm window should stay armed before it expires");
 	assert.equal(isInputStashConfirmArmed(0, INPUT_STASH_CONFIRM_WINDOW_MS), false, "confirm window should expire at the timeout");
 	assert.equal(isInputStashConfirmArmed(undefined, 0), false, "missing arm timestamp should not be armed");
+	assert.equal(previewStashedDraft("help me fix this file"), "help me fix this file", "short drafts should stay intact in the confirm preview");
+	assert.equal(previewStashedDraft("a".repeat(40)).endsWith("…"), true, "long drafts should truncate with an ellipsis");
+	assert.ok(formatInputStashConfirmPrompt("discard", "throw away").includes("throw away"), "discard confirm should include the draft preview");
+	assert.ok(formatInputStashConfirmPrompt("overwrite", "stashed").includes("stashed"), "overwrite confirm should include the draft preview");
 }
 
 {
@@ -99,6 +106,8 @@ function assertAction(
 		loadConfigSyncConfig: defaultConfig(),
 		git: createGitHarness(),
 		createInputStashStore: () => store,
+		setTimeout: () => "stash-timer",
+		clearTimeout: () => undefined,
 	});
 
 	harness.runtime.events.sessionStart({}, test.ctx);
@@ -115,15 +124,13 @@ function assertAction(
 	harness.runtime.shortcuts.stashOrRestore(test.ctx);
 	assert.equal(test.getEditorText(), "current", "first conflict press should leave the current editor alone");
 	assert.equal(store.get(sessionFile), "stashed", "first conflict press should keep the slot");
-	assert.equal(
-		test.notifications.some((notification) => notification.message === INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY && notification.type === "info"),
-		true,
-		"first conflict press should notify before overwriting",
-	);
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("overwrite", "stashed"), "first conflict press should show a clearable confirm prompt");
+	assert.equal(test.notifications.length, 0, "overwrite confirm should not use a permanent chat notify");
 
 	harness.runtime.shortcuts.stashOrRestore(test.ctx);
 	assert.equal(test.getEditorText(), "stashed", "confirmed second press should replace the current editor");
 	assert.equal(store.has(sessionFile), false, "overwrite should clear the slot");
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), undefined, "confirmed overwrite should clear the prompt");
 
 	store.set(sessionFile, "throw away");
 	test.setEditorText("keep current");
@@ -131,11 +138,7 @@ function assertAction(
 	harness.runtime.shortcuts.discard(test.ctx);
 	assert.equal(test.getEditorText(), "keep current", "first discard press should leave the editor alone");
 	assert.equal(store.get(sessionFile), "throw away", "first discard press should keep the slot");
-	assert.equal(
-		test.notifications.slice(notificationsBeforeDiscard).some((notification) => notification.message === INPUT_STASH_DISCARD_CONFIRM_NOTIFY && notification.type === "info"),
-		true,
-		"first discard press should notify before clearing the slot",
-	);
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("discard", "throw away"), "first discard press should show a clearable confirm prompt");
 	harness.runtime.shortcuts.discard(test.ctx);
 	assert.equal(test.getEditorText(), "keep current", "confirmed discard should not change the editor");
 	assert.equal(store.has(sessionFile), false, "confirmed discard should clear the slot");
@@ -153,6 +156,7 @@ function assertAction(
 
 {
 	let nowMs = 0;
+	let timeoutCallback: (() => void) | undefined;
 	const sessionFile = "/tmp/session.jsonl";
 	const store = createInputStashStore({ persist: false });
 	store.set(sessionFile, "stashed");
@@ -162,17 +166,29 @@ function assertAction(
 		git: createGitHarness(),
 		nowMs: () => nowMs,
 		createInputStashStore: () => store,
+		setTimeout: (callback) => {
+			timeoutCallback = callback;
+			return "stash-timer";
+		},
+		clearTimeout: () => {
+			timeoutCallback = undefined;
+		},
 	});
 	harness.runtime.events.sessionStart({}, test.ctx);
 	harness.runtime.shortcuts.stashOrRestore(test.ctx);
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("overwrite", "stashed"), "overwrite confirm should appear in the status line");
 	nowMs = INPUT_STASH_CONFIRM_WINDOW_MS;
+	timeoutCallback?.();
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), undefined, "an expired overwrite prompt should clear itself");
 	harness.runtime.shortcuts.stashOrRestore(test.ctx);
 	assert.equal(test.getEditorText(), "current", "an expired confirm window should not overwrite");
 	assert.equal(store.get(sessionFile), "stashed", "an expired confirm window should keep the slot");
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("overwrite", "stashed"), "the next press after expiry should re-arm confirmation");
 }
 
 {
 	let nowMs = 0;
+	let timeoutCallback: (() => void) | undefined;
 	const sessionFile = "/tmp/session.jsonl";
 	const store = createInputStashStore({ persist: false });
 	store.set(sessionFile, "throw away");
@@ -182,18 +198,24 @@ function assertAction(
 		git: createGitHarness(),
 		nowMs: () => nowMs,
 		createInputStashStore: () => store,
+		setTimeout: (callback) => {
+			timeoutCallback = callback;
+			return "stash-timer";
+		},
+		clearTimeout: () => {
+			timeoutCallback = undefined;
+		},
 	});
 	harness.runtime.events.sessionStart({}, test.ctx);
 	harness.runtime.shortcuts.discard(test.ctx);
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("discard", "throw away"), "discard confirm should appear in the status line");
 	nowMs = INPUT_STASH_CONFIRM_WINDOW_MS;
+	timeoutCallback?.();
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), undefined, "an expired discard prompt should clear itself");
 	harness.runtime.shortcuts.discard(test.ctx);
 	assert.equal(test.getEditorText(), "keep current", "an expired discard window should not change the editor");
 	assert.equal(store.get(sessionFile), "throw away", "an expired discard window should keep the slot");
-	assert.equal(
-		test.notifications.filter((notification) => notification.message === INPUT_STASH_DISCARD_CONFIRM_NOTIFY).length,
-		2,
-		"an expired discard window should ask for confirmation again",
-	);
+	assert.equal(test.getStatus(INPUT_STASH_STATUS_KEY), formatInputStashConfirmPrompt("discard", "throw away"), "the next discard press after expiry should re-arm confirmation");
 }
 
 {

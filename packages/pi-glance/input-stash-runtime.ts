@@ -1,5 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	INPUT_STASH_CONFIRM_WINDOW_MS,
+	INPUT_STASH_STATUS_KEY,
+	formatInputStashConfirmPrompt,
 	inputHasText,
 	isInputStashConfirmArmed,
 	resolveInputStashAction,
@@ -7,13 +10,13 @@ import {
 } from "./input-stash.js";
 import type { InputStashStore } from "./input-stash-store.js";
 
-export const INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY = "Press again to replace the current input with the stashed draft.";
-export const INPUT_STASH_DISCARD_CONFIRM_NOTIFY = "Press again to discard the stashed draft.";
 export const INPUT_STASH_DISCARD_NOTIFY = "Discarded the stashed draft.";
 
 export interface InputStashRuntimeHost {
 	nowMs(): number;
 	requestRender(): void;
+	setTimeout(callback: () => void, ms: number): unknown;
+	clearTimeout(id: unknown): void;
 }
 
 function sessionFileOf(ctx: ExtensionContext): string | undefined {
@@ -39,6 +42,8 @@ function writeEditorText(ctx: ExtensionContext, text: string): void {
 export class InputStashController {
 	private confirmArmedAtMs: number | undefined;
 	private confirmKind: "overwrite" | "discard" | undefined;
+	private confirmTimer: unknown;
+	private promptCtx: ExtensionContext | undefined;
 
 	constructor(
 		private readonly store: InputStashStore,
@@ -103,9 +108,8 @@ export class InputStashController {
 				this.host.requestRender();
 				return;
 			case "arm-confirm":
-				this.confirmArmedAtMs = nowMs;
-				this.confirmKind = expectedKind;
-				ctx.ui.notify(expectedKind === "discard" ? INPUT_STASH_DISCARD_CONFIRM_NOTIFY : INPUT_STASH_OVERWRITE_CONFIRM_NOTIFY, "info");
+				if (!inputHasText(stored) || stored === undefined) return;
+				this.armConfirm(ctx, expectedKind, stored, nowMs);
 				return;
 			case "overwrite":
 				if (stored === undefined) return;
@@ -125,8 +129,30 @@ export class InputStashController {
 		}
 	}
 
+	private armConfirm(ctx: ExtensionContext, kind: "overwrite" | "discard", draft: string, nowMs: number): void {
+		this.clearConfirmTimer();
+		this.confirmArmedAtMs = nowMs;
+		this.confirmKind = kind;
+		this.promptCtx = ctx;
+		ctx.ui.setStatus(INPUT_STASH_STATUS_KEY, formatInputStashConfirmPrompt(kind, draft));
+		this.confirmTimer = this.host.setTimeout(() => {
+			if (!isInputStashConfirmArmed(this.confirmArmedAtMs, this.host.nowMs())) this.disarmConfirm();
+		}, INPUT_STASH_CONFIRM_WINDOW_MS);
+		this.host.requestRender();
+	}
+
+	private clearConfirmTimer(): void {
+		if (this.confirmTimer === undefined) return;
+		this.host.clearTimeout(this.confirmTimer);
+		this.confirmTimer = undefined;
+	}
+
 	private disarmConfirm(): void {
+		this.clearConfirmTimer();
 		this.confirmArmedAtMs = undefined;
 		this.confirmKind = undefined;
+		const ctx = this.promptCtx;
+		this.promptCtx = undefined;
+		ctx?.ui.setStatus(INPUT_STASH_STATUS_KEY, undefined);
 	}
 }

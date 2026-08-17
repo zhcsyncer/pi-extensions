@@ -856,7 +856,7 @@ function assertFooterSeams(files: SourceFile[]): void {
 	const footer = files.find((candidate) => basename(candidate.path) === FOOTER_MODULE);
 	assert.ok(footer, "footer.ts status-preserving footer should exist");
 
-	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./format.js", "./types.js"]);
+	const allowedSpecifiers = new Set(["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "./format.js", "./input-stash.js", "./types.js"]);
 	const importPattern = /(?:import|export)\s+(type\s+)?(?:[^"'`]*?\s+from\s+)?["']([^"']+)["']/g;
 	for (const match of footer.text.matchAll(importPattern)) {
 		const isTypeOnly = match[1] === "type ";
