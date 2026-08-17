@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- 1768c9d: Stop Ctrl+F from turning Fast Mode off when the key is released or the terminal loses focus.
+
 ## 0.1.1
 
 ### Patch Changes

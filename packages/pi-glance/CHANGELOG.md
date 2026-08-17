@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.8.0
+
+### Minor Changes
+
+- 1768c9d: Glance 输入框增加单槽暂存：快捷键收起/拿回，边框提示未取回内容，同一会话的 /reload 与 resume 后空框自动倒回。
+
 ## 0.7.0
 
 ### Minor Changes

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.1
+
+### Patch Changes
+
+- 1768c9d: Keep the aggregate Tools ledger on the host session when Explore or another in-process session starts, and stop treating thinking as mid-turn narration or a final answer.
+- 1768c9d: Render the in-progress aggregate Tools note as Markdown, keeping the three-line pin.
+- 1768c9d: Keep a blank row between the aggregate user prompt and a direct final answer, and only drop it when a Tools ledger is already providing that gap.
+- 1768c9d: Remove the Thinking label that rewrote stored reasoning text. Existing `transcript.thinkingLabel` settings are dropped.
+
 ## 0.8.0
 
 ### Minor Changes

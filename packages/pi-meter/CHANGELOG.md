@@ -1,5 +1,16 @@
 # @zhcsyncer/pi-meter
 
+## 0.1.1
+
+### Patch Changes
+
+- 1768c9d: Consolidate local summary, quota visibility, and used/remaining display under `/usage footer`, and remove the former direct setting arguments.
+- 1768c9d: Idle TUI sessions pick up shared quota and local spend from disk on a slow timer, without calling subscription APIs.
+- 1768c9d: Show Ollama Cloud remaining in `/usage quota` and the footer for `ollama-cloud` models.
+- 1768c9d: Open `/usage quota` in a temporary TUI dashboard so the report does not remain in the chat transcript.
+- 1768c9d: Summarize unsigned-in quota providers at the bottom of `/usage quota` instead of treating each missing login as a warning.
+- 1768c9d: Show a muted "no quota window" hint in the footer when the current model has no subscription remaining.
+
 ## 0.1.0
 
 ### Minor Changes
