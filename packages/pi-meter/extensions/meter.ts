@@ -20,7 +20,7 @@ import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts
 import { chromeWindow } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import type { QuotaStoreFile } from "../src/quota/types.ts";
-import { QUOTA_PROVIDERS } from "../src/quota/types.ts";
+import { QUOTA_PROVIDERS, quotaProviderTitle } from "../src/quota/types.ts";
 
 const WIDGET_KEY = "zhcsyncer-pi-meter";
 const VALID_SCOPES: BudgetLimit["scope"][] = ["global", "session", "project"];
@@ -262,7 +262,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 		const snapshots = QUOTA_PROVIDERS.map((id) => quota?.providers[id]).filter((item): item is NonNullable<typeof item> => item !== undefined);
 		const missing = QUOTA_PROVIDERS.filter((id) => !quota?.providers[id]).map((id) => ({
 			provider: id,
-			title: id === "claude" ? "Claude" : id === "codex" ? "OpenAI Codex" : "SuperGrok",
+			title: quotaProviderTitle(id),
 			windows: [],
 			fetchedAt: 0,
 			ok: false,
@@ -373,7 +373,7 @@ async function pickUsageMenu(ctx: ExtensionContext): Promise<UsageMenuChoice | n
 		"Usage",
 		[
 			{ value: "dashboard", label: "Dashboard", description: "Local ledger by model / project / session" },
-			{ value: "quota", label: "Quota", description: "Subscription remaining for Claude, Codex, and SuperGrok" },
+			{ value: "quota", label: "Quota", description: "Subscription remaining for Claude, Codex, SuperGrok, and Ollama Cloud" },
 			{ value: "footer", label: "Local summary", description: "What local usage the footer shows" },
 			{ value: "budget", label: "Budgets", description: "View local token/cost reminders" },
 			{ value: "import", label: "Import history", description: "Back-fill from session JSONL" },
@@ -469,7 +469,7 @@ function printHelp(notify: Notify): void {
 			"  /usage [today|week|month|6months|year|all]",
 			"      Local ledger dashboard with tokens plus input / output / cache.",
 			"  /usage quota [refresh|used|remaining|on|off]",
-			"      Subscription remaining for Claude, Codex, and SuperGrok.",
+			"      Subscription remaining for Claude, Codex, SuperGrok, and Ollama Cloud.",
 			"  /usage footer [today-spend|today-tokens|today-cost|budget|model|off]",
 			"      Choose the local usage summary.",
 			"  /usage import         Back-fill from session JSONL (idempotent).",

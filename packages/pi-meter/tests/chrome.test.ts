@@ -5,6 +5,7 @@ import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { quotaWindowKind, renderStatusText } from "../src/chrome/widget.ts";
 import { computeFooterStats, renderLocalFooter } from "../src/ledger/footer.ts";
 import type { AggRow } from "../src/ledger/types.ts";
+import { OLLAMA_API_KEY_ERROR } from "../src/quota/auth.ts";
 import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const theme = {
@@ -94,6 +95,21 @@ describe("status chrome", () => {
 	it("labels Claude 5h and Codex week windows", () => {
 		expect(quotaWindowKind({ id: "session", label: "Session (5h)" })).toBe("5h");
 		expect(quotaWindowKind({ id: "main-primary", label: "Week limit" })).toBe("week");
+	});
+
+	it("renders an Ollama session window without a reset countdown", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "ollama-cloud/glm", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "ollama",
+				stale: false,
+				window: { id: "session", label: "Session (5h)", usedPercent: 72 },
+			},
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· today 12.4k $0.18 · 5h left █░░░░ 28%");
+		expect(plain).not.toContain("(");
 	});
 
 	it("names an unsupported provider instead of a foreign quota bar", () => {
@@ -213,5 +229,17 @@ describe("usage panel", () => {
 			windows: [{ id: "session", label: "Session (5h)", usedPercent: 70 }],
 		})];
 		expect(usageSeverity(low, "remaining")).toBe("warning");
+	});
+
+	it("treats a missing Ollama Cloud API key as unsigned-in", () => {
+		const snapshots = [snapshot({
+			provider: "ollama",
+			title: "Ollama Cloud",
+			ok: false,
+			error: OLLAMA_API_KEY_ERROR,
+		})];
+		const panel = renderUsagePanel(snapshots, "remaining");
+		expect(panel).toBe("Not signed in: Ollama Cloud — run /login");
+		expect(usageSeverity(snapshots, "remaining")).toBe("info");
 	});
 });

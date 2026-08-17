@@ -25,7 +25,13 @@ afterEach(() => {
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown | Promise<unknown>;
 
-function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile?: string; model?: { provider?: string; id?: string } } = {}) {
+function harness(options: {
+	hasUI?: boolean;
+	mode?: "tui" | "print";
+	sessionFile?: string;
+	model?: { provider?: string; id?: string };
+	getApiKeyForProvider?: (provider: string) => Promise<string | undefined>;
+} = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
 	const widgets = new Map<string, { content: unknown; placement?: string }>();
@@ -49,7 +55,9 @@ function harness(options: { hasUI?: boolean; mode?: "tui" | "print"; sessionFile
 		mode: options.mode ?? (options.hasUI ? "tui" : "print"),
 		cwd: "/work",
 		model: options.model ?? { provider: "xai", id: "grok-4" },
-		modelRegistry: { getApiKeyForProvider: async () => undefined },
+		modelRegistry: {
+			getApiKeyForProvider: options.getApiKeyForProvider ?? (async () => undefined),
+		},
 		sessionManager: {
 			getSessionFile: () => options.sessionFile,
 			getSessionId: () => "sess",
@@ -297,6 +305,65 @@ describe("extension runtime", () => {
 		expect(statuses.get("pi-meter")).toContain("today");
 		expect(statuses.get("pi-meter")).not.toContain("no quota window");
 		expect(statuses.get("pi-meter")).not.toContain("ollama");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("shows Ollama Cloud session remaining in the footer after a refresh", async () => {
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"ollama-cloud": { type: "api_key", key: "stored-but-not-used" },
+		})}\n`);
+		const fetchSpy = vi.fn(async (url: string) => {
+			if (String(url).includes("ollama.com/api/usage")) {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({ limits: { session: { usage: 0.72 }, weekly: { usage: 0.1 } }, plan: "pro" }),
+				};
+			}
+			return { ok: false, status: 401, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchSpy);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama-cloud", id: "glm-5.2" },
+			getApiKeyForProvider: async (provider) => provider === "ollama-cloud" ? "ollama-live-key" : undefined,
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("agent_settled")?.[0]?.({ type: "agent_settled" }, ctx);
+		const footer = statuses.get("pi-meter");
+		expect(footer).toContain("today");
+		expect(footer).toContain("5h left");
+		expect(footer).toContain("28%");
+		expect(footer).not.toContain("(");
+		expect(footer).not.toContain("no quota window");
+		expect(fetchSpy).toHaveBeenCalledWith(
+			expect.stringContaining("ollama.com/api/usage"),
+			expect.anything(),
+		);
+		expect(JSON.stringify(statuses)).not.toContain("ollama-live-key");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("treats a missing Ollama Cloud key as unsigned-in on /usage quota", async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "ollama-cloud", id: "glm-5.2" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("quota", ctx);
+		const last = notifications.at(-1);
+		expect(last?.type).toBe("info");
+		expect(last?.message).toMatch(/Not signed in:.*Ollama Cloud.*run \/login/);
+		expect(last?.message).not.toContain("no Ollama Cloud API key");
+		expect(fetchSpy).not.toHaveBeenCalled();
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 });

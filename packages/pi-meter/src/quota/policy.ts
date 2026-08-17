@@ -1,5 +1,5 @@
 import type { QuotaProviderId, QuotaRefreshDecision, QuotaSnapshot, QuotaStoreFile } from "./types.ts";
-import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS } from "./types.ts";
+import { QUOTA_MIN_INTERVAL_MS, QUOTA_PROVIDERS, QUOTA_TTL_MS } from "./types.ts";
 
 export function emptyQuotaStore(now = Date.now(), ttlMs = QUOTA_TTL_MS, minIntervalMs = QUOTA_MIN_INTERVAL_MS): QuotaStoreFile {
 	return {
@@ -70,8 +70,8 @@ export function withStaleFlags(store: QuotaStoreFile, now: number, ttlMs = store
 
 export function chromeWindow(store: QuotaStoreFile, preferred?: QuotaProviderId): QuotaWindowView | undefined {
 	const order: QuotaProviderId[] = preferred
-		? [preferred, ...(["claude", "codex", "supergrok"] as const).filter((id) => id !== preferred)]
-		: ["claude", "codex", "supergrok"];
+		? [preferred, ...QUOTA_PROVIDERS.filter((id) => id !== preferred)]
+		: [...QUOTA_PROVIDERS];
 	for (const id of order) {
 		const snapshot = store.providers[id];
 		if (snapshot?.ok && snapshot.primary) {

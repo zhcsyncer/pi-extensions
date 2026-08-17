@@ -1,5 +1,6 @@
 import { displayedPercent, formatResetLong, quotaTone } from "./format.ts";
 import type { QuotaPolarity } from "../config.ts";
+import { OLLAMA_API_KEY_ERROR } from "../quota/auth.ts";
 import type { QuotaSnapshot, QuotaWindow } from "../quota/types.ts";
 
 function bar(usedPercent: number, polarity: QuotaPolarity, width = 10): string {
@@ -11,6 +12,7 @@ function bar(usedPercent: number, polarity: QuotaPolarity, width = 10): string {
 const UNSIGNED_IN_ERRORS = new Set([
 	"no subscription OAuth credentials — run /login",
 	"no snapshot yet",
+	OLLAMA_API_KEY_ERROR,
 ]);
 
 function isUnsignedIn(snapshot: QuotaSnapshot): boolean {
