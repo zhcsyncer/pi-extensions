@@ -128,7 +128,8 @@ pending / running / success / failed / needsAttention
 - agent settled 后最终 done 保留 1.5 秒再收起；
 - 新工具出现会取消旧的 settled 计时；
 - done 仅是实时 UI 状态，历史重建不恢复；
-- 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开。
+- 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开；
+- 没有 Tools 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
 
 ### 错误
 

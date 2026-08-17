@@ -583,6 +583,17 @@ export class AggregateProjection {
 		return this.groups;
 	}
 
+	hasPaintedToolsLedger(message?: unknown): boolean {
+		const turnId = aggregateAssistantTurnId(message);
+		if (turnId) {
+			for (const group of this.groups) {
+				if (group.agentTurnIds.includes(turnId)) return Boolean(group.leaderToolCallId);
+			}
+		}
+		const active = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		return Boolean(active?.leaderToolCallId);
+	}
+
 	getMember(toolCallId: string): AggregateMember | undefined {
 		return this.membersById.get(toolCallId);
 	}

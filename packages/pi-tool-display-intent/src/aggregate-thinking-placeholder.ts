@@ -266,9 +266,12 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 		if (trimmed.length === 0) return [];
 		if (!interim) {
-			// Pi prefixes visible assistant text with Spacer(1). Drop that so it
-			// does not stack with the Tools ledger's trailing blank.
-			return visibleText(next[0] ?? "") === "" ? next.slice(1) : next;
+			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
+			// Put that gap back after the user prompt; leave it off when a Tools
+			// ledger already supplied the trailing blank.
+			const stackedOnTools = projection?.hasPaintedToolsLedger(this.lastMessage) === true;
+			if (stackedOnTools) return next;
+			return visibleText(next[0] ?? "") === "" ? next : ["", ...next];
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);

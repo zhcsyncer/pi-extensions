@@ -61,7 +61,7 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 		const withText = withTextLines.join("\n");
 		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
-		assert.notEqual(withTextLines[0], "");
+		assert.equal(withTextLines[0], "");
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
@@ -116,6 +116,52 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 
 		expandable.setExpanded(false);
 		assert.deepEqual(component.render(100), []);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("a direct final answer keeps a blank row under the user prompt", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-direct-final");
+		const message = assistant([
+			{ type: "text", text: "就是：换地方画 Tools，上面照样空一行。" },
+		], { id: "assistant-direct-final", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const rendered = createComponent(message, true).render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /换地方画 Tools/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("a final answer after Tools does not stack a second blank on the ledger", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection((toolName) =>
+		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-after-tools");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-tools" }));
+		projection.markStarted("read-1", "read", { path: "a.ts" });
+		const message = assistant([
+			{ type: "text", text: "对照完了。" },
+		], { id: "assistant-after-tools", stopReason: "stop" });
+		projection.ingestAssistantMessage(message);
+		const rendered = createComponent(message, true).render(100);
+		assert.notEqual(rendered[0], "");
+		assert.match(rendered.join("\n"), /对照完了/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
