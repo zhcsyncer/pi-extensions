@@ -1,5 +1,5 @@
-export const INPUT_STASH_PRIMARY_SHORTCUT = "ctrl+s";
-export const INPUT_STASH_SECONDARY_SHORTCUT = "ctrl+q";
+export const INPUT_STASH_PRIMARY_SHORTCUT = "ctrl+shift+s";
+export const INPUT_STASH_SECONDARY_SHORTCUT = "ctrl+shift+u";
 export const INPUT_STASH_CONFIRM_WINDOW_MS = 1500;
 export const INPUT_STASH_PREVIEW_LIMIT = 24;
 export const INPUT_STASH_STATUS_KEY = "pi-glance.input-stash";

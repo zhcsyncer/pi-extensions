@@ -28,8 +28,8 @@ assertReadmeIncludes("`main↓N`", "README should document the behind-main marke
 assertReadmeIncludes("`Behind main`", "README should document the behind-main setting");
 assertReadmeIncludes("or upstream `↓N` is already showing that same lag", "README should hide main↓N when upstream behind already covers origin/main");
 assertReadmeIncludes("`/diff` hands the terminal to optional", "README should document the primary review entrypoint");
-assertReadmeIncludes("`Ctrl+S` stashes or restores", "README should document the editor stash shortcut");
-assertReadmeIncludes("`Ctrl+Q` discards the stash after a second press", "README should document the discard shortcut");
+assertReadmeIncludes("`Ctrl+Shift+S` stashes or restores", "README should document the editor stash shortcut");
+assertReadmeIncludes("`Ctrl+Shift+U` discards the stash after a second press", "README should document the discard shortcut");
 assertReadmeIncludes("Confirm prompts appear under the editor", "README should document the clearable confirm prompt");
 assertReadmeIncludes("The left border shows a short mark", "README should document the unrestored-draft border mark");
 assertReadmeIncludes("Reloading or resuming the same session restores it automatically if the editor is empty", "README should document empty-editor restore after reload/resume");
@@ -63,8 +63,8 @@ assert.ok(readmeZh.includes("`main↓N`"), "Chinese README should document the b
 assert.ok(readmeZh.includes("`Behind main`"), "Chinese README should document the behind-main setting");
 assert.ok(readmeZh.includes("上游 `↓N` 已经在报同一件事时不显示"), "Chinese README should hide main↓N when upstream behind already covers origin/main");
 assert.ok(readmeZh.includes("只回填编辑器供你确认"), "Chinese README should document annotation confirmation behavior");
-assert.ok(readmeZh.includes("`Ctrl+S` 收起或拿回"), "Chinese README should document the editor stash shortcut");
-assert.ok(readmeZh.includes("`Ctrl+Q` 连按两次丢掉"), "Chinese README should document the discard shortcut");
+assert.ok(readmeZh.includes("`Ctrl+Shift+S` 收起或拿回"), "Chinese README should document the editor stash shortcut");
+assert.ok(readmeZh.includes("`Ctrl+Shift+U` 连按两次丢掉"), "Chinese README should document the discard shortcut");
 assert.ok(readmeZh.includes("确认提示出现在输入框下方"), "Chinese README should document the clearable confirm prompt");
 assert.ok(readmeZh.includes("左边框会挂一个短标记"), "Chinese README should document the unrestored-draft border mark");
 assert.ok(readmeZh.includes("输入框是空的会自动倒回"), "Chinese README should document empty-editor restore after reload/resume");
