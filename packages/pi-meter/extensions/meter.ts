@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readLocalQuotaCache, STATUS_CACHE_POLL_MS } from "../src/chrome/status-cache.ts";
 import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
 import { loadMeterConfig, parseQuotaVisibleArg, saveMeterConfig, type MeterConfig } from "../src/config.ts";
@@ -18,7 +19,6 @@ import { parseWindowArg, sessionIdFrom } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { chromeWindow } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
-import { loadQuotaStore } from "../src/quota/store.ts";
 import type { QuotaStoreFile } from "../src/quota/types.ts";
 import { QUOTA_PROVIDERS } from "../src/quota/types.ts";
 
@@ -42,6 +42,10 @@ export default function piMeter(pi: ExtensionAPI): void {
 	let quota: QuotaStoreFile | undefined;
 	let session: SessionBits = { sessionId: "ephemeral", cwd: "" };
 	let conflictWarned = false;
+	let chromeClosed = false;
+	let hasStatus = false;
+	let lastStatusText: string | undefined;
+	let statusPoll: ReturnType<typeof setInterval> | undefined;
 
 	async function ensureReady(ctx: ExtensionContext): Promise<void> {
 		session = {
@@ -60,7 +64,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 			if (loaded.migration) notify(ctx, loaded.migration, "info");
 			if (loaded.warning) notify(ctx, loaded.warning, "warning");
 		}
-		if (!quota) quota = await loadQuotaStore(agentDir, {
+		if (!quota) quota = await readLocalQuotaCache(agentDir, {
 			ttlMs: config.quota.snapshotTtlMs,
 			minIntervalMs: config.quota.minRefreshIntervalMs,
 		});
@@ -124,19 +128,52 @@ export default function piMeter(pi: ExtensionAPI): void {
 		if (fired.length > 0) await store.markWarned(fired);
 	}
 
+	function stopStatusPoll(): void {
+		if (statusPoll === undefined) return;
+		clearInterval(statusPoll);
+		statusPoll = undefined;
+	}
+
+	function startStatusPoll(ctx: ExtensionContext): void {
+		stopStatusPoll();
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
+		const timer = setInterval(() => syncChromeFromLocalCache(ctx), STATUS_CACHE_POLL_MS);
+		timer.unref?.();
+		statusPoll = timer;
+	}
+
+	async function syncChromeFromLocalCache(ctx: ExtensionContext): Promise<void> {
+		if (chromeClosed || ctx.mode !== "tui" || !ctx.hasUI) return;
+		try {
+			await ensureReady(ctx);
+			if (chromeClosed || !config) return;
+			quota = await readLocalQuotaCache(agentDir, {
+				ttlMs: config.quota.snapshotTtlMs,
+				minIntervalMs: config.quota.minRefreshIntervalMs,
+			});
+			await renderChrome(ctx);
+		} catch {
+			// Idle polls must not surface disk races from another session.
+		}
+	}
+
 	async function renderChrome(ctx: ExtensionContext): Promise<void> {
-		if (ctx.mode !== "tui" || !ctx.hasUI || !store || !config) return;
-		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		if (chromeClosed || ctx.mode !== "tui" || !ctx.hasUI || !store || !config) return;
 		const records = await store.readAll();
 		const limits = (await store.loadBudgets()).limits;
 		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits));
 		const preferred = preferredProvider(ctx.model);
 		const view = config.footer.quota && quota ? chromeWindow(quota, preferred) : undefined;
-		ctx.ui.setStatus(STATUS_KEY, renderStatusText({
+		const text = renderStatusText({
 			local,
 			quota: view,
 			polarity: config.quota.polarity,
-		}, ctx.ui.theme));
+		}, ctx.ui.theme);
+		if (hasStatus && text === lastStatusText) return;
+		hasStatus = true;
+		lastStatusText = text;
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		ctx.ui.setStatus(STATUS_KEY, text);
 	}
 
 	async function maybeRefreshQuota(ctx: ExtensionContext, force = false): Promise<void> {
@@ -158,12 +195,20 @@ export default function piMeter(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		chromeClosed = false;
+		hasStatus = false;
+		lastStatusText = undefined;
 		await ensureReady(ctx);
 		warnUsageConflict(ctx);
 		await renderChrome(ctx);
+		startStatusPoll(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		chromeClosed = true;
+		stopStatusPoll();
+		hasStatus = false;
+		lastStatusText = undefined;
 		if (ctx.mode === "tui") {
 			ctx.ui.setWidget(WIDGET_KEY, undefined);
 			ctx.ui.setStatus(STATUS_KEY, undefined);

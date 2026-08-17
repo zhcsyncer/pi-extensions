@@ -127,6 +127,7 @@ describe("extension runtime", () => {
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		expect(widgets.size).toBe(0);
 		expect(statuses.get("pi-meter")).toContain("today");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
 	it("writes footer local and quota visibility into one config.json", async () => {
@@ -151,6 +152,7 @@ describe("extension runtime", () => {
 		expect(JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"))).toMatchObject({
 			footer: { local: "today-tokens", quota: false },
 		});
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
 	it("migrates analytics/usage.jsonl and folds footer.json into config.json", async () => {
@@ -167,5 +169,64 @@ describe("extension runtime", () => {
 		const loaded = await loadMeterConfig(agentDir);
 		expect(loaded.config.footer.local).toBe("today-tokens");
 		expect(() => readFileSync(join(legacy, "footer.json"))).toThrow();
+	});
+
+	it("idle TUI status follows another session's local cache without calling APIs", async () => {
+		const polls: Array<() => unknown> = [];
+		vi.spyOn(globalThis, "setInterval").mockImplementation((fn) => {
+			polls.push(fn as () => unknown);
+			return Object.assign(1, { unref() {} }) as unknown as ReturnType<typeof setInterval>;
+		});
+		vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {});
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		const writeQuota = (usedPercent: number, fetchedAt = Date.now()) => {
+			writeFileSync(paths.quotaFile, `${JSON.stringify({
+				version: 1,
+				ttlMs: 60_000,
+				minIntervalMs: 30_000,
+				providers: {
+					supergrok: {
+						provider: "supergrok",
+						title: "SuperGrok",
+						primary: { id: "weekly", label: "Weekly credits", usedPercent, resetsAt: "2026-08-17T16:55:31.897Z" },
+						windows: [{ id: "weekly", label: "Weekly credits", usedPercent, resetsAt: "2026-08-17T16:55:31.897Z" }],
+						fetchedAt,
+						ok: true,
+					},
+				},
+				lastAttemptAt: { supergrok: fetchedAt },
+			})}\n`);
+		};
+		writeQuota(51);
+		const { STATUS_CACHE_POLL_MS } = await import("../src/chrome/status-cache.ts");
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(statuses.get("pi-meter")).toContain("49%");
+		expect(statuses.get("pi-meter")).not.toContain("stale");
+		expect(setInterval).toHaveBeenCalledWith(expect.any(Function), STATUS_CACHE_POLL_MS);
+		expect(polls).toHaveLength(1);
+
+		writeQuota(80);
+		writeFileSync(paths.usageFile, `${JSON.stringify([Date.now(), "other", "/p", "xai/grok-4", 12400, 0, 0, 0, 12400, 0.18, 1])}\n`);
+		await polls[0]?.();
+		expect(statuses.get("pi-meter")).toContain("today 12.4k $0.18");
+		expect(statuses.get("pi-meter")).toContain("20%");
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		writeQuota(90, Date.now() - 120_000);
+		await polls[0]?.();
+		expect(statuses.get("pi-meter")).toContain("10%");
+		expect(statuses.get("pi-meter")).toContain("stale");
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+		writeQuota(5);
+		await polls[0]?.();
+		expect(statuses.has("pi-meter")).toBe(false);
 	});
 });

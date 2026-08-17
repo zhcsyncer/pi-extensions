@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseClaudeUsage } from "../src/quota/adapters/claude.ts";
 import { parseCodexUsage } from "../src/quota/adapters/codex.ts";
 import { parseSuperGrokBilling } from "../src/quota/adapters/supergrok.ts";
+import { readLocalQuotaCache } from "../src/chrome/status-cache.ts";
 import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot } from "../src/quota/policy.ts";
 import { refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import { sanitizeQuotaError } from "../src/quota/sanitize.ts";
+import { saveQuotaStore } from "../src/quota/store.ts";
 import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const now = Date.parse("2026-08-15T12:00:00Z");
@@ -60,6 +62,17 @@ describe("refreshQuotaSnapshots", () => {
 		mkdirSync(join(dir, "extension-data", "pi-meter"), { recursive: true });
 		return dir;
 	}
+
+	it("rereads a shared snapshot and only marks stale locally", async () => {
+		const dir = agentDir();
+		await saveQuotaStore(putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			fetchedAt: now - 120_000,
+		})), dir);
+		const cached = await readLocalQuotaCache(dir, { ttlMs: 60_000, minIntervalMs: 30_000 }, now);
+		expect(cached.providers.supergrok).toMatchObject({ ok: true, stale: true, fetchedAt: now - 120_000 });
+	});
 
 	it("does not call subscription APIs without UI", async () => {
 		const fetchers = {
