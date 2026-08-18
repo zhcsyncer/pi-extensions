@@ -24,5 +24,9 @@ The root release type must be at least as high as the highest child release type
 Describe the user-visible change.
 ```
 
+One changeset has a single body, copied verbatim into every listed package
+changelog. Only list packages that share that same user-visible story. If a
+sibling change is a different story for its own users, write a second changeset.
+
 A root-only release is allowed. CI enforces this directional relationship with
 `scripts/check-release-policy.mjs`.
