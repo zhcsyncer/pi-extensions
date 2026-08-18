@@ -15,6 +15,42 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Any change under `packages/`, `providers/`, `scripts/`, or `.github/workflows/` still runs the current full check.
   - Hitchhike on the next feature PR; do not open a dedicated change for this.
 
+## `@zhcsyncer/pi-glance`
+
+- [ ] **Expand the composer when a large paste lands**
+
+  Claude Code grows the input as soon as a large / multi-line paste arrives, so the pasted text is immediately editable. Glance stays at the configured 2–4 min rows, so a bulky paste stays cramped.
+
+  Acceptance criteria:
+
+  - A continuous large or multi-line paste expands the editor to show the pasted content for editing, without a separate expand action.
+  - Ordinary single-line typing keeps the compact composer.
+  - Stash mark, status line, and border chrome still fit after the grow.
+
+## `@zhcsyncer/pi-tool-display-intent`
+
+- [ ] **Drop configurable visual styles; always use the Claude / aggregate look**
+
+  Individual `toolCalls.style`, boxed-user, and related visual toggles are leftover now that aggregate already defines the look.
+
+  Acceptance criteria:
+
+  - The default path renders only the Claude Code / aggregate visual language.
+  - Style / boxed-user controls leave the TUI and example config, or become inert and migrate away.
+  - Aggregate and individual no longer diverge in chrome style.
+
+- [ ] **Simplify the command surface; decide whether one command can toggle layout and reload**
+
+  Today `/tool-display-intent` opens a large inspector, and layout changes require a manual `/reload`.
+
+  Open decision: one command switches `aggregate` ↔ `individual` and triggers reload for the user.
+
+  Acceptance criteria (after the decision):
+
+  - Daily layout switching does not require remembering a layout subcommand plus `/reload`.
+  - The remaining command surface matches whatever settings still exist after the style simplification.
+  - Reload runs only when the layout actually needs a new tool-registration pass.
+
 ## Next root bundle release
 
 - [x] Refresh the root bundle and Search Hub documentation before the next release of `@zhcsyncer/pi-extensions`.
