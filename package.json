@@ -114,7 +114,7 @@
     "version-packages": "changeset version",
     "release": "changeset publish",
     "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:fast-mode && pnpm check:smoke && pnpm check:pack",
-    "check:release-policy": "node --test scripts/release-policy.test.mjs scripts/npm-bootstrap.test.mjs scripts/check-smoke.test.mjs && node scripts/check-release-policy.mjs",
+    "check:release-policy": "node --test scripts/release-policy.test.mjs scripts/npm-bootstrap.test.mjs scripts/check-smoke.test.mjs scripts/ci-scope.test.mjs && node scripts/check-release-policy.mjs",
     "check:recap": "pnpm --filter @zhcsyncer/pi-recap check",
     "check:fast-mode": "pnpm --filter @zhcsyncer/pi-fast-mode check",
     "check:smoke": "node scripts/check-smoke.mjs",

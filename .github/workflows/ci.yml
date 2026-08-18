@@ -22,21 +22,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Decide whether full package check is needed
+        id: scope
+        env:
+          CI_SCOPE_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.sha }}
+        run: node scripts/ci-scope.mjs
+
+      - name: Skip full package check
+        if: steps.scope.outputs.full != 'true'
+        run: echo "Only internal docs changed; validate stays green without pnpm check."
+
       - name: Prepare Changesets base branch
-        if: github.event_name == 'pull_request'
+        if: steps.scope.outputs.full == 'true' && github.event_name == 'pull_request'
         run: git fetch origin main:main
 
       - name: Set up pnpm
+        if: steps.scope.outputs.full == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Set up Node.js
+        if: steps.scope.outputs.full == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.scope.outputs.full == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Validate packages
+        if: steps.scope.outputs.full == 'true'
         run: pnpm check

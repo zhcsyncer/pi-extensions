@@ -2,6 +2,47 @@
 
 Repository-level follow-up work that should remain discoverable across sessions.
 
+## Next merge (drive-by)
+
+- [x] **Keep required `validate` green on docs-only PRs without running the full package check**
+
+  The `validate` job still starts so branch protection can pass. Internal docs (`AGENTS.md`, `BACKLOG.md`, `RELEASING.md`, `docs/**`, `.changeset/README.md`) skip `pnpm install` + `pnpm check`. User-facing READMEs, changesets, scripts, and workflows still run the full check.
+
+## `@zhcsyncer/pi-glance`
+
+- [ ] **Expand the composer when a large paste lands**
+
+  Claude Code grows the input as soon as a large / multi-line paste arrives, so the pasted text is immediately editable. Glance stays at the configured 2–4 min rows, so a bulky paste stays cramped.
+
+  Acceptance criteria:
+
+  - A continuous large or multi-line paste expands the editor to show the pasted content for editing, without a separate expand action.
+  - Ordinary single-line typing keeps the compact composer.
+  - Stash mark, status line, and border chrome still fit after the grow.
+
+## `@zhcsyncer/pi-tool-display-intent`
+
+- [ ] **Drop configurable visual styles; always use the Claude / aggregate look**
+
+  Individual `toolCalls.style`, boxed-user, and related visual toggles are leftover now that aggregate already defines the look.
+
+  Acceptance criteria:
+
+  - The default path renders only the Claude Code / aggregate visual language.
+  - Style / boxed-user controls leave the TUI and example config, or become inert and migrate away.
+  - Aggregate and individual no longer diverge in chrome style.
+
+- [ ] **Replace `/tool-display-intent` with `/tools` that only switches layout**
+
+  Layout still has to reload because it rebuilds tool schemas and renderer shells. Pi already exposes `ctx.reload()`. A binary switch does not need a settings inspector or leftover `show` / `reset` / `mode` / `preset` subcommands.
+
+  Acceptance criteria:
+
+  - Command name is `/tools`. It only toggles aggregate ↔ individual.
+  - Confirm that the session will reload, then save and `await ctx.reload(); return`.
+  - Cancel leaves the previous layout on disk and does not reload.
+  - Drop the settings inspector and all other subcommands.
+
 ## Next root bundle release
 
 - [x] Refresh the root bundle and Search Hub documentation before the next release of `@zhcsyncer/pi-extensions`.
