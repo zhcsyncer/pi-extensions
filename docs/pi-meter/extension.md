@@ -9,7 +9,7 @@
 - 两套账分开：`message_end` → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
 - 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
 - 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`（临时看板，不留在聊天记录里）。
-- 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要只显示紧凑的今日总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
+- 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要默认显示过去 24 小时的总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
 - 订阅刷新只在 `hasUI` 根会话的 `agent_settled` / `/usage quota` / `model_select`；TTL 60s + 最小间隔 30s。无 UI 进程只记本地账。
 - SuperGrok：`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` + `/login xai`。不打 `api.x.ai/v1/api-key`，不接 grok.com gRPC。
 - Ollama Cloud 是第四家订阅窗口，跟 Claude / Codex / SuperGrok 并列，不进本地账本。
@@ -49,11 +49,11 @@
 
 - `/usage`：本地看板。维度仍是 model / project / session；列能看到 tokens 总量和 in / out / cache 拆分。
 - `/usage quota`：临时看板看 Claude、Codex、SuperGrok、Ollama Cloud 的窗口百分比和重置时间；未登录的提供商收成底部一条淡提示，不逐条警告。
-- `/usage footer`：本地摘要、配额显隐、已用/剩余都收在这里，不再用直接参数。
-- 当前模型没有订阅窗口时，底栏给一条淡提示，不假装有额度。
+- `/usage footer`：本地摘要、滚动/日历窗口、配额显隐、已用/剩余都收在这里，不再用直接参数。
+- 底栏只画当前模型对应的那一家套餐。画不出来就短提示，绝不借别人的额度。
 - 空闲 TUI 只从磁盘慢刷共享快照和本地花费，不再打订阅 API。
 - 常驻 chrome 与 Glance **完全独立**：不改 Glance、不占用其右下角、不改其顶栏 Tokens。Glance 在场时，meter 是输入框外多出来的一行。
-- 套餐条极性可选「已用」或「剩余」。本地摘要只显示紧凑的今日总量/费用。
+- 套餐条极性可选「已用」或「剩余」。本地摘要默认显示紧凑的过去 24 小时总量/费用。
 - `/usage budget`：本地上限提醒，不拦请求。预算警告可以闪一下，不占常驻条。
 - `--no-session`、默认内存 sub-agent：只要扩展加载进该进程，用量进独立账本。
 - 旧 session 可选 `/usage import` 回填；装好之后的新用量不靠 import。
@@ -62,10 +62,10 @@
 
 不改 Glance，不读 Glance 配置，不往 Glance 右下角塞东西。Glance 的 context 条和顶栏 Tokens 继续只讲 session/context；meter 讲订阅窗口和本地账本。
 
-常驻面改走一段 footer `setStatus`（key `pi-meter`），不占 widget 整行。窗口语义写在数字前面：`today` 是本地今天花费，`week left` / `5h left` 是当前订阅窗口。
+常驻面改走一段 footer `setStatus`（key `pi-meter`），不占 widget 整行。窗口语义写在数字前面：`24h` / `today` 是本地花费，`xai week left` / `5h left` 是当前模型那一家的订阅窗口。
 
 ```text
-· today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
+· 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
 ```
 
 窄了先丢掉总量/费用，最后留套餐条 + 百分比。
@@ -79,7 +79,7 @@
 
 颜色锚在「还剩多少」，不要两套阈值：剩得多用 muted/普通色，剩余降到约 30% warning（amber），约 15% error（软红）。已用模式只是把同一根条反过来读。
 
-SuperGrok 本机已验证的主窗口是周池 `creditUsagePercent`。Build / Chat 是同一周池的产品拆分，不单独展示。
+SuperGrok 本机已验证的主窗口是周池。账单 JSON 有 `config` 但没有数字型 `creditUsagePercent` 时，当成已用 0% / 剩余 100%，照常画周窗。只有认不出 `config` 才算失败。Build / Chat 是同一周池的产品拆分，不单独展示。
 
 ## 心智模型
 

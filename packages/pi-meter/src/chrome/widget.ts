@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { QuotaPolarity } from "../config.ts";
 import type { QuotaWindowView } from "../quota/policy.ts";
+import { quotaProviderBrand } from "../quota/types.ts";
 import { displayedPercent, formatResetShort, quotaTone, renderQuotaBar } from "./format.ts";
 
 export const STATUS_KEY = "pi-meter";
@@ -30,7 +31,7 @@ function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date
 	const reset = formatResetShort(quota.window.resetsAt, now);
 	const stale = quota.stale ? " stale" : "";
 	return {
-		label: `${kind} ${verb}`,
+		label: `${quotaProviderBrand(quota.provider)} ${kind} ${verb}`,
 		value: `${renderQuotaBar(quota.window.usedPercent, polarity)} ${percent}%${reset ? ` (${reset})` : ""}${stale}`,
 		tone: quotaTone(quota.window.usedPercent),
 	};

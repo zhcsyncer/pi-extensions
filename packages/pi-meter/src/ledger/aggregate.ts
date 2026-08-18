@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { AggRow, Dimension, UsageRecord, WindowKey } from "./types.ts";
-import { windowStartMs } from "./time.ts";
+import { windowStartMs, type LedgerWindowMode } from "./time.ts";
 
 export function dimensionKey(dim: Dimension, rec: UsageRecord): { key: string; label: string } {
 	switch (dim) {
@@ -33,8 +33,9 @@ export function aggregate(
 	window: WindowKey,
 	dim: Dimension,
 	now: Date = new Date(),
+	windowMode: LedgerWindowMode = "rolling",
 ): AggRow[] {
-	const start = windowStartMs(window, now);
+	const start = windowStartMs(window, now, windowMode);
 	const map = new Map<string, AggRow>();
 	for (const rec of records) {
 		if (rec.ts < start) continue;
@@ -73,6 +74,10 @@ export function sumRows(rows: readonly AggRow[]): AggRow {
 	);
 }
 
-export function sumToday(records: readonly UsageRecord[], now: Date = new Date()): AggRow {
-	return sumRows(aggregate(records, "today", "model", now));
+export function sumToday(
+	records: readonly UsageRecord[],
+	now: Date = new Date(),
+	windowMode: LedgerWindowMode = "rolling",
+): AggRow {
+	return sumRows(aggregate(records, "today", "model", now, windowMode));
 }

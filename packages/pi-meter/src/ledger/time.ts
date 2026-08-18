@@ -2,11 +2,37 @@ import type { Period, WindowKey } from "./types.ts";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+export type LedgerWindowMode = "rolling" | "calendar";
+
+export function parseLedgerWindowMode(value: unknown): LedgerWindowMode | undefined {
+	return value === "rolling" || value === "calendar" ? value : undefined;
+}
+
 export function pad2(n: number): string {
 	return n < 10 ? `0${n}` : String(n);
 }
 
-export function windowStartMs(window: WindowKey, now: Date = new Date()): number {
+export function windowStartMs(
+	window: WindowKey,
+	now: Date = new Date(),
+	mode: LedgerWindowMode = "rolling",
+): number {
+	if (mode === "rolling") {
+		switch (window) {
+			case "today":
+				return now.getTime() - DAY_MS;
+			case "week":
+				return now.getTime() - 7 * DAY_MS;
+			case "month":
+				return now.getTime() - 30 * DAY_MS;
+			case "6months":
+				return now.getTime() - 180 * DAY_MS;
+			case "year":
+				return now.getTime() - 365 * DAY_MS;
+			case "all":
+				return 0;
+		}
+	}
 	switch (window) {
 		case "today":
 			return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();

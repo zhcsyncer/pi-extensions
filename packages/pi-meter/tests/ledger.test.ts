@@ -59,6 +59,16 @@ describe("usage capture", () => {
 });
 
 describe("aggregation", () => {
+	it("counts rolling windows from now and calendar windows from local midnights", () => {
+		const now = new Date(2026, 7, 15, 18, 0, 0);
+		const yesterdayEvening = rec({ ts: new Date(2026, 7, 14, 20, 0, 0).getTime(), tot: 100, cost: 0.5 });
+		const thisMorning = rec({ ts: new Date(2026, 7, 15, 10, 0, 0).getTime(), tot: 50, cost: 0.2 });
+		const lastWeek = rec({ ts: new Date(2026, 7, 10, 12, 0, 0).getTime(), tot: 200, cost: 0.1 });
+		const records = [yesterdayEvening, thisMorning, lastWeek];
+		expect(sumRows(aggregate(records, "today", "model", now, "rolling")).tokens).toBe(150);
+		expect(sumRows(aggregate(records, "today", "model", now, "calendar")).tokens).toBe(50);
+	});
+
 	it("keeps input / output / cache read / cache write instead of only total", () => {
 		const rows = aggregate([
 			rec(),
@@ -142,6 +152,15 @@ describe("local budgets", () => {
 		expect(status.exceeded).toBe(false);
 		expect(budgetKey(limit, now)).toContain("cost");
 	});
+
+	it("keeps budget periods on the calendar when the ledger is rolling", () => {
+		const now = new Date(2026, 7, 15, 18, 0, 0);
+		const yesterday = rec({ ts: new Date(2026, 7, 14, 20, 0, 0).getTime(), cost: 0.5 });
+		const today = rec({ ts: now.getTime(), cost: 0.2 });
+		const limit = { scope: "global" as const, period: "day" as const, metric: "cost" as const, max: 1 };
+		const status = statusForLimit([yesterday, today], limit, now, "sess-1");
+		expect(status.current).toBe(0.2);
+	});
 });
 
 describe("config parsing", () => {
@@ -165,6 +184,12 @@ describe("config parsing", () => {
 			quotaPolarity: "used",
 		});
 		expect(parsed.footer.quota).toEqual({ visible: true, polarity: "remaining" });
+	});
+
+	it("defaults ledger.windowMode to rolling and accepts calendar", () => {
+		expect(parseMeterConfig({}).ledger.windowMode).toBe("rolling");
+		expect(parseMeterConfig({ ledger: { windowMode: "calendar" } }).ledger.windowMode).toBe("calendar");
+		expect(parseMeterConfig({ ledger: { windowMode: "sideways" } }).ledger.windowMode).toBe("rolling");
 	});
 });
 

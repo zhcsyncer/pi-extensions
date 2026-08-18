@@ -1,6 +1,7 @@
 import { aggregate, sumToday } from "./aggregate.ts";
 import { statusForLimit } from "./budget.ts";
 import { fmtCompactCost, fmtCompactTokens, fmtCost } from "./format.ts";
+import { windowStartMs, type LedgerWindowMode } from "./time.ts";
 import type { AggRow, BudgetLimit, UsageRecord } from "./types.ts";
 
 export type FooterLocal = "today-spend" | "today-tokens" | "today-cost" | "budget" | "model" | "off";
@@ -36,10 +37,19 @@ export function parseFooterPreset(value: unknown): FooterLocal | undefined {
 	return parseFooterLocal(value);
 }
 
-export function computeFooterStats(records: readonly UsageRecord[], limits: readonly BudgetLimit[], now = new Date()): FooterStats {
-	const today = sumToday(records, now);
-	const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-	const top = aggregate(records, "today", "model", now)[0];
+export function localWindowLabel(windowMode: LedgerWindowMode): string {
+	return windowMode === "calendar" ? "today" : "24h";
+}
+
+export function computeFooterStats(
+	records: readonly UsageRecord[],
+	limits: readonly BudgetLimit[],
+	now = new Date(),
+	windowMode: LedgerWindowMode = "rolling",
+): FooterStats {
+	const today = sumToday(records, now, windowMode);
+	const start = windowStartMs("today", now, windowMode);
+	const top = aggregate(records, "today", "model", now, windowMode)[0];
 	let budget: FooterStats["budget"] = null;
 	for (const limit of limits) {
 		const status = statusForLimit(records, limit, now, "");
@@ -61,29 +71,34 @@ export function computeFooterStats(records: readonly UsageRecord[], limits: read
 	};
 }
 
-export function renderLocalFooter(preset: FooterLocal, stats: FooterStats): string | undefined {
+export function renderLocalFooter(
+	preset: FooterLocal,
+	stats: FooterStats,
+	windowMode: LedgerWindowMode = "rolling",
+): string | undefined {
+	const when = localWindowLabel(windowMode);
 	switch (preset) {
 		case "off":
 			return undefined;
 		case "today-spend":
-			return todayLine(stats.today);
+			return todayLine(stats.today, when);
 		case "today-tokens":
-			return stats.today.tokens > 0 ? `today ${fmtCompactTokens(stats.today.tokens)}` : undefined;
+			return stats.today.tokens > 0 ? `${when} ${fmtCompactTokens(stats.today.tokens)}` : undefined;
 		case "today-cost":
 			return stats.today.costKnown && stats.today.cost > 0
-				? `today ${fmtCompactCost(stats.today.cost) ?? fmtCost(stats.today.cost)}`
+				? `${when} ${fmtCompactCost(stats.today.cost) ?? fmtCost(stats.today.cost)}`
 				: undefined;
 		case "budget":
 			return stats.budget ? budgetLine(stats.budget) : undefined;
 		case "model":
-			return stats.topModel ? `today ${shortModel(stats.topModel)} · ${stats.todayTurns} turns` : undefined;
+			return stats.topModel ? `${when} ${shortModel(stats.topModel)} · ${stats.todayTurns} turns` : undefined;
 	}
 }
 
-function todayLine(today: AggRow): string {
+function todayLine(today: AggRow, when: string): string {
 	const tokens = fmtCompactTokens(today.tokens);
 	const cost = today.costKnown ? fmtCompactCost(today.cost) : undefined;
-	return cost ? `today ${tokens} ${cost}` : `today ${tokens}`;
+	return cost ? `${when} ${tokens} ${cost}` : `${when} ${tokens}`;
 }
 
 function budgetLine(budget: NonNullable<FooterStats["budget"]>): string {

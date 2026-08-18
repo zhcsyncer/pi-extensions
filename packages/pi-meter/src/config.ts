@@ -2,9 +2,11 @@ import { unlink } from "node:fs/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writeFileAtomically, isRecord, pathExists, readTextFile } from "./fs.ts";
 import { FOOTER_LOCALS, parseFooterLocal, type FooterLocal } from "./ledger/footer.ts";
+import { parseLedgerWindowMode, type LedgerWindowMode } from "./ledger/time.ts";
 import { getMeterPaths } from "./paths.ts";
 
 export type QuotaPolarity = "used" | "remaining";
+export type { LedgerWindowMode };
 
 export interface MeterConfig {
 	footer: {
@@ -17,6 +19,9 @@ export interface MeterConfig {
 	quota: {
 		snapshotTtlMs: number;
 		minRefreshIntervalMs: number;
+	};
+	ledger: {
+		windowMode: LedgerWindowMode;
 	};
 }
 
@@ -31,6 +36,9 @@ export const DEFAULT_METER_CONFIG: MeterConfig = {
 	quota: {
 		snapshotTtlMs: 60_000,
 		minRefreshIntervalMs: 30_000,
+	},
+	ledger: {
+		windowMode: "rolling",
 	},
 };
 
@@ -66,6 +74,7 @@ export function parseMeterConfig(value: unknown, extras: { footerLocal?: unknown
 		?? parseFooterLocal(extras.footerLocal)
 		?? parseFooterLocal(record.footerPreset)
 		?? DEFAULT_METER_CONFIG.footer.local;
+	const ledger = isRecord(record.ledger) ? record.ledger : {};
 	return {
 		footer: {
 			local,
@@ -80,6 +89,9 @@ export function parseMeterConfig(value: unknown, extras: { footerLocal?: unknown
 		quota: {
 			snapshotTtlMs: asPositiveInt(quota.snapshotTtlMs ?? record.snapshotTtlMs, DEFAULT_METER_CONFIG.quota.snapshotTtlMs),
 			minRefreshIntervalMs: asPositiveInt(quota.minRefreshIntervalMs ?? record.minRefreshIntervalMs, DEFAULT_METER_CONFIG.quota.minRefreshIntervalMs),
+		},
+		ledger: {
+			windowMode: parseLedgerWindowMode(ledger.windowMode) ?? DEFAULT_METER_CONFIG.ledger.windowMode,
 		},
 	};
 }

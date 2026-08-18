@@ -49,3 +49,16 @@ export function quotaProviderTitle(id: QuotaProviderId): string {
 			return "Ollama Cloud";
 	}
 }
+
+export function quotaProviderBrand(id: QuotaProviderId): string {
+	switch (id) {
+		case "claude":
+			return "claude";
+		case "codex":
+			return "openai";
+		case "supergrok":
+			return "xai";
+		case "ollama":
+			return "ollama";
+	}
+}

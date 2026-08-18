@@ -8,7 +8,8 @@ import { fetchOllamaQuota, OLLAMA_USAGE_URL, parseOllamaUsage } from "../src/quo
 import { parseSuperGrokBilling } from "../src/quota/adapters/supergrok.ts";
 import { readLocalQuotaCache } from "../src/chrome/status-cache.ts";
 import { OLLAMA_API_KEY_ERROR } from "../src/quota/auth.ts";
-import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot } from "../src/quota/policy.ts";
+import { QUOTA_UNSIGNED_OAUTH_ERROR } from "../src/quota/auth.ts";
+import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot, resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import { sanitizeQuotaError } from "../src/quota/sanitize.ts";
 import { saveQuotaStore } from "../src/quota/store.ts";
@@ -47,6 +48,31 @@ describe("refresh policy", () => {
 		expect(decideRefresh(store, "claude", now, { force: true })).toMatchObject({ refresh: true, reason: "forced" });
 		store = markAttempt(store, "claude", now - 5_000);
 		expect(decideRefresh(store, "claude", now, { force: true })).toMatchObject({ refresh: false, reason: "min-interval" });
+	});
+
+	it("does not treat a failed snapshot as fresh", () => {
+		let store = emptyQuotaStore(now);
+		store = putSnapshot(store, snapshot({
+			ok: false,
+			error: "HTTP 500",
+			fetchedAt: now - 90_000,
+			primary: undefined,
+			windows: [],
+		}));
+		expect(decideRefresh(store, "claude", now)).toMatchObject({ refresh: true, reason: "expired" });
+	});
+
+	it("does not let an unsigned snapshot's lastAttemptAt block the next pull", () => {
+		let store = emptyQuotaStore(now);
+		store = putSnapshot(store, snapshot({
+			ok: false,
+			error: QUOTA_UNSIGNED_OAUTH_ERROR,
+			fetchedAt: now - 1_000,
+			primary: undefined,
+			windows: [],
+		}), { recordAttempt: false });
+		store = markAttempt(store, "claude", now - 5_000);
+		expect(decideRefresh(store, "claude", now)).toMatchObject({ refresh: true });
 	});
 });
 
@@ -101,6 +127,7 @@ describe("refreshQuotaSnapshots", () => {
 			agentDir(),
 			{
 				now,
+				hasCredential: () => true,
 				fetchers: {
 					claude: async () => {
 						throw new Error("Bearer eyJabc exploded");
@@ -136,6 +163,7 @@ describe("refreshQuotaSnapshots", () => {
 			dir,
 			{
 				now,
+				hasCredential: () => true,
 				fetchers: {
 					claude: async (_ctx, fetchedAt = now) => ({
 						provider: "claude",
@@ -178,6 +206,7 @@ describe("refreshQuotaSnapshots", () => {
 		const claude = vi.fn(async (_ctx, fetchedAt = now) => snapshot({ fetchedAt }));
 		await refreshQuotaSnapshots({ hasUI: true, modelRegistry: {} as never }, dir, {
 			now,
+			hasCredential: () => true,
 			fetchers: {
 				claude,
 				codex: async () => snapshot({ provider: "codex", fetchedAt: now }),
@@ -188,9 +217,33 @@ describe("refreshQuotaSnapshots", () => {
 		expect(claude).toHaveBeenCalledTimes(1);
 		await refreshQuotaSnapshots({ hasUI: true, modelRegistry: {} as never }, dir, {
 			now: now + 10_000,
+			hasCredential: () => true,
 			fetchers: { claude, codex: vi.fn(), supergrok: vi.fn(), ollama: vi.fn() },
 		});
 		expect(claude).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not call fetchers or getApiKeyForProvider when auth.json has no credentials", async () => {
+		const getApiKeyForProvider = vi.fn(async () => "should-not-be-used");
+		const fetchers = {
+			claude: vi.fn(),
+			codex: vi.fn(),
+			supergrok: vi.fn(),
+			ollama: vi.fn(),
+		};
+		const result = await refreshQuotaSnapshots(
+			{ hasUI: true, modelRegistry: { getApiKeyForProvider } as never },
+			agentDir(),
+			{ now, fetchers, hasCredential: () => false },
+		);
+		expect(result.fetched).toEqual([]);
+		expect(getApiKeyForProvider).not.toHaveBeenCalled();
+		expect(fetchers.claude).not.toHaveBeenCalled();
+		expect(fetchers.codex).not.toHaveBeenCalled();
+		expect(fetchers.supergrok).not.toHaveBeenCalled();
+		expect(fetchers.ollama).not.toHaveBeenCalled();
+		expect(result.store.providers.claude).toMatchObject({ ok: false, error: QUOTA_UNSIGNED_OAUTH_ERROR });
+		expect(result.store.lastAttemptAt.claude).toBeUndefined();
 	});
 });
 
@@ -210,6 +263,25 @@ describe("provider parsers", () => {
 		expect(parsed.ok).toBe(true);
 		expect(parsed.primary).toMatchObject({ id: "weekly", usedPercent: 51, resetsAt: "2026-08-17T16:55:31.897Z" });
 		expect(parsed.windows).toEqual([parsed.primary]);
+	});
+
+	it("treats a recognizable SuperGrok config without creditUsagePercent as 0% used", () => {
+		const parsed = parseSuperGrokBilling({
+			config: {
+				currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-08-17T16:55:31.897623+00:00" },
+				billingPeriodEnd: "2026-08-17T16:55:31.897623+00:00",
+			},
+		}, now);
+		expect(parsed.ok).toBe(true);
+		expect(parsed.error).toBeUndefined();
+		expect(parsed.primary).toMatchObject({ id: "weekly", usedPercent: 0, resetsAt: "2026-08-17T16:55:31.897Z" });
+	});
+
+	it("still fails SuperGrok when the payload has no config object", () => {
+		expect(parseSuperGrokBilling({ creditUsagePercent: 10 }, now)).toMatchObject({
+			ok: false,
+			error: "unexpected response",
+		});
 	});
 
 	it("parses Claude 5h/week windows and Codex used_percent", () => {
@@ -237,6 +309,32 @@ describe("provider parsers", () => {
 	it("maps only ollama-cloud models onto the Ollama quota adapter", () => {
 		expect(preferredProvider({ provider: "ollama-cloud" })).toBe("ollama");
 		expect(preferredProvider({ provider: "ollama" })).toBeUndefined();
+	});
+
+	it("does not fall back to another vendor's quota window in the footer", () => {
+		const store = putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "codex",
+			title: "OpenAI Codex",
+			primary: { id: "week", label: "Week limit", usedPercent: 20 },
+			windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+		}));
+		const failed = putSnapshot(store, snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			ok: false,
+			error: "HTTP 500",
+			primary: undefined,
+			windows: [],
+		}));
+		expect(resolveChromeQuota(failed, "supergrok", { signedIn: true })).toEqual({
+			hint: { label: "xai", value: "unavailable" },
+		});
+		expect(resolveChromeQuota(failed, "supergrok", { signedIn: false })).toEqual({
+			hint: { label: "xai", value: "not signed in" },
+		});
+		expect(resolveChromeQuota(failed, undefined, { modelProvider: "ollama" })).toEqual({
+			hint: { label: "ollama", value: "no quota window" },
+		});
 	});
 
 	it("parses Ollama Cloud session and weekly fractions without a reset time", () => {
