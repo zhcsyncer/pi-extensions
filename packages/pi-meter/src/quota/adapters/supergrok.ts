@@ -21,10 +21,9 @@ export function parseSuperGrokBilling(payload: unknown, fetchedAt: number): Quot
 	}
 	const config = payload.config;
 	const period = isRecord(config.currentPeriod) ? config.currentPeriod : undefined;
-	const usedPercent = typeof config.creditUsagePercent === "number" ? config.creditUsagePercent : undefined;
-	if (usedPercent === undefined) {
-		return { provider: "supergrok", title: "SuperGrok", windows: [], fetchedAt, ok: false, error: "missing creditUsagePercent" };
-	}
+	const usedPercent = typeof config.creditUsagePercent === "number" && Number.isFinite(config.creditUsagePercent)
+		? config.creditUsagePercent
+		: 0;
 	const resetsAt = firstIso(
 		period?.end,
 		period?.endTime,

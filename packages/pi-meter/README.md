@@ -21,17 +21,17 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 
 ## Features
 
-- Footer line for today's local spend next to the current subscription window:
+- Footer line for the last 24 hours of local spend next to the current model's subscription window:
 
   ```text
-  · today 12.4k $0.18 · week left ███░░ 49% (1d 23h)
+  · 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
   ```
 
   ![Meter footer](./assets/demo-meter-status.png)
 
 - Local dashboard by model, project, or session.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider.
-- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. Models with no subscription window show a muted footer hint.
+- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar.
 - Optional local budgets. They warn; they never block requests.
 - Optional one-time import from older session files.
 
@@ -68,7 +68,7 @@ Then restart Pi or run `/reload`. If `@pi-plugins/usage` is already in `settings
 | `/usage` | Menu: dashboard, quota, footer, budgets, import |
 | `/usage quota` | Open the remaining/reset-time dashboard for Claude, Codex, SuperGrok, and Ollama Cloud |
 | `/usage quota refresh` | Refresh subscription windows and open the dashboard |
-| `/usage footer` | Configure the local summary, quota visibility, and used/remaining display |
+| `/usage footer` | Configure the local summary, rolling/calendar window, quota visibility, and used/remaining display |
 | `/usage import` | Back-fill from session files |
 | `/usage budget` | View or add a local budget |
 

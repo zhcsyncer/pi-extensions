@@ -1,5 +1,5 @@
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import type { MeterConfig } from "../config.ts";
+import type { LedgerWindowMode, MeterConfig } from "../config.ts";
 import { FOOTER_LOCALS, renderLocalFooter, type FooterStats } from "../ledger/footer.ts";
 import type { QuotaWindowView } from "../quota/policy.ts";
 import { renderStatusText } from "./widget.ts";
@@ -15,29 +15,35 @@ export interface FooterSettingsPreview {
 	quotaHint?: { label: string; value: string };
 }
 
-type FooterSettings = MeterConfig["footer"];
+export interface FooterEditorValue {
+	footer: MeterConfig["footer"];
+	windowMode: LedgerWindowMode;
+}
 
-const ROWS = ["local", "quota-visible", "quota-polarity"] as const;
+const ROWS = ["local", "quota-visible", "quota-polarity", "window-mode"] as const;
 type RowId = typeof ROWS[number];
 
 export class FooterSettingsDashboard {
 	private cursor = 0;
 	private cachedWidth = -1;
 	private cachedLines: string[] = [];
-	private value: FooterSettings;
+	private value: FooterEditorValue;
 
 	constructor(
-		current: FooterSettings,
+		current: FooterEditorValue,
 		private preview: FooterSettingsPreview,
 		private theme: FooterSettingsTheme,
 	) {
 		this.value = {
-			local: current.local,
-			quota: { ...current.quota },
+			footer: {
+				local: current.footer.local,
+				quota: { ...current.footer.quota },
+			},
+			windowMode: current.windowMode,
 		};
 	}
 
-	public onDone?: (value: FooterSettings) => void;
+	public onDone?: (value: FooterEditorValue) => void;
 
 	handleInput(data: string): void {
 		if (matchesKey(data, Key.escape) || data === "q" || data === "Q") {
@@ -61,10 +67,13 @@ export class FooterSettingsDashboard {
 		if (matchesKey(data, Key.left)) this.cycle(-1);
 	}
 
-	settings(): FooterSettings {
+	settings(): FooterEditorValue {
 		return {
-			local: this.value.local,
-			quota: { ...this.value.quota },
+			footer: {
+				local: this.value.footer.local,
+				quota: { ...this.value.footer.quota },
+			},
+			windowMode: this.value.windowMode,
 		};
 	}
 
@@ -77,10 +86,10 @@ export class FooterSettingsDashboard {
 		const t = this.theme;
 		const safeWidth = Math.max(1, width);
 		const preview = renderStatusText({
-			local: renderLocalFooter(this.value.local, this.preview.stats),
-			quota: this.value.quota.visible ? this.preview.quota : undefined,
-			quotaHint: this.value.quota.visible ? this.preview.quotaHint : undefined,
-			polarity: this.value.quota.polarity,
+			local: renderLocalFooter(this.value.footer.local, this.preview.stats, this.value.windowMode),
+			quota: this.value.footer.quota.visible ? this.preview.quota : undefined,
+			quotaHint: this.value.footer.quota.visible ? this.preview.quotaHint : undefined,
+			polarity: this.value.footer.quota.polarity,
 		}, t as never) ?? "· footer hidden";
 		const rows = ROWS.map((id, index) => this.renderRow(id, index === this.cursor, safeWidth));
 		const selected = ROWS[this.cursor];
@@ -104,16 +113,19 @@ export class FooterSettingsDashboard {
 	private cycle(delta: number): void {
 		switch (ROWS[this.cursor]) {
 			case "local": {
-				const index = FOOTER_LOCALS.findIndex((item) => item.key === this.value.local);
+				const index = FOOTER_LOCALS.findIndex((item) => item.key === this.value.footer.local);
 				const next = (index + delta + FOOTER_LOCALS.length) % FOOTER_LOCALS.length;
-				this.value.local = FOOTER_LOCALS[next]!.key;
+				this.value.footer.local = FOOTER_LOCALS[next]!.key;
 				break;
 			}
 			case "quota-visible":
-				this.value.quota.visible = !this.value.quota.visible;
+				this.value.footer.quota.visible = !this.value.footer.quota.visible;
 				break;
 			case "quota-polarity":
-				this.value.quota.polarity = this.value.quota.polarity === "remaining" ? "used" : "remaining";
+				this.value.footer.quota.polarity = this.value.footer.quota.polarity === "remaining" ? "used" : "remaining";
+				break;
+			case "window-mode":
+				this.value.windowMode = this.value.windowMode === "rolling" ? "calendar" : "rolling";
 				break;
 		}
 		this.invalidate();
@@ -122,12 +134,20 @@ export class FooterSettingsDashboard {
 	private renderRow(id: RowId, selected: boolean, width: number): string {
 		const t = this.theme;
 		const marker = selected ? "▶ " : "  ";
-		const label = id === "local" ? "Local summary" : id === "quota-visible" ? "Quota window" : "Quota display";
-		const value = id === "local"
-			? FOOTER_LOCALS.find((item) => item.key === this.value.local)?.label ?? this.value.local
+		const label = id === "local"
+			? "Local summary"
 			: id === "quota-visible"
-				? this.value.quota.visible ? "On" : "Off"
-				: this.value.quota.polarity === "remaining" ? "Remaining" : "Used";
+				? "Quota window"
+				: id === "quota-polarity"
+					? "Quota display"
+					: "Local window";
+		const value = id === "local"
+			? FOOTER_LOCALS.find((item) => item.key === this.value.footer.local)?.label ?? this.value.footer.local
+			: id === "quota-visible"
+				? this.value.footer.quota.visible ? "On" : "Off"
+				: id === "quota-polarity"
+					? this.value.footer.quota.polarity === "remaining" ? "Remaining" : "Used"
+					: this.value.windowMode === "rolling" ? "Rolling" : "Calendar";
 		const labelText = `${label}${" ".repeat(Math.max(1, 18 - label.length))}`;
 		return truncateToWidth(
 			marker + (selected ? t.fg("accent", t.bold(labelText)) : labelText) + t.fg(selected ? "accent" : "text", value),
@@ -137,8 +157,9 @@ export class FooterSettingsDashboard {
 	}
 
 	private description(id: RowId): string {
-		if (id === "local") return FOOTER_LOCALS.find((item) => item.key === this.value.local)?.description ?? "local usage summary";
+		if (id === "local") return FOOTER_LOCALS.find((item) => item.key === this.value.footer.local)?.description ?? "local usage summary";
 		if (id === "quota-visible") return "show or hide the current model's subscription window";
-		return "show subscription quota as remaining or used";
+		if (id === "quota-polarity") return "show subscription quota as remaining or used";
+		return "count local spend from now backwards, or from calendar midnights. Budgets stay on the calendar.";
 	}
 }

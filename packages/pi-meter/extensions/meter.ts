@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
+import { FooterSettingsDashboard, type FooterEditorValue } from "../src/chrome/footer-settings.ts";
 import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { readLocalQuotaCache, STATUS_CACHE_POLL_MS } from "../src/chrome/status-cache.ts";
 import { renderStatusText, STATUS_KEY } from "../src/chrome/widget.ts";
@@ -17,9 +17,10 @@ import { fmtCompactTokens, fmtCost, fmtNum } from "../src/ledger/format.ts";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { parseSession, diffRecords, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
-import { parseWindowArg, sessionIdFrom } from "../src/ledger/time.ts";
+import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
-import { chromeWindow } from "../src/quota/policy.ts";
+import { hasStoredQuotaCredential } from "../src/quota/auth.ts";
+import { resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import type { QuotaSnapshot, QuotaStoreFile } from "../src/quota/types.ts";
 import { QUOTA_PROVIDERS, quotaProviderTitle } from "../src/quota/types.ts";
@@ -163,20 +164,24 @@ export default function piMeter(pi: ExtensionAPI): void {
 		if (chromeClosed || ctx.mode !== "tui" || !ctx.hasUI || !store || !config) return;
 		const records = await store.readAll();
 		const limits = (await store.loadBudgets()).limits;
-		const local = renderLocalFooter(config.footer.local, computeFooterStats(records, limits));
+		const windowMode = config.ledger.windowMode;
+		const local = renderLocalFooter(
+			config.footer.local,
+			computeFooterStats(records, limits, new Date(), windowMode),
+			windowMode,
+		);
 		const preferred = preferredProvider(ctx.model);
 		const showQuota = config.footer.quota.visible;
-		const view = showQuota && preferred && quota ? chromeWindow(quota, preferred) : undefined;
-		const quotaHint = showQuota && !preferred
-			? {
-				label: ctx.model?.provider?.trim() || "quota n/a",
-				value: "no quota window",
-			}
-			: undefined;
+		const resolved = showQuota
+			? resolveChromeQuota(quota, preferred, {
+				modelProvider: ctx.model?.provider,
+				signedIn: preferred ? hasStoredQuotaCredential(preferred) : false,
+			})
+			: {};
 		const text = renderStatusText({
 			local,
-			quota: view,
-			quotaHint,
+			quota: resolved.view,
+			quotaHint: resolved.hint,
 			polarity: config.footer.quota.polarity,
 		}, ctx.ui.theme);
 		if (hasStatus && text === lastStatusText) return;
@@ -305,10 +310,10 @@ export default function piMeter(pi: ExtensionAPI): void {
 		const window = parseWindowArg(arg);
 		if (window) {
 			if (ctx.mode !== "tui") {
-				printReport(await store!.readAll(), window, ctx.ui.notify);
+				printReport(await store!.readAll(), window, ctx.ui.notify, config!.ledger.windowMode);
 				return;
 			}
-			await openDashboard(window, store!, session, ctx);
+			await openDashboard(window, store!, session, ctx, config!.ledger.windowMode);
 			return;
 		}
 		if (arg.length > 0) {
@@ -316,14 +321,14 @@ export default function piMeter(pi: ExtensionAPI): void {
 			return;
 		}
 		if (ctx.mode !== "tui") {
-			printReport(await store!.readAll(), "today", ctx.ui.notify);
+			printReport(await store!.readAll(), "today", ctx.ui.notify, config!.ledger.windowMode);
 			return;
 		}
 		const choice = await pickUsageMenu(ctx);
 		if (!choice) return;
 		switch (choice) {
 			case "dashboard":
-				await openDashboard("today", store!, session, ctx);
+				await openDashboard("today", store!, session, ctx, config!.ledger.windowMode);
 				break;
 			case "quota":
 				await handleQuota("", ctx);
@@ -389,18 +394,18 @@ async function handleFooter(
 	const records = await store.readAll();
 	const limits = (await store.loadBudgets()).limits;
 	const preferred = preferredProvider(ctx.model);
-	const quotaView = preferred && quota ? chromeWindow(quota, preferred) : undefined;
-	const quotaHint = !preferred
-		? {
-			label: ctx.model?.provider?.trim() || "quota n/a",
-			value: "no quota window",
-		}
-		: undefined;
-	const next = await ctx.ui.custom<MeterConfig["footer"]>((tui, theme, _kb, done) => {
-		const dash = new FooterSettingsDashboard(config.footer, {
-			stats: computeFooterStats(records, limits),
-			quota: quotaView,
-			quotaHint,
+	const resolved = resolveChromeQuota(quota, preferred, {
+		modelProvider: ctx.model?.provider,
+		signedIn: preferred ? hasStoredQuotaCredential(preferred) : false,
+	});
+	const next = await ctx.ui.custom<FooterEditorValue>((tui, theme, _kb, done) => {
+		const dash = new FooterSettingsDashboard({
+			footer: config.footer,
+			windowMode: config.ledger.windowMode,
+		}, {
+			stats: computeFooterStats(records, limits, new Date(), config.ledger.windowMode),
+			quota: resolved.view,
+			quotaHint: resolved.hint,
 		}, {
 			fg: (color, text) => theme.fg(color as never, text),
 			bold: (text) => theme.bold(text),
@@ -416,7 +421,11 @@ async function handleFooter(
 		};
 	});
 	if (!next) return;
-	await persist({ ...config, footer: next }, ctx);
+	await persist({
+		...config,
+		footer: next.footer,
+		ledger: { ...config.ledger, windowMode: next.windowMode },
+	}, ctx);
 }
 
 async function openQuotaDashboard(
@@ -446,6 +455,7 @@ async function openDashboard(
 	store: FileLedgerStore,
 	session: SessionBits,
 	ctx: ExtensionContext,
+	windowMode: MeterConfig["ledger"]["windowMode"],
 ): Promise<void> {
 	const records = await store.readAll();
 	const budgets = (await store.loadBudgets()).limits.map((limit) => statusForLimit(records, limit, new Date(), session.sessionId));
@@ -453,7 +463,7 @@ async function openDashboard(
 		const dash = new Dashboard({ records, budgets }, {
 			fg: (color, text) => theme.fg(color as never, text),
 			bold: (text) => theme.bold(text),
-		}, initial);
+		}, initial, windowMode);
 		dash.onDone = () => done();
 		return {
 			render: (width: number) => dash.render(width),
@@ -489,7 +499,7 @@ function printHelp(notify: Notify): void {
 			"  /usage quota [refresh]",
 			"      Subscription remaining for Claude, Codex, SuperGrok, and Ollama Cloud.",
 			"  /usage footer",
-			"      Configure local summary, quota visibility, and used/remaining display.",
+			"      Configure local summary, rolling/calendar window, quota visibility, and used/remaining display.",
 			"  /usage import         Back-fill from session JSONL (idempotent).",
 			"  /usage budget [add]   View or add a local budget.",
 			"",
@@ -500,10 +510,15 @@ function printHelp(notify: Notify): void {
 	);
 }
 
-function printReport(records: UsageRecord[], window: WindowKey, notify: Notify): void {
-	const out = [`pi-meter — ${window}`];
+function printReport(
+	records: UsageRecord[],
+	window: WindowKey,
+	notify: Notify,
+	windowMode: MeterConfig["ledger"]["windowMode"],
+): void {
+	const out = [`pi-meter — ${windowDisplayLabel(window, windowMode)}`];
 	for (const dim of DIMENSIONS) {
-		const rows = aggregate(records, window, dim.key);
+		const rows = aggregate(records, window, dim.key, new Date(), windowMode);
 		const total = sumRows(rows);
 		out.push(`\nBy ${dim.label}:`);
 		for (const row of rows.slice(0, 10)) {
