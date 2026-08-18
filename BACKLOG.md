@@ -39,17 +39,16 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Style / boxed-user controls leave the TUI and example config, or become inert and migrate away.
   - Aggregate and individual no longer diverge in chrome style.
 
-- [ ] **Simplify the command surface; decide whether one command can toggle layout and reload**
+- [ ] **Switch layout in the settings GUI, confirm, then `ctx.reload()`**
 
-  Today `/tool-display-intent` opens a large inspector, and layout changes require a manual `/reload`.
+  Layout still has to reload because it rebuilds tool schemas and renderer shells. Pi already exposes `ctx.reload()` as the same flow as `/reload`. A dedicated toggle subcommand is unnecessary once the GUI can do this.
 
-  Open decision: one command switches `aggregate` ↔ `individual` and triggers reload for the user.
+  Acceptance criteria:
 
-  Acceptance criteria (after the decision):
-
-  - Daily layout switching does not require remembering a layout subcommand plus `/reload`.
-  - The remaining command surface matches whatever settings still exist after the style simplification.
-  - Reload runs only when the layout actually needs a new tool-registration pass.
+  - `/tool-display-intent` only opens the settings GUI. Drop `layout` / `mode` subcommands for daily switching.
+  - Aggregate vs individual stays as a GUI control. Changing it asks for confirmation that the whole session will reload, then saves and `await ctx.reload(); return`.
+  - Cancel leaves the previous layout on disk and does not reload.
+  - Reload runs only when the layout (or another registration-affecting setting) actually changed.
 
 ## Next root bundle release
 
