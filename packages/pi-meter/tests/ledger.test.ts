@@ -111,6 +111,14 @@ describe("dashboard", () => {
 		expect(text).toContain("5.35B");
 		expect(text).toMatch(/Total/);
 	});
+
+	it("labels rolling windows as last-N, calendar windows as calendar days", async () => {
+		const { Dashboard } = await import("../src/ledger/dashboard.ts");
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+		const data = { records: [rec()], budgets: [] };
+		expect(new Dashboard(data, theme, "today", "rolling").render(80).join("\n")).toContain("Last 24h");
+		expect(new Dashboard(data, theme, "today", "calendar").render(80).join("\n")).toContain("Today");
+	});
 });
 
 describe("session import", () => {

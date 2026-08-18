@@ -8,7 +8,7 @@ import { fetchOllamaQuota, OLLAMA_USAGE_URL, parseOllamaUsage } from "../src/quo
 import { parseSuperGrokBilling } from "../src/quota/adapters/supergrok.ts";
 import { readLocalQuotaCache } from "../src/chrome/status-cache.ts";
 import { OLLAMA_API_KEY_ERROR } from "../src/quota/auth.ts";
-import { QUOTA_UNSIGNED_OAUTH_ERROR } from "../src/quota/auth.ts";
+import { QUOTA_OBSOLETE_SUPERGROK_PERCENT_ERROR, QUOTA_UNSIGNED_OAUTH_ERROR } from "../src/quota/auth.ts";
 import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot, resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import { sanitizeQuotaError } from "../src/quota/sanitize.ts";
@@ -60,6 +60,21 @@ describe("refresh policy", () => {
 			windows: [],
 		}));
 		expect(decideRefresh(store, "claude", now)).toMatchObject({ refresh: true, reason: "expired" });
+	});
+
+	it("refetches an obsolete SuperGrok percent error even inside the min interval", () => {
+		let store = emptyQuotaStore(now);
+		store = putSnapshot(store, snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			ok: false,
+			error: QUOTA_OBSOLETE_SUPERGROK_PERCENT_ERROR,
+			fetchedAt: now - 1_000,
+			primary: undefined,
+			windows: [],
+		}));
+		expect(decideRefresh(store, "supergrok", now)).toMatchObject({ refresh: true });
+		expect(decideRefresh(store, "supergrok", now, { force: true })).toMatchObject({ refresh: true, reason: "forced" });
 	});
 
 	it("does not let an unsigned snapshot's lastAttemptAt block the next pull", () => {
@@ -334,6 +349,23 @@ describe("provider parsers", () => {
 		});
 		expect(resolveChromeQuota(failed, undefined, { modelProvider: "ollama" })).toEqual({
 			hint: { label: "ollama", value: "no quota window" },
+		});
+	});
+
+	it("does not keep a leftover unsigned snapshot after the user signs in", () => {
+		const store = putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			ok: false,
+			error: QUOTA_UNSIGNED_OAUTH_ERROR,
+			primary: undefined,
+			windows: [],
+		}), { recordAttempt: false });
+		expect(resolveChromeQuota(store, "supergrok", { signedIn: true })).toEqual({
+			hint: { label: "xai", value: "unavailable" },
+		});
+		expect(resolveChromeQuota(store, "supergrok", { signedIn: false })).toEqual({
+			hint: { label: "xai", value: "not signed in" },
 		});
 	});
 

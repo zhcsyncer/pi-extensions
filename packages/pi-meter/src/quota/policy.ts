@@ -1,4 +1,4 @@
-import { isUnsignedQuotaSnapshot } from "./auth.ts";
+import { isUnsignedQuotaSnapshot, shouldBypassQuotaMinInterval } from "./auth.ts";
 import type { QuotaProviderId, QuotaRefreshDecision, QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
 import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS, quotaProviderBrand } from "./types.ts";
 
@@ -31,9 +31,9 @@ export function decideRefresh(
 	const minIntervalMs = options.minIntervalMs ?? store.minIntervalMs ?? QUOTA_MIN_INTERVAL_MS;
 	const snapshot = store.providers[provider];
 	const lastAttempt = store.lastAttemptAt[provider];
-	const unsigned = isUnsignedQuotaSnapshot(snapshot);
+	const bypassMinInterval = shouldBypassQuotaMinInterval(snapshot);
 	if (options.force) {
-		if (!unsigned && lastAttempt !== undefined && now - lastAttempt < minIntervalMs) {
+		if (!bypassMinInterval && lastAttempt !== undefined && now - lastAttempt < minIntervalMs) {
 			return { provider, refresh: false, reason: "min-interval" };
 		}
 		return { provider, refresh: true, reason: "forced" };
@@ -41,7 +41,7 @@ export function decideRefresh(
 	if (isSnapshotFresh(snapshot, now, ttlMs)) {
 		return { provider, refresh: false, reason: "fresh" };
 	}
-	if (!unsigned && lastAttempt !== undefined && now - lastAttempt < minIntervalMs) {
+	if (!bypassMinInterval && lastAttempt !== undefined && now - lastAttempt < minIntervalMs) {
 		return { provider, refresh: false, reason: "min-interval" };
 	}
 	return { provider, refresh: true, reason: snapshot ? "expired" : "missing" };
@@ -127,7 +127,9 @@ export function resolveChromeQuota(
 			},
 		};
 	}
-	if (isUnsignedQuotaSnapshot(snapshot)) {
+	// Live auth.json wins. A leftover unsigned snapshot after /login is "unavailable",
+	// not "not signed in".
+	if (options.signedIn !== true && isUnsignedQuotaSnapshot(snapshot)) {
 		return { hint: { label: brand, value: "not signed in" } };
 	}
 	return { hint: { label: brand, value: "unavailable" } };

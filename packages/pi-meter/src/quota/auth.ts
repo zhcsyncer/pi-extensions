@@ -10,6 +10,8 @@ export interface OAuthAccess {
 export const QUOTA_UNSIGNED_OAUTH_ERROR = "no subscription OAuth credentials — run /login";
 export const OLLAMA_API_KEY_ERROR = "no Ollama Cloud API key — set OLLAMA_CLOUD_API_KEY or run /login";
 export const QUOTA_NO_SNAPSHOT_YET = "no snapshot yet";
+/** Old SuperGrok parser; current code treats a missing percent as 0%. */
+export const QUOTA_OBSOLETE_SUPERGROK_PERCENT_ERROR = "missing creditUsagePercent";
 
 const QUOTA_AUTH: Record<QuotaProviderId, { providerId: string; type: "oauth" | "api_key" }> = {
 	claude: { providerId: "anthropic", type: "oauth" },
@@ -30,6 +32,18 @@ export function isUnsignedQuotaError(error: string | undefined): boolean {
 
 export function isUnsignedQuotaSnapshot(snapshot: { ok: boolean; error?: string } | undefined): boolean {
 	return snapshot !== undefined && !snapshot.ok && isUnsignedQuotaError(snapshot.error);
+}
+
+export function isObsoleteQuotaError(error: string | undefined): boolean {
+	return error === QUOTA_OBSOLETE_SUPERGROK_PERCENT_ERROR;
+}
+
+export function isObsoleteQuotaSnapshot(snapshot: { ok: boolean; error?: string } | undefined): boolean {
+	return snapshot !== undefined && !snapshot.ok && isObsoleteQuotaError(snapshot.error);
+}
+
+export function shouldBypassQuotaMinInterval(snapshot: { ok: boolean; error?: string } | undefined): boolean {
+	return isUnsignedQuotaSnapshot(snapshot) || isObsoleteQuotaSnapshot(snapshot);
 }
 
 export function hasStoredQuotaCredential(provider: QuotaProviderId): boolean {

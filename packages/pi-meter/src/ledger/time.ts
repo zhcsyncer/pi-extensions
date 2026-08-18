@@ -8,6 +8,39 @@ export function parseLedgerWindowMode(value: unknown): LedgerWindowMode | undefi
 	return value === "rolling" || value === "calendar" ? value : undefined;
 }
 
+export function windowDisplayLabel(window: WindowKey, mode: LedgerWindowMode = "rolling"): string {
+	if (mode === "rolling") {
+		switch (window) {
+			case "today":
+				return "Last 24h";
+			case "week":
+				return "Last 7 days";
+			case "month":
+				return "Last 30 days";
+			case "6months":
+				return "Last 6 months";
+			case "year":
+				return "Last 365 days";
+			case "all":
+				return "All Time";
+		}
+	}
+	switch (window) {
+		case "today":
+			return "Today";
+		case "week":
+			return "This Week";
+		case "month":
+			return "This Month";
+		case "6months":
+			return "Last 6 Months";
+		case "year":
+			return "This Year";
+		case "all":
+			return "All Time";
+	}
+}
+
 export function pad2(n: number): string {
 	return n < 10 ? `0${n}` : String(n);
 }

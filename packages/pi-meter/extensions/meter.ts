@@ -17,7 +17,7 @@ import { fmtCompactTokens, fmtCost, fmtNum } from "../src/ledger/format.ts";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { parseSession, diffRecords, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
-import { parseWindowArg, sessionIdFrom } from "../src/ledger/time.ts";
+import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { hasStoredQuotaCredential } from "../src/quota/auth.ts";
 import { resolveChromeQuota } from "../src/quota/policy.ts";
@@ -516,7 +516,7 @@ function printReport(
 	notify: Notify,
 	windowMode: MeterConfig["ledger"]["windowMode"],
 ): void {
-	const out = [`pi-meter — ${window}`];
+	const out = [`pi-meter — ${windowDisplayLabel(window, windowMode)}`];
 	for (const dim of DIMENSIONS) {
 		const rows = aggregate(records, window, dim.key, new Date(), windowMode);
 		const total = sumRows(rows);

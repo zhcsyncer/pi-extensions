@@ -2,7 +2,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import { aggregate, dimensionKey, sumRows } from "./aggregate.ts";
 import { DIMENSIONS, WINDOWS } from "./enums.ts";
 import { fmtBar, fmtCompactTokens, fmtCost, fmtNum, padRight } from "./format.ts";
-import type { LedgerWindowMode } from "./time.ts";
+import { windowDisplayLabel, type LedgerWindowMode } from "./time.ts";
 import type { AggRow, BudgetStatus, Dimension, UsageRecord, WindowKey } from "./types.ts";
 
 export interface DashboardData {
@@ -134,7 +134,7 @@ export class Dashboard {
 		const lines: string[] = [];
 		lines.push(t.fg("accent", t.bold(`pi-meter — ${dim.label} usage`)));
 		const crumb = this.filters.length > 0 ? this.filters.map((filter) => filter.label).join(" ▸ ") : "—";
-		lines.push(t.fg("muted", `window: ${win.label}  •  ${fmtNum(rows.length)} ${dim.label.toLowerCase()}(s)  •  filter: ${crumb}`));
+		lines.push(t.fg("muted", `window: ${windowDisplayLabel(win.key, this.windowMode)}  •  ${fmtNum(rows.length)} ${dim.label.toLowerCase()}(s)  •  filter: ${crumb}`));
 		lines.push("");
 		if (rows.length === 0) {
 			lines.push(t.fg("dim", "No usage recorded in this window" + (this.filters.length ? " for this filter" : "") + "."));
