@@ -2,6 +2,19 @@
 
 Repository-level follow-up work that should remain discoverable across sessions.
 
+## Next merge (drive-by)
+
+- [ ] **Keep required `validate` green on docs-only PRs without running the full package check**
+
+  GitHub `paths` / `paths-ignore` skip the whole workflow, so a required `validate` check stays Expected and the PR cannot merge. GitLab `rules:changes` can skip a job and still satisfy the pipeline.
+
+  Acceptance criteria:
+
+  - The job named `validate` still starts on every pull request and push to `main`.
+  - Markdown / docs-only diffs exit successfully without `pnpm install` + `pnpm check`.
+  - Any change under `packages/`, `providers/`, `scripts/`, or `.github/workflows/` still runs the current full check.
+  - Hitchhike on the next feature PR; do not open a dedicated change for this.
+
 ## Next root bundle release
 
 - [x] Refresh the root bundle and Search Hub documentation before the next release of `@zhcsyncer/pi-extensions`.
