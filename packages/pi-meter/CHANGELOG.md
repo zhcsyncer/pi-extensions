@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-meter
 
+## 0.2.0
+
+### Minor Changes
+
+- c7bf6cf: Show SuperGrok at 0% used when the weekly percent is omitted, keep the footer on the current model's quota only, and let `/usage footer` switch local spend between rolling and calendar windows.
+
 ## 0.1.1
 
 ### Patch Changes
