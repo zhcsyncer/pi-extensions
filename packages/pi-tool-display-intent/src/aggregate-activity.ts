@@ -349,12 +349,16 @@ function renderNarrationMarkdownLines(text: string, width: number): string[] {
 	return wrapped.length > 0 ? wrapped : [text];
 }
 
-function colorSteerMark(theme: AggregateRenderTheme): string {
+function colorSteerText(theme: AggregateRenderTheme, text: string): string {
 	try {
-		return theme.fg("accent", AGGREGATE_STEER_MARK);
+		return theme.fg("accent", text);
 	} catch {
-		return AGGREGATE_STEER_MARK;
+		return text;
 	}
+}
+
+export function formatAggregateSteerCount(count: number): string {
+	return `${count} ${count === 1 ? "steer" : "steers"}`;
 }
 
 export function renderCollapsedSteerPins(
@@ -364,10 +368,29 @@ export function renderCollapsedSteerPins(
 ): string[] {
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 	if (safeWidth === 0 || steers.length === 0) return [];
-	const mark = colorSteerMark(theme);
 	return steers.map((steer) =>
-		truncateToWidth(`  ${mark} ${steer.firstLine}`, safeWidth, "…"),
+		truncateToWidth(
+			`  ${colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${steer.firstLine}`)}`,
+			safeWidth,
+			"…",
+		),
 	);
+}
+
+export function renderSettledSteerReminder(
+	steerCount: number,
+	width: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || steerCount <= 0) return [];
+	return [
+		truncateToWidth(
+			`  ${colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${formatAggregateSteerCount(steerCount)}`)}`,
+			safeWidth,
+			"…",
+		),
+	];
 }
 
 export function renderExpandedAggregateSteer(
@@ -380,8 +403,12 @@ export function renderExpandedAggregateSteer(
 	while (lines.length > 0 && !lines[0]!.trim()) lines.shift();
 	while (lines.length > 0 && !lines[lines.length - 1]!.trim()) lines.pop();
 	const body = lines.length > 0 ? lines : [""];
-	const mark = colorSteerMark(theme);
-	const marked = body.map((line, index) => index === 0 ? `${mark} ${line}` : line);
+	const marked = [
+		"",
+		...body.map((line, index) =>
+			index === 0 ? colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${line}`) : line),
+		"",
+	];
 	return applyAggregateGroupFrame(marked, width, theme, edge);
 }
 
@@ -1456,8 +1483,7 @@ export function renderAggregateActivity(
 	const callTurn = ` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"}`;
 	let totals = theme.fg("muted", callTurn);
 	if ((view.steerCount ?? 0) > 0) {
-		const label = view.steerCount === 1 ? "steer" : "steers";
-		let steer = ` · ${view.steerCount} ${label}`;
+		let steer = ` · ${formatAggregateSteerCount(view.steerCount)}`;
 		try {
 			steer = theme.fg("accent", steer);
 		} catch {
@@ -1474,15 +1500,17 @@ export function renderAggregateActivity(
 	}
 
 	const lines = [truncateToWidth(header, safeWidth, "…")];
+	if (view.settled) {
+		lines.push(...renderSettledSteerReminder(view.steerCount ?? 0, safeWidth, theme));
+	} else {
+		lines.push(...renderCollapsedSteerPins(view.pinnedSteers ?? [], safeWidth, theme));
+	}
 	const stats = formatAggregateStatsLine(view);
 	if (stats) {
 		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
 	}
-	if (!view.settled) {
-		lines.push(...renderCollapsedSteerPins(view.pinnedSteers ?? [], safeWidth, theme));
-		if (view.latestNarration) {
-			lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
-		}
+	if (!view.settled && view.latestNarration) {
+		lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
 	}
 	for (const row of view.displayRows) {
 		if (row.state === "success") {

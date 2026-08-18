@@ -18,6 +18,7 @@ import {
 	renderAggregateActivity,
 	renderAggregateMemberRow,
 	renderCollapsedAssistantNarration,
+	renderExpandedAggregateSteer,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
 
@@ -428,7 +429,7 @@ test("multiple steers pin first lines in arrival order", () => {
 	);
 });
 
-test("settling clears pinned steers but keeps the header count", () => {
+test("settling replaces first-line pins with one steer reminder", () => {
 	const startedAt = Date.parse("2026-04-08T14:30:00");
 	const endedAt = Date.parse("2026-04-08T14:32:14");
 	const projection = createProjection();
@@ -460,8 +461,25 @@ test("settling clears pinned steers but keeps the header count", () => {
 	assert.equal(view?.durationMs, endedAt - startedAt);
 	const rendered = renderAggregateActivity(view!, 160, plainTheme());
 	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn · 2 steers\)/);
-	assert.doesNotMatch(rendered.join("\n"), /↳|先确定方案|不要改 grok/);
+	assert.equal(rendered[1], "  ↳ 2 steers");
+	assert.doesNotMatch(rendered.join("\n"), /先确定方案|不要改 grok/);
 	assert.match(rendered.join("\n"), /took 2m14s/);
+	assert.ok(
+		rendered.findIndex((line) => line.includes("↳ 2 steers"))
+			< rendered.findIndex((line) => line.includes("took 2m14s")),
+	);
+});
+
+test("expanded steer rows highlight the first line and keep framed gaps", () => {
+	const rendered = renderExpandedAggregateSteer("先确定方案\n后面还有一段", 80, {
+		fg: (color, text) => color === "accent" ? `[accent]${text}` : text,
+	});
+	assert.equal(rendered.length, 4);
+	assert.match(rendered[0] ?? "", /│\s*$/);
+	assert.match(rendered[1] ?? "", /│.*\[accent\]↳ 先确定方案/);
+	assert.match(rendered[2] ?? "", /│.*后面还有一段/);
+	assert.doesNotMatch(rendered[2] ?? "", /\[accent\]/);
+	assert.match(rendered[3] ?? "", /[│└]\s*$/);
 });
 
 test("a follow-up after a final assistant starts a new Tools group", () => {

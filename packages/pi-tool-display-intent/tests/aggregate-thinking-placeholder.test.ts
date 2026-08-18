@@ -362,12 +362,18 @@ test("expanded timeline keeps a steer between tools and later narration", () => 
 
 		const firstNarration = firstAssistant.render(100).join("\n");
 		const readRow = read.render(100).join("\n");
-		const steerRow = steer.render(100).join("\n");
+		const steerLines = steer.render(100);
+		const steerRow = steerLines.join("\n");
 		const secondNarration = secondAssistant.render(100).join("\n");
 		const editRow = edit.render(100).join("\n");
 		assert.match(firstNarration, /│.*›.*先读 README/);
 		assert.match(readRow, /│.*Read\(README\.md\)/);
-		assert.match(steerRow, /│.*↳.*先确定方案/);
+		assert.equal(steerLines.length, 3);
+		assert.match(steerLines[0] ?? "", /│/);
+		assert.doesNotMatch(steerLines[0] ?? "", /↳|›|✓/);
+		assert.match(steerLines[1] ?? "", /│.*↳.*先确定方案/);
+		assert.match(steerLines[2] ?? "", /│/);
+		assert.doesNotMatch(steerLines[2] ?? "", /↳|›|✓/);
 		assert.doesNotMatch(steerRow, /▎/);
 		assert.match(secondNarration, /│.*›.*按新约束改/);
 		assert.match(editRow, /└.*Edit\(README\.md\)/);
