@@ -68,10 +68,11 @@ pi install npm:@zhcsyncer/pi-extensions
   ◐ Bash(pnpm test)
 
 ✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
+  ↳ 2 steers
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。`Ctrl+O` 展开原时间线，不倾倒文件内容或 diff。图片和 `Agent` 仍用原 renderer。切回：`/tool-display-intent layout individual` 再 `/reload`。
+进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，不倾倒文件内容或 diff。图片和 `Agent` 仍用原 renderer。切回：`/tool-display-intent layout individual` 再 `/reload`。
 
 Aggregate 固定用左侧强调色细杠的用户行。
 

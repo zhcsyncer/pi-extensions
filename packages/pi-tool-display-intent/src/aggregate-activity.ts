@@ -35,6 +35,12 @@ export interface AggregateUsageTotals {
 	cacheWrite: number;
 }
 
+export interface AggregateSteer {
+	id: string;
+	text: string;
+	firstLine: string;
+}
+
 export interface AggregateGroup {
 	groupId: string;
 	leaderToolCallId?: string;
@@ -43,6 +49,8 @@ export interface AggregateGroup {
 	narrationById: Map<string, string>;
 	agentTurnIds: string[];
 	usageByKey: Map<string, AggregateUsageTotals>;
+	steers: AggregateSteer[];
+	hasSeenToolBatch: boolean;
 	settled: boolean;
 	startedAtMs?: number;
 	endedAtMs?: number;
@@ -72,6 +80,8 @@ export interface AggregateActivityView {
 	activeOverflow: number;
 	failed: AggregateMember[];
 	failedCount: number;
+	steerCount: number;
+	pinnedSteers: Array<{ id: string; firstLine: string }>;
 	toolSummaries: AggregateToolSummary[];
 }
 
@@ -125,6 +135,7 @@ const ACTIVE_ROW_LIMIT = 3;
 const AGGREGATE_FRAME_CONTINUE = "  │ ";
 const AGGREGATE_FRAME_END = "  └ ";
 export const AGGREGATE_ASSISTANT_MARK = "›";
+export const AGGREGATE_STEER_MARK = "↳";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
 const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
@@ -338,6 +349,69 @@ function renderNarrationMarkdownLines(text: string, width: number): string[] {
 	return wrapped.length > 0 ? wrapped : [text];
 }
 
+function colorSteerText(theme: AggregateRenderTheme, text: string): string {
+	try {
+		return theme.fg("accent", text);
+	} catch {
+		return text;
+	}
+}
+
+export function formatAggregateSteerCount(count: number): string {
+	return `${count} ${count === 1 ? "steer" : "steers"}`;
+}
+
+export function renderCollapsedSteerPins(
+	steers: ReadonlyArray<{ firstLine: string }>,
+	width: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || steers.length === 0) return [];
+	return steers.map((steer) =>
+		truncateToWidth(
+			`  ${colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${steer.firstLine}`)}`,
+			safeWidth,
+			"…",
+		),
+	);
+}
+
+export function renderSettledSteerReminder(
+	steerCount: number,
+	width: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0 || steerCount <= 0) return [];
+	return [
+		truncateToWidth(
+			`  ${colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${formatAggregateSteerCount(steerCount)}`)}`,
+			safeWidth,
+			"…",
+		),
+	];
+}
+
+export function renderExpandedAggregateSteer(
+	text: string,
+	width: number,
+	theme: AggregateRenderTheme,
+	edge: AggregateFrameEdge = "only",
+): string[] {
+	const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	while (lines.length > 0 && !lines[0]!.trim()) lines.shift();
+	while (lines.length > 0 && !lines[lines.length - 1]!.trim()) lines.pop();
+	const body = lines.length > 0 ? lines : [""];
+	const marked = [
+		"",
+		...body.map((line, index) =>
+			index === 0 ? colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${line}`) : line),
+		"",
+	];
+	return applyAggregateGroupFrame(marked, width, theme, edge);
+}
+
 export function renderCollapsedAssistantNarration(
 	text: string,
 	width: number,
@@ -405,6 +479,35 @@ function entryId(entry: unknown, fallback: string): string {
 function isAssistantTerminalFailure(message: unknown): boolean {
 	const reason = toRecord(message).stopReason;
 	return reason === "aborted" || reason === "error";
+}
+
+function isAssistantTerminal(message: unknown): boolean {
+	const reason = toRecord(message).stopReason;
+	return reason === "stop" || reason === "error" || reason === "aborted" || reason === "length";
+}
+
+export function userMessageText(message: unknown): string {
+	const content = toRecord(message).content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((entry) => toRecord(entry).type === "text")
+		.map((entry) => String(toRecord(entry).text ?? ""))
+		.join("");
+}
+
+export function steerFirstLine(text: string): string {
+	const sanitized = text
+		.replace(OSC_SEQUENCE_PATTERN, "")
+		.replace(ANSI_SEQUENCE_PATTERN, "")
+		.replace(NARRATION_CONTROL_PATTERN, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n");
+	for (const line of sanitized.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed) return trimmed;
+	}
+	return "";
 }
 
 function parseTimestampMs(value: unknown): number | undefined {
@@ -554,6 +657,8 @@ export class AggregateProjection {
 	private readonly visibleFrameContent = new Set<string>();
 	private readonly frameInvalidators: FrameInvalidator[] = [];
 	private readonly invalidators = new Map<string, () => void>();
+	private readonly assignedSteerIds = new Set<string>();
+	private readonly steersByInstance = new WeakMap<object, string>();
 	private sourceOrder = 0;
 	private completionOrder = 0;
 	private liveGroupSequence = 0;
@@ -625,7 +730,13 @@ export class AggregateProjection {
 	}
 
 	hasVisibleFrameContent(itemId: string): boolean {
-		if (!itemId.startsWith("assistant-before:") && !itemId.startsWith("assistant:")) return true;
+		if (
+			!itemId.startsWith("assistant-before:") &&
+			!itemId.startsWith("assistant:") &&
+			!itemId.startsWith("steer:")
+		) {
+			return true;
+		}
 		return this.visibleFrameContent.has(itemId);
 	}
 
@@ -775,6 +886,82 @@ export class AggregateProjection {
 		return resolvedId;
 	}
 
+	shouldTreatAsSteer(streamingBehavior?: "steer" | "followUp"): boolean {
+		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		if (!group || group.settled) return false;
+		if (streamingBehavior === "followUp") return false;
+		if (streamingBehavior === "steer") return true;
+		return group.hasSeenToolBatch;
+	}
+
+	recordSteer(text: string, timestampMs?: number): string | undefined {
+		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		if (!group) return undefined;
+		const id = `steer:${group.groupId}:${group.steers.length}`;
+		group.steers.push({
+			id,
+			text,
+			firstLine: steerFirstLine(text),
+		});
+		this.trackFramedItem(id, group.groupId);
+		this.rememberEndedAt(timestampMs);
+		this.invalidateIds(group.leaderToolCallId);
+		return id;
+	}
+
+	ingestUserMessage(
+		message: unknown,
+		options: {
+			streamingBehavior?: "steer" | "followUp";
+			collapseRetainedDone?: boolean;
+			groupId?: string;
+			timestampMs?: number;
+		} = {},
+	): "steer" | "group" | undefined {
+		if (messageRole(message) !== "user") return undefined;
+		const timestampMs = options.timestampMs ?? messageTimestampMs(message);
+		if (this.shouldTreatAsSteer(options.streamingBehavior)) {
+			this.recordSteer(userMessageText(message), timestampMs);
+			return "steer";
+		}
+		const groupId = options.groupId ??
+			(timestampMs !== undefined ? `live-user-${timestampMs}` : undefined);
+		this.startUserGroup(groupId, timestampMs, {
+			collapseRetainedDone: options.collapseRetainedDone,
+		});
+		return "group";
+	}
+
+	getSteer(id: string): AggregateSteer | undefined {
+		for (const group of this.groups) {
+			const found = group.steers.find((steer) => steer.id === id);
+			if (found) return found;
+		}
+		return undefined;
+	}
+
+	matchSteerForComponent(component: object, text?: string): AggregateSteer | undefined {
+		const existingId = this.steersByInstance.get(component);
+		if (existingId) {
+			const existing = this.getSteer(existingId);
+			if (existing) return existing;
+		}
+		if (text === undefined) return undefined;
+		for (const group of this.groups) {
+			for (const steer of group.steers) {
+				if (steer.text !== text || this.assignedSteerIds.has(steer.id)) continue;
+				this.assignedSteerIds.add(steer.id);
+				this.steersByInstance.set(component, steer.id);
+				return steer;
+			}
+		}
+		for (const group of this.groups) {
+			const found = group.steers.find((steer) => steer.text === text);
+			if (found) return found;
+		}
+		return undefined;
+	}
+
 	connectRenderer(
 		toolCallId: string,
 		toolName: string,
@@ -796,6 +983,7 @@ export class AggregateProjection {
 		if (messageRole(message) !== "assistant") return;
 		this.rememberAgentTurn(message);
 		const calls = toolCallsFromMessage(message);
+		if (calls.length > 0) this.markGroupSawToolBatch();
 		if (isInterimAssistantMessage(message)) {
 			const frameId = aggregateAssistantFrameId(message);
 			const narration = firstVisibleAssistantText(message);
@@ -813,6 +1001,7 @@ export class AggregateProjection {
 				if (this.membersById.has(call.id)) this.markFailed(call.id, summary);
 			}
 		}
+		this.maybeSettleFromTerminalAssistant(message);
 	}
 
 	ingestToolResult(
@@ -830,6 +1019,7 @@ export class AggregateProjection {
 				retainDone: options.retainDone,
 			});
 		}
+		this.markGroupSawToolBatch(this.membersById.get(String(record.toolCallId))?.groupId);
 		this.rememberEndedAt(messageTimestampMs(message, options.fallbackTimestamp));
 	}
 
@@ -930,6 +1120,7 @@ export class AggregateProjection {
 		this.framedGroupById.clear();
 		this.visibleFrameContent.clear();
 		this.frameInvalidators.length = 0;
+		this.assignedSteerIds.clear();
 		this.sourceOrder = 0;
 		this.completionOrder = 0;
 		this.activeGroupId = undefined;
@@ -941,11 +1132,11 @@ export class AggregateProjection {
 			const role = messageRole(message);
 			if (role === "user") {
 				const restoredId = entryId(entry, `restored-user-${++fallbackGroupIndex}`);
-				this.startUserGroup(
-					restoredId,
-					messageTimestampMs(message, toRecord(entry).timestamp),
-					{ collapseRetainedDone: false },
-				);
+				this.ingestUserMessage(message, {
+					groupId: restoredId,
+					collapseRetainedDone: false,
+					timestampMs: messageTimestampMs(message, toRecord(entry).timestamp),
+				});
 				continue;
 			}
 			if (role === "assistant") {
@@ -1049,8 +1240,28 @@ export class AggregateProjection {
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
 			failed,
 			failedCount: grouped.filter((entry) => entry.state === "failed").length,
+			steerCount: group.steers.length,
+			pinnedSteers: group.settled
+				? []
+				: group.steers.map((steer) => ({ id: steer.id, firstLine: steer.firstLine })),
 			toolSummaries: [...summaries.values()],
 		};
+	}
+
+	private markGroupSawToolBatch(groupId = this.activeGroupId): void {
+		if (!groupId) return;
+		const group = this.groupsById.get(groupId);
+		if (group) group.hasSeenToolBatch = true;
+	}
+
+	private maybeSettleFromTerminalAssistant(message: unknown): void {
+		if (!isAssistantTerminal(message)) return;
+		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		if (!group) return;
+		if (group.members.some((member) => member.state === "pending" || member.state === "running")) {
+			return;
+		}
+		group.settled = true;
 	}
 
 	private ensureGroup(groupId: string): AggregateGroup {
@@ -1063,6 +1274,8 @@ export class AggregateProjection {
 				narrationById: new Map(),
 				agentTurnIds: [],
 				usageByKey: new Map(),
+				steers: [],
+				hasSeenToolBatch: false,
 				settled: false,
 			};
 			this.groups.push(group);
@@ -1093,6 +1306,7 @@ export class AggregateProjection {
 		}
 
 		const group = this.ensureActiveGroup();
+		group.hasSeenToolBatch = true;
 		this.evictOldestRetainedDone(group);
 		const previousLeader = group.leaderToolCallId;
 		const member: AggregateMember = {
@@ -1278,6 +1492,11 @@ export function renderAggregateActivity(
 	}
 
 	const lines = [truncateToWidth(header, safeWidth, "…")];
+	if (view.settled) {
+		lines.push(...renderSettledSteerReminder(view.steerCount ?? 0, safeWidth, theme));
+	} else {
+		lines.push(...renderCollapsedSteerPins(view.pinnedSteers ?? [], safeWidth, theme));
+	}
 	const stats = formatAggregateStatsLine(view);
 	if (stats) {
 		lines.push(truncateToWidth(`  ${theme.fg("muted", stats)}`, safeWidth, "…"));
@@ -1472,14 +1691,16 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));
 	pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
+	let pendingStreamingBehavior: "steer" | "followUp" | undefined;
+	pi.on("input", async (event) => {
+		pendingStreamingBehavior = event.streamingBehavior;
+	});
 	pi.on("message_start", async (event) => {
 		if (messageRole(event.message) === "user") {
 			clearSettleTimer();
-			const timestamp = toRecord(event.message).timestamp;
-			projection.startUserGroup(
-				typeof timestamp === "number" ? `live-user-${timestamp}` : undefined,
-				parseTimestampMs(timestamp),
-			);
+			const behavior = pendingStreamingBehavior;
+			pendingStreamingBehavior = undefined;
+			projection.ingestUserMessage(event.message, { streamingBehavior: behavior });
 		}
 	});
 	pi.on("message_update", async (event) => projection.ingestAssistantMessage(event.message));

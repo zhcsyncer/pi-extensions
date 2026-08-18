@@ -59,7 +59,14 @@ const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
 const USER_MESSAGE_TOP_MARGIN_LINES = 1;
 const AGGREGATE_USER_GUTTER = "▎";
 const AGGREGATE_USER_GUTTER_GAP = " ";
-const USER_MESSAGE_PATCH_VERSION = 14;
+const USER_MESSAGE_PATCH_VERSION = 15;
+export const USER_MESSAGE_EXPANDED_KEY = Symbol.for(
+  "pi-tool-display-intent.aggregate-user-expanded.v1",
+);
+
+export type UserMessageSteerPresentation =
+  | { hide: true }
+  | { hide?: false; lines: string[] };
 const MAX_USER_MESSAGE_MARKDOWN_TEXT_LENGTH = 100_000;
 const MAX_USER_MESSAGE_MARKDOWN_LINE_COUNT = 2_000;
 
@@ -385,14 +392,35 @@ function renderUserMessageBodyLines(
   }
 }
 
+export function isUserMessageExpanded(instance: object): boolean {
+  return (instance as { [USER_MESSAGE_EXPANDED_KEY]?: boolean })[USER_MESSAGE_EXPANDED_KEY] === true;
+}
+
+function installUserMessageSetExpanded(prototype: PatchableUserMessagePrototype): void {
+  if (prototype.__piUserMessageSetExpandedPatched) return;
+  prototype.__piUserMessageOriginalSetExpanded = prototype.setExpanded;
+  prototype.setExpanded = function setAggregateUserMessageExpanded(this: PatchableUserMessagePrototype, expanded: boolean): void {
+    (this as { [USER_MESSAGE_EXPANDED_KEY]?: boolean })[USER_MESSAGE_EXPANDED_KEY] = expanded === true;
+    prototype.__piUserMessageOriginalSetExpanded?.call(this, expanded);
+    try {
+      this.invalidate?.();
+    } catch {
+      // A stale transcript component may already be disposed.
+    }
+  };
+  prototype.__piUserMessageSetExpandedPatched = true;
+}
+
 export function patchNativeUserMessagePrototype(
   prototype: PatchableUserMessagePrototype,
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
   isCompact?: () => boolean,
+  getSteerPresentation?: (instance: object, width: number) => UserMessageSteerPresentation | undefined,
 ): void {
   const finalOutputCache = new WeakMap<object, CachedUserMessageFinalOutput>();
   const originalBodyLineCache = new WeakMap<object, CachedUserMessageBodyLines>();
+  installUserMessageSetExpanded(prototype);
 
   patchUserMessageRenderPrototype(
     prototype,
@@ -414,6 +442,11 @@ export function patchNativeUserMessagePrototype(
 
         const theme = getTheme();
         const compact = isCompact?.() === true;
+        if (compact && getSteerPresentation && canCacheFinalOutput) {
+          const presentation = getSteerPresentation(this as object, safeWidth);
+          if (presentation?.hide === true) return [];
+          if (presentation?.lines) return presentation.lines;
+        }
         if (canCacheFinalOutput) {
           const cached = finalOutputCache.get(this as object);
           if (cached && hasSameFinalOutputState(cached, safeWidth, theme, markdownState, compact)) {

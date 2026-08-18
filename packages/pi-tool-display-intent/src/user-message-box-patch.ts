@@ -4,8 +4,12 @@ const USER_MESSAGE_PATCH_OWNER = {};
 
 export interface PatchableUserMessagePrototype {
   render: UserMessageRenderFn;
+  setExpanded?: (expanded: boolean) => void;
+  invalidate?: () => void;
   __piUserMessageOriginalRender?: UserMessageRenderFn;
+  __piUserMessageOriginalSetExpanded?: (expanded: boolean) => void;
   __piUserMessageNativePatched?: boolean;
+  __piUserMessageSetExpandedPatched?: boolean;
   __piUserMessagePatchVersion?: number;
   __piUserMessagePatchOwner?: object;
 }
@@ -18,8 +22,18 @@ export function unregisterUserMessageRenderPrototypePatch(
     prototype.render = originalRender;
   }
 
+  if (prototype.__piUserMessageSetExpandedPatched) {
+    if (prototype.__piUserMessageOriginalSetExpanded) {
+      prototype.setExpanded = prototype.__piUserMessageOriginalSetExpanded;
+    } else {
+      delete prototype.setExpanded;
+    }
+  }
+
   delete prototype.__piUserMessageOriginalRender;
+  delete prototype.__piUserMessageOriginalSetExpanded;
   delete prototype.__piUserMessageNativePatched;
+  delete prototype.__piUserMessageSetExpandedPatched;
   delete prototype.__piUserMessagePatchVersion;
   delete prototype.__piUserMessagePatchOwner;
 }

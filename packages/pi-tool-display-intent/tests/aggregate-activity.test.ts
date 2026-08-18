@@ -18,6 +18,7 @@ import {
 	renderAggregateActivity,
 	renderAggregateMemberRow,
 	renderCollapsedAssistantNarration,
+	renderExpandedAggregateSteer,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
 
@@ -341,7 +342,7 @@ test("settled Tools ledger shows duration, tokens, cache, and completion time un
 	assert.doesNotMatch(rendered.join("\n"), /›/);
 });
 
-test("a steered follow-up user message settles the previous Tools ledger", () => {
+test("a steered user message stays on the same Tools ledger", () => {
 	const startedAt = Date.parse("2026-04-08T14:30:00");
 	const steeredAt = Date.parse("2026-04-08T14:31:20");
 	const projection = createProjection();
@@ -360,16 +361,238 @@ test("a steered follow-up user message settles the previous Tools ledger", () =>
 	projection.markStarted("read-before-steer", "read", { path: "README.md" });
 	const live = projection.getView("read-before-steer");
 	assert.equal(live?.settled, false);
+	assert.equal(live?.failedCount, 0);
 	assert.match(renderAggregateActivity(live!, 160, plainTheme()).join("\n"), /› 合并已完成/);
 
-	projection.startUserGroup("user-after-steer", steeredAt);
-	const settled = projection.getView("read-before-steer");
-	assert.equal(settled?.settled, true);
-	assert.equal(settled?.failedCount, 1);
-	assert.equal(settled?.durationMs, steeredAt - startedAt);
-	const rendered = renderAggregateActivity(settled!, 160, plainTheme());
-	assert.match(rendered.join("\n"), /took 1m20s/);
-	assert.doesNotMatch(rendered.join("\n"), /›|合并已完成/);
+	const kind = projection.ingestUserMessage({
+		role: "user",
+		content: "先确定方案",
+		timestamp: steeredAt,
+	}, { streamingBehavior: "steer" });
+	assert.equal(kind, "steer");
+	const same = projection.getView("read-before-steer");
+	assert.equal(same?.settled, false);
+	assert.equal(same?.failedCount, 0);
+	assert.equal(same?.steerCount, 1);
+	assert.equal(same?.groupId, live?.groupId);
+	assert.equal(same?.hasRunning, true);
+	const rendered = renderAggregateActivity(same!, 160, plainTheme());
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
+	assert.match(rendered.join("\n"), /↳ 先确定方案/);
+	assert.match(rendered.join("\n"), /› 合并已完成/);
+	assert.ok(
+		rendered.findIndex((line) => line.includes("↳"))
+			< rendered.findIndex((line) => line.includes("›")),
+	);
+	assert.doesNotMatch(rendered.join("\n"), /took /);
+});
+
+test("multiple steers pin first lines in arrival order", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-multi-steer");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-multi-steer",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "正在按新约束改 README" },
+			{ type: "toolCall", ...call("edit-multi", "edit", { path: "README.md" }) },
+		],
+	});
+	projection.markStarted("edit-multi", "edit", { path: "README.md" });
+	projection.ingestUserMessage({
+		role: "user",
+		content: "先确定方案\n后面还有一段不应钉住",
+		timestamp: 2,
+	});
+	projection.ingestUserMessage({
+		role: "user",
+		content: "不要改 grok，用 xai",
+		timestamp: 3,
+	});
+	const view = projection.getView("edit-multi");
+	assert.equal(view?.steerCount, 2);
+	assert.deepEqual(view?.pinnedSteers.map((steer) => steer.firstLine), [
+		"先确定方案",
+		"不要改 grok，用 xai",
+	]);
+	const rendered = renderAggregateActivity(view!, 80, plainTheme());
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
+	const pinLines = rendered.filter((line) => line.includes("↳"));
+	assert.equal(pinLines.length, 2);
+	assert.match(pinLines[0] ?? "", /↳ 先确定方案/);
+	assert.doesNotMatch(pinLines[0] ?? "", /不应钉住/);
+	assert.match(pinLines[1] ?? "", /↳ 不要改 grok，用 xai/);
+	assert.ok(
+		rendered.findIndex((line) => line.includes("先确定方案"))
+			< rendered.findIndex((line) => line.includes("正在按新约束改 README")),
+	);
+});
+
+test("settling replaces first-line pins with one steer reminder", () => {
+	const startedAt = Date.parse("2026-04-08T14:30:00");
+	const endedAt = Date.parse("2026-04-08T14:32:14");
+	const projection = createProjection();
+	projection.startUserGroup("user-settle-steers", startedAt);
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-settle-steers",
+		stopReason: "toolUse",
+		timestamp: startedAt + 1_000,
+		content: [{ type: "toolCall", ...call("read-settle-steers", "read", { path: "a.ts" }) }],
+	});
+	projection.markStarted("read-settle-steers", "read", { path: "a.ts" });
+	projection.ingestUserMessage({
+		role: "user",
+		content: "先确定方案",
+		timestamp: startedAt + 2_000,
+	});
+	projection.ingestUserMessage({
+		role: "user",
+		content: "不要改 grok，用 xai",
+		timestamp: startedAt + 3_000,
+	});
+	projection.markComplete("read-settle-steers", { content: [{ type: "text", text: "ok" }] }, false);
+	projection.markGroupSettled("user-settle-steers", endedAt);
+	const view = projection.getView("read-settle-steers");
+	assert.equal(view?.settled, true);
+	assert.equal(view?.steerCount, 2);
+	assert.deepEqual(view?.pinnedSteers, []);
+	assert.equal(view?.durationMs, endedAt - startedAt);
+	const rendered = renderAggregateActivity(view!, 160, plainTheme());
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
+	assert.equal(rendered[1], "  ↳ 2 steers");
+	assert.doesNotMatch(rendered.join("\n"), /先确定方案|不要改 grok/);
+	assert.match(rendered.join("\n"), /took 2m14s/);
+	assert.ok(
+		rendered.findIndex((line) => line.includes("↳ 2 steers"))
+			< rendered.findIndex((line) => line.includes("took 2m14s")),
+	);
+});
+
+test("expanded steer rows highlight the first line and keep framed gaps", () => {
+	const rendered = renderExpandedAggregateSteer("先确定方案\n后面还有一段", 80, {
+		fg: (color, text) => color === "accent" ? `[accent]${text}` : text,
+	});
+	assert.equal(rendered.length, 4);
+	assert.match(rendered[0] ?? "", /│\s*$/);
+	assert.match(rendered[1] ?? "", /│.*\[accent\]↳ 先确定方案/);
+	assert.match(rendered[2] ?? "", /│.*后面还有一段/);
+	assert.doesNotMatch(rendered[2] ?? "", /\[accent\]/);
+	assert.match(rendered[3] ?? "", /[│└]\s*$/);
+});
+
+test("a follow-up after a final assistant starts a new Tools group", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-original");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-original",
+		stopReason: "toolUse",
+		content: [{ type: "toolCall", ...call("read-original", "read", { path: "a.ts" }) }],
+	});
+	projection.markStarted("read-original", "read", { path: "a.ts" });
+	projection.markComplete("read-original", { content: [{ type: "text", text: "ok" }] }, false);
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-final",
+		stopReason: "stop",
+		content: [{ type: "text", text: "做完了" }],
+	});
+	assert.equal(projection.getView("read-original")?.settled, true);
+
+	const kind = projection.ingestUserMessage({
+		role: "user",
+		content: "再帮我改测试",
+		timestamp: 9,
+	});
+	assert.equal(kind, "group");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-follow-up",
+		stopReason: "toolUse",
+		content: [{ type: "toolCall", ...call("edit-follow-up", "edit", { path: "a.ts" }) }],
+	});
+	const original = projection.getView("read-original");
+	const followUp = projection.getView("edit-follow-up");
+	assert.equal(original?.steerCount, 0);
+	assert.equal(original?.callCount, 1);
+	assert.notEqual(followUp?.groupId, original?.groupId);
+	assert.equal(followUp?.callCount, 1);
+	assert.equal(followUp?.steerCount, 0);
+});
+
+test("rebuild treats a user after toolResult as a steer on the same group", () => {
+	const projection = createProjection();
+	const branch = [
+		userEntry("user-1", "原始任务"),
+		assistantEntry("assistant-1", [call("read-1", "read", { path: "a.ts" })]),
+		resultEntry("result-1", "read-1", "read"),
+		userEntry("user-steer", "先确定方案"),
+		assistantEntry("assistant-2", [call("edit-1", "edit", { path: "a.ts" })]),
+		resultEntry("result-2", "edit-1", "edit"),
+	];
+	projection.rebuild(branch, messages(branch));
+	const view = projection.getView("edit-1");
+	assert.equal(view?.callCount, 2);
+	assert.equal(view?.steerCount, 1);
+	assert.equal(view?.agentTurnCount, 2);
+	assert.equal(projection.getGroups().length, 1);
+	assert.equal(projection.getSteer("steer:user-1:0")?.firstLine, "先确定方案");
+	const rebuilt = renderAggregateActivity(view!, 120, plainTheme());
+	assert.match(rebuilt[0] ?? "", /Tools \(2 calls · 2 turns\)/);
+	assert.doesNotMatch(rebuilt[0] ?? "", /steer/);
+	assert.match(rebuilt.join("\n"), /↳ 1 steer/);
+});
+
+test("rebuild keeps a follow-up after a final assistant on a new group", () => {
+	const projection = createProjection();
+	const branch = [
+		userEntry("user-1", "原始任务"),
+		assistantEntry("assistant-1", [call("read-1", "read", { path: "a.ts" })]),
+		resultEntry("result-1", "read-1", "read"),
+		{
+			type: "message",
+			id: "assistant-final",
+			message: {
+				role: "assistant",
+				id: "assistant-final",
+				stopReason: "stop",
+				content: [{ type: "text", text: "做完了" }],
+			},
+		},
+		userEntry("user-2", "再改测试"),
+		assistantEntry("assistant-2", [call("edit-1", "edit", { path: "a.ts" })]),
+		resultEntry("result-2", "edit-1", "edit"),
+	];
+	projection.rebuild(branch, messages(branch));
+	assert.equal(projection.getGroups().length, 2);
+	assert.equal(projection.getView("read-1")?.steerCount, 0);
+	assert.equal(projection.getView("edit-1")?.steerCount, 0);
+	assert.notEqual(projection.getView("read-1")?.groupId, projection.getView("edit-1")?.groupId);
+});
+
+test("custom messages do not open a group or count as steers", () => {
+	const projection = createProjection();
+	const branch = [
+		userEntry("user-1", "原始任务"),
+		assistantEntry("assistant-1", [call("read-1", "read", { path: "a.ts" })]),
+		resultEntry("result-1", "read-1", "read"),
+		{
+			type: "custom_message",
+			id: "custom-1",
+			customType: "subagent-notification",
+			message: { role: "custom", content: "child done", timestamp: 2 },
+		},
+		userEntry("user-steer", "先确定方案"),
+	];
+	projection.rebuild(branch, messages(branch));
+	assert.equal(projection.ingestUserMessage({ role: "custom", content: "child done" }), undefined);
+	assert.equal(projection.getGroups().length, 1);
+	assert.equal(projection.getView("read-1")?.steerCount, 1);
 });
 
 test("a new passthrough call still replaces the oldest retained done row", () => {

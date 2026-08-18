@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  initTheme,
+  UserMessageComponent,
+} from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+  AggregateProjection,
+  DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
+  patchAggregateToolExecutions,
+  restoreAggregateToolExecutions,
+} from "../src/aggregate-activity.ts";
+import {
   extractUserMessageMarkdownState,
 } from "../src/user-message-box-markdown.ts";
+import {
+  patchSteerUserLeadingSpacer,
+  resolveAggregateSteerUserPresentation,
+  restoreSteerUserLeadingSpacer,
+} from "../src/user-message-box-native.ts";
 import {
   patchUserMessageRenderPrototype,
   type PatchableUserMessagePrototype,
@@ -12,6 +28,7 @@ import {
   shouldBypassUserMessageMarkdownRebuild,
   createUserMessageMarkdownLineRenderer,
 } from "../src/user-message-box-renderer.ts";
+import { unregisterUserMessageRenderPrototypePatch } from "../src/user-message-box-patch.ts";
 import {
   addUserMessageVerticalPadding,
   applyUserMessageBackground,
@@ -905,4 +922,132 @@ test("nativeRender builds correct box structure with all required line types", (
   assert.ok(rendered.length >= 5);
   assert.equal(rendered.filter((l) => l.includes("│")).length, 4); // 2 content + 2 padding
   assert.equal(rendered.filter((l) => l.includes("╭") || l.includes("╰")).length, 2);
+});
+
+test("aggregate collapsed steer user boxes render at zero height", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ hide: true }),
+  );
+  assert.deepEqual(prototype.render(40), []);
+});
+
+test("aggregate expanded steer user boxes use an accent ↳ instead of the task gutter", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ lines: ["  │ ↳ 先确定方案"] }),
+  );
+  const rendered = prototype.render(40);
+  assert.match(rendered.join("\n"), /↳ 先确定方案/);
+  assert.doesNotMatch(rendered.join("\n"), /▎/);
+  assert.doesNotMatch(rendered.join("\n"), /╭|╰/);
+});
+
+test("aggregate original user prompts keep the gutter when they are not steers", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["原始任务"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => undefined,
+  );
+  const rendered = prototype.render(40);
+  assert.match(rendered.join("\n"), /▎ 原始任务/);
+  assert.doesNotMatch(rendered.join("\n"), /↳/);
+});
+
+test("individual user boxes ignore aggregate steer presentation", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["先确定方案"],
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => false,
+    () => ({ hide: true }),
+  );
+  const rendered = prototype.render(40);
+  assert.ok(rendered.some((line) => line.includes("╭")));
+  assert.match(rendered.join("\n"), /先确定方案/);
+});
+
+test("steer users collapse the leading Pi spacer so the expanded frame stays continuous", () => {
+  initTheme("dark", false);
+  const projection = new AggregateProjection((toolName) =>
+    (DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+  const userPrototype = UserMessageComponent.prototype as unknown as PatchableUserMessagePrototype;
+  patchAggregateToolExecutions(projection);
+  patchSteerUserLeadingSpacer();
+  patchNativeUserMessagePrototype(
+    userPrototype,
+    () => undefined,
+    () => true,
+    () => true,
+    resolveAggregateSteerUserPresentation,
+  );
+  try {
+    projection.startUserGroup("user-spacer");
+    projection.markStarted("read-1", "read", { path: "a.ts" });
+    projection.ingestUserMessage({
+      role: "user",
+      content: "先确定方案",
+      timestamp: 2,
+    });
+    const container = new Container();
+    const spacer = new Spacer(1);
+    const user = new UserMessageComponent("先确定方案");
+    container.addChild(new Text("above", 0, 0));
+    container.addChild(spacer);
+    container.addChild(user);
+    (user as UserMessageComponent & { setExpanded(expanded: boolean): void }).setExpanded(true);
+    const rendered = container.render(80);
+    const join = rendered.join("\n");
+    assert.match(join, /above/);
+    assert.match(join, /↳.*先确定方案/);
+    const above = rendered.findIndex((line) => line.includes("above"));
+    const steer = rendered.findIndex((line) => line.includes("↳"));
+    assert.ok(above >= 0 && steer > above);
+    assert.ok(
+      rendered.slice(above + 1, steer).every((line) => line.includes("│")),
+      "no unframed blank between the previous row and ↳",
+    );
+  } finally {
+    restoreSteerUserLeadingSpacer();
+    unregisterUserMessageRenderPrototypePatch(userPrototype);
+    restoreAggregateToolExecutions();
+  }
+});
+
+test("unregistering the user message patch restores the original renderer", () => {
+  const originalRender = () => ["orig"];
+  const prototype: PatchableUserMessagePrototype = {
+    render: originalRender,
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => true,
+    () => ({ hide: true }),
+  );
+  assert.deepEqual(prototype.render(40), []);
+  unregisterUserMessageRenderPrototypePatch(prototype);
+  assert.deepEqual(prototype.render(40), ["orig"]);
+  assert.equal(prototype.setExpanded, undefined);
 });

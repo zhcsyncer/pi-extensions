@@ -61,7 +61,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("· today 12.4k $0.18 · week left ██░░░ 34% (3d)");
+		expect(plain).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
 	});
 
 	it("keeps the window verb when flipping to used", () => {
@@ -73,8 +73,8 @@ describe("status chrome", () => {
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
 		expect(plain.startsWith("· ")).toBe(true);
-		expect(plain).toContain("today 12.4k $0.18");
-		expect(plain).toContain("week used");
+		expect(plain).toContain("24h 12.4k $0.18");
+		expect(plain).toContain("xai week used");
 		expect(plain).toContain("66%");
 	});
 
@@ -84,14 +84,14 @@ describe("status chrome", () => {
 			{ ts: now.getTime(), sid: "s", cwd: "/p", model: "xai/grok-4", in: 12400, out: 0, cR: 0, cW: 0, tot: 12400, cost: 0.18, costKnown: true },
 		], [], now);
 		const local = renderLocalFooter("today-tokens", stats);
-		expect(local).toBe("today 12.4k");
+		expect(local).toBe("24h 12.4k");
 		const plain = strip(renderStatusText({
 			local,
 			quota,
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("· today 12.4k · week left ██░░░ 34% (3d)");
+		expect(plain).toBe("· 24h 12.4k · xai week left ██░░░ 34% (3d)");
 	});
 
 	it("labels Claude 5h and Codex week windows", () => {
@@ -110,7 +110,7 @@ describe("status chrome", () => {
 			},
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· today 12.4k $0.18 · 5h left █░░░░ 28%");
+		expect(plain).toBe("· 24h 12.4k $0.18 · ollama 5h left █░░░░ 28%");
 		expect(plain).not.toContain("(");
 	});
 
@@ -121,7 +121,7 @@ describe("status chrome", () => {
 			quotaHint: { label: "ollama", value: "no quota window" },
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· today 12.4k $0.18 · ollama · no quota window");
+		expect(plain).toBe("· 24h 12.4k $0.18 · ollama · no quota window");
 		expect(plain).not.toContain("week left");
 		expect(plain).not.toContain("█");
 	});
@@ -133,7 +133,34 @@ describe("status chrome", () => {
 			quotaHint: { label: "quota n/a", value: "no quota window" },
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· today 12.4k $0.18 · quota n/a · no quota window");
+		expect(plain).toBe("· 24h 12.4k $0.18 · quota n/a · no quota window");
+	});
+
+	it("prefixes the quota bar with the short brand", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "openai-codex/gpt", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "codex",
+				stale: false,
+				window: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" },
+			},
+			polarity: "remaining",
+			now: new Date("2026-08-15T12:00:00Z"),
+		}, theme));
+		expect(plain).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d)");
+	});
+
+	it("keeps SuperGrok failure on xai instead of drawing a Codex bar", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quotaHint: { label: "xai", value: "unavailable" },
+			polarity: "remaining",
+		}, theme));
+		expect(plain).toBe("· 24h 12.4k $0.18 · xai · unavailable");
+		expect(plain).not.toContain("week left");
+		expect(plain).not.toContain("█");
 	});
 });
 
@@ -158,8 +185,11 @@ function snapshot(over: Partial<QuotaSnapshot> & Pick<QuotaSnapshot, "provider" 
 describe("footer settings dashboard", () => {
 	it("previews and saves all footer settings together", () => {
 		const dash = new FooterSettingsDashboard({
-			local: "today-spend",
-			quota: { visible: true, polarity: "remaining" },
+			footer: {
+				local: "today-spend",
+				quota: { visible: true, polarity: "remaining" },
+			},
+			windowMode: "rolling",
 		}, {
 			stats: { today, todayTurns: 3, topModel: "ollama-cloud/glm", budget: null },
 			quota: {
@@ -173,8 +203,8 @@ describe("footer settings dashboard", () => {
 		});
 		const initial = strip(dash.render(100).join("\n"));
 		expect(initial).toContain("pi-meter — footer settings");
-		expect(initial).toContain("today 12.4k $0.18");
-		expect(initial).toContain("5h left");
+		expect(initial).toContain("24h 12.4k $0.18");
+		expect(initial).toContain("ollama 5h left");
 
 		dash.handleInput(" ");
 		dash.handleInput("\x1b[B");
@@ -185,12 +215,38 @@ describe("footer settings dashboard", () => {
 		dash.onDone = (value) => { saved = value; };
 		dash.handleInput("q");
 		expect(saved).toEqual({
-			local: "today-tokens",
-			quota: { visible: false, polarity: "used" },
+			footer: {
+				local: "today-tokens",
+				quota: { visible: false, polarity: "used" },
+			},
+			windowMode: "rolling",
 		});
 		const changed = strip(dash.render(100).join("\n"));
-		expect(changed).toContain("today 12.4k");
+		expect(changed).toContain("24h 12.4k");
 		expect(changed).not.toContain("5h used");
+	});
+
+	it("can switch the local window mode", () => {
+		const dash = new FooterSettingsDashboard({
+			footer: {
+				local: "today-spend",
+				quota: { visible: true, polarity: "remaining" },
+			},
+			windowMode: "rolling",
+		}, {
+			stats: { today, todayTurns: 3, topModel: "xai/grok-4", budget: null },
+		}, {
+			fg: (color, text) => theme.fg(color as never, text),
+			bold: (text) => theme.bold(text),
+		});
+		dash.handleInput("\x1b[B");
+		dash.handleInput("\x1b[B");
+		dash.handleInput("\x1b[B");
+		dash.handleInput(" ");
+		expect(dash.settings().windowMode).toBe("calendar");
+		const preview = strip(dash.render(100).join("\n"));
+		expect(preview).toContain("today 12.4k $0.18");
+		expect(preview).not.toContain("24h");
 	});
 });
 

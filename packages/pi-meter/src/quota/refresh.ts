@@ -3,6 +3,7 @@ import { fetchClaudeQuota } from "./adapters/claude.ts";
 import { fetchCodexQuota } from "./adapters/codex.ts";
 import { fetchOllamaQuota } from "./adapters/ollama.ts";
 import { fetchSuperGrokQuota } from "./adapters/supergrok.ts";
+import { hasStoredQuotaCredential, isUnsignedQuotaSnapshot, unsignedQuotaError } from "./auth.ts";
 import { decideRefresh, markAttempt, putSnapshot, withStaleFlags } from "./policy.ts";
 import { sanitizeQuotaError } from "./sanitize.ts";
 import { loadQuotaStore, saveQuotaStore } from "./store.ts";
@@ -42,7 +43,19 @@ export interface RefreshOptions {
 	ttlMs?: number;
 	minIntervalMs?: number;
 	fetchers?: Partial<Record<QuotaProviderId, QuotaFetcher>>;
+	hasCredential?: (provider: QuotaProviderId) => boolean;
 	now?: number;
+}
+
+function unsignedSnapshot(provider: QuotaProviderId, fetchedAt: number): QuotaSnapshot {
+	return {
+		provider,
+		title: quotaProviderTitle(provider),
+		windows: [],
+		fetchedAt,
+		ok: false,
+		error: unsignedQuotaError(provider),
+	};
 }
 
 export async function refreshQuotaSnapshots(
@@ -63,6 +76,8 @@ export async function refreshQuotaSnapshots(
 
 	const targets = options.providers ?? QUOTA_PROVIDERS;
 	const fetched: QuotaProviderId[] = [];
+	const hasCredential = options.hasCredential ?? hasStoredQuotaCredential;
+	let dirty = false;
 	for (const provider of targets) {
 		const decision = decideRefresh(store, provider, now, {
 			force: options.force,
@@ -70,6 +85,13 @@ export async function refreshQuotaSnapshots(
 			minIntervalMs: store.minIntervalMs,
 		});
 		if (!decision.refresh) continue;
+		if (!hasCredential(provider)) {
+			if (!isUnsignedQuotaSnapshot(store.providers[provider])) {
+				store = putSnapshot(store, unsignedSnapshot(provider, now), { recordAttempt: false });
+				dirty = true;
+			}
+			continue;
+		}
 		store = markAttempt(store, provider, now);
 		await saveQuotaStore(store, agentDir);
 		const fetcher = options.fetchers?.[provider] ?? DEFAULT_FETCHERS[provider];
@@ -86,7 +108,8 @@ export async function refreshQuotaSnapshots(
 			});
 		}
 		fetched.push(provider);
+		dirty = true;
 	}
-	if (fetched.length > 0) await saveQuotaStore(store, agentDir);
+	if (dirty) await saveQuotaStore(store, agentDir);
 	return { store: withStaleFlags(store, now), fetched };
 }

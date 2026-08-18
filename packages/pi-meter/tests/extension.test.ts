@@ -181,7 +181,7 @@ describe("extension runtime", () => {
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		expect(widgets.size).toBe(0);
-		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("24h");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
@@ -207,7 +207,7 @@ describe("extension runtime", () => {
 		await commands.get("usage").handler("footer", ctx);
 		expect(customComponents).toHaveLength(1);
 		expect(notifications).toEqual([]);
-		expect(statuses.get("pi-meter")).toContain("today 12.4k");
+		expect(statuses.get("pi-meter")).toContain("24h 12.4k");
 		const saved = JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"));
 		expect(saved).toMatchObject({
 			footer: {
@@ -238,6 +238,7 @@ describe("extension runtime", () => {
 				quota: { visible: false, polarity: "used" },
 			},
 			quota: { snapshotTtlMs: 90_000, minRefreshIntervalMs: 45_000 },
+			ledger: { windowMode: "rolling" },
 		});
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
@@ -279,6 +280,9 @@ describe("extension runtime", () => {
 		vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {});
 		const fetchSpy = vi.fn();
 		vi.stubGlobal("fetch", fetchSpy);
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			xai: { type: "oauth", refresh: "x", access: "y" },
+		})}\n`);
 		const paths = getMeterPaths(agentDir);
 		mkdirSync(paths.dataDir, { recursive: true });
 		const writeQuota = (usedPercent: number, fetchedAt = Date.now()) => {
@@ -313,7 +317,7 @@ describe("extension runtime", () => {
 		writeQuota(80);
 		writeFileSync(paths.usageFile, `${JSON.stringify([Date.now(), "other", "/p", "xai/grok-4", 12400, 0, 0, 0, 12400, 0.18, 1])}\n`);
 		await polls[0]?.();
-		expect(statuses.get("pi-meter")).toContain("today 12.4k $0.18");
+		expect(statuses.get("pi-meter")).toContain("24h 12.4k $0.18");
 		expect(statuses.get("pi-meter")).toContain("20%");
 		expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -330,6 +334,9 @@ describe("extension runtime", () => {
 	});
 
 	it("keeps a supported provider's quota window in the footer", async () => {
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			xai: { type: "oauth", refresh: "x", access: "y" },
+		})}\n`);
 		const paths = getMeterPaths(agentDir);
 		mkdirSync(paths.dataDir, { recursive: true });
 		writeFileSync(paths.quotaFile, `${JSON.stringify({
@@ -352,8 +359,8 @@ describe("extension runtime", () => {
 		const { pi, ctx, handlers, statuses } = harness({ hasUI: true, mode: "tui" });
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		expect(statuses.get("pi-meter")).toContain("today");
-		expect(statuses.get("pi-meter")).toContain("week left");
+		expect(statuses.get("pi-meter")).toContain("24h");
+		expect(statuses.get("pi-meter")).toContain("xai week left");
 		expect(statuses.get("pi-meter")).toContain("49%");
 		expect(statuses.get("pi-meter")).not.toContain("no quota window");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
@@ -386,7 +393,7 @@ describe("extension runtime", () => {
 		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		expect(statuses.get("pi-meter")).toContain("today");
+		expect(statuses.get("pi-meter")).toContain("24h");
 		expect(statuses.get("pi-meter")).toContain("ollama");
 		expect(statuses.get("pi-meter")).toContain("no quota window");
 		expect(statuses.get("pi-meter")).not.toContain("5h left");
@@ -421,8 +428,8 @@ describe("extension runtime", () => {
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		await handlers.get("agent_settled")?.[0]?.({ type: "agent_settled" }, ctx);
 		const footer = statuses.get("pi-meter");
-		expect(footer).toContain("today");
-		expect(footer).toContain("5h left");
+		expect(footer).toContain("24h");
+		expect(footer).toContain("ollama 5h left");
 		expect(footer).toContain("28%");
 		expect(footer).not.toContain("(");
 		expect(footer).not.toContain("no quota window");
@@ -453,6 +460,89 @@ describe("extension runtime", () => {
 		expect(dashboard).toMatch(/Not signed in:.*Ollama Cloud.*run \/login/);
 		expect(dashboard).not.toContain("no Ollama Cloud API key");
 		expect(fetchSpy).not.toHaveBeenCalled();
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("does not call subscription APIs or getApiKeyForProvider when auth.json has no credentials", async () => {
+		const getApiKeyForProvider = vi.fn(async () => "should-not-be-used");
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "xai", id: "grok-4" },
+			getApiKeyForProvider,
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("agent_settled")?.[0]?.({ type: "agent_settled" }, ctx);
+		expect(getApiKeyForProvider).not.toHaveBeenCalled();
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(statuses.get("pi-meter")).toContain("xai");
+		expect(statuses.get("pi-meter")).toContain("not signed in");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("does not fall back to Codex when SuperGrok is unavailable", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				supergrok: {
+					provider: "supergrok",
+					title: "SuperGrok",
+					windows: [],
+					fetchedAt: Date.now(),
+					ok: false,
+					error: "HTTP 500",
+				},
+				codex: {
+					provider: "codex",
+					title: "OpenAI Codex",
+					primary: { id: "week", label: "Week limit", usedPercent: 20 },
+					windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			xai: { type: "oauth", refresh: "x", access: "y" },
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "xai", id: "grok-4" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		const footer = statuses.get("pi-meter") ?? "";
+		expect(footer).toContain("xai");
+		expect(footer).toContain("unavailable");
+		expect(footer).not.toContain("openai");
+		expect(footer).not.toContain("week left");
+		expect(footer).not.toContain("█");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("saves windowMode from /usage footer", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands } = harness({
+			hasUI: true,
+			mode: "tui",
+			customInputs: ["\x1b[B", "\x1b[B", "\x1b[B", " ", "q"],
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("footer", ctx);
+		const saved = JSON.parse(readFileSync(getMeterPaths(agentDir).configFile, "utf8"));
+		expect(saved.ledger.windowMode).toBe("calendar");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 });

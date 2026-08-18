@@ -42,18 +42,21 @@ Tools 是整轮总览，不是一段必须连续的时间线。passthrough 工�
 
 ## 分组边界
 
-一个 group 从一条 user message 开始，到下一条 user message 之前结束。同一请求内的多个 assistant/tool 低层 turn 属于同一 group：
+一个 group 从一条**新请求** user message 开始。同一请求内的多个 assistant/tool 低层 turn，以及插在 tool 批次之后的 **steer**，属于同一 group。follow-up 和闲时新提问才开下一本账。
 
 ```text
 user
   assistant + tools
   results
+  ↳ steer（不断 group）
   assistant + tools
   results
   assistant final response
 ```
 
-assistant 普通文字、thinking、custom tool 和 passthrough tool 都不切断 group。调用按 assistant source order 记录；同一 tool call id 的 streaming message update 不重复计数。
+assistant 普通文字、thinking、custom tool 和 passthrough tool 都不切断 group。steer 也不切断。调用按 assistant source order 记录；同一 tool call id 的 streaming message update 不重复计数。
+
+Steer 的展示契约见 [`aggregate-steer.md`](./aggregate-steer.md)：进行中钉首行、结束后标题下留一行 `↳ N steers`、展开后 `↳` 留在时间线中间并整行高亮，不把正文拼进第一条 user，标题括号里不再重复计数。
 
 ## 两层模型
 
