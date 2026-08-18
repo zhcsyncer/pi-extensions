@@ -377,7 +377,8 @@ test("a steered user message stays on the same Tools ledger", () => {
 	assert.equal(same?.groupId, live?.groupId);
 	assert.equal(same?.hasRunning, true);
 	const rendered = renderAggregateActivity(same!, 160, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn · 1 steer\)/);
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	assert.match(rendered.join("\n"), /↳ 先确定方案/);
 	assert.match(rendered.join("\n"), /› 合并已完成/);
 	assert.ok(
@@ -417,7 +418,8 @@ test("multiple steers pin first lines in arrival order", () => {
 		"不要改 grok，用 xai",
 	]);
 	const rendered = renderAggregateActivity(view!, 80, plainTheme());
-	assert.match(rendered[0] ?? "", /· 2 steers\)/);
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	const pinLines = rendered.filter((line) => line.includes("↳"));
 	assert.equal(pinLines.length, 2);
 	assert.match(pinLines[0] ?? "", /↳ 先确定方案/);
@@ -460,7 +462,8 @@ test("settling replaces first-line pins with one steer reminder", () => {
 	assert.deepEqual(view?.pinnedSteers, []);
 	assert.equal(view?.durationMs, endedAt - startedAt);
 	const rendered = renderAggregateActivity(view!, 160, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn · 2 steers\)/);
+	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	assert.equal(rendered[1], "  ↳ 2 steers");
 	assert.doesNotMatch(rendered.join("\n"), /先确定方案|不要改 grok/);
 	assert.match(rendered.join("\n"), /took 2m14s/);
@@ -539,7 +542,10 @@ test("rebuild treats a user after toolResult as a steer on the same group", () =
 	assert.equal(view?.agentTurnCount, 2);
 	assert.equal(projection.getGroups().length, 1);
 	assert.equal(projection.getSteer("steer:user-1:0")?.firstLine, "先确定方案");
-	assert.match(renderAggregateActivity(view!, 120, plainTheme())[0] ?? "", /· 1 steer\)/);
+	const rebuilt = renderAggregateActivity(view!, 120, plainTheme());
+	assert.match(rebuilt[0] ?? "", /Tools \(2 calls · 2 turns\)/);
+	assert.doesNotMatch(rebuilt[0] ?? "", /steer/);
+	assert.match(rebuilt.join("\n"), /↳ 1 steer/);
 });
 
 test("rebuild keeps a follow-up after a final assistant on a new group", () => {

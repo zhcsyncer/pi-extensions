@@ -56,7 +56,7 @@ user
 
 assistant 普通文字、thinking、custom tool 和 passthrough tool 都不切断 group。steer 也不切断。调用按 assistant source order 记录；同一 tool call id 的 streaming message update 不重复计数。
 
-Steer 的展示契约见 [`aggregate-steer.md`](./aggregate-steer.md)：进行中钉首行、结束后标题下留一行 `↳ N steers`、展开后 `↳` 留在时间线中间并整行高亮，不把正文拼进第一条 user。
+Steer 的展示契约见 [`aggregate-steer.md`](./aggregate-steer.md)：进行中钉首行、结束后标题下留一行 `↳ N steers`、展开后 `↳` 留在时间线中间并整行高亮，不把正文拼进第一条 user，标题括号里不再重复计数。
 
 ## 两层模型
 

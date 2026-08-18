@@ -13,7 +13,7 @@
 1. **同一轮**：steer 不断 group。follow-up 与闲时新提问仍新开一轮。
 2. **留在工具流中间**：展开后 `↳` 插在它发生的那一截，不挪到第一条 user 下面。
 3. **进行中钉顶**：收起且未 settle 时，steer 首行按时间顺序钉在 Tools 头下，再下面才是旁白和当前活动。
-4. **结束后留一行**：settle 后不再钉各条首行，标题下留一行 `↳ N steers`，标题里的 `· N steers` 仍在。
+4. **结束后留一行**：settle 后不再钉各条首行，标题下留一行 `↳ N steers`。标题括号里不再重复计数。
 5. **中间那条原生 `▎` user 框必须藏掉**（收起时零高）。否则和钉顶重复，看起来像又开了一个任务。
 6. **不改 session**：不改写 user/assistant/tool 正文，不给消息加持久化 `steering` 字段。
 
@@ -24,7 +24,7 @@
 ```text
 ▎ 原始任务
 
-◐ Tools (31 calls · 5 turns · 2 steers) · read ×18 · edit ×9
+◐ Tools (31 calls · 5 turns) · read ×18 · edit ×9
   ↳ 先确定方案
   ↳ 不要改 grok，用 xai
   › 正在按新约束改 README
@@ -34,7 +34,7 @@
 结束后：
 
 ```text
-✓ Tools (31 calls · 5 turns · 2 steers) · read ×18 · edit ×9
+✓ Tools (31 calls · 5 turns) · read ×18 · edit ×9
   ↳ 2 steers
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 14:32:14
 ```
@@ -42,7 +42,7 @@
 `Ctrl+O` 展开：
 
 ```text
-✓ Tools (31 calls · 5 turns · 2 steers) · read ×18 · edit ×9
+✓ Tools (31 calls · 5 turns) · read ×18 · edit ×9
   ↳ 2 steers
   took 2m14s · …
   │ › 先读 README
@@ -58,7 +58,7 @@
   └ ◐ Bash(pnpm test)
 ```
 
-符号分开：原任务 `▎`，steer 用 accent 的 `↳`（展开时整条首行高亮），旁白继续 `›`。标题 `· N steers` 跟在 turns 后面、failed 前面，用强调色，不当错误。1 条写 `steer`，多条写 `steers`。展开后 `↳` 上下各空一行且空行带 `│`。
+符号分开：原任务 `▎`，steer 用 accent 的 `↳`（展开时整条首行高亮），旁白继续 `›`。计数只出现在标题下那一行，不当错误。1 条写 `steer`，多条写 `steers`。展开后 `↳` 上下各空一行且空行带 `│`；Pi 插在 user 前的无边空白会被收掉，避免边线断开。
 
 钉住只取每条 steer 的**首行**（截到行宽），条数按时间全留，不做 `+N`。展开后才显示完整正文（过长按现有旁白/user 截断习惯，不要倾倒整段粘贴日志到无限高）。
 
@@ -90,7 +90,7 @@ reload / tree / compaction 用同一条位置规则从当前 branch 重建。接
 
 1. 工具批次之后插入 1 条或多条 steer：仍是一本 Tools，call/turn 累计，不新开第二本。
 2. 进行中账本头下按时间钉住各条 steer **首行**，再下面是 `›` 旁白和当前活动。
-3. settle 后各条首行撤掉，标题下留一行 `↳ N steers`，标题仍保留 `· N steers`；耗时从原请求开始算到本轮结束。
+3. settle 后各条首行撤掉，标题下留一行 `↳ N steers`，标题括号里不再重复计数；耗时从原请求开始算到本轮结束。
 4. 收起时中间不再出现第二条 `▎` user 框。
 5. `Ctrl+O` 后 `↳` 出现在当时的工具/旁白之间，首行整行 accent，上下带 `│` 空行，和 `›` / `✓` 一眼能分。
 6. 闲时新提问、follow-up（终态回答之后的 user）仍新开 Tools。

@@ -1480,18 +1480,10 @@ export function renderAggregateActivity(
 	const hasFailure = view.failedCount > 0;
 	const marker = hasFailure ? "!" : view.hasRunning ? "◐" : "✓";
 	const markerColor = hasFailure ? "error" : view.hasRunning ? "warning" : "success";
-	const callTurn = ` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"}`;
-	let totals = theme.fg("muted", callTurn);
-	if ((view.steerCount ?? 0) > 0) {
-		let steer = ` · ${formatAggregateSteerCount(view.steerCount)}`;
-		try {
-			steer = theme.fg("accent", steer);
-		} catch {
-			// Theme helpers must not crash the ledger header.
-		}
-		totals += steer;
-	}
-	totals += theme.fg("muted", ")");
+	const totals = theme.fg(
+		"muted",
+		` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"})`,
+	);
 	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Tools") ?? "Tools")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
 	for (const summary of view.toolSummaries) {

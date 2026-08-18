@@ -2,6 +2,7 @@ import {
   type ExtensionAPI,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer } from "@earendil-works/pi-tui";
 import {
   isUserMessageExpanded,
   patchNativeUserMessagePrototype,
@@ -20,6 +21,19 @@ import type { ToolDisplayConfig } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 
 const registeredNativeUserMessageApis = new WeakSet<ExtensionAPI>();
+const CONTAINER_STEER_SPACER_KEY = Symbol.for(
+  "pi-tool-display-intent.steer-user-spacer.v1",
+);
+const pendingSpacerByContainer = new WeakMap<object, Spacer>();
+const spacerBeforeUser = new WeakMap<object, Spacer>();
+
+interface PatchableContainerPrototype {
+  addChild(component: unknown): void;
+  [CONTAINER_STEER_SPACER_KEY]?: {
+    originalAddChild: (component: unknown) => void;
+    patchedAddChild: (component: unknown) => void;
+  };
+}
 
 function getUserMessagePrototype(): PatchableUserMessagePrototype {
   return UserMessageComponent.prototype as unknown as PatchableUserMessagePrototype;
@@ -31,6 +45,54 @@ function readUserMessageText(instance: object): string | undefined {
   return extractUserMessageMarkdownState(instance)?.text;
 }
 
+function getContainerPrototype(): PatchableContainerPrototype {
+  return Container.prototype as unknown as PatchableContainerPrototype;
+}
+
+export function patchSteerUserLeadingSpacer(): void {
+  const prototype = getContainerPrototype();
+  if (prototype[CONTAINER_STEER_SPACER_KEY]) return;
+  const originalAddChild = prototype.addChild;
+  const patchedAddChild = function addChildTrackingSteerSpacer(
+    this: object,
+    component: unknown,
+  ): void {
+    originalAddChild.call(this, component);
+    if (component instanceof Spacer) {
+      pendingSpacerByContainer.set(this, component);
+      return;
+    }
+    const pending = pendingSpacerByContainer.get(this);
+    if (component instanceof UserMessageComponent && pending) {
+      spacerBeforeUser.set(component, pending);
+      suppressSteerLeadingSpacer(component);
+    }
+    pendingSpacerByContainer.delete(this);
+  };
+  prototype.addChild = patchedAddChild;
+  prototype[CONTAINER_STEER_SPACER_KEY] = { originalAddChild, patchedAddChild };
+}
+
+export function restoreSteerUserLeadingSpacer(): void {
+  const prototype = getContainerPrototype();
+  const state = prototype[CONTAINER_STEER_SPACER_KEY];
+  if (!state) return;
+  if (prototype.addChild === state.patchedAddChild) {
+    prototype.addChild = state.originalAddChild;
+  }
+  delete prototype[CONTAINER_STEER_SPACER_KEY];
+}
+
+function suppressSteerLeadingSpacer(instance: object): void {
+  const spacer = spacerBeforeUser.get(instance);
+  if (!spacer) return;
+  const projection = getActiveAggregateProjection();
+  const text = readUserMessageText(instance);
+  if (!projection || text === undefined) return;
+  if (!projection.matchSteerForComponent(instance, text)) return;
+  spacer.setLines(0);
+}
+
 export function resolveAggregateSteerUserPresentation(
   instance: object,
   width: number,
@@ -40,6 +102,7 @@ export function resolveAggregateSteerUserPresentation(
   const text = readUserMessageText(instance);
   const steer = projection.matchSteerForComponent(instance, text);
   if (!steer) return undefined;
+  suppressSteerLeadingSpacer(instance);
   projection.connectFrameRenderer(steer.id, () => {
     try {
       (instance as { invalidate?: () => void }).invalidate?.();
@@ -67,6 +130,7 @@ function patchUserMessageRender(
   isEnabled: () => boolean,
   isCompact: () => boolean,
 ): void {
+  patchSteerUserLeadingSpacer();
   patchNativeUserMessagePrototype(
     getUserMessagePrototype(),
     getTheme,
@@ -77,6 +141,7 @@ function patchUserMessageRender(
 }
 
 function restoreUserMessageRender(): void {
+  restoreSteerUserLeadingSpacer();
   unregisterUserMessageRenderPrototypePatch(getUserMessagePrototype());
 }
 
