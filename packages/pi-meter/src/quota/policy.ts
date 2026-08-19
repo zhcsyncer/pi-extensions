@@ -1,5 +1,5 @@
 import { isUnsignedQuotaSnapshot, shouldBypassQuotaMinInterval } from "./auth.ts";
-import type { QuotaProviderId, QuotaRefreshDecision, QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
+import type { QuotaRefreshDecision, QuotaSnapshot, QuotaSourceId, QuotaStoreFile, QuotaWindow } from "./types.ts";
 import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS, quotaProviderBrand } from "./types.ts";
 
 export function emptyQuotaStore(now = Date.now(), ttlMs = QUOTA_TTL_MS, minIntervalMs = QUOTA_MIN_INTERVAL_MS): QuotaStoreFile {
@@ -23,7 +23,7 @@ export function isSnapshotFresh(snapshot: QuotaSnapshot | undefined, now: number
 
 export function decideRefresh(
 	store: QuotaStoreFile,
-	provider: QuotaProviderId,
+	provider: QuotaSourceId,
 	now: number,
 	options: { force?: boolean; ttlMs?: number; minIntervalMs?: number } = {},
 ): QuotaRefreshDecision {
@@ -47,7 +47,7 @@ export function decideRefresh(
 	return { provider, refresh: true, reason: snapshot ? "expired" : "missing" };
 }
 
-export function markAttempt(store: QuotaStoreFile, provider: QuotaProviderId, now: number): QuotaStoreFile {
+export function markAttempt(store: QuotaStoreFile, provider: QuotaSourceId, now: number): QuotaStoreFile {
 	return {
 		...store,
 		lastAttemptAt: { ...store.lastAttemptAt, [provider]: now },
@@ -70,14 +70,14 @@ export function putSnapshot(
 
 export function withStaleFlags(store: QuotaStoreFile, now: number, ttlMs = store.ttlMs ?? QUOTA_TTL_MS): QuotaStoreFile {
 	const providers: QuotaStoreFile["providers"] = {};
-	for (const [id, snapshot] of Object.entries(store.providers) as Array<[QuotaProviderId, QuotaSnapshot]>) {
+	for (const [id, snapshot] of Object.entries(store.providers) as Array<[QuotaSourceId, QuotaSnapshot]>) {
 		providers[id] = { ...snapshot, stale: !isSnapshotFresh(snapshot, now, ttlMs) };
 	}
 	return { ...store, providers };
 }
 
 export interface QuotaWindowView {
-	provider: QuotaProviderId;
+	provider: QuotaSourceId;
 	window: QuotaWindow;
 	stale: boolean;
 }
@@ -87,7 +87,7 @@ export interface ChromeQuotaHint {
 	value: string;
 }
 
-export function chromeWindow(store: QuotaStoreFile, preferred?: QuotaProviderId): QuotaWindowView | undefined {
+export function chromeWindow(store: QuotaStoreFile, preferred?: QuotaSourceId): QuotaWindowView | undefined {
 	if (!preferred) return undefined;
 	const snapshot = store.providers[preferred];
 	if (snapshot?.ok && snapshot.primary) {
@@ -102,7 +102,7 @@ export function chromeWindow(store: QuotaStoreFile, preferred?: QuotaProviderId)
 
 export function resolveChromeQuota(
 	store: QuotaStoreFile | undefined,
-	preferred: QuotaProviderId | undefined,
+	preferred: QuotaSourceId | undefined,
 	options: { modelProvider?: string; signedIn?: boolean } = {},
 ): { view?: QuotaWindowView; hint?: ChromeQuotaHint } {
 	if (!preferred) {

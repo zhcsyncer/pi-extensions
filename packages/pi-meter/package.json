@@ -16,6 +16,9 @@
   "author": "zhcsyncer",
   "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
@@ -36,6 +39,7 @@
   "files": [
     "extensions/",
     "src/",
+    "index.ts",
     "assets/",
     "README.md",
     "README.zh-CN.md",

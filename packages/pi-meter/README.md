@@ -32,6 +32,7 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 - Local dashboard by model, project, or session.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider.
 - `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar.
+- Other extensions can register a quota source. The footer still follows the current model only.
 - Optional local budgets. They warn; they never block requests.
 - Optional one-time import from older session files.
 
