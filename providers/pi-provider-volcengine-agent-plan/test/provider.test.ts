@@ -133,9 +133,9 @@ test("allows an explicit save when validation is temporarily unavailable", async
 test("filters the static catalog by tier and resolves standard auth", async () => {
 	const provider = createAgentPlanProvider();
 	const models = provider.getModels();
-	assert.equal(models.length, 13);
+	assert.equal(models.length, 14);
 	assert.equal(models.filter((model) => model.api === "openai-completions").length, 2);
-	assert.equal(models.filter((model) => model.api === "openai-responses").length, 11);
+	assert.equal(models.filter((model) => model.api === "openai-responses").length, 12);
 
 	const smallCredential = {
 		type: "api_key" as const,
@@ -149,9 +149,10 @@ test("filters the static catalog by tier and resolves standard auth", async () =
 	};
 	const smallModels = provider.filterModels?.(models, smallCredential) ?? [];
 	const mediumModels = provider.filterModels?.(models, mediumCredential) ?? [];
-	assert.equal(smallModels.length, 12);
+	assert.equal(smallModels.length, 13);
 	assert.equal(smallModels.some((model) => model.id === "kimi-k3"), false);
-	assert.equal(mediumModels.length, 13);
+	assert.equal(smallModels.some((model) => model.id === "glm-5.3"), true);
+	assert.equal(mediumModels.length, 14);
 
 	const ctx = {
 		async env() { return undefined; },
@@ -185,7 +186,7 @@ test("declares image input only for vision-capable models", () => {
 		"kimi-k2.7-code",
 		"kimi-k3",
 	];
-	const textOnlyIds = ["minimax-m2.7", "glm-5.2", "deepseek-v4-flash", "deepseek-v4-pro"];
+	const textOnlyIds = ["minimax-m2.7", "glm-5.2", "glm-5.3", "deepseek-v4-flash", "deepseek-v4-pro"];
 
 	for (const id of visionIds) {
 		const model = models.find((entry) => entry.id === id);
@@ -205,6 +206,24 @@ test("exposes only Kimi K3's supported thinking levels", () => {
 		.find((model) => model.id === "kimi-k3");
 	assert.ok(kimiK3);
 	assert.deepEqual(kimiK3.thinkingLevelMap, {
+		off: null,
+		minimal: null,
+		low: "low",
+		medium: null,
+		high: "high",
+		xhigh: null,
+		max: "max",
+	});
+});
+
+test("exposes only GLM 5.3's supported thinking levels", () => {
+	const glm53 = createAgentPlanProvider()
+		.getModels()
+		.find((model) => model.id === "glm-5.3");
+	assert.ok(glm53);
+	assert.equal(glm53.api, "openai-responses");
+	assert.deepEqual(glm53.input, ["text"]);
+	assert.deepEqual(glm53.thinkingLevelMap, {
 		off: null,
 		minimal: null,
 		low: "low",
