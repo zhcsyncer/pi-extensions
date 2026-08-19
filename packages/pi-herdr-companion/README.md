@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It adds visible long-running process panes, temporary `/btw` side threads, configurable blocked-state reporting, and one settings UI.
+A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It adds visible long-running process panes, temporary `/btw` side threads, configurable blocked-state reporting, a settings UI, and `/herdr-worktree cleanup` for the current linked worktree.
 
 The extension stays silent when Pi is outside Herdr or Herdr cannot identify the calling pane.
 
@@ -17,6 +17,7 @@ The extension stays silent when Pi is outside Herdr or Herdr cannot identify the
 - `/btw` opens a temporary side conversation. Nothing returns to the parent until you merge.
 - Configured tools and extension events can show as blocked in Herdr.
 - `/herdr-config` edits runtime guidance, process defaults, and blocked rules.
+- `/herdr-worktree cleanup` removes the current linked Herdr worktree. By default it also deletes the local branch; `--keep-branch` keeps the branch. Remote branches are left untouched.
 
 ## Install
 
@@ -40,7 +41,7 @@ pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 
 `@zhcsyncer/pi-extensions` embeds these sources for release consistency but does **not** enable the companion. Install it separately.
 
-`herdr_process` and blocked reporting work in TUI, RPC, JSON, and print modes. `/btw` and `/herdr-config` need Pi TUI.
+`herdr_process` and blocked reporting work in TUI, RPC, JSON, and print modes. `/btw`, `/herdr-config`, and `/herdr-worktree` need Pi TUI.
 
 ## Processes
 
@@ -90,6 +91,17 @@ Do not load another extension that registers `/btw`. `/new`, `/resume`, or `/for
 ## Blocked reporting
 
 While a configured tool is running, or while a configured extension event payload is `{ active: true }`, Herdr can show a blocked label. `{ active: false }` clears an event. The default tracks `ask_user_question` as `question`.
+
+## `/herdr-worktree`
+
+Run this in the finished feature session that owns the linked worktree:
+
+```text
+/herdr-worktree cleanup
+/herdr-worktree cleanup --keep-branch
+```
+
+Default: detach the current linked worktree, delete the local branch, then remove the Herdr worktree. `--keep-branch` only removes the worktree. The command refuses `main` / `master`, the primary checkout, and a dirty tree. It asks once before changing anything. Remote branches are never deleted.
 
 ## Settings
 

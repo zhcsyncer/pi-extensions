@@ -284,4 +284,44 @@ describe("HerdrClient argv and response contracts", () => {
 		const { client } = capture(() => ({ stdout: "", stderr: "timed out", code: 0, killed: true }));
 		await expect(client.runPane("w1:p2", "watch")).rejects.toMatchObject({ killed: true });
 	});
+
+	it("parses workspace get worktree provenance and removes a worktree by workspace id only", async () => {
+		const { client, calls } = capture((args) => {
+			if (args[0] === "workspace") {
+				return ok(JSON.stringify({
+					result: {
+						type: "workspace_info",
+						workspace: {
+							workspace_id: args[2],
+							label: "feat",
+							worktree: {
+								checkout_path: "/worktrees/repo/feat",
+								is_linked_worktree: true,
+								repo_root: "/repo",
+							},
+						},
+					},
+				}));
+			}
+			return ok(JSON.stringify({
+				result: { type: "worktree_removed", workspace_id: "w1", path: "/worktrees/repo/feat", forced: false },
+			}));
+		});
+		await expect(client.getWorkspace("w1")).resolves.toEqual({
+			workspaceId: "w1",
+			label: "feat",
+			worktree: {
+				checkoutPath: "/worktrees/repo/feat",
+				isLinkedWorktree: true,
+				repoRoot: "/repo",
+			},
+		});
+		await expect(client.removeWorktree("w1")).resolves.toBeUndefined();
+		expect(calls).toEqual([
+			{ command: "herdr", args: ["workspace", "get", "w1"], options: { timeout: 5_000 } },
+			{ command: "herdr", args: ["worktree", "remove", "--workspace", "w1"], options: { timeout: 15_000 } },
+		]);
+		expect(calls[1]?.args).not.toContain("--force");
+		expect(calls[1]?.args).not.toContain("--keep-branch");
+	});
 });

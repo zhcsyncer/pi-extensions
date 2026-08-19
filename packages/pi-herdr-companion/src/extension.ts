@@ -20,6 +20,7 @@ import { registerBtwParent } from "./btw/parent.ts";
 import { BTW_PAYLOAD_ENV } from "./btw/types.ts";
 import { HerdrClient } from "./herdr-client.ts";
 import { ProcessManager } from "./process/manager.ts";
+import { registerHerdrWorktreeCommand } from "./worktree/command.ts";
 import { restoreProcessRegistry, PROCESS_STATE_CUSTOM_TYPE } from "./process/registry.ts";
 import { registerHerdrProcessTool } from "./process/tool.ts";
 import { ProcessWidgetController } from "./process/ui.ts";
@@ -142,6 +143,11 @@ export default async function herdrCompanionExtension(pi: ExtensionAPI): Promise
 				}
 				await openCompanionConfigUi(ctx, configController);
 			},
+		});
+		registerHerdrWorktreeCommand(pi, {
+			runtime,
+			client,
+			exec: (command, args, execOptions) => pi.exec(command, args, execOptions),
 		});
 
 		const btwStore = new BtwContextStore(defaultBtwStateRoot(runtime));

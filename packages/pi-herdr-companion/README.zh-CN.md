@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-供 Pi 在 [Herdr](https://herdr.dev) 中使用的独立扩展。提供可见的长跑进程 Pane、临时 `/btw` 支线、可配置的 blocked 上报，以及一个设置界面。
+供 Pi 在 [Herdr](https://herdr.dev) 中使用的独立扩展。提供可见的长跑进程 Pane、临时 `/btw` 支线、可配置的 blocked 上报、设置界面，以及用于当前 linked worktree 的 `/herdr-worktree cleanup`。
 
 Pi 不在 Herdr 中，或 Herdr 无法识别当前 Pane 时，扩展保持静默。
 
@@ -17,6 +17,7 @@ Pi 不在 Herdr 中，或 Herdr 无法识别当前 Pane 时，扩展保持静默
 - `/btw` 打开临时支线。只有你主动 merge 后，内容才会回到父会话。
 - 已配置的工具和扩展事件可以在 Herdr 里显示为 blocked。
 - `/herdr-config` 编辑 runtime guidance、进程默认值和 blocked 规则。
+- `/herdr-worktree cleanup` 拆掉当前 linked Herdr worktree。默认同时删除本地分支；`--keep-branch` 只拆 worktree。远程分支默认不动。
 
 ## 安装
 
@@ -40,7 +41,7 @@ pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 
 `@zhcsyncer/pi-extensions` 为发版一致性内嵌了这些源码，但**不会**启用 Companion。请单独安装。
 
-`herdr_process` 和 blocked 上报可用于 TUI、RPC、JSON 和 print mode。`/btw` 与 `/herdr-config` 需要 Pi TUI。
+`herdr_process` 和 blocked 上报可用于 TUI、RPC、JSON 和 print mode。`/btw`、`/herdr-config` 与 `/herdr-worktree` 需要 Pi TUI。
 
 ## 进程
 
@@ -90,6 +91,17 @@ Child 是**临时的，不会存成 Pi session**。merge 前关掉，未合回�
 ## Blocked 上报
 
 已配置的工具在执行期间，或已配置的扩展事件 payload 为 `{ active: true }` 时，Herdr 可以显示 blocked 标签。`{ active: false }` 清除事件。默认把 `ask_user_question` 显示为 `question`。
+
+## `/herdr-worktree`
+
+在已经做完的 feature session 里执行：
+
+```text
+/herdr-worktree cleanup
+/herdr-worktree cleanup --keep-branch
+```
+
+默认：拆当前 linked worktree，并删除本地分支。`--keep-branch` 只拆 worktree。当前在 `main` / `master`、主 checkout、或工作区有未提交改动时会直接拒绝。动手前只确认一次。远程分支不会被删除。
 
 ## 设置
 
