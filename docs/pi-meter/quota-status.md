@@ -20,7 +20,7 @@
 
 ### 底栏不回退
 
-先查已登记 guest 的 `matchProvider`，再查内置：`xai` → SuperGrok，`openai-codex` → Codex，`anthropic` → Claude，`ollama-cloud` → Ollama。只画这一家的 `primary`。未登记 guest 时行为与原来一致；没装 guest 的用户看不到 guest 标题。
+`xai` → SuperGrok，`openai-codex` → Codex，`anthropic` → Claude，`ollama-cloud` → Ollama。只画这一家的 `primary`。guest 不能占用这四个 id，也不能把这四个 `model.provider` 抢走。未登记 guest 时行为与原来一致；没装 guest 的用户看不到 guest 标题。
 
 拿不到时：
 

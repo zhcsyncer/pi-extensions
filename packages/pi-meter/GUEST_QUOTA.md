@@ -31,7 +31,7 @@ if (typeof host?.register === "function") {
 }
 ```
 
-同一 `id` 后注册覆盖先注册。
+同一 `id` 后注册覆盖先注册。`id` 不能是内置的 `claude` / `codex` / `supergrok` / `ollama`：直接拒绝。`matchProvider` 若命中 `anthropic` / `openai-codex` / `xai` / `ollama-cloud`，adapter 仍可登记，但这些匹配会被忽略。两种情况都会 `console.warn`，TUI 启动后再 `ui.notify` 一次。
 
 ## Symbol key
 
@@ -54,7 +54,7 @@ if (typeof host?.register === "function") {
 
 ## preferred / footer
 
-1. `preferredProvider` 先查 guest `matchProvider`，再查内置 `anthropic` / `openai-codex` / `xai` / `ollama-cloud`。
+1. `preferredProvider` 先锁定内置 `anthropic` / `openai-codex` / `xai` / `ollama-cloud`，guest 只能认领其余 `model.provider`。
 2. Footer 只用这个 preferred。没有这家快照就 muted hint，绝不回落到另一家（例如 cursor 模型上画 SuperGrok）。
 3. 没登记 guest 时，内置四家行为不变。未安装 guest 的用户看不到 guest 标题。
 4. `/usage quota` 列出已登记 guest；未登录仍走现有 unsigned-in 汇总。
@@ -65,7 +65,7 @@ if (typeof host?.register === "function") {
 - `packages/pi-meter/src/quota/guest.ts` — 注册表、mailbox、host
 - `packages/pi-meter/src/quota/types.ts` — `QuotaSourceId`；store / snapshot 接受 guest 字符串 id
 - `packages/pi-meter/src/quota/store.ts` — 读写 guest id
-- `packages/pi-meter/src/quota/refresh.ts` — preferred 先 guest；refresh 包含已登记 guest
+- `packages/pi-meter/src/quota/refresh.ts` — preferred 先锁定内置模型；refresh 包含已登记 guest
 - `packages/pi-meter/src/quota/policy.ts` — chrome 只跟 preferred
 - `packages/pi-meter/src/quota/auth.ts` — 未知 id 不当内置凭证
 - `packages/pi-meter/extensions/meter.ts` — 启动 drain；quota 面板列出 guest

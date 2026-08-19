@@ -38,9 +38,25 @@ export interface QuotaRefreshDecision {
 export const QUOTA_TTL_MS = 60_000;
 export const QUOTA_MIN_INTERVAL_MS = 30_000;
 export const QUOTA_PROVIDERS: readonly QuotaProviderId[] = ["claude", "codex", "supergrok", "ollama"];
+export const BUILTIN_MODEL_PROVIDERS = ["anthropic", "openai-codex", "xai", "ollama-cloud"] as const;
 
 export function isBuiltinQuotaProvider(id: string): id is QuotaProviderId {
 	return (QUOTA_PROVIDERS as readonly string[]).includes(id);
+}
+
+export function builtinQuotaSource(modelProvider: string): QuotaProviderId | undefined {
+	switch (modelProvider) {
+		case "anthropic":
+			return "claude";
+		case "openai-codex":
+			return "codex";
+		case "xai":
+			return "supergrok";
+		case "ollama-cloud":
+			return "ollama";
+		default:
+			return undefined;
+	}
 }
 
 export function quotaProviderTitle(id: QuotaSourceId): string {

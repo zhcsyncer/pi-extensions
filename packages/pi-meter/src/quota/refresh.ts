@@ -9,7 +9,7 @@ import { decideRefresh, markAttempt, putSnapshot, withStaleFlags } from "./polic
 import { sanitizeQuotaError } from "./sanitize.ts";
 import { loadQuotaStore, saveQuotaStore } from "./store.ts";
 import type { QuotaProviderId, QuotaSnapshot, QuotaSourceId, QuotaStoreFile } from "./types.ts";
-import { isBuiltinQuotaProvider } from "./types.ts";
+import { builtinQuotaSource, isBuiltinQuotaProvider } from "./types.ts";
 
 export type QuotaFetcher = (
 	ctx: Pick<ExtensionContext, "modelRegistry">,
@@ -26,6 +26,8 @@ export const DEFAULT_FETCHERS: Record<QuotaProviderId, QuotaFetcher> = {
 export function preferredProvider(model: { provider?: string } | undefined): QuotaSourceId | undefined {
 	const provider = model?.provider;
 	if (typeof provider !== "string" || !provider) return undefined;
+	const builtin = builtinQuotaSource(provider);
+	if (builtin) return builtin;
 	for (const adapter of listQuotaAdapters()) {
 		try {
 			if (adapter.matchProvider(provider)) return adapter.id;
@@ -33,18 +35,7 @@ export function preferredProvider(model: { provider?: string } | undefined): Quo
 			// A broken guest matcher must not take down the footer.
 		}
 	}
-	switch (provider) {
-		case "anthropic":
-			return "claude";
-		case "openai-codex":
-			return "codex";
-		case "xai":
-			return "supergrok";
-		case "ollama-cloud":
-			return "ollama";
-		default:
-			return undefined;
-	}
+	return undefined;
 }
 
 export interface RefreshOptions {

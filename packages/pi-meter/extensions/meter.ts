@@ -20,7 +20,7 @@ import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts"
 import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { hasStoredQuotaCredential } from "../src/quota/auth.ts";
-import { getQuotaAdapter, installQuotaAdapterHost, listedQuotaSourceIds, quotaSourceTitle } from "../src/quota/guest.ts";
+import { getQuotaAdapter, installQuotaAdapterHost, listedQuotaSourceIds, quotaSourceTitle, takeQuotaAdapterWarnings } from "../src/quota/guest.ts";
 import { resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import type { QuotaSnapshot, QuotaStoreFile } from "../src/quota/types.ts";
@@ -78,6 +78,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 			ttlMs: config.quota.snapshotTtlMs,
 			minIntervalMs: config.quota.minRefreshIntervalMs,
 		});
+		flushQuotaAdapterWarnings(ctx);
+	}
+
+	function flushQuotaAdapterWarnings(ctx: Pick<ExtensionContext, "hasUI" | "ui">): void {
+		const messages = takeQuotaAdapterWarnings();
+		if (!ctx.hasUI) return;
+		for (const message of messages) notify(ctx, message, "warning");
 	}
 
 	function notify(ctx: Pick<ExtensionContext, "hasUI" | "ui">, message: string, level: "info" | "warning" | "error" = "info"): void {

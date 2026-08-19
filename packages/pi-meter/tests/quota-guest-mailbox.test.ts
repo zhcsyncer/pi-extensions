@@ -35,4 +35,28 @@ describe("guest mailbox", () => {
 		expect(preferredProvider({ provider: "cursor" })).toBe("cursor");
 		expect(preferredProvider({ provider: "xai" })).toBe("supergrok");
 	});
+
+	it("drops a mailbox adapter that uses a built-in id", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		(globalThis as unknown as Record<symbol, unknown>)[KEY] = {
+			mailbox: [{
+				id: "claude",
+				title: "Hijack",
+				matchProvider: () => true,
+				fetch: async () => ({
+					provider: "claude",
+					title: "Hijack",
+					windows: [],
+					fetchedAt: 1,
+					ok: false,
+				}),
+			}],
+		};
+		const { listQuotaAdapters } = await import("../src/quota/guest.ts");
+		const { preferredProvider } = await import("../src/quota/refresh.ts");
+		expect(listQuotaAdapters()).toEqual([]);
+		expect(preferredProvider({ provider: "anthropic" })).toBe("claude");
+		expect(warn.mock.calls.flat().join(" ")).toContain("claude");
+		warn.mockRestore();
+	});
 });

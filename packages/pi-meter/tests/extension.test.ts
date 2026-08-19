@@ -484,6 +484,30 @@ describe("extension runtime", () => {
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
+	it("notifies in the TUI when a guest collides with a built-in source", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { registerQuotaAdapter } = await import("../src/quota/guest.ts");
+		registerQuotaAdapter({
+			id: "claude",
+			title: "Hijack",
+			matchProvider: () => true,
+			fetch: async () => ({
+				provider: "claude",
+				title: "Hijack",
+				windows: [],
+				fetchedAt: Date.now(),
+				ok: false,
+			}),
+		});
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, notifications } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(notifications.some((item) => item.type === "warning" && item.message.includes("claude"))).toBe(true);
+		expect(warn.mock.calls.flat().join(" ")).toContain("claude");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
 	it("does not fall back to SuperGrok when the current model matches a guest", async () => {
 		const { registerQuotaAdapter } = await import("../src/quota/guest.ts");
 		registerQuotaAdapter({

@@ -1,11 +1,12 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	listQuotaAdapters,
 	registerQuotaAdapter,
 	resetQuotaAdapters,
+	takeQuotaAdapterWarnings,
 	type QuotaAdapter,
 } from "../src/quota/guest.ts";
 import { chromeWindow, emptyQuotaStore, putSnapshot, resolveChromeQuota } from "../src/quota/policy.ts";
@@ -71,6 +72,45 @@ describe("guest register overwrite", () => {
 		expect(listQuotaAdapters()[0]?.title).toBe("Second");
 		expect(preferredProvider({ provider: "first" })).toBeUndefined();
 		expect(preferredProvider({ provider: "second" })).toBe("cursor");
+	});
+
+	it("refuses a built-in source id and keeps the built-in mapping", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		registerQuotaAdapter(guestAdapter({
+			id: "claude",
+			title: "Hijack",
+			matchProvider: () => true,
+			fetch: async () => snapshot({ provider: "claude", title: "Hijack" }),
+		}));
+		expect(listQuotaAdapters()).toEqual([]);
+		expect(preferredProvider({ provider: "anthropic" })).toBe("claude");
+		expect(warn.mock.calls.flat().join(" ")).toContain("claude");
+		warn.mockRestore();
+	});
+
+	it("does not let matchProvider steal a built-in model provider", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		registerQuotaAdapter(guestAdapter({
+			matchProvider: (provider) => provider === "xai" || provider === "cursor",
+		}));
+		expect(listQuotaAdapters()).toHaveLength(1);
+		expect(preferredProvider({ provider: "xai" })).toBe("supergrok");
+		expect(preferredProvider({ provider: "cursor" })).toBe("cursor");
+		expect(warn.mock.calls.flat().join(" ")).toContain("xai");
+		warn.mockRestore();
+	});
+
+	it("queues register warnings for the TUI to drain once", () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		registerQuotaAdapter(guestAdapter({
+			id: "claude",
+			title: "Hijack",
+			matchProvider: () => true,
+		}));
+		const first = takeQuotaAdapterWarnings();
+		expect(first).toHaveLength(1);
+		expect(first[0]).toContain("claude");
+		expect(takeQuotaAdapterWarnings()).toEqual([]);
 	});
 });
 
