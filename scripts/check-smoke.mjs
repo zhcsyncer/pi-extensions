@@ -101,10 +101,10 @@ export function runSmokeChecks() {
 				const modelCount = (result.stdout ?? "")
 					.split("\n")
 					.filter((line) => line.startsWith("volcengine-agent-plan ")).length;
-				if (modelCount !== 12) {
+				if (modelCount !== 13) {
 					process.stderr.write(result.stderr ?? "");
 					process.stderr.write(result.stdout ?? "");
-					throw new Error(`Agent Plan Small smoke expected 12 models, received ${modelCount}`);
+					throw new Error(`Agent Plan Small smoke expected 13 models, received ${modelCount}`);
 				}
 				console.log(`${packagePath}: Pi 0.81 Small catalog smoke passed (${modelCount} models)`);
 			}
