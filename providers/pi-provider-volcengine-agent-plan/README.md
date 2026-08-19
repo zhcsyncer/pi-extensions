@@ -9,8 +9,8 @@ This community package is not affiliated with or endorsed by Volcengine.
 ## Features
 
 - Native Pi provider registration and `/login` integration.
-- Static catalog for the 13 current Agent Plan models.
-- Image input for the 9 vision-capable models; text-only routing for MiniMax M2.7, GLM 5.2, and DeepSeek V4 Flash/Pro.
+- Static catalog for the 14 current Agent Plan models.
+- Image input for the 9 vision-capable models; text-only routing for MiniMax M2.7, GLM 5.2, GLM 5.3, and DeepSeek V4 Flash/Pro.
 - Tier-aware availability for Small, Medium, Large, and Max plans.
 - OpenAI Responses by default, with Chat Completions routing for Kimi K2.6 and Kimi K2.7 Code.
 - Streaming, reasoning, and tool-call support tested through the Agent Plan gateway.
@@ -68,10 +68,10 @@ The current catalog contains:
 - Doubao Seed Evolving
 - DeepSeek V4 Flash and Pro
 - MiniMax M2.7 and M3
-- GLM 5.2
+- GLM 5.2 and GLM 5.3
 - Kimi K2.6, Kimi K2.7 Code, and Kimi K3
 
-Small exposes 12 models. Kimi K3 currently requires Medium or higher. Medium, Large, and Max expose all 13 current models.
+Small exposes 13 models. Kimi K3 currently requires Medium or higher. Medium, Large, and Max expose all 14 current models.
 
 ## Compatibility
 
@@ -80,6 +80,8 @@ Kimi K2.6 and Kimi K2.7 Code use Chat Completions because their Agent Plan Respo
 Kimi K2.7 Code does not support disabling thinking through the current gateway. Selecting Pi's `off` level therefore avoids sending an unsupported disable control but cannot guarantee that the model stops internal reasoning.
 
 Kimi K3 inherits only model-intrinsic capabilities from Pi's Moonshot catalog. Agent Plan continues to own its protocol, limits, compatibility settings, and plan rules. Its available Pi thinking levels are `low`, `high`, and `max`.
+
+GLM 5.3 cannot disable thinking. Official Z.ai/Zhipu docs only allow `low`, `high`, and `max` effort, so those are the Pi thinking levels this card exposes. It uses Responses like GLM 5.2; Pi sends OpenAI `reasoning.effort` and does not rewrite the request to Zhipu `thinking.type`.
 
 ## Cost reporting
 
@@ -109,7 +111,7 @@ Unit tests use mocked credentials and fetch responses. Real-key contract tests a
 
 Agent Plan does not expose a usable `/models` endpoint, so the catalog and model metadata are versioned statically. Volcengine may change aliases, protocol behavior, limits, or tier availability before this package is updated.
 
-The catalog declares image input for the 9 vision-capable models (Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro, MiniMax M3, Kimi K2.6/K2.7 Code/K3). MiniMax M2.7, GLM 5.2, and DeepSeek V4 Flash/Pro remain text-only. Extreme context windows, maximum-length output, concurrency, rate limits, and subscription quota reporting are not covered.
+The catalog declares image input for the 9 vision-capable models (Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro, MiniMax M3, Kimi K2.6/K2.7 Code/K3). MiniMax M2.7, GLM 5.2, GLM 5.3, and DeepSeek V4 Flash/Pro remain text-only. Extreme context windows, maximum-length output, concurrency, rate limits, and subscription quota reporting are not covered.
 
 ## License
 

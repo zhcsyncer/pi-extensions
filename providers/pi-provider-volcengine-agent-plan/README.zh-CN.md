@@ -9,8 +9,8 @@
 ## 功能
 
 - 原生注册 Pi provider，并集成 `/login`。
-- 静态维护当前 13 个 Agent Plan 模型。
-- 9 个支持视觉的模型可接收图片输入；MiniMax M2.7、GLM 5.2、DeepSeek V4 Flash/Pro 仅文本。
+- 静态维护当前 14 个 Agent Plan 模型。
+- 9 个支持视觉的模型可接收图片输入；MiniMax M2.7、GLM 5.2、GLM 5.3、DeepSeek V4 Flash/Pro 仅文本。
 - 按 Small、Medium、Large 和 Max 套餐过滤可用模型。
 - 默认使用 OpenAI Responses；Kimi K2.6 和 Kimi K2.7 Code 路由到 Chat Completions。
 - 已通过 Agent Plan 网关验证流式、reasoning 和工具调用。
@@ -68,10 +68,10 @@ export ARK_AGENT_PLAN_TIER='medium'
 - Doubao Seed Evolving
 - DeepSeek V4 Flash 和 Pro
 - MiniMax M2.7 和 M3
-- GLM 5.2
+- GLM 5.2 和 GLM 5.3
 - Kimi K2.6、Kimi K2.7 Code 和 Kimi K3
 
-Small 展示 12 个模型。Kimi K3 当前要求 Medium 或更高套餐。Medium、Large 和 Max 展示当前全部 13 个模型。
+Small 展示 13 个模型。Kimi K3 当前要求 Medium 或更高套餐。Medium、Large 和 Max 展示当前全部 14 个模型。
 
 ## 兼容性
 
@@ -80,6 +80,8 @@ Kimi K2.6 和 Kimi K2.7 Code 使用 Chat Completions，因为兼容性测试中�
 当前网关不支持关闭 Kimi K2.7 Code 的 thinking。Pi 选择 `off` 时，本包不会发送不受支持的禁用参数，但无法保证模型停止内部推理。
 
 Kimi K3 只从 Pi 的 Moonshot 模型目录继承模型固有能力，并继续使用 Agent Plan 自己的协议、限额、兼容配置和套餐规则。Pi 中可选的 thinking 档位为 `low`、`high` 和 `max`。
+
+GLM 5.3 不能关闭 thinking。智谱 / Z.ai 官方只允许 `low`、`high`、`max` 三档 effort，因此本卡只向 Pi 暴露这些档位。它与 GLM 5.2 一样走 Responses；Pi 发送 OpenAI `reasoning.effort`，不会改写成智谱 `thinking.type`。
 
 ## 费用显示
 
@@ -109,7 +111,7 @@ npm pack --dry-run --json ./providers/pi-provider-volcengine-agent-plan
 
 Agent Plan 没有可用的 `/models` 端点，因此模型目录和元数据采用静态版本维护。火山引擎可能在本包更新前修改别名、协议行为、限制或套餐权限。
 
-目录为 9 个支持视觉的模型（Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro、MiniMax M3、Kimi K2.6/K2.7 Code/K3）声明图片输入；MiniMax M2.7、GLM 5.2、DeepSeek V4 Flash/Pro 仍仅文本。极限上下文、最大长度输出、并发、限流和套餐余量展示不在当前覆盖范围内。
+目录为 9 个支持视觉的模型（Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro、MiniMax M3、Kimi K2.6/K2.7 Code/K3）声明图片输入；MiniMax M2.7、GLM 5.2、GLM 5.3、DeepSeek V4 Flash/Pro 仍仅文本。极限上下文、最大长度输出、并发、限流和套餐余量展示不在当前覆盖范围内。
 
 ## 许可证
 
