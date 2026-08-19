@@ -1,0 +1,95 @@
+{
+  "name": "pi-provider-cursor-ask",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Standalone Cursor provider for focused Pi advisor and review workflows.",
+  "author": "zhcsyncer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "providers/pi-provider-cursor-ask"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/providers/pi-provider-cursor-ask#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-provider",
+    "cursor",
+    "oauth",
+    "advisor",
+    "review"
+  ],
+  "files": [
+    "LICENSE",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "UPSTREAM_CHANGELOG.md",
+    "UPSTREAM_SOURCE.md",
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup --silent",
+    "prepare": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "security-check": "tsx scripts/security-check.ts",
+    "proto:gen": "buf generate",
+    "proto:sync": "tsx scripts/proto-sync.ts",
+    "proto:check": "tsx scripts/proto-check.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:legacy": "tsx scripts/test-model-routing.ts && tsx scripts/test-thinking-levels.ts && tsx scripts/test-usage.ts && tsx scripts/test-context-mode-normalize.ts && tsx scripts/test-cli-auth.ts",
+    "smoke:auth": "node --import tsx scripts/smoke-auth.mjs",
+    "smoke:models": "node --import tsx scripts/smoke-models.mjs",
+    "smoke:stream": "node --import tsx scripts/smoke-stream.mjs",
+    "smoke:wire": "node --import tsx scripts/smoke-wire.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm security-check && pnpm proto:check && pnpm test && pnpm test:legacy && pnpm build"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.13.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.72.0",
+    "@bufbuild/protoc-gen-es": "2.13.0",
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.5",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^3.2.4"
+  }
+}

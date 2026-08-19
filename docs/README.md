@@ -21,5 +21,6 @@
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
 | [providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md](./providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md) | 未实现 | 火山套餐余量与 tier 自动刷新 |
+| [pi-provider-cursor-ask/upstream-protocol.md](./pi-provider-cursor-ask/upstream-protocol.md) | 上游参考 | Cursor 原生 Connect/protobuf 协议与传输心智模型 |
 
 包内 `packages/*/docs/` 只保留用户可见说明（如 Ask User Question 的配置/键盘文档）。方案不再散落在仓库根或包 `docs/`。

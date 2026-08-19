@@ -46,34 +46,51 @@ const packagePaths = [
 	"./packages/pi-fast-mode",
 	"./packages/pi-meter",
 	"./providers/pi-provider-volcengine-agent-plan",
+	"./providers/pi-provider-cursor-ask",
 ];
 
 export function runSmokeChecks() {
 	const { root, environment } = createIsolatedSmokeEnvironment();
 	try {
-		const providerCheck = spawnSync(
-			"pnpm",
-			["--filter", "pi-provider-volcengine-agent-plan", "check"],
-			{ env: environment, stdio: "inherit" },
-		);
-		if (providerCheck.error) throw providerCheck.error;
-		if (providerCheck.status !== 0) {
-			throw new Error(`Agent Plan provider check exited with status ${providerCheck.status ?? 1}`);
+		for (const providerPackage of [
+			"pi-provider-volcengine-agent-plan",
+			"pi-provider-cursor-ask",
+		]) {
+			const providerCheck = spawnSync(
+				"pnpm",
+				["--filter", providerPackage, "check"],
+				{ env: environment, stdio: "inherit" },
+			);
+			if (providerCheck.error) throw providerCheck.error;
+			if (providerCheck.status !== 0) {
+				throw new Error(`${providerPackage} check exited with status ${providerCheck.status ?? 1}`);
+			}
 		}
 
 		for (const packagePath of packagePaths) {
 			const isAgentPlan = packagePath === "./providers/pi-provider-volcengine-agent-plan";
+			const isCursorAsk = packagePath === "./providers/pi-provider-cursor-ask";
+			const providerPackage = isAgentPlan
+				? "pi-provider-volcengine-agent-plan"
+				: isCursorAsk
+					? "pi-provider-cursor-ask"
+					: undefined;
+			const providerId = isAgentPlan
+				? "volcengine-agent-plan"
+				: isCursorAsk
+					? "cursor"
+					: "__pi_release_check__";
 			const piArgs = [
 				"--no-extensions",
 				"-e",
-				isAgentPlan ? "." : packagePath,
+				providerPackage ? "." : packagePath,
 				"--list-models",
-				isAgentPlan ? "volcengine-agent-plan" : "__pi_release_check__",
+				providerId,
 			];
 			const result = spawnSync(
-				isAgentPlan ? "pnpm" : "pi",
-				isAgentPlan
-					? ["--filter", "pi-provider-volcengine-agent-plan", "exec", "pi", ...piArgs]
+				providerPackage ? "pnpm" : "pi",
+				providerPackage
+					? ["--filter", providerPackage, "exec", "pi", ...piArgs]
 					: piArgs,
 				{
 					env: {
@@ -84,29 +101,39 @@ export function runSmokeChecks() {
 								ARK_AGENT_PLAN_TIER: "small",
 							}
 							: {}),
+						...(isCursorAsk
+							? {
+								CURSOR_ACCESS_TOKEN: "release-smoke-test-token",
+								PI_CURSOR_SYSTEM_CREDENTIALS: "0",
+								PI_OFFLINE: "1",
+							}
+							: {}),
 					},
-					stdio: isAgentPlan ? "pipe" : "inherit",
-					encoding: isAgentPlan ? "utf8" : undefined,
+					stdio: providerPackage ? "pipe" : "inherit",
+					encoding: providerPackage ? "utf8" : undefined,
 				},
 			);
 			if (result.error) throw result.error;
 			if (result.status !== 0) {
-				if (isAgentPlan) {
+				if (providerPackage) {
 					process.stderr.write(result.stderr ?? "");
 					process.stderr.write(result.stdout ?? "");
 				}
 				throw new Error(`${packagePath} smoke check exited with status ${result.status ?? 1}`);
 			}
-			if (isAgentPlan) {
+			if (providerPackage) {
 				const modelCount = (result.stdout ?? "")
 					.split("\n")
-					.filter((line) => line.startsWith("volcengine-agent-plan ")).length;
-				if (modelCount !== 13) {
+					.filter((line) => line.startsWith(`${providerId} `)).length;
+				const expectedCount = isAgentPlan ? 13 : 10;
+				if (modelCount !== expectedCount) {
 					process.stderr.write(result.stderr ?? "");
 					process.stderr.write(result.stdout ?? "");
-					throw new Error(`Agent Plan Small smoke expected 13 models, received ${modelCount}`);
+					throw new Error(
+						`${providerId} smoke expected ${expectedCount} models, received ${modelCount}`,
+					);
 				}
-				console.log(`${packagePath}: Pi 0.81 Small catalog smoke passed (${modelCount} models)`);
+				console.log(`${packagePath}: catalog smoke passed (${modelCount} models)`);
 			}
 		}
 	} finally {
