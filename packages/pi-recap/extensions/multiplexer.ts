@@ -208,10 +208,9 @@ function createTmuxAdapter(runner: CommandRunner): MultiplexerAdapter<"tmux"> {
 				await runner("tmux", ["display-message", "-p", "-t", windowId, "#{window_name}"]),
 				"tmux window name query",
 			);
-			const originalAutomaticRename = requireOutput(
-				await runner("tmux", ["show-window-options", "-qv", "-t", windowId, "automatic-rename"]),
-				"tmux automatic-rename query",
-			);
+			const originalAutomaticRename = (
+				await runner("tmux", ["show-window-options", "-qv", "-t", windowId, "automatic-rename"])
+			).stdout.trim();
 			await runner("tmux", ["set-window-option", "-q", "-t", windowId, "automatic-rename", "off"]);
 			return { windowId, originalName, originalAutomaticRename };
 		},
@@ -234,14 +233,12 @@ function createTmuxAdapter(runner: CommandRunner): MultiplexerAdapter<"tmux"> {
 				}
 			}
 			try {
-				await runner("tmux", [
-					"set-window-option",
-					"-q",
-					"-t",
-					snapshot.windowId,
-					"automatic-rename",
-					snapshot.originalAutomaticRename,
-				]);
+				await runner(
+					"tmux",
+					snapshot.originalAutomaticRename
+						? ["set-window-option", "-q", "-t", snapshot.windowId, "automatic-rename", snapshot.originalAutomaticRename]
+						: ["set-window-option", "-q", "-u", "-t", snapshot.windowId, "automatic-rename"],
+				);
 			} catch (error) {
 				firstError ??= error;
 			}
