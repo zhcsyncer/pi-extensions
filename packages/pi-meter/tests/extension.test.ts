@@ -484,6 +484,141 @@ describe("extension runtime", () => {
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
 	});
 
+	it("notifies in the TUI when a guest collides with a built-in source", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { registerQuotaAdapter } = await import("../src/quota/guest.ts");
+		registerQuotaAdapter({
+			id: "claude",
+			title: "Hijack",
+			matchProvider: () => true,
+			fetch: async () => ({
+				provider: "claude",
+				title: "Hijack",
+				windows: [],
+				fetchedAt: Date.now(),
+				ok: false,
+			}),
+		});
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, notifications } = harness({ hasUI: true, mode: "tui" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		expect(notifications.some((item) => item.type === "warning" && item.message.includes("claude"))).toBe(true);
+		expect(warn.mock.calls.flat().join(" ")).toContain("claude");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("does not fall back to SuperGrok when the current model matches a guest", async () => {
+		const { registerQuotaAdapter } = await import("../src/quota/guest.ts");
+		registerQuotaAdapter({
+			id: "cursor",
+			title: "Cursor",
+			matchProvider: (model) => model.provider === "cursor",
+			fetch: async () => ({
+				provider: "cursor",
+				title: "Cursor",
+				windows: [],
+				fetchedAt: Date.now(),
+				ok: false,
+				error: "not signed in",
+			}),
+		});
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				supergrok: {
+					provider: "supergrok",
+					title: "SuperGrok",
+					primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
+					windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, statuses } = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "cursor", id: "auto" },
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		const footer = statuses.get("pi-meter") ?? "";
+		expect(footer).toContain("cursor");
+		expect(footer).not.toContain("xai week left");
+		expect(footer).not.toContain("week left");
+		expect(footer).not.toContain("█");
+		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("lists a registered guest in /usage quota and hides leftover guest titles when none is registered", async () => {
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				cursor: {
+					provider: "cursor",
+					title: "Cursor",
+					windows: [],
+					fetchedAt: Date.now(),
+					ok: false,
+					error: "no snapshot yet",
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const unsigned = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "xai", id: "grok-4" },
+		});
+		piMeter(unsigned.pi);
+		await unsigned.handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, unsigned.ctx);
+		await unsigned.commands.get("usage").handler("quota", unsigned.ctx);
+		const hidden = unsigned.customComponents[0]?.render(100).join("\n") ?? "";
+		expect(hidden).toContain("Not signed in:");
+		expect(hidden).not.toContain("Cursor");
+		await unsigned.handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, unsigned.ctx);
+
+		vi.resetModules();
+		const { registerQuotaAdapter } = await import("../src/quota/guest.ts");
+		registerQuotaAdapter({
+			id: "cursor",
+			title: "Cursor",
+			matchProvider: (model) => model.provider === "cursor",
+			fetch: async () => ({
+				provider: "cursor",
+				title: "Cursor",
+				windows: [],
+				fetchedAt: Date.now(),
+				ok: false,
+				error: "no snapshot yet",
+			}),
+		});
+		const { default: piMeterWithGuest } = await import("../extensions/meter.ts");
+		const listed = harness({
+			hasUI: true,
+			mode: "tui",
+			model: { provider: "cursor", id: "auto" },
+		});
+		piMeterWithGuest(listed.pi);
+		await listed.handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, listed.ctx);
+		await listed.commands.get("usage").handler("quota", listed.ctx);
+		const dashboard = listed.customComponents[0]?.render(100).join("\n") ?? "";
+		expect(dashboard).toMatch(/Not signed in:.*Cursor/);
+		await listed.handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, listed.ctx);
+	});
+
 	it("does not fall back to Codex when SuperGrok is unavailable", async () => {
 		const paths = getMeterPaths(agentDir);
 		mkdirSync(paths.dataDir, { recursive: true });

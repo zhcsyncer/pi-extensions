@@ -40,6 +40,20 @@ zhcsyncer 维护的一组 Pi extensions。
 
 Search Hub 只随根 bundle 提供。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
+## 独立 Providers
+
+以下 provider 不进入根 bundle。Cursor Ask 只保留在仓库源码中，不发布到 npm；Agent Plan 独立发版。
+
+- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — `@rahularya01/pi-cursor` 的整仓替代版，保留 `cursor` provider/登录身份，提供 4 行始终开启 thinking 的 1M Fable/Opus/Sonnet 模型及 Composer 2.5 / Fast。
+- [`pi-provider-volcengine-agent-plan`](./providers/pi-provider-volcengine-agent-plan) — 非官方火山方舟 Agent Plan provider，支持按套餐过滤模型和 Pi 登录。
+
+```bash
+# 在本仓库的本地 checkout 中执行
+pi install ./providers/pi-provider-cursor-ask
+
+pi install npm:pi-provider-volcengine-agent-plan
+```
+
 ## 从 Git 安装
 
 从本仓库安装完整 extension bundle：
@@ -157,3 +171,5 @@ MIT
 `pi-subagents` fork 自 MIT 许可的 [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3（`c10b1836256e760da75296ccd4e57a77ada1325e`）。准确 revision、本地 UI 差异与保留声明见 [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-subagents/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE)。
 
 `pi-herdr-companion` 改编了 MIT 许可 [`pi-herdr-btw`](https://github.com/oscabriel/pi-herdr-btw) 0.3.0 的 `/btw` 行为与私有 mailbox 模式。准确 tarball 来源与保留声明见 [`packages/pi-herdr-companion/UPSTREAM_SOURCE.md`](./packages/pi-herdr-companion/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-herdr-companion/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-herdr-companion/UPSTREAM_LICENSE)。
+
+`pi-provider-cursor-ask` fork 自 MIT 许可的 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) 1.4.18（`9831b5ffc982bf29e976497758a5f37f8ab0a506`）。准确 revision、独立身份与目录差异、保留声明见 [`providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md`](./providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md) 和 [`LICENSE`](./providers/pi-provider-cursor-ask/LICENSE)。

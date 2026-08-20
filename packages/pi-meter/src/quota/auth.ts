@@ -1,6 +1,7 @@
 import { readStoredCredential, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sanitizeQuotaError } from "./sanitize.ts";
-import type { QuotaProviderId } from "./types.ts";
+import type { QuotaProviderId, QuotaSourceId } from "./types.ts";
+import { isBuiltinQuotaProvider } from "./types.ts";
 
 export interface OAuthAccess {
 	accessToken: string;
@@ -20,7 +21,7 @@ const QUOTA_AUTH: Record<QuotaProviderId, { providerId: string; type: "oauth" | 
 	ollama: { providerId: "ollama-cloud", type: "api_key" },
 };
 
-export function unsignedQuotaError(provider: QuotaProviderId): string {
+export function unsignedQuotaError(provider: QuotaSourceId): string {
 	return provider === "ollama" ? OLLAMA_API_KEY_ERROR : QUOTA_UNSIGNED_OAUTH_ERROR;
 }
 
@@ -46,7 +47,8 @@ export function shouldBypassQuotaMinInterval(snapshot: { ok: boolean; error?: st
 	return isUnsignedQuotaSnapshot(snapshot) || isObsoleteQuotaSnapshot(snapshot);
 }
 
-export function hasStoredQuotaCredential(provider: QuotaProviderId): boolean {
+export function hasStoredQuotaCredential(provider: QuotaSourceId): boolean {
+	if (!isBuiltinQuotaProvider(provider)) return false;
 	const spec = QUOTA_AUTH[provider];
 	return readStoredCredential(spec.providerId)?.type === spec.type;
 }

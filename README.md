@@ -40,6 +40,20 @@ A collection of Pi extensions by zhcsyncer.
 
 Search Hub ships only in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
+## Standalone providers
+
+These providers are not included in the root bundle. Cursor Ask is repository-only and is not published to npm; Agent Plan releases independently.
+
+- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — a full `@rahularya01/pi-cursor` replacement that keeps the `cursor` provider/login identity and exposes four always-thinking 1M Fable/Opus/Sonnet rows plus Composer 2.5 / Fast.
+- [`pi-provider-volcengine-agent-plan`](./providers/pi-provider-volcengine-agent-plan) — an unofficial Volcengine Ark Agent Plan provider with tier-aware models and Pi login.
+
+```bash
+# From a local checkout of this repository
+pi install ./providers/pi-provider-cursor-ask
+
+pi install npm:pi-provider-volcengine-agent-plan
+```
+
 ## Install from Git
 
 Install the whole extension bundle from this repository:
@@ -157,3 +171,5 @@ MIT
 `pi-subagents` is forked from MIT-licensed [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.14.3 (`c10b1836256e760da75296ccd4e57a77ada1325e`). The exact revision, local UI deltas, and preserved notices are recorded in [`packages/pi-subagents/UPSTREAM_SOURCE.md`](./packages/pi-subagents/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-subagents/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-subagents/UPSTREAM_LICENSE).
 
 `pi-herdr-companion` adapts `/btw` behavior and private mailbox patterns from MIT-licensed [`pi-herdr-btw`](https://github.com/oscabriel/pi-herdr-btw) 0.3.0. The exact tarball provenance and preserved notice are recorded in [`packages/pi-herdr-companion/UPSTREAM_SOURCE.md`](./packages/pi-herdr-companion/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-herdr-companion/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-herdr-companion/UPSTREAM_LICENSE).
+
+`pi-provider-cursor-ask` is forked from MIT-licensed [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) 1.4.18 (`9831b5ffc982bf29e976497758a5f37f8ab0a506`). Its exact revision, standalone identity and catalog differences, and preserved notice are recorded in [`providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md`](./providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md) and [`LICENSE`](./providers/pi-provider-cursor-ask/LICENSE).

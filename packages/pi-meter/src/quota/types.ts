@@ -1,4 +1,6 @@
 export type QuotaProviderId = "claude" | "codex" | "supergrok" | "ollama";
+/** Built-in id or a guest adapter id. Guest ids stay open strings. */
+export type QuotaSourceId = string;
 
 export interface QuotaWindow {
 	id: string;
@@ -9,7 +11,7 @@ export interface QuotaWindow {
 }
 
 export interface QuotaSnapshot {
-	provider: QuotaProviderId;
+	provider: QuotaSourceId;
 	title: string;
 	primary?: QuotaWindow;
 	windows: QuotaWindow[];
@@ -23,12 +25,12 @@ export interface QuotaStoreFile {
 	version: 1;
 	ttlMs: number;
 	minIntervalMs: number;
-	providers: Partial<Record<QuotaProviderId, QuotaSnapshot>>;
-	lastAttemptAt: Partial<Record<QuotaProviderId, number>>;
+	providers: Partial<Record<QuotaSourceId, QuotaSnapshot>>;
+	lastAttemptAt: Partial<Record<QuotaSourceId, number>>;
 }
 
 export interface QuotaRefreshDecision {
-	provider: QuotaProviderId;
+	provider: QuotaSourceId;
 	refresh: boolean;
 	reason: "fresh" | "min-interval" | "expired" | "forced" | "missing";
 }
@@ -36,8 +38,28 @@ export interface QuotaRefreshDecision {
 export const QUOTA_TTL_MS = 60_000;
 export const QUOTA_MIN_INTERVAL_MS = 30_000;
 export const QUOTA_PROVIDERS: readonly QuotaProviderId[] = ["claude", "codex", "supergrok", "ollama"];
+export const BUILTIN_MODEL_PROVIDERS = ["anthropic", "openai-codex", "xai", "ollama-cloud"] as const;
 
-export function quotaProviderTitle(id: QuotaProviderId): string {
+export function isBuiltinQuotaProvider(id: string): id is QuotaProviderId {
+	return (QUOTA_PROVIDERS as readonly string[]).includes(id);
+}
+
+export function builtinQuotaSource(modelProvider: string): QuotaProviderId | undefined {
+	switch (modelProvider) {
+		case "anthropic":
+			return "claude";
+		case "openai-codex":
+			return "codex";
+		case "xai":
+			return "supergrok";
+		case "ollama-cloud":
+			return "ollama";
+		default:
+			return undefined;
+	}
+}
+
+export function quotaProviderTitle(id: QuotaSourceId): string {
 	switch (id) {
 		case "claude":
 			return "Claude";
@@ -47,10 +69,12 @@ export function quotaProviderTitle(id: QuotaProviderId): string {
 			return "SuperGrok";
 		case "ollama":
 			return "Ollama Cloud";
+		default:
+			return id;
 	}
 }
 
-export function quotaProviderBrand(id: QuotaProviderId): string {
+export function quotaProviderBrand(id: QuotaSourceId): string {
 	switch (id) {
 		case "claude":
 			return "claude";
@@ -60,5 +84,7 @@ export function quotaProviderBrand(id: QuotaProviderId): string {
 			return "xai";
 		case "ollama":
 			return "ollama";
+		default:
+			return id;
 	}
 }

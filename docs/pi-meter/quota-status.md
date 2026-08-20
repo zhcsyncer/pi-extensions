@@ -20,7 +20,7 @@
 
 ### 底栏不回退
 
-`xai` → SuperGrok，`openai-codex` → Codex，`anthropic` → Claude，`ollama-cloud` → Ollama。只画这一家的 `primary`。
+`xai` → SuperGrok，`openai-codex` → Codex，`anthropic` → Claude，`ollama-cloud` → Ollama。只画这一家的 `primary`。guest 不能占用这四个 id，也不能把这四个 `model.provider` 抢走。同一 guest provider 下可用 `model.id` 拆成多档；多个 guest 都命中时先登记的赢。未登记 guest 时行为与原来一致；没装 guest 的用户看不到 guest 标题。
 
 拿不到时：
 

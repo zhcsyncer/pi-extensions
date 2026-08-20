@@ -20,10 +20,10 @@ import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts"
 import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { hasStoredQuotaCredential } from "../src/quota/auth.ts";
+import { getQuotaAdapter, installQuotaAdapterHost, listedQuotaSourceIds, quotaSourceTitle, takeQuotaAdapterWarnings } from "../src/quota/guest.ts";
 import { resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import type { QuotaSnapshot, QuotaStoreFile } from "../src/quota/types.ts";
-import { QUOTA_PROVIDERS, quotaProviderTitle } from "../src/quota/types.ts";
 
 const WIDGET_KEY = "zhcsyncer-pi-meter";
 const VALID_SCOPES: BudgetLimit["scope"][] = ["global", "session", "project"];
@@ -32,12 +32,19 @@ const VALID_METRICS: BudgetLimit["metric"][] = ["cost", "tot", "in", "out"];
 
 type Notify = (message: string, level?: "info" | "warning" | "error") => void;
 
+function chromeSignedIn(preferred: string | undefined): boolean | undefined {
+	if (!preferred) return false;
+	if (getQuotaAdapter(preferred)) return undefined;
+	return hasStoredQuotaCredential(preferred);
+}
+
 interface SessionBits {
 	sessionId: string;
 	cwd: string;
 }
 
 export default function piMeter(pi: ExtensionAPI): void {
+	installQuotaAdapterHost();
 	const agentDir = getAgentDir();
 	let store: FileLedgerStore | undefined;
 	let config: MeterConfig | undefined;
@@ -71,6 +78,13 @@ export default function piMeter(pi: ExtensionAPI): void {
 			ttlMs: config.quota.snapshotTtlMs,
 			minIntervalMs: config.quota.minRefreshIntervalMs,
 		});
+		flushQuotaAdapterWarnings(ctx);
+	}
+
+	function flushQuotaAdapterWarnings(ctx: Pick<ExtensionContext, "hasUI" | "ui">): void {
+		const messages = takeQuotaAdapterWarnings();
+		if (!ctx.hasUI) return;
+		for (const message of messages) notify(ctx, message, "warning");
 	}
 
 	function notify(ctx: Pick<ExtensionContext, "hasUI" | "ui">, message: string, level: "info" | "warning" | "error" = "info"): void {
@@ -175,7 +189,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 		const resolved = showQuota
 			? resolveChromeQuota(quota, preferred, {
 				modelProvider: ctx.model?.provider,
-				signedIn: preferred ? hasStoredQuotaCredential(preferred) : false,
+				signedIn: chromeSignedIn(preferred),
 			})
 			: {};
 		const text = renderStatusText({
@@ -249,10 +263,11 @@ export default function piMeter(pi: ExtensionAPI): void {
 			return;
 		}
 		await maybeRefreshQuota(ctx, arg === "refresh");
-		const snapshots = QUOTA_PROVIDERS.map((id) => quota?.providers[id]).filter((item): item is NonNullable<typeof item> => item !== undefined);
-		const missing = QUOTA_PROVIDERS.filter((id) => !quota?.providers[id]).map((id) => ({
+		const sourceIds = listedQuotaSourceIds();
+		const snapshots = sourceIds.map((id) => quota?.providers[id]).filter((item): item is NonNullable<typeof item> => item !== undefined);
+		const missing = sourceIds.filter((id) => !quota?.providers[id]).map((id) => ({
 			provider: id,
-			title: quotaProviderTitle(id),
+			title: quotaSourceTitle(id),
 			windows: [],
 			fetchedAt: 0,
 			ok: false,
@@ -396,7 +411,7 @@ async function handleFooter(
 	const preferred = preferredProvider(ctx.model);
 	const resolved = resolveChromeQuota(quota, preferred, {
 		modelProvider: ctx.model?.provider,
-		signedIn: preferred ? hasStoredQuotaCredential(preferred) : false,
+		signedIn: chromeSignedIn(preferred),
 	});
 	const next = await ctx.ui.custom<FooterEditorValue>((tui, theme, _kb, done) => {
 		const dash = new FooterSettingsDashboard({

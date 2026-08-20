@@ -269,6 +269,8 @@ const maintainedReadmes = [
 	"packages/pi-meter/README.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
+	"providers/pi-provider-cursor-ask/README.md",
+	"providers/pi-provider-cursor-ask/README.zh-CN.md",
 	"packages/pi-todo/README.md",
 	"packages/pi-todo/README.zh-CN.md",
 	"packages/pi-tool-display-intent/README.md",
@@ -338,6 +340,10 @@ await assertBilingualPair(
 await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"providers/pi-provider-cursor-ask/README.md",
+	"providers/pi-provider-cursor-ask/README.zh-CN.md",
 );
 for (const readmePath of maintainedReadmes) {
 	const readme = await readFile(resolve(repositoryRoot, readmePath), "utf8");

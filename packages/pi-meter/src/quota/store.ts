@@ -2,8 +2,8 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord, pathExists, readTextFile, writeFileAtomically } from "../fs.ts";
 import { getMeterPaths } from "../paths.ts";
 import { emptyQuotaStore } from "./policy.ts";
-import type { QuotaProviderId, QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
-import { QUOTA_MIN_INTERVAL_MS, QUOTA_PROVIDERS, QUOTA_TTL_MS } from "./types.ts";
+import type { QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
+import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS } from "./types.ts";
 
 function parseWindow(value: unknown): QuotaWindow | undefined {
 	if (!isRecord(value) || typeof value.id !== "string" || typeof value.label !== "string") return undefined;
@@ -17,13 +17,17 @@ function parseWindow(value: unknown): QuotaWindow | undefined {
 	};
 }
 
+function isSourceId(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
 function parseSnapshot(value: unknown): QuotaSnapshot | undefined {
 	if (!isRecord(value)) return undefined;
-	if (!QUOTA_PROVIDERS.includes(value.provider as QuotaProviderId)) return undefined;
+	if (!isSourceId(value.provider)) return undefined;
 	if (typeof value.title !== "string" || typeof value.fetchedAt !== "number") return undefined;
 	const windows = Array.isArray(value.windows) ? value.windows.map(parseWindow).filter((item): item is QuotaWindow => item !== undefined) : [];
 	return {
-		provider: value.provider as QuotaProviderId,
+		provider: value.provider,
 		title: value.title,
 		primary: parseWindow(value.primary),
 		windows,
@@ -46,8 +50,8 @@ export function parseQuotaStore(value: unknown, fallback = emptyQuotaStore()): Q
 	const lastAttemptAt: QuotaStoreFile["lastAttemptAt"] = {};
 	if (isRecord(value.lastAttemptAt)) {
 		for (const [id, ts] of Object.entries(value.lastAttemptAt)) {
-			if (QUOTA_PROVIDERS.includes(id as QuotaProviderId) && typeof ts === "number") {
-				lastAttemptAt[id as QuotaProviderId] = ts;
+			if (isSourceId(id) && typeof ts === "number") {
+				lastAttemptAt[id] = ts;
 			}
 		}
 	}

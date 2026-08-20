@@ -9,6 +9,7 @@ overrides:
   "@earendil-works/pi-coding-agent@0.80.3>@earendil-works/pi-tui": 0.80.3
 
 allowBuilds:
+  "@bufbuild/buf": true
   "@google/genai": false
   esbuild: false
   protobufjs: false
