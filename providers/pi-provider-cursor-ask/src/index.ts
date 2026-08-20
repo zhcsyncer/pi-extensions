@@ -33,7 +33,7 @@ import {
 import { getStartupCursorAccessToken, isTokenNearExpiry } from "./extension/auth.js";
 import { createProviderManager, loadStartupCatalog } from "./extension/provider.js";
 import { registerCursorCommands } from "./extension/commands.js";
-import { createCursorQuotaAdapter, registerCursorQuotaAdapter } from "./extension/quota-adapter.js";
+import { registerCursorQuotaAdapters } from "./extension/quota-adapter.js";
 
 // ── Re-exports for public API, tests, and external scripts ──
 
@@ -177,5 +177,5 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     getLastRegisteredModels: () => lastRegisteredModels,
     getCurrentTokenSource: () => currentTokenSource,
   });
-  registerCursorQuotaAdapter(createCursorQuotaAdapter(getAccessToken));
+  registerCursorQuotaAdapters(getAccessToken);
 }

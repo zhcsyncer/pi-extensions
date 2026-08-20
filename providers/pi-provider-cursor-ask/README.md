@@ -67,7 +67,7 @@ Available command:
 - `/cursor usage` — open a dashboard of Cursor plan usage.
 - `/cursor doctor` — open a dashboard of sanitized provider diagnostics.
 
-If `@zhcsyncer/pi-meter` is also loaded, selecting a `cursor/*` model shows Cursor plan remaining in the meter footer.
+If `@zhcsyncer/pi-meter` is also loaded, the footer follows the current Cursor model: Composer uses the Auto pool, and Claude rows use the API pool.
 
 This package intentionally owns the `cursor` provider id as a drop-in replacement. Do not load it together with `@rahularya01/pi-cursor`; whichever extension registers last would replace the other's `cursor` catalog.
 

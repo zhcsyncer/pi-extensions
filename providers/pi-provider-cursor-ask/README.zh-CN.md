@@ -67,7 +67,7 @@ pi --list-models cursor
 - `/cursor usage` — 打开 Cursor 套餐用量面板。
 - `/cursor doctor` — 打开脱敏后的 provider 诊断面板。
 
-若同时加载了 `@zhcsyncer/pi-meter`，选中 `cursor/*` 模型时会在 meter 底栏显示 Cursor 套餐剩余。
+若同时加载了 `@zhcsyncer/pi-meter`，底栏会跟当前 Cursor 模型走：Composer 看 Auto 池，Claude 行看 API 池。
 
 本包有意占用 `cursor` provider id，作为旧扩展的直接替代品。不要与 `@rahularya01/pi-cursor` 同时加载；后注册的扩展会覆盖另一方的 `cursor` 模型目录。
 
