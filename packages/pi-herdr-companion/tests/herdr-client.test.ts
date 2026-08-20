@@ -324,4 +324,63 @@ describe("HerdrClient argv and response contracts", () => {
 		expect(calls[1]?.args).not.toContain("--force");
 		expect(calls[1]?.args).not.toContain("--keep-branch");
 	});
+
+	it("creates a focused worktree and prompts an agent only until working", async () => {
+		const { client, calls } = capture((args) => {
+			if (args[0] === "worktree" && args[1] === "list") {
+				return ok(JSON.stringify({
+					result: {
+						worktrees: [{
+							path: "/repo",
+							branch: "main",
+							is_linked_worktree: false,
+							open_workspace_id: "w1",
+						}],
+					},
+				}));
+			}
+			if (args[0] === "worktree" && args[1] === "create") {
+				return ok(JSON.stringify({
+					result: {
+						workspace: {
+							workspace_id: "w9",
+							worktree: {
+								checkout_path: "/worktrees/repo/feat",
+								is_linked_worktree: true,
+							},
+						},
+						root_pane: { pane_id: "w9:p1" },
+						worktree: {
+							path: "/worktrees/repo/feat",
+							branch: "feat/foo",
+							is_linked_worktree: true,
+						},
+					},
+				}));
+			}
+			if (args[0] === "agent" && args[1] === "list") {
+				return ok(JSON.stringify({ result: { agents: [{ pane_id: "w1:p1", name: "parent" }] } }));
+			}
+			return ok(JSON.stringify({ result: { agent: { pane_id: "w9:p1", name: args[2], agent_status: "working" } } }));
+		});
+		await expect(client.listWorktrees({ workspaceId: "w1" })).resolves.toEqual([
+			{ path: "/repo", branch: "main", isLinkedWorktree: false, openWorkspaceId: "w1" },
+		]);
+		await expect(client.createWorktree({ workspaceId: "w1", branch: "feat/foo", focus: true, label: "feat/foo" })).resolves.toMatchObject({
+			workspace: { workspaceId: "w9" },
+			rootPaneId: "w9:p1",
+			worktree: { branch: "feat/foo", isLinkedWorktree: true },
+		});
+		await expect(client.listAgents()).resolves.toEqual([{ paneId: "w1:p1", name: "parent" }]);
+		await client.promptAgentUntil("feat-foo", "do the work", { until: "working", timeoutMs: 5_000 });
+		expect(calls.map((call) => call.args)).toEqual([
+			["worktree", "list", "--workspace", "w1"],
+			["worktree", "create", "--workspace", "w1", "--branch", "feat/foo", "--label", "feat/foo", "--focus"],
+			["agent", "list"],
+			["agent", "prompt", "feat-foo", "do the work", "--wait", "--until", "working", "--timeout", "5000"],
+		]);
+		expect(calls[1]?.args).not.toContain("--force");
+		expect(calls[1]?.args).not.toContain("--keep-branch");
+		expect(calls[3]?.options.timeout).toBe(7_000);
+	});
 });

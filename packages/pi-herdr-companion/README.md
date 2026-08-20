@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It adds visible long-running process panes, temporary `/btw` side threads, configurable blocked-state reporting, a settings UI, and `/herdr-worktree cleanup` for the current linked worktree.
+A standalone Pi extension for using Pi inside [Herdr](https://herdr.dev). It adds visible long-running process panes, temporary `/btw` side threads, configurable blocked-state reporting, a settings UI, and `/herdr-worktree` to start or clean up a linked worktree.
 
 The extension stays silent when Pi is outside Herdr or Herdr cannot identify the calling pane.
 
@@ -17,6 +17,7 @@ The extension stays silent when Pi is outside Herdr or Herdr cannot identify the
 - `/btw` opens a temporary side conversation. Nothing returns to the parent until you merge.
 - Configured tools and extension events can show as blocked in Herdr.
 - `/herdr-config` edits runtime guidance, process defaults, and blocked rules.
+- `/herdr-worktree start` distills a dispatch plan from this session, then creates a linked worktree and starts Pi with only that plan.
 - `/herdr-worktree cleanup` removes the current linked Herdr worktree. By default it also deletes the local branch; `--keep-branch` keeps the branch. Remote branches are left untouched.
 
 ## Install
@@ -94,14 +95,16 @@ While a configured tool is running, or while a configured extension event payloa
 
 ## `/herdr-worktree`
 
-Run this in the finished feature session that owns the linked worktree:
-
 ```text
+/herdr-worktree start
+/herdr-worktree start feat/foo
 /herdr-worktree cleanup
 /herdr-worktree cleanup --keep-branch
 ```
 
-Default: detach the current linked worktree, delete the local branch, then remove the Herdr worktree. `--keep-branch` only removes the worktree. The command refuses `main` / `master`, the primary checkout, and a dirty tree. It asks once before changing anything. Remote branches are never deleted.
+`start` extracts an executable goal and plan from this session without writing a turn to the transcript, then opens a review editor. After you save that plan, it creates a linked worktree, starts Pi there, and sends only the reviewed plan. It refuses `main` / `master` as the destination, an empty plan, and a branch that already has a linked worktree. It does not pack this conversation, and it does not wait for the child to finish.
+
+`cleanup` is for the finished feature session that owns the linked worktree. Default: detach, delete the local branch, then remove the Herdr worktree. `--keep-branch` only removes the worktree. It refuses `main` / `master`, the primary checkout, and a dirty tree. Remote branches are never deleted.
 
 ## Settings
 

@@ -39,6 +39,8 @@ function fakePi() {
 		},
 		registerTool(tool: { name: string }) { tools.push(tool.name); },
 		registerCommand(name: string) { commands.push(name); },
+		registerMessageRenderer() {},
+		registerEntryRenderer() {},
 		events: {
 			on(name: string, handler: (data: unknown) => void) {
 				const values = eventHandlers.get(name) ?? [];

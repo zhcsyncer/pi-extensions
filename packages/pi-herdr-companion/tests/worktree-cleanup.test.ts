@@ -80,7 +80,7 @@ function harness(options: {
 }
 
 describe("/herdr-worktree parser", () => {
-	it("accepts only cleanup and cleanup --keep-branch", () => {
+	it("accepts cleanup forms and rejects unknown cleanup flags", () => {
 		expect(parseHerdrWorktreeCommand("cleanup")).toEqual({ kind: "cleanup", keepBranch: false });
 		expect(parseHerdrWorktreeCommand("  cleanup   --keep-branch  ")).toEqual({ kind: "cleanup", keepBranch: true });
 		expect(parseHerdrWorktreeCommand("")).toEqual({ kind: "usage" });
@@ -216,6 +216,13 @@ describe("/herdr-worktree command", () => {
 		const notifications: Array<{ message: string; type?: string }> = [];
 		const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
 		registerHerdrWorktreeCommand({
+			on() {},
+			registerMessageRenderer() {},
+			registerEntryRenderer() {},
+			getActiveTools: () => [],
+			setActiveTools() {},
+			sendMessage() {},
+			appendEntry() {},
 			registerCommand(name: string, definition: { handler: (args: string, ctx: unknown) => Promise<void> }) {
 				commands.set(name, definition);
 			},
@@ -227,6 +234,21 @@ describe("/herdr-worktree command", () => {
 				},
 				removeWorktree: async () => {
 					throw new Error("worktree remove should not run");
+				},
+				listWorktrees: async () => {
+					throw new Error("worktree list should not run");
+				},
+				createWorktree: async () => {
+					throw new Error("worktree create should not run");
+				},
+				listAgents: async () => {
+					throw new Error("agent list should not run");
+				},
+				startAgent: async () => {
+					throw new Error("agent start should not run");
+				},
+				promptAgentUntil: async () => {
+					throw new Error("agent prompt should not run");
 				},
 			},
 			exec: async () => {
