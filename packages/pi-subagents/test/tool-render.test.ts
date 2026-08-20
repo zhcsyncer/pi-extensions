@@ -85,7 +85,7 @@ describe("renderAgentLikeResult", () => {
     ...Array.from({ length: 40 }, (_, i) => `detail line ${i}`),
   ].join("\n");
 
-  it("collapsed completed result is Claude Code chrome (✓ stats / ⎿ Done), no body wall", () => {
+  it("collapsed completed result is a single clerk (Done + stats), no body wall", () => {
     const component = renderAgentLikeResult(
       completedDetails({ modelName: "haiku", effort: "high", turnCount: 3 }),
       hugeBody,
@@ -94,10 +94,11 @@ describe("renderAgentLikeResult", () => {
     );
     expect(component).toBeInstanceOf(Text);
     const out = plain(component);
-    expect(out).toMatch(/^✓/m);
+    expect(out).not.toMatch(/✓/);
     expect(out).toContain("haiku");
-    expect(out).toContain("effort: high");
+    expect(out).not.toContain("effort: high");
     expect(out).toMatch(/⎿\s+Done/);
+    expect(out).toContain("3 tool uses");
     expect(out).not.toContain("LINE_SHOULD_STAY_COLLAPSED");
     expect(out).not.toContain("detail line 20");
   });
@@ -110,12 +111,39 @@ describe("renderAgentLikeResult", () => {
     expect(kids.some((c) => c instanceof Markdown)).toBe(true);
 
     const out = plain(component, 100);
-    expect(out).toMatch(/✓/);
+    expect(out).toMatch(/Done/);
     expect(out).toContain("detail line 20");
     expect(out).toContain("Report");
   });
 
-  it("running status is spinner + ⎿ coarse activity (Claude Code shape)", () => {
+  it("expanded completed result shows config/cost clerks under the outcome", () => {
+    const out = plain(
+      renderAgentLikeResult(
+        completedDetails({
+          modelName: "haiku",
+          effort: "high",
+          tags: ["isolated", "worktree"],
+          cost: 0.012,
+          contextPercent: 42,
+          outputFile: "/tmp/task.output",
+          worktreeSummary: "worktree feat-foo",
+        }),
+        hugeBody,
+        { expanded: true },
+        theme(),
+      ),
+      120,
+    );
+    expect(out).toContain("effort: high");
+    expect(out).toContain("isolated");
+    expect(out).toContain("worktree");
+    expect(out).toContain("current ctx 42%");
+    expect(out).toContain("$0.012");
+    expect(out).toContain("transcript: /tmp/task.output");
+    expect(out).toContain("worktree feat-foo");
+  });
+
+  it("running status is a single ⎿ spinner + coarse activity line", () => {
     const component = renderAgentLikeResult(
       completedDetails({ status: "running", durationMs: 0, activity: "exploring…", toolUses: 2 }),
       "",
@@ -165,8 +193,8 @@ describe("renderAgentLikeResult", () => {
       theme(),
     );
     const out = plain(component, 100);
-    expect(out).toMatch(/✗/);
-    expect(out).toContain("boom");
+    expect(out).toMatch(/Error: boom/);
+    expect(out).toMatch(/⎿/);
     expect(out.split("\n").length).toBeLessThan(6);
   });
 });
@@ -194,7 +222,7 @@ describe("renderUndetailedResult", () => {
       'Model not in scope: "foo".\n\nAllowed models (from enabledModels):\n  anthropic/claude';
     const component = renderUndetailedResult(text, { expanded: false }, theme());
     const out = plain(component);
-    expect(out).toMatch(/✗/);
+    expect(out).toMatch(/Error:/);
     expect(out).not.toMatch(/✓/);
     expect(out).toMatch(/⎿/);
     expect(out).toMatch(/Model not in scope/);
@@ -213,7 +241,7 @@ describe("renderUndetailedResult", () => {
   it("explicit isError=true paints ✗ without relying on keywords", async () => {
     const { renderUndetailedResult } = await import("../src/ui/tool-render.js");
     const component = renderUndetailedResult("all good actually", { expanded: false, isError: true }, theme());
-    expect(plain(component)).toMatch(/✗/);
+    expect(plain(component)).toMatch(/Error:/);
   });
 
   it("strips terminal controls from undetailed previews", async () => {
@@ -267,7 +295,7 @@ describe("terminal chrome variants", () => {
     expect(out).not.toMatch(/thinking/);
   });
 
-  it("steered shows warning ✓ + Wrapped up (turn limit)", () => {
+  it("steered shows Wrapped up (turn limit) on the clerk", () => {
     const out = plain(
       renderAgentLikeResult(
         completedDetails({ status: "steered", durationMs: 1500 }),
@@ -276,21 +304,21 @@ describe("terminal chrome variants", () => {
         theme(),
       ),
     );
-    expect(out).toMatch(/✓/);
+    expect(out).not.toMatch(/✓/);
     expect(out).toMatch(/Wrapped up \(turn limit\)/);
   });
 
-  it("stopped shows ■ Stopped; aborted shows ✗ Aborted", () => {
+  it("stopped / aborted clerks carry the status phrase only", () => {
     const stopped = plain(
       renderAgentLikeResult(completedDetails({ status: "stopped", durationMs: 900 }), "", { expanded: false }, theme()),
     );
-    expect(stopped).toMatch(/■/);
+    expect(stopped).not.toMatch(/■/);
     expect(stopped).toMatch(/Stopped/);
 
     const aborted = plain(
       renderAgentLikeResult(completedDetails({ status: "aborted", durationMs: 900 }), "", { expanded: false }, theme()),
     );
-    expect(aborted).toMatch(/✗/);
+    expect(aborted).not.toMatch(/✗/);
     expect(aborted).toMatch(/Aborted/);
   });
 });
@@ -320,30 +348,27 @@ describe("formatAgentCallMeta / formatAgentDetailsStats", () => {
     expect(formatAgentCallMeta({ model: "haiku", modelInherited: true })).toBe("haiku (inherit)");
   });
 
-  it("result stats include model (inherit) and effort", async () => {
-    const { formatAgentDetailsStats } = await import("../src/ui/tool-render.js");
-    const s = formatAgentDetailsStats(
-      {
-        displayName: "Explore",
-        description: "x",
-        subagentType: "Explore",
-        toolUses: 2,
-        tokens: "1.0k token",
-        durationMs: 1000,
-        status: "completed",
-        modelName: "haiku",
-        modelInherited: true,
-        effort: "high",
-        tags: ["effort: high", "background"],
-      },
-      theme(),
-    );
+  it("collapsed stats include model (inherit) but not effort/background", async () => {
+    const { formatAgentDetailsStats, formatConfigParts } = await import("../src/ui/tool-render.js");
+    const details = {
+      displayName: "Explore",
+      description: "x",
+      subagentType: "Explore",
+      toolUses: 2,
+      tokens: "1.0k token",
+      durationMs: 1000,
+      status: "completed" as const,
+      modelName: "haiku",
+      modelInherited: true,
+      effort: "high",
+      tags: ["effort: high", "background", "isolated"],
+    };
+    const s = formatAgentDetailsStats(details, theme());
     expect(s).toContain("haiku (inherit)");
-    expect(s).toContain("effort: high");
-    expect(s).toContain("background");
+    expect(s).not.toContain("effort: high");
+    expect(s).not.toContain("background");
     expect(s).toContain("2 tool uses");
-    // effort not duplicated from tags
-    expect(s.match(/effort: high/g)?.length).toBe(1);
+    expect(formatConfigParts(details)).toEqual(["effort: high", "isolated"]);
   });
 });
 
@@ -391,7 +416,7 @@ describe("Agent → invocation → get_subagent_result inherit contract", () => 
       theme(),
     );
     expect(stats).toContain("sonnet (inherit)");
-    expect(stats).toContain("effort: high");
+    expect(stats).not.toContain("effort: high");
 
     // Call-line chips when record is still live.
     expect(
@@ -425,5 +450,20 @@ describe("Agent → invocation → get_subagent_result inherit contract", () => 
     );
     expect(out).toContain("sonnet (inherit)");
     expect(out).toMatch(/⎿\s+Done/);
+  });
+});
+
+describe("renderToolCallTitle", () => {
+  it("renders ● Name(target) and keeps explicit chips", async () => {
+    const { renderToolCallTitle } = await import("../src/ui/tool-render.js");
+    const out = plain(renderToolCallTitle("Explore", "Find auth files", theme(), "haiku · bg"));
+    expect(out).toBe("● Explore(Find auth files)  haiku · bg");
+  });
+
+  it("omits empty parentheses and paints the marker from row state", async () => {
+    const { renderToolCallTitle } = await import("../src/ui/tool-render.js");
+    expect(plain(renderToolCallTitle("Agent", undefined, theme()))).toBe("● Agent");
+    expect(plain(renderToolCallTitle("Agent", "x", taggedTheme(), undefined, { isPartial: true }))).toContain("<warning>●</warning>");
+    expect(plain(renderToolCallTitle("Agent", "x", taggedTheme(), undefined, { isError: true }))).toContain("<error>●</error>");
   });
 });

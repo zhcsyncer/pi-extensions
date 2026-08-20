@@ -113,24 +113,22 @@ Open FleetView / agent list, select a subagent, press Enter:
 
 ### Tool TUI (main transcript) — Claude Code chrome
 
-Matches upstream’s documented shape ([UPSTREAM_README](./UPSTREAM_README.md) “Individual agent results”):
+Uses Claude Code Task chrome in the main transcript (unboxed `renderShell: "self"`):
 
 ```text
-▸ Explore  Find auth files
-⠹ haiku · effort: high · ↻3 · 3 tool uses · lifetime 12.4k token
-  ⎿  exploring…
-✓ haiku · effort: high · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s
-  ⎿  Done
+● Explore(Find auth files)  haiku · bg
+  ⎿  ⠹ exploring… · ↻3 · 3 tool uses · haiku
+  ⎿  Done · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s · haiku
 ```
 
 | State | What you see |
 | --- | --- |
-| **Call** | `▸ Type  description` (+ dim chips only if call args set `model` / `thinking` / `bg`) |
-| **Running** | `⠹` + stats / `⎿` stable coarse phase (`exploring…`, `editing…`, `running commands…`, or `delegating…`); otherwise `working…` |
-| **Completed** | `✓` + stats · friendly duration / `⎿ Done` (or Wrapped up / Stopped / Error) |
-| **Expanded** (`Ctrl+O`) | Same chrome + **Markdown** body (no default dump) |
+| **Call** | `● Type(description)` (+ dim chips only if call args set `model` / `thinking` / `bg`) |
+| **Running** | `⎿` spinner + stable coarse phase (`exploring…`, `editing…`, `running commands…`, or `delegating…`); otherwise `working…` |
+| **Completed** | `⎿ Done` · turns · tool uses · lifetime tokens · duration · resolved model (Wrapped up / Stopped / Error variants) |
+| **Expanded** (`Ctrl+O`) | Outcome clerk + effort/isolation/cost/transcript/worktree clerks + **Markdown** body |
 
-`effort` is display wording for the existing `thinking` parameter/frontmatter field. Effective **model** (including parent inherit) is always on the **result** stats line when known.
+`effort` is display wording for the existing `thinking` parameter/frontmatter field. Effective **model** (including parent inherit) stays on the collapsed clerk. Spawn config (`effort`, `isolated`, `worktree`, `twin`) and cheap extra signals (`cost`, low context %, transcript path) move to the expanded footer so the collapsed row stays scannable. Context at ≥70% and any compaction count stay on the collapsed clerk.
 
 Compact running surfaces do not stream file paths, commands, or assistant body text. Fast and unknown work stays `working…`; a known coarse phase appears only after about 0.8 seconds and then remains visible for at least 1.5 seconds to avoid flicker. Exact per-tool steps remain available in the conversation overlay.
 

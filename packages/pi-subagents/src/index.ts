@@ -47,12 +47,10 @@ import {
   formatDuration,
   formatMs,
   formatTokens,
-  formatTurns,
   getDisplayName,
   getPromptModeLabel,
   shortModelLabel,
   SPINNER,
-  styleDuration,
   type Theme,
   trackActivityPhaseEnd,
   trackActivityPhaseStart,
@@ -64,14 +62,15 @@ import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import {
   firstLinePreview,
   formatAgentCallMeta,
-  formatAgentDetailsStats,
+  formatClerkLine,
+  formatOutcomeClerk,
   isFailureDetailsStatus,
   renderAgentLikeResult,
   renderToolCallTitle,
   renderUndetailedResult,
   toolResultText,
 } from "./ui/tool-render.js";
-import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
+import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "./usage.js";
 
 // ---- Shared helpers ----
 
@@ -164,11 +163,13 @@ export function renderRunningAgentStatus(
   statsText: string,
   activity: string,
   theme: Pick<Theme, "fg">,
-): Container {
-  const container = new Container();
-  container.addChild(new Text(theme.fg("accent", frame) + (statsText ? " " + statsText : ""), 0, 0));
-  container.addChild(new Text(theme.fg("dim", `  ⎿  ${activity}`), 0, 0));
-  return container;
+): Text {
+  const rest = [activity, statsText].filter((part) => part && part.length > 0).join(" · ");
+  return new Text(
+    theme.fg("dim", "  ⎿  ") + theme.fg("accent", frame) + (rest ? theme.fg("dim", ` ${rest}`) : ""),
+    0,
+    0,
+  );
 }
 
 /** Format the legacy compact lifetime total, or "" when zero. */
@@ -313,10 +314,51 @@ function formatTaskNotification(record: AgentRecord, resultMaxLen: number): stri
   ].filter(Boolean).join('\n');
 }
 
+function worktreeSummaryFromRecord(record: {
+  worktree?: { branch?: string };
+  worktreeResult?: { hasChanges?: boolean; branch?: string };
+}): string | undefined {
+  const branch = record.worktreeResult?.branch ?? record.worktree?.branch;
+  if (!branch) return undefined;
+  return record.worktreeResult?.hasChanges ? `worktree ${branch} · dirty` : `worktree ${branch}`;
+}
+
+function observabilityFromRecord(record: {
+  session?: SessionLike;
+  lifetimeUsage?: LifetimeUsage;
+  compactionCount?: number;
+  outputFile?: string;
+  worktree?: { branch?: string };
+  worktreeResult?: { hasChanges?: boolean; branch?: string };
+}): Partial<AgentDetails> {
+  const contextPercent = getSessionContextPercent(record.session);
+  const cost = record.lifetimeUsage?.cost;
+  return {
+    contextPercent: contextPercent ?? undefined,
+    compactionCount: record.compactionCount || undefined,
+    cost: cost != null && Number.isFinite(cost) && cost > 0 ? cost : undefined,
+    outputFile: record.outputFile,
+    worktreeSummary: worktreeSummaryFromRecord(record),
+  };
+}
+
 /** Build AgentDetails from a base + record-specific fields. */
 function buildDetails(
   base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags">,
-  record: { toolUses: number; startedAt: number; completedAt?: number; status: string; error?: string; id?: string; session?: any; lifetimeUsage: LifetimeUsage },
+  record: {
+    toolUses: number;
+    startedAt: number;
+    completedAt?: number;
+    status: string;
+    error?: string;
+    id?: string;
+    session?: any;
+    lifetimeUsage: LifetimeUsage;
+    compactionCount?: number;
+    outputFile?: string;
+    worktree?: { branch?: string };
+    worktreeResult?: { hasChanges?: boolean; branch?: string };
+  },
   activity?: AgentActivity,
   overrides?: Partial<AgentDetails>,
 ): AgentDetails {
@@ -330,6 +372,7 @@ function buildDetails(
     status: record.status as AgentDetails["status"],
     agentId: record.id,
     error: record.error,
+    ...observabilityFromRecord(record),
     ...overrides,
   };
 }
@@ -385,43 +428,34 @@ export default function (pi: ExtensionAPI) {
 
       function renderOne(d: NotificationDetails): string {
         const isError = d.status === "error" || d.status === "stopped" || d.status === "aborted";
-        const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-        const statusText = isError ? d.status
-          : d.status === "steered" ? "completed (steered)"
-          : "completed";
+        const marker = isError ? theme.fg("error", "●") : theme.fg("success", "●");
         const description = sanitizeDisplayText(d.description);
         const resultPreview = sanitizeDisplayText(d.resultPreview);
         const outputFile = d.outputFile ? sanitizeDisplayText(d.outputFile) : undefined;
-
-        // Line 1: icon + agent description + status
-        let line = `${icon} ${theme.bold(description)} ${theme.fg("dim", statusText)}`;
-
-        // Line 2: stats
-        const parts: string[] = [];
-        if (d.turnCount > 0) parts.push(theme.fg("dim", formatTurns(d.turnCount, d.maxTurns)));
-        if (d.toolUses > 0) {
-          parts.push(theme.fg("dim", `${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`));
-        }
-        if (d.totalTokens > 0) parts.push(theme.fg("dim", `lifetime ${formatTokens(d.totalTokens)}`));
-        if (d.durationMs > 0) parts.push(styleDuration(theme, formatMs(d.durationMs)));
-        if (parts.length) {
-          line += "\n  " + parts.join(" " + theme.fg("dim", "·") + " ");
-        }
-
-        // Line 3: result preview (collapsed) or full (expanded)
+        const clerkDetails: AgentDetails = {
+          displayName: description,
+          description,
+          subagentType: "",
+          toolUses: d.toolUses,
+          tokens: d.totalTokens > 0 ? `lifetime ${formatTokens(d.totalTokens)}` : "",
+          durationMs: d.durationMs,
+          status: d.status as AgentDetails["status"],
+          turnCount: d.turnCount,
+          maxTurns: d.maxTurns,
+          error: d.error,
+          outputFile,
+        };
+        const outcome = formatOutcomeClerk(clerkDetails, resultPreview, theme);
+        const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
+        let line = `${marker} ${theme.fg("toolTitle", theme.bold(description))}`;
+        line += "\n" + outcome;
         if (expanded) {
           const lines = resultPreview.split("\n").slice(0, 30);
-          for (const l of lines) line += "\n" + theme.fg("dim", `  ${l}`);
-        } else {
-          const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
-          line += "\n  " + theme.fg("dim", `⎿  ${preview}`);
+          for (const l of lines) line += "\n" + theme.fg("dim", `    ${l}`);
+          if (outputFile) line += "\n" + formatClerkLine(theme, `transcript: ${outputFile}`, "muted");
+        } else if (preview) {
+          line += "\n" + formatClerkLine(theme, preview);
         }
-
-        // Line 4: output file link (if present)
-        if (outputFile) {
-          line += "\n  " + theme.fg("muted", `transcript: ${outputFile}`);
-        }
-
         return line;
       }
 
@@ -1082,18 +1116,19 @@ Terse command-style prompts produce shallow, generic work.
     }),
 
     // ---- Custom rendering: Claude Code style ----
+    renderShell: "self",
 
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const displayName = args.subagent_type ? getDisplayName(args.subagent_type as string) : "Agent";
       const desc = typeof args.description === "string" ? args.description : "";
       // Call-time chips use tool args (may be fuzzy model / unset = inherit).
-      // Result stats use the resolved effective model from details.
+      // Result clerk uses the resolved effective model from details.
       const meta = formatAgentCallMeta({
         model: typeof args.model === "string" ? args.model : undefined,
         effort: typeof args.thinking === "string" ? args.thinking : undefined,
         background: args.run_in_background === true,
       });
-      return renderToolCallTitle(displayName, desc || undefined, theme, meta);
+      return renderToolCallTitle(displayName, desc || undefined, theme, meta, context);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1103,14 +1138,6 @@ Terse command-style prompts produce shallow, generic work.
         // Never default to completed/✓ — validation failures often omit details.
         return renderUndetailedResult(text, { expanded, isError: context?.isError === true }, theme);
       }
-
-      // Streaming partials keep the live spinner component (animated via onUpdate).
-      if (isPartial || details.status === "running") {
-        const frame = SPINNER[details.spinnerFrame ?? 0];
-        const s = formatAgentDetailsStats(details, theme);
-        return renderRunningAgentStatus(frame, s, details.activity ?? "working…", theme);
-      }
-
       return renderAgentLikeResult(details, text, { expanded, isPartial }, theme);
     },
 
@@ -1401,6 +1428,7 @@ Terse command-style prompts produce shallow, generic work.
       let fgId: string | undefined;
 
       const streamUpdate = () => {
+        const live = fgId ? manager.getRecord(fgId) : undefined;
         const details: AgentDetails = {
           ...detailBase,
           toolUses: fgState.toolUses,
@@ -1411,6 +1439,14 @@ Terse command-style prompts produce shallow, generic work.
           status: "running",
           activity: describeCompactActivity(fgState),
           spinnerFrame: spinnerFrame % SPINNER.length,
+          ...observabilityFromRecord({
+            session: fgState.session ?? live?.session,
+            lifetimeUsage: fgState.lifetimeUsage,
+            compactionCount: live?.compactionCount,
+            outputFile: live?.outputFile,
+            worktree: live?.worktree,
+            worktreeResult: live?.worktreeResult,
+          }),
         };
         onUpdate?.({
           content: [{ type: "text", text: `${fgState.toolUses} tool uses...` }],
@@ -1540,7 +1576,8 @@ Terse command-style prompts produce shallow, generic work.
 
     // Without renderResult Pi dumps the entire model-facing payload (often a full
     // agent transcript) with no collapse — keep the TUI to a one-line preview.
-    renderCall(args, theme) {
+    renderShell: "self",
+    renderCall(args, theme, context) {
       const id = typeof args.agent_id === "string" ? args.agent_id : "";
       const flags = [
         args.wait ? "wait" : undefined,
@@ -1558,7 +1595,7 @@ Terse command-style prompts produce shallow, generic work.
         background: inv?.runInBackground === true,
         extra: flags,
       });
-      return renderToolCallTitle("Get Result", id || undefined, theme, meta || undefined);
+      return renderToolCallTitle("Get Result", id || undefined, theme, meta || undefined, context);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1652,6 +1689,7 @@ Terse command-style prompts produce shallow, generic work.
         turnCount: activity?.turnCount,
         maxTurns: activity?.maxTurns,
         ...invMeta,
+        ...observabilityFromRecord(record),
         activity: activityText,
       };
 
@@ -1677,10 +1715,11 @@ Terse command-style prompts produce shallow, generic work.
       }),
     }),
 
-    renderCall(args, theme) {
+    renderShell: "self",
+    renderCall(args, theme, context) {
       const id = typeof args.agent_id === "string" ? args.agent_id : "";
       const msg = typeof args.message === "string" ? firstLinePreview(args.message, 60) : "";
-      return renderToolCallTitle("Steer", id || undefined, theme, msg || undefined);
+      return renderToolCallTitle("Steer", id || undefined, theme, msg || undefined, context);
     },
 
     renderResult(result, { expanded }, theme, context) {

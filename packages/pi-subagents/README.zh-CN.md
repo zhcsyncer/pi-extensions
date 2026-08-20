@@ -113,24 +113,22 @@ FleetView / agent 列表选中子 agent 后回车：
 
 ### 主会话 tool TUI — Claude Code chrome
 
-对齐上游文档中的呈现（见 [UPSTREAM_README](./UPSTREAM_README.md)）：
+主会话 transcript 使用 Claude Code Task chrome（`renderShell: "self"`，无背景盒）：
 
 ```text
-▸ Explore  Find auth files
-⠹ haiku · effort: high · ↻3 · 3 tool uses · lifetime 12.4k token
-  ⎿  exploring…
-✓ haiku · effort: high · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s
-  ⎿  Done
+● Explore(Find auth files)  haiku · bg
+  ⎿  ⠹ exploring… · ↻3 · 3 tool uses · haiku
+  ⎿  Done · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s · haiku
 ```
 
 | 状态 | 呈现 |
 | --- | --- |
-| **调用行** | `▸ Type  description`（仅当 args 显式带 model/thinking/bg 时附加 dim 芯片） |
-| **运行中** | `⠹` + stats / `⎿` 稳定的粗粒度阶段（`exploring…`、`editing…`、`running commands…` 或 `delegating…`）；否则显示 `working…` |
-| **完成** | `✓` + stats · 友好时长 / `⎿ Done`（或 Wrapped up / Stopped / Error） |
-| **展开**（`Ctrl+O`） | 同上 chrome + **Markdown** 正文 |
+| **调用行** | `● Type(description)`（仅当 args 显式带 model/thinking/bg 时附加 dim 芯片） |
+| **运行中** | `⎿` spinner + 稳定的粗粒度阶段（`exploring…`、`editing…`、`running commands…` 或 `delegating…`）；否则显示 `working…` |
+| **完成** | `⎿ Done` · turns · tool uses · lifetime tokens · 时长 · 有效 model（Wrapped up / Stopped / Error 变体） |
+| **展开**（`Ctrl+O`） | 结果 clerk + effort/隔离/cost/transcript/worktree clerk + **Markdown** 正文 |
 
-`effort` 对应 `thinking`。有效 **model**（含继承）在**结果** stats 中展示。
+`effort` 对应 `thinking`。有效 **model**（含继承）留在折叠 clerk。spawn 配置（`effort`、`isolated`、`worktree`、`twin`）和次要信号（`cost`、低 context %、transcript 路径）放到展开态，避免折叠行堆叠。context ≥70% 与 compaction 次数仍留在折叠 clerk。
 
 紧凑运行界面不会流式展示文件路径、命令或 assistant 正文。快速步骤与未知工作保持 `working…`；已知粗粒度阶段持续约 0.8 秒后才出现，并至少保持 1.5 秒以避免闪烁。逐 tool 的精确步骤仍可在 conversation overlay 中查看。
 

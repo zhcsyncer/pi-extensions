@@ -151,6 +151,16 @@ export interface AgentDetails {
   maxTurns?: number;
   agentId?: string;
   error?: string;
+  /** Current context-window fill (0–100). Null/undefined = unknown. */
+  contextPercent?: number | null;
+  /** How many times this run compacted. */
+  compactionCount?: number;
+  /** Accumulated provider-reported USD cost when known. */
+  cost?: number;
+  /** Streaming .output transcript path. */
+  outputFile?: string;
+  /** Compact worktree identity, e.g. `worktree feat-foo · dirty`. */
+  worktreeSummary?: string;
 }
 
 // ---- Formatting helpers ----

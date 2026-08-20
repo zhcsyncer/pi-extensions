@@ -36,13 +36,13 @@ Stable “why” only — implementation detail lives in code/tests.
 
 ### Main-transcript tool TUI
 
-- Custom `renderCall` / `renderResult` for **`Agent`**, **`get_subagent_result`**, **`steer_subagent`** using **Claude Code chrome** (upstream README shape):
-  - Call: `▸ Type  description` (+ chips only when args explicitly set model/thinking/bg)
-  - Running: `⠹ stats` / `⎿ activity`
-  - Queued: real `status: "queued"` + `queued…` (never "Running in background" / thinking…)
-  - Done: `✓ stats · duration` / `⎿ Done` (Wrapped up / Stopped / Error variants)
-  - Expanded (Ctrl+O): same chrome + **Markdown** body — never dump full payload by default (`src/ui/tool-render.ts`)
-- Result stats always surface **effective model** (including parent inherit) and **effort** (from `thinking`).
+- Custom `renderCall` / `renderResult` / `renderShell: "self"` for **`Agent`**, **`get_subagent_result`**, **`steer_subagent`** using **Claude Code Task chrome**:
+  - Call: `● Type(description)` (+ chips only when args explicitly set model/thinking/bg); marker color follows row state
+  - Running: single `⎿ ⠹ activity · outcome chips` (never "Running in background" / thinking… for queued)
+  - Queued: real `status: "queued"` + `queued…`
+  - Done: single `⎿ Done · turns · tool uses · lifetime tokens · duration · model` (Wrapped up / Stopped / Error variants)
+  - Expanded (Ctrl+O): outcome clerk + effort/isolation/cost/transcript/worktree clerks + **Markdown** body — never dump full payload by default (`src/ui/tool-render.ts`)
+- Collapsed clerk always surfaces **effective model** (including parent inherit). `effort` and isolation tags move to the expanded footer.
 - Widget last line shows the **current tool step** (e.g. `reading src/a.ts`) from `tool_execution_start` args, not only bare `thinking…` when tools are in flight.
 - `AgentInvocation.modelInherited` is persisted on the record so `get_subagent_result` restores the same `model (inherit)` chip as the original Agent tool row.
 - Status bar (`setStatus("subagents")`) is **auto**: cleared while the above-editor widget is on; compact `N running` text only when `widgetMode: off`.
