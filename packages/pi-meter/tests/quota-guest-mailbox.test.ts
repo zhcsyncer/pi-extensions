@@ -19,7 +19,7 @@ describe("guest mailbox", () => {
 			mailbox: [{
 				id: "cursor",
 				title: "Cursor",
-				matchProvider: (provider: string) => provider === "cursor",
+				matchProvider: (model: { provider?: string }) => model.provider === "cursor",
 				fetch: async () => ({
 					provider: "cursor",
 					title: "Cursor",

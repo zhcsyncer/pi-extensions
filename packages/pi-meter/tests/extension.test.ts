@@ -513,7 +513,7 @@ describe("extension runtime", () => {
 		registerQuotaAdapter({
 			id: "cursor",
 			title: "Cursor",
-			matchProvider: (provider) => provider === "cursor",
+			matchProvider: (model) => model.provider === "cursor",
 			fetch: async () => ({
 				provider: "cursor",
 				title: "Cursor",
@@ -595,7 +595,7 @@ describe("extension runtime", () => {
 		registerQuotaAdapter({
 			id: "cursor",
 			title: "Cursor",
-			matchProvider: (provider) => provider === "cursor",
+			matchProvider: (model) => model.provider === "cursor",
 			fetch: async () => ({
 				provider: "cursor",
 				title: "Cursor",

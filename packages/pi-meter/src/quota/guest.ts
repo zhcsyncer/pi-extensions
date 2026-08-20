@@ -4,10 +4,15 @@ import { BUILTIN_MODEL_PROVIDERS, isBuiltinQuotaProvider, QUOTA_PROVIDERS, quota
 
 export const QUOTA_ADAPTERS_KEY = Symbol.for("@zhcsyncer/pi-meter/quota-adapters");
 
+export interface QuotaModelRef {
+	provider?: string;
+	id?: string;
+}
+
 export interface QuotaAdapter {
 	id: string;
 	title: string;
-	matchProvider(modelProvider: string): boolean;
+	matchProvider(model: QuotaModelRef): boolean;
 	fetch(ctx: Pick<ExtensionContext, "modelRegistry">, fetchedAt?: number): Promise<QuotaSnapshot>;
 }
 
@@ -51,7 +56,7 @@ function claimedBuiltinModels(adapter: QuotaAdapter): string[] {
 	const claimed: string[] = [];
 	for (const provider of BUILTIN_MODEL_PROVIDERS) {
 		try {
-			if (adapter.matchProvider(provider)) claimed.push(provider);
+			if (adapter.matchProvider({ provider })) claimed.push(provider);
 		} catch {
 			// Probe only; a throwing matcher is ignored for built-ins too.
 		}

@@ -23,14 +23,14 @@ export const DEFAULT_FETCHERS: Record<QuotaProviderId, QuotaFetcher> = {
 	ollama: fetchOllamaQuota,
 };
 
-export function preferredProvider(model: { provider?: string } | undefined): QuotaSourceId | undefined {
+export function preferredProvider(model: { provider?: string; id?: string } | undefined): QuotaSourceId | undefined {
 	const provider = model?.provider;
 	if (typeof provider !== "string" || !provider) return undefined;
 	const builtin = builtinQuotaSource(provider);
 	if (builtin) return builtin;
 	for (const adapter of listQuotaAdapters()) {
 		try {
-			if (adapter.matchProvider(provider)) return adapter.id;
+			if (adapter.matchProvider({ provider, id: model?.id })) return adapter.id;
 		} catch {
 			// A broken guest matcher must not take down the footer.
 		}

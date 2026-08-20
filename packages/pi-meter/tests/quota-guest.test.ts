@@ -32,7 +32,7 @@ function guestAdapter(over: Partial<QuotaAdapter> = {}): QuotaAdapter {
 	return {
 		id: "cursor",
 		title: "Cursor",
-		matchProvider: (provider) => provider === "cursor",
+		matchProvider: (model) => model.provider === "cursor",
 		fetch: async (_ctx, fetchedAt = now) => snapshot({
 			provider: "cursor",
 			title: "Cursor",
@@ -56,17 +56,57 @@ describe("guest preferredProvider", () => {
 		expect(preferredProvider({ provider: "ollama" })).toBeUndefined();
 		expect(preferredProvider({ provider: "anthropic" })).toBe("claude");
 	});
+
+	it("picks among same-provider guests by model id", () => {
+		registerQuotaAdapter(guestAdapter({
+			id: "cursor-composer",
+			title: "Composer",
+			matchProvider: (model) => model.provider === "cursor" && (model.id ?? "").includes("composer"),
+			fetch: async (_ctx, fetchedAt = now) => snapshot({ provider: "cursor-composer", title: "Composer", fetchedAt }),
+		}));
+		registerQuotaAdapter(guestAdapter({
+			id: "cursor-api",
+			title: "API",
+			matchProvider: (model) => model.provider === "cursor" && !(model.id ?? "").includes("composer"),
+			fetch: async (_ctx, fetchedAt = now) => snapshot({ provider: "cursor-api", title: "API", fetchedAt }),
+		}));
+		expect(preferredProvider({ provider: "cursor", id: "composer-2.5" })).toBe("cursor-composer");
+		expect(preferredProvider({ provider: "cursor", id: "opus-5" })).toBe("cursor-api");
+	});
+
+	it("uses the first registered guest when two match the same model", () => {
+		registerQuotaAdapter(guestAdapter({
+			id: "cursor-first",
+			matchProvider: (model) => model.provider === "cursor",
+		}));
+		registerQuotaAdapter(guestAdapter({
+			id: "cursor-second",
+			matchProvider: (model) => model.provider === "cursor",
+		}));
+		expect(preferredProvider({ provider: "cursor", id: "composer-2.5" })).toBe("cursor-first");
+	});
+
+	it("does not assign a built-in model to a guest when only provider is passed", () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		registerQuotaAdapter(guestAdapter({
+			matchProvider: () => true,
+		}));
+		expect(preferredProvider({ provider: "anthropic" })).toBe("claude");
+		expect(preferredProvider({ provider: "xai" })).toBe("supergrok");
+		expect(preferredProvider({ provider: "openai-codex" })).toBe("codex");
+		expect(preferredProvider({ provider: "ollama-cloud" })).toBe("ollama");
+	});
 });
 
 describe("guest register overwrite", () => {
 	it("lets a later register of the same id replace the earlier adapter", () => {
 		registerQuotaAdapter(guestAdapter({
 			title: "First",
-			matchProvider: (provider) => provider === "first",
+			matchProvider: (model) => model.provider === "first",
 		}));
 		registerQuotaAdapter(guestAdapter({
 			title: "Second",
-			matchProvider: (provider) => provider === "second",
+			matchProvider: (model) => model.provider === "second",
 		}));
 		expect(listQuotaAdapters()).toHaveLength(1);
 		expect(listQuotaAdapters()[0]?.title).toBe("Second");
@@ -91,7 +131,7 @@ describe("guest register overwrite", () => {
 	it("does not let matchProvider steal a built-in model provider", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		registerQuotaAdapter(guestAdapter({
-			matchProvider: (provider) => provider === "xai" || provider === "cursor",
+			matchProvider: (model) => model.provider === "xai" || model.provider === "cursor",
 		}));
 		expect(listQuotaAdapters()).toHaveLength(1);
 		expect(preferredProvider({ provider: "xai" })).toBe("supergrok");
