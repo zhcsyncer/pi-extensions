@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.25.0
+
+### Minor Changes
+
+- 5ebdcf0: Let other extensions register a quota source. The footer follows the current model only.
+
 ## 0.24.0
 
 ### Minor Changes
