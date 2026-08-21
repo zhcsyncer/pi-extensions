@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-extensions
 
+## 0.26.0
+
+### Minor Changes
+
+- 1569e96: Add `/herdr-worktree cleanup` to remove the current linked Herdr worktree. By default it also deletes the local branch; `--keep-branch` keeps the branch. Remote branches are left untouched.
+- 1569e96: Add `/herdr-worktree start` to distill an executable plan from the current session, then create a linked worktree and start Pi with only that plan.
+
 ## 0.25.1
 
 ### Patch Changes
