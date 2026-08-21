@@ -26,7 +26,7 @@ import type { CursorModel } from "../src/stream/model-discovery.js";
 let cacheDir: string;
 
 beforeEach(() => {
-  cacheDir = mkdtempSync(join(tmpdir(), "pi-cursor-ask-cache-test-"));
+  cacheDir = mkdtempSync(join(tmpdir(), "pi-cursor-cache-test-"));
   process.env.PI_CURSOR_ASK_CACHE_DIR = cacheDir;
   resetCacheDirForTests();
   resetRefreshGuardForTests();

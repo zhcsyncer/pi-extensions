@@ -24,7 +24,6 @@ import {
   SetupVmEnvironmentResultSchema,
   SetupVmEnvironmentSuccessSchema,
   SwitchModeRequestResponseSchema,
-  SwitchModeRequestResponse_ApprovedSchema,
   SwitchModeRequestResponse_RejectedSchema,
   WebSearchRequestResponseSchema,
   WebSearchRequestResponse_ApprovedSchema,
@@ -35,7 +34,6 @@ import {
 import { frameConnectMessage } from "../client/bridge.js";
 
 const CURSOR_WEB_FETCH_INTERACTION_FIELD = 9;
-const CURSOR_WEB_FETCH_APPROVED_RESPONSE = new Uint8Array([0x0a, 0x00]);
 
 const PI_REJECT_REASON =
   "Not available through the Pi Cursor provider. Use Pi tools (web_search, fetch, bash, etc.) instead.";
@@ -55,15 +53,23 @@ function encodeLengthDelimitedField(fieldNo: number, data: Uint8Array): number[]
   return [(fieldNo << 3) | 2, ...encodeVarint(data.length), ...data];
 }
 
-function buildCursorWebFetchInteractionApprovalBytes(id: number): Uint8Array {
-  // Field #9 is not yet named in the generated proto; approve via raw wire bytes.
+/**
+ * Field #9 is unnamed in the generated proto (web-fetch shaped). Approving it is
+ * indistinguishable from granting a future destructive capability if Cursor reuses
+ * the number, so we always reject. We still have to *answer* — `handled: false`
+ * throws and kills the in-flight turn (#10).
+ *
+ * Wire shape mirrors ExaFetch/WebSearch: response oneof field 2 = rejected,
+ * rejected.reason = 1.
+ */
+function buildCursorWebFetchInteractionRejectionBytes(id: number): Uint8Array {
+  const reason = new TextEncoder().encode(PI_REJECT_REASON);
+  const rejected = new Uint8Array(encodeLengthDelimitedField(1, reason));
+  const result = new Uint8Array(encodeLengthDelimitedField(2, rejected));
   const interactionResponse = new Uint8Array([
     0x08,
     ...encodeVarint(id),
-    ...encodeLengthDelimitedField(
-      CURSOR_WEB_FETCH_INTERACTION_FIELD,
-      CURSOR_WEB_FETCH_APPROVED_RESPONSE,
-    ),
+    ...encodeLengthDelimitedField(CURSOR_WEB_FETCH_INTERACTION_FIELD, result),
   ]);
   return new Uint8Array(encodeLengthDelimitedField(6, interactionResponse));
 }
@@ -192,24 +198,6 @@ function rejectExaFetch(id: number, sendFrame: (data: Uint8Array) => void): void
   );
 }
 
-function approveSwitchMode(id: number, sendFrame: (data: Uint8Array) => void): void {
-  sendInteractionResponse(
-    create(InteractionResponseSchema, {
-      id,
-      result: {
-        case: "switchModeRequestResponse",
-        value: create(SwitchModeRequestResponseSchema, {
-          result: {
-            case: "approved",
-            value: create(SwitchModeRequestResponse_ApprovedSchema, {}),
-          },
-        }),
-      },
-    }),
-    sendFrame,
-  );
-}
-
 function rejectSwitchMode(id: number, sendFrame: (data: Uint8Array) => void): void {
   sendInteractionResponse(
     create(InteractionResponseSchema, {
@@ -300,29 +288,26 @@ export type InteractionQueryHandleResult = {
 
 /**
  * Always attempt to answer InteractionQuery so the upstream run does not park.
- * Prefer approving read-only web/search modes; skip interactive UI flows.
+ * Web/search is rejected by default so Cursor-side fetches do not run under the
+ * user's subscription; pass `{ approveWeb: true }` only in tests or explicit opt-in.
  */
 export function handleInteractionQuery(
   query: InteractionQuery,
   sendFrame: (data: Uint8Array) => void,
   options?: { approveWeb?: boolean },
 ): InteractionQueryHandleResult {
-  const approveWeb = options?.approveWeb !== false;
+  const approveWeb = options?.approveWeb === true;
   const queryCase = query.query.case;
 
-  // Unnamed WebFetch permission (proto field 9).
+  // Field #9 is unnamed in the generated proto. Approving it is indistinguishable
+  // from granting a future destructive capability if Cursor reuses the number.
+  // Reject with a real InteractionResponse so Cursor unblocks instead of parking,
+  // and so processServerMessage does not throw and kill the turn (#10).
   if (hasUnknownInteractionField(query, CURSOR_WEB_FETCH_INTERACTION_FIELD)) {
-    if (!approveWeb) {
-      return {
-        handled: false,
-        action: "web_fetch_rejected_unsupported_wire_shape",
-        queryCase: queryCase ?? "unknown_field_9",
-      };
-    }
-    sendFrame(frameConnectMessage(buildCursorWebFetchInteractionApprovalBytes(query.id)));
+    sendFrame(frameConnectMessage(buildCursorWebFetchInteractionRejectionBytes(query.id)));
     return {
       handled: true,
-      action: "web_fetch_approved",
+      action: "unknown_field_9_rejected",
       queryCase: queryCase ?? "unknown_field_9",
     };
   }
@@ -353,9 +338,8 @@ export function handleInteractionQuery(
         queryCase,
       };
     case "switchModeRequestQuery":
-      // Approving mode switches keeps the agent moving; reject if you want strict agent mode only.
-      approveSwitchMode(query.id, sendFrame);
-      return { handled: true, action: "switch_mode_approved", queryCase };
+      rejectSwitchMode(query.id, sendFrame);
+      return { handled: true, action: "switch_mode_rejected", queryCase };
     case "askQuestionInteractionQuery":
       skipAskQuestion(query.id, sendFrame);
       return { handled: true, action: "ask_question_skipped", queryCase };
@@ -383,6 +367,3 @@ export function handleInteractionQuery(
     }
   }
 }
-
-// Keep reject helpers referenced for future strict mode.
-void rejectSwitchMode;

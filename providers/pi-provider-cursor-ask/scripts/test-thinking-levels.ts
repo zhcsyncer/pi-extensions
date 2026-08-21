@@ -51,7 +51,7 @@ assert.deepEqual(config.thinkingLevelMap, {
 assert.deepEqual(
   getSupportedThinkingLevels({
     ...config,
-    api: "cursor-ask-native",
+    api: "cursor-native",
     provider: "cursor",
     baseUrl: "https://agent.cursor.sh",
   }),

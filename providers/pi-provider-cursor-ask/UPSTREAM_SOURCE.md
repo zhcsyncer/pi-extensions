@@ -3,9 +3,9 @@
 This package is a standalone full-source fork of `@rahularya01/pi-cursor`.
 
 - Repository: https://github.com/Rahularya01/pi-cursor
-- Tag: `v1.4.18`
-- Commit: `9831b5ffc982bf29e976497758a5f37f8ab0a506`
-- Upstream npm package: `@rahularya01/pi-cursor@1.4.18`
+- Tag: `v1.4.25`
+- Commit: `5f8e775279f5e41cdd06791a036be4c7141097c3`
+- Upstream npm package: `@rahularya01/pi-cursor@1.4.25`
 - License: MIT
 
 The production source, generated protobuf bindings, protocol schema, build tooling, tests, smoke scripts, and upstream protocol notes were copied from that revision. Upstream release history is preserved as [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md).

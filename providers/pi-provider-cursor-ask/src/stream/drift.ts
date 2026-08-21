@@ -8,7 +8,7 @@
  *
  * So every unrecognized case and every unknown protobuf field is recorded here
  * instead of being silently dropped. Signals are:
- *   - counted in-process and surfaced by `/cursor doctor`
+ *   - counted in-process and surfaced by `/cursor.doctor`
  *   - written to the always-on lifecycle log
  *   - appended to the stream error message when a turn actually fails
  *
@@ -105,7 +105,7 @@ export function hasStrandingDrift(): boolean {
   return [...signals.values()].some((s) => STRANDING_KINDS.has(s.kind));
 }
 
-/** One-line summary for `/cursor doctor` and error messages; empty when clean. */
+/** One-line summary for `/cursor.doctor` and error messages; empty when clean. */
 export function formatDriftSummary(limit = 4): string {
   const all = getDriftSignals();
   if (all.length === 0) return "";

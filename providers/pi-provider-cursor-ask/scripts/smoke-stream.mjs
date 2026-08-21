@@ -20,7 +20,7 @@ const model = {
   id: process.env.CURSOR_SMOKE_MODEL || "composer-2",
   name: "smoke",
   provider: "cursor",
-  api: "cursor-ask-native",
+  api: "cursor-native",
   baseUrl: "https://agentn.us.api5.cursor.sh",
   reasoning: false,
   input: ["text"],

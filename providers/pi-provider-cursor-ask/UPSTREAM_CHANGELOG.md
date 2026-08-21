@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.4.25] - 2026-08-20
+
+### Fixed
+
+- **Cursor never saw the conversation history or Pi's system prompt on a rebuilt request.** The provider carried history as `conversation_state.turns` structures, but Cursor's server builds the model prompt from `root_prompt_messages_json` and never renders turn structures back into prompt messages — so any request built without an upstream checkpoint (first turn of a resumed session, checkpoint discarded, conversation rotated, Pi restarted) reached the model as a single fresh question with no memory of the chat. The same list was carrying Pi's system prompt as a `{"role":"system"}` entry, which the server discards in favour of Cursor's own IDE prompt; that is why turns came back in Cursor's voice and called native Cursor tools (`Grep`, `read`) that do not exist in Pi. Requests built without a checkpoint now publish the system prompt as a `<rules>` user message and replay every completed turn as `user` / `assistant` / `tool` prompt messages, with historic tool calls named the way Cursor names MCP tools (`mcp_pi_<tool>`). Set `PI_CURSOR_PROMPT_HISTORY=0` to restore the old behaviour.
+- **Every reasoning-model turn threw away a perfectly good checkpoint.** The history fingerprint that decides whether a stored checkpoint still matches Pi's transcript hashed thinking steps. The provider records a turn's steps as it streams and never records a thinking step, while Pi replays one on the next turn, so the two fingerprints could not agree for any model that emits reasoning. Each turn was scored as a rewritten history: checkpoint discarded, `conversationId` rotated, history rebuilt — into the path above that dropped it. Reasoning is now excluded from the fingerprint; a rewritten user turn or tool call is still detected.
+- A conversation's system prompt is no longer pinned to whatever the first turn happened to say. Pi rewrites it as a session evolves (context-mode folds session memory into it), and a checkpoint froze the original; a changed prompt is now re-published onto the checkpointed conversation.
+
+## [1.4.24] - 2026-08-20
+
+### Fixed
+
+- **Unnamed InteractionQuery field 9 no longer kills the in-flight turn.** 1.4.23 fail-closed without sending an `InteractionResponse`, so Cursor parked and `processServerMessage` threw (`stopReason: error`). Field 9 is still rejected (not approved); we now answer with a reject-shaped response so the stream continues. Fixes [#10](https://github.com/Rahularya01/pi-cursor/issues/10).
+- **Idle/transport restart after a tool pause matches Pi's in-flight turn, not the bridge suffix.** Multi-round chains and a second bridge loss in the same turn were dying with `pending_tool_call_mismatch` because recovery compared the last writeNativeStream round against every tool result Pi replayed. Resume planning now uses the parsed client turn; recovered streams carry a `ClientTranscript` so mid-pause snapshots stay keyed to Pi's history. Duplicate re-emitted exec ids are collapsed (last result wins). Ports the diagnoses from [#8](https://github.com/Rahularya01/pi-cursor/pull/8) and [#9](https://github.com/Rahularya01/pi-cursor/pull/9).
+- **Blob store entry bound evicts oldest-first instead of failing the conversation.** Crossing 512 distinct blobs threw on every later turn. Eviction happens before the write is acked; an incoming blob that cannot fit even in an empty store is still rejected without punching holes. Inspired by [#11](https://github.com/Rahularya01/pi-cursor/pull/11).
+
+## [1.4.23] - 2026-08-19
+
+### Fixed
+
+- **Tool continuation after an idle timeout no longer discards a valid checkpoint as `stale_checkpoint`.** Abort/idle persistence treated the in-flight turn as completed (`checkpointTurnCount + 1`) and cleared mid-pause metadata, so the next retry skipped recovery. In-flight checkpoints are now keyed to the completed-turn history only. Fixes [#5](https://github.com/Rahularya01/pi-cursor/issues/5).
+- **`/login cursor` is no longer overridden by IDE/CLI credentials.** Cascade is now env → Pi OAuth → Keychain → IDE DB. Rotated OAuth refresh tokens are written back to `auth.json`.
+- **WSL no longer reads every Windows user's Cursor `state.vscdb`.** Only the current Windows account (`USERPROFILE` / `USERNAME`) is considered.
+- **Unknown Cursor exec messages fail closed** instead of sending a guessed empty MCP result.
+- **Web/search InteractionQuery is rejected by default**; unnamed proto field 9 and Cursor mode-switches no longer auto-approve.
+- Refresh error bodies and debug logs redact refresh tokens / JWTs. `security-check` also flags committed JWTs and session cookies. README engines match Node `>=22.19.0`.
+
+## [1.4.22] - 2026-08-18
+
+### Fixed
+
+- **Greetings and "who are you" were answered in Cursor's voice, not Pi's.** Trivial conversational turns drop tools and blank the system prompt so a bare "hi" does not spend tens of thousands of input tokens on the agent prompt. The allowlist also held identity and capability questions — `who are you`, `what can you do for me`, `tell me about yourself` — whose answer _is_ the system prompt, so exactly those turns reached Cursor carrying no prompt at all and came back describing Cursor's IDE assistant. The allowlist is now split: pleasantries still drop the prompt, identity and capability turns keep it, and both still omit tools. A dropped prompt is no longer empty either — it carries a one-line "You are running inside Pi, not the Cursor IDE", so a greeting cannot be answered in Cursor's voice either. `tools_omitted` records whether the prompt was dropped.
+- **The bundled fallback catalog under-reported the context window of every 1M Claude model by 5x.** Ten rows — `claude-4.6-opus-high`, `claude-4.6-opus-max`, `claude-4.6-sonnet-medium`, `claude-4.5-sonnet`, `claude-4-sonnet-1m` and their `-thinking` variants — carried `contextWindow: 200000` while their own display names read "1M". Live discovery infers the window from the id and name and had these right; only the offline snapshot was wrong, so the bad number surfaced precisely when discovery was unavailable. The rows are corrected, and `FALLBACK_MODELS` now derives `contextWindow` the same way it already derived `reasoning`, so the file cannot drift back out of agreement.
+- **Every model advertised a 64K output ceiling.** `maxTokens` was a hardcoded `64_000` at all three places a model row is built, so Claude 4.6 and the GPT-5 family were reported at half their real limit. Cursor's `ModelDetails` carries no output ceiling, so it is now inferred from the id and display name alongside the context window: Claude 4.6+ and GPT-5 report 128K, and everything else — Claude 4.5 and older, Haiku 4.5, Composer, Gemini, Grok, Kimi, and `Auto` — keeps the 64K floor. This is Pi-side budgeting metadata only; the Cursor run request has no output-token field.
+
+### Internal
+
+- Context-window and output-token inference moved to a dependency-free `src/models/limits.ts`, re-exported from `src/stream/model-discovery.ts`. Importing them directly would have made the startup-path model catalog pull in the bridge and HTTP/2 transport modules at runtime, where it previously had only an erased `import type`.
+
+## [1.4.21] - 2026-08-18
+
+### Fixed
+
+- **Session switch/fork/shutdown deleted the on-disk conversation journal.** Switching chats (or `/fork`, `/tree`, shutdown) killed the HTTP/2 bridge _and_ `unlink`d the journal that `/resume` hydrates from. The next turn in that session had no Cursor checkpoint and rebuilt without the compacted summary — it looked like the chat had forgotten the conversation. Those hooks now only tear down bridges; the journal stays until TTL eviction.
+- **Trivial turns (`hi` / `ok`) blanked a system prompt that held folded session memory.** Greetings omit tools _and_ used to drop the system prompt to save tokens. After compaction that prompt is where the recovered `<session_state>` lives, so a short follow-up started from a blank slate. The prompt is kept when it contains provider-context / session-resume memory; tools are still omitted.
+- **Compaction and resume summaries were framed as disposable infrastructure.** The same "latest user message is the only task; do not continue prior work" banner wrapped live context-mode injections _and_ recovered `<summary>` / `<session_resume>` blocks, so the model treated the compacted memory as noise. Resume/compaction side-channels now say they are active memory to continue from. Empty hierarchy+mode-only injections are still dropped; a real `<summary>` is kept even when short. Trailing user text after `</session_state>` is no longer capped at 500 characters.
+- **A compacted Pi transcript kept the old Cursor `conversationId`.** When turn count or history fingerprint no longer matched the checkpoint, the checkpoint was discarded but the id stayed, so the next rebuild attached to a Cursor conversation whose history no longer existed. Those mismatches now rotate `conversationId`. A KV blob miss does the same: drop the checkpoint, rotate, persist — instead of answering the miss with an empty blob and leaving the hole in place.
+- **Replayed history dropped thinking.** Pi thinking blocks never became Cursor `ThinkingMessage` steps, so a rebuild after checkpoint loss lost the reasoning that earlier turns had produced. Thinking is now carried on the OpenAI-shaped assistant message and encoded as a turn step.
+- **Native Cursor execs (read / shell / …) stalled or listed the workspace to "recover" context.** Rejects now name the matching Pi MCP tool when one is advertised (`read` → `read`, `shellArgs` → `bash`, …). The system prompt also states the session is running inside Pi, not Cursor IDE.
+
+### Performance
+
+- **The HTTP/2 bridge process is reused across user turns.** Each turn previously spawned `h2-bridge.mjs` and did a fresh TLS + HTTP/2 handshake. A completed stream now keeps the child and session; the next turn sends `{"cmd":"open"}` and a new Connect stream. Spawn + handshake remain only for the first turn, after an idle TTL, or when the session is switched away. Mid-tool pauses still hold the live stream as before.
+
+## [1.4.20] - 2026-08-18
+
+### Fixed
+
+- **An interrupted assistant turn replayed as one that simply trailed off.** Cursor's turn structure carries only the text a turn produced, so a turn that was aborted, errored, or truncated came back on the next request indistinguishable from a model that chose to stop — pi's `stopReason` and `errorMessage` were dropped entirely. Resuming a session after an interrupted turn therefore looked to the model like missing context rather than incomplete work: in the session that surfaced this, "continue please" sent the model listing the workspace and reading unrelated agent transcripts, from which it confabulated a prior discussion that never happened. Completed turns are untouched; a turn that did not finish now carries an explicit trailing note (`[pi-cursor: this assistant turn was interrupted before it finished; …]`) placed after any tool calls it managed to emit. Error detail rides along, redacted through `redactSecrets()` and capped at 200 characters. A trailing interrupted turn — the one being retried, not history behind us — is deliberately left unannotated so the live user text is not stranded.
+- **Conversation journals silently dropped all but the newest 64 blobs.** The live blob store holds up to `MAX_ACTIVE_BLOB_ENTRIES` (512) entries, but the on-disk journal that survives a restart persisted only 64. A checkpoint addresses its history by blob id, so a restored checkpoint referencing an evicted blob asked for content that was gone — and `getBlobArgs` answers a miss with an empty result, which is indistinguishable from an empty blob. The conversation came back structurally intact with its older turns blank, with no error at any layer. Journals now persist the whole store under a byte budget derived from the record's actual checkpoint size, and a record that still could not fit everything is marked so the reader drops its checkpoint and rebuilds from pi's transcript instead of resuming with holes. Roughly 15–20 turns was enough to cross the old cap.
+- **A blob miss is no longer invisible.** `getBlobArgs` for a blob we do not hold now records `kv_blob_miss` in the lifecycle log and in `/cursor.doctor`'s `lastStreamEvent`, so this class of silent history loss is diagnosable from the sanitized log alone.
+
+## [1.4.19] - 2026-08-17
+
+### Performance
+
+- **Stopped reading whole journals to check one timestamp.** The run-journal TTL sweep runs once per user turn, on the main thread, and read plus `JSON.parse`d every journal file — megabytes of base64 blobs each — only to look at the `savedAt` field near the front of the record. It now reads a 512-byte head through a single file descriptor, falling back to a full parse only when the head does not carry the field; stale journals are rejected from the same head instead of decoding their blobs first. ~138x faster over a 25-journal cache directory (896ms → 6.5ms).
+- **Image dedup no longer hashes every payload.** `mergeImages()` sha256'd every image on every history replay. Duplicates must agree on MIME type and byte length, so shapes are bucketed first and only images colliding on shape are digested, with digests memoized by buffer identity. ~700x faster replaying a 12-image transcript, and ~5x on cold buffers with distinct sizes.
+- **Removed a `process.env` read from the per-token path.** `debugLog()` re-resolved `PI_CURSOR_PROVIDER_DEBUG` on every call, including once per streamed token. `process.env` is a native-backed proxy costing roughly 100x an ordinary property read, which made it the single largest cost in `processServerMessage()`. The flag is now resolved once, lazily. ~8x faster per server message.
+- **Fixed O(n²) model catalog building on the activation path.** `hasVariantParameterSet()` re-normalized all of a model's variants for each of that model's variants, so catalog building scaled quadratically in string sorts. The advertised parameter sets are now derived once per model. ~5x faster, taking the whole activation model chain from 3.75ms to 1.0ms. The canonical key sorts also moved off `localeCompare`, which was needlessly slow and could rank distinct strings as equal — leaving the key dependent on input order.
+- **Dropped dead work from side-channel splitting.** `splitUserTextAndSideChannel()` evaluated seven regexes and seven full-string trims per user message inside an `if` block with an empty body, then discarded the result.
+- **Memoized journal blob encoding.** A conversation's blobs are carried over unchanged across the journal writes triggered by each tool-call pause, so their base64 encoding is now cached by buffer identity rather than recomputed per write.
+
+No behavior change; startup module load was measured and deliberately left alone (the extension's own bundle imports in ~13ms — the rest is pi's peer dependencies).
+
 ## [1.4.18] - 2026-08-16
 
 ### Added

@@ -11,12 +11,17 @@
  * the message history, and are evicted on a TTL so an abandoned session cannot
  * pin its blob store forever.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { fromBinary } from "@bufbuild/protobuf";
 
 import { ConversationStateStructureSchema } from "../proto/agent_pb.js";
-import { activeBridges, cleanupBridge } from "./bridge-session.js";
+import {
+  activeBridges,
+  cleanupBridge,
+  destroyAllIdleBridges,
+  destroyIdleBridge,
+} from "./bridge-session.js";
 import { debugLog } from "./debug-log.js";
 import { textContent } from "./message-parsing.js";
 import {
@@ -31,6 +36,7 @@ import {
 } from "./run-journal.js";
 import {
   CONVERSATION_TTL_MS,
+  MAX_ACTIVE_BLOB_ENTRIES,
   MAX_CHECKPOINT_BYTES,
   MAX_CONVERSATION_BLOB_BYTES,
 } from "./tuning.js";
@@ -70,6 +76,7 @@ export function cleanupAllSessionState(): void {
   for (const [bridgeKey, active] of activeBridges) {
     cleanupBridge(active.bridge, active.heartbeatTimer, bridgeKey);
   }
+  destroyAllIdleBridges();
   conversationStates.clear();
 }
 
@@ -99,6 +106,24 @@ export function clearStoredCheckpoint(stored: StoredConversation, clearBlobStore
   delete stored.checkpointHistoryFingerprint;
   clearStoredMidPauseMetadata(stored);
   if (clearBlobStore) stored.blobStore.clear();
+}
+
+/**
+ * A live KV blob miss means Cursor asked for history we no longer hold.
+ * Drop the checkpoint and rotate the conversation id so the next turn rebuilds
+ * from Pi's transcript instead of replaying holes.
+ */
+export function markBlobMiss(blobStore: Map<string, Uint8Array>): void {
+  for (const [convKey, stored] of conversationStates) {
+    if (stored.blobStore !== blobStore) continue;
+    debugLog("conversation.blob_miss_invalidate", {
+      convKey,
+      hadCheckpoint: !!stored.checkpoint,
+    });
+    clearStoredCheckpoint(stored, false);
+    stored.conversationId = randomUUID();
+    persistJournal(convKey, stored);
+  }
 }
 
 /**
@@ -171,20 +196,39 @@ export function discardStaleCheckpointIfNeeded(
     currentHistoryFingerprint,
   });
   clearStoredCheckpoint(stored, true);
+
+  // Compaction and other history rewrites make the Cursor conversation identity
+  // stale. Start a fresh conversation so we rebuild from Pi's (summarized)
+  // transcript instead of replaying a checkpoint with holes.
+  const historyRewritten =
+    reason === "completed_turn_count_mismatch" ||
+    reason === "completed_history_fingerprint_mismatch";
+  if (historyRewritten) {
+    stored.conversationId = randomUUID();
+    debugLog("conversation.rotated", {
+      requestId,
+      convKey,
+      reason,
+      conversationId: stored.conversationId,
+    });
+  }
+  persistJournal(convKey, stored);
 }
 
 export function trimBlobStore(
   store: Map<string, Uint8Array>,
   maxBytes = MAX_CONVERSATION_BLOB_BYTES,
+  maxEntries = Number.POSITIVE_INFINITY,
 ): { removed: number; totalBytes: number } {
   let totalBytes = 0;
   for (const value of store.values()) totalBytes += value.byteLength;
-  if (totalBytes <= maxBytes) return { removed: 0, totalBytes };
+  const withinBudget = () => totalBytes <= maxBytes && store.size <= maxEntries;
+  if (withinBudget()) return { removed: 0, totalBytes };
 
   let removed = 0;
   // Map iteration order is insertion order — drop oldest blobs first.
   for (const key of store.keys()) {
-    if (totalBytes <= maxBytes) break;
+    if (withinBudget()) break;
     const value = store.get(key);
     if (!value) continue;
     totalBytes -= value.byteLength;
@@ -206,12 +250,18 @@ export function mergeBlobStore(
     stored.blobStore.delete(k);
     stored.blobStore.set(k, v);
   }
-  const trimmed = trimBlobStore(stored.blobStore);
+  const trimmed = trimBlobStore(
+    stored.blobStore,
+    MAX_CONVERSATION_BLOB_BYTES,
+    MAX_ACTIVE_BLOB_ENTRIES,
+  );
   if (trimmed.removed > 0) {
     debugLog("conversation.blob_store_trimmed", {
       removed: trimmed.removed,
       totalBytes: trimmed.totalBytes,
+      entries: stored.blobStore.size,
       maxBytes: MAX_CONVERSATION_BLOB_BYTES,
+      maxEntries: MAX_ACTIVE_BLOB_ENTRIES,
     });
   }
   stored.lastAccessMs = Date.now();
@@ -269,18 +319,18 @@ export function persistAbortedConversationState(
     return;
   }
 
-  // Pi records the partial assistant response on an aborted stream. Keep Cursor's
-  // matching checkpoint as well, so the next turn can continue the same native
-  // conversation instead of rebuilding from a potentially truncated transcript.
+  // The stream did not finish this turn. `commitStoredCheckpoint` would count
+  // `currentTurn` as completed (turnCount+1) and drop mid-pause metadata, which
+  // makes the next tool-continuation / idle-retry treat a still-valid checkpoint
+  // as stale. Keep the checkpoint keyed to the completed history only.
   if (latestCheckpoint) {
-    commitStoredCheckpoint(
-      stored,
-      latestCheckpoint,
-      blobStore,
-      completedTurns,
-      currentTurn,
-      convKey,
-    );
+    mergeBlobStore(stored, blobStore);
+    stored.checkpoint = latestCheckpoint;
+    stored.checkpointSource = "upstream";
+    stored.checkpointTurnCount = completedTurns.length;
+    stored.checkpointHistoryFingerprint = fingerprintCompletedTurns(completedTurns);
+    stored.lastAccessMs = Date.now();
+    persistJournal(convKey, stored);
   } else {
     // Blob ids referenced by the retained Pi history must outlive the cancelled
     // bridge even when Cursor has not emitted a checkpoint yet.
@@ -432,8 +482,10 @@ export function cleanupSessionState(sessionId?: string): void {
     hadConversation: conversationStates.has(convKey),
   });
   if (active) cleanupBridge(active.bridge, active.heartbeatTimer, bridgeKey);
+  destroyIdleBridge(bridgeKey);
+  // Drop the in-memory copy so a long-lived process cannot pin a large blob store
+  // after the user switched away. The journal stays so /resume can hydrate.
   conversationStates.delete(convKey);
-  deleteConversationJournal(convKey);
 }
 
 export function deterministicConversationId(convKey: string): string {

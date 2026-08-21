@@ -8,7 +8,7 @@
 
 ## 来源与差异
 
-本包整仓 fork 自 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.18`（`9831b5ffc982bf29e976497758a5f37f8ab0a506`）。保留上游原生 Cursor OAuth、凭证发现、流式响应、工具调用、图片输入、用量、诊断和模型发现能力。
+本包整仓 fork 自 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.25`（`5f8e775279f5e41cdd06791a036be4c7141097c3`）。保留上游原生 Cursor OAuth、凭证发现、流式响应、工具调用、图片输入、用量、诊断和模型发现能力。
 
 本 fork 的用户可见差异如下：
 

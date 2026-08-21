@@ -126,12 +126,18 @@ export function createProviderManager(
   let lastRegisteredModels: ProcessedModel[] = [];
   let catalogRefreshInFlight: Promise<void> | undefined;
 
+  const skipDedup = Boolean(process.env.PI_CURSOR_RAW_MODELS);
+
   function applyModels(
     rawModels: CursorModel[],
     parameterizedModels: CursorParameterizedModel[] = [],
   ): ProcessedModel[] {
     const augmentedModels = augmentCursorModels(rawModels, parameterizedModels);
-    const processed = buildAskCatalog(processModels(augmentedModels));
+    const processed = buildAskCatalog(
+      skipDedup
+        ? augmentedModels.map((m) => ({ ...m, supportsEffort: false }) as ProcessedModel)
+        : processModels(augmentedModels),
+    );
     lastRegisteredModels = processed;
     context.onRegisteredModelsUpdated(processed);
     setLastAvailableModels(

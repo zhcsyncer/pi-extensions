@@ -10,6 +10,7 @@ import {
   frameContextModeSideChannel as frameContextModeSideChannelImpl,
   isContextModeSideChannelText as isContextModeSideChannelTextImpl,
   normalizeMessagesForCursor as normalizeMessagesForCursorImpl,
+  systemPromptHasSessionMemory as systemPromptHasSessionMemoryImpl,
   type OpenAIMessage as NormalizedOpenAIMessage,
 } from "./context-normalize.js";
 import { debugLog } from "./debug-log.js";
@@ -228,6 +229,10 @@ export function frameContextModeSideChannel(text: string): string {
   return frameContextModeSideChannelImpl(text);
 }
 
+export function systemPromptHasSessionMemory(systemPrompt: string): boolean {
+  return systemPromptHasSessionMemoryImpl(systemPrompt);
+}
+
 export function normalizeMessagesForCursor(messages: OpenAIMessage[]): OpenAIMessage[] {
   return normalizeMessagesForCursorImpl(messages as NormalizedOpenAIMessage[]) as OpenAIMessage[];
 }
@@ -307,6 +312,10 @@ export function parseMessages(
     if (!currentTurn) continue;
 
     if (msg.role === "assistant") {
+      if (typeof msg.thinking === "string" && msg.thinking.trim()) {
+        if (currentTurn.sawToolResult) currentTurn.sawAssistantAfterToolResult = true;
+        currentTurn.steps.push({ kind: "thinking", text: msg.thinking });
+      }
       const text = textContent(msg.content);
       if (text) {
         if (currentTurn.sawToolResult) currentTurn.sawAssistantAfterToolResult = true;
@@ -322,6 +331,15 @@ export function parseMessages(
         };
         currentTurn.steps.push(step);
         currentTurn.toolCallById.set(step.toolCallId, step);
+      }
+
+      // Appended last so it reads as the end of the turn, after any tool calls
+      // the turn managed to emit before it was cut short.
+      const notice = msg.interrupted_notice?.trim();
+      if (notice) {
+        const last = currentTurn.steps.at(-1);
+        if (last?.kind === "assistantText") last.text = `${last.text}\n\n${notice}`;
+        else currentTurn.steps.push({ kind: "assistantText", text: notice });
       }
       continue;
     }

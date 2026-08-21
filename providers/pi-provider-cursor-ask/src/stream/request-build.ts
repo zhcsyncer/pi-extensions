@@ -37,6 +37,7 @@ import {
   RequestedModel_ModelParameterbytesSchema,
   SelectedContextSchema,
   SelectedImageSchema,
+  ThinkingMessageSchema,
   ToolCallSchema,
   UserMessageActionSchema,
   UserMessageSchema,
@@ -45,6 +46,12 @@ import {
 } from "../proto/agent_pb.js";
 import { buildSelectedContextBlob, type CursorModelParameter } from "../client/cursor-wire.js";
 import { debugLog, requestDebugByBody } from "./debug-log.js";
+import {
+  buildRootPromptMessages,
+  encodeRootPromptMessage,
+  isPromptHistoryEnabled,
+  systemPromptRootMessage,
+} from "./root-prompt.js";
 import type {
   CursorRequestPayload,
   OpenAIToolDef,
@@ -123,7 +130,11 @@ export function isSlimToolsEnabled(envValue = process.env.PI_CURSOR_SLIM_TOOLS):
   return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
 }
 
-const TRIVIAL_CONVERSATIONAL_TURNS = new Set([
+/**
+ * Turns whose answer depends on nothing but politeness. Pi's agent prompt adds
+ * nothing to "thanks", so it can be dropped along with the tools.
+ */
+const PLEASANTRY_CONVERSATIONAL_TURNS = new Set([
   "hi",
   "hello",
   "hey",
@@ -150,6 +161,14 @@ const TRIVIAL_CONVERSATIONAL_TURNS = new Set([
   "great",
   "nice",
   "ping",
+]);
+
+/**
+ * Identity and capability questions. Tool-free like a pleasantry, but the system
+ * prompt *is* the answer here — drop it and the model introduces itself as
+ * Cursor. Tools go; the prompt stays.
+ */
+const IDENTITY_CONVERSATIONAL_TURNS = new Set([
   "what can you do",
   "what can you do for me",
   "what can you help me with",
@@ -157,19 +176,37 @@ const TRIVIAL_CONVERSATIONAL_TURNS = new Set([
   "tell me about yourself",
 ]);
 
-/**
- * Narrow allowlist for turns that cannot reasonably require a tool. Exact
- * matching is intentional: "hi, inspect src" must retain the full tool set.
- */
-export function isTrivialConversationalTurn(text: string): boolean {
-  const normalized = text
+const TRIVIAL_CONVERSATIONAL_TURNS = new Set([
+  ...PLEASANTRY_CONVERSATIONAL_TURNS,
+  ...IDENTITY_CONVERSATIONAL_TURNS,
+]);
+
+function normalizeConversationalTurn(text: string): string {
+  return text
     .trim()
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Narrow allowlist for turns that cannot reasonably require a tool. Exact
+ * matching is intentional: "hi, inspect src" must retain the full tool set.
+ */
+export function isTrivialConversationalTurn(text: string): boolean {
+  const normalized = normalizeConversationalTurn(text);
   return normalized.length <= 40 && TRIVIAL_CONVERSATIONAL_TURNS.has(normalized);
+}
+
+/**
+ * Subset of trivial turns the system prompt itself answers. These keep the full
+ * prompt even though they still drop tools.
+ */
+export function isIdentityConversationalTurn(text: string): boolean {
+  const normalized = normalizeConversationalTurn(text);
+  return normalized.length <= 40 && IDENTITY_CONVERSATIONAL_TURNS.has(normalized);
 }
 
 const SCHEMA_ANNOTATION_KEYS = new Set([
@@ -435,6 +472,18 @@ export function buildTurnStepBytes(step: ParsedTurnStep): Uint8Array {
     );
   }
 
+  if (step.kind === "thinking") {
+    return toBinary(
+      ConversationStepSchema,
+      create(ConversationStepSchema, {
+        message: {
+          case: "thinkingMessage",
+          value: create(ThinkingMessageSchema, { text: step.text }),
+        },
+      }),
+    );
+  }
+
   const toolName = step.toolName || "tool";
   const mcpToolCall = create(McpToolCallSchema, {
     args: create(McpArgsSchema, {
@@ -502,6 +551,8 @@ export interface BuildCursorRequestOptions {
   userImages?: BuildCursorRequestImageInput[];
   userText?: string;
   maxMode?: boolean;
+  /** Re-publish the system prompt onto a checkpoint whose recorded prompt is stale. */
+  refreshSystemPrompt?: boolean;
 }
 
 export function normalizeImageInput(image: BuildCursorRequestImageInput): ParsedImageContent {
@@ -538,6 +589,7 @@ export function buildCursorRequest(
   cursorModelParameters: CursorModelParameter[] = [],
   mcpTools: McpToolDefinition[] = [],
   userImages: ParsedImageContent[] = [],
+  refreshSystemPrompt = false,
 ): CursorRequestPayload {
   if (typeof modelOrOptions !== "string") {
     const normalizedTurns = (modelOrOptions.turns ?? []).map(normalizeTurnInput);
@@ -562,6 +614,7 @@ export function buildCursorRequest(
       modelOrOptions.cursorModelParameters ?? [],
       modelOrOptions.mcpTools ?? [],
       currentImages,
+      modelOrOptions.refreshSystemPrompt ?? false,
     );
   }
 
@@ -577,6 +630,7 @@ export function buildCursorRequest(
     cursorModelParameters,
     mcpTools,
     userImages,
+    refreshSystemPrompt,
   );
 }
 
@@ -592,6 +646,7 @@ export function buildCursorRequestFromParts(
   cursorModelParameters: CursorModelParameter[] = [],
   mcpTools: McpToolDefinition[] = [],
   userImages: ParsedImageContent[] = [],
+  refreshSystemPrompt = false,
 ): CursorRequestPayload {
   debugLog("cursor_request.build.start", {
     modelId,
@@ -617,6 +672,16 @@ export function buildCursorRequestFromParts(
   let conversationState;
   if (checkpoint) {
     conversationState = fromBinary(ConversationStateStructureSchema, checkpoint);
+    // A checkpoint froze the instructions recorded when the conversation began.
+    // Pi rewrites its system prompt as a session evolves — context-mode folds
+    // session memory into it — so a changed prompt is re-published here instead
+    // of being silently pinned to whatever turn one happened to say.
+    if (refreshSystemPrompt && isPromptHistoryEnabled() && systemPrompt.trim()) {
+      conversationState.rootPromptMessagesJson = [
+        ...conversationState.rootPromptMessagesJson,
+        storeAsBlob(encodeRootPromptMessage(systemPromptRootMessage(systemPrompt)), blobStore),
+      ];
+    }
   } else {
     const turnBlobIds: Uint8Array[] = [];
     for (const turn of turns) {
@@ -637,8 +702,17 @@ export function buildCursorRequestFromParts(
       );
     }
 
+    // `turns` is state, not prompt: Cursor's server never renders it back into
+    // model messages. The prompt it actually reads is this list, so the system
+    // prompt and every completed turn are replayed here — see ./root-prompt.ts.
+    const promptBlobIds = isPromptHistoryEnabled()
+      ? buildRootPromptMessages(systemPrompt, turns).map((message) =>
+          storeAsBlob(encodeRootPromptMessage(message), blobStore),
+        )
+      : [];
+
     conversationState = create(ConversationStateStructureSchema, {
-      rootPromptMessagesJson: [systemBlobId],
+      rootPromptMessagesJson: [systemBlobId, ...promptBlobIds],
       turns: turnBlobIds,
       todos: [],
       pendingToolCalls: [],

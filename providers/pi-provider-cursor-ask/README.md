@@ -8,7 +8,7 @@ This is an unofficial community fork and is not affiliated with or endorsed by C
 
 ## Source and differences
 
-The package is a full fork of [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.18` (`9831b5ffc982bf29e976497758a5f37f8ab0a506`). It keeps the upstream native Cursor OAuth, credential discovery, streaming, tool use, image input, usage, diagnostics, and model discovery behavior.
+The package is a full fork of [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.25` (`5f8e775279f5e41cdd06791a036be4c7141097c3`). It keeps the upstream native Cursor OAuth, credential discovery, streaming, tool use, image input, usage, diagnostics, and model discovery behavior.
 
 The fork differs in these user-visible ways:
 
