@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-meter
 
+## 0.3.1
+
+### Patch Changes
+
+- 4f4fd57: Keep cache write visible in the `/usage` dashboard at typical terminal widths.
+- 4f4fd57: Stop `/usage import` from double-counting turns already captured live, and collapse those duplicate ledger rows.
+
 ## 0.3.0
 
 ### Minor Changes
