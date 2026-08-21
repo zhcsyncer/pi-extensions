@@ -105,6 +105,28 @@ describe("resolveAgentInvocationConfig", () => {
     expect(resolved.runInBackground).toBe(false);
     expect(resolved.isolated).toBe(false);
   });
+
+  it("collapses parameter isolation off to ordinary execution", () => {
+    const resolved = resolveAgentInvocationConfig(makeConfig({ isolation: undefined }), { isolation: "off" });
+    expect(resolved.isolation).toBeUndefined();
+  });
+
+  it("lets agent frontmatter off veto a caller worktree", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({ isolation: "off" }),
+      { isolation: "worktree" },
+    );
+    expect(resolved.isolation).toBeUndefined();
+  });
+
+  it("drops worktree isolation when the repository switch is off", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({ isolation: "worktree" }),
+      { isolation: "worktree" },
+      { worktreeAllowed: false },
+    );
+    expect(resolved.isolation).toBeUndefined();
+  });
 });
 
 describe("resolveJoinMode", () => {

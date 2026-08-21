@@ -82,6 +82,12 @@ export interface SubagentsSettings {
    */
   fleetView?: boolean;
   /**
+   * Persist ordinary subagents as Pi sessions by default. Defaults to true;
+   * per-agent `persist_session` frontmatter overrides it in both directions.
+   * Persisted sessions appear under their parent in `/resume`.
+   */
+  rememberAgents?: boolean;
+  /**
    * Display mode for the persistent above-editor agent widget:
    *   - `all`: show every agent (foreground + background).
    *   - `background`: hide foreground agents — they already render inline as the
@@ -103,6 +109,12 @@ export interface SubagentsSettings {
    * (`isolation: worktree`), or memory files.
    */
   outputTranscript?: boolean;
+  /**
+   * Allow `isolation: "worktree"` to create a linked checkout. This fork
+   * defaults to false. When false, the Agent schema/prose omits isolation and
+   * requests from agent files, schedules, or RPC are downgraded to the real tree.
+   */
+  worktreeIsolation?: boolean;
 }
 
 export type ToolDescriptionMode = "full" | "compact" | "custom";
@@ -118,8 +130,10 @@ export interface SettingsAppliers {
   setDisableDefaultAgents: (b: boolean) => void;
   setToolDescriptionMode: (mode: ToolDescriptionMode) => void;
   setFleetView: (b: boolean) => void;
+  setRememberAgents: (b: boolean) => void;
   setWidgetMode: (mode: WidgetMode) => void;
   setOutputTranscript: (b: boolean) => void;
+  setWorktreeIsolation: (b: boolean) => void;
 }
 
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
@@ -180,11 +194,17 @@ function sanitize(raw: unknown): SubagentsSettings {
   if (typeof r.fleetView === "boolean") {
     out.fleetView = r.fleetView;
   }
+  if (typeof r.rememberAgents === "boolean") {
+    out.rememberAgents = r.rememberAgents;
+  }
   if (typeof r.widgetMode === "string" && VALID_WIDGET_MODES.has(r.widgetMode)) {
     out.widgetMode = r.widgetMode as WidgetMode;
   }
   if (typeof r.outputTranscript === "boolean") {
     out.outputTranscript = r.outputTranscript;
+  }
+  if (typeof r.worktreeIsolation === "boolean") {
+    out.worktreeIsolation = r.worktreeIsolation;
   }
   return out;
 }
@@ -240,8 +260,10 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   if (typeof s.disableDefaultAgents === "boolean") appliers.setDisableDefaultAgents(s.disableDefaultAgents);
   if (s.toolDescriptionMode) appliers.setToolDescriptionMode(s.toolDescriptionMode);
   if (typeof s.fleetView === "boolean") appliers.setFleetView(s.fleetView);
+  if (typeof s.rememberAgents === "boolean") appliers.setRememberAgents(s.rememberAgents);
   if (s.widgetMode) appliers.setWidgetMode(s.widgetMode);
   if (typeof s.outputTranscript === "boolean") appliers.setOutputTranscript(s.outputTranscript);
+  if (typeof s.worktreeIsolation === "boolean") appliers.setWorktreeIsolation(s.worktreeIsolation);
 }
 
 /**

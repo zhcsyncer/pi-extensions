@@ -13,7 +13,7 @@ This package publishes on its own and is also embedded in the aggregate `@zhcsyn
 
 ## Differences from upstream (read this first)
 
-This fork keeps upstream's ordinary **Agent runtime** behavior, while changing how manually launched background completion is delivered so current-task results cannot be starved behind a long parent tool loop. Most other changes improve how progress and tool results are shown in the TUI; the fork also exposes an opt-in in-process spawn contract for orchestrator extensions.
+This fork keeps upstream's ordinary **Agent runtime** behavior, while changing how manually launched background completion is delivered so current-task results cannot be starved behind a long parent tool loop. Most other changes improve how progress and tool results are shown in the TUI; the fork also exposes an opt-in in-process spawn contract for orchestrator extensions. It selectively ports upstream 0.17's persisted-session and `isolation: "off"` behavior, with worktrees defaulting **off** in this fork.
 
 | Area | Upstream (`@tintinweb/pi-subagents`) | This fork (`@zhcsyncer/pi-subagents`) |
 | --- | --- | --- |
@@ -26,16 +26,18 @@ This fork keeps upstream's ordinary **Agent runtime** behavior, while changing h
 | Tool **model / effort** | Model often omitted when same as parent; thinking only in tags if set | **Result stats** always include effective model (`haiku (inherit)` when inherited) + `effort:`; resume chips come from stored invocation |
 | Validation / not-found tool failures | Plain text result (with custom Agent renderer missing details → easy to misread after collapse work) | `error` details + `tool_result` → Pi `isError` (error shell); undetailed success paths never heuristic-red |
 | Background completion delivery | Manual Agent-tool, scheduled, and RPC completions all use `followUp`, which can starve current-task results during a long parent tool loop | Manual Agent-tool background completion uses `steer`; scheduled/RPC detached completion remains `followUp`; `triggerTurn: true` is retained |
+| Subagent Pi sessions | The pinned 0.14.3 baseline keeps sessions in memory unless `persist_session: true` | Ordinary subagents persist by default, record the parent session, appear nested in `/resume`, and remain openable from `/agents` finished history; `persist_session: false` or `rememberAgents: false` restores memory-only runs |
+| Worktree isolation | Upstream 0.17 adds `"off"` / `"worktree"` and a repository switch that defaults on | Same `"off"` / `"worktree"` shape (`off` first), but `worktreeIsolation` defaults **false**; disabled repositories remove schema/prose and downgrade every tool/frontmatter/schedule/RPC worktree request to the real checkout |
 | Orchestration guidance | Foreground/background ownership is easy to blur | Prerequisite results must run foreground; background is only for genuinely disjoint work; the parent synthesizes and uses targeted verification without repeating delegated evidence collection |
 | Cross-extension orchestration | Named-agent spawn RPC | Protocol v3 adds optional inline role config, caller-owned completion, route correlation, effective route metadata, and max-concurrency discovery |
 | Packaging | Standalone npm package | Standalone `@zhcsyncer/pi-subagents` **and** embedded/registered in root `@zhcsyncer/pi-extensions` |
 
 ### What did *not* change
 
-- Tool names and public parameters: `Agent`, `get_subagent_result`, `steer_subagent`
+- Tool names: `Agent`, `get_subagent_result`, `steer_subagent`; parameters other than the conditional `isolation` enum
 - `triggerTurn: true` completion notifications; scheduled/RPC detached completion still uses `followUp`
 - FleetView list navigation, Enter steer, `x` `x` stop, Esc/q close
-- Custom agents, worktrees, schedules, and settings menus
+- Custom agents, schedules, and the existing settings menu structure
 - Existing cross-extension spawn behavior when the new protocol-v3 fields are omitted
 
 Upstream remains the source of truth for ordinary Agent behavior — start from [`UPSTREAM_README.md`](./UPSTREAM_README.md).
@@ -64,6 +66,14 @@ Delivery policy is fixed at spawn time:
 - Foreground runs: result returned inline; no background completion nudge
 
 Dependent packages that need the same execution semantics without activating this extension can import `@zhcsyncer/pi-subagents/runtime`. Importing that subpath alone does not register Agent tools, commands, schedules, widgets, or FleetView; the caller owns construction and disposal.
+
+### Persisted sessions and repository worktrees
+
+Subagents now use `SessionManager.create` by default. The child header records the current main-session file as `parentSession`, so ordinary same-directory runs appear beneath their spawner in Pi's `/resume` and can be opened there with their complete conversation. `/agents` also shows **Finished agents in this session** by name and status: a retained live record uses the existing brief ConversationViewer; after that record is evicted, the same read-only overlay opens the persisted session file.
+
+Set `persist_session: false` on an agent file for a per-agent ephemeral run, or set `rememberAgents: false` in `/agents → Settings` / project config to restore memory-only behavior by default. Explicit `persist_session: true` still overrides that setting.
+
+Worktree creation is a repository capability and defaults **off** in this fork. With `worktreeIsolation: false`, the Agent tool exposes neither the `isolation` parameter nor worktree prose, and a `worktree` request arriving through an agent file, scheduler, or cross-extension RPC silently runs in the real checkout instead. Enable **Worktree isolation** in `/agents → Settings` to expose `isolation: "off" | "worktree"` on the next Pi session (`off` is listed first). Once enabled, an actual worktree creation failure still throws; it never silently falls back.
 
 ---
 
@@ -141,7 +151,7 @@ Operational settings now use the extension-data layout:
 - Global defaults: `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
 - Project overrides: `<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json` (normally `<cwd>/.pi/extension-data/pi-subagents/config.json`)
 
-Project fields override global fields. `/agents` → Settings still writes only the project file; the global file remains hand-edited. The optional custom Agent tool description uses `agent-tool-description.md` beside the corresponding global or project `config.json`, with project content taking precedence.
+Project fields override global fields. `/agents` → Settings still writes only the project file; the global file remains hand-edited. The optional custom Agent tool description uses `agent-tool-description.md` beside the corresponding global or project `config.json`, with project content taking precedence. Use `{{isolationGuideline}}` instead of hardcoding worktree guidance so a disabled repository removes the prose together with the schema. Relevant defaults are `rememberAgents: true` and `worktreeIsolation: false`; schema/prose changes from the worktree switch apply on the next Pi session, while runtime downgrade applies immediately.
 
 The former global/project `subagents.json` and `agent-tool-description.md` locations are one-time migration inputs. Migration uses an atomic same-directory rename and semantic re-read before deleting a legacy file. Canonical files always win; malformed, unreadable, or conflicting legacy files remain in place with a de-duplicated warning.
 

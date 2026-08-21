@@ -235,6 +235,15 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({}); // non-boolean dropped
   });
 
+  it("round-trips rememberAgents and worktreeIsolation; drops non-booleans", () => {
+    saveSettings({ rememberAgents: false, worktreeIsolation: true }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ rememberAgents: false, worktreeIsolation: true });
+    saveSettings({ rememberAgents: true, worktreeIsolation: false }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ rememberAgents: true, worktreeIsolation: false });
+    writeProject({ rememberAgents: "on", worktreeIsolation: "off" } as any);
+    expect(loadSettings(projectDir)).toEqual({});
+  });
+
   it("sanitize drops non-boolean schedulingEnabled silently", async () => {
     writeProject({ schedulingEnabled: "yes" } as any);
     expect(loadSettings(projectDir)).toEqual({});
@@ -476,8 +485,10 @@ describe("settings persistence", () => {
         setDisableDefaultAgents: vi.fn(),
         setToolDescriptionMode: vi.fn(),
         setFleetView: vi.fn(),
+        setRememberAgents: vi.fn(),
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
+        setWorktreeIsolation: vi.fn(),
       };
     });
 
@@ -515,7 +526,9 @@ describe("settings persistence", () => {
           disableDefaultAgents: true,
           toolDescriptionMode: "compact",
           fleetView: false,
+          rememberAgents: false,
           widgetMode: "off",
+          worktreeIsolation: true,
         },
         appliers,
       );
@@ -528,7 +541,9 @@ describe("settings persistence", () => {
       expect(appliers.setDisableDefaultAgents).toHaveBeenCalledWith(true);
       expect(appliers.setToolDescriptionMode).toHaveBeenCalledWith("compact");
       expect(appliers.setFleetView).toHaveBeenCalledWith(false);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(false);
       expect(appliers.setWidgetMode).toHaveBeenCalledWith("off");
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(true);
     });
 
     it("applies widgetMode; skips it when absent", () => {
@@ -565,6 +580,15 @@ describe("settings persistence", () => {
       expect(appliers.setOutputTranscript).toHaveBeenCalledWith(false);
       applySettings({ outputTranscript: true }, appliers);
       expect(appliers.setOutputTranscript).toHaveBeenCalledWith(true);
+    });
+
+    it("applies rememberAgents and worktreeIsolation in both directions", () => {
+      applySettings({ rememberAgents: false, worktreeIsolation: true }, appliers);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(false);
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(true);
+      applySettings({ rememberAgents: true, worktreeIsolation: false }, appliers);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(true);
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(false);
     });
 
     it("applies defaultMaxTurns: 0 as the explicit unlimited marker", () => {
@@ -624,8 +648,10 @@ describe("settings persistence", () => {
         setDisableDefaultAgents: vi.fn(),
         setToolDescriptionMode: vi.fn(),
         setFleetView: vi.fn(),
+        setRememberAgents: vi.fn(),
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
+        setWorktreeIsolation: vi.fn(),
       };
     });
 

@@ -18,8 +18,12 @@ export const DEFAULT_AGENT_NAMES = ["general-purpose", "Explore", "Plan"] as con
 /** Memory scope for persistent agent memory. */
 export type MemoryScope = "user" | "project" | "local";
 
-/** Isolation mode for agent execution. */
-export type IsolationMode = "worktree";
+/**
+ * Isolation mode accepted at invocation boundaries.
+ * `"off"` is an explicit no-worktree value and is collapsed to normal execution
+ * before the run starts; `"worktree"` is the only runtime isolation mode.
+ */
+export type IsolationMode = "off" | "worktree";
 
 /** Unified agent configuration — used for both default and user-defined agents. */
 export interface AgentConfig {
@@ -58,7 +62,10 @@ export interface AgentConfig {
   isolated?: boolean;
   /** Persistent memory scope — agents with memory get a persistent directory and MEMORY.md */
   memory?: MemoryScope;
-  /** Isolation mode — "worktree" runs the agent in a temporary git worktree */
+  /**
+   * Isolation mode — "worktree" requests a temporary git worktree; "off"
+   * vetoes a caller's worktree request because agent config has precedence.
+   */
   isolation?: IsolationMode;
   /** true = this is an embedded default agent (informational) */
   isDefault?: boolean;
@@ -140,6 +147,8 @@ export interface AgentRecord {
   toolCallId?: string;
   /** Path to the streaming output transcript file. */
   outputFile?: string;
+  /** Persisted Pi session file, when this agent is not running in memory. */
+  sessionFile?: string;
   /** Cleanup function for the output file stream subscription. */
   outputCleanup?: () => void;
   /**

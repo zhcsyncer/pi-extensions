@@ -21,6 +21,14 @@ Production source and upstream tests were copied from that tag before local modi
 
 Stable “why” only — implementation detail lives in code/tests.
 
+### Selected upstream 0.17 session/isolation port
+
+- Ordinary top-level subagents persist as normal Pi sessions by default and record the spawning session in `parentSession`, so same-directory runs nest under their parent in `/resume`; `persist_session: false` or `rememberAgents: false` restores memory-only execution.
+- `/agents` exposes finished agents from the current parent-session branch. A retained record keeps the live brief ConversationViewer; a disk-only record reopens the persisted child session read-only.
+- `isolation` accepts `"off" | "worktree"` with the inert value first. Agent-file `off` is a veto because frontmatter outranks invocation parameters.
+- Fork-specific policy: upstream 0.17 defaults `worktreeIsolation` on; this fork defaults it **off**. Disabled repositories remove schema and prose together, and the manager downgrades agent-file/scheduler/RPC worktree requests to the real checkout. Enabled worktree creation remains strict and fails loud.
+- `@handle`, nested delegation, agent-file identity changes, and other upstream 0.15–0.17 features are intentionally outside this first port.
+
 ### ConversationViewer (scheme A)
 
 - Default overlay is **Prompt · Steps · Result**, not a full message dump.
@@ -68,5 +76,5 @@ Stable “why” only — implementation detail lives in code/tests.
 
 ### Intentionally unchanged vs upstream
 
-- Tool names/params, FleetView navigation/steer/stop, custom agents, worktrees, schedules, settings, and RPC contracts.
+- Tool names, FleetView navigation/steer/stop, custom-agent discovery, schedules, and protocol-v3 RPC contracts. The `isolation` parameter and session defaults are the scoped exceptions documented above.
 - Note: queued `get_subagent_result` copy, failure `isError`, completion delivery, and orchestration guidance are model-visible deltas kept for honesty and timely result consumption; spawn/steer/resume behavior is otherwise upstream-aligned.

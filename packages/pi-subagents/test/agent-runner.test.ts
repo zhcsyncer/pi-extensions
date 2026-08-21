@@ -115,6 +115,7 @@ import {
   parseExtSelectors,
   resumeAgent,
   runAgent,
+  setRememberAgents,
   SUBAGENT_TOOL_NAMES,
 } from "../src/agent-runner.js";
 import { buildAgentPrompt } from "../src/prompts.js";
@@ -170,7 +171,10 @@ const ctx = {
   model: undefined,
   modelRegistry: { find: vi.fn(), getAvailable: vi.fn(() => []) },
   getSystemPrompt: vi.fn(() => "parent prompt"),
-  sessionManager: { getBranch: vi.fn(() => []) },
+  sessionManager: {
+    getBranch: vi.fn(() => []),
+    getSessionFile: vi.fn(() => "/sessions/parent.jsonl"),
+  },
 } as any;
 
 const pi = {} as any;
@@ -189,6 +193,7 @@ beforeEach(() => {
   vi.mocked(getConfig).mockClear();
   vi.mocked(getToolNamesForType).mockClear();
   vi.mocked(buildAgentPrompt).mockClear();
+  setRememberAgents(true);
   lastSession = undefined;
 });
 
@@ -253,7 +258,11 @@ describe("agent-runner final output capture", () => {
       agentDir: "/mock/agent-dir",
     }));
     expect(settingsManagerCreate).toHaveBeenCalledWith("/tmp/worktree", "/mock/agent-dir");
-    expect(sessionManagerInMemory).toHaveBeenCalledWith("/tmp/worktree");
+    expect(sessionManagerCreate).toHaveBeenCalledWith(
+      "/tmp/worktree",
+      undefined,
+      { parentSession: "/sessions/parent.jsonl" },
+    );
     expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
       cwd: "/tmp/worktree",
       agentDir: "/mock/agent-dir",
@@ -836,22 +845,8 @@ function lastLoaderOpts(): Record<string, unknown> {
 }
 
 describe("agent-runner session persistence", () => {
-  it("uses an in-memory session by default", async () => {
+  it("persists by default and links the child to the parent session", async () => {
     vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig());
-    const { session } = createSession("OK");
-    createAgentSession.mockResolvedValue({ session });
-
-    await runAgent(ctx, "Explore", "go", { pi });
-
-    expect(sessionManagerInMemory).toHaveBeenCalledWith("/tmp");
-    expect(sessionManagerCreate).not.toHaveBeenCalled();
-    expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
-      sessionManager: { kind: "memory-session-manager" },
-    }));
-  });
-
-  it("uses pi's normal persistent session location when persistSession is true", async () => {
-    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ persistSession: true }));
     settingsManagerGetSessionDir.mockReturnValue("/normal/pi/sessions");
     const { session } = createSession("OK");
     createAgentSession.mockResolvedValue({ session });
@@ -859,13 +854,44 @@ describe("agent-runner session persistence", () => {
     await runAgent(ctx, "Explore", "go", { pi });
 
     expect(sessionManagerInMemory).not.toHaveBeenCalled();
-    expect(sessionManagerCreate).toHaveBeenCalledWith("/tmp", "/normal/pi/sessions");
+    expect(sessionManagerCreate).toHaveBeenCalledWith(
+      "/tmp",
+      "/normal/pi/sessions",
+      { parentSession: "/sessions/parent.jsonl" },
+    );
     expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({
       sessionManager: { kind: "persistent-session-manager" },
     }));
   });
 
-  it("uses a frontmatter sessionDir when persistSession is true and sessionDir is configured", async () => {
+  it("keeps the session in memory when rememberAgents is off", async () => {
+    setRememberAgents(false);
+    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig());
+    createAgentSession.mockResolvedValue({ session: createSession("OK").session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    expect(sessionManagerInMemory).toHaveBeenCalledWith("/tmp");
+    expect(sessionManagerCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets persist_session override rememberAgents in both directions", async () => {
+    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ persistSession: false }));
+    createAgentSession.mockResolvedValue({ session: createSession("OK").session });
+    await runAgent(ctx, "Explore", "go", { pi });
+    expect(sessionManagerInMemory).toHaveBeenCalled();
+    expect(sessionManagerCreate).not.toHaveBeenCalled();
+
+    sessionManagerInMemory.mockClear();
+    setRememberAgents(false);
+    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ persistSession: true }));
+    createAgentSession.mockResolvedValue({ session: createSession("OK").session });
+    await runAgent(ctx, "Explore", "go", { pi });
+    expect(sessionManagerCreate).toHaveBeenCalled();
+    expect(sessionManagerInMemory).not.toHaveBeenCalled();
+  });
+
+  it("uses a frontmatter sessionDir when persistence is enabled", async () => {
     vi.mocked(getAgentConfig).mockReturnValueOnce(
       makeAgentConfig({ persistSession: true, sessionDir: ".seams/pi-sessions/seam-plan-reviewer" }),
     );
@@ -878,6 +904,7 @@ describe("agent-runner session persistence", () => {
     expect(sessionManagerCreate).toHaveBeenCalledWith(
       "/repo",
       "/repo/.seams/pi-sessions/seam-plan-reviewer",
+      { parentSession: "/sessions/parent.jsonl" },
     );
   });
 });

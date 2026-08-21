@@ -28,6 +28,21 @@ export interface WorktreeInfo {
   workPath: string;
 }
 
+/**
+ * Repository-wide worktree capability switch. This fork defaults it off: large
+ * repositories must opt in before any tool, agent file, scheduler, or RPC call
+ * can create a linked checkout.
+ */
+let worktreeIsolationEnabled = false;
+
+export function setWorktreeIsolationEnabled(enabled: boolean): void {
+  worktreeIsolationEnabled = enabled;
+}
+
+export function isWorktreeIsolationEnabled(): boolean {
+  return worktreeIsolationEnabled;
+}
+
 export interface WorktreeCleanupResult {
   /** Whether changes were found in the worktree. */
   hasChanges: boolean;

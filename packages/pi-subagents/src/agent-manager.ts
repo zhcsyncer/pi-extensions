@@ -23,7 +23,12 @@ import type {
   ThinkingLevel,
 } from "./types.js";
 import { addUsage, createLifetimeUsage, type LifetimeUsage } from "./usage.js";
-import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
+import {
+  cleanupWorktree,
+  createWorktree,
+  isWorktreeIsolationEnabled,
+  pruneWorktrees,
+} from "./worktree.js";
 
 export type OnAgentComplete = (record: AgentRecord) => void;
 export type OnAgentStart = (record: AgentRecord) => void;
@@ -203,6 +208,20 @@ export class AgentManager {
     // can fix and retry; the RPC layer converts throws into error envelopes.
     assertValidSpawnCwd(options.cwd);
 
+    // Enforce the repository capability below every caller boundary. Tool calls
+    // are schema-gated too, but agent files, schedules, and RPC can bypass that
+    // schema. `off` and disabled worktrees both become ordinary real-tree runs.
+    const isolation = options.isolation === "worktree" && isWorktreeIsolationEnabled()
+      ? "worktree"
+      : undefined;
+    options = {
+      ...options,
+      isolation,
+      ...(options.invocation
+        ? { invocation: { ...options.invocation, isolation } }
+        : {}),
+    };
+
     const id = randomUUID().slice(0, 17);
     const abortController = new AbortController();
     const record: AgentRecord = {
@@ -283,7 +302,13 @@ export class AgentManager {
     // fail loud if not possible (no silent fallback to main tree). Done
     // BEFORE state mutation so a throw doesn't leave the record half-running.
     let worktreeCwd: string | undefined;
-    if (options.isolation === "worktree") {
+    const useWorktree = options.isolation === "worktree" && isWorktreeIsolationEnabled();
+    // The setting can turn off while a background spawn is queued. Keep the UI
+    // snapshot honest if that accepted request is downgraded at queue drain.
+    if (!useWorktree && record.invocation?.isolation) {
+      record.invocation = { ...record.invocation, isolation: undefined };
+    }
+    if (useWorktree) {
       const wt = createWorktree(baseCwd, id);
       if (!wt) {
         throw new Error(
@@ -352,6 +377,7 @@ export class AgentManager {
       },
       onSessionCreated: (session) => {
         record.session = session;
+        record.sessionFile = session.sessionManager?.getSessionFile?.();
         if (record.correlationId) {
           const effectiveModel = session.model;
           if (effectiveModel) {

@@ -17,6 +17,7 @@ import {
   getProjectSubagentsSettingsPath,
 } from "../src/config-paths.js";
 import subagentsExtension from "../src/index.js";
+import { setWorktreeIsolationEnabled } from "../src/worktree.js";
 
 const EXAMPLE_TEMPLATE = fileURLToPath(new URL("../examples/agent-tool-description.md", import.meta.url));
 
@@ -76,6 +77,7 @@ describe("toolDescriptionMode", () => {
       writeConfigFile(getProjectSubagentsSettingsPath(tmpDir), JSON.stringify(settings));
     }
     resetSubagentsConfigNoticesForTests();
+    setWorktreeIsolationEnabled(false);
     beforeInstantiate?.();
     process.chdir(tmpDir);
 
@@ -133,7 +135,7 @@ describe("toolDescriptionMode", () => {
   });
 
   it("full and compact descriptions keep the foreground/background ownership contract", async () => {
-    const compact: string = setup({ toolDescriptionMode: "compact" }).get("Agent").description;
+    const compact: string = setup({ toolDescriptionMode: "compact", worktreeIsolation: true }).get("Agent").description;
     for (const contract of [
       "run_in_background",
       "foreground",
@@ -308,12 +310,49 @@ describe("toolDescriptionMode", () => {
     const tools = setup({ toolDescriptionMode: "custom" }, () => {
       writeConfigFile(
         getProjectAgentToolDescriptionPath(tmpDir),
-        "A {{typeList}} B {{compactTypeList}} C {{agentDir}} D {{scheduleGuideline}} E",
+        "A {{typeList}} B {{compactTypeList}} C {{agentDir}} D {{scheduleGuideline}} E {{isolationGuideline}} F",
       );
     });
     const desc: string = tools.get("Agent").description;
     expect(desc).not.toContain("{{");
     expect(desc).not.toContain("}}");
+  });
+
+  describe("worktreeIsolation gates schema and prose", () => {
+    function properties(tools: Map<string, any>): string[] {
+      return Object.keys(tools.get("Agent").parameters.properties);
+    }
+
+    it("defaults off and removes isolation from full description and schema", () => {
+      const tools = setup();
+      expect(properties(tools)).not.toContain("isolation");
+      expect(tools.get("Agent").description).not.toContain('isolation: "worktree"');
+    });
+
+    it("opt-in exposes off first, worktree second, and matching prose", () => {
+      const tools = setup({ worktreeIsolation: true });
+      const schema = tools.get("Agent").parameters.properties.isolation;
+      expect(properties(tools)).toContain("isolation");
+      expect(schema.anyOf.map((value: { const: string }) => value.const)).toEqual(["off", "worktree"]);
+      expect(tools.get("Agent").description).toContain('isolation: "worktree"');
+    });
+
+    it("compact and custom descriptions stay silent when disabled", () => {
+      const compact = setup({ toolDescriptionMode: "compact", worktreeIsolation: false });
+      expect(compact.get("Agent").description).not.toContain("isolation");
+
+      writeConfigFile(
+        getProjectSubagentsSettingsPath(tmpDir),
+        JSON.stringify({ toolDescriptionMode: "custom", worktreeIsolation: false }),
+      );
+      writeConfigFile(
+        getProjectAgentToolDescriptionPath(tmpDir),
+        "BEGIN{{isolationGuideline}}END",
+      );
+      const custom = makePi();
+      subagentsExtension(custom.pi);
+      expect(custom.tools.get("Agent").description).toBe("BEGINEND");
+    });
   });
 
   it("the shipped example template renders byte-identical to the full description", async () => {

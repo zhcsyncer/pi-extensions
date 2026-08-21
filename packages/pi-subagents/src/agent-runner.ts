@@ -303,6 +303,18 @@ export function getDefaultMaxTurns(): number | undefined { return defaultMaxTurn
 /** Set the default max turns value. undefined or 0 = unlimited, otherwise minimum 1. */
 export function setDefaultMaxTurns(n: number | undefined): void { defaultMaxTurns = normalizeMaxTurns(n); }
 
+/**
+ * Project default for `persist_session`. On by default so ordinary subagents
+ * become normal Pi sessions that can be inspected with `/resume`.
+ * Per-agent frontmatter overrides this in both directions.
+ */
+let rememberAgents = true;
+
+/** Whether subagent sessions are persisted by default. */
+export function getRememberAgents(): boolean { return rememberAgents; }
+/** Set whether subagent sessions are persisted by default. */
+export function setRememberAgents(enabled: boolean): void { rememberAgents = enabled; }
+
 /** Additional turns allowed after the soft limit steer message. */
 let graceTurns = 5;
 
@@ -815,8 +827,11 @@ export async function runAgent(
   const settingsManager = SettingsManager.create(configCwd, agentDir);
   const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd);
   const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
-  const sessionManager = agentConfig?.persistSession
-    ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir)
+  const persistSession = agentConfig?.persistSession ?? rememberAgents;
+  const sessionManager = persistSession
+    ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir, {
+        parentSession: ctx.sessionManager.getSessionFile(),
+      })
     : SessionManager.inMemory(effectiveCwd);
 
   // Pi 0.80.8 replaced createAgentSession's modelRegistry option with

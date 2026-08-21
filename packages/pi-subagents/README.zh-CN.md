@@ -13,7 +13,7 @@
 
 ## 与上游的差异（先看这里）
 
-本 fork 保留上游日常 **Agent 运行时行为**，但会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余改动主要优化 TUI 中的进展与 tool 结果呈现；此外提供一条显式启用的进程内 spawn 契约，供编排型扩展调用。
+本 fork 保留上游日常 **Agent 运行时行为**，但会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余改动主要优化 TUI 中的进展与 tool 结果呈现；此外提供一条显式启用的进程内 spawn 契约，供编排型扩展调用。这里还选择性移植了上游 0.17 的 session 默认持久化与 `isolation: "off"`，但本 fork 的 worktree 默认**关闭**。
 
 | 区域 | 上游 `@tintinweb/pi-subagents` | 本 fork `@zhcsyncer/pi-subagents` |
 | --- | --- | --- |
@@ -26,16 +26,18 @@
 | Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；resume 用存储的 invocation |
 | 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
 | 后台完成投递 | 手动 Agent-tool、schedule 与 RPC 都使用 `followUp`；主 agent 长工具循环可能饿死当前任务结果 | 手动 Agent-tool 后台完成使用 `steer`；schedule / RPC 等脱离当前推理链的任务保留 `followUp`；继续使用 `triggerTurn: true` |
+| 子 agent Pi session | 钉扎的 0.14.3 基线默认内存运行，只有 `persist_session: true` 才落盘 | 普通子 agent 默认持久化，记录父 session，在 `/resume` 中挂到父会话下，并可从 `/agents` 的结束历史打开；`persist_session: false` 或 `rememberAgents: false` 可恢复内存运行 |
+| Worktree 隔离 | 上游 0.17 增加 `"off"` / `"worktree"` 与默认开启的仓库开关 | 同样使用 `"off"` / `"worktree"`（`off` 在前），但 `worktreeIsolation` 默认 **false**；关闭时 schema 与说明都消失，tool/frontmatter/schedule/RPC 的 worktree 请求全部降级到真实 checkout |
 | 编排合同 | foreground / background 的工作所有权容易混淆 | 后续步骤依赖结果时必须 foreground；background 只用于真正互不重叠的工作；主 agent 负责综合和定向验证，但不得重复已委派的证据收集 |
 | 跨扩展编排 | named-agent spawn RPC | protocol v3 增加可选 inline 角色、调用方收口、route 关联、实际 route 元数据与并发上限查询 |
 | 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
 
 ### 未改动的部分
 
-- 工具名与公开参数：`Agent`、`get_subagent_result`、`steer_subagent`
+- 工具名：`Agent`、`get_subagent_result`、`steer_subagent`；除条件化 `isolation` enum 以外的参数
 - 完成通知继续使用 `triggerTurn: true`；schedule / RPC 等 detached 任务仍使用 `followUp`
 - FleetView 导航、Enter steer、`x` `x` stop、Esc/q 关闭
-- 自定义 agent、worktree、调度和设置菜单
+- 自定义 agent、调度与现有 Settings 菜单结构
 - 不传 protocol-v3 新字段时，原有跨扩展 spawn 行为不变
 
 日常 Agent 行为细节仍以上游文档为准：[`UPSTREAM_README.md`](./UPSTREAM_README.md)。
@@ -64,6 +66,14 @@
 - foreground：结果 inline 返回，不发送后台完成 nudge
 
 需要复用同一执行语义、但不希望激活完整扩展的依赖包，可以导入 `@zhcsyncer/pi-subagents/runtime`。只导入该子路径不会注册 Agent 工具、命令、调度、widget 或 FleetView；构造和释放由调用方负责。
+
+### Session 持久化与仓库 worktree
+
+子 agent 现在默认使用 `SessionManager.create`。child header 会把当前主 session 文件记为 `parentSession`，所以普通同目录运行会在 Pi 的 `/resume` 中挂到发起它的父会话下，也能在那里打开完整对话。`/agents` 还会按名称和状态显示 **Finished agents in this session**：live record 仍用现有摘要 ConversationViewer；record 被回收后，同一个只读 overlay 会改为打开磁盘 session 文件。
+
+若某个 agent 需要临时运行，在 agent 文件中设 `persist_session: false`；若项目整体要恢复默认内存行为，在 `/agents → Settings` 或项目配置中设 `rememberAgents: false`。显式 `persist_session: true` 仍可反向覆盖该设置。
+
+Worktree 创建现在是仓库能力开关，本 fork 默认**关闭**。`worktreeIsolation: false` 时，Agent 工具既没有 `isolation` 参数，也不会保留 worktree 说明；来自 agent 文件、scheduler 或跨扩展 RPC 的 `worktree` 请求会直接在真实 checkout 运行。通过 `/agents → Settings` 开启 **Worktree isolation** 后，下一次 Pi session 会重新暴露 `isolation: "off" | "worktree"`（`off` 在前）。开关开启后若 worktree 实际创建失败，仍会抛错，绝不静默 fallback。
 
 ---
 
@@ -141,7 +151,7 @@ FleetView / agent 列表选中子 agent 后回车：
 - 全局默认值：`$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
 - 项目覆盖：`<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json`（通常是 `<cwd>/.pi/extension-data/pi-subagents/config.json`）
 
-项目字段覆盖全局字段。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。
+项目字段覆盖全局字段。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。Worktree 说明应使用 `{{isolationGuideline}}`，不要硬编码；这样仓库禁用该能力时，说明会与 schema 一起消失。相关默认值为 `rememberAgents: true` 与 `worktreeIsolation: false`；worktree schema/说明变更在下一次 Pi session 生效，而运行时降级会立即生效。
 
 原全局/项目 `subagents.json` 与 `agent-tool-description.md` 只作为一次性迁移输入。迁移通过同目录原子 rename 写入，并在删除旧文件前进行语义复读。canonical 文件始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
 

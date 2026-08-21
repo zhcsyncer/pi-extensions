@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanupWorktree, createWorktree, pruneWorktrees } from "../src/worktree.js";
+import {
+  cleanupWorktree,
+  createWorktree,
+  isWorktreeIsolationEnabled,
+  pruneWorktrees,
+  setWorktreeIsolationEnabled,
+} from "../src/worktree.js";
 
 /**
  * Helper: create a temporary git repo with an initial commit.
@@ -18,6 +24,16 @@ function initGitRepo(): string {
   execFileSync("git", ["commit", "-m", "initial"], { cwd: dir, stdio: "pipe" });
   return dir;
 }
+
+describe("worktree isolation switch", () => {
+  afterEach(() => setWorktreeIsolationEnabled(false));
+
+  it("defaults off in this fork and can be explicitly enabled", () => {
+    expect(isWorktreeIsolationEnabled()).toBe(false);
+    setWorktreeIsolationEnabled(true);
+    expect(isWorktreeIsolationEnabled()).toBe(true);
+  });
+});
 
 describe("worktree", () => {
   let repoDir: string;
