@@ -39,6 +39,8 @@ function fakePi() {
 		},
 		registerTool(tool: { name: string }) { tools.push(tool.name); },
 		registerCommand(name: string) { commands.push(name); },
+		registerMessageRenderer() {},
+		registerEntryRenderer() {},
 		events: {
 			on(name: string, handler: (data: unknown) => void) {
 				const values = eventHandlers.get(name) ?? [];
@@ -189,7 +191,7 @@ describe.sequential("extension registration gates", () => {
 		const ctx = sessionContext("tui");
 		await emitSnapshot(h.handlers, "session_start", { type: "session_start", reason: "startup" }, ctx);
 		expect(h.tools).toEqual(["herdr_process"]);
-		expect(h.commands).toEqual(expect.arrayContaining(["btw", "herdr-config"]));
+		expect(h.commands).toEqual(expect.arrayContaining(["btw", "herdr-config", "herdr-worktree"]));
 		expect(h.tools).not.toContain("btw");
 		expect(h.tools).not.toContain("herdr_worker");
 		expect(h.tools).not.toContain("herdr_blocked");

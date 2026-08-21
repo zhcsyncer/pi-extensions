@@ -73,6 +73,50 @@ export interface StartAgentOptions {
 	timeoutMs?: number;
 }
 
+export interface HerdrWorkspaceWorktree {
+	repoKey?: string;
+	repoName?: string;
+	repoRoot?: string;
+	checkoutPath: string;
+	isLinkedWorktree: boolean;
+}
+
+export interface HerdrWorkspace {
+	workspaceId: string;
+	label?: string;
+	worktree?: HerdrWorkspaceWorktree;
+}
+
+export interface HerdrWorktreeCheckout {
+	path: string;
+	branch?: string;
+	isLinkedWorktree: boolean;
+	openWorkspaceId?: string;
+	label?: string;
+}
+
+export interface CreateWorktreeOptions {
+	workspaceId?: string;
+	cwd?: string;
+	branch: string;
+	base?: string;
+	label?: string;
+	focus?: boolean;
+}
+
+export interface CreatedWorktree {
+	workspace: HerdrWorkspace;
+	rootPaneId: string;
+	worktree: HerdrWorktreeCheckout;
+}
+
+export type HerdrAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
+
+export interface PromptUntilOptions {
+	until: HerdrAgentStatus;
+	timeoutMs: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -125,6 +169,13 @@ const SAFE_OPERATIONS = new Set([
 	"agent rename",
 	"agent prompt",
 	"agent focus",
+	"workspace get",
+	"workspace focus",
+	"worktree list",
+	"worktree create",
+	"worktree remove",
+	"agent list",
+	"agent wait",
 ]);
 
 function safeOperation(args: readonly string[]): string {
@@ -251,6 +302,80 @@ function parseAgent(value: unknown, operation: string): HerdrAgent {
 		...(typeof value.agent === "string" ? { agent: value.agent } : {}),
 		...(typeof value.agent_status === "string" ? { status: value.agent_status } : {}),
 	};
+}
+
+function parseWorkspaceWorktree(value: unknown, operation: string): HerdrWorkspaceWorktree {
+	if (!isRecord(value)) throw new HerdrProtocolError(operation, "an invalid workspace.worktree");
+	if (typeof value.checkout_path !== "string" || !value.checkout_path.trim()) {
+		throw new HerdrProtocolError(operation, "an invalid workspace.worktree.checkout_path");
+	}
+	if (typeof value.is_linked_worktree !== "boolean") {
+		throw new HerdrProtocolError(operation, "an invalid workspace.worktree.is_linked_worktree");
+	}
+	for (const [field, candidate] of [
+		["repo_key", value.repo_key],
+		["repo_name", value.repo_name],
+		["repo_root", value.repo_root],
+	] as const) {
+		if (candidate !== undefined && candidate !== null && typeof candidate !== "string") {
+			throw new HerdrProtocolError(operation, `an invalid workspace.worktree.${field}`);
+		}
+	}
+	return {
+		checkoutPath: value.checkout_path,
+		isLinkedWorktree: value.is_linked_worktree,
+		...(typeof value.repo_key === "string" ? { repoKey: value.repo_key } : {}),
+		...(typeof value.repo_name === "string" ? { repoName: value.repo_name } : {}),
+		...(typeof value.repo_root === "string" ? { repoRoot: value.repo_root } : {}),
+	};
+}
+
+function parseWorkspace(value: unknown, operation: string): HerdrWorkspace {
+	if (!isRecord(value) || typeof value.workspace_id !== "string" || !value.workspace_id.trim()) {
+		throw new HerdrProtocolError(operation, "an invalid workspace object");
+	}
+	if (value.label !== undefined && value.label !== null && typeof value.label !== "string") {
+		throw new HerdrProtocolError(operation, "an invalid workspace.label");
+	}
+	return {
+		workspaceId: value.workspace_id,
+		...(typeof value.label === "string" ? { label: value.label } : {}),
+		...(value.worktree === undefined || value.worktree === null
+			? {}
+			: { worktree: parseWorkspaceWorktree(value.worktree, operation) }),
+	};
+}
+
+function parseWorktreeCheckout(value: unknown, operation: string): HerdrWorktreeCheckout {
+	if (!isRecord(value) || typeof value.path !== "string" || !value.path.trim()) {
+		throw new HerdrProtocolError(operation, "an invalid worktree object");
+	}
+	if (typeof value.is_linked_worktree !== "boolean") {
+		throw new HerdrProtocolError(operation, "an invalid worktree.is_linked_worktree");
+	}
+	for (const [field, candidate] of [
+		["branch", value.branch],
+		["open_workspace_id", value.open_workspace_id],
+		["label", value.label],
+	] as const) {
+		if (candidate !== undefined && candidate !== null && typeof candidate !== "string") {
+			throw new HerdrProtocolError(operation, `an invalid worktree.${field}`);
+		}
+	}
+	return {
+		path: value.path,
+		isLinkedWorktree: value.is_linked_worktree,
+		...(typeof value.branch === "string" ? { branch: value.branch } : {}),
+		...(typeof value.open_workspace_id === "string" ? { openWorkspaceId: value.open_workspace_id } : {}),
+		...(typeof value.label === "string" ? { label: value.label } : {}),
+	};
+}
+
+function parseRootPaneId(value: unknown, operation: string): string {
+	if (!isRecord(value) || typeof value.pane_id !== "string" || !value.pane_id.trim()) {
+		throw new HerdrProtocolError(operation, "an invalid root_pane");
+	}
+	return value.pane_id;
 }
 
 function optionalPid(value: unknown, operation: string, field: string): number | undefined {
@@ -514,5 +639,80 @@ export class HerdrClient {
 
 	async focusAgent(target: string, signal?: AbortSignal): Promise<void> {
 		await this.executeJson(["agent", "focus", target], 5_000, "agent focus", signal);
+	}
+
+	async getWorkspace(workspaceId: string, signal?: AbortSignal): Promise<HerdrWorkspace> {
+		const result = await this.executeJson(["workspace", "get", workspaceId], 5_000, "workspace get", signal);
+		return parseWorkspace(result.workspace, "workspace get");
+	}
+
+	async removeWorktree(workspaceId: string, signal?: AbortSignal): Promise<void> {
+		await this.executeJson(
+			["worktree", "remove", "--workspace", workspaceId],
+			15_000,
+			"worktree remove",
+			signal,
+		);
+	}
+
+	async listWorktrees(
+		options: { workspaceId?: string; cwd?: string } = {},
+		signal?: AbortSignal,
+	): Promise<HerdrWorktreeCheckout[]> {
+		const args = [
+			"worktree",
+			"list",
+			...(options.workspaceId ? ["--workspace", options.workspaceId] : []),
+			...(options.cwd ? ["--cwd", options.cwd] : []),
+		];
+		const result = await this.executeJson(args, 5_000, "worktree list", signal);
+		if (!Array.isArray(result.worktrees)) throw new HerdrProtocolError("worktree list", "an invalid worktrees array");
+		return result.worktrees.map((worktree) => parseWorktreeCheckout(worktree, "worktree list"));
+	}
+
+	async createWorktree(options: CreateWorktreeOptions, signal?: AbortSignal): Promise<CreatedWorktree> {
+		const args = [
+			"worktree",
+			"create",
+			...(options.workspaceId ? ["--workspace", options.workspaceId] : []),
+			...(options.cwd ? ["--cwd", options.cwd] : []),
+			"--branch",
+			options.branch,
+			...(options.base ? ["--base", options.base] : []),
+			...(options.label ? ["--label", options.label] : []),
+			options.focus ? "--focus" : "--no-focus",
+		];
+		const result = await this.executeJson(args, 30_000, "worktree create", signal);
+		return {
+			workspace: parseWorkspace(result.workspace, "worktree create"),
+			rootPaneId: parseRootPaneId(result.root_pane, "worktree create"),
+			worktree: parseWorktreeCheckout(result.worktree, "worktree create"),
+		};
+	}
+
+	async listAgents(signal?: AbortSignal): Promise<HerdrAgent[]> {
+		const result = await this.executeJson(["agent", "list"], 5_000, "agent list", signal);
+		if (!Array.isArray(result.agents)) throw new HerdrProtocolError("agent list", "an invalid agents array");
+		return result.agents.map((agent) => parseAgent(agent, "agent list"));
+	}
+
+	async promptAgentUntil(
+		target: string,
+		prompt: string,
+		options: PromptUntilOptions,
+		signal?: AbortSignal,
+	): Promise<HerdrAgent> {
+		const result = await this.executeJson([
+			"agent",
+			"prompt",
+			target,
+			prompt,
+			"--wait",
+			"--until",
+			options.until,
+			"--timeout",
+			String(options.timeoutMs),
+		], options.timeoutMs + 2_000, "agent prompt", signal);
+		return parseAgent(result.agent, "agent prompt");
 	}
 }
