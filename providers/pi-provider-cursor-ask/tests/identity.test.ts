@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 describe("drop-in Cursor provider identity", () => {
-  it("registers the cursor replacement, isolated API stream, OAuth label, and filtered models", () => {
+  it("registers the cursor replacement, upstream stream API, OAuth label, and filtered models", () => {
     let registeredName = "";
     let registeredConfig: ProviderConfig | undefined;
     const pi = {
@@ -30,7 +30,7 @@ describe("drop-in Cursor provider identity", () => {
     const models = manager.registerModels(FALLBACK_MODELS);
 
     expect(registeredName).toBe("cursor");
-    expect(registeredConfig?.api).toBe("cursor-ask-native");
+    expect(registeredConfig?.api).toBe("cursor-native");
     expect(registeredConfig?.oauth?.name).toBe("Cursor Ask");
     expect(registeredConfig?.models).toHaveLength(6);
     expect(models.map((model) => model.id)).toEqual([
@@ -41,8 +41,7 @@ describe("drop-in Cursor provider identity", () => {
       "composer-2.5",
       "composer-2.5-fast",
     ]);
-    expect(getApiProvider("cursor-ask-native")?.api).toBe("cursor-ask-native");
-    expect(getApiProvider("cursor-native")).toBeUndefined();
+    expect(getApiProvider("cursor-native")?.api).toBe("cursor-native");
   });
 
   it("keeps fork-specific diagnostic command names", () => {

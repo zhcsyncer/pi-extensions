@@ -12,7 +12,7 @@ afterEach(() => {
   unregisterApiProviders(SOURCE);
 });
 
-describe("cursor-ask-native API registration", () => {
+describe("cursor-native API registration", () => {
   it("exposes a stable custom api id on every model config", () => {
     const models = processModels(FALLBACK_MODELS).slice(0, 5);
     expect(models.length).toBeGreaterThan(0);

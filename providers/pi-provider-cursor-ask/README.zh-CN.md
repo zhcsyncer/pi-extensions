@@ -12,7 +12,7 @@
 
 本 fork 的用户可见差异如下：
 
-- 使用与上游相同的 `cursor` provider/登录身份直接替换旧扩展，同时保留隔离的 `cursor-ask-native` stream API。
+- 使用与上游相同的 `cursor` provider/登录身份和 `cursor-native` stream API 直接替换旧扩展。
 - 不展示完整 Cursor 目录，只提供 4 行始终开启 thinking 的 1M Claude 模型，以及 Composer 2.5 / Composer 2.5 Fast；过滤其他所有模型系列。
 - Picker 不再拆默认上下文行：Cursor 对这些 Claude 模型按同一费率计到 1M。
 - 只映射明确提供的 Pi thinking 档位。Claude 映射 Cursor `effort`。Composer 2.5 没有 effort 参数，因此只用 `off`/`max` 显式开关 Max Mode，其余档位保持不可用。

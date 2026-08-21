@@ -124,7 +124,7 @@ describe("durable run journal", () => {
 
   afterEach(() => {
     resetCacheDirForTests();
-    delete process.env.PI_CURSOR_ASK_CACHE_DIR;
+    delete process.env.PI_CURSOR_CACHE_DIR;
     if (dir) {
       try {
         rmSync(dir, { recursive: true, force: true });
@@ -169,7 +169,7 @@ describe("durable run journal", () => {
 
   it("persists and reloads from disk", () => {
     dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
-    process.env.PI_CURSOR_ASK_CACHE_DIR = dir;
+    process.env.PI_CURSOR_CACHE_DIR = dir;
     resetCacheDirForTests();
 
     const ok = writeConversationJournal("ck-disk-1", stored());
@@ -186,7 +186,7 @@ describe("durable run journal", () => {
 
   it("rejects oversized journal files before reading them", () => {
     dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
-    process.env.PI_CURSOR_ASK_CACHE_DIR = dir;
+    process.env.PI_CURSOR_CACHE_DIR = dir;
     resetCacheDirForTests();
     const journalDir = join(dir, "run-journal");
     mkdirSync(journalDir, { mode: 0o700 });
@@ -199,7 +199,7 @@ describe("durable run journal", () => {
 
   it("keeps the journal when a session is switched away", () => {
     dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
-    process.env.PI_CURSOR_ASK_CACHE_DIR = dir;
+    process.env.PI_CURSOR_CACHE_DIR = dir;
     resetCacheDirForTests();
 
     const sessionId = "session-keep-journal";

@@ -6,20 +6,16 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join as pathJoin } from "node:path";
-import { CURSOR_ASK_IDENTITY } from "../identity.js";
 
 let cachedDir: string | undefined;
 
 /** Resolve (and create) the cache directory. Returns undefined if unusable. */
 export function getCacheDir(): string | undefined {
   if (cachedDir !== undefined) return cachedDir || undefined;
-  const configured = process.env[CURSOR_ASK_IDENTITY.cacheEnvironmentVariable]?.trim();
+  const configured = process.env.PI_CURSOR_CACHE_DIR?.trim();
   const base =
     configured ||
-    pathJoin(
-      process.env.XDG_CACHE_HOME?.trim() || pathJoin(homedir(), ".cache"),
-      CURSOR_ASK_IDENTITY.cacheDirectoryName,
-    );
+    pathJoin(process.env.XDG_CACHE_HOME?.trim() || pathJoin(homedir(), ".cache"), "pi-cursor");
   try {
     mkdirSync(base, { recursive: true, mode: 0o700 });
     cachedDir = base;

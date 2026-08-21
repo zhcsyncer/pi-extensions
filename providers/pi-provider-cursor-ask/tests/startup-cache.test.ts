@@ -27,7 +27,7 @@ let cacheDir: string;
 
 beforeEach(() => {
   cacheDir = mkdtempSync(join(tmpdir(), "pi-cursor-cache-test-"));
-  process.env.PI_CURSOR_ASK_CACHE_DIR = cacheDir;
+  process.env.PI_CURSOR_CACHE_DIR = cacheDir;
   resetCacheDirForTests();
   resetRefreshGuardForTests();
   resetCatalogCacheForTests();
@@ -35,7 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   unregisterApiProviders("pi-provider-cursor-ask");
-  delete process.env.PI_CURSOR_ASK_CACHE_DIR;
+  delete process.env.PI_CURSOR_CACHE_DIR;
   resetCacheDirForTests();
   resetRefreshGuardForTests();
   resetCatalogCacheForTests();

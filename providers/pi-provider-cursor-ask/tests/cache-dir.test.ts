@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getCacheDir, resetCacheDirForTests } from "../src/utils/cache-dir.js";
 
 const originalEnvironment = {
-  PI_CURSOR_ASK_CACHE_DIR: process.env.PI_CURSOR_ASK_CACHE_DIR,
   PI_CURSOR_CACHE_DIR: process.env.PI_CURSOR_CACHE_DIR,
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
 };
@@ -23,28 +22,25 @@ afterEach(() => {
   }
 });
 
-describe("Cursor Ask cache identity", () => {
-  it("uses only PI_CURSOR_ASK_CACHE_DIR as its explicit override", () => {
-    const root = mkdtempSync(join(tmpdir(), "pi-cursor-ask-cache-contract-"));
+describe("Cursor cache directory", () => {
+  it("uses PI_CURSOR_CACHE_DIR as its explicit override", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-cursor-cache-contract-"));
     temporaryDirectories.push(root);
-    const officialCache = join(root, "official");
-    const askCache = join(root, "ask");
-    process.env.PI_CURSOR_CACHE_DIR = officialCache;
-    process.env.PI_CURSOR_ASK_CACHE_DIR = askCache;
+    const override = join(root, "override");
+    process.env.PI_CURSOR_CACHE_DIR = override;
+    process.env.XDG_CACHE_HOME = join(root, "xdg");
     resetCacheDirForTests();
 
-    expect(getCacheDir()).toBe(askCache);
-    expect(getCacheDir()).not.toBe(officialCache);
+    expect(getCacheDir()).toBe(override);
   });
 
-  it("defaults to an isolated pi-cursor-ask directory", () => {
-    const root = mkdtempSync(join(tmpdir(), "pi-cursor-ask-xdg-"));
+  it("defaults to ~/.cache/pi-cursor via XDG_CACHE_HOME", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-cursor-xdg-"));
     temporaryDirectories.push(root);
-    delete process.env.PI_CURSOR_ASK_CACHE_DIR;
-    process.env.PI_CURSOR_CACHE_DIR = join(root, "official");
+    delete process.env.PI_CURSOR_CACHE_DIR;
     process.env.XDG_CACHE_HOME = root;
     resetCacheDirForTests();
 
-    expect(getCacheDir()).toBe(join(root, "pi-cursor-ask"));
+    expect(getCacheDir()).toBe(join(root, "pi-cursor"));
   });
 });
