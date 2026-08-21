@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
-import { diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
+import { collapseDuplicateRecords, diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
 import { parseMeterConfig } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
@@ -28,6 +29,7 @@ describe("usage capture", () => {
 			role: "assistant",
 			provider: "xai",
 			model: "grok-4",
+			timestamp: 1000,
 			usage: {
 				input: 12,
 				output: 3,
@@ -36,7 +38,7 @@ describe("usage capture", () => {
 				totalTokens: 99,
 				cost: { total: 0.02 },
 			},
-		}, { ts: 1000, sid: "ephemeral", cwd: "/work" });
+		}, { sid: "ephemeral", cwd: "/work" });
 		expect(record).toEqual({
 			ts: 1000,
 			sid: "ephemeral",
@@ -50,6 +52,15 @@ describe("usage capture", () => {
 			cost: 0.02,
 			costKnown: true,
 		});
+	});
+
+	it("skips assistant usage without message.timestamp instead of inventing a clock", () => {
+		expect(usageFromAssistantMessage({
+			role: "assistant",
+			provider: "xai",
+			model: "grok-4",
+			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+		}, { sid: "sess", cwd: "/work" })).toBeUndefined();
 	});
 
 	it("treats missing session files as ephemeral so --no-session still records", () => {
@@ -112,6 +123,33 @@ describe("dashboard", () => {
 		expect(text).toMatch(/Total/);
 	});
 
+	it("keeps cache write visible at typical TUI widths", async () => {
+		const { Dashboard } = await import("../src/ledger/dashboard.ts");
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+		const view = new Dashboard({
+			records: [rec({
+				model: "anthropic/claude-sonnet-4-5-very-long-id",
+				tot: 4_300_000,
+				in: 34_000,
+				out: 210,
+				cR: 5_350_000_000,
+				cW: 777_000,
+			})],
+			budgets: [],
+		}, theme, "all");
+		for (const width of [80, 100, 160]) {
+			const lines = view.render(width);
+			const text = lines.join("\n");
+			expect(text).toContain("cache w");
+			expect(text).toContain("777k");
+			for (const line of lines) {
+				if (line.includes("cache w") || line.includes("777k")) {
+					expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				}
+			}
+		}
+	});
+
 	it("labels rolling windows as last-N, calendar windows as calendar days", async () => {
 		const { Dashboard } = await import("../src/ledger/dashboard.ts");
 		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
@@ -122,23 +160,33 @@ describe("dashboard", () => {
 });
 
 describe("session import", () => {
-	it("parses assistant usage from session JSONL and dedupes by turn", () => {
-		const content = [
+	const messageTs = Date.parse("2026-08-15T12:00:00.000Z");
+	const entryIso = "2026-08-15T12:00:30.000Z";
+
+	function jsonl(over: { messageTs?: number | null; entry?: string } = {}): string {
+		const message: Record<string, unknown> = {
+			role: "assistant",
+			provider: "anthropic",
+			model: "claude",
+			usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10, cost: { total: 0.1 } },
+		};
+		if (over.messageTs !== null) message.timestamp = over.messageTs ?? messageTs;
+		return [
 			JSON.stringify({ type: "session", cwd: "/repo" }),
 			JSON.stringify({
 				type: "message",
-				timestamp: "2026-08-15T12:00:00.000Z",
-				message: {
-					role: "assistant",
-					provider: "anthropic",
-					model: "claude",
-					usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10, cost: { total: 0.1 } },
-				},
+				timestamp: over.entry ?? entryIso,
+				message,
 			}),
 		].join("\n");
-		const parsed = parseSession(content, "hist");
+	}
+
+	it("parses assistant usage from session JSONL and dedupes by turn", () => {
+		const parsed = parseSession(jsonl(), "hist");
 		expect(parsed.cwd).toBe("/repo");
+		expect(parsed.skipped).toBe(0);
 		expect(parsed.records[0]).toMatchObject({
+			ts: messageTs,
 			sid: "hist",
 			cwd: "/repo",
 			model: "anthropic/claude",
@@ -148,6 +196,61 @@ describe("session import", () => {
 			cW: 4,
 		});
 		expect(diffRecords(parsed.records, parsed.records)).toEqual([]);
+	});
+
+	it("skips JSONL assistant usage that has no message.timestamp", () => {
+		const parsed = parseSession(jsonl({ messageTs: null }), "hist");
+		expect(parsed.cwd).toBe("/repo");
+		expect(parsed.records).toEqual([]);
+		expect(parsed.skipped).toBe(1);
+	});
+
+	it("uses message.timestamp rather than the later JSONL entry timestamp", () => {
+		const parsed = parseSession(jsonl(), "hist");
+		expect(parsed.records[0]?.ts).toBe(messageTs);
+		expect(parsed.records[0]?.ts).not.toBe(Date.parse(entryIso));
+	});
+
+	it("does not import a live-captured turn when the JSONL entry timestamp is later", () => {
+		const live = rec({
+			ts: messageTs,
+			sid: "hist",
+			cwd: "/repo",
+			model: "anthropic/claude",
+			in: 1,
+			out: 2,
+			cR: 3,
+			cW: 4,
+			tot: 10,
+			cost: 0.1,
+		});
+		const parsed = parseSession(jsonl(), "hist");
+		expect(parsed.records).toHaveLength(1);
+		expect(diffRecords([live], parsed.records)).toEqual([]);
+	});
+
+	it("treats an old entry-timestamp import as the same turn as a message.timestamp import", () => {
+		const oldImport = rec({
+			ts: Date.parse(entryIso),
+			sid: "hist",
+			cwd: "/repo",
+			model: "anthropic/claude",
+			in: 1,
+			out: 2,
+			cR: 3,
+			cW: 4,
+			tot: 10,
+			cost: 0.1,
+		});
+		expect(diffRecords([oldImport], parseSession(jsonl(), "hist").records)).toEqual([]);
+	});
+
+	it("collapses already-written duplicates that share sid/model/tokens and keeps the earlier row", () => {
+		const live = rec({ ts: messageTs, sid: "hist", model: "anthropic/claude", in: 1, out: 2, cR: 3, cW: 4, tot: 10 });
+		const imported = rec({ ts: Date.parse(entryIso), sid: "hist", model: "anthropic/claude", in: 1, out: 2, cR: 3, cW: 4, tot: 10, cwd: "/other" });
+		const other = rec({ ts: messageTs + 5_000, sid: "hist", model: "anthropic/claude", in: 9, out: 2, cR: 3, cW: 4, tot: 18 });
+		expect(collapseDuplicateRecords([live, imported, other])).toEqual([live, other]);
+		expect(collapseDuplicateRecords([imported, live, other])).toEqual([live, other]);
 	});
 });
 

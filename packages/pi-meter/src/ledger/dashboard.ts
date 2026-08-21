@@ -22,6 +22,46 @@ interface DrillFilter {
 }
 
 const PAGE = 16;
+const MARKER = 2;
+const MIN_NAME = 12;
+const METRIC_HEADERS = ["tokens", "in", "out", "cache r", "cache w", "cost"] as const;
+
+interface DashLayout {
+	nameW: number;
+	barW: number;
+	numW: number;
+	gap: number;
+	showBar: boolean;
+}
+
+function metricBlockWidth(numW: number, gap: number): number {
+	return METRIC_HEADERS.length * numW + gap * METRIC_HEADERS.length;
+}
+
+function barBlockWidth(barW: number, gap: number, showBar: boolean): number {
+	return showBar ? barW + gap : 0;
+}
+
+function fixedWidth(layout: Pick<DashLayout, "barW" | "numW" | "gap" | "showBar">): number {
+	return MARKER + barBlockWidth(layout.barW, layout.gap, layout.showBar) + metricBlockWidth(layout.numW, layout.gap);
+}
+
+/** Fit name + optional bar + tokens/in/out/cache r/cache w/cost into `width` without clipping metrics. */
+function dashLayout(width: number, maxLabel: number): DashLayout {
+	const wantedName = Math.max(MIN_NAME, maxLabel + 2);
+	const candidates: Array<Pick<DashLayout, "barW" | "numW" | "gap" | "showBar">> = [
+		{ barW: 10, numW: 10, gap: 2, showBar: true },
+		{ barW: 8, numW: 8, gap: 1, showBar: true },
+		{ barW: 0, numW: 7, gap: 1, showBar: false },
+	];
+	for (const candidate of candidates) {
+		const room = width - fixedWidth(candidate);
+		if (room < MIN_NAME) continue;
+		return { ...candidate, nameW: Math.min(wantedName, room) };
+	}
+	const fallback = { barW: 0, numW: 7, gap: 1, showBar: false as const };
+	return { ...fallback, nameW: Math.max(8, width - fixedWidth(fallback)) };
+}
 
 export class Dashboard {
 	private windowIdx = 0;
@@ -144,79 +184,64 @@ export class Dashboard {
 		}
 
 		const costCell = (row: AggRow): string => (row.costKnown ? fmtCost(row.cost) : "n/a");
-		const barW = 10;
-		const numW = 10;
-		const gap = 2;
-		const marker = 2;
-		const numCols = 6;
-		const fixed = marker + barW + numW * numCols + gap * (numCols + 1);
 		const maxLabel = Math.max(visibleWidth(dim.label), ...rows.map((row) => visibleWidth(row.label)));
-		const nameW = Math.min(Math.max(14, maxLabel + 2), Math.max(14, width - fixed));
-		const ruleW = Math.min(width, marker + nameW + barW + numW * numCols + gap * (numCols + 1));
+		const layout = dashLayout(width, maxLabel);
+		const { nameW, barW, numW, gap, showBar } = layout;
+		const gapStr = " ".repeat(gap);
+		const ruleW = Math.min(width, MARKER + nameW + barBlockWidth(barW, gap, showBar) + metricBlockWidth(numW, gap));
+		const joinRow = (name: string, bar: string | undefined, metrics: string[]): string => {
+			const parts = [name];
+			if (showBar && bar !== undefined) parts.push(bar);
+			parts.push(...metrics);
+			return parts.join(gapStr);
+		};
+		const metricTexts = (values: readonly string[], paint: (text: string, index: number) => string): string[] =>
+			values.map((value, index) => padRight(paint(value, index), numW));
 		const header =
-			padRight(`  ${t.fg("dim", dim.label)}`, marker + nameW) +
-			"  " +
-			padRight(t.fg("dim", "usage"), barW) +
-			"  " +
-			padRight(t.fg("dim", "tokens"), numW) +
-			"  " +
-			padRight(t.fg("dim", "in"), numW) +
-			"  " +
-			padRight(t.fg("dim", "out"), numW) +
-			"  " +
-			padRight(t.fg("dim", "cache r"), numW) +
-			"  " +
-			padRight(t.fg("dim", "cache w"), numW) +
-			"  " +
-			padRight(t.fg("dim", "cost"), numW);
+			joinRow(
+				padRight(`  ${t.fg("dim", dim.label)}`, MARKER + nameW),
+				showBar ? padRight(t.fg("dim", "usage"), barW) : undefined,
+				metricTexts(METRIC_HEADERS, (text) => t.fg("dim", text)),
+			);
 		lines.push(truncateToWidth(header, width));
 		lines.push(t.fg("border", "─".repeat(ruleW)));
 
 		const maxTokens = rows[0]?.tokens ?? 1;
 		const pageStart = this.scroll;
 		const pageEnd = Math.min(rows.length, pageStart + PAGE);
+		const rowMetrics = (row: AggRow): string[] => [
+			fmtCompactTokens(row.tokens),
+			fmtCompactTokens(row.input),
+			fmtCompactTokens(row.output),
+			fmtCompactTokens(row.cacheRead),
+			fmtCompactTokens(row.cacheWrite),
+			costCell(row),
+		];
 		for (let i = pageStart; i < pageEnd; i++) {
 			const row = rows[i];
+			if (!row) continue;
 			const isCursor = i === this.cursor;
 			const ratio = maxTokens > 0 ? row.tokens / maxTokens : 0;
 			const nameRaw = truncateToWidth(row.label, nameW, "");
-			const name = padRight((isCursor ? "▶ " : "  ") + (isCursor ? t.fg("accent", t.bold(nameRaw)) : nameRaw), marker + nameW);
-			const line =
-				name +
-				"  " +
-				t.fg("accent", padRight(fmtBar(ratio, barW), barW)) +
-				"  " +
-				padRight(t.fg("text", fmtCompactTokens(row.tokens)), numW) +
-				"  " +
-				padRight(t.fg("text", fmtCompactTokens(row.input)), numW) +
-				"  " +
-				padRight(t.fg("text", fmtCompactTokens(row.output)), numW) +
-				"  " +
-				padRight(t.fg("muted", fmtCompactTokens(row.cacheRead)), numW) +
-				"  " +
-				padRight(t.fg("muted", fmtCompactTokens(row.cacheWrite)), numW) +
-				"  " +
-				padRight(t.fg(row.costKnown ? "success" : "dim", costCell(row)), numW);
+			const name = padRight((isCursor ? "▶ " : "  ") + (isCursor ? t.fg("accent", t.bold(nameRaw)) : nameRaw), MARKER + nameW);
+			const line = joinRow(
+				name,
+				showBar ? t.fg("accent", padRight(fmtBar(ratio, barW), barW)) : undefined,
+				metricTexts(rowMetrics(row), (text, index) => {
+					if (index < 3) return t.fg("text", text);
+					if (index < 5) return t.fg("muted", text);
+					return t.fg(row.costKnown ? "success" : "dim", text);
+				}),
+			);
 			lines.push(truncateToWidth(line, width));
 		}
 
 		lines.push(t.fg("border", "─".repeat(ruleW)));
-		const totalLine =
-			padRight("  " + t.fg("accent", t.bold("Total")), marker + nameW) +
-			"  " +
-			" ".repeat(barW) +
-			"  " +
-			padRight(t.fg("accent", fmtCompactTokens(total.tokens)), numW) +
-			"  " +
-			padRight(t.fg("accent", fmtCompactTokens(total.input)), numW) +
-			"  " +
-			padRight(t.fg("accent", fmtCompactTokens(total.output)), numW) +
-			"  " +
-			padRight(t.fg("accent", fmtCompactTokens(total.cacheRead)), numW) +
-			"  " +
-			padRight(t.fg("accent", fmtCompactTokens(total.cacheWrite)), numW) +
-			"  " +
-			padRight(t.fg("accent", costCell(total)), numW);
+		const totalLine = joinRow(
+			padRight("  " + t.fg("accent", t.bold("Total")), MARKER + nameW),
+			showBar ? " ".repeat(barW) : undefined,
+			metricTexts(rowMetrics(total), (text) => t.fg("accent", text)),
+		);
 		lines.push(truncateToWidth(totalLine, width));
 		if (rows.length > PAGE) lines.push(t.fg("dim", `   showing ${pageStart + 1}-${pageEnd} of ${rows.length}`));
 

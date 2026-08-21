@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
-import { createLedgerStore } from "../src/ledger/store.ts";
+import { createLedgerStore, parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
 import { getMeterPaths } from "../src/paths.ts";
+import type { UsageRecord } from "../src/ledger/types.ts";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 let agentDir: string;
@@ -173,6 +174,76 @@ describe("extension runtime", () => {
 		expect(raw).toContain("ephemeral");
 		expect(raw).toContain("11");
 		expect(raw).not.toContain("creditUsagePercent");
+	});
+
+	it("does not import a live-captured turn when the session entry timestamp is later", async () => {
+		const messageTs = 1_700_000_000_000;
+		const sid = "hist-sess";
+		const sessionFile = join(agentDir, "sessions", `${sid}.jsonl`);
+		mkdirSync(join(agentDir, "sessions"), { recursive: true });
+		writeFileSync(sessionFile, `${JSON.stringify({
+			type: "message",
+			timestamp: new Date(messageTs + 30_000).toISOString(),
+			message: {
+				role: "assistant",
+				provider: "xai",
+				model: "grok-4",
+				timestamp: messageTs,
+				usage: { input: 11, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 20, cost: { total: 0.01 } },
+			},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({
+			hasUI: true,
+			mode: "print",
+			sessionFile,
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("message_end")?.[0]?.({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				provider: "xai",
+				model: "grok-4",
+				timestamp: messageTs,
+				usage: { input: 11, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 20, cost: { total: 0.01 } },
+			},
+		}, ctx);
+		await commands.get("usage").handler("import", ctx);
+		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.ts).toBe(messageTs);
+		expect(notifications.some((item) => item.message.includes("Nothing new to import"))).toBe(true);
+	});
+
+	it("collapses already-written live/import duplicates when the ledger opens", async () => {
+		const messageTs = 1_700_000_000_000;
+		const live: UsageRecord = {
+			ts: messageTs,
+			sid: "hist-sess",
+			cwd: "/work",
+			model: "xai/grok-4",
+			in: 11,
+			out: 2,
+			cR: 3,
+			cW: 4,
+			tot: 20,
+			cost: 0.01,
+			costKnown: true,
+		};
+		const duplicate = { ...live, ts: messageTs + 30_000 };
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		writeFileSync(paths.usageFile, `${JSON.stringify(serializeUsageRecord(live))}\n${JSON.stringify(serializeUsageRecord(duplicate))}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, notifications } = harness({ hasUI: true, mode: "print" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		const rows = readFileSync(paths.usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.ts).toBe(messageTs);
+		expect(notifications.some((item) => item.message.includes("duplicate usage records"))).toBe(true);
 	});
 
 	it("publishes one footer status instead of a widget row", async () => {

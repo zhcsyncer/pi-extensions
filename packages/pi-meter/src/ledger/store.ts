@@ -2,6 +2,7 @@ import { appendFile, copyFile, unlink } from "node:fs/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ensurePrivateDir, isRecord, pathExists, readTextFile, withDirectoryLock, writeFileAtomically } from "../fs.ts";
 import { getMeterPaths, type MeterPaths } from "../paths.ts";
+import { collapseDuplicateRecords } from "./session-parser.ts";
 import type { BudgetLimit, BudgetsConfig, UsageRecord } from "./types.ts";
 
 export interface LedgerStore {
@@ -163,6 +164,22 @@ export class FileLedgerStore implements LedgerStore {
 		}
 	}
 
+	async replaceAll(records: readonly UsageRecord[]): Promise<void> {
+		await withDirectoryLock(this.paths.dataDir, ".usage.lock", async () => {
+			const body = records.map((record) => `${JSON.stringify(serializeUsageRecord(record))}\n`).join("");
+			await writeFileAtomically(this.paths.usageFile, body);
+		});
+	}
+
+	async compactDuplicates(): Promise<number> {
+		const records = await this.readAll();
+		const collapsed = collapseDuplicateRecords(records);
+		const removed = records.length - collapsed.length;
+		if (removed === 0) return 0;
+		await this.replaceAll(collapsed);
+		return removed;
+	}
+
 	async readAll(): Promise<UsageRecord[]> {
 		const raw = await readTextFile(this.paths.usageFile);
 		if (!raw) return [];
@@ -200,5 +217,11 @@ export class FileLedgerStore implements LedgerStore {
 export async function createLedgerStore(agentDir = getAgentDir()): Promise<{ store: FileLedgerStore; migration?: string }> {
 	const paths = getMeterPaths(agentDir);
 	const migration = await migrateLegacyLedger(paths);
-	return { store: new FileLedgerStore(paths), ...(migration ? { migration } : {}) };
+	const store = new FileLedgerStore(paths);
+	const removed = await store.compactDuplicates();
+	const notes = [
+		migration,
+		removed > 0 ? `Removed ${removed} duplicate usage records from the local ledger.` : undefined,
+	].filter((note): note is string => Boolean(note));
+	return { store, ...(notes.length > 0 ? { migration: notes.join(" ") } : {}) };
 }
