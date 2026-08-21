@@ -77,6 +77,27 @@ export type ReviewerRouteStatus =
   | "cancelled"
   | "invalid-output";
 
+export interface ReviewerAttemptAudit {
+  status: ReviewerRouteStatus;
+  agentId?: string;
+  rawOutput?: string;
+  error?: string;
+  turnLimited?: boolean;
+  durationMs?: number;
+  usage?: { input?: number; output?: number; total?: number };
+}
+
+export type ReviewerFormatRepair =
+  | {
+      attempted: false;
+      reason: "missing-output" | "truncated-output" | "cancelled" | "overall-timeout";
+    }
+  | {
+      attempted: true;
+      original: ReviewerAttemptAudit;
+      retry: ReviewerAttemptAudit;
+    };
+
 export interface ReviewerRouteResult {
   route: ReviewerRoute;
   status: ReviewerRouteStatus;
@@ -87,6 +108,8 @@ export interface ReviewerRouteResult {
   turnLimited?: boolean;
   durationMs?: number;
   usage?: { input?: number; output?: number; total?: number };
+  /** Exactly one format-only retry for an initial invalid-output result. */
+  formatRepair?: ReviewerFormatRepair;
 }
 
 export interface VerifyReport {
@@ -203,6 +226,7 @@ export interface MergedReviewReport {
     backend: "external-v3" | "embedded";
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
+    formatRepairAttempts?: number;
     maxTurns: number;
     routeTimeoutMs: number;
     overallTimeoutMs: number;

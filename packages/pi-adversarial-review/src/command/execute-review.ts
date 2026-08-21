@@ -50,6 +50,7 @@ import {
 } from "../runtime/refute-orchestrator.ts";
 import {
   loadRefuterSystemPrompt,
+  loadReviewFormatRepairSystemPrompt,
   loadReviewerSystemPrompt,
 } from "../runtime/reviewer-assets.ts";
 import type { ResolvedReviewRuntime } from "../runtime/resolve-runtime.ts";
@@ -129,6 +130,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
 
   let runtime: ResolvedReviewRuntime["runtime"];
   let reviewerSystemPrompt: string;
+  let formatRepairSystemPrompt: string;
   let capabilities: ResolvedReviewRuntime["capabilities"];
   try {
     // Resolve backend/assets before the final guard so its comparison remains
@@ -137,7 +139,10 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     runtime = selectedRuntime.runtime;
     capabilities = selectedRuntime.capabilities;
     options.runStatus?.runtime(capabilities.backend);
-    reviewerSystemPrompt = await loadReviewerSystemPrompt();
+    [reviewerSystemPrompt, formatRepairSystemPrompt] = await Promise.all([
+      loadReviewerSystemPrompt(),
+      loadReviewFormatRepairSystemPrompt(),
+    ]);
     let stable = true;
     if (!controller.signal.aborted) {
       try {
@@ -206,6 +211,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     routes,
     frozenInput,
     reviewerSystemPrompt,
+    formatRepairSystemPrompt,
     signal: controller.signal,
     capabilities,
     maxTurns: reviewerMaxTurns,
@@ -225,6 +231,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     requestedRoutes: routes,
     routeResults: fleet.routeResults,
     runtimeCapabilities: fleet.capabilities,
+    formatRepairAttempts: fleet.formatRepairAttempts,
     maxTurns: reviewerMaxTurns,
     routeTimeoutMs: reviewerRouteTimeoutMs,
     overallTimeoutMs: reviewerOverallTimeoutMs,

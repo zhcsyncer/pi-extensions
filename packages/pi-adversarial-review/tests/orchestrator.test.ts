@@ -24,7 +24,8 @@ class FakeRuntime implements ReviewSubagentRuntime {
 
   async spawn(input: SpawnReviewAgentInput): Promise<{ agentId: string }> {
     this.spawnInputs.push(input);
-    const agentId = `agent-${input.correlationId.split(":").at(-1)}`;
+    const prefix = input.role === "format-repair" ? "repair-agent" : "agent";
+    const agentId = `${prefix}-${input.correlationId.split(":").at(-1)}`;
     return this.spawnImpl ? this.spawnImpl(input, agentId) : { agentId };
   }
 
@@ -344,6 +345,11 @@ describe("runReviewerFleet", () => {
       .toBeLessThanOrEqual(MAX_RAW_OUTPUT_BYTES);
     expect(result.routeResults[0].rawOutput).toMatch(/\.\.\.\[truncated\]$/u);
     expect(result.routeResults[0].rawOutput).not.toContain("�");
+    expect(result.routeResults[0].formatRepair).toEqual({
+      attempted: false,
+      reason: "truncated-output",
+    });
+    expect(runtime.spawnInputs).toHaveLength(1);
   });
 
   it("times out a running route, stops it, and ignores late terminal success", async () => {
@@ -418,5 +424,98 @@ describe("runReviewerFleet", () => {
     });
     expect(result.routeResults[1].status).toBe("completed");
     expect(runtime.stops).toEqual(["agent-0"]);
+  });
+
+  it("repairs one framing-only invalid output on the same route exactly once", async () => {
+    const runtime = new FakeRuntime();
+    const selectedRoutes = routes(1);
+    const repaired = validOutput("Same report content");
+    const malformed = `Analysis before output.\n\`\`\`json\n\`\`\`\n${repaired}`;
+    const progress: ReviewerFleetProgress[] = [];
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitStarted({ agentId, correlationId: input.correlationId });
+      runtime.emitTerminal(terminalFor(input, agentId, {
+        result: input.role === "format-repair" ? repaired : malformed,
+        durationMs: input.role === "format-repair" ? 20 : 100,
+        usage: input.role === "format-repair"
+          ? { input: 2, output: 3, total: 5 }
+          : { input: 10, output: 20, total: 30 },
+      }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: selectedRoutes,
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+      formatRepairSystemPrompt: "format only",
+      onProgress: (snapshot) => progress.push(snapshot),
+    });
+
+    expect(runtime.spawnInputs).toHaveLength(2);
+    const retry = runtime.spawnInputs[1];
+    expect(retry).toMatchObject({
+      role: "format-repair",
+      systemPrompt: "format only",
+      thinking: "high",
+      maxTurns: 3,
+      graceTurns: 2,
+      correlationId: "run-1:format-repair:0",
+    });
+    expect(retry.model).toBe(selectedRoutes[0].model);
+    expect(retry.prompt).toContain(JSON.stringify(malformed));
+    expect(retry.prompt).not.toContain("/tmp/input.md");
+
+    expect(result.formatRepairAttempts).toBe(1);
+    expect(result.routeResults[0]).toMatchObject({
+      status: "completed",
+      report: { verdict: "approve", summary: "Same report content", findings: [] },
+      durationMs: 120,
+      usage: { input: 12, output: 23, total: 35 },
+      formatRepair: {
+        attempted: true,
+        original: { status: "invalid-output", rawOutput: malformed },
+        retry: { status: "completed", rawOutput: repaired },
+      },
+    });
+    expect(progress.some((snapshot) => snapshot.items.some(
+      (item) => item.kind === "reviewer" && item.repairing === true,
+    ))).toBe(true);
+    expect(progress.map(({ finished }) => finished).every(
+      (finished, index, values) => index === 0 || finished >= values[index - 1],
+    )).toBe(true);
+  });
+
+  it("rejects an invented repair and never schedules a third attempt", async () => {
+    const runtime = new FakeRuntime();
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(terminalFor(input, agentId, {
+        result: input.role === "format-repair"
+          ? validOutput("Invented approval")
+          : "The workspace is unavailable; no review was performed.",
+      }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(1),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+      formatRepairSystemPrompt: "format only",
+    });
+
+    expect(runtime.spawnInputs.map(({ role }) => role)).toEqual(["reviewer", "format-repair"]);
+    expect(result.formatRepairAttempts).toBe(1);
+    expect(result.routeResults[0]).toMatchObject({
+      status: "invalid-output",
+      error: expect.stringContaining("found 0"),
+      formatRepair: {
+        attempted: true,
+        original: { status: "invalid-output" },
+        retry: { status: "invalid-output" },
+      },
+    });
   });
 });

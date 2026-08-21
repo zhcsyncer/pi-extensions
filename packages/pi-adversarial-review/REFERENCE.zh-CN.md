@@ -12,9 +12,9 @@ Preflight、target freeze 与 route 选择完成后，Review 会通过兼容的 
 
 ```ts
 {
-  role: "reviewer" | "refuter",
-  prompt: "可信编排指令与 frozen-input 路径",
-  systemPrompt: "可信 reviewer 或 refuter charter",
+  role: "reviewer" | "refuter" | "format-repair",
+  prompt: "可信编排指令，或仅格式修复数据",
+  systemPrompt: "可信 reviewer/refuter charter，或仅格式 policy",
   cwd: "仓库根目录或 detached range worktree",
   model: selectedModel,
   thinking: exactThinkingLevel,
@@ -37,7 +37,7 @@ Preflight、target freeze 与 route 选择完成后，Review 会通过兼容的 
 }
 ```
 
-因此 reviewer/refuter agent 不继承主会话，也不能调用 `bash`、`edit`、`write`、Agent 或 extension tool。可信 system prompt 与 frozen patch、仓库文本、需求文档、focus、finding 和仿 marker 文本严格分离；后者始终是不可信数据。
+因此 reviewer/refuter agent 不继承主会话，也不能调用 `bash`、`edit`、`write`、Agent 或 extension tool。可信 system prompt 与 frozen patch、仓库文本、需求文档、focus、finding 和仿 marker 文本严格分离；后者始终是不可信数据。格式修复 agent 更严格：builtin tool 列表为空，extension/skill 关闭，也不会收到 frozen-input 路径或评审任务。
 
 Caller-owned delivery 只改变 terminal result 的接收者。选中 external backend 时，queue、stop、history、FleetView 和 terminal lifecycle 仍由 Subagents 管理。Runtime 只有确认 terminal event 中 requested/effective 的 provider、model、thinking 与所选 route 完全一致后，才接受报告。
 
@@ -88,6 +88,8 @@ TUI setup 要求从 `ctx.scopedModels` 选择 2–8 条精确 reviewer route。�
 - 通用正确性和其他 material regression。
 
 系统不会按 route 分工，也不会暗中分配不同 focus。任何 reviewer 都不能假设其他 route 会覆盖某个方向。所选 route 可以使用不同模型或 thinking level，但评审范围与证据完全相同；只有每路完整评审结束后才进行聚类和计票，因此 agreement 表示独立交叉印证，而不是协作式专门化。
+
+若初次结果为 `invalid-output` 且 raw text 完整、未截断，系统会使用同一 model/thinking route 自动执行恰好一次格式修复。这不是第二轮评审：修复 prompt 只含 parser error 和 JSON 编码的原始输出，使用单独的无工具角色，不包含 frozen target 或 charter。Host 只有在原始文本已经含有恰好一个完整、通过 schema 的 ReviewReport，且 retry 解析后与其 normalized report 完全一致时才接受。源缺失/截断、存在两个候选 report、凭空生成、删 finding 或任何语义值改变都会 fail-closed，且绝不触发第三次尝试。
 
 Requirement 只是产品 contract 证据，`--focus` 会向每个 reviewer 增加同一份共享关注。二者都不能覆盖 charter、压制其他 material finding，也不能把仓库中的指令提升为可信 policy。
 
@@ -173,10 +175,11 @@ Whole-target 建议阈值是 200 KiB 或 5,000 个逻辑行。这是质量和资
 |---|---:|---:|---:|---:|
 | Reviewer / 普通 | 25 | 15 | 10 分钟 | 20 分钟 |
 | Reviewer / 已批准大目标 | 40 | 20 | 20 分钟 | 30 分钟 |
+| 格式修复 | 3 | 2 | 最多 2 分钟 | reviewer 剩余 deadline |
 | Refuter / 普通 | 12 | 10 | 5 分钟 | 15 分钟 |
 | Refuter / 已批准大目标 | 20 | 15 | 10 分钟 | 30 分钟 |
 
-Review 通过现有 Subagents spawn 路径传这些 per-spawn grace turns。普通 Agent 工具省略该字段时仍使用全局默认 5 轮。到达 `maxTurns` 仍会催该路立即收尾；硬停只发生在 `maxTurns + graceTurns` 之后。wall-clock deadline 仍会约束收尾。只有通过相同 identity 与输出校验后，`steered` terminal event 才会被接受，并记录为 `turnLimited`。
+Review 通过现有 Subagents spawn 路径传这些 per-spawn grace turns。普通 Agent 工具省略该字段时仍使用全局默认 5 轮。到达 `maxTurns` 仍会催该路立即收尾；硬停只发生在 `maxTurns + graceTurns` 之后。wall-clock deadline 仍会约束收尾。只有通过相同 identity 与输出校验后，`steered` terminal event 才会被接受，并记录为 `turnLimited`。格式修复不会延长 reviewer 整轮 deadline；其 wave 只能使用剩余 wall-clock budget。
 
 用户请求 commit plan 或触及硬上限时，诊断只显示实际超过相关阈值的维度。SHA-bound、非空的普通替换段会按完整 frozen bundle 对 200 KiB / 5,000 行建议阈值重新测量；大 single commit 还会按绝对上限再次测量。TUI 选中后自动保留所有非 target 参数；复制 headless 命令时也必须保留。Base plan 只覆盖 committed changes，并明确提示未提交内容仍需 `--local`。若单个 commit 超过硬上限，应缩减附加 context 或拆分该 commit。
 
@@ -197,9 +200,9 @@ External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 termin
 
 ## 报告与 parser contract
 
-每次 reviewer/refuter 尝试都会保留，包括 provider error、timeout、cancel 与 invalid output。Reviewer 通常必须返回一个裸 JSON object，首尾非空白字符分别为 `{` 与 `}`。
+每次 reviewer/refuter 尝试都会保留，包括 provider error、timeout、cancel 与 invalid output。Reviewer 通常必须返回一个裸 JSON object，首尾非空白字符分别为 `{` 与 `}`。执行格式修复时，该 route 会同时保留原始 invalid attempt 与 retry terminal record；顶层 route duration/usage 为两次尝试之和。
 
-作为最窄的 provider robustness fallback，reviewer parser 也接受“前置说明 + 恰好一个 `json` fence，且 closing fence 位于输出末尾”。提取出的唯一 balanced object 仍走原有 schema 与语义校验。额外 object、非 JSON fence、截断输出和 closing fence 后文本仍然无效。
+作为最窄的 provider robustness fallback，reviewer parser 也接受“前置说明 + 恰好一个 `json` fence，且 closing fence 位于输出末尾”。提取出的唯一 balanced object 仍走原有 schema 与语义校验。额外 object、非 JSON fence、截断输出和 closing fence 后文本在初次尝试中仍然无效。独立的自动格式修复路径只能移除这些 framing：host 会从原始文本独立提取完整 balanced object，要求其中恰好一个已经通过完整 ReviewReport contract，并把 normalized retry 与它做精确相等比较。
 
 保存的 raw output 保持有效 UTF-8，且包含 truncation marker 在内最多 64 KiB。Raw output 与 error 会进入 audit，但不会进入 live progress snapshot。
 
@@ -208,8 +211,9 @@ Merged report 会记录：
 - preflight 是 explicit、inferred 还是 interactive；
 - branch、remote、尝试/成功 fetch、fetch state、ahead/behind 与 input size；
 - target/frozen-input fingerprint 与 limited-context marker；
-- requested independent routes、backend/fallback reason、concurrency、waves 与实际 limits；
+- requested independent routes、backend/fallback reason、concurrency、waves、格式修复次数与实际 limits；
 - 每次 reviewer/refuter 的 terminal status、usage、duration、`turnLimited`、parsed result、raw output 或 error；
+- 每次格式修复的 original/retry terminal audit 数据，包括失败修复；
 - blocking、advisory 与 contested 证据；
 - `candidate-approve`、`needs-adjudication`、`inconclusive`、`stale`、`cancelled` 或 `failed` overall state。
 
@@ -235,7 +239,7 @@ Print mode 只输出 merged report，不启动 model turn。未取消且成功�
 
 ## 安全 hardening
 
-Reviewer/refuter session 只暴露 `read`、`grep`、`find`、`ls`；工具限制不是 OS sandbox。本包面向可信本地仓库，同时始终把仓库与模型文本视为不可信评审输入。
+Reviewer/refuter session 只暴露 `read`、`grep`、`find`、`ls`；格式修复 session 完全不暴露工具。工具限制不是 OS sandbox。本包面向可信本地仓库，同时始终把仓库与模型文本视为不可信评审输入。
 
 自动 fetch 使用无 shell、有 timeout/cancel、输出上限与 terminal cleanup 的 process group。仓库/环境提供的 SSH command、askpass 与 credential helper、未批准 transport、remote VCS/upload-pack override、hook、clean/process filter、递归 submodule fetch 与 maintenance task 都会被禁用。可能含凭据的 raw fetch stderr 永不回显。
 

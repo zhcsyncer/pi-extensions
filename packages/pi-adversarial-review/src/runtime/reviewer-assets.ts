@@ -10,6 +10,9 @@ const CHARTER_PATH = fileURLToPath(
 const REFUTER_PROMPT_PATH = fileURLToPath(
   new URL("../../assets/adversarial-refuter.md", import.meta.url),
 );
+const FORMAT_REPAIR_PROMPT_PATH = fileURLToPath(
+  new URL("../../assets/review-output-format-repair.md", import.meta.url),
+);
 
 export async function loadReviewerSystemPrompt(): Promise<string> {
   const [rolePrompt, charter] = await Promise.all([
@@ -21,4 +24,8 @@ export async function loadReviewerSystemPrompt(): Promise<string> {
 
 export function loadRefuterSystemPrompt(): Promise<string> {
   return readFile(REFUTER_PROMPT_PATH, "utf8");
+}
+
+export function loadReviewFormatRepairSystemPrompt(): Promise<string> {
+  return readFile(FORMAT_REPAIR_PROMPT_PATH, "utf8");
 }

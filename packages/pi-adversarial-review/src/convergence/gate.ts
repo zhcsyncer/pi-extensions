@@ -79,6 +79,7 @@ export interface BuildMergedReviewReportOptions {
   requestedRoutes: ReviewerRoute[];
   routeResults: ReviewerRouteResult[];
   runtimeCapabilities: ReviewRuntimeCapabilities;
+  formatRepairAttempts?: number;
   maxTurns: number;
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
@@ -158,7 +159,14 @@ export function buildMergedReviewReport(
     routeResults: options.routeResults,
     runtime: {
       ...options.runtimeCapabilities,
-      waves: Math.ceil(options.requestedRoutes.length / options.runtimeCapabilities.maxConcurrent),
+      waves:
+        Math.ceil(options.requestedRoutes.length / options.runtimeCapabilities.maxConcurrent) +
+        (options.formatRepairAttempts
+          ? Math.ceil(options.formatRepairAttempts / options.runtimeCapabilities.maxConcurrent)
+          : 0),
+      ...(options.formatRepairAttempts
+        ? { formatRepairAttempts: options.formatRepairAttempts }
+        : {}),
       maxTurns: options.maxTurns,
       routeTimeoutMs: options.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
       overallTimeoutMs: options.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,

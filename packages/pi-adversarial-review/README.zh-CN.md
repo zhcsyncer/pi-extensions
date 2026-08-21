@@ -75,8 +75,8 @@ Whole-target `--base` 和 `--local` 会自动冻结 staged、unstaged 和 untrac
 
 1. **Preflight**：证明 Git target，并记录 branch/ref/fetch 决策。
 2. **Freeze**：捕获一份确定、有界的输入；所有 route 读取同一证据。
-3. **Review**：运行隔离的只读 agent。每个 reviewer 都收到相同的可信 charter、frozen evidence 和完整任务，并各自独立完成一轮全面对抗式评审。
-4. **Converge**：校验 JSON、保守聚类各路独立产出的 finding，再应用 `weighted` 或 `strict` gate。
+3. **Review**：运行隔离的只读 agent。每个 reviewer 都收到相同的可信 charter、frozen evidence 和完整任务，并各自独立完成一轮全面对抗式评审。若 route 为 `invalid-output` 且保留了完整、未截断的 raw output，会在收敛前自动执行恰好一次同 route、无工具的格式修复。
+4. **Converge**：校验 JSON、保守聚类各路独立产出的 finding，再应用 `weighted` 或 `strict` gate。修复结果只有在 host 侧证明它与原始输出中已经存在的唯一完整 ReviewReport 完全一致时，才计为有效 reviewer。
 5. **Refute**：可选地把每个 blocking cluster 交给一个全新隔离 session。反证可以把 finding 标成 contested，但绝不能删除或降级它。
 6. **Adjudicate**：持久化未取消的报告，并要求当前主模型/用户对照实际代码核验 blocking finding。扩展永远不声称最终通过。
 
@@ -95,7 +95,7 @@ Severity 衡量影响，confidence 衡量证据强度，votes 衡量独立印证
 - reviewer 即将派发前，会用不进入模型上下文的持久 transcript 节点记录精确 frozen target 和请求的 routes；
 - 最终报告是另一条独立的持久 transcript 节点：失败时折叠视图直接显示 route error，展开后包含每路终态以及完整 blocking/advisory finding 详情。
 
-Reviewer/refuter session 不继承主会话。它们的 inline agent config 会关闭 extension 和 skill，只暴露 `read`、`grep`、`find`、`ls`。这些低层调用不会在 Review 状态卡中重复刷屏。
+Reviewer/refuter session 不继承主会话。它们的 inline agent config 会关闭 extension 和 skill，只暴露 `read`、`grep`、`find`、`ls`。格式修复 session 只接收原始 raw output 与 parser error，没有 tool、extension、skill、frozen-input 路径或评审任务，并限制为 3 turns + 2 个收尾 turns。它只能移除 framing；若源文本不含恰好一个完整有效 ReviewReport，或任何语义值发生变化，该 route 仍保持无效。这些低层调用与修复细节不会在 Review 状态卡中重复刷屏。
 
 Freeze/review/refute 期间按 Esc 只会打开确认界面，后台工作继续。默认选中 **Continue review**；只有选择 **Confirm cancellation** 才会 abort。输入区状态卡会一直保留到 runtime 真正终止、frozen workspace 真正清理完成，随后恢复正常编辑器。Preflight 与 picker 的 Esc 仍然立即取消。
 
@@ -110,7 +110,7 @@ Freeze/review/refute 期间按 Esc 只会打开确认界面，后台工作继续
 
 `refuted=true` 表示 refuter 给出了有支撑的挑战。它会创建 `contested` 记录；原 blocking finding 保留，直到主模型或用户对照代码作出决定。已取消的 partial report 只为审计保留，绝不会自动触发主模型 turn。
 
-报告会保留每条独立 route 的结果、已验证 finding、失败/无效尝试、runtime backend、gate 输入、Refute 结果和 target fingerprint。非 TUI 运行还会把私有 standalone audit 写到 `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/`（默认 `~/.pi/agent/extension-data/pi-adversarial-review/audit/`）。
+报告会保留每条独立 route 的结果、已验证 finding、失败/无效尝试、每次格式修复前后的两份记录、runtime backend、gate 输入、Refute 结果和 target fingerprint。缺失或已被 64 KiB 上限截断的 raw output 不会进入修复；修复共享原整轮 deadline，单 route 最多两分钟。非 TUI 运行还会把私有 standalone audit 写到 `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/`（默认 `~/.pi/agent/extension-data/pi-adversarial-review/audit/`）。
 
 ## 安全边界
 

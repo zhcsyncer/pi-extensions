@@ -169,6 +169,43 @@ describe("PiSubagentRpcV3Client", () => {
     });
   });
 
+  it("sends a tool-free inline identity for format repair", async () => {
+    const bus = new FakeBus();
+    replyToRequests(bus, () => ({ success: true, data: { id: "repair-1" } }));
+    const runtime = new PiSubagentRpcV3Client(bus);
+
+    await runtime.spawn({
+      role: "format-repair",
+      prompt: "repair untrusted output",
+      systemPrompt: "format only",
+      cwd: "/repo",
+      model: model(),
+      thinking: "high",
+      maxTurns: 3,
+      graceTurns: 2,
+      correlationId: "run:format-repair:0",
+      description: "Repair reviewer output",
+    });
+
+    expect(bus.emitted.find(({ event }) => event === "subagents:rpc:spawn")?.data).toMatchObject({
+      type: "adversarial-review-format-repair",
+      options: {
+        correlationId: "run:format-repair:0",
+        maxTurns: 3,
+        graceTurns: 2,
+        isolated: true,
+        inlineAgentConfig: {
+          name: "adversarial-review-format-repair",
+          displayName: "Review Format Repair",
+          builtinToolNames: [],
+          extensions: false,
+          skills: false,
+          persistSession: false,
+        },
+      },
+    });
+  });
+
   it("reaps a late started agent after a failed spawn reply", async () => {
     const bus = new FakeBus();
     replyToRequests(bus, (event, data) => {

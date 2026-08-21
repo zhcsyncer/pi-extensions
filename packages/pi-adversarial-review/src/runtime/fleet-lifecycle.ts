@@ -37,7 +37,7 @@ export interface RunManagedFleetOptions<TResult extends ManagedFleetResult> {
   capabilities?: ReviewRuntimeCapabilities;
   tasks: readonly ManagedFleetTask<TResult>[];
   phase: ReviewerFleetProgress["phase"];
-  actorLabel: "Reviewer" | "Refuter";
+  actorLabel: "Reviewer" | "Refuter" | "Format repair";
   signal?: AbortSignal;
   routeTimeoutMs: number;
   overallTimeoutMs: number;

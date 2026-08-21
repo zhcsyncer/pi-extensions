@@ -129,8 +129,12 @@ function copyProgress(progress: ReviewerFleetProgress): ReviewerFleetProgress {
 }
 
 function itemStatus(item: ReviewerFleetItemProgress, theme: Theme): string {
-  if (item.status === "queued") return theme.fg("dim", "○ queued");
-  if (item.status === "running") return theme.fg("accent", "● running");
+  if (item.status === "queued") {
+    return theme.fg("dim", item.kind === "reviewer" && item.repairing ? "○ repair queued" : "○ queued");
+  }
+  if (item.status === "running") {
+    return theme.fg("accent", item.kind === "reviewer" && item.repairing ? "● repairing output" : "● running");
+  }
   if (item.status === "completed") return theme.fg("success", "✓ valid");
   if (item.status === "cancelled") return theme.fg("warning", "– cancelled");
   if (item.status === "timed-out") return theme.fg("warning", "! timed out");

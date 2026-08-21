@@ -12,9 +12,9 @@ After preflight, target freezing, and route selection, Review sends caller-owned
 
 ```ts
 {
-  role: "reviewer" | "refuter",
-  prompt: "trusted orchestration instructions plus the frozen-input path",
-  systemPrompt: "trusted reviewer or refuter charter",
+  role: "reviewer" | "refuter" | "format-repair",
+  prompt: "trusted orchestration instructions, or format-repair data only",
+  systemPrompt: "trusted reviewer/refuter charter, or format-only policy",
   cwd: "repository root or detached range worktree",
   model: selectedModel,
   thinking: exactThinkingLevel,
@@ -37,7 +37,7 @@ Each request creates a fresh session with an inline agent configuration:
 }
 ```
 
-Reviewer/refuter agents therefore do not inherit the main conversation and cannot call `bash`, `edit`, `write`, Agent, or extension tools. The trusted system prompt is separate from the frozen patch, repository text, requirement document, focus, findings, and marker-like text, all of which remain untrusted data.
+Reviewer/refuter agents therefore do not inherit the main conversation and cannot call `bash`, `edit`, `write`, Agent, or extension tools. The trusted system prompt is separate from the frozen patch, repository text, requirement document, focus, findings, and marker-like text, all of which remain untrusted data. Format-repair agents are stricter: their built-in tool list is empty, extensions and skills are disabled, and they receive no frozen-input path or review assignment.
 
 Caller-owned delivery changes only who receives the terminal result. Queueing, stop, history, FleetView, and terminal lifecycle remain managed by Subagents when the external backend is selected. The runtime validates that requested and effective provider/model/thinking identities match the chosen route before accepting a terminal report.
 
@@ -88,6 +88,8 @@ Every reviewer receives the same complete charter at trusted system-prompt prior
 - general correctness and any other material regression.
 
 There is no route-specific division of responsibility or hidden focus assignment. A reviewer cannot assume another route covers an area. Selected routes may use different models or thinking levels, but their review scope and evidence are identical; clustering and votes happen only after each complete review, so agreement represents independent corroboration rather than coordinated specialization.
+
+An initial `invalid-output` result with complete, untruncated raw text receives exactly one same-model/same-thinking format-repair attempt. This is not another review: the repair prompt contains only the parser error and JSON-encoded original output, uses a separate tool-free role, and never includes the frozen target or charter. The host accepts the retry only if the original text already contains exactly one complete schema-valid ReviewReport and the retry parses to the identical normalized report. Missing/truncated source, two candidate reports, invention, dropped findings, or any changed semantic value fail closed and never trigger a third attempt.
 
 Requirements are product-contract evidence and `--focus` adds the same shared emphasis to every reviewer. Neither can override the charter, suppress another material finding, or turn repository instructions into trusted policy.
 
@@ -173,10 +175,11 @@ Explicit large `--base` or `--range A..B` targets retain **Review by commit plan
 |---|---:|---:|---:|---:|
 | Reviewer / ordinary | 25 | 15 | 10 min | 20 min |
 | Reviewer / approved large | 40 | 20 | 20 min | 30 min |
+| Format repair | 3 | 2 | 2 min max | remaining reviewer deadline |
 | Refuter / ordinary | 12 | 10 | 5 min | 15 min |
 | Refuter / approved large | 20 | 15 | 10 min | 30 min |
 
-Review sends these per-spawn grace turns through the existing Subagents spawn path. Ordinary Agent tools keep the global five-turn default when the field is omitted. Reaching `maxTurns` still steers the route to wrap up immediately; hard abort happens only after `maxTurns + graceTurns`. Wall-clock deadlines still bound wrap-up behavior. A terminal event with `steered` status is accepted only after the same identity and output checks and is recorded as `turnLimited`.
+Review sends these per-spawn grace turns through the existing Subagents spawn path. Ordinary Agent tools keep the global five-turn default when the field is omitted. Reaching `maxTurns` still steers the route to wrap up immediately; hard abort happens only after `maxTurns + graceTurns`. Wall-clock deadlines still bound wrap-up behavior. A terminal event with `steered` status is accepted only after the same identity and output checks and is recorded as `turnLimited`. Format repair does not extend the reviewer overall deadline: its wave receives only the remaining wall-clock budget.
 
 When commit planning is requested, or the hard limit is exceeded, diagnostics report only dimensions actually over the relevant threshold. SHA-bound, non-empty bounded replacements are measured as complete frozen bundles against the 200 KiB / 5,000-line recommendation; large single commits are additionally measured against the absolute limit. TUI preserves every non-target option automatically after selection; copied headless commands must do the same. Base plans cover committed changes only and explicitly warn that uncommitted work still needs `--local`. If one commit exceeds the hard limit, reduce attached context or split that commit.
 
@@ -197,9 +200,9 @@ External shutdown bypasses confirmation. In all cases, UI acknowledgement is not
 
 ## Reports and parser contract
 
-Every reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid output. Reviewer output normally must be one bare JSON object whose first and last non-whitespace characters are `{` and `}`.
+Every reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid output. Reviewer output normally must be one bare JSON object whose first and last non-whitespace characters are `{` and `}`. When format repair runs, both the original invalid attempt and retry terminal record are retained under that route; top-level route duration/usage includes both.
 
-As a narrow provider-robustness fallback, the reviewer parser also accepts leading prose followed by exactly one `json` fence whose closing fence is at end-of-output. The extracted single balanced object still passes the unchanged schema and semantic checks. Extra objects, non-JSON fences, truncated output, and text after the closing fence remain invalid.
+As a narrow provider-robustness fallback, the reviewer parser also accepts leading prose followed by exactly one `json` fence whose closing fence is at end-of-output. The extracted single balanced object still passes the unchanged schema and semantic checks. Extra objects, non-JSON fences, truncated output, and text after the closing fence remain invalid on the first attempt. The separate automatic format-repair path may remove only that framing: host validation independently extracts complete balanced objects from the original text, requires exactly one of them to already pass the full ReviewReport contract, and compares the normalized retry for exact equality.
 
 Stored raw output is valid UTF-8 capped at 64 KiB including the truncation marker. Raw output and errors are retained in the audit but are not copied into live progress snapshots.
 
@@ -208,8 +211,9 @@ The merged report records:
 - explicit, inferred, or interactive preflight selection;
 - branch, remote, attempted/successful fetches, fetch state, ahead/behind, and input size;
 - target and frozen-input fingerprints plus limited-context markers;
-- requested independent routes, backend/fallback reason, concurrency, waves, and effective limits;
+- requested independent routes, backend/fallback reason, concurrency, waves, format-repair count, and effective limits;
 - each reviewer/refuter terminal status, usage, duration, `turnLimited`, parsed result, raw output, or error;
+- original/retry terminal audit data for every attempted format repair, including failed repairs;
 - blocking, advisory, and contested evidence;
 - `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed` overall state.
 
@@ -235,7 +239,7 @@ The main model must inspect actual code for every blocking finding, mark it vali
 
 ## Security hardening
 
-Reviewer/refuter sessions expose only `read`, `grep`, `find`, and `ls`; tool restriction is not an OS sandbox. The package is intended for trusted local repositories while treating repository and model text as untrusted review input.
+Reviewer/refuter sessions expose only `read`, `grep`, `find`, and `ls`; format-repair sessions expose no tools at all. Tool restriction is not an OS sandbox. The package is intended for trusted local repositories while treating repository and model text as untrusted review input.
 
 Automatic fetch uses a non-shell process group with timeout, cancellation, bounded output, and terminal cleanup. Repository/environment SSH commands, askpass and credential helpers, unapproved transports, remote VCS/upload-pack overrides, hooks, clean/process filters, recursive submodule fetch, and maintenance tasks are disabled. Raw fetch stderr that may contain credentials is never reported.
 

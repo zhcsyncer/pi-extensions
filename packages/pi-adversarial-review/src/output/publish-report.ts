@@ -141,6 +141,9 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     `Routes: ${report.requestedRoutes.length} · runtime: ${reviewBackend}` +
       `${report.runtime.fallbackReason ? ` (${report.runtime.fallbackReason})` : ""}` +
       ` · max concurrent: ${report.runtime.maxConcurrent} · waves: ${report.runtime.waves}` +
+      `${report.runtime.formatRepairAttempts
+        ? ` · format repairs: ${report.runtime.formatRepairAttempts}`
+        : ""}` +
       ` · timeout: ${reviewerRouteTimeoutMs / 60_000}/${reviewerOverallTimeoutMs / 60_000}m`,
     `Target: ${safeDisplayText(report.target.description)}`,
   ];
@@ -199,14 +202,16 @@ export function buildMergedReportText(report: MergedReviewReport): string {
     if (result.status === "completed" && result.report) {
       const findings = result.report.findings.length;
       lines.push(
-        `- ✓ ${safeDisplayText(result.route.key)}: valid · ${result.report.verdict} · ` +
-          `${findings} finding${findings === 1 ? "" : "s"}` +
+        `- ✓ ${safeDisplayText(result.route.key)}: ` +
+          `${result.formatRepair?.attempted ? "valid after format repair" : "valid"} · ` +
+          `${result.report.verdict} · ${findings} finding${findings === 1 ? "" : "s"}` +
           `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}`,
       );
       continue;
     }
     lines.push(
       `- × ${safeDisplayText(result.route.key)}: ${result.status}` +
+        `${result.formatRepair?.attempted ? " · format repair failed" : ""}` +
         `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}` +
         `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
     );

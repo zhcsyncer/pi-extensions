@@ -11,7 +11,7 @@ function model(): Model<any> {
   return { provider: "provider", id: "model", reasoning: true } as Model<any>;
 }
 
-function spawnInput(role: "reviewer" | "refuter" = "reviewer"): SpawnReviewAgentInput {
+function spawnInput(role: SpawnReviewAgentInput["role"] = "reviewer"): SpawnReviewAgentInput {
   return {
     role,
     prompt: "Inspect frozen input.",
@@ -134,6 +134,26 @@ describe("EmbeddedReviewRuntime", () => {
     expect(core.abort).toHaveBeenCalledWith("embedded-agent");
     await runtime.dispose();
     expect(core.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("gives format repair an independent tool-free inline role", async () => {
+    const core = new FakeCallerOwnedRuntime();
+    const runtime = new EmbeddedReviewRuntime(core as any);
+
+    await runtime.spawn(spawnInput("format-repair"));
+
+    expect(core.spawn).toHaveBeenCalledWith(expect.objectContaining({
+      type: "adversarial-review-format-repair",
+      inlineAgentConfig: expect.objectContaining({
+        name: "adversarial-review-format-repair",
+        displayName: "Review Format Repair",
+        builtinToolNames: [],
+        extensions: false,
+        skills: false,
+        persistSession: false,
+      }),
+    }));
+    await runtime.dispose();
   });
 
   it("keeps timely stop terminal-truth behavior unchanged", async () => {

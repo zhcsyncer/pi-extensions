@@ -11,6 +11,11 @@ const INLINE_AGENT = {
     displayName: "Adversarial Refuter",
     description: "Independent adversarial finding refuter",
   },
+  "format-repair": {
+    name: "adversarial-review-format-repair",
+    displayName: "Review Format Repair",
+    description: "Tool-free reviewer output formatter",
+  },
 } as const;
 
 export function buildReviewInlineAgentConfig(input: SpawnReviewAgentInput) {
@@ -21,7 +26,9 @@ export function buildReviewInlineAgentConfig(input: SpawnReviewAgentInput) {
       name: identity.name,
       displayName: identity.displayName,
       description: identity.description,
-      builtinToolNames: ["read", "grep", "find", "ls"],
+      builtinToolNames: input.role === "format-repair"
+        ? []
+        : ["read", "grep", "find", "ls"],
       extensions: false as const,
       skills: false as const,
       systemPrompt: input.systemPrompt,

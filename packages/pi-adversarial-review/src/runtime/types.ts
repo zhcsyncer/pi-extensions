@@ -17,6 +17,8 @@ export type ReviewerFleetItemProgress =
       status: ReviewerRouteStatus;
       verdict?: "needs-attention" | "approve";
       findingCount?: number;
+      /** This route is in its single format-only recovery attempt. */
+      repairing?: boolean;
     }
   | {
       kind: "refuter";
@@ -37,7 +39,7 @@ export interface ReviewerFleetProgress {
 }
 
 export interface SpawnReviewAgentInput {
-  role: "reviewer" | "refuter";
+  role: "reviewer" | "refuter" | "format-repair";
   prompt: string;
   systemPrompt: string;
   cwd: string;

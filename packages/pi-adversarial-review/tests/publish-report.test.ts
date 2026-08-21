@@ -134,6 +134,51 @@ describe("merged report output", () => {
     expect(serializeMergedReviewReport(current).routeResults[0]).not.toHaveProperty("reviewLenses");
   });
 
+  it("surfaces and serializes format-repair audit without changing route identity", () => {
+    const reviewer = route();
+    const repaired = report({
+      runtime: {
+        ...report().runtime,
+        waves: 2,
+        formatRepairAttempts: 1,
+      },
+      routeResults: [{
+        route: reviewer,
+        status: "completed",
+        report: { verdict: "approve", summary: "clean", findings: [] },
+        durationMs: 120,
+        usage: { total: 35 },
+        formatRepair: {
+          attempted: true,
+          original: {
+            status: "invalid-output",
+            rawOutput: "prose then JSON",
+            error: "trailing commentary",
+            durationMs: 100,
+            usage: { total: 30 },
+          },
+          retry: {
+            status: "completed",
+            rawOutput: '{"verdict":"approve","summary":"clean","findings":[]}',
+            durationMs: 20,
+            usage: { total: 5 },
+          },
+        },
+      }],
+    });
+
+    const text = buildMergedReportText(repaired);
+    expect(text).toContain("waves: 2 · format repairs: 1");
+    expect(text).toContain("valid after format repair · approve");
+    const serialized = serializeMergedReviewReport(repaired);
+    expect(serialized.routeResults[0].formatRepair).toMatchObject({
+      attempted: true,
+      original: { status: "invalid-output" },
+      retry: { status: "completed" },
+    });
+    expect(serialized.routeResults[0].route).not.toHaveProperty("model");
+  });
+
   it("omits runtime Model objects from reviewer, refuter, result, and contested details", () => {
     const refuter = route();
     const finding = mergedFinding();

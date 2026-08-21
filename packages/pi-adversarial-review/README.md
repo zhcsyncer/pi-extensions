@@ -75,8 +75,8 @@ See the [command reference](./REFERENCE.md#command-options) for requirements, fo
 
 1. **Preflight** proves the Git target and records its branch/ref/fetch decision.
 2. **Freeze** captures one deterministic bounded input; every route reads the same evidence.
-3. **Review** runs isolated read-only agents. Every reviewer receives the same trusted charter, frozen evidence, and complete assignment, then independently performs a full adversarial review.
-4. **Converge** validates JSON, conservatively clusters independently produced findings, and applies `weighted` or `strict` gating.
+3. **Review** runs isolated read-only agents. Every reviewer receives the same trusted charter, frozen evidence, and complete assignment, then independently performs a full adversarial review. An `invalid-output` route with complete untruncated raw output gets exactly one same-route, tool-free format-repair attempt before convergence.
+4. **Converge** validates JSON, conservatively clusters independently produced findings, and applies `weighted` or `strict` gating. A repaired report counts only when host-side validation proves it is identical to the one complete ReviewReport already present in the original output.
 5. **Refute** optionally gives each blocking cluster to a fresh isolated session. Counter-evidence can mark a finding contested but never delete or downgrade it.
 6. **Adjudicate** persists a non-cancelled report and asks the current main model/user to verify blocking findings against actual code. The extension never claims final approval.
 
@@ -95,7 +95,7 @@ During a run:
 - a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
 - the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
 
-Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. Those low-level calls are intentionally not duplicated in the Review status card.
+Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. A format-repair session receives only the original raw output and parser error, has no tools, extensions, skills, frozen-input path, or review assignment, and is capped at 3 turns plus 2 wrap-up turns. It may remove framing only; if the source lacks exactly one complete valid ReviewReport, or changes any semantic value, the route remains invalid. Those low-level calls and repair details are intentionally not duplicated in the Review status card.
 
 Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The editor card remains until runtime termination and frozen-workspace cleanup have actually completed, then the normal editor returns. Preflight and picker Escape remain immediate cancellation actions.
 
@@ -110,7 +110,7 @@ A run ends as one of:
 
 `refuted=true` means the refuter supplied a supported challenge. It creates a `contested` record; the blocking finding remains until the main model or user decides it against the code. A cancelled partial report is retained for audit but never triggers an automatic main-model turn.
 
-Reports retain every independent route outcome, validated findings, failed/invalid attempts, runtime backend, gate inputs, Refute results, and target fingerprints. Non-TUI runs also write private standalone audits under `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/` (default `~/.pi/agent/extension-data/pi-adversarial-review/audit/`).
+Reports retain every independent route outcome, validated findings, failed/invalid attempts, both sides of any format-repair attempt, runtime backend, gate inputs, Refute results, and target fingerprints. Missing or 64 KiB-truncated raw output is not sent for repair. Repair shares the original overall deadline and gets at most two minutes per route. Non-TUI runs also write private standalone audits under `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/` (default `~/.pi/agent/extension-data/pi-adversarial-review/audit/`).
 
 ## Safety boundary
 

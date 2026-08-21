@@ -59,6 +59,7 @@ function build(options: {
   cancelled?: boolean;
   refuteRequested?: boolean;
   refuterRoute?: ReviewerRoute;
+  formatRepairAttempts?: number;
 }) {
   return buildMergedReviewReport({
     runId: "run",
@@ -76,6 +77,7 @@ function build(options: {
     requestedRoutes: Array.from({ length: options.requested }, (_, index) => route(index)),
     routeResults: options.results,
     runtimeCapabilities: { protocolVersion: 3, maxConcurrent: 2, backend: "external-v3" },
+    formatRepairAttempts: options.formatRepairAttempts,
     maxTurns: 25,
     refuteRequested: options.refuteRequested ?? false,
     refuterRoute: options.refuterRoute,
@@ -120,6 +122,20 @@ describe("buildMergedReviewReport", () => {
     });
     expect(report.blocking).toHaveLength(1);
     expect(report.advisory).toHaveLength(0);
+  });
+
+  it("accounts for the format-repair wave without changing the health gate", () => {
+    const report = build({
+      requested: 4,
+      results: [completed(0), completed(1), failed(2), failed(3)],
+      formatRepairAttempts: 2,
+    });
+    expect(report.runtime).toMatchObject({
+      waves: 3,
+      formatRepairAttempts: 2,
+    });
+    expect(report.successfulReviewerCount).toBe(2);
+    expect(report.overall).toBe("candidate-approve");
   });
 
   it("keeps a single high-confidence high finding blocking", () => {

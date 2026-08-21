@@ -332,13 +332,14 @@ describe("review run UI", () => {
           kind: "reviewer",
           routeKey: "provider-b/model-b@high",
           status: "running",
+          repairing: true,
         },
       ],
     });
 
     const card = renderCard(status);
     expect(card).toContain("provider-a/model-a@high · approve");
-    expect(card).toContain("provider-b/model-b@high");
+    expect(card).toContain("repairing output · provider-b/model-b@high");
     expect(card).not.toContain("lens");
     status.dispose();
   });
