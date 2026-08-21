@@ -115,6 +115,7 @@ import {
   parseExtSelectors,
   resumeAgent,
   runAgent,
+  setPinnedExtensions,
   setRememberAgents,
   SUBAGENT_TOOL_NAMES,
 } from "../src/agent-runner.js";
@@ -195,6 +196,7 @@ beforeEach(() => {
   vi.mocked(buildAgentPrompt).mockClear();
   setRememberAgents(true);
   lastSession = undefined;
+  setPinnedExtensions([]);
 });
 
 describe("agent-runner final output capture", () => {
@@ -1988,5 +1990,233 @@ describe("agent-runner per-spawn graceTurns", () => {
     expect(lastSession?.abort).not.toHaveBeenCalled();
     expect(result.steered).toBe(true);
     expect(result.aborted).toBe(false);
+  });
+});
+
+// ─── pinned observer extensions ──────────────────────────────────────────
+// Pinning is load-and-observe: named extensions bind in every subagent session,
+// including isolated / extensions: false, but their tools stay hidden unless the
+// agent's own config would have loaded them anyway. Empty pin = legacy paths.
+describe("agent-runner pinned extensions", () => {
+  function setupAgent(overrides: Record<string, unknown>) {
+    vi.mocked(getConfig).mockReturnValueOnce(makeConfig(overrides));
+    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig(overrides));
+    vi.mocked(getToolNamesForType).mockReturnValueOnce(
+      (overrides.builtinToolNames as string[] | undefined) ?? ["read"],
+    );
+  }
+  function extensionErrors(onToolActivity: ReturnType<typeof vi.fn>): string[] {
+    return onToolActivity.mock.calls
+      .map((c) => c[0]?.toolName)
+      .filter((n): n is string => typeof n === "string" && n.startsWith("extension-error:"));
+  }
+  function loadedPaths(): string[] {
+    return loaderExtensionsRef.current.extensions.map((e) => e.path);
+  }
+  function registerLate(extPath: string, toolName: string) {
+    const ext = loaderExtensionsRef.current.extensions.find((e) => e.path === extPath);
+    if (!ext) throw new Error(`no loaded extension at ${extPath}`);
+    ext.tools.set(toolName, {});
+  }
+
+  it("empty pin + isolated keeps the static allowlist (legacy path)", async () => {
+    setupAgent({ extensions: true });
+    withExtensions({ "/ext/meter.ts": ["meter_tool"] });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi, isolated: true });
+
+    expect(lastLoaderOpts().noExtensions).toBe(true);
+    expect(lastLoaderOpts().extensionsOverride).toBeUndefined();
+    expect(createAgentSession.mock.calls[0][0].tools).toEqual(["read"]);
+    expect(session.setActiveToolsByName).not.toHaveBeenCalled();
+    expect(session.agent.beforeToolCall).toBeUndefined();
+  });
+
+  it("isolated + pin loads the observer, hides its tools, and binds extensions", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: true });
+    withExtensions({
+      "/ext/meter.ts": ["meter_tool"],
+      "/ext/other.ts": ["other_tool"],
+    });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi, isolated: true });
+
+    expect(lastLoaderOpts().noExtensions).toBe(false);
+    expect(lastLoaderOpts().extensionsOverride).toBeDefined();
+    expect(loadedPaths()).toEqual(["/ext/meter.ts"]);
+    expect(lastToolsPassed()).toContain("read");
+    expect(lastToolsPassed()).not.toContain("meter_tool");
+    expect(lastToolsPassed()).not.toContain("other_tool");
+    expect(session.bindExtensions).toHaveBeenCalled();
+    await expect(
+      session.agent.beforeToolCall?.({ toolCall: { name: "meter_tool" } }),
+    ).resolves.toMatchObject({ block: true });
+  });
+
+  it("extensions: false + pin is pinned-only load with tools hidden", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: false });
+    withExtensions({
+      "/ext/meter.ts": ["meter_tool"],
+      "/ext/other.ts": ["other_tool"],
+    });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    expect(lastLoaderOpts().noExtensions).toBe(false);
+    expect(loadedPaths()).toEqual(["/ext/meter.ts"]);
+    expect(lastToolsPassed()).not.toContain("meter_tool");
+  });
+
+  it("subset keep + pin unions load; only the pinned-only tools are hidden", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: ["mcp"] });
+    withExtensions({
+      "/ext/mcp.ts": ["mcp_tool"],
+      "/ext/meter.ts": ["meter_tool"],
+      "/ext/other.ts": ["other_tool"],
+    });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    expect(loadedPaths()).toEqual(["/ext/mcp.ts", "/ext/meter.ts"]);
+    const tools = lastToolsPassed();
+    expect(tools).toContain("mcp_tool");
+    expect(tools).not.toContain("meter_tool");
+    expect(tools).not.toContain("other_tool");
+  });
+
+  it("pin overlapping the subset is not pinned-only — tools stay visible, no warning", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: ["meter"] });
+    withExtensions({ "/ext/meter.ts": ["meter_tool"] });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+    const onToolActivity = vi.fn();
+
+    await runAgent(ctx, "Explore", "go", { pi, onToolActivity });
+
+    expect(lastToolsPassed()).toContain("meter_tool");
+    expect(extensionErrors(onToolActivity)).toEqual([]);
+  });
+
+  it("extensions: true + exclude of a pinned name loads it, hides tools, warns once", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: true, excludeExtensions: ["meter"] });
+    withExtensions({
+      "/ext/meter.ts": ["meter_tool"],
+      "/ext/mcp.ts": ["mcp_tool"],
+    });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+    const onToolActivity = vi.fn();
+
+    await runAgent(ctx, "Explore", "go", { pi, onToolActivity });
+
+    expect(loadedPaths()).toEqual(["/ext/meter.ts", "/ext/mcp.ts"]);
+    const tools = lastToolsPassed();
+    expect(tools).not.toContain("meter_tool");
+    expect(tools).toContain("mcp_tool");
+    expect(extensionErrors(onToolActivity)).toEqual([
+      expect.stringContaining('extension "meter" is pinned in settings'),
+    ]);
+  });
+
+  it("undiscovered pin is silent — no extension-error warning", async () => {
+    setPinnedExtensions(["ghost"]);
+    setupAgent({ extensions: false });
+    withExtensions({ "/ext/mcp.ts": ["mcp_tool"] });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+    const onToolActivity = vi.fn();
+
+    await runAgent(ctx, "Explore", "go", { pi, onToolActivity });
+
+    expect(loadedPaths()).toEqual([]);
+    expect(lastToolsPassed()).not.toContain("mcp_tool");
+    expect(extensionErrors(onToolActivity)).toEqual([]);
+  });
+
+  it("loadAll without exclude is unchanged — pin is already in the full set", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: true });
+    withExtensions({
+      "/ext/meter.ts": ["meter_tool"],
+      "/ext/mcp.ts": ["mcp_tool"],
+    });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    expect(lastLoaderOpts().extensionsOverride).toBeUndefined();
+    expect(lastToolsPassed()).toContain("meter_tool");
+    expect(lastToolsPassed()).toContain("mcp_tool");
+  });
+
+  it("matches a pinned package short name, not just the src dir", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subagents-pin-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "@zhcsyncer/pi-meter", pi: { extensions: ["./src/index.ts"] } }),
+      );
+      mkdirSync(join(dir, "src"));
+      writeFileSync(join(dir, "src", "index.ts"), "export default () => {};");
+      const entry = join(dir, "src", "index.ts");
+
+      setPinnedExtensions(["pi-meter"]);
+      setupAgent({ extensions: false });
+      withExtensions({ [entry]: ["meter_tool"] });
+      const { session } = createSession("OK");
+      createAgentSession.mockResolvedValue({ session });
+
+      await runAgent(ctx, "Explore", "go", { pi });
+
+      expect(loadedPaths()).toEqual([entry]);
+      expect(lastToolsPassed()).not.toContain("meter_tool");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("hides tools registered after bind by a pinned-only extension", async () => {
+    setPinnedExtensions(["meter"]);
+    setupAgent({ extensions: false });
+    withExtensions({ "/ext/meter.ts": [] });
+    const { session, listeners } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    registerLate("/ext/meter.ts", "meter_late");
+    for (const l of listeners) l({ type: "turn_end" });
+
+    expect(session.getActiveToolNames()).not.toContain("meter_late");
+    await expect(
+      session.agent.beforeToolCall?.({ toolCall: { name: "meter_late" } }),
+    ).resolves.toMatchObject({ block: true });
+  });
+
+  it("pin names match case-insensitively", async () => {
+    setPinnedExtensions(["Meter"]);
+    setupAgent({ extensions: false });
+    withExtensions({ "/ext/meter.ts": ["meter_tool"] });
+    const { session } = createSession("OK");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi });
+
+    expect(loadedPaths()).toEqual(["/ext/meter.ts"]);
+    expect(lastToolsPassed()).not.toContain("meter_tool");
   });
 });

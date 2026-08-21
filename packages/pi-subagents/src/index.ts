@@ -20,10 +20,12 @@ import {
   getAgentConversation,
   getDefaultMaxTurns,
   getGraceTurns,
+  getPinnedExtensions,
   getRememberAgents,
   normalizeMaxTurns,
   setDefaultMaxTurns,
   setGraceTurns,
+  setPinnedExtensions,
   setRememberAgents,
   steerAgent,
   SUBAGENT_TOOL_NAMES,
@@ -942,6 +944,7 @@ export default function (pi: ExtensionAPI) {
   // worktrees off), not the previous repository's value.
   setRememberAgents(true);
   setWorktreeIsolationEnabled(false);
+  setPinnedExtensions([]);
 
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
@@ -961,6 +964,7 @@ export default function (pi: ExtensionAPI) {
       setWidgetMode: setWidgetMode,
       setOutputTranscript: setOutputTranscript,
       setWorktreeIsolation: setWorktreeIsolationEnabled,
+      setPinnedExtensions,
     },
     (event, payload) => pi.events.emit(event, payload),
   );
@@ -2461,6 +2465,7 @@ ${systemPrompt}
       widgetMode: getWidgetMode(),
       outputTranscript: getOutputTranscriptDefault(),
       worktreeIsolation: isWorktreeIsolationEnabled(),
+      pinnedExtensions: getPinnedExtensions(),
     };
   }
 
@@ -2542,6 +2547,13 @@ ${systemPrompt}
           description: "Allow isolation: worktree. Off removes the parameter and its prose on the next Pi session; all requests run in the real checkout.",
           currentValue: isWorktreeIsolationEnabled() ? "on" : "off",
           values: ["off", "on"],
+        },
+        {
+          id: "pinnedExtensions",
+          label: "Pinned extensions",
+          description: "Observer extensions loaded in every subagent (comma-separated names). Pinning never exposes their tools. Empty clears. Enter to type",
+          currentValue: getPinnedExtensions().join(", ") || "(none)",
+          values: [getPinnedExtensions().join(", ") || "(none)"],
         },
         {
           id: "fleetView",
@@ -2627,6 +2639,15 @@ ${systemPrompt}
           ctx,
           `Worktree isolation ${enabled ? "enabled" : "disabled"}. Tool spec change takes effect on next Pi session.`,
         );
+      } else if (id === "pinnedExtensions") {
+        setPinnedExtensions(value.split(","));
+        const names = getPinnedExtensions();
+        notifyApplied(
+          ctx,
+          names.length === 0
+            ? "Pinned extensions cleared"
+            : `Pinned extensions set to ${names.join(", ")}`,
+        );
       } else if (id === "toolDescriptionMode") {
         setToolDescriptionMode(value as ToolDescriptionMode);
         notifyApplied(ctx, `Tool description set to ${value}. Takes effect on next pi session.`);
@@ -2674,8 +2695,11 @@ ${systemPrompt}
             currentIndex = Math.min(items.length - 1, currentIndex + 1);
           }
 
-          // Enter on numeric field → close and prompt for typed input
-          if (matchesKey(data, Key.enter) && NUMERIC_IDS.has(items[currentIndex].id)) {
+          // Enter on numeric / free-text field → close and prompt for typed input
+          if (
+            matchesKey(data, Key.enter)
+            && (NUMERIC_IDS.has(items[currentIndex].id) || items[currentIndex].id === "pinnedExtensions")
+          ) {
             done(items[currentIndex].id);
             return;
           }
@@ -2711,6 +2735,17 @@ ${systemPrompt}
         }
         // Invalid — re-prompt with the user's last entry so they can edit it
         input = await ctx.ui.input(label, trimmed);
+      }
+    }
+
+    if (result === "pinnedExtensions") {
+      const input = await ctx.ui.input(
+        "Pinned extensions (comma-separated names; empty clears)",
+        getPinnedExtensions().join(", "),
+      );
+      if (input != null) {
+        applyValue("pinnedExtensions", input);
+        await showSettings(ctx);
       }
     }
   }

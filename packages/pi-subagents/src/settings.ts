@@ -115,6 +115,17 @@ export interface SubagentsSettings {
    * requests from agent files, schedules, or RPC are downgraded to the real tree.
    */
   worktreeIsolation?: boolean;
+  /**
+   * Extension names that load in EVERY subagent session, regardless of the
+   * agent's `isolated` / `extensions:` / `exclude_extensions:` configuration.
+   * Load-and-observe only: pinning never exposes an extension's tools to the
+   * subagent LLM — tool visibility still follows the agent's own config.
+   * Intended for user-trusted stats/observer extensions (e.g. pi-meter).
+   *
+   * Whole-field override on merge: a project file with `[]` clears the global
+   * pin. That is intentional — a project can opt out.
+   */
+  pinnedExtensions?: string[];
 }
 
 export type ToolDescriptionMode = "full" | "compact" | "custom";
@@ -134,6 +145,7 @@ export interface SettingsAppliers {
   setWidgetMode: (mode: WidgetMode) => void;
   setOutputTranscript: (b: boolean) => void;
   setWorktreeIsolation: (b: boolean) => void;
+  setPinnedExtensions: (names: string[]) => void;
 }
 
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
@@ -206,6 +218,18 @@ function sanitize(raw: unknown): SubagentsSettings {
   if (typeof r.worktreeIsolation === "boolean") {
     out.worktreeIsolation = r.worktreeIsolation;
   }
+  if (Array.isArray(r.pinnedExtensions)) {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of r.pinnedExtensions) {
+      if (typeof entry !== "string") continue;
+      const name = entry.trim().toLowerCase();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    out.pinnedExtensions = names;
+  }
   return out;
 }
 
@@ -264,6 +288,7 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   if (s.widgetMode) appliers.setWidgetMode(s.widgetMode);
   if (typeof s.outputTranscript === "boolean") appliers.setOutputTranscript(s.outputTranscript);
   if (typeof s.worktreeIsolation === "boolean") appliers.setWorktreeIsolation(s.worktreeIsolation);
+  if (Array.isArray(s.pinnedExtensions)) appliers.setPinnedExtensions(s.pinnedExtensions);
 }
 
 /**

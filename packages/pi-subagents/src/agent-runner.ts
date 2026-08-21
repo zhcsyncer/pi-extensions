@@ -220,8 +220,9 @@ export function parseExtSelectors(entries: string[]): {
  * outlive the `runAgent` call so resumed/steered turns stay scoped. pi's `dispose()`
  * clears `_eventListeners`, so they die with the session rather than leaking.
  *
- * Only meaningful when extensions are loaded — under `noExtensions`/`isolated` the
- * static `allowedToolNames` allowlist already gates the registry itself.
+ * Only meaningful when extensions are loaded — under `noExtensions`/`isolated`
+ * with an empty pin set the static `allowedToolNames` allowlist already gates
+ * the registry itself.
  */
 export function installExtensionToolScope(
   session: AgentSession,
@@ -231,9 +232,12 @@ export function installExtensionToolScope(
     disallowedSet: Set<string> | undefined;
     extNames: Set<string>;
     narrowing: Map<string, Set<string>>;
+    /** Canonical names of extensions loaded only because they are pinned. */
+    pinnedOnly?: Set<string>;
   },
 ): void {
   const { loader, toolNames, disallowedSet, extNames, narrowing } = ctx;
+  const pinnedOnly = ctx.pinnedOnly ?? EMPTY_PINNED;
 
   // The names allowed right now. Mirrors the `ext:` opt-in flip: when any `ext:`
   // selector is present, extension tools become an explicit allowlist — a loaded
@@ -244,6 +248,9 @@ export function installExtensionToolScope(
     const optInActive = extNames.size > 0;
     for (const extension of loader.getExtensions().extensions) {
       const canons = extensionCanonicalNames(extension.path);
+      // Pinning is load-and-observe: tools from extensions that are only here
+      // because of settings stay invisible/un-callable.
+      if (canons.some((c) => pinnedOnly.has(c))) continue;
       if (optInActive && !canons.some((c) => extNames.has(c))) continue;
       // First alias that carries a narrowing set — a user won't narrow one
       // extension under two different names, so first-match is correct.
@@ -287,6 +294,27 @@ export function installExtensionToolScope(
     }
     return priorBeforeToolCall?.(context, signal);
   };
+}
+
+const EMPTY_PINNED: ReadonlySet<string> = new Set();
+
+/** Canonical names pinned as observers in every subagent session. */
+let pinnedExtensions: Set<string> = new Set();
+
+/** Lowercased, de-duplicated pin names. Empty = no pinning (legacy paths). */
+export function getPinnedExtensions(): string[] {
+  return [...pinnedExtensions];
+}
+
+/** Replace the pin set. Empty / whitespace entries are dropped; names lowercased. */
+export function setPinnedExtensions(names: readonly string[]): void {
+  const next = new Set<string>();
+  for (const raw of names) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim().toLowerCase();
+    if (name) next.add(name);
+  }
+  pinnedExtensions = next;
 }
 
 /** Default max turns. undefined = unlimited (no turn limit). */
@@ -645,21 +673,25 @@ export async function runAgent(
   const { extNames, narrowing } = parseExtSelectors(
     options.isolated ? [] : (agentConfig?.extSelectors ?? []),
   );
-  const noExtensions = extensions === false;
+  // Pinning is empty → identical to the historical noExtensions shortcut.
+  // A non-empty pin must discover extensions so observers can bind handlers.
+  const pinned = pinnedExtensions;
+  const noExtensions = extensions === false && pinned.size === 0;
 
   const extensionsSpec = Array.isArray(extensions)
     ? parseExtensionsSpec(extensions, configCwd)
     : undefined;
   const keepNames = extensionsSpec?.names ?? new Set<string>();
-  // `exclude_extensions:` is a denylist applied AFTER the include set — exclude wins.
+  // `exclude_extensions:` is a denylist applied AFTER the include set — exclude
+  // wins on the tool surface. Load still keeps a pinned name (pin wins loading).
   // Plain canonical names only (case-insensitive). Note: excluded extensions'
   // factories still run once during reload() (see comment above) — exclusion
   // suppresses handler binding and tool registration; it is not a sandbox.
   const excludeNames = new Set((excludeExtensions ?? []).map((n) => n.toLowerCase()));
   const hasExcludes = excludeNames.size > 0;
-  // The override filters loaded extensions down to `keepNames` minus `excludeNames`.
-  // It's only needed when we're neither loading everything without excludes
-  // (`extensions: true` or a `"*"` wildcard) nor nothing (`noExtensions`).
+  // The override filters loaded extensions down to `keepNames` minus `excludeNames`,
+  // unioned with the pin set. It's only needed when we're neither loading everything
+  // without excludes (`extensions: true` or a `"*"` wildcard) nor nothing (`noExtensions`).
   const loadAll = extensions === true || extensionsSpec?.wildcard === true;
   const additionalExtensionPaths = extensionsSpec?.paths.length ? extensionsSpec.paths : undefined;
   // Pre-filter discovered set, captured by the override — the exclude-typo warning
@@ -675,7 +707,8 @@ export async function runAgent(
             ...base,
             extensions: base.extensions.filter((e) => {
               const canons = extensionCanonicalNames(e.path);
-              if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins
+              if (canons.some((n) => pinned.has(n))) return true; // pin wins loading
+              if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins otherwise
               return loadAll || canons.some((n) => keepNames.has(n));
             }),
           };
@@ -731,8 +764,17 @@ export async function runAgent(
   // Exclude typo check: compares against the PRE-filter discovered set (an excluded
   // name absent from the surviving set is the exclude working as intended). Also
   // flags path-like and "*" entries — excludes are plain names only.
+  // A pinned name that exclude also lists is not a typo: pin keeps it loaded and
+  // we warn separately that exclude only hides its tools.
   if (hasExcludes && discoveredNames) {
     for (const name of excludeNames) {
+      if (pinned.has(name) && discoveredNames.has(name)) {
+        options.onToolActivity?.({
+          type: "end",
+          toolName: `extension-error:extension "${name}" is pinned in settings for agent "${type}" — exclude_extensions only hides its tools`,
+        });
+        continue;
+      }
       if (!discoveredNames.has(name)) {
         options.onToolActivity?.({
           type: "end",
@@ -802,8 +844,10 @@ export async function runAgent(
   //     predicate installed after bind — the active set is what the LLM sees,
   //     so a registry tool that is never activated is invisible and uncallable.
   //
-  // `noExtensions`/`isolated` keeps the historical static allowlist: nothing
-  // async can appear there, and a hard registry gate is the correct boundary.
+  // `noExtensions` (extensions: false / isolated, and no pinned observers)
+  // keeps the historical static allowlist: nothing async can appear there, and
+  // a hard registry gate is the correct boundary. A non-empty pin takes the
+  // live-scoping path so observers can bind; their tools are hidden via pinnedOnly.
   const builtinToolNameSet = new Set(toolNames);
 
   let sessionTools: string[] | undefined;
@@ -887,12 +931,27 @@ export async function runAgent(
   // handled below by re-deriving scope from the loader's live extension maps —
   // `registerTool` writes into those same maps, so late arrivals are judged too.
   if (!noExtensions) {
+    // Extensions the config itself would not have kept — pin loaded them as
+    // observers. `loadAll` without an exclude covering the name is config keep.
+    const pinnedOnly = new Set<string>();
+    if (pinned.size > 0) {
+      for (const extension of loader.getExtensions().extensions) {
+        const canons = extensionCanonicalNames(extension.path);
+        if (!canons.some((n) => pinned.has(n))) continue;
+        const excluded = canons.some((n) => excludeNames.has(n));
+        const keptByConfig = !excluded && (loadAll || canons.some((n) => keepNames.has(n)));
+        if (!keptByConfig) {
+          for (const c of canons) pinnedOnly.add(c);
+        }
+      }
+    }
     installExtensionToolScope(session, {
       loader,
       toolNames,
       disallowedSet,
       extNames,
       narrowing,
+      pinnedOnly,
     });
   }
 

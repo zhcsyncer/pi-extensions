@@ -30,6 +30,7 @@
 | Worktree 隔离 | 上游 0.17 增加 `"off"` / `"worktree"` 与默认开启的仓库开关 | 同样使用 `"off"` / `"worktree"`（`off` 在前），但 `worktreeIsolation` 默认 **false**；关闭时 schema 与说明都消失，tool/frontmatter/schedule/RPC 的 worktree 请求全部降级到真实 checkout |
 | 编排合同 | foreground / background 的工作所有权容易混淆 | 后续步骤依赖结果时必须 foreground；background 只用于真正互不重叠的工作；主 agent 负责综合和定向验证，但不得重复已委派的证据收集 |
 | 跨扩展编排 | named-agent spawn RPC | protocol v3 增加可选 inline 角色、调用方收口、route 关联、实际 route 元数据与并发上限查询 |
+| **钉住观察者扩展** | 无对应能力 | `pinnedExtensions` 让点名的观察者扩展在每个子代理中加载（含 `isolated` / `extensions: false`），但不暴露其工具 |
 | 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
 
 ### 未改动的部分
@@ -156,6 +157,16 @@ FleetView / agent 列表选中子 agent 后回车：
 原全局/项目 `subagents.json` 与 `agent-tool-description.md` 只作为一次性迁移输入。迁移通过同目录原子 rename 写入，并在删除旧文件前进行语义复读。canonical 文件始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
 
 本次迁移只覆盖 pi-subagents 自身的运行设置和工具描述 override。自定义 agent、Pi/native skills 与 `settings.json`、memory、schedule、session 持久化、worktree 和 `.output` transcript 均保留原有 resource 或 runtime 位置。Provider credential 仍保存在 Pi 的 `auth.json`。
+
+### 钉住扩展
+
+写在 `pinnedExtensions` 里的观察者扩展会在**每一个**子代理会话中加载——包括 `isolated: true` 和 `extensions: false`。钉住不会把该扩展的工具暴露给子代理 LLM；工具可见性仍完全跟随该 agent 自己的 `extensions:` / `ext:` / `isolated` 配置。
+
+可写在全局或项目 `config.json`，或通过 `/agents` → Settings → Pinned extensions（逗号分隔的名字；空则清空）。项目文件里 `"pinnedExtensions": []` 会清空全局 pin。
+
+名字大小写不敏感，同时匹配扩展目录/文件名和 pi 包的无 scope 短名（`@zhcsyncer/pi-meter` → `pi-meter`）。当前项目没安装被钉扩展时静默跳过。
+
+**钉住不是沙箱。** 被钉扩展的 handlers 仍会运行（`message_end`、`before_agent_start` 等），理论上仍能影响子会话。只钉你信任的、行为为纯观察的扩展，例如 pi-meter。
 
 ---
 

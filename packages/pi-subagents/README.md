@@ -30,6 +30,7 @@ This fork keeps upstream's ordinary **Agent runtime** behavior, while changing h
 | Worktree isolation | Upstream 0.17 adds `"off"` / `"worktree"` and a repository switch that defaults on | Same `"off"` / `"worktree"` shape (`off` first), but `worktreeIsolation` defaults **false**; disabled repositories remove schema/prose and downgrade every tool/frontmatter/schedule/RPC worktree request to the real checkout |
 | Orchestration guidance | Foreground/background ownership is easy to blur | Prerequisite results must run foreground; background is only for genuinely disjoint work; the parent synthesizes and uses targeted verification without repeating delegated evidence collection |
 | Cross-extension orchestration | Named-agent spawn RPC | Protocol v3 adds optional inline role config, caller-owned completion, route correlation, effective route metadata, and max-concurrency discovery |
+| **Pinned observer extensions** | No equivalent | `pinnedExtensions` loads named observer extensions in every subagent (including `isolated` / `extensions: false`) without exposing their tools |
 | Packaging | Standalone npm package | Standalone `@zhcsyncer/pi-subagents` **and** embedded/registered in root `@zhcsyncer/pi-extensions` |
 
 ### What did *not* change
@@ -156,6 +157,16 @@ Project fields override global fields. `/agents` → Settings still writes only 
 The former global/project `subagents.json` and `agent-tool-description.md` locations are one-time migration inputs. Migration uses an atomic same-directory rename and semantic re-read before deleting a legacy file. Canonical files always win; malformed, unreadable, or conflicting legacy files remain in place with a de-duplicated warning.
 
 This relocation covers only pi-subagents' operational settings and tool-description override. Custom agents, Pi/native skills and `settings.json`, memory, schedules, session persistence, worktrees, and `.output` transcripts remain in their existing resource or runtime locations. Provider credentials remain in Pi's `auth.json`.
+
+### Pinned extensions
+
+Observer extensions listed in `pinnedExtensions` load in **every** subagent session — including `isolated: true` and `extensions: false`. Pinning never exposes that extension's tools to the subagent LLM; tool visibility still follows the agent's own `extensions:` / `ext:` / `isolated` config.
+
+Set it in the global or project `config.json`, or via `/agents` → Settings → Pinned extensions (comma-separated names; empty clears). A project file with `"pinnedExtensions": []` clears the global pin.
+
+Names match case-insensitively against the extension directory/file and the unscoped pi package short name (`@zhcsyncer/pi-meter` → `pi-meter`). An unused pin in a project that does not have that extension installed is skipped silently.
+
+**Pinning is not a sandbox.** Pinned extension handlers still run (`message_end`, `before_agent_start`, …) and can affect the subagent. Only pin extensions you trust to be pure observers, such as pi-meter.
 
 ---
 

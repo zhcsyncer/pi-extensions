@@ -244,6 +244,15 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({});
   });
 
+  it("round-trips pinnedExtensions; project [] clears the global pin", () => {
+    writeGlobal({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    saveSettings({ pinnedExtensions: [] }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: [] });
+    saveSettings({ pinnedExtensions: ["pi-meter"] }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter"] });
+  });
+
   it("sanitize drops non-boolean schedulingEnabled silently", async () => {
     writeProject({ schedulingEnabled: "yes" } as any);
     expect(loadSettings(projectDir)).toEqual({});
@@ -385,6 +394,23 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
     });
 
+    it("normalizes pinnedExtensions: lowercase, trim, drop empties, de-dupe", () => {
+      writeProject({ pinnedExtensions: [" PI-Meter ", "", "pi-meter", "telemetry", 1] as any });
+      expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    });
+
+    it("keeps an explicit empty pinnedExtensions array", () => {
+      writeProject({ pinnedExtensions: [] });
+      expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: [] });
+    });
+
+    it("drops non-array pinnedExtensions", () => {
+      writeProject({ pinnedExtensions: "pi-meter" } as any);
+      expect(loadSettings(projectDir).pinnedExtensions).toBeUndefined();
+      writeProject({ pinnedExtensions: null } as any);
+      expect(loadSettings(projectDir).pinnedExtensions).toBeUndefined();
+    });
+
     it("returns {} when the JSON root is not an object (array, string, null)", () => {
       mkdirSync(dirname(projectFile()), { recursive: true });
       writeFileSync(projectFile(), '["not", "an", "object"]');
@@ -489,6 +515,7 @@ describe("settings persistence", () => {
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
         setWorktreeIsolation: vi.fn(),
+        setPinnedExtensions: vi.fn(),
       };
     });
 
@@ -591,6 +618,15 @@ describe("settings persistence", () => {
       expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(false);
     });
 
+    it("applies pinnedExtensions including empty (explicit clear); skips when absent", () => {
+      applySettings({ pinnedExtensions: ["pi-meter"] }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledWith(["pi-meter"]);
+      applySettings({ pinnedExtensions: [] }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledWith([]);
+      applySettings({ maxConcurrent: 4 }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledTimes(2);
+    });
+
     it("applies defaultMaxTurns: 0 as the explicit unlimited marker", () => {
       applySettings({ defaultMaxTurns: 0 }, appliers);
       expect(appliers.setDefaultMaxTurns).toHaveBeenCalledWith(0);
@@ -652,6 +688,7 @@ describe("settings persistence", () => {
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
         setWorktreeIsolation: vi.fn(),
+        setPinnedExtensions: vi.fn(),
       };
     });
 
