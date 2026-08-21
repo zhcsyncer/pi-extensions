@@ -192,6 +192,9 @@ export function createProviderManager(
 
     pi.registerProvider(ProviderConstant.ProviderId, {
       baseUrl: getCursorAgentUrl(),
+      // Pi will not list models until apiKey or oauth resolves. Ask still reads
+      // CURSOR_ACCESS_TOKEN itself; this only satisfies Pi's auth gate (CI smoke).
+      apiKey: "$CURSOR_ACCESS_TOKEN",
       api: ProviderConstant.NativeApi,
       streamSimple,
       models: processed.map(modelConfig),
