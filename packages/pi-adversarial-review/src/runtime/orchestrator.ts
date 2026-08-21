@@ -1,11 +1,15 @@
 import type {
   FrozenReviewInput,
+  ReviewReport,
   ReviewerAttemptAudit,
   ReviewerRoute,
   ReviewerRouteResult,
 } from "../types.ts";
 import { parseReviewReport } from "../reports/parse-review-report.ts";
-import { parseAndValidateFormatRepair } from "../reports/validate-format-repair.ts";
+import {
+  parseAndValidateFormatRepairAgainstSource,
+  parseFormatRepairSource,
+} from "../reports/validate-format-repair.ts";
 import {
   runManagedFleet,
   type ManagedFleetTask,
@@ -42,6 +46,7 @@ export interface RunReviewerFleetOptions {
   frozenInput: FrozenReviewInput;
   reviewerSystemPrompt: string;
   formatRepairSystemPrompt?: string;
+  persistRouteSessions?: boolean;
   signal?: AbortSignal;
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
@@ -148,6 +153,7 @@ function attemptAudit(result: ReviewerRouteResult): ReviewerAttemptAudit {
   return {
     status: result.status,
     ...(result.agentId ? { agentId: result.agentId } : {}),
+    ...(result.sessionFile ? { sessionFile: result.sessionFile } : {}),
     ...(result.rawOutput !== undefined ? { rawOutput: result.rawOutput } : {}),
     ...(result.error ? { error: result.error } : {}),
     ...(result.turnLimited ? { turnLimited: true } : {}),
@@ -200,9 +206,22 @@ function combineRepairResult(
 
 function skipRepair(
   result: ReviewerRouteResult,
-  reason: "missing-output" | "truncated-output" | "cancelled" | "overall-timeout",
+  reason: "missing-output" | "truncated-output" | "invalid-source" | "cancelled" | "overall-timeout",
+  error?: string,
 ): ReviewerRouteResult {
-  return { ...result, formatRepair: { attempted: false, reason } };
+  return {
+    ...result,
+    formatRepair: {
+      attempted: false,
+      reason,
+      ...(error ? { error } : {}),
+    },
+  };
+}
+
+interface FormatRepairCandidate {
+  original: ReviewerRouteResult;
+  sourceReport: ReviewReport;
 }
 
 export async function runReviewerFleet(options: RunReviewerFleetOptions): Promise<ReviewerFleetResult> {
@@ -227,6 +246,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
       thinking: route.thinking,
       maxTurns: effectiveMaxTurns,
       graceTurns,
+      persistSession: options.persistRouteSessions === true,
       correlationId: `${options.frozenInput.runId}:reviewer:${route.ordinal}`,
       description: `Full independent review · ${route.key}`,
     }),
@@ -253,7 +273,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
   });
 
   const byOrdinal = new Map(initial.routeResults.map((result) => [result.route.ordinal, result]));
-  const eligible: ReviewerRouteResult[] = [];
+  const eligible: FormatRepairCandidate[] = [];
   for (const result of initial.routeResults) {
     if (result.status !== "invalid-output") continue;
     if (options.signal?.aborted) {
@@ -263,18 +283,32 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
     } else if (result.rawOutput.endsWith(RAW_OUTPUT_TRUNCATION_MARKER)) {
       byOrdinal.set(result.route.ordinal, skipRepair(result, "truncated-output"));
     } else {
-      eligible.push(result);
+      try {
+        eligible.push({
+          original: result,
+          sourceReport: parseFormatRepairSource(result.rawOutput),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Format repair source validation failed.";
+        byOrdinal.set(result.route.ordinal, skipRepair(result, "invalid-source", message));
+      }
     }
   }
 
   const remainingOverallMs = overallTimeoutMs - (Date.now() - startedAt);
   if (eligible.length > 0 && remainingOverallMs <= 0) {
-    for (const result of eligible) {
-      byOrdinal.set(result.route.ordinal, skipRepair(result, "overall-timeout"));
+    for (const candidate of eligible) {
+      byOrdinal.set(
+        candidate.original.route.ordinal,
+        skipRepair(candidate.original, "overall-timeout"),
+      );
     }
   } else if (eligible.length > 0) {
-    const originalByOrdinal = new Map(eligible.map((result) => [result.route.ordinal, result]));
-    const repairTasks: ManagedFleetTask<ReviewerRouteResult>[] = eligible.map((original) => ({
+    const candidateByOrdinal = new Map(eligible.map((candidate) => [
+      candidate.original.route.ordinal,
+      candidate,
+    ]));
+    const repairTasks: ManagedFleetTask<ReviewerRouteResult>[] = eligible.map(({ original }) => ({
       correlationId: `${options.frozenInput.runId}:format-repair:${original.route.ordinal}`,
       route: original.route,
       initialResult: { route: original.route, status: "queued" },
@@ -287,6 +321,7 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
         thinking: original.route.thinking,
         maxTurns: effectiveMaxTurns,
         graceTurns: FORMAT_REPAIR_GRACE_TURNS,
+        persistSession: options.persistRouteSessions === true,
         correlationId: `${options.frozenInput.runId}:format-repair:${original.route.ordinal}`,
         description: `Repair reviewer output format · ${original.route.key}`,
       }),
@@ -309,9 +344,11 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
       cancellationMessage: "Review format repair was cancelled.",
       overallTimeoutMessage: `Review format repair exceeded the remaining ${repairOverallTimeoutMs}ms.`,
       parseOutput: (rawOutput, task) => {
-        const original = originalByOrdinal.get(task.route.ordinal);
-        if (!original?.rawOutput) throw new Error("Format repair source output is unavailable.");
-        return { report: parseAndValidateFormatRepair(original.rawOutput, rawOutput) };
+        const candidate = candidateByOrdinal.get(task.route.ordinal);
+        if (!candidate) throw new Error("Format repair source validation is unavailable.");
+        return {
+          report: parseAndValidateFormatRepairAgainstSource(candidate.sourceReport, rawOutput),
+        };
       },
       sortResults: (left, right) => left.route.ordinal - right.route.ordinal,
       ...(options.signal ? { signal: options.signal } : {}),
@@ -325,8 +362,13 @@ export async function runReviewerFleet(options: RunReviewerFleetOptions): Promis
         : {}),
     });
     for (const retry of repairs.routeResults) {
-      const original = originalByOrdinal.get(retry.route.ordinal);
-      if (original) byOrdinal.set(retry.route.ordinal, combineRepairResult(original, retry));
+      const candidate = candidateByOrdinal.get(retry.route.ordinal);
+      if (candidate) {
+        byOrdinal.set(
+          retry.route.ordinal,
+          combineRepairResult(candidate.original, retry),
+        );
+      }
     }
   }
 

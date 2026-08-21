@@ -241,6 +241,7 @@ export async function runManagedFleet<TResult extends ManagedFleetResult>(
     const common = {
       durationMs: event.durationMs,
       usage: event.usage,
+      ...(event.sessionFile ? { sessionFile: event.sessionFile } : {}),
       ...(event.status === "steered" ? { turnLimited: true } : {}),
       ...(event.result !== undefined ? { rawOutput: truncateRawOutput(event.result) } : {}),
     } as Partial<TResult>;

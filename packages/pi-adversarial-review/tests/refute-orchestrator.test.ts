@@ -151,6 +151,7 @@ describe("runRefuteFleet", () => {
       blocking: [finding(0), finding(1)],
       frozenInput: frozen(),
       refuterSystemPrompt: "refute only",
+      persistRouteSessions: true,
       onProgress: (snapshot) => progress.push(snapshot),
     });
 
@@ -169,6 +170,7 @@ describe("runRefuteFleet", () => {
       input.role === "refuter" &&
       input.maxTurns === 12 &&
       input.graceTurns === 10 &&
+      input.persistSession === true &&
       input.cwd === "/repo"
     ))).toBe(true);
     expect(runtime.spawnInputs[0].prompt).toContain("Material issue 0");

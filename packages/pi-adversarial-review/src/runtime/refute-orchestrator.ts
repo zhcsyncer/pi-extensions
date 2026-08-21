@@ -30,6 +30,7 @@ export interface RunRefuteFleetOptions {
   blocking: readonly MergedFinding[];
   frozenInput: FrozenReviewInput;
   refuterSystemPrompt: string;
+  persistRouteSessions?: boolean;
   capabilities?: ReviewRuntimeCapabilities;
   signal?: AbortSignal;
   routeTimeoutMs?: number;
@@ -95,6 +96,7 @@ export async function runRefuteFleet(options: RunRefuteFleetOptions): Promise<Re
           thinking: options.refuterRoute.thinking,
           maxTurns: effectiveMaxTurns,
           graceTurns,
+          persistSession: options.persistRouteSessions === true,
           correlationId,
           description: `Refute #${findingIndex + 1} ${finding.file}:${finding.lineStart}`,
         }),

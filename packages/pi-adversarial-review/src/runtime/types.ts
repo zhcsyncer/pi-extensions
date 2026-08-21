@@ -47,6 +47,8 @@ export interface SpawnReviewAgentInput {
   thinking: ModelThinkingLevel;
   maxTurns: number;
   graceTurns?: number;
+  /** Explicit caller policy; false keeps this child session in memory. */
+  persistSession?: boolean;
   correlationId: string;
   description: string;
 }
@@ -64,6 +66,8 @@ export interface ReviewAgentTerminalEvent {
   error?: string;
   durationMs?: number;
   usage?: { input?: number; output?: number; total?: number };
+  /** Runtime-owned path to the persisted child Pi session, when enabled. */
+  sessionFile?: string;
   requestedModel?: { provider: string; modelId: string };
   requestedThinking?: ModelThinkingLevel;
   effectiveModel?: { provider: string; modelId: string };

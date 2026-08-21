@@ -5,6 +5,7 @@ import {
   buildAgentEventData,
   buildCorrelatedEventData,
 } from "./runtime-events.js";
+import { archiveAgentRecord } from "./session-archive.js";
 import type { AgentRecord, InlineAgentConfig, ThinkingLevel } from "./types.js";
 
 export interface CallerOwnedRuntimeCapabilities {
@@ -43,6 +44,8 @@ export interface CallerOwnedTerminalEvent extends CallerOwnedStartedEvent {
   error?: string;
   durationMs: number;
   tokens?: { input: number; output: number; total: number };
+  /** Persisted Pi child session path when inlineAgentConfig.persistSession is true. */
+  sessionFile?: string;
 }
 
 export interface CallerOwnedAgentRuntimeOptions {
@@ -73,6 +76,18 @@ export class CallerOwnedAgentRuntime {
       (record) => {
         const event = buildAgentEventData(record);
         if (!event.correlationId) return;
+        const archive = archiveAgentRecord(record);
+        if (archive) {
+          try {
+            this.options.pi.appendEntry("subagents:record", {
+              ...archive,
+              ...buildCorrelatedEventData(record),
+            });
+          } catch {
+            // The caller still receives terminal truth and the child session
+            // remains directly openable from its runtime-owned session path.
+          }
+        }
         this.emit(this.terminalHandlers, event as CallerOwnedTerminalEvent);
       },
       options.maxConcurrent,

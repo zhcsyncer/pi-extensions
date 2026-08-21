@@ -270,6 +270,7 @@ export class PiSubagentRpcV3Client implements ReviewSubagentRuntime {
         ...(typeof event.error === "string" ? { error: event.error } : {}),
         ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
         ...(event.tokens && typeof event.tokens === "object" ? { usage: event.tokens } : {}),
+        ...(typeof event.sessionFile === "string" ? { sessionFile: event.sessionFile } : {}),
         ...(event.requestedModel ? { requestedModel: event.requestedModel } : {}),
         ...(event.requestedThinkingLevel ? { requestedThinking: event.requestedThinkingLevel } : {}),
         ...(event.effectiveModel ? { effectiveModel: event.effectiveModel } : {}),

@@ -67,6 +67,7 @@ export interface ExecuteReviewRunOptions {
   command: ParsedReviewCommand;
   targetPreflight: ResolvedReviewPreflight;
   routes: ReviewerRoute[];
+  persistRouteSessions?: boolean;
   refuteRequested: boolean;
   refuterRoute?: ReviewerRoute;
   controller: AbortController;
@@ -86,6 +87,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     command,
     targetPreflight,
     routes,
+    persistRouteSessions = false,
     refuteRequested,
     refuterRoute,
     controller,
@@ -199,6 +201,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     ...(refuterRoute ? { refuterRoute } : {}),
     gating: command.gating,
     capabilities,
+    persistRouteSessions,
     startedAt,
   }));
   if (dispatchWarning) {
@@ -212,6 +215,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     frozenInput,
     reviewerSystemPrompt,
     formatRepairSystemPrompt,
+    persistRouteSessions,
     signal: controller.signal,
     capabilities,
     maxTurns: reviewerMaxTurns,
@@ -232,6 +236,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
     routeResults: fleet.routeResults,
     runtimeCapabilities: fleet.capabilities,
     formatRepairAttempts: fleet.formatRepairAttempts,
+    persistRouteSessions,
     maxTurns: reviewerMaxTurns,
     routeTimeoutMs: reviewerRouteTimeoutMs,
     overallTimeoutMs: reviewerOverallTimeoutMs,
@@ -266,6 +271,7 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
       blocking: report.blocking,
       frozenInput,
       refuterSystemPrompt,
+      persistRouteSessions,
       capabilities: fleet.capabilities,
       signal: controller.signal,
       maxTurns: refuterMaxTurns,

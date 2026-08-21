@@ -3,6 +3,10 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { parseReviewCommand, ReviewCommandError } from "./command/parse-args.ts";
 import { executeReviewRun } from "./command/execute-review.ts";
 import {
+  loadAdversarialReviewConfig,
+  type AdversarialReviewConfig,
+} from "./config.ts";
+import {
   resolveMainSessionRefuterRoute,
   resolveRefuterRoute,
   resolveReviewerRoutes,
@@ -95,6 +99,7 @@ export interface AdversarialReviewExtensionOptions {
     options: ResolveReviewPreflightOptions,
   ) => Promise<ResolvedReviewPreflight | undefined>;
   revalidatePreflight?: typeof revalidateReviewPreflight;
+  loadConfig?: () => AdversarialReviewConfig;
 }
 
 export default function adversarialReviewExtension(
@@ -192,6 +197,9 @@ export default function adversarialReviewExtension(
       activeRunCompletion = runCompletion;
       try {
         const command = parseReviewCommand(args);
+        const reviewConfig = (
+          extensionOptions.loadConfig ?? loadAdversarialReviewConfig
+        )();
         if (command.interactiveRange && ctx.mode !== "tui") {
           throw new ReviewCommandError(
             'Interactive --range requires TUI mode. Outside TUI, pass --range "<refA>..<refB>".',
@@ -400,6 +408,7 @@ export default function adversarialReviewExtension(
           command,
           targetPreflight,
           routes,
+          persistRouteSessions: reviewConfig.persistRouteSessions,
           refuteRequested,
           ...(refuterRoute ? { refuterRoute } : {}),
           controller,

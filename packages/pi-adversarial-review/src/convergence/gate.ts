@@ -80,6 +80,7 @@ export interface BuildMergedReviewReportOptions {
   routeResults: ReviewerRouteResult[];
   runtimeCapabilities: ReviewRuntimeCapabilities;
   formatRepairAttempts?: number;
+  persistRouteSessions?: boolean;
   maxTurns: number;
   routeTimeoutMs?: number;
   overallTimeoutMs?: number;
@@ -167,6 +168,7 @@ export function buildMergedReviewReport(
       ...(options.formatRepairAttempts
         ? { formatRepairAttempts: options.formatRepairAttempts }
         : {}),
+      persistRouteSessions: options.persistRouteSessions === true,
       maxTurns: options.maxTurns,
       routeTimeoutMs: options.routeTimeoutMs ?? DEFAULT_REVIEWER_ROUTE_TIMEOUT_MS,
       overallTimeoutMs: options.overallTimeoutMs ?? DEFAULT_REVIEWER_OVERALL_TIMEOUT_MS,

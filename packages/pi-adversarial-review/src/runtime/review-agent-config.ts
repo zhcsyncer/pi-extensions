@@ -33,7 +33,7 @@ export function buildReviewInlineAgentConfig(input: SpawnReviewAgentInput) {
       skills: false as const,
       systemPrompt: input.systemPrompt,
       promptMode: "replace" as const,
-      persistSession: false,
+      persistSession: input.persistSession === true,
     },
   };
 }

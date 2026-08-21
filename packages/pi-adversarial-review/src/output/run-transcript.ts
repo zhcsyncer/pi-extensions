@@ -36,6 +36,7 @@ export interface ReviewDispatchEntry {
   runtime: {
     backend: ReviewRuntimeCapabilities["backend"];
     maxConcurrent: number;
+    persistRouteSessions?: boolean;
   };
   startedAt: string;
 }
@@ -58,6 +59,7 @@ export function buildReviewDispatchEntry(options: {
   refuterRoute?: ReviewerRoute;
   gating: GatingMode;
   capabilities: ReviewRuntimeCapabilities;
+  persistRouteSessions?: boolean;
   startedAt: Date;
 }): ReviewDispatchEntry {
   return {
@@ -80,6 +82,7 @@ export function buildReviewDispatchEntry(options: {
     runtime: {
       backend: options.capabilities.backend,
       maxConcurrent: options.capabilities.maxConcurrent,
+      persistRouteSessions: options.persistRouteSessions === true,
     },
     startedAt: options.startedAt.toISOString(),
   };
@@ -131,7 +134,8 @@ export function renderReviewDispatchEntry(
       `  ${theme.fg("muted", "Input")} · ${formatBytes(data.input.bytes)} · ` +
         `${data.input.lines} lines · ${data.input.files} files`,
       `  ${theme.fg("muted", "Runtime")} · ${data.runtime.backend} · ` +
-        `max concurrent ${data.runtime.maxConcurrent}`,
+        `max concurrent ${data.runtime.maxConcurrent} · route sessions ` +
+        `${data.runtime.persistRouteSessions === true ? "persisted" : "memory-only"}`,
       `  ${theme.fg("muted", "Routes")}`,
       ...data.requestedRoutes.map((route) => `    • ${safeReviewDiagnosticText(route.key)}`),
       `  ${theme.fg("muted", "Refute")} · ${data.refuteRequested

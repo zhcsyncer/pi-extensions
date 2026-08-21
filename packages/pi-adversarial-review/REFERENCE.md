@@ -33,11 +33,13 @@ Each request creates a fresh session with an inline agent configuration:
   extensions: false,
   skills: false,
   promptMode: "replace",
-  persistSession: false
+  persistSession: config.persistRouteSessions // default false
 }
 ```
 
 Reviewer/refuter agents therefore do not inherit the main conversation and cannot call `bash`, `edit`, `write`, Agent, or extension tools. The trusted system prompt is separate from the frozen patch, repository text, requirement document, focus, findings, and marker-like text, all of which remain untrusted data. Format-repair agents are stricter: their built-in tool list is empty, extensions and skills are disabled, and they receive no frozen-input path or review assignment.
+
+Route child sessions are memory-only by default, independently of Subagents' ordinary-agent default. The user-owned `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/config.json` may contain `{ "persistRouteSessions": true }`; the default path is `~/.pi/agent/extension-data/pi-adversarial-review/config.json`. No project config can enable this privacy/storage behavior. Missing means `false`; malformed JSON, unknown fields, or non-boolean values fail the command. When enabled, reviewer, refuter, and format-repair sessions use standard parent-linked Pi persistence, appear in `/agents` after completion through both external and embedded backends, and expose their runtime-owned session paths in audit records.
 
 Caller-owned delivery changes only who receives the terminal result. Queueing, stop, history, FleetView, and terminal lifecycle remain managed by Subagents when the external backend is selected. The runtime validates that requested and effective provider/model/thinking identities match the chosen route before accepting a terminal report.
 
@@ -89,7 +91,7 @@ Every reviewer receives the same complete charter at trusted system-prompt prior
 
 There is no route-specific division of responsibility or hidden focus assignment. A reviewer cannot assume another route covers an area. Selected routes may use different models or thinking levels, but their review scope and evidence are identical; clustering and votes happen only after each complete review, so agreement represents independent corroboration rather than coordinated specialization.
 
-An initial `invalid-output` result with complete, untruncated raw text receives exactly one same-model/same-thinking format-repair attempt. This is not another review: the repair prompt contains only the parser error and JSON-encoded original output, uses a separate tool-free role, and never includes the frozen target or charter. The host accepts the retry only if the original text already contains exactly one complete schema-valid ReviewReport and the retry parses to the identical normalized report. Missing/truncated source, two candidate reports, invention, dropped findings, or any changed semantic value fail closed and never trigger a third attempt.
+An initial `invalid-output` result is first checked locally without a model call. Only complete, untruncated raw text containing exactly one complete schema-valid ReviewReport receives one same-model/same-thinking format-repair attempt. This is not another review: the repair prompt contains only the parser error and JSON-encoded original output, uses a separate tool-free role, and never includes the frozen target or charter. The retry must parse to the identical normalized report. Missing/truncated source, zero or multiple valid reports, invention, dropped findings, or any changed semantic value fail closed; source-preflight failures spend no repair turn, and no route receives a third attempt.
 
 Requirements are product-contract evidence and `--focus` adds the same shared emphasis to every reviewer. Neither can override the charter, suppress another material finding, or turn repository instructions into trusted policy.
 
@@ -200,7 +202,7 @@ External shutdown bypasses confirmation. In all cases, UI acknowledgement is not
 
 ## Reports and parser contract
 
-Every reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid output. Reviewer output normally must be one bare JSON object whose first and last non-whitespace characters are `{` and `}`. When format repair runs, both the original invalid attempt and retry terminal record are retained under that route; top-level route duration/usage includes both.
+Every reviewer and refuter attempt is retained, including provider errors, timeouts, cancellation, and invalid output. Reviewer output normally must be one bare JSON object whose first and last non-whitespace characters are `{` and `}`. When format repair runs, both the original invalid attempt and retry terminal record are retained under that route; top-level route duration/usage includes both. When route-session persistence is enabled, each attempt also records its runtime-owned child-session path.
 
 As a narrow provider-robustness fallback, the reviewer parser also accepts leading prose followed by exactly one `json` fence whose closing fence is at end-of-output. The extracted single balanced object still passes the unchanged schema and semantic checks. Extra objects, non-JSON fences, truncated output, and text after the closing fence remain invalid on the first attempt. The separate automatic format-repair path may remove only that framing: host validation independently extracts complete balanced objects from the original text, requires exactly one of them to already pass the full ReviewReport contract, and compares the normalized retry for exact equality.
 
@@ -211,9 +213,9 @@ The merged report records:
 - explicit, inferred, or interactive preflight selection;
 - branch, remote, attempted/successful fetches, fetch state, ahead/behind, and input size;
 - target and frozen-input fingerprints plus limited-context markers;
-- requested independent routes, backend/fallback reason, concurrency, waves, format-repair count, and effective limits;
-- each reviewer/refuter terminal status, usage, duration, `turnLimited`, parsed result, raw output, or error;
-- original/retry terminal audit data for every attempted format repair, including failed repairs;
+- requested independent routes, backend/fallback reason, concurrency, waves, route-session policy, format-repair count, and effective limits;
+- each reviewer/refuter terminal status, usage, duration, `turnLimited`, optional persisted-session path, parsed result, raw output, or error;
+- original/retry terminal audit data and optional session paths for every attempted format repair, including failed repairs;
 - blocking, advisory, and contested evidence;
 - `candidate-approve`, `needs-adjudication`, `inconclusive`, `stale`, `cancelled`, or `failed` overall state.
 

@@ -44,14 +44,14 @@
 
 ### 跨扩展 spawn protocol v3
 
-这里的“RPC”只是 Pi 扩展之间通过 `pi.events` 做的进程内调用，不是网络服务。现有 `subagents:rpc:spawn` request 新增三个可选字段：
+这里的“RPC”只是 Pi 扩展之间通过 `pi.events` 做的进程内调用，不是网络服务。现有 `subagents:rpc:spawn` request 新增四个可选字段：
 
 - `inlineAgentConfig`：直接使用调用方给出的角色 prompt/tools，不查找 named agent，也不 fallback；
 - `completionOwner: "caller"`：保留 queue、stop、FleetView、lifecycle event 与 history，但不向主会话发送单 agent 完成通知；
 - `correlationId`：在 started/terminal event 中原样带回编排方的 route key；
 - `graceTurns`：可选，软上限 steer 之后的收尾轮数；省略时仍用全局默认 5 轮。
 
-调用方收口要求 `isBackground: true` 且 `correlationId` 非空。`subagents:rpc:ping` 返回 protocol version `3` 和 `maxConcurrent`；关联后的 terminal event 会给出请求与实际生效的 model/thinking。不传任何新字段时，仍走原来的 named-agent 与完成通知路径。
+调用方收口要求 `isBackground: true` 且 `correlationId` 非空。`subagents:rpc:ping` 返回 protocol version `3` 和 `maxConcurrent`；关联后的 terminal event 会给出请求与实际生效的 model/thinking；inline 角色开启 session 持久化时还会返回 `sessionFile`。不传任何新字段时，仍走原来的 named-agent 与完成通知路径。
 
 ### Foreground / background 合同
 
@@ -69,7 +69,7 @@
 
 ### Session 持久化与仓库 worktree
 
-子 agent 现在默认使用 `SessionManager.create`。child header 会把当前主 session 文件记为 `parentSession`，所以普通同目录运行会在 Pi 的 `/resume` 中挂到发起它的父会话下，也能在那里打开完整对话。`/agents` 还会按名称和状态显示 **Finished agents in this session**：live record 仍用现有摘要 ConversationViewer；record 被回收后，同一个只读 overlay 会改为打开磁盘 session 文件。
+子 agent 现在默认使用 `SessionManager.create`。child header 会把当前主 session 文件记为 `parentSession`，所以普通同目录运行会在 Pi 的 `/resume` 中挂到发起它的父会话下，也能在那里打开完整对话。`/agents` 还会按名称和状态显示 **Finished agents in this session**：live record 仍用现有摘要 ConversationViewer；record 被回收后，同一个只读 overlay 会改为打开磁盘 session 文件。Caller-owned 运行复用同一 archive contract：external extension 路径与无副作用 embedded runtime 都会向父会话追加结束记录，terminal lifecycle 同时把 child session 路径交给编排方。
 
 若某个 agent 需要临时运行，在 agent 文件中设 `persist_session: false`；若项目整体要恢复默认内存行为，在 `/agents → Settings` 或项目配置中设 `rememberAgents: false`。显式 `persist_session: true` 仍可反向覆盖该设置。
 

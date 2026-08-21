@@ -144,6 +144,7 @@ export function buildMergedReportText(report: MergedReviewReport): string {
       `${report.runtime.formatRepairAttempts
         ? ` · format repairs: ${report.runtime.formatRepairAttempts}`
         : ""}` +
+      ` · route sessions: ${report.runtime.persistRouteSessions === true ? "persisted" : "memory-only"}` +
       ` · timeout: ${reviewerRouteTimeoutMs / 60_000}/${reviewerOverallTimeoutMs / 60_000}m`,
     `Target: ${safeDisplayText(report.target.description)}`,
   ];
@@ -207,6 +208,16 @@ export function buildMergedReportText(report: MergedReviewReport): string {
           `${result.report.verdict} · ${findings} finding${findings === 1 ? "" : "s"}` +
           `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}`,
       );
+      if (result.formatRepair?.attempted) {
+        if (result.formatRepair.original.sessionFile) {
+          lines.push(`  original session: ${safeDisplayText(result.formatRepair.original.sessionFile)}`);
+        }
+        if (result.formatRepair.retry.sessionFile) {
+          lines.push(`  repair session: ${safeDisplayText(result.formatRepair.retry.sessionFile)}`);
+        }
+      } else if (result.sessionFile) {
+        lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
+      }
       continue;
     }
     lines.push(
@@ -215,6 +226,16 @@ export function buildMergedReportText(report: MergedReviewReport): string {
         `${metrics.length > 0 ? ` · ${metrics.join(" · ")}` : ""}` +
         `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
     );
+    if (result.formatRepair?.attempted) {
+      if (result.formatRepair.original.sessionFile) {
+        lines.push(`  original session: ${safeDisplayText(result.formatRepair.original.sessionFile)}`);
+      }
+      if (result.formatRepair.retry.sessionFile) {
+        lines.push(`  repair session: ${safeDisplayText(result.formatRepair.retry.sessionFile)}`);
+      }
+    } else if (result.sessionFile) {
+      lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
+    }
   }
   const failedRefuters = report.refuteResults.filter((result) => result.status !== "completed");
   if (failedRefuters.length > 0) {
@@ -224,6 +245,9 @@ export function buildMergedReportText(report: MergedReviewReport): string {
         `- finding #${result.findingIndex + 1}: ${result.status}` +
           `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
       );
+      if (result.sessionFile) {
+        lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
+      }
     }
   }
   lines.push(

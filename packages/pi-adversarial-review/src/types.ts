@@ -80,6 +80,7 @@ export type ReviewerRouteStatus =
 export interface ReviewerAttemptAudit {
   status: ReviewerRouteStatus;
   agentId?: string;
+  sessionFile?: string;
   rawOutput?: string;
   error?: string;
   turnLimited?: boolean;
@@ -90,7 +91,8 @@ export interface ReviewerAttemptAudit {
 export type ReviewerFormatRepair =
   | {
       attempted: false;
-      reason: "missing-output" | "truncated-output" | "cancelled" | "overall-timeout";
+      reason: "missing-output" | "truncated-output" | "invalid-source" | "cancelled" | "overall-timeout";
+      error?: string;
     }
   | {
       attempted: true;
@@ -102,6 +104,7 @@ export interface ReviewerRouteResult {
   route: ReviewerRoute;
   status: ReviewerRouteStatus;
   agentId?: string;
+  sessionFile?: string;
   report?: ReviewReport;
   rawOutput?: string;
   error?: string;
@@ -123,6 +126,7 @@ export interface RefuteRouteResult {
   route: ReviewerRoute;
   status: ReviewerRouteStatus;
   agentId?: string;
+  sessionFile?: string;
   report?: VerifyReport;
   rawOutput?: string;
   error?: string;
@@ -227,6 +231,7 @@ export interface MergedReviewReport {
     fallbackReason?: "unavailable" | "incompatible";
     waves: number;
     formatRepairAttempts?: number;
+    persistRouteSessions?: boolean;
     maxTurns: number;
     routeTimeoutMs: number;
     overallTimeoutMs: number;

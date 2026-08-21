@@ -437,6 +437,9 @@ describe("runReviewerFleet", () => {
       runtime.emitTerminal(terminalFor(input, agentId, {
         result: input.role === "format-repair" ? repaired : malformed,
         durationMs: input.role === "format-repair" ? 20 : 100,
+        sessionFile: input.role === "format-repair"
+          ? "/sessions/repair.jsonl"
+          : "/sessions/reviewer.jsonl",
         usage: input.role === "format-repair"
           ? { input: 2, output: 3, total: 5 }
           : { input: 10, output: 20, total: 30 },
@@ -450,10 +453,12 @@ describe("runReviewerFleet", () => {
       frozenInput: frozen(),
       reviewerSystemPrompt: "review only",
       formatRepairSystemPrompt: "format only",
+      persistRouteSessions: true,
       onProgress: (snapshot) => progress.push(snapshot),
     });
 
     expect(runtime.spawnInputs).toHaveLength(2);
+    expect(runtime.spawnInputs.every((input) => input.persistSession === true)).toBe(true);
     const retry = runtime.spawnInputs[1];
     expect(retry).toMatchObject({
       role: "format-repair",
@@ -475,8 +480,16 @@ describe("runReviewerFleet", () => {
       usage: { input: 12, output: 23, total: 35 },
       formatRepair: {
         attempted: true,
-        original: { status: "invalid-output", rawOutput: malformed },
-        retry: { status: "completed", rawOutput: repaired },
+        original: {
+          status: "invalid-output",
+          rawOutput: malformed,
+          sessionFile: "/sessions/reviewer.jsonl",
+        },
+        retry: {
+          status: "completed",
+          rawOutput: repaired,
+          sessionFile: "/sessions/repair.jsonl",
+        },
       },
     });
     expect(progress.some((snapshot) => snapshot.items.some(
@@ -487,13 +500,11 @@ describe("runReviewerFleet", () => {
     )).toBe(true);
   });
 
-  it("rejects an invented repair and never schedules a third attempt", async () => {
+  it("rejects a source with no complete report before spending a repair call", async () => {
     const runtime = new FakeRuntime();
     runtime.spawnImpl = async (input, agentId) => {
       runtime.emitTerminal(terminalFor(input, agentId, {
-        result: input.role === "format-repair"
-          ? validOutput("Invented approval")
-          : "The workspace is unavailable; no review was performed.",
+        result: "The workspace is unavailable; no review was performed.",
       }));
       return { agentId };
     };
@@ -506,16 +517,40 @@ describe("runReviewerFleet", () => {
       formatRepairSystemPrompt: "format only",
     });
 
-    expect(runtime.spawnInputs.map(({ role }) => role)).toEqual(["reviewer", "format-repair"]);
-    expect(result.formatRepairAttempts).toBe(1);
+    expect(runtime.spawnInputs.map(({ role }) => role)).toEqual(["reviewer"]);
+    expect(result.formatRepairAttempts).toBe(0);
     expect(result.routeResults[0]).toMatchObject({
       status: "invalid-output",
-      error: expect.stringContaining("found 0"),
+      error: expect.stringContaining("does not contain a JSON object"),
       formatRepair: {
-        attempted: true,
-        original: { status: "invalid-output" },
-        retry: { status: "invalid-output" },
+        attempted: false,
+        reason: "invalid-source",
+        error: expect.stringContaining("found 0"),
       },
+    });
+  });
+
+  it("rejects an ambiguous source before spending a repair call", async () => {
+    const runtime = new FakeRuntime();
+    const report = validOutput("Duplicated report");
+    runtime.spawnImpl = async (input, agentId) => {
+      runtime.emitTerminal(terminalFor(input, agentId, { result: `${report}\n${report}` }));
+      return { agentId };
+    };
+
+    const result = await runReviewerFleet({
+      runtime,
+      routes: routes(1),
+      frozenInput: frozen(),
+      reviewerSystemPrompt: "review only",
+    });
+
+    expect(runtime.spawnInputs.map(({ role }) => role)).toEqual(["reviewer"]);
+    expect(result.formatRepairAttempts).toBe(0);
+    expect(result.routeResults[0].formatRepair).toMatchObject({
+      attempted: false,
+      reason: "invalid-source",
+      error: expect.stringContaining("found 2"),
     });
   });
 });

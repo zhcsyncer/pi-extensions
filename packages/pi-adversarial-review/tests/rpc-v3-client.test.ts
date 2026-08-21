@@ -81,6 +81,7 @@ describe("PiSubagentRpcV3Client", () => {
       thinking: "high",
       maxTurns: 25,
       graceTurns: 15,
+      persistSession: true,
       correlationId: "run:reviewer:0",
       description: "Review route",
     })).resolves.toEqual({ agentId: "agent-1" });
@@ -105,7 +106,7 @@ describe("PiSubagentRpcV3Client", () => {
           extensions: false,
           skills: false,
           promptMode: "replace",
-          persistSession: false,
+          persistSession: true,
         },
       },
     });
@@ -285,6 +286,7 @@ describe("PiSubagentRpcV3Client", () => {
       status: "completed",
       result: "{}",
       tokens: { input: 1, output: 2, total: 3 },
+      sessionFile: "/sessions/a1.jsonl",
       requestedModel: { provider: "p", modelId: "m" },
       requestedThinkingLevel: "off",
       effectiveModel: { provider: "p", modelId: "m" },
@@ -298,6 +300,7 @@ describe("PiSubagentRpcV3Client", () => {
       requestedThinking: "off",
       effectiveThinking: "off",
       usage: { input: 1, output: 2, total: 3 },
+      sessionFile: "/sessions/a1.jsonl",
     }));
     offStarted();
     offTerminal();

@@ -8,6 +8,10 @@
 
 ## Unreleased
 
+### Added
+
+- Ordinary subagents persist as parent-linked Pi sessions by default and remain openable from `/agents`; caller-owned terminal events expose persisted session paths, including through the side-effect-free embedded runtime. Worktree isolation is now an explicit repository capability and defaults off in this fork.
+
 ### Fixed
 
 - Coordinate FleetView keyboard ownership with other below-editor navigators so an activated Herdr Process Widget keeps its arrow-key navigation.

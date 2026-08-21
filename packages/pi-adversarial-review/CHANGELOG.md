@@ -2,6 +2,6 @@
 
 ## Unreleased
 
-- Reviewer `invalid-output` routes with complete raw output receive one same-route, tool-free format-repair attempt. Host-side provenance validation accepts only framing-only re-emission of the one complete ReviewReport already present in the original output; both attempts remain audited.
+- Reviewer `invalid-output` routes receive one same-route, tool-free format-repair attempt only after a no-model host preflight proves the source already contains exactly one complete ReviewReport. Host-side provenance validation accepts framing-only re-emission, both attempts remain audited, and an opt-in `persistRouteSessions` user config retains parent-linked route sessions and their audit paths while defaulting to memory-only.
 
 Initial public release will be cut by Changesets.

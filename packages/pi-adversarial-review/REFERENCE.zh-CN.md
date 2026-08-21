@@ -33,11 +33,13 @@ Preflight、target freeze 与 route 选择完成后，Review 会通过兼容的 
   extensions: false,
   skills: false,
   promptMode: "replace",
-  persistSession: false
+  persistSession: config.persistRouteSessions // 默认 false
 }
 ```
 
 因此 reviewer/refuter agent 不继承主会话，也不能调用 `bash`、`edit`、`write`、Agent 或 extension tool。可信 system prompt 与 frozen patch、仓库文本、需求文档、focus、finding 和仿 marker 文本严格分离；后者始终是不可信数据。格式修复 agent 更严格：builtin tool 列表为空，extension/skill 关闭，也不会收到 frozen-input 路径或评审任务。
+
+Route child session 默认只在内存中运行，不受 Subagents 普通 agent 默认值影响。用户级 `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/config.json` 可设置 `{ "persistRouteSessions": true }`；默认路径为 `~/.pi/agent/extension-data/pi-adversarial-review/config.json`。项目配置不能开启这项隐私/存储行为。文件缺失等价于 `false`；JSON 错误、未知字段或非 boolean 值会让命令失败。开启后，reviewer、refuter 与格式修复都使用标准、带父会话关联的 Pi session；external/embedded backend 的已结束 child 都会出现在 `/agents`，audit 还会记录 runtime 拥有的 session 路径。
 
 Caller-owned delivery 只改变 terminal result 的接收者。选中 external backend 时，queue、stop、history、FleetView 和 terminal lifecycle 仍由 Subagents 管理。Runtime 只有确认 terminal event 中 requested/effective 的 provider、model、thinking 与所选 route 完全一致后，才接受报告。
 
@@ -89,7 +91,7 @@ TUI setup 要求从 `ctx.scopedModels` 选择 2–8 条精确 reviewer route。�
 
 系统不会按 route 分工，也不会暗中分配不同 focus。任何 reviewer 都不能假设其他 route 会覆盖某个方向。所选 route 可以使用不同模型或 thinking level，但评审范围与证据完全相同；只有每路完整评审结束后才进行聚类和计票，因此 agreement 表示独立交叉印证，而不是协作式专门化。
 
-若初次结果为 `invalid-output` 且 raw text 完整、未截断，系统会使用同一 model/thinking route 自动执行恰好一次格式修复。这不是第二轮评审：修复 prompt 只含 parser error 和 JSON 编码的原始输出，使用单独的无工具角色，不包含 frozen target 或 charter。Host 只有在原始文本已经含有恰好一个完整、通过 schema 的 ReviewReport，且 retry 解析后与其 normalized report 完全一致时才接受。源缺失/截断、存在两个候选 report、凭空生成、删 finding 或任何语义值改变都会 fail-closed，且绝不触发第三次尝试。
+初次结果为 `invalid-output` 后，Host 会先在本地检查，不调用模型。只有完整、未截断，并且已经包含恰好一个完整、通过 schema 的 ReviewReport 的 raw text，才会使用同一 model/thinking route 自动执行一次格式修复。这不是第二轮评审：修复 prompt 只含 parser error 和 JSON 编码的原始输出，使用单独的无工具角色，不包含 frozen target 或 charter；retry 还必须与已证明的 normalized report 完全一致。源缺失/截断、零个或多个有效 report、凭空生成、删 finding 或任何语义值改变都会 fail-closed；源预检失败不消耗修复 turn，且任何 route 都绝不触发第三次尝试。
 
 Requirement 只是产品 contract 证据，`--focus` 会向每个 reviewer 增加同一份共享关注。二者都不能覆盖 charter、压制其他 material finding，也不能把仓库中的指令提升为可信 policy。
 
@@ -200,7 +202,7 @@ External shutdown 会跳过确认。无论哪种路径，UI ACK 都不是 termin
 
 ## 报告与 parser contract
 
-每次 reviewer/refuter 尝试都会保留，包括 provider error、timeout、cancel 与 invalid output。Reviewer 通常必须返回一个裸 JSON object，首尾非空白字符分别为 `{` 与 `}`。执行格式修复时，该 route 会同时保留原始 invalid attempt 与 retry terminal record；顶层 route duration/usage 为两次尝试之和。
+每次 reviewer/refuter 尝试都会保留，包括 provider error、timeout、cancel 与 invalid output。Reviewer 通常必须返回一个裸 JSON object，首尾非空白字符分别为 `{` 与 `}`。执行格式修复时，该 route 会同时保留原始 invalid attempt 与 retry terminal record；顶层 route duration/usage 为两次尝试之和。开启 route-session 持久化后，每次 attempt 还会记录 runtime 拥有的 child-session 路径。
 
 作为最窄的 provider robustness fallback，reviewer parser 也接受“前置说明 + 恰好一个 `json` fence，且 closing fence 位于输出末尾”。提取出的唯一 balanced object 仍走原有 schema 与语义校验。额外 object、非 JSON fence、截断输出和 closing fence 后文本在初次尝试中仍然无效。独立的自动格式修复路径只能移除这些 framing：host 会从原始文本独立提取完整 balanced object，要求其中恰好一个已经通过完整 ReviewReport contract，并把 normalized retry 与它做精确相等比较。
 
@@ -211,9 +213,9 @@ Merged report 会记录：
 - preflight 是 explicit、inferred 还是 interactive；
 - branch、remote、尝试/成功 fetch、fetch state、ahead/behind 与 input size；
 - target/frozen-input fingerprint 与 limited-context marker；
-- requested independent routes、backend/fallback reason、concurrency、waves、格式修复次数与实际 limits；
-- 每次 reviewer/refuter 的 terminal status、usage、duration、`turnLimited`、parsed result、raw output 或 error；
-- 每次格式修复的 original/retry terminal audit 数据，包括失败修复；
+- requested independent routes、backend/fallback reason、concurrency、waves、route-session policy、格式修复次数与实际 limits；
+- 每次 reviewer/refuter 的 terminal status、usage、duration、`turnLimited`、可选持久 session 路径、parsed result、raw output 或 error；
+- 每次格式修复的 original/retry terminal audit 数据与可选 session 路径，包括失败修复；
 - blocking、advisory 与 contested 证据；
 - `candidate-approve`、`needs-adjudication`、`inconclusive`、`stale`、`cancelled` 或 `failed` overall state。
 

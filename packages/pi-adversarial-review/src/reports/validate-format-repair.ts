@@ -60,25 +60,43 @@ function reportsAlreadyPresent(source: string): ReviewReport[] {
 }
 
 /**
- * Accept a retry only when it is semantically identical to the one complete,
- * schema-valid ReviewReport already embedded in the original output. This makes
- * the model a formatter rather than a second reviewer.
+ * Prove before spending another model call that the invalid output is only a
+ * framing candidate: exactly one complete, schema-valid report already exists.
  */
-export function parseAndValidateFormatRepair(
-  originalRawOutput: string,
-  repairedRawOutput: string,
-): ReviewReport {
-  const repaired = parseReviewReport(repairedRawOutput);
+export function parseFormatRepairSource(originalRawOutput: string): ReviewReport {
   const sourceReports = reportsAlreadyPresent(originalRawOutput);
   if (sourceReports.length !== 1) {
     throw new InvalidReviewOutputError(
       `Format repair source must contain exactly one complete ReviewReport JSON object; found ${sourceReports.length}.`,
     );
   }
-  if (JSON.stringify(repaired) !== JSON.stringify(sourceReports[0])) {
+  return sourceReports[0]!;
+}
+
+/** Accept only a direct re-emission of the already-proven source report. */
+export function parseAndValidateFormatRepairAgainstSource(
+  sourceReport: ReviewReport,
+  repairedRawOutput: string,
+): ReviewReport {
+  const repaired = parseReviewReport(repairedRawOutput);
+  if (JSON.stringify(repaired) !== JSON.stringify(sourceReport)) {
     throw new InvalidReviewOutputError(
       "Format repair changed ReviewReport semantics instead of only repairing framing.",
     );
   }
   return repaired;
+}
+
+/**
+ * Convenience contract for callers that do not need to retain the preflight
+ * result. Runtime orchestration uses the two-stage API to avoid futile retries.
+ */
+export function parseAndValidateFormatRepair(
+  originalRawOutput: string,
+  repairedRawOutput: string,
+): ReviewReport {
+  return parseAndValidateFormatRepairAgainstSource(
+    parseFormatRepairSource(originalRawOutput),
+    repairedRawOutput,
+  );
 }

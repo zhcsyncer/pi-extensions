@@ -75,7 +75,7 @@ See the [command reference](./REFERENCE.md#command-options) for requirements, fo
 
 1. **Preflight** proves the Git target and records its branch/ref/fetch decision.
 2. **Freeze** captures one deterministic bounded input; every route reads the same evidence.
-3. **Review** runs isolated read-only agents. Every reviewer receives the same trusted charter, frozen evidence, and complete assignment, then independently performs a full adversarial review. An `invalid-output` route with complete untruncated raw output gets exactly one same-route, tool-free format-repair attempt before convergence.
+3. **Review** runs isolated read-only agents. Every reviewer receives the same trusted charter, frozen evidence, and complete assignment, then independently performs a full adversarial review. Before spending a repair call, the host proves that a complete, untruncated `invalid-output` already contains exactly one schema-valid ReviewReport; only then does that route get one same-model/same-thinking, tool-free format-repair attempt.
 4. **Converge** validates JSON, conservatively clusters independently produced findings, and applies `weighted` or `strict` gating. A repaired report counts only when host-side validation proves it is identical to the one complete ReviewReport already present in the original output.
 5. **Refute** optionally gives each blocking cluster to a fresh isolated session. Counter-evidence can mark a finding contested but never delete or downgrade it.
 6. **Adjudicate** persists a non-cancelled report and asks the current main model/user to verify blocking findings against actual code. The extension never claims final approval.
@@ -95,7 +95,19 @@ During a run:
 - a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
 - the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
 
-Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. A format-repair session receives only the original raw output and parser error, has no tools, extensions, skills, frozen-input path, or review assignment, and is capped at 3 turns plus 2 wrap-up turns. It may remove framing only; if the source lacks exactly one complete valid ReviewReport, or changes any semantic value, the route remains invalid. Those low-level calls and repair details are intentionally not duplicated in the Review status card.
+Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. A format-repair session receives only the original raw output and parser error, has no tools, extensions, skills, frozen-input path, or review assignment, and is capped at 3 turns plus 2 wrap-up turns. It may remove framing only; if the source lacks exactly one complete valid ReviewReport, the host never starts repair, and any semantic change in a retry leaves the route invalid. Those low-level calls and repair details are intentionally not duplicated in the Review status card.
+
+### Optional route session persistence
+
+Reviewer, refuter, and format-repair child sessions stay in memory by default, even when ordinary Subagents are configured to persist. To retain their full parent-linked Pi conversations, create the user-owned config at `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/config.json` (default `~/.pi/agent/extension-data/pi-adversarial-review/config.json`):
+
+```json
+{
+  "persistRouteSessions": true
+}
+```
+
+When enabled, external and embedded backends record each child session path in the route audit and add finished children to `/agents`; when disabled or the file is absent, no route child session is written. Invalid or unknown config values fail the command loudly. Dispatch/result entries and the non-TUI standalone audit keep their existing persistence behavior independently of this setting.
 
 Escape during freeze/review/refute opens a confirmation UI while work continues. **Continue review** is selected by default; only **Confirm cancellation** aborts the run. The editor card remains until runtime termination and frozen-workspace cleanup have actually completed, then the normal editor returns. Preflight and picker Escape remain immediate cancellation actions.
 
@@ -110,7 +122,7 @@ A run ends as one of:
 
 `refuted=true` means the refuter supplied a supported challenge. It creates a `contested` record; the blocking finding remains until the main model or user decides it against the code. A cancelled partial report is retained for audit but never triggers an automatic main-model turn.
 
-Reports retain every independent route outcome, validated findings, failed/invalid attempts, both sides of any format-repair attempt, runtime backend, gate inputs, Refute results, and target fingerprints. Missing or 64 KiB-truncated raw output is not sent for repair. Repair shares the original overall deadline and gets at most two minutes per route. Non-TUI runs also write private standalone audits under `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/` (default `~/.pi/agent/extension-data/pi-adversarial-review/audit/`).
+Reports retain every independent route outcome, validated findings, failed/invalid attempts, both sides of any format-repair attempt, optional child-session paths, runtime backend, gate inputs, Refute results, and target fingerprints. Missing, 64 KiB-truncated, zero-report, or ambiguous multi-report raw output is rejected before any repair model call. Repair shares the original overall deadline and gets at most two minutes per route. Non-TUI runs also write private standalone audits under `$PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/` (default `~/.pi/agent/extension-data/pi-adversarial-review/audit/`).
 
 ## Safety boundary
 

@@ -57,6 +57,7 @@ describe("review dispatch transcript", () => {
       refuterRoute: route(2),
       gating: "weighted",
       capabilities: { protocolVersion: 3, backend: "external-v3", maxConcurrent: 4 },
+      persistRouteSessions: true,
       startedAt: new Date("2026-01-01T00:00:00.000Z"),
     });
 
@@ -66,7 +67,7 @@ describe("review dispatch transcript", () => {
       input: { bytes: 61_440, lines: 824, files: 2 },
       requestedRoutes: [{ key: "provider-0/model-0@high" }, { key: "provider-1/model-1@high" }],
       refuterRoute: { key: "provider-2/model-2@high" },
-      runtime: { backend: "external-v3", maxConcurrent: 4 },
+      runtime: { backend: "external-v3", maxConcurrent: 4, persistRouteSessions: true },
     });
     expect(JSON.stringify(entry)).not.toContain('"model":');
     expect(JSON.stringify(entry)).not.toContain("secret");
@@ -91,7 +92,7 @@ describe("review dispatch transcript", () => {
     expect(collapsed).toContain("Target · base origin/main ... HEAD plus local changes");
     expect(collapsed).toContain("Ctrl+O details");
     expect(expanded).toContain("Input · 60.0 KiB · 824 lines · 2 files");
-    expect(expanded).toContain("Runtime · embedded · max concurrent 2");
+    expect(expanded).toContain("Runtime · embedded · max concurrent 2 · route sessions memory-only");
     expect(expanded).toContain("provider-0/model-0@high");
     expect(expanded).toContain("Refute · disabled");
   });

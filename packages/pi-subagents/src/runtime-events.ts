@@ -33,6 +33,7 @@ export function buildAgentEventData(record: AgentRecord) {
     toolUses: record.toolUses,
     durationMs,
     tokens,
+    ...(record.sessionFile ? { sessionFile: record.sessionFile } : {}),
     ...buildCorrelatedEventData(record),
   };
 }

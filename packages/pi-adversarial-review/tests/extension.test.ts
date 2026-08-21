@@ -276,16 +276,19 @@ describe("adversarial review extension", () => {
     const root = await changedRepo();
     const fake = new FakePi();
     const order: string[] = [];
+    const persistedSpawnPolicies: boolean[] = [];
     let nextAgent = 0;
     fake.eventResponder = (event, data) => {
       if (event !== "subagents:rpc:spawn") return;
       order.push("spawn");
+      persistedSpawnPolicies.push(data.options.inlineAgentConfig.persistSession);
       const agentId = `preflight-agent-${nextAgent++}`;
       fake.events.emit("subagents:completed", {
         id: agentId,
         correlationId: data.options.correlationId,
         status: "completed",
         result: JSON.stringify({ verdict: "approve", summary: "clean", findings: [] }),
+        sessionFile: `/sessions/${agentId}.jsonl`,
       });
       fake.events.emit(`${event}:reply:${data.requestId}`, {
         success: true,
@@ -293,6 +296,7 @@ describe("adversarial review extension", () => {
       });
     };
     adversarialReviewExtension(fake.api(), {
+      loadConfig: () => ({ persistRouteSessions: true }),
       resolvePreflight: async ({ target }) => {
         order.push("preflight");
         return {
@@ -344,10 +348,20 @@ describe("adversarial review extension", () => {
     expect(order[0]).toBe("preflight");
     expect(order.indexOf("runtime")).toBeGreaterThan(order.indexOf("preflight"));
     expect(order.indexOf("spawn")).toBeGreaterThan(order.indexOf("runtime"));
+    expect(persistedSpawnPolicies).toEqual([true, true]);
     expect(notifications[0]).toEqual({
       message: "Adversarial review target: inferred feature branch.",
       type: "info",
     });
+    expect(fake.entry("adversarial-review-dispatch")?.data.runtime)
+      .toMatchObject({ persistRouteSessions: true });
+    expect(fake.entry("adversarial-review-result")?.data.runtime)
+      .toMatchObject({ persistRouteSessions: true });
+    expect(fake.entry("adversarial-review-result")?.data.routeResults)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ sessionFile: "/sessions/preflight-agent-0.jsonl" }),
+        expect.objectContaining({ sessionFile: "/sessions/preflight-agent-1.jsonl" }),
+      ]));
     expect(fake.entry("adversarial-review-result")?.data.target.preflight).toEqual({
       selection: "inferred",
       fetchStatus: "succeeded",

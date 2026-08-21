@@ -141,6 +141,7 @@ describe("merged report output", () => {
         ...report().runtime,
         waves: 2,
         formatRepairAttempts: 1,
+        persistRouteSessions: true,
       },
       routeResults: [{
         route: reviewer,
@@ -154,12 +155,14 @@ describe("merged report output", () => {
             status: "invalid-output",
             rawOutput: "prose then JSON",
             error: "trailing commentary",
+            sessionFile: "/sessions/reviewer.jsonl",
             durationMs: 100,
             usage: { total: 30 },
           },
           retry: {
             status: "completed",
             rawOutput: '{"verdict":"approve","summary":"clean","findings":[]}',
+            sessionFile: "/sessions/repair.jsonl",
             durationMs: 20,
             usage: { total: 5 },
           },
@@ -168,13 +171,15 @@ describe("merged report output", () => {
     });
 
     const text = buildMergedReportText(repaired);
-    expect(text).toContain("waves: 2 · format repairs: 1");
+    expect(text).toContain("waves: 2 · format repairs: 1 · route sessions: persisted");
     expect(text).toContain("valid after format repair · approve");
+    expect(text).toContain("original session: /sessions/reviewer.jsonl");
+    expect(text).toContain("repair session: /sessions/repair.jsonl");
     const serialized = serializeMergedReviewReport(repaired);
     expect(serialized.routeResults[0].formatRepair).toMatchObject({
       attempted: true,
-      original: { status: "invalid-output" },
-      retry: { status: "completed" },
+      original: { status: "invalid-output", sessionFile: "/sessions/reviewer.jsonl" },
+      retry: { status: "completed", sessionFile: "/sessions/repair.jsonl" },
     });
     expect(serialized.routeResults[0].route).not.toHaveProperty("model");
   });

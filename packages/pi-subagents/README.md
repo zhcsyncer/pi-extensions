@@ -44,14 +44,14 @@ Upstream remains the source of truth for ordinary Agent behavior — start from 
 
 ### Cross-extension spawn protocol v3
 
-“RPC” here is an in-process call between Pi extensions over `pi.events`, not a network service. The existing `subagents:rpc:spawn` request accepts three additional optional fields:
+“RPC” here is an in-process call between Pi extensions over `pi.events`, not a network service. The existing `subagents:rpc:spawn` request accepts four additional optional fields:
 
 - `inlineAgentConfig`: use the supplied role prompt/tools without named-agent discovery or fallback;
 - `completionOwner: "caller"`: keep queue, stop, FleetView, lifecycle events, and history, but suppress the per-agent parent-conversation nudge;
 - `correlationId`: echo an orchestrator-owned route key in started/terminal events;
 - `graceTurns`: optional wrap-up turns after the soft max-turn steer; omit to keep the global five-turn default.
 
-Caller-owned completion requires `isBackground: true` and a non-empty `correlationId`. `subagents:rpc:ping` returns protocol version `3` plus `maxConcurrent`; correlated terminal events include requested/effective model and thinking. Omitting all new fields preserves the historical named-agent and notification path.
+Caller-owned completion requires `isBackground: true` and a non-empty `correlationId`. `subagents:rpc:ping` returns protocol version `3` plus `maxConcurrent`; correlated terminal events include requested/effective model and thinking, plus `sessionFile` when the inline role enabled session persistence. Omitting all new fields preserves the historical named-agent and notification path.
 
 ### Foreground vs background contract
 
@@ -69,7 +69,7 @@ Dependent packages that need the same execution semantics without activating thi
 
 ### Persisted sessions and repository worktrees
 
-Subagents now use `SessionManager.create` by default. The child header records the current main-session file as `parentSession`, so ordinary same-directory runs appear beneath their spawner in Pi's `/resume` and can be opened there with their complete conversation. `/agents` also shows **Finished agents in this session** by name and status: a retained live record uses the existing brief ConversationViewer; after that record is evicted, the same read-only overlay opens the persisted session file.
+Subagents now use `SessionManager.create` by default. The child header records the current main-session file as `parentSession`, so ordinary same-directory runs appear beneath their spawner in Pi's `/resume` and can be opened there with their complete conversation. `/agents` also shows **Finished agents in this session** by name and status: a retained live record uses the existing brief ConversationViewer; after that record is evicted, the same read-only overlay opens the persisted session file. Caller-owned runs use the same archive contract: the external extension path and the side-effect-free embedded runtime both append the finished parent record, while terminal lifecycle data exposes the child session path to the orchestrator.
 
 Set `persist_session: false` on an agent file for a per-agent ephemeral run, or set `rememberAgents: false` in `/agents → Settings` / project config to restore memory-only behavior by default. Explicit `persist_session: true` still overrides that setting.
 

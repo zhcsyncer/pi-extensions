@@ -156,6 +156,7 @@ export class EmbeddedReviewRuntime implements ReviewSubagentRuntime {
         ...(event.error !== undefined ? { error: event.error } : {}),
         durationMs: event.durationMs,
         ...(event.tokens ? { usage: event.tokens } : {}),
+        ...(event.sessionFile ? { sessionFile: event.sessionFile } : {}),
         ...(event.requestedModel ? { requestedModel: event.requestedModel } : {}),
         ...(event.requestedThinkingLevel
           ? { requestedThinking: event.requestedThinkingLevel }

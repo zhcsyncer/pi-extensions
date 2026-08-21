@@ -106,7 +106,9 @@ describe("EmbeddedReviewRuntime", () => {
       maxConcurrent: 3,
       backend: "embedded",
     });
-    await expect(runtime.spawn(spawnInput("refuter"))).resolves.toEqual({
+    const refuterInput = spawnInput("refuter");
+    refuterInput.persistSession = true;
+    await expect(runtime.spawn(refuterInput)).resolves.toEqual({
       agentId: "embedded-agent",
     });
 
@@ -126,7 +128,7 @@ describe("EmbeddedReviewRuntime", () => {
         skills: false,
         systemPrompt: "refuter system prompt",
         promptMode: "replace",
-        persistSession: false,
+        persistSession: true,
       },
     }));
 
@@ -246,6 +248,7 @@ describe("EmbeddedReviewRuntime", () => {
       result: "{}",
       durationMs: 12,
       tokens: { input: 1, output: 2, total: 3 },
+      sessionFile: "/sessions/a1.jsonl",
       requestedModel: { provider: "provider", modelId: "model" },
       requestedThinkingLevel: "off",
       effectiveModel: { provider: "provider", modelId: "model" },
@@ -262,6 +265,7 @@ describe("EmbeddedReviewRuntime", () => {
       status: "completed",
       result: "{}",
       usage: { input: 1, output: 2, total: 3 },
+      sessionFile: "/sessions/a1.jsonl",
       requestedThinking: "off",
       effectiveThinking: "off",
     }));

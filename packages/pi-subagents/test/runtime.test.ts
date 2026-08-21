@@ -62,6 +62,7 @@ describe("CallerOwnedAgentRuntime", () => {
     const session = {
       model: { provider: "provider", id: "model" },
       thinkingLevel: "high",
+      sessionManager: { getSessionFile: () => "/sessions/reviewer.jsonl" },
       dispose: vi.fn(),
     } as any;
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options: any) => {
@@ -77,6 +78,7 @@ describe("CallerOwnedAgentRuntime", () => {
     const pi = {
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
+      appendEntry: vi.fn(),
       sendMessage: vi.fn(),
     } as any;
     const runtime = new CallerOwnedAgentRuntime({
@@ -89,7 +91,9 @@ describe("CallerOwnedAgentRuntime", () => {
     runtime.onStarted(started);
     runtime.onTerminal(terminal);
 
-    const { id } = runtime.spawn(spawnInput());
+    const input = spawnInput();
+    input.inlineAgentConfig = { ...input.inlineAgentConfig, persistSession: true };
+    const { id } = runtime.spawn(input);
     await flush();
 
     expect(runtime.getCapabilities()).toEqual({ maxConcurrent: 2 });
@@ -105,6 +109,7 @@ describe("CallerOwnedAgentRuntime", () => {
       status: "completed",
       result: "review-json",
       tokens: { input: 3, output: 5, total: 15 },
+      sessionFile: "/sessions/reviewer.jsonl",
       effectiveModel: { provider: "provider", modelId: "model" },
       effectiveThinkingLevel: "high",
     }));
@@ -116,6 +121,14 @@ describe("CallerOwnedAgentRuntime", () => {
     );
     expect(pi.registerTool).not.toHaveBeenCalled();
     expect(pi.registerCommand).not.toHaveBeenCalled();
+    expect(pi.appendEntry).toHaveBeenCalledWith(
+      "subagents:record",
+      expect.objectContaining({
+        id,
+        sessionFile: "/sessions/reviewer.jsonl",
+        correlationId: "run:reviewer:0",
+      }),
+    );
     expect(pi.sendMessage).not.toHaveBeenCalled();
 
     await runtime.dispose();
