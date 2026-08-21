@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-herdr-companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A focused Pi companion for Herdr runtime context, managed processes, /btw side threads, and blocked-state adapters.",
   "keywords": [
     "pi-package",
