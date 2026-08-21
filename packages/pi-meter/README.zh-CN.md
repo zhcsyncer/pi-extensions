@@ -29,12 +29,12 @@
 
   ![Meter 底栏](./assets/demo-meter-status.png)
 
-- 按模型、项目或 session 看本地看板。
+- 按模型、项目或 session 看本地看板，含 cache write。
 - `/login` 对应账号后，可看 Claude、Codex、SuperGrok、Ollama Cloud 剩余。
 - `/usage quota` 打开临时看板。未登录的提供商收在底部一条淡提示。当前模型没有窗口、没登录或这次没拉到时，底栏只给短提示，不会画别家额度。
 - 其他扩展可以登记配额源。底栏仍然只跟当前模型走。
 - 可选本地 budget。只会提醒，从不拦请求。
-- 可选、一次性从旧 session 文件回填。
+- 可选从旧 session 文件回填。可重复执行：已经记过的回合不会再计一次。
 
   ![套餐看板](./assets/demo-quota-dashboard.png)
 
@@ -70,7 +70,7 @@ pi -e npm:@zhcsyncer/pi-meter
 | `/usage quota` | 打开 Claude、Codex、SuperGrok、Ollama Cloud 的剩余额度与重置时间看板 |
 | `/usage quota refresh` | 刷新订阅窗口并打开看板 |
 | `/usage footer` | 配置本地摘要、滚动/日历窗口、配额显示开关以及已用/剩余模式 |
-| `/usage import` | 从 session 文件回填 |
+| `/usage import` | 从 session 文件回填，不会把已捕获的回合再记一遍 |
 | `/usage budget` | 查看或添加本地 budget |
 
 ## 许可证
