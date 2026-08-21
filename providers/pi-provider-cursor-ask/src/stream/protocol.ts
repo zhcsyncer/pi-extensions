@@ -23,7 +23,7 @@ export function formatProtocolMismatchHint(message: string): string {
   return (
     `${message} ` +
     `[protocol-hint: Cursor wire may have drifted. ` +
-    `clientVersion=${version}. Try bumping PI_CURSOR_CLIENT_VERSION or re-run /cursor doctor.]`
+    `clientVersion=${version}. Try bumping PI_CURSOR_CLIENT_VERSION or re-run /cursor.doctor.]`
   );
 }
 
@@ -44,7 +44,7 @@ export function appendDriftDiagnostic(message: string): string {
     `${message} ` +
     `[wire-drift: ${severity}. Observed: ${summary}. ` +
     `Regenerate the schema (see proto/README.md) or bump PI_CURSOR_CLIENT_VERSION; ` +
-    `/cursor doctor shows the full list.]`
+    `/cursor.doctor shows the full list.]`
   );
 }
 
@@ -53,7 +53,7 @@ export function enhanceCursorStreamError(message: string): string {
     return (
       `${message} ` +
       `[auth-hint: token may be expired. Idle stream retries force-refresh credentials; ` +
-      `if this persists run /login cursor or check /cursor doctor tokenSource.]`
+      `if this persists run /login cursor or check /cursor.doctor tokenSource.]`
     );
   }
   if (isProtocolMismatchMessage(message)) {

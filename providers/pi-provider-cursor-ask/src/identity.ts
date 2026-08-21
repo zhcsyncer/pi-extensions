@@ -5,12 +5,10 @@
 export const CURSOR_ASK_IDENTITY = {
   packageName: "pi-provider-cursor-ask",
   providerId: "cursor",
-  nativeApi: "cursor-ask-native",
+  nativeApi: "cursor-native",
   apiSource: "pi-provider-cursor-ask",
   displayName: "Cursor Ask",
   commandName: "cursor",
-  cacheEnvironmentVariable: "PI_CURSOR_ASK_CACHE_DIR",
-  cacheDirectoryName: "pi-cursor-ask",
 } as const;
 
 export const CURSOR_ASK_LOGIN_COMMAND = `/login ${CURSOR_ASK_IDENTITY.providerId}`;

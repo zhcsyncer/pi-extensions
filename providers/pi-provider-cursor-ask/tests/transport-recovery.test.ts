@@ -34,6 +34,17 @@ import {
 } from "../src/stream/run-journal.js";
 import { resetCacheDirForTests } from "../src/utils/cache-dir.js";
 import type { StoredConversation } from "../src/stream/types.js";
+import {
+  cleanupSessionState,
+  conversationStates,
+  deriveConversationKeyFromSessionId,
+} from "../src/stream/session-state.js";
+import {
+  parkIdleBridge,
+  setBridgeFactoryForTests,
+  startBridge,
+  destroyAllIdleBridges,
+} from "../src/stream/bridge-session.js";
 
 describe("transport loss recovery policy", () => {
   it("allows blind restart only when nothing was streamed", () => {
@@ -113,7 +124,7 @@ describe("durable run journal", () => {
 
   afterEach(() => {
     resetCacheDirForTests();
-    delete process.env.PI_CURSOR_ASK_CACHE_DIR;
+    delete process.env.PI_CURSOR_CACHE_DIR;
     if (dir) {
       try {
         rmSync(dir, { recursive: true, force: true });
@@ -157,8 +168,8 @@ describe("durable run journal", () => {
   });
 
   it("persists and reloads from disk", () => {
-    dir = mkdtempSync(join(tmpdir(), "pi-cursor-ask-journal-"));
-    process.env.PI_CURSOR_ASK_CACHE_DIR = dir;
+    dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
+    process.env.PI_CURSOR_CACHE_DIR = dir;
     resetCacheDirForTests();
 
     const ok = writeConversationJournal("ck-disk-1", stored());
@@ -174,8 +185,8 @@ describe("durable run journal", () => {
   });
 
   it("rejects oversized journal files before reading them", () => {
-    dir = mkdtempSync(join(tmpdir(), "pi-cursor-ask-journal-"));
-    process.env.PI_CURSOR_ASK_CACHE_DIR = dir;
+    dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
+    process.env.PI_CURSOR_CACHE_DIR = dir;
     resetCacheDirForTests();
     const journalDir = join(dir, "run-journal");
     mkdirSync(journalDir, { mode: 0o700 });
@@ -184,6 +195,25 @@ describe("durable run journal", () => {
     truncateSync(journalPath, journalInternals.MAX_JOURNAL_FILE_BYTES + 1);
 
     expect(readConversationJournal("oversized")).toBeUndefined();
+  });
+
+  it("keeps the journal when a session is switched away", () => {
+    dir = mkdtempSync(join(tmpdir(), "pi-cursor-journal-"));
+    process.env.PI_CURSOR_CACHE_DIR = dir;
+    resetCacheDirForTests();
+
+    const sessionId = "session-keep-journal";
+    const convKey = deriveConversationKeyFromSessionId(sessionId);
+    const snap = stored();
+    snap.sessionId = sessionId;
+    expect(writeConversationJournal(convKey, snap)).toBe(true);
+    conversationStates.set(convKey, snap);
+
+    cleanupSessionState(sessionId);
+
+    expect(conversationStates.has(convKey)).toBe(false);
+    const loaded = readConversationJournal(convKey);
+    expect(loaded?.conversationId).toBe("conv-journal-1");
   });
 });
 
@@ -398,5 +428,41 @@ describe("completed-turn connection close", () => {
     clearInterval(heartbeatTimer);
 
     expect(calls).toEqual(["done:stop"]);
+  });
+});
+
+describe("idle HTTP/2 bridge reuse", () => {
+  afterEach(() => {
+    destroyAllIdleBridges();
+    setBridgeFactoryForTests();
+  });
+
+  it("reopens a parked persistent bridge instead of spawning a new process", () => {
+    const spawned: string[] = [];
+    const opens: string[] = [];
+    const handle = {
+      proc: { kill: () => true },
+      alive: true,
+      lastStderr: () => "",
+      write: () => {},
+      end: () => {},
+      onData: () => {},
+      onClose: () => {},
+      openStream: (token: string) => {
+        opens.push(token);
+      },
+    };
+    setBridgeFactoryForTests(() => {
+      spawned.push("spawn");
+      return handle;
+    });
+
+    parkIdleBridge("bk-reuse", handle);
+    const started = startBridge("tok-2", new Uint8Array([1, 2, 3]), { bridgeKey: "bk-reuse" });
+    clearInterval(started.heartbeatTimer);
+
+    expect(spawned).toEqual([]);
+    expect(opens).toEqual(["tok-2"]);
+    expect(started.bridge).toBe(handle);
   });
 });

@@ -83,30 +83,41 @@ import {
   buildCursorRequest,
   buildMcpSuccessContent,
   buildMcpToolDefinitions,
+  isIdentityConversationalTurn,
   isTrivialConversationalTurn,
   normalizeToolResultForTransport,
   summarizeRequestSize,
 } from "./request-build.js";
 export {
   buildCursorRequest,
+  isIdentityConversationalTurn,
   isSlimToolsEnabled,
   isTrivialConversationalTurn,
   slimOpenAIToolsForCursor,
   summarizeRequestSize,
   type BuildCursorRequestOptions,
 } from "./request-build.js";
+import { hashSystemPrompt } from "./root-prompt.js";
+export {
+  buildRootPromptMessages,
+  hashSystemPrompt,
+  isPromptHistoryEnabled,
+  turnRootMessages,
+} from "./root-prompt.js";
 import {
   appendAssistantTextToTurn,
   getTurnToolCallResults,
   parseMessages,
   parseToolCallArguments,
   stripInFlightResults,
+  systemPromptHasSessionMemory,
 } from "./message-parsing.js";
 export {
   frameContextModeSideChannel,
   isContextModeSideChannelText,
   normalizeMessagesForCursor,
   parseMessages,
+  systemPromptHasSessionMemory,
 } from "./message-parsing.js";
 export {
   callCursorUnaryRpc,
@@ -121,6 +132,7 @@ export { readCachedCatalog, writeCachedCatalog } from "./model-cache.js";
 import {
   activeBridges,
   cleanupBridge,
+  parkIdleBridge,
   removeActiveBridge,
   setActiveBridge,
   startBridge,
@@ -179,9 +191,11 @@ import {
   type CursorResolvableModel as ExtractedCursorResolvableModel,
   type ResolvedCursorModelRouting as ExtractedResolvedCursorModelRouting,
 } from "./model-routing.js";
+import { liveTranscript, withSyntheticCurrentTurn } from "./client-transcript.js";
 import {
   planRecovery as planRecoveryImpl,
   wrapRecoveredToolResults as wrapRecoveredToolResultsImpl,
+  collapseToolResultsById as collapseToolResultsByIdImpl,
   lostToolContinuationErrorBody as lostToolContinuationErrorBodyImpl,
   formatLostToolContinuationDiagnostic as formatLostToolContinuationDiagnosticImpl,
   lostToolContinuationMessage as lostToolContinuationMessageImpl,
@@ -210,6 +224,7 @@ import type {
   ActiveBridge,
   ChatCompletionRequest,
   CheckpointRef,
+  ClientTranscript,
   CursorNativeStreamConfig,
   CursorNativeStreamOptions,
   IdleRestartContext,
@@ -305,7 +320,9 @@ export function wrapRecoveredToolResults(
 }
 
 function collectToolResultImages(toolResults: ToolResultInfo[]): ParsedImageContent[] {
-  return toolResults.flatMap((result) => (result.images ?? []).map(cloneParsedImage));
+  return collapseToolResultsByIdImpl(toolResults).flatMap((result) =>
+    (result.images ?? []).map(cloneParsedImage),
+  );
 }
 
 function toolResultsContainRecoverySentinel(
@@ -455,16 +472,36 @@ async function handleCursorNativeRequest(
     userImages.length === 0 &&
     isTrivialConversationalTurn(userText);
   const selectedTools = omitToolsForTrivialTurn ? [] : toolResolution.tools;
-  // Greetings and capability questions do not need Pi's large agent prompt:
-  // sending it can cost tens of thousands of input tokens before the user text
-  // is even considered. Keep the full prompt for anything actionable.
-  const effectiveSystemPrompt = omitToolsForTrivialTurn ? "" : systemPrompt;
+  // Greetings do not need Pi's large agent prompt: sending it can cost tens of
+  // thousands of input tokens before the user text is even considered. Keep the
+  // full prompt for anything actionable, for identity/capability questions the
+  // prompt itself answers, and whenever it carries folded session/compaction
+  // memory.
+  const PI_MCP_TOOLS_ONLY =
+    "You are running inside Pi, not the Cursor IDE. " +
+    "Cursor-native tools (read, write, ls, grep, shell, fetch, delete) are not available. " +
+    "Use only the MCP tools listed in this request. " +
+    "Do not re-list the workspace or re-read files to recover context unless the latest user message asks you to.";
+  // Even a dropped prompt leaves this much behind: without it the model answers
+  // a greeting as Cursor's IDE assistant.
+  const PI_IDENTITY_ONLY = "You are running inside Pi, not the Cursor IDE.";
+  const dropSystemPrompt =
+    omitToolsForTrivialTurn &&
+    !isIdentityConversationalTurn(userText) &&
+    !systemPromptHasSessionMemory(systemPrompt);
+  let effectiveSystemPrompt = dropSystemPrompt ? PI_IDENTITY_ONLY : systemPrompt;
+  if (selectedTools.length > 0) {
+    effectiveSystemPrompt = effectiveSystemPrompt
+      ? `${effectiveSystemPrompt}\n\n${PI_MCP_TOOLS_ONLY}`
+      : PI_MCP_TOOLS_ONLY;
+  }
   if (omitToolsForTrivialTurn) {
     setLastStreamEvent("tools_omitted_trivial_turn");
     lifecycleLog("tools_omitted", {
       requestId,
       reason: "trivial_conversational_turn",
       originalToolCount: toolResolution.tools.length,
+      systemPromptDropped: dropSystemPrompt,
     });
   }
   const modelId = resolveRequestedModelId(body.model, body.reasoning_effort, body.cursor_model_id);
@@ -543,6 +580,7 @@ async function handleCursorNativeRequest(
             convKey,
             sessionId,
             completedTurns: turns,
+            inFlightTurn,
             maxMode,
             cursorModelParameters: body.cursor_model_parameters ?? [],
             getAccessToken,
@@ -732,19 +770,26 @@ async function handleCursorNativeRequest(
   const mcpTools = buildMcpToolDefinitions(selectedTools);
   const effectiveUserText = userText;
   const effectiveUserImages = userText || userImages.length > 0 ? userImages : [];
-  const payload = buildCursorRequest(
+  // Pi rewrites its system prompt as a session evolves (context-mode folds
+  // session memory into it). A checkpoint carries the prompt recorded when the
+  // conversation started, so a changed prompt has to be re-published.
+  const systemPromptHash = hashSystemPrompt(effectiveSystemPrompt);
+  const refreshSystemPrompt = !!stored.checkpoint && stored.systemPromptHash !== systemPromptHash;
+  const payload = buildCursorRequest({
     modelId,
-    effectiveSystemPrompt,
-    effectiveUserText,
+    systemPrompt: effectiveSystemPrompt,
+    userText: effectiveUserText,
     turns,
-    stored.conversationId,
-    stored.checkpoint,
-    stored.blobStore,
+    conversationId: stored.conversationId,
+    checkpoint: stored.checkpoint,
+    existingBlobStore: stored.blobStore,
     maxMode,
-    body.cursor_model_parameters,
+    cursorModelParameters: body.cursor_model_parameters,
     mcpTools,
-    effectiveUserImages,
-  );
+    userImages: effectiveUserImages,
+    refreshSystemPrompt,
+  });
+  stored.systemPromptHash = systemPromptHash;
   payload.mcpTools = mcpTools;
 
   const currentTurn: ParsedTurn = {
@@ -826,7 +871,9 @@ function writeNativeStream(
   streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(process.env.PI_CURSOR_STREAM_IDLE_TIMEOUT_MS),
   checkpointRef: CheckpointRef = { current: null },
   preservedMidPauseExecs: PendingExec[] = [],
+  clientTranscript: ClientTranscript = liveTranscript(completedTurns),
 ): void {
+  const persistenceTurns = clientTranscript.completedTurns;
   debugLog("native.stream.start", {
     requestId,
     bridgeKey,
@@ -900,7 +947,7 @@ function writeNativeStream(
         convKey,
         checkpointRef.current,
         blobStore,
-        completedTurns,
+        persistenceTurns,
         currentTurn,
         emittedExecs.length > 0 ? emittedExecs : preservedMidPauseExecs,
       );
@@ -991,7 +1038,7 @@ function writeNativeStream(
       convKey,
       checkpointRef.current,
       blobStore,
-      completedTurns,
+      persistenceTurns,
       currentTurn,
       emittedExecs.length > 0 ? emittedExecs : preservedMidPauseExecs,
     );
@@ -1011,6 +1058,8 @@ function writeNativeStream(
     return;
   }
   idleWatchdog.start();
+
+  let streamFinalized = false;
 
   const emitText = (text: string, isThinking?: boolean) => {
     if (writer.closed) return;
@@ -1053,6 +1102,46 @@ function writeNativeStream(
     }
   };
 
+  const finalizeSuccessfulStream = () => {
+    if (cancelled || streamFinalized) return;
+    streamFinalized = true;
+    idleWatchdog.clear();
+    clearInterval(heartbeatTimer);
+    options?.signal?.removeEventListener("abort", abort);
+    const stored = conversationStates.get(convKey);
+    if (mcpExecReceived) {
+      handleBridgeCloseMidPause({
+        stored,
+        latestCheckpoint: checkpointRef.current,
+        blobStore,
+        completedTurns: persistenceTurns,
+        pendingExecs: emittedExecs,
+        convKey,
+      });
+      removeActiveBridge(bridgeKey);
+      return;
+    }
+    emitFlushed();
+    if (stored) {
+      if (checkpointRef.current) {
+        commitStoredCheckpoint(
+          stored,
+          checkpointRef.current,
+          blobStore,
+          completedTurns,
+          currentTurn,
+          convKey,
+        );
+        debugLog("native.stream.checkpoint_committed", { requestId, convKey, stored });
+      } else {
+        mergeBlobStore(stored, blobStore);
+      }
+    }
+    writer.done("stop", state);
+    parkIdleBridge(bridgeKey, bridge);
+  };
+  bridge.onStreamDone?.(finalizeSuccessfulStream);
+
   const processChunk = createConnectFrameParser(
     (messageBytes) => {
       try {
@@ -1092,7 +1181,7 @@ function writeNativeStream(
                 stored,
                 checkpointRef.current,
                 blobStore,
-                completedTurns,
+                persistenceTurns,
                 emittedExecs,
                 convKey,
               );
@@ -1120,6 +1209,7 @@ function writeNativeStream(
               checkpointRef,
               state,
               historyFingerprint: historyFingerprint(),
+              clientTranscript,
             });
             debugLog("native.stream.tool_call_pause", {
               requestId,
@@ -1227,6 +1317,7 @@ function writeNativeStream(
       code,
       cancelled,
       mcpExecReceived,
+      streamFinalized,
       currentTurn,
       latestCheckpoint: checkpointRef.current,
     });
@@ -1240,6 +1331,7 @@ function writeNativeStream(
       emittedUserVisibleContent,
       hasCheckpoint: !!checkpointRef.current,
     });
+    if (streamFinalized) return;
     idleWatchdog.clear();
     clearInterval(heartbeatTimer);
     options?.signal?.removeEventListener("abort", abort);
@@ -1252,7 +1344,7 @@ function writeNativeStream(
           stored,
           latestCheckpoint: checkpointRef.current,
           blobStore,
-          completedTurns,
+          completedTurns: persistenceTurns,
           pendingExecs: emittedExecs,
           convKey,
         });
@@ -1308,7 +1400,7 @@ function writeNativeStream(
             convKey,
             checkpointRef.current,
             blobStore,
-            completedTurns,
+            persistenceTurns,
             currentTurn,
             emittedExecs.length > 0 ? emittedExecs : preservedMidPauseExecs,
           );
@@ -1335,7 +1427,7 @@ function writeNativeStream(
           stored,
           latestCheckpoint: checkpointRef.current,
           blobStore,
-          completedTurns,
+          completedTurns: persistenceTurns,
           pendingExecs: emittedExecs,
           convKey,
         });
@@ -1381,7 +1473,7 @@ function writeNativeStream(
         stored,
         latestCheckpoint: checkpointRef.current,
         blobStore,
-        completedTurns,
+        completedTurns: persistenceTurns,
         pendingExecs: emittedExecs,
         convKey,
       });
@@ -1410,6 +1502,8 @@ interface ResumeContext {
   convKey: string;
   sessionId: string | undefined;
   completedTurns: ParsedTurn[];
+  /** Pi's in-flight turn from the resume request, not the bridge's currentTurn suffix. */
+  inFlightTurn?: ParsedTurn;
   maxMode: boolean;
   cursorModelParameters: CursorModelParameter[];
   getAccessToken?: (options?: { forceRefresh?: boolean }) => Promise<string>;
@@ -1446,7 +1540,13 @@ function handleNativeToolResultResume(
     checkpointRef,
     state: pausedState,
     historyFingerprint,
+    clientTranscript: parkedTranscript,
   } = active;
+  const resumeTranscript = parkedTranscript ?? liveTranscript(completedTurns);
+  const recoveredClientTranscript = withSyntheticCurrentTurn(
+    resumeTranscript,
+    ctx.inFlightTurn ?? currentTurn,
+  );
   const resumeIdleTimeoutMs = resolveResumeIdleTimeoutMs(
     process.env.PI_CURSOR_RESUME_IDLE_TIMEOUT_MS,
   );
@@ -1563,7 +1663,7 @@ function handleNativeToolResultResume(
         stored,
         toolResults,
         completedTurns,
-        inFlightTurn: stripInFlightResults(currentTurn),
+        inFlightTurn: stripInFlightResults(ctx.inFlightTurn ?? currentTurn),
         rebuildReason: "synthesized_after_idle",
         sessionId,
         requestId: requestId ?? "native-tool-idle-retry",
@@ -1611,6 +1711,7 @@ function handleNativeToolResultResume(
           convKey,
           completedTurns: rebuiltCompletedTurns,
           currentTurn: recoveredCurrentTurn,
+          clientTranscript: recoveredClientTranscript,
           writer,
           options,
           requestId,
@@ -1686,6 +1787,7 @@ function handleNativeToolResultResume(
         convKey,
         completedTurns,
         currentTurn: recoveredCurrentTurn,
+        clientTranscript: recoveredClientTranscript,
         writer,
         options,
         requestId,
@@ -1722,6 +1824,7 @@ function handleNativeToolResultResume(
     // A timeout after Cursor receives the tool result still needs the original pause
     // snapshot so recovery can safely recreate that continuation.
     pendingExecs,
+    resumeTranscript,
   );
 }
 
@@ -1891,6 +1994,9 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
           input.requestId,
           controller,
           input.streamIdleTimeoutMs,
+          { current: null },
+          [],
+          input.clientTranscript ?? liveTranscript(completedTurns),
         );
       };
 

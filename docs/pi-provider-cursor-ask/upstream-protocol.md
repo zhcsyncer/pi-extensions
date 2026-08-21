@@ -1,8 +1,8 @@
 # Cursor Wire Protocol & Architecture (upstream snapshot)
 
-> Preserved from `@rahularya01/pi-cursor` v1.4.18 as a transport reference. Cursor Ask keeps this wire behavior but uses the standalone identities and catalog recorded in [`UPSTREAM_SOURCE.md`](../../providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md).
+> Preserved from `@rahularya01/pi-cursor` v1.4.25 as a transport reference. Cursor Ask keeps this wire behavior but uses the standalone identities and catalog recorded in [`UPSTREAM_SOURCE.md`](../../providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md).
 
-This document describes the reverse-engineered wire protocol, HTTP/2 streaming architecture, authentication cascade, and payload structure used by the upstream provider.
+This document describes the reverse-engineered wire protocol, HTTP/2 streaming architecture, authentication cascade, and payload structure used by `@rahularya01/pi-cursor`.
 
 ## Overview
 
@@ -38,9 +38,9 @@ https://agentn.us.api5.cursor.sh / https://api2.cursor.sh
 
 ```text
 1. CURSOR_ACCESS_TOKEN env var
-2. macOS Keychain (cursor-access-token / cursor-refresh-token via security CLI)
-3. Cursor IDE local SQLite DB (globalStorage/state.vscdb on macOS, Linux, Windows, or WSL /mnt/c/Users)
-4. Pi OAuth credentials store (~/.pi/agent/auth.json via PKCE deep-link flow)
+2. Pi OAuth credentials store (~/.pi/agent/auth.json via PKCE deep-link flow)
+3. macOS Keychain (cursor-access-token / cursor-refresh-token via security CLI)
+4. Cursor IDE local SQLite DB (globalStorage/state.vscdb; WSL uses the current Windows user only)
 ```
 
 If an access token is expired or close to expiry, `refreshCursorToken()` sends a refresh request to `POST https://api2.cursor.sh/auth/exchange_user_api_key`.

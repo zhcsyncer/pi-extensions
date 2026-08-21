@@ -172,4 +172,4 @@ MIT
 
 `pi-herdr-companion` 改编了 MIT 许可 [`pi-herdr-btw`](https://github.com/oscabriel/pi-herdr-btw) 0.3.0 的 `/btw` 行为与私有 mailbox 模式。准确 tarball 来源与保留声明见 [`packages/pi-herdr-companion/UPSTREAM_SOURCE.md`](./packages/pi-herdr-companion/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-herdr-companion/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-herdr-companion/UPSTREAM_LICENSE)。
 
-`pi-provider-cursor-ask` fork 自 MIT 许可的 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) 1.4.18（`9831b5ffc982bf29e976497758a5f37f8ab0a506`）。准确 revision、独立身份与目录差异、保留声明见 [`providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md`](./providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md) 和 [`LICENSE`](./providers/pi-provider-cursor-ask/LICENSE)。
+`pi-provider-cursor-ask` fork 自 MIT 许可的 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) 1.4.25（`5f8e775279f5e41cdd06791a036be4c7141097c3`）。准确 revision、独立身份与目录差异、保留声明见 [`providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md`](./providers/pi-provider-cursor-ask/UPSTREAM_SOURCE.md) 和 [`LICENSE`](./providers/pi-provider-cursor-ask/LICENSE)。

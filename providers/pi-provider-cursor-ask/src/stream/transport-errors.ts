@@ -137,7 +137,7 @@ export function formatTransportFailure(failure: TransportFailure): string {
     hints.push("A checkpoint/history recovery may continue the turn.");
   }
   if (failure.refreshAuth) {
-    hints.push("Token may need refresh — run /login cursor or check /cursor doctor tokenSource.");
+    hints.push("Token may need refresh — run /login cursor or check /cursor.doctor tokenSource.");
   }
   if (failure.kind === TransportFailureKind.ProtocolDrift) {
     hints.push("Pin PI_CURSOR_CLIENT_VERSION or regenerate proto if wire drift persists.");

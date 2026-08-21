@@ -15,6 +15,7 @@ import { appendFile } from "node:fs";
 import { join as pathJoin } from "node:path";
 
 import { getCacheDir } from "../utils/cache-dir.js";
+import { redactSecrets } from "../utils/security.js";
 import { normalizeImageMimeType } from "./images.js";
 import type { CursorRequestDebugSummary } from "./types.js";
 
@@ -24,9 +25,23 @@ let debugLogFilePath: string | undefined;
 
 export const requestDebugByBody = new WeakMap<Uint8Array, CursorRequestDebugSummary>();
 
+// `debugLog` guards every call site on this, including one per server message on the streaming
+// hot path. `process.env` is a native-backed proxy whose property reads cost ~100x an ordinary
+// one, so resolve the flag once instead of on every token. Resolution stays lazy so a value pi
+// exports after this module loads is still picked up.
+let streamDebugEnabled: boolean | undefined;
+
 export function isStreamDebugEnabled(): boolean {
-  const raw = process.env.PI_CURSOR_PROVIDER_DEBUG?.trim().toLowerCase();
-  return !!raw && raw !== "0" && raw !== "false" && raw !== "off";
+  if (streamDebugEnabled === undefined) {
+    const raw = process.env.PI_CURSOR_PROVIDER_DEBUG?.trim().toLowerCase();
+    streamDebugEnabled = !!raw && raw !== "0" && raw !== "false" && raw !== "off";
+  }
+  return streamDebugEnabled;
+}
+
+/** Test seam: re-read PI_CURSOR_PROVIDER_DEBUG after mutating process.env. */
+export function resetStreamDebugForTests(): void {
+  streamDebugEnabled = undefined;
 }
 
 export function truncateDebugString(value: string, max = 4000): string {
@@ -97,9 +112,32 @@ function summarizeDebugImageObject(value: Record<string, unknown>): unknown | un
   return undefined;
 }
 
+const SENSITIVE_DEBUG_KEYS = new Set([
+  "accesstoken",
+  "refreshtoken",
+  "authorization",
+  "access_token",
+  "refresh_token",
+  "code_verifier",
+  "cookie",
+  "workoscursorsessiontoken",
+  "apikey",
+  "api_key",
+]);
+
+function isSensitiveDebugKey(key: string): boolean {
+  const normalized = key.replace(/[_-]/g, "").toLowerCase();
+  return (
+    SENSITIVE_DEBUG_KEYS.has(key.toLowerCase()) ||
+    SENSITIVE_DEBUG_KEYS.has(normalized) ||
+    key === "access" ||
+    key === "refresh"
+  );
+}
+
 export function sanitizeForDebug(value: unknown): unknown {
   if (value == null) return value;
-  if (typeof value === "string") return truncateDebugString(value);
+  if (typeof value === "string") return redactSecrets(truncateDebugString(value));
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
     const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
@@ -122,7 +160,7 @@ export function sanitizeForDebug(value: unknown): unknown {
     const imageSummary = summarizeDebugImageObject(value as Record<string, unknown>);
     if (imageSummary) return imageSummary;
     const entries = Object.entries(value as Record<string, unknown>).map(([key, inner]) => {
-      if (key === "accessToken") return [key, "<redacted>"] as const;
+      if (isSensitiveDebugKey(key)) return [key, "<redacted>"] as const;
       if (key === "data" && typeof inner === "string")
         return [key, `<redacted base64 ${inner.length} chars>`] as const;
       if (key === "url" && typeof inner === "string" && inner.startsWith("data:image/")) {

@@ -6,7 +6,7 @@
  * 2. Native Pi streamSimple provider translating Pi context → Cursor gRPC protocol
  *
  * Usage:
- *   /login cursor     — authenticate via browser
+ *   /login cursor    — authenticate via browser
  *   /model           — select any Cursor model
  *
  * Based on https://github.com/ephraimduncan/opencode-cursor by Ephraim Duncan.

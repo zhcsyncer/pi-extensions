@@ -124,6 +124,20 @@ describe("checkpoint durability", () => {
     expect(stored.checkpoint).not.toBeNull();
     expect(stored.midPausePendingToolCalls).toBeDefined();
   });
+
+  it("rotates conversation identity when Pi history no longer matches the checkpoint", () => {
+    const stored = storedConversation({
+      conversationId: "old-id",
+      checkpoint: new Uint8Array([0x0a, 0x00]),
+      checkpointTurnCount: 5,
+      checkpointHistoryFingerprint: "old-fp",
+    });
+
+    discardStaleCheckpointIfNeeded(stored, [{ userText: "only one", steps: [] }], "r1", "c1");
+
+    expect(stored.checkpoint).toBeNull();
+    expect(stored.conversationId).not.toBe("old-id");
+  });
 });
 
 describe("blob store eviction order", () => {
@@ -140,5 +154,16 @@ describe("blob store eviction order", () => {
 
     expect(stored.blobStore.has("system")).toBe(true);
     expect(stored.blobStore.has("turn-1")).toBe(false);
+  });
+
+  it("evicts oldest entries to stay inside the entry bound", () => {
+    const store = new Map<string, Uint8Array>();
+    for (let i = 0; i < 5; i++) store.set(`b${i}`, new Uint8Array([i]));
+    const trimmed = trimBlobStore(store, 1024, 3);
+    expect(trimmed.removed).toBe(2);
+    expect(store.size).toBe(3);
+    expect(store.has("b0")).toBe(false);
+    expect(store.has("b1")).toBe(false);
+    expect(store.has("b4")).toBe(true);
   });
 });

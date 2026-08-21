@@ -3,12 +3,14 @@ import {
   MAX_MCP_TOOL_RESULT_BYTES,
   MAX_MCP_TOOL_TEXT_BYTES,
   buildMcpToolDefinitions,
+  isIdentityConversationalTurn,
   isSlimToolsEnabled,
   isTrivialConversationalTurn,
   normalizeToolResultForTransport,
   slimOpenAIToolsForCursor,
   summarizeRequestSize,
 } from "../src/stream/request-build.js";
+import { __testInternals as serverMessageInternals } from "../src/stream/server-messages.js";
 import type { OpenAIToolDef } from "../src/stream/types.js";
 
 function fatTools(count: number): OpenAIToolDef[] {
@@ -81,6 +83,21 @@ describe("trivial conversational turns", () => {
   ])("keeps tools for actionable text %j", (text) =>
     expect(isTrivialConversationalTurn(text)).toBe(false),
   );
+
+  // The system prompt is what answers these, so native-core keeps it even though
+  // the turn is tool-free. Dropping it made the model introduce itself as Cursor.
+  it.each(["who are you?", "What can you do for me", "tell me about yourself"])(
+    "treats %j as an identity turn",
+    (text) => {
+      expect(isIdentityConversationalTurn(text)).toBe(true);
+      expect(isTrivialConversationalTurn(text)).toBe(true);
+    },
+  );
+
+  it.each(["hi", "thanks", "sounds good.", "PING", "hi, inspect src"])(
+    "does not treat %j as an identity turn",
+    (text) => expect(isIdentityConversationalTurn(text)).toBe(false),
+  );
 });
 
 describe("slim tools for Cursor", () => {
@@ -121,6 +138,40 @@ describe("slim tools for Cursor", () => {
       if (prev === undefined) delete process.env.PI_CURSOR_SLIM_TOOLS;
       else process.env.PI_CURSOR_SLIM_TOOLS = prev;
     }
+  });
+});
+
+describe("native Cursor exec steering", () => {
+  it("points a native read at the MCP read tool when one is available", () => {
+    const mcpTools = buildMcpToolDefinitions([
+      {
+        type: "function",
+        function: { name: "read", description: "Read a file", parameters: { type: "object" } },
+      },
+    ]);
+    expect(serverMessageInternals.nativeToolRejectReason("readArgs", mcpTools)).toMatch(
+      /Call the MCP tool "read"/,
+    );
+  });
+
+  it("falls back to a generic MCP-only hint when no matching tool exists", () => {
+    expect(serverMessageInternals.nativeToolRejectReason("shellArgs", [])).toMatch(
+      /Use the MCP tools/,
+    );
+  });
+
+  it("does not invent a reply for an unknown native exec", () => {
+    const frames: Uint8Array[] = [];
+    const handled = serverMessageInternals.handleExecMessageInner(
+      { message: { case: "futureDestructiveArgs", value: {} } } as never,
+      [],
+      (frame: Uint8Array) => frames.push(frame),
+      () => {
+        throw new Error("should not execute");
+      },
+    );
+    expect(handled).toBe(false);
+    expect(frames).toHaveLength(0);
   });
 });
 

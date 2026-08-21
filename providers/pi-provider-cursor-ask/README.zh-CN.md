@@ -8,11 +8,11 @@
 
 ## 来源与差异
 
-本包整仓 fork 自 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.18`（`9831b5ffc982bf29e976497758a5f37f8ab0a506`）。保留上游原生 Cursor OAuth、凭证发现、流式响应、工具调用、图片输入、用量、诊断和模型发现能力。
+本包整仓 fork 自 [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.25`（`5f8e775279f5e41cdd06791a036be4c7141097c3`）。保留上游原生 Cursor OAuth、凭证发现、流式响应、工具调用、图片输入、用量、诊断和模型发现能力。
 
 本 fork 的用户可见差异如下：
 
-- 使用与上游相同的 `cursor` provider/登录身份直接替换旧扩展，同时保留隔离的 `cursor-ask-native` stream API。
+- 使用与上游相同的 `cursor` provider/登录身份和 `cursor-native` stream API 直接替换旧扩展。
 - 不展示完整 Cursor 目录，只提供 4 行始终开启 thinking 的 1M Claude 模型，以及 Composer 2.5 / Composer 2.5 Fast；过滤其他所有模型系列。
 - Picker 不再拆默认上下文行：Cursor 对这些 Claude 模型按同一费率计到 1M。
 - 只映射明确提供的 Pi thinking 档位。Claude 映射 Cursor `effort`。Composer 2.5 没有 effort 参数，因此只用 `off`/`max` 显式开关 Max Mode，其余档位保持不可用。

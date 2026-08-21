@@ -8,11 +8,11 @@ This is an unofficial community fork and is not affiliated with or endorsed by C
 
 ## Source and differences
 
-The package is a full fork of [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.18` (`9831b5ffc982bf29e976497758a5f37f8ab0a506`). It keeps the upstream native Cursor OAuth, credential discovery, streaming, tool use, image input, usage, diagnostics, and model discovery behavior.
+The package is a full fork of [`@rahularya01/pi-cursor`](https://github.com/Rahularya01/pi-cursor) `v1.4.25` (`5f8e775279f5e41cdd06791a036be4c7141097c3`). It keeps the upstream native Cursor OAuth, credential discovery, streaming, tool use, image input, usage, diagnostics, and model discovery behavior.
 
 The fork differs in these user-visible ways:
 
-- Replaces the upstream extension under the same `cursor` provider/login identity, while keeping the fork-specific `cursor-ask-native` stream API isolated.
+- Replaces the upstream extension under the same `cursor` provider/login identity and `cursor-native` stream API.
 - Exposes four always-thinking 1M Claude rows plus Composer 2.5 / Composer 2.5 Fast; all other Cursor model families are filtered out.
 - Uses readable picker names without a separate default-context row, because Cursor bills these Claude models at one rate up to 1M.
 - Maps only advertised Pi thinking levels. Claude uses Cursor `effort`. Composer 2.5 has no effort parameter, so `off`/`max` are an explicit Max Mode switch and other levels stay unavailable.

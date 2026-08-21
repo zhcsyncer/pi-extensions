@@ -37,6 +37,14 @@ export interface OpenAIMessage {
   tool_calls?: OpenAIToolCall[];
   /** Propagated from Pi toolResult.isError into Cursor MCP results. */
   is_error?: boolean;
+  /**
+   * Set on a historical assistant message whose turn did not run to completion
+   * (aborted, errored, truncated). Replayed into the turn as a trailing
+   * assistant step — see `interruptedAssistantNotice()` in ./pi-adapter.ts.
+   */
+  interrupted_notice?: string;
+  /** Replayed thinking from a prior assistant turn; see ./pi-adapter.ts. */
+  thinking?: string;
 }
 
 export interface OpenAIToolDef {
@@ -90,6 +98,11 @@ export interface ParsedAssistantTextStep {
   text: string;
 }
 
+export interface ParsedThinkingStep {
+  kind: "thinking";
+  text: string;
+}
+
 export interface ParsedToolCallStep {
   kind: "toolCall";
   toolCallId: string;
@@ -98,7 +111,7 @@ export interface ParsedToolCallStep {
   result?: ParsedToolResult;
 }
 
-export type ParsedTurnStep = ParsedAssistantTextStep | ParsedToolCallStep;
+export type ParsedTurnStep = ParsedAssistantTextStep | ParsedThinkingStep | ParsedToolCallStep;
 
 export interface ParsedTurn {
   userText: string;
@@ -157,6 +170,14 @@ export interface CheckpointRef {
   current: Uint8Array | null;
 }
 
+/**
+ * Pi's view of the turn in flight, as opposed to the wire history sent upstream.
+ * Behaviour lives in ./client-transcript.ts.
+ */
+export type ClientTranscript =
+  | { kind: "live"; completedTurns: ParsedTurn[] }
+  | { kind: "recovered"; completedTurns: ParsedTurn[]; inFlightTurn: ParsedTurn };
+
 export interface ActiveBridge {
   bridge: BridgeHandle;
   heartbeatTimer: ReturnType<typeof setInterval>;
@@ -169,6 +190,8 @@ export interface ActiveBridge {
   state: StreamState;
   /** Fingerprint of the completed turns this bridge was parked on; guards against key collisions. */
   historyFingerprint: string;
+  /** Pi's completed-turn history when the wire current turn is synthetic after recovery. */
+  clientTranscript?: ClientTranscript;
 }
 
 export interface StoredConversation {
@@ -181,6 +204,8 @@ export interface StoredConversation {
   midPauseTurnCount?: number;
   midPauseHistoryFingerprint?: string;
   midPauseRecordedAtMs?: number;
+  /** Hash of the system prompt last published to Cursor for this conversation. */
+  systemPromptHash?: string;
   sessionScoped: boolean;
   sessionId?: string;
   blobStore: Map<string, Uint8Array>;
@@ -252,6 +277,8 @@ export interface NativeStreamAttemptInput {
   convKey: string;
   completedTurns: ParsedTurn[];
   currentTurn: ParsedTurn;
+  /** Pi's transcript when `completedTurns`/`currentTurn` are a recovered wire view. */
+  clientTranscript?: ClientTranscript;
   writer: NativeStreamWriter;
   options?: CursorNativeStreamOptions;
   requestId?: string;
