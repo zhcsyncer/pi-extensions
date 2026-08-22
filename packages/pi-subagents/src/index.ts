@@ -52,7 +52,13 @@ import {
   openArchivedAgent,
   type ArchivedAgentRecord,
 } from "./session-archive.js";
-import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.js";
+import {
+  applyAndEmitLoaded,
+  loadPinnedExtensionsPolicy,
+  type SubagentsSettings,
+  saveAndEmitChanged,
+  type ToolDescriptionMode,
+} from "./settings.js";
 import { getStatusNote } from "./status-note.js";
 import { type AgentConfig, type AgentInvocation, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type WidgetMode } from "./types.js";
 import {
@@ -938,10 +944,14 @@ export default function (pi: ExtensionAPI) {
     return name.replace(/-\d{8}$/, "");
   }
 
+  const initialPinPolicy = loadPinnedExtensionsPolicy();
+  const globalPinnedExtensions = initialPinPolicy.globalPinnedExtensions;
+  let projectClearsPinnedExtensions = initialPinPolicy.projectClearsPinnedExtensions;
+
   // Reset module-level defaults on every activation before applying this
   // repository's settings. Pi can switch sessions without reloading modules;
   // an omitted field must still mean this fork's defaults (remember on,
-  // worktrees off), not the previous repository's value.
+  // worktrees off, no stale pins), not the previous repository's value.
   setRememberAgents(true);
   setWorktreeIsolationEnabled(false);
   setPinnedExtensions([]);
@@ -2465,7 +2475,7 @@ ${systemPrompt}
       widgetMode: getWidgetMode(),
       outputTranscript: getOutputTranscriptDefault(),
       worktreeIsolation: isWorktreeIsolationEnabled(),
-      pinnedExtensions: getPinnedExtensions(),
+      ...(projectClearsPinnedExtensions ? { pinnedExtensions: [] } : {}),
     };
   }
 
@@ -2551,9 +2561,9 @@ ${systemPrompt}
         {
           id: "pinnedExtensions",
           label: "Pinned extensions",
-          description: "Observer extensions loaded in every subagent (comma-separated names). Pinning never exposes their tools. Empty clears. Enter to type",
-          currentValue: getPinnedExtensions().join(", ") || "(none)",
-          values: [getPinnedExtensions().join(", ") || "(none)"],
+          description: "Global user allowlist only. Project settings may inherit it or clear it; edit the global config manually to add observers.",
+          currentValue: projectClearsPinnedExtensions ? "clear" : "inherit",
+          values: ["inherit", "clear"],
         },
         {
           id: "fleetView",
@@ -2640,13 +2650,17 @@ ${systemPrompt}
           `Worktree isolation ${enabled ? "enabled" : "disabled"}. Tool spec change takes effect on next Pi session.`,
         );
       } else if (id === "pinnedExtensions") {
-        setPinnedExtensions(value.split(","));
-        const names = getPinnedExtensions();
+        projectClearsPinnedExtensions = value === "clear";
+        setPinnedExtensions(
+          projectClearsPinnedExtensions ? [] : globalPinnedExtensions,
+        );
         notifyApplied(
           ctx,
-          names.length === 0
-            ? "Pinned extensions cleared"
-            : `Pinned extensions set to ${names.join(", ")}`,
+          projectClearsPinnedExtensions
+            ? "Pinned extensions cleared for this project"
+            : globalPinnedExtensions.length > 0
+              ? `Pinned extensions inherited from global config: ${globalPinnedExtensions.join(", ")}`
+              : "Pinned extensions inherit the empty global allowlist",
         );
       } else if (id === "toolDescriptionMode") {
         setToolDescriptionMode(value as ToolDescriptionMode);

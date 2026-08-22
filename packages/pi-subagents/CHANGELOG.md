@@ -11,6 +11,7 @@
 ### Added
 
 - Ordinary subagents persist as parent-linked Pi sessions by default and remain openable from `/agents`; caller-owned terminal events expose persisted session paths, including through the side-effect-free embedded runtime. Worktree isolation is now an explicit repository capability and defaults off in this fork.
+- Trusted observer extensions can be pinned into every subagent session without exposing their tools. Only user-level global config may grant pins; projects may opt out with `[]` but cannot authorize their own handlers.
 
 ### Fixed
 

@@ -12,6 +12,7 @@ import {
 import {
   applyAndEmitLoaded,
   applySettings,
+  loadPinnedExtensionsPolicy,
   loadSettings,
   persistToastFor,
   type SettingsAppliers,
@@ -244,13 +245,41 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({});
   });
 
-  it("round-trips pinnedExtensions; project [] clears the global pin", () => {
+  it("allows only the global config to add pins; project [] clears them", () => {
     writeGlobal({ pinnedExtensions: ["pi-meter", "telemetry"] });
     expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
-    saveSettings({ pinnedExtensions: [] }, projectDir);
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter", "telemetry"],
+      projectClearsPinnedExtensions: false,
+    });
+
+    expect(saveSettings({ pinnedExtensions: [] }, projectDir)).toBe(true);
     expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: [] });
-    saveSettings({ pinnedExtensions: ["pi-meter"] }, projectDir);
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter", "telemetry"],
+      projectClearsPinnedExtensions: true,
+    });
+  });
+
+  it("ignores and warns about a non-empty project pin", () => {
+    writeGlobal({ pinnedExtensions: ["pi-meter"] });
+    writeProject({ pinnedExtensions: ["repo-observer"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter"] });
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter"],
+      projectClearsPinnedExtensions: false,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(
+      "only the user-level global config may add pinned observer extensions",
+    ));
+  });
+
+  it("refuses to persist a non-empty project pin", () => {
+    expect(saveSettings({ pinnedExtensions: ["repo-observer"] }, projectDir)).toBe(false);
+    expect(existsSync(projectFile())).toBe(false);
   });
 
   it("sanitize drops non-boolean schedulingEnabled silently", async () => {
@@ -394,8 +423,8 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
     });
 
-    it("normalizes pinnedExtensions: lowercase, trim, drop empties, de-dupe", () => {
-      writeProject({ pinnedExtensions: [" PI-Meter ", "", "pi-meter", "telemetry", 1] as any });
+    it("normalizes global pinnedExtensions: lowercase, trim, drop empties, de-dupe", () => {
+      writeGlobal({ pinnedExtensions: [" PI-Meter ", "", "pi-meter", "telemetry", 1] as any });
       expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
     });
 

@@ -3,6 +3,7 @@
 // - Project: <cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json — written by /agents → Settings; overrides global
 
 import {
+  emitSubagentsConfigNotice,
   loadMigratedJsonConfig,
   type NormalizedJsonConfig,
   saveJsonConfig,
@@ -122,8 +123,9 @@ export interface SubagentsSettings {
    * subagent LLM — tool visibility still follows the agent's own config.
    * Intended for user-trusted stats/observer extensions (e.g. pi-meter).
    *
-   * Whole-field override on merge: a project file with `[]` clears the global
-   * pin. That is intentional — a project can opt out.
+   * Security boundary: only the user-level global config may add names. A
+   * project config may set `[]` to opt out of the global pin, but a non-empty
+   * project value is ignored with a warning.
    */
   pinnedExtensions?: string[];
 }
@@ -242,30 +244,78 @@ function normalizeSettings(raw: unknown): NormalizedJsonConfig<SubagentsSettings
   return { value, dropped };
 }
 
-/** Load merged settings: global provides defaults, project overrides. */
-export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
-  const global = loadMigratedJsonConfig({
+function loadGlobalSettings(): SubagentsSettings {
+  return loadMigratedJsonConfig({
     canonicalPath: getGlobalSubagentsSettingsPath(),
     legacyPath: getLegacyGlobalSubagentsSettingsPath(),
     scope: "global settings",
     normalize: normalizeSettings,
     fallback: {},
   });
-  const project = loadMigratedJsonConfig({
+}
+
+function loadProjectSettings(cwd: string): SubagentsSettings {
+  return loadMigratedJsonConfig({
     canonicalPath: getProjectSubagentsSettingsPath(cwd),
     legacyPath: getLegacyProjectSubagentsSettingsPath(cwd),
     scope: "project settings",
     normalize: normalizeSettings,
     fallback: {},
   });
-  return { ...global, ...project };
+}
+
+function warnNonEmptyProjectPin(cwd: string): void {
+  emitSubagentsConfigNotice(
+    `[pi-subagents] Ignoring non-empty project pinnedExtensions at ` +
+      `${getProjectSubagentsSettingsPath(cwd)}; only the user-level global config may add ` +
+      "pinned observer extensions. A project may use [] only to clear the global pin.",
+  );
+}
+
+export interface PinnedExtensionsPolicy {
+  globalPinnedExtensions: string[];
+  projectClearsPinnedExtensions: boolean;
+}
+
+/** Read pin provenance for the project Settings UI. */
+export function loadPinnedExtensionsPolicy(
+  cwd: string = process.cwd(),
+): PinnedExtensionsPolicy {
+  const global = loadGlobalSettings();
+  const project = loadProjectSettings(cwd);
+  if (project.pinnedExtensions && project.pinnedExtensions.length > 0) {
+    warnNonEmptyProjectPin(cwd);
+  }
+  return {
+    globalPinnedExtensions: [...(global.pinnedExtensions ?? [])],
+    projectClearsPinnedExtensions:
+      Array.isArray(project.pinnedExtensions) && project.pinnedExtensions.length === 0,
+  };
+}
+
+/**
+ * Load merged settings. Project fields override global fields except the pin
+ * allowlist: projects may clear a global pin with `[]`, never grant one.
+ */
+export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
+  const global = loadGlobalSettings();
+  const project = loadProjectSettings(cwd);
+  const { pinnedExtensions: projectPins, ...projectWithoutPins } = project;
+  const merged: SubagentsSettings = { ...global, ...projectWithoutPins };
+  if (Array.isArray(projectPins)) {
+    if (projectPins.length === 0) merged.pinnedExtensions = [];
+    else warnNonEmptyProjectPin(cwd);
+  }
+  return merged;
 }
 
 /**
  * Atomically write project-local settings to the canonical path. Global is
- * never touched from code. Returns `true` only after a semantic re-read.
+ * never touched from code. Non-empty project pins are rejected; `[]` is the
+ * only project-level pin value. Returns true after a semantic re-read.
  */
 export function saveSettings(s: SubagentsSettings, cwd: string = process.cwd()): boolean {
+  if (s.pinnedExtensions && s.pinnedExtensions.length > 0) return false;
   return saveJsonConfig({
     canonicalPath: getProjectSubagentsSettingsPath(cwd),
     value: s,

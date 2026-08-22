@@ -152,7 +152,7 @@ FleetView / agent 列表选中子 agent 后回车：
 - 全局默认值：`$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
 - 项目覆盖：`<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json`（通常是 `<cwd>/.pi/extension-data/pi-subagents/config.json`）
 
-项目字段覆盖全局字段。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。Worktree 说明应使用 `{{isolationGuideline}}`，不要硬编码；这样仓库禁用该能力时，说明会与 schema 一起消失。相关默认值为 `rememberAgents: true` 与 `worktreeIsolation: false`；worktree schema/说明变更在下一次 Pi session 生效，而运行时降级会立即生效。
+项目字段覆盖全局字段，但 `pinnedExtensions` 例外：只有用户拥有的全局文件可以增加观察者名称，项目只能用 `[]` 退出。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。Worktree 说明应使用 `{{isolationGuideline}}`，不要硬编码；这样仓库禁用该能力时，说明会与 schema 一起消失。相关默认值为 `rememberAgents: true` 与 `worktreeIsolation: false`；worktree schema/说明变更在下一次 Pi session 生效，而运行时降级会立即生效。
 
 原全局/项目 `subagents.json` 与 `agent-tool-description.md` 只作为一次性迁移输入。迁移通过同目录原子 rename 写入，并在删除旧文件前进行语义复读。canonical 文件始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
 
@@ -162,9 +162,15 @@ FleetView / agent 列表选中子 agent 后回车：
 
 写在 `pinnedExtensions` 里的观察者扩展会在**每一个**子代理会话中加载——包括 `isolated: true` 和 `extensions: false`。钉住不会把该扩展的工具暴露给子代理 LLM；工具可见性仍完全跟随该 agent 自己的 `extensions:` / `ext:` / `isolated` 配置。
 
-可写在全局或项目 `config.json`，或通过 `/agents` → Settings → Pinned extensions（逗号分隔的名字；空则清空）。项目文件里 `"pinnedExtensions": []` 会清空全局 pin。
+只有用户拥有的全局 `config.json` 可以增加名称：
 
-名字大小写不敏感，同时匹配扩展目录/文件名和 pi 包的无 scope 短名（`@zhcsyncer/pi-meter` → `pi-meter`）。当前项目没安装被钉扩展时静默跳过。
+```json
+{
+  "pinnedExtensions": ["pi-meter"]
+}
+```
+
+项目文件可以用 `"pinnedExtensions": []` 清空全局 pin，但非空项目列表会被忽略并发出 warning。因此 `/agents` → Settings 只提供 **inherit** 或 **clear**；如需授权观察者，请手工编辑全局文件。名字大小写不敏感，同时匹配扩展目录/文件名和 pi 包的无 scope 短名（`@zhcsyncer/pi-meter` → `pi-meter`）。当前项目没安装全局 pin 指定的扩展时静默跳过。
 
 **钉住不是沙箱。** 被钉扩展的 handlers 仍会运行（`message_end`、`before_agent_start` 等），理论上仍能影响子会话。只钉你信任的、行为为纯观察的扩展，例如 pi-meter。
 

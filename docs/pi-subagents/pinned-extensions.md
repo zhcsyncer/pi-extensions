@@ -70,14 +70,17 @@ pi-subagents 的子代理在同一进程内用独立的 `DefaultResourceLoader` 
  * Load-and-observe only: pinning never exposes an extension's tools to the
  * subagent LLM — tool visibility still follows the agent's own config.
  * Intended for user-trusted stats/observer extensions (e.g. pi-meter).
+ * Only the user-level global config may add names. A project may use [] to
+ * clear the global pin; a non-empty project value is ignored with warning.
  */
 pinnedExtensions?: string[];
 ```
 
-- 走现成的 global 提供默认、project 覆盖的合并机制（`loadSettings` 的 `{...global, ...project}`；注意是整字段覆盖，project 设了 `[]` 即清空全局 pin，这是刻意语义：项目可显式退出）；
+- 只有 `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json` 这一用户级全局配置可以增加 pin；项目配置只能用 `[]` 清空全局 pin，非空项目值会被忽略并明确 warning；
+- `/agents` → Settings 只允许项目选择 **inherit** 或 **clear**，不会向项目文件写入非空 pin；新增授权必须手工编辑全局文件；
 - 名字匹配复用 `extensionCanonicalNames`（`agent-runner.ts`）：大小写不敏感，按目录/文件名与 pi 包短名（`@scope/foo` → `foo`）匹配，`pi-meter` 两种途径都能命中；
 - `sanitize` 中校验为字符串数组，去空、lowercase、去重；
-- 不采用 package.json 自声明作为主机制："我不可被禁用"这个授权应来自用户（settings 是用户/项目所有），不该由扩展作者给自己发。
+- 不采用 package.json 或仓库项目配置自声明作为授权机制："我不可被禁用"必须由用户在仓库外的全局配置中明确授予，扩展/仓库作者不能给自己发。
 
 ### 决策 2：加载路径改动（`agent-runner.ts`）
 
@@ -107,13 +110,14 @@ pinnedExtensions?: string[];
 
 ### 决策 4：冲突与告警降噪
 
+- 项目配置包含非空 `pinnedExtensions`：忽略整项并发一次去重 warning；项目只能用 `[]` 退出全局 pin，防止已提交仓库自行获得 observer handler 执行权；
 - agent 的 `exclude_extensions:` 显式点名了被钉扩展：加载仍保留（pin 赢），发一次 warning（复用现有 `onToolActivity` 的 `extension-error:` 通道，措辞说明"该扩展被 settings 钉住，exclude 仅对工具面生效"）；
 - 全局 pin 的名字在当前项目未发现（未安装）：**静默跳过**。全局钉 pi-meter 但某项目没装它是常态，不该刷警告。这与现有 `exclude_extensions` 的 typo 警告策略刻意不同；
 - pin 与 `extensions: [...]` 同名重复：无冲突，自然合并，不告警。
 
 ### 边界声明（须写入 README）
 
-**pin 不是沙箱**。被钉扩展的 handlers 照常运行——理论上 `before_agent_start` 之类的钩子仍能影响子会话。机制定位是"用户信任的统计/观测类扩展"，这正是白名单必须由用户在 settings 里授权、而非扩展自声明的原因。文档应明确：只钉你信任的、行为为纯观察的扩展。
+**pin 不是沙箱**。被钉扩展的 handlers 照常运行——理论上 `before_agent_start` 之类的钩子仍能影响子会话。机制定位是"用户信任的统计/观测类扩展"，这正是白名单必须由用户在仓库外的全局 settings 授权、而非扩展或项目配置自声明的原因。文档应明确：只钉你信任的、行为为纯观察的扩展。
 
 ## 已评估并否决的替代方案
 

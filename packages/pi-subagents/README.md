@@ -152,7 +152,7 @@ Operational settings now use the extension-data layout:
 - Global defaults: `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
 - Project overrides: `<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json` (normally `<cwd>/.pi/extension-data/pi-subagents/config.json`)
 
-Project fields override global fields. `/agents` → Settings still writes only the project file; the global file remains hand-edited. The optional custom Agent tool description uses `agent-tool-description.md` beside the corresponding global or project `config.json`, with project content taking precedence. Use `{{isolationGuideline}}` instead of hardcoding worktree guidance so a disabled repository removes the prose together with the schema. Relevant defaults are `rememberAgents: true` and `worktreeIsolation: false`; schema/prose changes from the worktree switch apply on the next Pi session, while runtime downgrade applies immediately.
+Project fields override global fields except `pinnedExtensions`: only the user-owned global file may add observer names, while a project may set `[]` to opt out. `/agents` → Settings still writes only the project file; the global file remains hand-edited. The optional custom Agent tool description uses `agent-tool-description.md` beside the corresponding global or project `config.json`, with project content taking precedence. Use `{{isolationGuideline}}` instead of hardcoding worktree guidance so a disabled repository removes the prose together with the schema. Relevant defaults are `rememberAgents: true` and `worktreeIsolation: false`; schema/prose changes from the worktree switch apply on the next Pi session, while runtime downgrade applies immediately.
 
 The former global/project `subagents.json` and `agent-tool-description.md` locations are one-time migration inputs. Migration uses an atomic same-directory rename and semantic re-read before deleting a legacy file. Canonical files always win; malformed, unreadable, or conflicting legacy files remain in place with a de-duplicated warning.
 
@@ -162,9 +162,15 @@ This relocation covers only pi-subagents' operational settings and tool-descript
 
 Observer extensions listed in `pinnedExtensions` load in **every** subagent session — including `isolated: true` and `extensions: false`. Pinning never exposes that extension's tools to the subagent LLM; tool visibility still follows the agent's own `extensions:` / `ext:` / `isolated` config.
 
-Set it in the global or project `config.json`, or via `/agents` → Settings → Pinned extensions (comma-separated names; empty clears). A project file with `"pinnedExtensions": []` clears the global pin.
+Only the user-owned global `config.json` may add names:
 
-Names match case-insensitively against the extension directory/file and the unscoped pi package short name (`@zhcsyncer/pi-meter` → `pi-meter`). An unused pin in a project that does not have that extension installed is skipped silently.
+```json
+{
+  "pinnedExtensions": ["pi-meter"]
+}
+```
+
+A project file may use `"pinnedExtensions": []` to clear the global pin, but a non-empty project list is ignored with a warning. `/agents` → Settings therefore offers only **inherit** or **clear**; edit the global file manually to grant observers. Names match case-insensitively against the extension directory/file and the unscoped pi package short name (`@zhcsyncer/pi-meter` → `pi-meter`). An unused global pin in a project that does not have that extension installed is skipped silently.
 
 **Pinning is not a sandbox.** Pinned extension handlers still run (`message_end`, `before_agent_start`, …) and can affect the subagent. Only pin extensions you trust to be pure observers, such as pi-meter.
 
