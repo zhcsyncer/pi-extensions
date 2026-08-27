@@ -1,6 +1,6 @@
 # Releasing
 
-This repository publishes twelve public npm packages:
+This repository publishes these public npm packages:
 
 - `@zhcsyncer/pi-extensions`
 - `@zhcsyncer/pi-recap`
@@ -12,12 +12,12 @@ This repository publishes twelve public npm packages:
 - `@zhcsyncer/pi-ask-user-question`
 - `@zhcsyncer/pi-herdr-companion`
 - `@zhcsyncer/pi-subagents`
+- `@zhcsyncer/pi-adversarial-review`
 - `@zhcsyncer/pi-fast-mode`
 - `@zhcsyncer/pi-meter`
 - `pi-provider-volcengine-agent-plan`
 
-
-Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The standalone `pi-provider-volcengine-agent-plan` package is excluded from the aggregate tarball and may release without the root. Unchanged siblings remain unreleased.
+Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The standalone `@zhcsyncer/pi-adversarial-review` and `pi-provider-volcengine-agent-plan` packages are excluded from the aggregate tarball and may release without the root. Unchanged siblings remain unreleased.
 
 A successful publish creates package-level Git tags and GitHub Releases. The root package also owns the repository `vX.Y.Z` tag and latest release.
 

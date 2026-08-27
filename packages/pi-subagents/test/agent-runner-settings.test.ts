@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   getDefaultMaxTurns,
   getGraceTurns,
+  getPinnedExtensions,
   normalizeMaxTurns,
   setDefaultMaxTurns,
   setGraceTurns,
+  setPinnedExtensions,
 } from "../src/agent-runner.js";
 
 describe("setDefaultMaxTurns / getDefaultMaxTurns", () => {
@@ -89,5 +91,26 @@ describe("setGraceTurns / getGraceTurns", () => {
   it("clamps negative values to 1", () => {
     setGraceTurns(-5);
     expect(getGraceTurns()).toBe(1);
+  });
+});
+
+describe("setPinnedExtensions / getPinnedExtensions", () => {
+  beforeEach(() => {
+    setPinnedExtensions([]);
+  });
+
+  it("defaults to empty", () => {
+    expect(getPinnedExtensions()).toEqual([]);
+  });
+
+  it("lowercases, trims, drops empties, and de-dupes", () => {
+    setPinnedExtensions([" PI-Meter ", "", "pi-meter", "telemetry"]);
+    expect(getPinnedExtensions()).toEqual(["pi-meter", "telemetry"]);
+  });
+
+  it("empty array clears a previous pin", () => {
+    setPinnedExtensions(["pi-meter"]);
+    setPinnedExtensions([]);
+    expect(getPinnedExtensions()).toEqual([]);
   });
 });

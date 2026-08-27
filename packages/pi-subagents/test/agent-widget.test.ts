@@ -117,8 +117,7 @@ describe("renderRunningAgentStatus", () => {
     const component = renderRunningAgentStatus("⠋", "effort: xhigh · 4 tool uses", "working…", theme);
 
     expect(component.render(120).map((line) => line.trimEnd())).toEqual([
-      "⠋ effort: xhigh · 4 tool uses",
-      "  ⎿  working…",
+      "  ⎿  ⠋ working… · effort: xhigh · 4 tool uses",
     ]);
   });
 });

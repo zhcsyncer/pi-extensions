@@ -1,0 +1,185 @@
+import type { GatingMode, ParsedReviewCommand, ReviewTargetRequest } from "../types.ts";
+
+export class ReviewCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReviewCommandError";
+  }
+}
+
+function tokenize(input: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let started = false;
+
+  for (const char of input) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      started = true;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      started = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      started = true;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      started = true;
+      continue;
+    }
+    if (/\s/u.test(char)) {
+      if (started) {
+        tokens.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += char;
+    started = true;
+  }
+
+  if (escaped) throw new ReviewCommandError("Command ends with an incomplete escape sequence.");
+  if (quote) throw new ReviewCommandError("Command contains an unclosed quote.");
+  if (started) tokens.push(current);
+  return tokens;
+}
+
+function requireValue(tokens: string[], index: number, option: string): string {
+  const value = tokens[index + 1];
+  if (value === undefined || value.startsWith("--") || !value.trim()) {
+    throw new ReviewCommandError(`${option} requires a value.`);
+  }
+  return value;
+}
+
+function parseRange(value: string): Extract<ReviewTargetRequest, { mode: "range" }> {
+  const separator = value.indexOf("..");
+  if (separator <= 0 || separator !== value.lastIndexOf("..")) {
+    throw new ReviewCommandError('--range must use exactly "<refA>..<refB>".');
+  }
+  const fromRef = value.slice(0, separator);
+  const toRef = value.slice(separator + 2);
+  if (!fromRef || !toRef) {
+    throw new ReviewCommandError('--range must use exactly "<refA>..<refB>".');
+  }
+  return { mode: "range", fromRef, toRef };
+}
+
+export function parseReviewCommand(input: string): ParsedReviewCommand {
+  const tokens = tokenize(input);
+  const reviewerSpecs: string[] = [];
+  let localExplicit = false;
+  let baseRef: string | undefined;
+  let range: Extract<ReviewTargetRequest, { mode: "range" }> | undefined;
+  let interactiveRange = false;
+  let reqdoc: string | undefined;
+  let focus: string | undefined;
+  let gating: GatingMode = "weighted";
+  let allowLarge = false;
+  let refute = false;
+  let refuterSpec: string | undefined;
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    switch (token) {
+      case "--local":
+        if (localExplicit) throw new ReviewCommandError("--local may be provided only once.");
+        localExplicit = true;
+        break;
+      case "--base":
+        if (baseRef !== undefined) throw new ReviewCommandError("--base may be provided only once.");
+        baseRef = requireValue(tokens, index, token);
+        index++;
+        break;
+      case "--range": {
+        if (range !== undefined || interactiveRange) {
+          throw new ReviewCommandError("--range may be provided only once.");
+        }
+        const value = tokens[index + 1];
+        if (value === undefined || value.startsWith("--")) {
+          interactiveRange = true;
+        } else {
+          range = parseRange(value);
+          index++;
+        }
+        break;
+      }
+      case "--reqdoc":
+        if (reqdoc !== undefined) throw new ReviewCommandError("--reqdoc may be provided only once.");
+        reqdoc = requireValue(tokens, index, token);
+        index++;
+        break;
+      case "--focus":
+        if (focus !== undefined) throw new ReviewCommandError("--focus may be provided only once.");
+        focus = requireValue(tokens, index, token);
+        index++;
+        break;
+      case "--gating": {
+        const value = requireValue(tokens, index, token);
+        if (value !== "weighted" && value !== "strict") {
+          throw new ReviewCommandError('--gating must be "weighted" or "strict".');
+        }
+        gating = value;
+        index++;
+        break;
+      }
+      case "--reviewer":
+        reviewerSpecs.push(requireValue(tokens, index, token));
+        index++;
+        break;
+      case "--allow-large":
+        if (allowLarge) throw new ReviewCommandError("--allow-large may be provided only once.");
+        allowLarge = true;
+        break;
+      case "--refute":
+        if (refute) throw new ReviewCommandError("--refute may be provided only once.");
+        refute = true;
+        break;
+      case "--refuter":
+        if (refuterSpec !== undefined) {
+          throw new ReviewCommandError("--refuter may be provided only once.");
+        }
+        refuterSpec = requireValue(tokens, index, token);
+        index++;
+        break;
+      default:
+        throw new ReviewCommandError(
+          token.startsWith("--") ? `Unknown option: ${token}` : `Unexpected argument: ${token}`,
+        );
+    }
+  }
+
+  const targetOptionCount = Number(localExplicit) + Number(baseRef !== undefined) +
+    Number(range !== undefined || interactiveRange);
+  if (targetOptionCount > 1) {
+    throw new ReviewCommandError("--local, --base, and --range are mutually exclusive.");
+  }
+  if (refuterSpec !== undefined && !refute) {
+    throw new ReviewCommandError("--refuter requires --refute.");
+  }
+
+  const target: ReviewTargetRequest = range ?? (baseRef ? { mode: "base", baseRef } : { mode: "local" });
+  return {
+    target,
+    targetExplicit: targetOptionCount === 1,
+    ...(interactiveRange ? { interactiveRange: true as const } : {}),
+    reviewerSpecs,
+    gating,
+    allowLarge,
+    refute,
+    ...(refuterSpec !== undefined ? { refuterSpec } : {}),
+    ...(reqdoc !== undefined ? { reqdoc } : {}),
+    ...(focus !== undefined ? { focus } : {}),
+  };
+}

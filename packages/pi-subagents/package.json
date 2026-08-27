@@ -8,6 +8,11 @@
   ],
   "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime": "./src/runtime.ts",
+    "./*": "./*"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhcsyncer/pi-extensions.git",

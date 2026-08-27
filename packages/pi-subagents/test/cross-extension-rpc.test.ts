@@ -24,7 +24,11 @@ describe("cross-extension RPC", () => {
 
   beforeEach(() => {
     events = createEventBus();
-    manager = { spawn: vi.fn().mockReturnValue("agent-42"), abort: vi.fn().mockReturnValue(true) };
+    manager = {
+      spawn: vi.fn().mockReturnValue("agent-42"),
+      abort: vi.fn().mockReturnValue(true),
+      getMaxConcurrent: vi.fn().mockReturnValue(4),
+    };
     ctx = { session: true };
     deps = { events, pi: { events }, getCtx: () => ctx, manager };
   });
@@ -39,7 +43,10 @@ describe("cross-extension RPC", () => {
       events.emit("subagents:rpc:ping", { requestId: "req-1" });
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
-      expect(reply).toHaveBeenCalledWith({ success: true, data: { version: PROTOCOL_VERSION } });
+      expect(reply).toHaveBeenCalledWith({
+        success: true,
+        data: { version: PROTOCOL_VERSION, maxConcurrent: 4 },
+      });
     });
 
     it("scopes replies — other requestIds do not receive it", async () => {
@@ -118,6 +125,155 @@ describe("cross-extension RPC", () => {
       );
     });
 
+    it("passes caller-owned inline config through the same spawn path", async () => {
+      const onSpawned = vi.fn();
+      deps = { ...deps, onSpawned };
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      const inlineAgentConfig = {
+        name: "reviewer",
+        description: "Inline reviewer",
+        builtinToolNames: ["read", "grep", "find", "ls"],
+        extensions: false,
+        skills: false,
+        systemPrompt: "Review the supplied input.",
+        promptMode: "replace" as const,
+      };
+
+      events.on("subagents:rpc:spawn:reply:req-inline", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-inline",
+        type: "reviewer",
+        prompt: "review now",
+        options: {
+          inlineAgentConfig,
+          completionOwner: "caller",
+          correlationId: "route-1",
+          isBackground: true,
+        },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      const expectedOptions = {
+        inlineAgentConfig,
+        completionOwner: "caller",
+        correlationId: "route-1",
+        isBackground: true,
+        description: "Inline reviewer",
+      };
+      expect(manager.spawn).toHaveBeenCalledWith(
+        deps.pi, ctx, "reviewer", "review now", expectedOptions,
+      );
+      expect(onSpawned).toHaveBeenCalledWith({ id: "agent-42", ctx, options: expectedOptions });
+    });
+
+    it("rejects caller-owned completion without background execution and correlation", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-invalid-owner", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-invalid-owner",
+        type: "reviewer",
+        prompt: "x",
+        options: { completionOwner: "caller" },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply.mock.calls[0][0]).toEqual({
+        success: false,
+        error: 'completionOwner="caller" requires isBackground=true',
+      });
+      expect(manager.spawn).not.toHaveBeenCalled();
+    });
+
+    it("rejects inline config whose name does not match the spawn type", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-invalid-inline", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-invalid-inline",
+        type: "reviewer",
+        prompt: "x",
+        options: {
+          inlineAgentConfig: {
+            name: "different-role",
+            description: "Inline reviewer",
+            extensions: false,
+            skills: false,
+            systemPrompt: "Review.",
+            promptMode: "replace",
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply.mock.calls[0][0]).toEqual({
+        success: false,
+        error: 'inlineAgentConfig.name must match spawn type "reviewer"',
+      });
+      expect(manager.spawn).not.toHaveBeenCalled();
+    });
+
+    it("passes per-spawn graceTurns through without changing the global default", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-grace", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-grace",
+        type: "reviewer",
+        prompt: "review now",
+        options: {
+          description: "review",
+          isBackground: true,
+          graceTurns: 15,
+        },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(manager.spawn).toHaveBeenCalledWith(
+        deps.pi, ctx, "reviewer", "review now",
+        { description: "review", isBackground: true, graceTurns: 15 },
+      );
+    });
+
+    it("rejects non-positive graceTurns before spawning", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-bad-grace", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-bad-grace",
+        type: "reviewer",
+        prompt: "x",
+        options: { graceTurns: 0 },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply.mock.calls[0][0]).toEqual({
+        success: false,
+        error: "graceTurns must be a positive integer",
+      });
+      expect(manager.spawn).not.toHaveBeenCalled();
+    });
+
+    it("rejects malformed route options before spawning", async () => {
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-invalid-route", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-invalid-route",
+        type: "reviewer",
+        prompt: "x",
+        options: { model: { provider: "test" }, thinkingLevel: "extreme" },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply.mock.calls[0][0]).toEqual({
+        success: false,
+        error: "model must be a non-empty string or Model object with provider/id",
+      });
+      expect(manager.spawn).not.toHaveBeenCalled();
+    });
+
     it("returns error when no active session", async () => {
       ctx = undefined;
       registerRpcHandlers(deps);
@@ -189,6 +345,27 @@ describe("cross-extension RPC", () => {
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
       expect(reply).toHaveBeenCalledWith({ success: true });
       expect(manager.abort).toHaveBeenCalledWith("agent-42");
+    });
+
+    it("delays the stop reply until abortAndWait reaches terminal", async () => {
+      let release!: () => void;
+      const terminal = new Promise<void>((resolve) => { release = resolve; });
+      manager.abortAndWait = vi.fn(async () => {
+        await terminal;
+        return true;
+      });
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:stop:reply:req-wait", reply);
+
+      events.emit("subagents:rpc:stop", { requestId: "req-wait", agentId: "agent-42" });
+      await Promise.resolve();
+      expect(reply).not.toHaveBeenCalled();
+
+      release();
+      await vi.waitFor(() => expect(reply).toHaveBeenCalledWith({ success: true }));
+      expect(manager.abortAndWait).toHaveBeenCalledWith("agent-42");
+      expect(manager.abort).not.toHaveBeenCalled();
     });
 
     it("returns error when agent not found", async () => {

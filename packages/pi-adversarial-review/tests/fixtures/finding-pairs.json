@@ -1,0 +1,212 @@
+[
+  {
+    "id": "same-persistence-clear-before-await",
+    "label": "same",
+    "rationale": "Both describe losing retryable state when it is cleared before persistence succeeds.",
+    "left": { "file": "src/state.ts", "lineStart": 40, "lineEnd": 44, "category": "data-integrity", "invariant": "Pending user data survives persistence failure", "issue": "The pending value is cleared before the durable write completes, so a rejected write loses retry state" },
+    "right": { "file": "src/state.ts", "lineStart": 41, "lineEnd": 45, "category": "data-integrity", "invariant": "Persistence failures preserve pending user data", "issue": "State is nulled before awaiting storage and cannot be retried when storage throws" }
+  },
+  {
+    "id": "same-tenant-filter-omitted",
+    "label": "same",
+    "rationale": "Both identify the same missing tenant predicate on one query.",
+    "left": { "file": "src/orders.ts", "lineStart": 72, "lineEnd": 76, "category": "auth", "invariant": "Order reads stay inside the authenticated tenant", "issue": "The lookup filters only by order id and can return another tenant's order" },
+    "right": { "file": "src/orders.ts", "lineStart": 73, "lineEnd": 77, "category": "auth", "invariant": "Authenticated tenants cannot read cross-tenant orders", "issue": "Missing tenantId in the order query exposes records owned by a different tenant" }
+  },
+  {
+    "id": "same-idempotency-key-after-charge",
+    "label": "same",
+    "rationale": "Both describe duplicate charging because idempotency is recorded after the side effect.",
+    "left": { "file": "src/payments.ts", "lineStart": 108, "lineEnd": 116, "category": "failure-recovery", "invariant": "Retries charge a payment at most once", "issue": "The idempotency record is written after charging, allowing a retry to charge twice after a crash" },
+    "right": { "file": "src/payments.ts", "lineStart": 110, "lineEnd": 117, "category": "failure-recovery", "invariant": "Payment retries must not duplicate charges", "issue": "A failure between the provider charge and idempotency write makes the same request bill the customer again" }
+  },
+  {
+    "id": "same-toctou-reservation",
+    "label": "same",
+    "rationale": "Both identify the same check-then-write race for inventory.",
+    "left": { "file": "src/inventory.ts", "lineStart": 25, "lineEnd": 34, "category": "concurrency", "invariant": "Concurrent reservations never oversell inventory", "issue": "Availability is checked outside the update transaction so two requests can reserve the same final unit" },
+    "right": { "file": "src/inventory.ts", "lineStart": 27, "lineEnd": 35, "category": "concurrency", "invariant": "Inventory reservation is atomic under concurrent requests", "issue": "The separate read and decrement create a TOCTOU race that permits stock to fall below zero" }
+  },
+  {
+    "id": "same-rollback-partial-write",
+    "label": "same",
+    "rationale": "Both describe one partial-failure transaction leaving inconsistent records.",
+    "left": { "file": "src/signup.ts", "lineStart": 61, "lineEnd": 69, "category": "failure-recovery", "invariant": "Signup either creates both account records or neither", "issue": "Profile failure leaves the already-created user row without rollback" },
+    "right": { "file": "src/signup.ts", "lineStart": 62, "lineEnd": 70, "category": "failure-recovery", "invariant": "Account and profile creation commit atomically", "issue": "The user insert is not reverted when profile creation fails, producing an orphan account" }
+  },
+  {
+    "id": "same-version-skew-field-removal",
+    "label": "same",
+    "rationale": "Both identify breaking old clients by removing a response field immediately.",
+    "left": { "file": "src/api/user.ts", "lineStart": 18, "lineEnd": 22, "category": "compatibility", "invariant": "Existing clients retain the legacy displayName response field", "issue": "The response removes displayName without a compatibility window and old clients will fail" },
+    "right": { "file": "src/api/user.ts", "lineStart": 19, "lineEnd": 23, "category": "compatibility", "invariant": "API responses remain readable by the previous client version", "issue": "Renaming displayName to name in place breaks deployed clients that still deserialize displayName" }
+  },
+  {
+    "id": "same-secret-log",
+    "label": "same",
+    "rationale": "Both identify logging the same bearer token.",
+    "left": { "file": "src/http.ts", "lineStart": 91, "lineEnd": 93, "category": "security", "invariant": "Authentication secrets never enter application logs", "issue": "The error log serializes the Authorization header and exposes bearer tokens" },
+    "right": { "file": "src/http.ts", "lineStart": 91, "lineEnd": 94, "category": "security", "invariant": "Bearer credentials are excluded from logs", "issue": "Logging all request headers writes the user's access token to the shared log sink" }
+  },
+  {
+    "id": "same-n-plus-one",
+    "label": "same",
+    "rationale": "Both identify the same per-row child query.",
+    "left": { "file": "src/feed.ts", "lineStart": 50, "lineEnd": 58, "category": "performance", "invariant": "Feed loading uses a bounded number of database queries", "issue": "Each feed item performs a separate author query, creating N+1 latency" },
+    "right": { "file": "src/feed.ts", "lineStart": 52, "lineEnd": 59, "category": "performance", "invariant": "Database query count does not grow per feed row", "issue": "Authors are fetched inside the item loop instead of batched, issuing one query per item" }
+  },
+  {
+    "id": "same-cache-invalidation-after-write",
+    "label": "same",
+    "rationale": "Both describe serving stale data because one write omits cache invalidation.",
+    "left": { "file": "src/profile.ts", "lineStart": 80, "lineEnd": 86, "category": "correctness", "invariant": "Profile reads reflect a completed profile update", "issue": "The update writes the database but leaves the cached profile unchanged" },
+    "right": { "file": "src/profile.ts", "lineStart": 82, "lineEnd": 87, "category": "correctness", "invariant": "Successful updates invalidate stale profile cache entries", "issue": "No cache eviction follows the profile mutation, so subsequent reads return the old value" }
+  },
+  {
+    "id": "same-null-migration-backfill",
+    "label": "same",
+    "rationale": "Both identify enforcing NOT NULL before old rows are backfilled.",
+    "left": { "file": "migrations/042.sql", "lineStart": 4, "lineEnd": 8, "category": "compatibility", "invariant": "Schema migration succeeds with existing rows", "issue": "The column becomes NOT NULL before legacy rows receive a value" },
+    "right": { "file": "migrations/042.sql", "lineStart": 5, "lineEnd": 9, "category": "compatibility", "invariant": "Existing records are backfilled before the non-null constraint", "issue": "Adding the constraint in the same step fails on current rows whose new field is null" }
+  },
+  {
+    "id": "same-missing-correlation-id",
+    "label": "same",
+    "rationale": "Both identify losing request correlation on one error branch.",
+    "left": { "file": "src/worker.ts", "lineStart": 120, "lineEnd": 126, "category": "observability", "invariant": "Every terminal job log includes its correlation id", "issue": "The failure branch logs without jobId, preventing operators from tracing the failed job" },
+    "right": { "file": "src/worker.ts", "lineStart": 121, "lineEnd": 127, "category": "observability", "invariant": "Failed jobs remain traceable through correlation metadata", "issue": "The catch log omits the request identifier and cannot be joined to the job execution" }
+  },
+  {
+    "id": "same-open-redirect",
+    "label": "same",
+    "rationale": "Both identify the same unvalidated redirect target.",
+    "left": { "file": "src/login.ts", "lineStart": 33, "lineEnd": 37, "category": "security", "invariant": "Login redirects stay on trusted application origins", "issue": "The next query parameter is passed directly to redirect and permits an external phishing URL" },
+    "right": { "file": "src/login.ts", "lineStart": 34, "lineEnd": 38, "category": "security", "invariant": "User-controlled URLs cannot redirect authentication off-site", "issue": "An attacker can supply an absolute next URL and send authenticated users to an arbitrary domain" }
+  },
+  {
+    "id": "different-category-nearby-auth-vs-null",
+    "label": "different",
+    "rationale": "Same lines but one is authorization and the other is a null dereference.",
+    "left": { "file": "src/order.ts", "lineStart": 20, "lineEnd": 24, "category": "auth", "invariant": "Only order owners may update an order", "issue": "The update does not verify the authenticated user owns the order" },
+    "right": { "file": "src/order.ts", "lineStart": 21, "lineEnd": 25, "category": "correctness", "invariant": "Missing orders return not found instead of throwing", "issue": "Dereferencing order.owner before the null check crashes for an unknown order" }
+  },
+  {
+    "id": "different-data-loss-vs-duplicate",
+    "label": "different",
+    "rationale": "Both concern integrity at one write site but one loses data and one duplicates it.",
+    "left": { "file": "src/sync.ts", "lineStart": 70, "lineEnd": 76, "category": "data-integrity", "invariant": "Acknowledged events are never dropped", "issue": "The cursor advances before the event write and a crash permanently skips the event" },
+    "right": { "file": "src/sync.ts", "lineStart": 72, "lineEnd": 78, "category": "data-integrity", "invariant": "Each source event creates at most one destination row", "issue": "The retry path inserts the same event again because no unique source id is stored" }
+  },
+  {
+    "id": "different-retry-exhaustion-vs-idempotency",
+    "label": "different",
+    "rationale": "One stops retries too early; the other repeats a side effect.",
+    "left": { "file": "src/delivery.ts", "lineStart": 44, "lineEnd": 52, "category": "failure-recovery", "invariant": "Transient delivery failures receive the configured retry attempts", "issue": "The loop returns after the first failure and never performs the remaining retries" },
+    "right": { "file": "src/delivery.ts", "lineStart": 46, "lineEnd": 54, "category": "failure-recovery", "invariant": "Retrying delivery does not send a duplicate notification", "issue": "The provider call has no idempotency key and a timeout retry can send twice" }
+  },
+  {
+    "id": "different-concurrency-lock-leak-vs-deadlock",
+    "label": "different",
+    "rationale": "Both involve one lock block but have distinct failure mechanisms.",
+    "left": { "file": "src/locks.ts", "lineStart": 90, "lineEnd": 98, "category": "concurrency", "invariant": "Every acquired lock is released after an exception", "issue": "The error return bypasses unlock and permanently leaks the resource lock" },
+    "right": { "file": "src/locks.ts", "lineStart": 92, "lineEnd": 100, "category": "concurrency", "invariant": "Concurrent workers acquire account locks in a consistent order", "issue": "This path acquires source then target while the transfer path uses target then source, causing deadlock" }
+  },
+  {
+    "id": "different-security-xss-vs-csrf",
+    "label": "different",
+    "rationale": "Same handler has distinct XSS and CSRF vulnerabilities.",
+    "left": { "file": "src/comments.ts", "lineStart": 30, "lineEnd": 36, "category": "security", "invariant": "Untrusted comment HTML is escaped before rendering", "issue": "The comment body is inserted with innerHTML and can execute stored script" },
+    "right": { "file": "src/comments.ts", "lineStart": 32, "lineEnd": 38, "category": "security", "invariant": "State-changing comment requests require CSRF validation", "issue": "The delete endpoint accepts cookie-authenticated POST requests without a CSRF token" }
+  },
+  {
+    "id": "different-performance-query-vs-memory",
+    "label": "different",
+    "rationale": "One increases database round trips; the other retains an unbounded in-memory set.",
+    "left": { "file": "src/export.ts", "lineStart": 55, "lineEnd": 62, "category": "performance", "invariant": "Export query count remains bounded", "issue": "The export loads each row's owner with a separate database query" },
+    "right": { "file": "src/export.ts", "lineStart": 57, "lineEnd": 64, "category": "performance", "invariant": "Large exports do not retain every serialized row in memory", "issue": "Rows are accumulated in an array before writing and can exhaust heap for large exports" }
+  },
+  {
+    "id": "different-compat-field-vs-timeout",
+    "label": "different",
+    "rationale": "Both affect old clients but through unrelated wire changes.",
+    "left": { "file": "src/protocol.ts", "lineStart": 14, "lineEnd": 20, "category": "compatibility", "invariant": "Previous clients still receive the legacy status field", "issue": "The response removes status and older clients cannot decode the payload" },
+    "right": { "file": "src/protocol.ts", "lineStart": 16, "lineEnd": 22, "category": "compatibility", "invariant": "Server timeouts remain within the previous client retry window", "issue": "Raising the long-poll timeout beyond the old client deadline makes every request abort" }
+  },
+  {
+    "id": "different-correctness-null-vs-sort",
+    "label": "different",
+    "rationale": "One crashes on null; the other returns a wrong ordering.",
+    "left": { "file": "src/list.ts", "lineStart": 80, "lineEnd": 86, "category": "correctness", "invariant": "Items without metadata remain listable", "issue": "The comparator dereferences metadata.rank when metadata is null" },
+    "right": { "file": "src/list.ts", "lineStart": 82, "lineEnd": 88, "category": "correctness", "invariant": "Higher priority items appear before lower priority items", "issue": "The comparator subtracts operands in the wrong order and reverses priority sorting" }
+  },
+  {
+    "id": "different-observability-log-vs-metric",
+    "label": "different",
+    "rationale": "Missing log correlation and missing latency metrics require separate fixes.",
+    "left": { "file": "src/jobs.ts", "lineStart": 100, "lineEnd": 108, "category": "observability", "invariant": "Job failures include the job identifier in logs", "issue": "The catch log omits jobId and cannot be correlated with the triggering request" },
+    "right": { "file": "src/jobs.ts", "lineStart": 102, "lineEnd": 110, "category": "observability", "invariant": "Operators can observe job execution latency", "issue": "The new worker path never records the duration metric used by the latency alert" }
+  },
+  {
+    "id": "different-auth-read-vs-write-scope",
+    "label": "different",
+    "rationale": "The same resource has separate read leakage and unauthorized mutation paths.",
+    "left": { "file": "src/admin.ts", "lineStart": 60, "lineEnd": 68, "category": "auth", "invariant": "Tenant admins read users only from their own tenant", "issue": "The list query omits tenantId and exposes users from every tenant" },
+    "right": { "file": "src/admin.ts", "lineStart": 62, "lineEnd": 70, "category": "auth", "invariant": "Only global admins may change another tenant's user roles", "issue": "The role update checks tenant admin but does not restrict the target user's tenant" }
+  },
+  {
+    "id": "different-failure-rollback-vs-backoff",
+    "label": "different",
+    "rationale": "One leaves partial state while the other overloads a dependency during retries.",
+    "left": { "file": "src/import.ts", "lineStart": 120, "lineEnd": 128, "category": "failure-recovery", "invariant": "Failed imports roll back rows written by the current batch", "issue": "A parse failure returns without deleting rows already inserted for the batch" },
+    "right": { "file": "src/import.ts", "lineStart": 122, "lineEnd": 130, "category": "failure-recovery", "invariant": "Import retries apply bounded exponential backoff", "issue": "The retry loop immediately calls the dependency again and amplifies an outage" }
+  },
+  {
+    "id": "different-adjacent-validation-rules",
+    "label": "different",
+    "rationale": "Two adjacent checks enforce independent product invariants.",
+    "left": { "file": "src/checkout.ts", "lineStart": 35, "lineEnd": 39, "category": "correctness", "invariant": "Checkout rejects expired promotion codes", "issue": "The expiry timestamp is parsed but never compared with the current time" },
+    "right": { "file": "src/checkout.ts", "lineStart": 38, "lineEnd": 42, "category": "correctness", "invariant": "Checkout rejects promotion codes for another currency", "issue": "The discount is applied without comparing the promotion currency to the cart currency" }
+  },
+  {
+    "id": "different-nearby-cache-write-vs-read",
+    "label": "different",
+    "rationale": "Both mention cache consistency but one is stale writes and one is key collision.",
+    "left": { "file": "src/cache.ts", "lineStart": 70, "lineEnd": 76, "category": "correctness", "invariant": "Older refreshes cannot overwrite a newer cache value", "issue": "A slow refresh writes after a later refresh and replaces fresh data with stale data" },
+    "right": { "file": "src/cache.ts", "lineStart": 72, "lineEnd": 78, "category": "correctness", "invariant": "Cache keys separate records from different tenants", "issue": "The cache key contains only recordId and returns another tenant's cached record" }
+  },
+  {
+    "id": "different-security-authorization-vs-token-log",
+    "label": "different",
+    "rationale": "Authorization bypass and credential logging are distinct even when both mention authentication material.",
+    "left": { "file": "src/auth.ts", "lineStart": 40, "lineEnd": 44, "category": "security", "invariant": "Protected actions require an authorization check", "issue": "Authorization check is missing" },
+    "right": { "file": "src/auth.ts", "lineStart": 41, "lineEnd": 45, "category": "security", "invariant": "Bearer credentials never enter logs", "issue": "Bearer token is logged" }
+  },
+  {
+    "id": "different-security-ssrf-vs-open-redirect",
+    "label": "different",
+    "rationale": "Fetching an attacker URL is SSRF; navigating a user to it is an open redirect.",
+    "left": { "file": "src/url.ts", "lineStart": 20, "lineEnd": 24, "category": "security", "invariant": "Server fetches cannot reach untrusted network targets", "issue": "External URL is fetched" },
+    "right": { "file": "src/url.ts", "lineStart": 21, "lineEnd": 25, "category": "security", "invariant": "User navigation remains on trusted origins", "issue": "External URL is redirected" }
+  },
+  {
+    "id": "different-inventory-decrement-vs-rollback",
+    "label": "different",
+    "rationale": "Duplicate decrement and missing reservation rollback are separate inventory defects.",
+    "left": { "file": "src/inventory.ts", "lineStart": 70, "lineEnd": 74, "category": "data-integrity", "invariant": "A purchase decrements stock exactly once", "issue": "Stock is decremented twice" },
+    "right": { "file": "src/inventory.ts", "lineStart": 71, "lineEnd": 75, "category": "data-integrity", "invariant": "Failed purchases release their reservation", "issue": "Reservation is not rolled back" }
+  },
+  {
+    "id": "different-generic-invariant-tax-vs-discount",
+    "label": "different",
+    "rationale": "A broad shared invariant must not merge two different checkout arithmetic defects.",
+    "left": { "file": "src/checkout.ts", "lineStart": 88, "lineEnd": 92, "category": "correctness", "invariant": "Checkout total is computed correctly", "issue": "Tax is omitted from checkout total" },
+    "right": { "file": "src/checkout.ts", "lineStart": 89, "lineEnd": 93, "category": "correctness", "invariant": "Checkout total is computed correctly", "issue": "Discount is applied twice to checkout total" }
+  },
+  {
+    "id": "different-order-read-vs-update",
+    "label": "different",
+    "rationale": "Shared order and tenant entities do not make cross-tenant read and write bugs the same mechanism.",
+    "left": { "file": "src/order.ts", "lineStart": 48, "lineEnd": 52, "category": "auth", "invariant": "Order access is restricted to the current tenant", "issue": "Order query omits tenantId and exposes another tenant order" },
+    "right": { "file": "src/order.ts", "lineStart": 49, "lineEnd": 53, "category": "auth", "invariant": "Order access is restricted to the current tenant", "issue": "Order update trusts tenantId and modifies another tenant order" }
+  }
+]

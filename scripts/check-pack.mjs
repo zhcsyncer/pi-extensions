@@ -19,6 +19,7 @@ const packagePaths = [
 	"./packages/pi-subagents",
 	"./packages/pi-fast-mode",
 	"./packages/pi-meter",
+	"./packages/pi-adversarial-review",
 	"./providers/pi-provider-volcengine-agent-plan",
 ];
 
@@ -80,6 +81,8 @@ const requiredPackFiles = new Map([
 		"packages/pi-subagents/src/index.ts",
 		"packages/pi-subagents/src/config-paths.ts",
 		"packages/pi-subagents/src/config-storage.ts",
+		"packages/pi-subagents/src/runtime.ts",
+		"packages/pi-subagents/src/runtime-events.ts",
 		"packages/pi-subagents/src/ui/conversation-brief.ts",
 		"packages/pi-subagents/src/ui/tool-render.ts",
 		"packages/pi-subagents/src/ui/navigation-owner.ts",
@@ -203,6 +206,8 @@ const requiredPackFiles = new Map([
 		"src/index.ts",
 		"src/config-paths.ts",
 		"src/config-storage.ts",
+		"src/runtime.ts",
+		"src/runtime-events.ts",
 		"src/ui/conversation-brief.ts",
 		"src/ui/conversation-viewer.ts",
 		"src/ui/tool-render.ts",
@@ -233,6 +238,26 @@ const requiredPackFiles = new Map([
 		"assets/demo-quota-dashboard.png",
 		"README.md",
 		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE",
+	]],
+	["./packages/pi-adversarial-review", [
+		"extensions/adversarial-review.ts",
+		"src/index.ts",
+		"src/input/freeze-input.ts",
+		"src/runtime/rpc-v3-client.ts",
+		"src/runtime/embedded-runtime.ts",
+		"src/runtime/resolve-runtime.ts",
+		"src/runtime/orchestrator.ts",
+		"src/convergence/gate.ts",
+		"src/output/publish-report.ts",
+		"src/output/headless-output.ts",
+		"assets/adversarial-charter.md",
+		"assets/adversarial-reviewer.md",
+		"README.md",
+		"README.zh-CN.md",
+		"REFERENCE.md",
+		"REFERENCE.zh-CN.md",
 		"CHANGELOG.md",
 		"LICENSE",
 	]],
@@ -267,6 +292,10 @@ const maintainedReadmes = [
 	"packages/pi-fast-mode/README.zh-CN.md",
 	"packages/pi-meter/README.md",
 	"packages/pi-meter/README.zh-CN.md",
+	"packages/pi-adversarial-review/README.md",
+	"packages/pi-adversarial-review/README.zh-CN.md",
+	"packages/pi-adversarial-review/REFERENCE.md",
+	"packages/pi-adversarial-review/REFERENCE.zh-CN.md",
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 	"providers/pi-provider-cursor-ask/README.md",
@@ -292,8 +321,10 @@ async function assertBilingualPair(englishPath, chinesePath) {
 		headingLevels(english),
 		`${chinesePath} must keep the same heading structure as ${englishPath}`,
 	);
-	assert.match(english, new RegExp(`\\[简体中文\\]\\(\\./${chinesePath.split("/").pop().replaceAll(".", "\\.")}\\)`));
-	assert.match(chinese, /\[English\]\(\.\/README\.md\)/);
+	const chineseFile = chinesePath.split("/").pop().replaceAll(".", "\\.");
+	const englishFile = englishPath.split("/").pop().replaceAll(".", "\\.");
+	assert.match(english, new RegExp(`\\[简体中文\\]\\(\\./${chineseFile}\\)`));
+	assert.match(chinese, new RegExp(`\\[English\\]\\(\\./${englishFile}\\)`));
 }
 
 await assertBilingualPair("README.md", "README.zh-CN.md");
@@ -338,6 +369,14 @@ await assertBilingualPair(
 	"packages/pi-meter/README.zh-CN.md",
 );
 await assertBilingualPair(
+	"packages/pi-adversarial-review/README.md",
+	"packages/pi-adversarial-review/README.zh-CN.md",
+);
+await assertBilingualPair(
+	"packages/pi-adversarial-review/REFERENCE.md",
+	"packages/pi-adversarial-review/REFERENCE.zh-CN.md",
+);
+await assertBilingualPair(
 	"providers/pi-provider-volcengine-agent-plan/README.md",
 	"providers/pi-provider-volcengine-agent-plan/README.zh-CN.md",
 );
@@ -372,8 +411,35 @@ for (const packagePath of packagePaths) {
 
 	const packResult = JSON.parse(result.stdout);
 	const files = new Set((packResult[0]?.files ?? []).map((file) => file.path));
+	assert.ok(
+		![...files].some((file) => file.split("/").includes("..")),
+		`${packagePath} npm pack must not contain parent-directory traversal entries`,
+	);
 	for (const requiredFile of requiredPackFiles.get(packagePath) ?? []) {
 		assert.ok(files.has(requiredFile), `${packagePath} npm pack is missing ${requiredFile}`);
+	}
+	if (packagePath === ".") {
+		assert.ok(
+			![...files].some((file) => file.startsWith("packages/pi-adversarial-review/")),
+			"root npm pack must not include the standalone pi-adversarial-review package",
+		);
+	}
+	if (packagePath === "./packages/pi-adversarial-review") {
+		const manifest = JSON.parse(await readFile(resolve(repositoryRoot, packagePath, "package.json"), "utf8"));
+		assert.deepEqual(
+			manifest.pi?.extensions,
+			["./extensions/adversarial-review.ts"],
+			"adversarial review must not auto-load the Subagents extension entry",
+		);
+		assert.match(
+			manifest.dependencies?.["@zhcsyncer/pi-subagents"] ?? "",
+			/^\^\d+\.\d+\.\d+$/u,
+			"adversarial review must install the runtime-only Subagents code through a publishable semver dependency",
+		);
+		assert.ok(
+			![...files].some((file) => file.startsWith("node_modules/")),
+			"adversarial review must not bundle a nested Subagents extension tree",
+		);
 	}
 	console.log(`${packagePath}: npm pack dry-run passed (${files.size} files)`);
 }

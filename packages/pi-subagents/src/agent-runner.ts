@@ -24,7 +24,7 @@ import { detectEnv } from "./env.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
-import type { SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentConfig, InlineAgentConfig, SubagentType, ThinkingLevel } from "./types.js";
 import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 /**
@@ -220,8 +220,9 @@ export function parseExtSelectors(entries: string[]): {
  * outlive the `runAgent` call so resumed/steered turns stay scoped. pi's `dispose()`
  * clears `_eventListeners`, so they die with the session rather than leaking.
  *
- * Only meaningful when extensions are loaded — under `noExtensions`/`isolated` the
- * static `allowedToolNames` allowlist already gates the registry itself.
+ * Only meaningful when extensions are loaded — under `noExtensions`/`isolated`
+ * with an empty pin set the static `allowedToolNames` allowlist already gates
+ * the registry itself.
  */
 export function installExtensionToolScope(
   session: AgentSession,
@@ -231,9 +232,12 @@ export function installExtensionToolScope(
     disallowedSet: Set<string> | undefined;
     extNames: Set<string>;
     narrowing: Map<string, Set<string>>;
+    /** Canonical names of extensions loaded only because they are pinned. */
+    pinnedOnly?: Set<string>;
   },
 ): void {
   const { loader, toolNames, disallowedSet, extNames, narrowing } = ctx;
+  const pinnedOnly = ctx.pinnedOnly ?? EMPTY_PINNED;
 
   // The names allowed right now. Mirrors the `ext:` opt-in flip: when any `ext:`
   // selector is present, extension tools become an explicit allowlist — a loaded
@@ -244,6 +248,9 @@ export function installExtensionToolScope(
     const optInActive = extNames.size > 0;
     for (const extension of loader.getExtensions().extensions) {
       const canons = extensionCanonicalNames(extension.path);
+      // Pinning is load-and-observe: tools from extensions that are only here
+      // because of settings stay invisible/un-callable.
+      if (canons.some((c) => pinnedOnly.has(c))) continue;
       if (optInActive && !canons.some((c) => extNames.has(c))) continue;
       // First alias that carries a narrowing set — a user won't narrow one
       // extension under two different names, so first-match is correct.
@@ -289,6 +296,27 @@ export function installExtensionToolScope(
   };
 }
 
+const EMPTY_PINNED: ReadonlySet<string> = new Set();
+
+/** Canonical names pinned as observers in every subagent session. */
+let pinnedExtensions: Set<string> = new Set();
+
+/** Lowercased, de-duplicated pin names. Empty = no pinning (legacy paths). */
+export function getPinnedExtensions(): string[] {
+  return [...pinnedExtensions];
+}
+
+/** Replace the pin set. Empty / whitespace entries are dropped; names lowercased. */
+export function setPinnedExtensions(names: readonly string[]): void {
+  const next = new Set<string>();
+  for (const raw of names) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim().toLowerCase();
+    if (name) next.add(name);
+  }
+  pinnedExtensions = next;
+}
+
 /** Default max turns. undefined = unlimited (no turn limit). */
 let defaultMaxTurns: number | undefined;
 
@@ -303,6 +331,18 @@ export function getDefaultMaxTurns(): number | undefined { return defaultMaxTurn
 /** Set the default max turns value. undefined or 0 = unlimited, otherwise minimum 1. */
 export function setDefaultMaxTurns(n: number | undefined): void { defaultMaxTurns = normalizeMaxTurns(n); }
 
+/**
+ * Project default for `persist_session`. On by default so ordinary subagents
+ * become normal Pi sessions that can be inspected with `/resume`.
+ * Per-agent frontmatter overrides this in both directions.
+ */
+let rememberAgents = true;
+
+/** Whether subagent sessions are persisted by default. */
+export function getRememberAgents(): boolean { return rememberAgents; }
+/** Set whether subagent sessions are persisted by default. */
+export function setRememberAgents(enabled: boolean): void { rememberAgents = enabled; }
+
 /** Additional turns allowed after the soft limit steer message. */
 let graceTurns = 5;
 
@@ -310,6 +350,12 @@ let graceTurns = 5;
 export function getGraceTurns(): number { return graceTurns; }
 /** Set the grace turns value (minimum 1). */
 export function setGraceTurns(n: number): void { graceTurns = Math.max(1, n); }
+
+/** Normalize a per-run grace override. undefined keeps the global setting. */
+export function normalizeGraceTurns(n: number | undefined): number | undefined {
+  if (n == null) return undefined;
+  return Math.max(1, n);
+}
 
 /**
  * Try to find the right model for an agent type.
@@ -359,10 +405,18 @@ export interface RunOptions {
   agentId?: string;
   model?: Model<any>;
   maxTurns?: number;
+  /** Extra wrap-up turns after the soft maxTurns steer. Defaults to the global setting. */
+  graceTurns?: number;
   signal?: AbortSignal;
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Caller-supplied role definition. When present, bypasses the named-agent
+   * registry entirely; when absent, the historical registry/fallback path is
+   * unchanged.
+   */
+  inlineAgentConfig?: InlineAgentConfig;
   /** Override working directory (e.g. for worktree isolation). */
   cwd?: string;
   /**
@@ -490,8 +544,13 @@ function finalTurnError(session: AgentSession, startIndex = 0): string | undefin
  */
 function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
   if (!signal) return () => {};
-  const onAbort = () => session.abort();
-  signal.addEventListener("abort", onAbort, { once: true });
+  const onAbort = () => {
+    void session.abort().catch(() => {
+      // The manager still owns terminal/error reporting; abort cleanup is best-effort.
+    });
+  };
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
 }
 
@@ -508,8 +567,19 @@ export async function runAgent(
   prompt: string,
   options: RunOptions,
 ): Promise<RunResult> {
-  const config = getConfig(type);
-  const agentConfig = getAgentConfig(type);
+  const inlineAgentConfig = options.inlineAgentConfig;
+  const agentConfig: AgentConfig | undefined = inlineAgentConfig ?? getAgentConfig(type);
+  const config = inlineAgentConfig
+    ? {
+        displayName: inlineAgentConfig.displayName ?? inlineAgentConfig.name,
+        description: inlineAgentConfig.description,
+        builtinToolNames: inlineAgentConfig.builtinToolNames ?? BUILTIN_TOOL_NAMES,
+        extensions: inlineAgentConfig.extensions,
+        excludeExtensions: inlineAgentConfig.excludeExtensions,
+        skills: inlineAgentConfig.skills,
+        promptMode: inlineAgentConfig.promptMode,
+      }
+    : getConfig(type);
 
   // Resolve working directory: worktree override > parent cwd
   const effectiveCwd = options.cwd ?? ctx.cwd;
@@ -540,7 +610,9 @@ export async function runAgent(
     }
   }
 
-  let toolNames = getToolNamesForType(type);
+  let toolNames = inlineAgentConfig
+    ? (inlineAgentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES])
+    : getToolNamesForType(type);
 
   // Persistent memory: detect write capability and branch accordingly.
   // Account for disallowedTools — a tool in the base set but on the denylist is not truly available.
@@ -601,21 +673,25 @@ export async function runAgent(
   const { extNames, narrowing } = parseExtSelectors(
     options.isolated ? [] : (agentConfig?.extSelectors ?? []),
   );
-  const noExtensions = extensions === false;
+  // Pinning is empty → identical to the historical noExtensions shortcut.
+  // A non-empty pin must discover extensions so observers can bind handlers.
+  const pinned = pinnedExtensions;
+  const noExtensions = extensions === false && pinned.size === 0;
 
   const extensionsSpec = Array.isArray(extensions)
     ? parseExtensionsSpec(extensions, configCwd)
     : undefined;
   const keepNames = extensionsSpec?.names ?? new Set<string>();
-  // `exclude_extensions:` is a denylist applied AFTER the include set — exclude wins.
+  // `exclude_extensions:` is a denylist applied AFTER the include set — exclude
+  // wins on the tool surface. Load still keeps a pinned name (pin wins loading).
   // Plain canonical names only (case-insensitive). Note: excluded extensions'
   // factories still run once during reload() (see comment above) — exclusion
   // suppresses handler binding and tool registration; it is not a sandbox.
   const excludeNames = new Set((excludeExtensions ?? []).map((n) => n.toLowerCase()));
   const hasExcludes = excludeNames.size > 0;
-  // The override filters loaded extensions down to `keepNames` minus `excludeNames`.
-  // It's only needed when we're neither loading everything without excludes
-  // (`extensions: true` or a `"*"` wildcard) nor nothing (`noExtensions`).
+  // The override filters loaded extensions down to `keepNames` minus `excludeNames`,
+  // unioned with the pin set. It's only needed when we're neither loading everything
+  // without excludes (`extensions: true` or a `"*"` wildcard) nor nothing (`noExtensions`).
   const loadAll = extensions === true || extensionsSpec?.wildcard === true;
   const additionalExtensionPaths = extensionsSpec?.paths.length ? extensionsSpec.paths : undefined;
   // Pre-filter discovered set, captured by the override — the exclude-typo warning
@@ -631,7 +707,8 @@ export async function runAgent(
             ...base,
             extensions: base.extensions.filter((e) => {
               const canons = extensionCanonicalNames(e.path);
-              if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins
+              if (canons.some((n) => pinned.has(n))) return true; // pin wins loading
+              if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins otherwise
               return loadAll || canons.some((n) => keepNames.has(n));
             }),
           };
@@ -687,8 +764,17 @@ export async function runAgent(
   // Exclude typo check: compares against the PRE-filter discovered set (an excluded
   // name absent from the surviving set is the exclude working as intended). Also
   // flags path-like and "*" entries — excludes are plain names only.
+  // A pinned name that exclude also lists is not a typo: pin keeps it loaded and
+  // we warn separately that exclude only hides its tools.
   if (hasExcludes && discoveredNames) {
     for (const name of excludeNames) {
+      if (pinned.has(name) && discoveredNames.has(name)) {
+        options.onToolActivity?.({
+          type: "end",
+          toolName: `extension-error:extension "${name}" is pinned in settings for agent "${type}" — exclude_extensions only hides its tools`,
+        });
+        continue;
+      }
       if (!discoveredNames.has(name)) {
         options.onToolActivity?.({
           type: "end",
@@ -758,8 +844,10 @@ export async function runAgent(
   //     predicate installed after bind — the active set is what the LLM sees,
   //     so a registry tool that is never activated is invisible and uncallable.
   //
-  // `noExtensions`/`isolated` keeps the historical static allowlist: nothing
-  // async can appear there, and a hard registry gate is the correct boundary.
+  // `noExtensions` (extensions: false / isolated, and no pinned observers)
+  // keeps the historical static allowlist: nothing async can appear there, and
+  // a hard registry gate is the correct boundary. A non-empty pin takes the
+  // live-scoping path so observers can bind; their tools are hidden via pinnedOnly.
   const builtinToolNameSet = new Set(toolNames);
 
   let sessionTools: string[] | undefined;
@@ -783,8 +871,11 @@ export async function runAgent(
   const settingsManager = SettingsManager.create(configCwd, agentDir);
   const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd);
   const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
-  const sessionManager = agentConfig?.persistSession
-    ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir)
+  const persistSession = agentConfig?.persistSession ?? rememberAgents;
+  const sessionManager = persistSession
+    ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir, {
+        parentSession: ctx.sessionManager.getSessionFile(),
+      })
     : SessionManager.inMemory(effectiveCwd);
 
   // Pi 0.80.8 replaced createAgentSession's modelRegistry option with
@@ -840,12 +931,27 @@ export async function runAgent(
   // handled below by re-deriving scope from the loader's live extension maps —
   // `registerTool` writes into those same maps, so late arrivals are judged too.
   if (!noExtensions) {
+    // Extensions the config itself would not have kept — pin loaded them as
+    // observers. `loadAll` without an exclude covering the name is config keep.
+    const pinnedOnly = new Set<string>();
+    if (pinned.size > 0) {
+      for (const extension of loader.getExtensions().extensions) {
+        const canons = extensionCanonicalNames(extension.path);
+        if (!canons.some((n) => pinned.has(n))) continue;
+        const excluded = canons.some((n) => excludeNames.has(n));
+        const keptByConfig = !excluded && (loadAll || canons.some((n) => keepNames.has(n)));
+        if (!keptByConfig) {
+          for (const c of canons) pinnedOnly.add(c);
+        }
+      }
+    }
     installExtensionToolScope(session, {
       loader,
       toolNames,
       disallowedSet,
       extNames,
       narrowing,
+      pinnedOnly,
     });
   }
 
@@ -854,6 +960,7 @@ export async function runAgent(
   // Track turns for graceful max_turns enforcement
   let turnCount = 0;
   const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
+  const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
   let softLimitReached = false;
   let aborted = false;
 
@@ -866,7 +973,7 @@ export async function runAgent(
         if (!softLimitReached && turnCount >= maxTurns) {
           softLimitReached = true;
           session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
-        } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
+        } else if (softLimitReached && turnCount >= maxTurns + effectiveGraceTurns) {
           aborted = true;
           session.abort();
         }
@@ -919,7 +1026,14 @@ export async function runAgent(
   // on counts as this run's output (a fresh session, so usually 0).
   const startLen = session.messages.length;
   try {
-    await session.prompt(effectivePrompt);
+    // Abort can arrive while the loader/session/extensions are still initializing,
+    // before forwardAbortSignal is installed. Never start a model request after
+    // that cancellation has already happened.
+    if (options.signal?.aborted) {
+      aborted = true;
+    } else {
+      await session.prompt(effectivePrompt);
+    }
   } finally {
     unsubTurns();
     collector.unsubscribe();

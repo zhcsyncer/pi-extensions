@@ -1,0 +1,71 @@
+{
+  "name": "@zhcsyncer/pi-adversarial-review",
+  "version": "0.0.0",
+  "description": "Deterministic multi-model adversarial code review orchestration for Pi.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "pi-coding-agent",
+    "code-review",
+    "multi-model",
+    "adversarial-review"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "zhcsyncer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhcsyncer/pi-extensions.git",
+    "directory": "packages/pi-adversarial-review"
+  },
+  "homepage": "https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-adversarial-review#readme",
+  "bugs": {
+    "url": "https://github.com/zhcsyncer/pi-extensions/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "assets/",
+    "README.md",
+    "README.zh-CN.md",
+    "REFERENCE.md",
+    "REFERENCE.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/adversarial-review.ts"
+    ]
+  },
+  "dependencies": {
+    "@zhcsyncer/pi-subagents": "^0.1.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.84.0 <1",
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1",
+    "@earendil-works/pi-tui": ">=0.84.0 <1",
+    "typebox": "^1.1.24"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
+    "@types/node": "25.6.0",
+    "typebox": "1.1.24",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  }
+}

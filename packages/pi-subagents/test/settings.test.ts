@@ -12,6 +12,7 @@ import {
 import {
   applyAndEmitLoaded,
   applySettings,
+  loadPinnedExtensionsPolicy,
   loadSettings,
   persistToastFor,
   type SettingsAppliers,
@@ -235,6 +236,52 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({}); // non-boolean dropped
   });
 
+  it("round-trips rememberAgents and worktreeIsolation; drops non-booleans", () => {
+    saveSettings({ rememberAgents: false, worktreeIsolation: true }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ rememberAgents: false, worktreeIsolation: true });
+    saveSettings({ rememberAgents: true, worktreeIsolation: false }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ rememberAgents: true, worktreeIsolation: false });
+    writeProject({ rememberAgents: "on", worktreeIsolation: "off" } as any);
+    expect(loadSettings(projectDir)).toEqual({});
+  });
+
+  it("allows only the global config to add pins; project [] clears them", () => {
+    writeGlobal({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter", "telemetry"],
+      projectClearsPinnedExtensions: false,
+    });
+
+    expect(saveSettings({ pinnedExtensions: [] }, projectDir)).toBe(true);
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: [] });
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter", "telemetry"],
+      projectClearsPinnedExtensions: true,
+    });
+  });
+
+  it("ignores and warns about a non-empty project pin", () => {
+    writeGlobal({ pinnedExtensions: ["pi-meter"] });
+    writeProject({ pinnedExtensions: ["repo-observer"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter"] });
+    expect(loadPinnedExtensionsPolicy(projectDir)).toEqual({
+      globalPinnedExtensions: ["pi-meter"],
+      projectClearsPinnedExtensions: false,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(
+      "only the user-level global config may add pinned observer extensions",
+    ));
+  });
+
+  it("refuses to persist a non-empty project pin", () => {
+    expect(saveSettings({ pinnedExtensions: ["repo-observer"] }, projectDir)).toBe(false);
+    expect(existsSync(projectFile())).toBe(false);
+  });
+
   it("sanitize drops non-boolean schedulingEnabled silently", async () => {
     writeProject({ schedulingEnabled: "yes" } as any);
     expect(loadSettings(projectDir)).toEqual({});
@@ -376,6 +423,23 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir).toolDescriptionMode).toBeUndefined();
     });
 
+    it("normalizes global pinnedExtensions: lowercase, trim, drop empties, de-dupe", () => {
+      writeGlobal({ pinnedExtensions: [" PI-Meter ", "", "pi-meter", "telemetry", 1] as any });
+      expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: ["pi-meter", "telemetry"] });
+    });
+
+    it("keeps an explicit empty pinnedExtensions array", () => {
+      writeProject({ pinnedExtensions: [] });
+      expect(loadSettings(projectDir)).toEqual({ pinnedExtensions: [] });
+    });
+
+    it("drops non-array pinnedExtensions", () => {
+      writeProject({ pinnedExtensions: "pi-meter" } as any);
+      expect(loadSettings(projectDir).pinnedExtensions).toBeUndefined();
+      writeProject({ pinnedExtensions: null } as any);
+      expect(loadSettings(projectDir).pinnedExtensions).toBeUndefined();
+    });
+
     it("returns {} when the JSON root is not an object (array, string, null)", () => {
       mkdirSync(dirname(projectFile()), { recursive: true });
       writeFileSync(projectFile(), '["not", "an", "object"]');
@@ -476,8 +540,11 @@ describe("settings persistence", () => {
         setDisableDefaultAgents: vi.fn(),
         setToolDescriptionMode: vi.fn(),
         setFleetView: vi.fn(),
+        setRememberAgents: vi.fn(),
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
+        setWorktreeIsolation: vi.fn(),
+        setPinnedExtensions: vi.fn(),
       };
     });
 
@@ -515,7 +582,9 @@ describe("settings persistence", () => {
           disableDefaultAgents: true,
           toolDescriptionMode: "compact",
           fleetView: false,
+          rememberAgents: false,
           widgetMode: "off",
+          worktreeIsolation: true,
         },
         appliers,
       );
@@ -528,7 +597,9 @@ describe("settings persistence", () => {
       expect(appliers.setDisableDefaultAgents).toHaveBeenCalledWith(true);
       expect(appliers.setToolDescriptionMode).toHaveBeenCalledWith("compact");
       expect(appliers.setFleetView).toHaveBeenCalledWith(false);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(false);
       expect(appliers.setWidgetMode).toHaveBeenCalledWith("off");
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(true);
     });
 
     it("applies widgetMode; skips it when absent", () => {
@@ -565,6 +636,24 @@ describe("settings persistence", () => {
       expect(appliers.setOutputTranscript).toHaveBeenCalledWith(false);
       applySettings({ outputTranscript: true }, appliers);
       expect(appliers.setOutputTranscript).toHaveBeenCalledWith(true);
+    });
+
+    it("applies rememberAgents and worktreeIsolation in both directions", () => {
+      applySettings({ rememberAgents: false, worktreeIsolation: true }, appliers);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(false);
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(true);
+      applySettings({ rememberAgents: true, worktreeIsolation: false }, appliers);
+      expect(appliers.setRememberAgents).toHaveBeenCalledWith(true);
+      expect(appliers.setWorktreeIsolation).toHaveBeenCalledWith(false);
+    });
+
+    it("applies pinnedExtensions including empty (explicit clear); skips when absent", () => {
+      applySettings({ pinnedExtensions: ["pi-meter"] }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledWith(["pi-meter"]);
+      applySettings({ pinnedExtensions: [] }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledWith([]);
+      applySettings({ maxConcurrent: 4 }, appliers);
+      expect(appliers.setPinnedExtensions).toHaveBeenCalledTimes(2);
     });
 
     it("applies defaultMaxTurns: 0 as the explicit unlimited marker", () => {
@@ -624,8 +713,11 @@ describe("settings persistence", () => {
         setDisableDefaultAgents: vi.fn(),
         setToolDescriptionMode: vi.fn(),
         setFleetView: vi.fn(),
+        setRememberAgents: vi.fn(),
         setWidgetMode: vi.fn(),
         setOutputTranscript: vi.fn(),
+        setWorktreeIsolation: vi.fn(),
+        setPinnedExtensions: vi.fn(),
       };
     });
 

@@ -390,7 +390,8 @@ export class FleetList {
   }
 
   private renderAgentRow(rosterIndex: number, sel: number, record: AgentRecord, width: number, theme: Theme): string {
-    const left = `  ${this.bullet(rosterIndex, sel, theme)} ${theme.fg("muted", getDisplayName(record.type))}  ${record.description}`;
+    const displayName = getDisplayName(record.type, record.inlineDisplayName);
+    const left = `  ${this.bullet(rosterIndex, sel, theme)} ${theme.fg("muted", displayName)}  ${record.description}`;
     // Record remains authoritative across resume; activity is only live UI state.
     const tokens = getLifetimeTotal(record.lifetimeUsage);
     const elapsedMs = (record.completedAt ?? Date.now()) - record.startedAt; // freezes once finished

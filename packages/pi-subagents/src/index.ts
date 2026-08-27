@@ -16,19 +16,49 @@ import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type Exten
 import { Container, Key, matchesKey, type SettingItem, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { AgentManager } from "./agent-manager.js";
-import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, normalizeMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, steerAgent } from "./agent-runner.js";
+import {
+  getAgentConversation,
+  getDefaultMaxTurns,
+  getGraceTurns,
+  getPinnedExtensions,
+  getRememberAgents,
+  normalizeMaxTurns,
+  setDefaultMaxTurns,
+  setGraceTurns,
+  setPinnedExtensions,
+  setRememberAgents,
+  steerAgent,
+  SUBAGENT_TOOL_NAMES,
+} from "./agent-runner.js";
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { emitSubagentsConfigNotice, loadAgentToolDescriptionConfig } from "./config-storage.js";
 import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
 import { GroupJoinManager } from "./group-join.js";
-import { resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
+import { isolationParam, resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "./output-file.js";
+import {
+  buildAgentEventData,
+  buildCorrelatedEventData,
+  isAgentFailureStatus,
+} from "./runtime-events.js";
 import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
-import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.js";
+import {
+  archiveAgentRecord,
+  listArchivedAgents,
+  openArchivedAgent,
+  type ArchivedAgentRecord,
+} from "./session-archive.js";
+import {
+  applyAndEmitLoaded,
+  loadPinnedExtensionsPolicy,
+  type SubagentsSettings,
+  saveAndEmitChanged,
+  type ToolDescriptionMode,
+} from "./settings.js";
 import { getStatusNote } from "./status-note.js";
 import { type AgentConfig, type AgentInvocation, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type WidgetMode } from "./types.js";
 import {
@@ -42,12 +72,10 @@ import {
   formatDuration,
   formatMs,
   formatTokens,
-  formatTurns,
   getDisplayName,
   getPromptModeLabel,
   shortModelLabel,
   SPINNER,
-  styleDuration,
   type Theme,
   trackActivityPhaseEnd,
   trackActivityPhaseStart,
@@ -59,14 +87,19 @@ import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import {
   firstLinePreview,
   formatAgentCallMeta,
-  formatAgentDetailsStats,
+  formatClerkLine,
+  formatOutcomeClerk,
   isFailureDetailsStatus,
   renderAgentLikeResult,
   renderToolCallTitle,
   renderUndetailedResult,
   toolResultText,
 } from "./ui/tool-render.js";
-import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
+import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "./usage.js";
+import {
+  isWorktreeIsolationEnabled,
+  setWorktreeIsolationEnabled,
+} from "./worktree.js";
 
 // ---- Shared helpers ----
 
@@ -99,13 +132,15 @@ function detailBaseFromRecord(record: {
   type: string;
   description: string;
   invocation?: AgentInvocation;
+  inlineDisplayName?: string;
+  inlinePromptMode?: "replace" | "append";
 }): Pick<
   AgentDetails,
   "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags"
 > {
-  const displayName = getDisplayName(record.type);
+  const displayName = getDisplayName(record.type, record.inlineDisplayName);
   const invMeta = detailsFromInvocation(record.invocation);
-  const modeLabel = getPromptModeLabel(record.type);
+  const modeLabel = getPromptModeLabel(record.type, record.inlinePromptMode);
   const tags = invMeta.tags ? [...invMeta.tags] : [];
   if (modeLabel) tags.unshift(modeLabel);
   return {
@@ -157,11 +192,13 @@ export function renderRunningAgentStatus(
   statsText: string,
   activity: string,
   theme: Pick<Theme, "fg">,
-): Container {
-  const container = new Container();
-  container.addChild(new Text(theme.fg("accent", frame) + (statsText ? " " + statsText : ""), 0, 0));
-  container.addChild(new Text(theme.fg("dim", `  ⎿  ${activity}`), 0, 0));
-  return container;
+): Text {
+  const rest = [activity, statsText].filter((part) => part && part.length > 0).join(" · ");
+  return new Text(
+    theme.fg("dim", "  ⎿  ") + theme.fg("accent", frame) + (rest ? theme.fg("dim", ` ${rest}`) : ""),
+    0,
+    0,
+  );
 }
 
 /** Format the legacy compact lifetime total, or "" when zero. */
@@ -244,8 +281,8 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
 }
 
 /**
- * Advertised thinking levels, ordered to mirror pi-ai's EXTENDED_THINKING_LEVELS
- * (`off` + every `ThinkingLevel`). Single source for the Agent tool description,
+ * Advertised thinking levels, ordered to mirror pi-ai's full ModelThinkingLevel
+ * domain. Single source for the Agent tool description,
  * the generated-agent template, and the `/agents` wizard so these lists can't
  * drift behind pi again (#147). Availability of any level still depends on the
  * host pi version and the selected model — pi clamps unsupported levels down.
@@ -306,10 +343,51 @@ function formatTaskNotification(record: AgentRecord, resultMaxLen: number): stri
   ].filter(Boolean).join('\n');
 }
 
+function worktreeSummaryFromRecord(record: {
+  worktree?: { branch?: string };
+  worktreeResult?: { hasChanges?: boolean; branch?: string };
+}): string | undefined {
+  const branch = record.worktreeResult?.branch ?? record.worktree?.branch;
+  if (!branch) return undefined;
+  return record.worktreeResult?.hasChanges ? `worktree ${branch} · dirty` : `worktree ${branch}`;
+}
+
+function observabilityFromRecord(record: {
+  session?: SessionLike;
+  lifetimeUsage?: LifetimeUsage;
+  compactionCount?: number;
+  outputFile?: string;
+  worktree?: { branch?: string };
+  worktreeResult?: { hasChanges?: boolean; branch?: string };
+}): Partial<AgentDetails> {
+  const contextPercent = getSessionContextPercent(record.session);
+  const cost = record.lifetimeUsage?.cost;
+  return {
+    contextPercent: contextPercent ?? undefined,
+    compactionCount: record.compactionCount || undefined,
+    cost: cost != null && Number.isFinite(cost) && cost > 0 ? cost : undefined,
+    outputFile: record.outputFile,
+    worktreeSummary: worktreeSummaryFromRecord(record),
+  };
+}
+
 /** Build AgentDetails from a base + record-specific fields. */
 function buildDetails(
   base: Pick<AgentDetails, "displayName" | "description" | "subagentType" | "modelName" | "modelInherited" | "effort" | "tags">,
-  record: { toolUses: number; startedAt: number; completedAt?: number; status: string; error?: string; id?: string; session?: any; lifetimeUsage: LifetimeUsage },
+  record: {
+    toolUses: number;
+    startedAt: number;
+    completedAt?: number;
+    status: string;
+    error?: string;
+    id?: string;
+    session?: any;
+    lifetimeUsage: LifetimeUsage;
+    compactionCount?: number;
+    outputFile?: string;
+    worktree?: { branch?: string };
+    worktreeResult?: { hasChanges?: boolean; branch?: string };
+  },
   activity?: AgentActivity,
   overrides?: Partial<AgentDetails>,
 ): AgentDetails {
@@ -323,6 +401,7 @@ function buildDetails(
     status: record.status as AgentDetails["status"],
     agentId: record.id,
     error: record.error,
+    ...observabilityFromRecord(record),
     ...overrides,
   };
 }
@@ -378,43 +457,34 @@ export default function (pi: ExtensionAPI) {
 
       function renderOne(d: NotificationDetails): string {
         const isError = d.status === "error" || d.status === "stopped" || d.status === "aborted";
-        const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-        const statusText = isError ? d.status
-          : d.status === "steered" ? "completed (steered)"
-          : "completed";
+        const marker = isError ? theme.fg("error", "●") : theme.fg("success", "●");
         const description = sanitizeDisplayText(d.description);
         const resultPreview = sanitizeDisplayText(d.resultPreview);
         const outputFile = d.outputFile ? sanitizeDisplayText(d.outputFile) : undefined;
-
-        // Line 1: icon + agent description + status
-        let line = `${icon} ${theme.bold(description)} ${theme.fg("dim", statusText)}`;
-
-        // Line 2: stats
-        const parts: string[] = [];
-        if (d.turnCount > 0) parts.push(theme.fg("dim", formatTurns(d.turnCount, d.maxTurns)));
-        if (d.toolUses > 0) {
-          parts.push(theme.fg("dim", `${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`));
-        }
-        if (d.totalTokens > 0) parts.push(theme.fg("dim", `lifetime ${formatTokens(d.totalTokens)}`));
-        if (d.durationMs > 0) parts.push(styleDuration(theme, formatMs(d.durationMs)));
-        if (parts.length) {
-          line += "\n  " + parts.join(" " + theme.fg("dim", "·") + " ");
-        }
-
-        // Line 3: result preview (collapsed) or full (expanded)
+        const clerkDetails: AgentDetails = {
+          displayName: description,
+          description,
+          subagentType: "",
+          toolUses: d.toolUses,
+          tokens: d.totalTokens > 0 ? `lifetime ${formatTokens(d.totalTokens)}` : "",
+          durationMs: d.durationMs,
+          status: d.status as AgentDetails["status"],
+          turnCount: d.turnCount,
+          maxTurns: d.maxTurns,
+          error: d.error,
+          outputFile,
+        };
+        const outcome = formatOutcomeClerk(clerkDetails, resultPreview, theme);
+        const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
+        let line = `${marker} ${theme.fg("toolTitle", theme.bold(description))}`;
+        line += "\n" + outcome;
         if (expanded) {
           const lines = resultPreview.split("\n").slice(0, 30);
-          for (const l of lines) line += "\n" + theme.fg("dim", `  ${l}`);
-        } else {
-          const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
-          line += "\n  " + theme.fg("dim", `⎿  ${preview}`);
+          for (const l of lines) line += "\n" + theme.fg("dim", `    ${l}`);
+          if (outputFile) line += "\n" + formatClerkLine(theme, `transcript: ${outputFile}`, "muted");
+        } else if (preview) {
+          line += "\n" + formatClerkLine(theme, preview);
         }
-
-        // Line 4: output file link (if present)
-        if (outputFile) {
-          line += "\n  " + theme.fg("muted", `transcript: ${outputFile}`);
-        }
-
         return line;
       }
 
@@ -522,50 +592,39 @@ export default function (pi: ExtensionAPI) {
     30_000,
   );
 
-  /** Helper: build event data for lifecycle events from an AgentRecord. */
-  function buildEventData(record: AgentRecord) {
-    const durationMs = record.completedAt ? record.completedAt - record.startedAt : Date.now() - record.startedAt;
-    // All three fields are lifetime-accumulated (Σ over every assistant message_end),
-    // so they survive compaction together — input + output ≤ total always.
-    // tokens is omitted when nothing was ever produced (e.g. agent errored before
-    // any message_end fired), preserving prior payload shape.
-    const u = record.lifetimeUsage;
-    const total = getLifetimeTotal(u);
-    const tokens = total > 0
-      ? { input: u.input, output: u.output, total }
-      : undefined;
-    return {
-      id: record.id,
-      type: record.type,
-      description: record.description,
-      result: record.result,
-      error: record.error,
-      status: record.status,
-      toolUses: record.toolUses,
-      durationMs,
-      tokens,
-    };
-  }
-
   // Background completion: route through group join or send individual nudge
   const manager = new AgentManager((record) => {
-    // Emit lifecycle event based on terminal status
-    const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
-    const eventData = buildEventData(record);
-    if (isError) {
+    // Emit lifecycle event based on terminal status.
+    const eventData = buildAgentEventData(record);
+    if (isAgentFailureStatus(record.status)) {
       pi.events.emit("subagents:failed", eventData);
     } else {
       pi.events.emit("subagents:completed", eventData);
     }
 
-    // Persist final record for cross-extension history reconstruction
+    // Persist final record for cross-extension reconstruction and `/agents`
+    // history. Persisted child sessions carry enough metadata to reopen the
+    // brief ConversationViewer after the live AgentRecord has been evicted.
     pi.appendEntry("subagents:record", {
       id: record.id, type: record.type, description: record.description,
       status: record.status, result: record.result, error: record.error,
       startedAt: record.startedAt, completedAt: record.completedAt,
+      ...archiveAgentRecord(record),
+      ...buildCorrelatedEventData(record),
     });
 
-    // Skip notification if result was already consumed via get_subagent_result
+    // Caller-owned runs are collected by the invoking extension. Keep lifecycle,
+    // history, and Fleet updates, but do not nudge the parent conversation or
+    // leave the fast widget timer alive waiting for a parent turn that will not fire.
+    if (record.completionOwner === "caller") {
+      agentActivity.delete(record.id);
+      widget.dismissFinished(record.id);
+      fleet.onAgentFinished(record.id);
+      widget.update();
+      return;
+    }
+
+    // Skip notification if result was already consumed via get_subagent_result.
     if (record.resultConsumed) {
       agentActivity.delete(record.id);
       widget.markFinished(record.id);
@@ -594,6 +653,7 @@ export default function (pi: ExtensionAPI) {
       id: record.id,
       type: record.type,
       description: record.description,
+      ...buildCorrelatedEventData(record),
     });
   }, (record, info) => {
     // Emit compacted event when agent's session compacts (preserves count on record).
@@ -675,6 +735,17 @@ export default function (pi: ExtensionAPI) {
         pi,
         getCtx: () => currentCtx,
         manager,
+        onSpawned: ({ options, ctx }) => {
+          if (options.completionOwner !== "caller") return;
+          const extensionCtx = ctx as ExtensionContext;
+          if (!extensionCtx.hasUI) return;
+          widget.setUICtx(extensionCtx.ui as UICtx);
+          fleet.setUICtx(extensionCtx.ui as unknown as FleetUICtx);
+          widget.ensureTimer();
+          widget.update();
+          fleet.ensureTimer();
+          fleet.update();
+        },
       });
       // Broadcast readiness so extensions loaded alongside us can discover us.
       // Emitting after all factories have run (rather than at factory time)
@@ -873,6 +944,18 @@ export default function (pi: ExtensionAPI) {
     return name.replace(/-\d{8}$/, "");
   }
 
+  const initialPinPolicy = loadPinnedExtensionsPolicy();
+  const globalPinnedExtensions = initialPinPolicy.globalPinnedExtensions;
+  let projectClearsPinnedExtensions = initialPinPolicy.projectClearsPinnedExtensions;
+
+  // Reset module-level defaults on every activation before applying this
+  // repository's settings. Pi can switch sessions without reloading modules;
+  // an omitted field must still mean this fork's defaults (remember on,
+  // worktrees off, no stale pins), not the previous repository's value.
+  setRememberAgents(true);
+  setWorktreeIsolationEnabled(false);
+  setPinnedExtensions([]);
+
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
@@ -887,8 +970,11 @@ export default function (pi: ExtensionAPI) {
       setDisableDefaultAgents: setDisableDefaultAgents,
       setToolDescriptionMode: setToolDescriptionMode,
       setFleetView: setFleetViewEnabled,
+      setRememberAgents,
       setWidgetMode: setWidgetMode,
       setOutputTranscript: setOutputTranscript,
+      setWorktreeIsolation: setWorktreeIsolationEnabled,
+      setPinnedExtensions,
     },
     (event, payload) => pi.events.emit(event, payload),
   );
@@ -917,6 +1003,15 @@ export default function (pi: ExtensionAPI) {
     ? `\n- Use \`schedule\` only when the user explicitly asked for scheduled / recurring / delayed execution (e.g. "every Monday", "in an hour"). Don't auto-schedule from vague intent like "monitor X" — run once now or ask.`
     : "";
 
+  // Worktree capability is schema- and prose-gated together. This fork defaults
+  // it off; opting in exposes both legal values with the harmless `off` first.
+  const isolationGuideline = isWorktreeIsolationEnabled()
+    ? `\n- Use isolation: "worktree" to give the agent its own git worktree; leave it unset, or pass "off", for the current checkout. The copy cannot see staged or uncommitted changes in the main checkout. The worktree is removed on completion; changed work is preserved on a branch named in the result.`
+    : "";
+  const isolationCompactGuideline = isWorktreeIsolationEnabled()
+    ? `\n- isolation: "worktree" gives the agent its own temporary git worktree; "off" (the default) uses the current checkout.`
+    : "";
+
   // Compact Agent tool description (#91, `toolDescriptionMode: "compact"`) —
   // the same load-bearing facts as the full version at ~75% fewer tokens, for
   // small/local models. Per-option details live in the param descriptions.
@@ -930,7 +1025,7 @@ Notes:
 - Use foreground if the result gates your next read, edit, or decision. Use run_in_background only for genuinely disjoint work; launch parallel calls in one message.
 - Background completion notifies you automatically. Never poll/sleep or repeat its evidence collection while waiting; completion cannot retract sibling tools already issued in this turn.
 - You own synthesis, decisions, and final verification. After the report, use targeted verification only for high-risk claims; summarize results for the user.
-- resume continues an agent; steer_subagent redirects a running one; isolation: "worktree" isolates changes on a branch.`;
+- resume continues an agent; steer_subagent redirects a running one.${isolationCompactGuideline}`;
 
   const fullAgentToolDescription = `Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.
 
@@ -959,8 +1054,7 @@ If the target is already known, use a direct tool — \`read\` for a known path,
 - If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
 - Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
 - Use thinking to control extended thinking level.
-- Use inherit_context if the agent needs the parent conversation history.
-- Use isolation: "worktree" to run the agent in an isolated git worktree (safe parallel file modifications). The worktree is automatically cleaned up if the agent makes no changes; otherwise the path and branch are returned in the result.${scheduleGuideline}
+- Use inherit_context if the agent needs the parent conversation history.${isolationGuideline}${scheduleGuideline}
 
 ## Writing the prompt
 
@@ -985,6 +1079,7 @@ Terse command-style prompts produce shallow, generic work.
       compactTypeList: buildCompactTypeListText,
       agentDir: getAgentDir,
       scheduleGuideline: () => scheduleGuideline,
+      isolationGuideline: () => isolationGuideline,
     };
     // Replacement callback (not a string) — agent descriptions may contain `$&` etc.
     return template.replace(/\{\{(\w+)\}\}/g, (raw, name: string) => {
@@ -1068,27 +1163,24 @@ Terse command-style prompts produce shallow, generic work.
           description: "If true, fork parent conversation into the agent. Default: false (fresh context).",
         }),
       ),
-      isolation: Type.Optional(
-        Type.Literal("worktree", {
-          description: 'Set to "worktree" to run the agent in a temporary git worktree (isolated copy of the repo). Changes are saved to a branch on completion.',
-        }),
-      ),
+      ...isolationParam(isWorktreeIsolationEnabled()),
       ...scheduleParam,
     }),
 
     // ---- Custom rendering: Claude Code style ----
+    renderShell: "self",
 
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
       const displayName = args.subagent_type ? getDisplayName(args.subagent_type as string) : "Agent";
       const desc = typeof args.description === "string" ? args.description : "";
       // Call-time chips use tool args (may be fuzzy model / unset = inherit).
-      // Result stats use the resolved effective model from details.
+      // Result clerk uses the resolved effective model from details.
       const meta = formatAgentCallMeta({
         model: typeof args.model === "string" ? args.model : undefined,
         effort: typeof args.thinking === "string" ? args.thinking : undefined,
         background: args.run_in_background === true,
       });
-      return renderToolCallTitle(displayName, desc || undefined, theme, meta);
+      return renderToolCallTitle(displayName, desc || undefined, theme, meta, context);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1098,14 +1190,6 @@ Terse command-style prompts produce shallow, generic work.
         // Never default to completed/✓ — validation failures often omit details.
         return renderUndetailedResult(text, { expanded, isError: context?.isError === true }, theme);
       }
-
-      // Streaming partials keep the live spinner component (animated via onUpdate).
-      if (isPartial || details.status === "running") {
-        const frame = SPINNER[details.spinnerFrame ?? 0];
-        const s = formatAgentDetailsStats(details, theme);
-        return renderRunningAgentStatus(frame, s, details.activity ?? "working…", theme);
-      }
-
       return renderAgentLikeResult(details, text, { expanded, isPartial }, theme);
     },
 
@@ -1128,7 +1212,9 @@ Terse command-style prompts produce shallow, generic work.
       // Get agent config (if any)
       const customConfig = getAgentConfig(subagentType);
 
-      const resolvedConfig = resolveAgentInvocationConfig(customConfig, params);
+      const resolvedConfig = resolveAgentInvocationConfig(customConfig, params, {
+        worktreeAllowed: isWorktreeIsolationEnabled(),
+      });
 
       // Resolve model from agent config first; tool-call params only fill gaps.
       let model = ctx.model;
@@ -1396,6 +1482,7 @@ Terse command-style prompts produce shallow, generic work.
       let fgId: string | undefined;
 
       const streamUpdate = () => {
+        const live = fgId ? manager.getRecord(fgId) : undefined;
         const details: AgentDetails = {
           ...detailBase,
           toolUses: fgState.toolUses,
@@ -1406,6 +1493,14 @@ Terse command-style prompts produce shallow, generic work.
           status: "running",
           activity: describeCompactActivity(fgState),
           spinnerFrame: spinnerFrame % SPINNER.length,
+          ...observabilityFromRecord({
+            session: fgState.session ?? live?.session,
+            lifetimeUsage: fgState.lifetimeUsage,
+            compactionCount: live?.compactionCount,
+            outputFile: live?.outputFile,
+            worktree: live?.worktree,
+            worktreeResult: live?.worktreeResult,
+          }),
         };
         onUpdate?.({
           content: [{ type: "text", text: `${fgState.toolUses} tool uses...` }],
@@ -1535,7 +1630,8 @@ Terse command-style prompts produce shallow, generic work.
 
     // Without renderResult Pi dumps the entire model-facing payload (often a full
     // agent transcript) with no collapse — keep the TUI to a one-line preview.
-    renderCall(args, theme) {
+    renderShell: "self",
+    renderCall(args, theme, context) {
       const id = typeof args.agent_id === "string" ? args.agent_id : "";
       const flags = [
         args.wait ? "wait" : undefined,
@@ -1553,7 +1649,7 @@ Terse command-style prompts produce shallow, generic work.
         background: inv?.runInBackground === true,
         extra: flags,
       });
-      return renderToolCallTitle("Get Result", id || undefined, theme, meta || undefined);
+      return renderToolCallTitle("Get Result", id || undefined, theme, meta || undefined, context);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
@@ -1586,7 +1682,7 @@ Terse command-style prompts produce shallow, generic work.
         if (record.promise) await abortable(record.promise, signal);
       }
 
-      const displayName = getDisplayName(record.type);
+      const displayName = getDisplayName(record.type, record.inlineDisplayName);
       const duration = formatDuration(record.startedAt, record.completedAt);
       const tokens = formatLifetimeTokens(record);
       const contextPercent = getSessionContextPercent(record.session);
@@ -1647,6 +1743,7 @@ Terse command-style prompts produce shallow, generic work.
         turnCount: activity?.turnCount,
         maxTurns: activity?.maxTurns,
         ...invMeta,
+        ...observabilityFromRecord(record),
         activity: activityText,
       };
 
@@ -1672,10 +1769,11 @@ Terse command-style prompts produce shallow, generic work.
       }),
     }),
 
-    renderCall(args, theme) {
+    renderShell: "self",
+    renderCall(args, theme, context) {
       const id = typeof args.agent_id === "string" ? args.agent_id : "";
       const msg = typeof args.message === "string" ? firstLinePreview(args.message, 60) : "";
-      return renderToolCallTitle("Steer", id || undefined, theme, msg || undefined);
+      return renderToolCallTitle("Steer", id || undefined, theme, msg || undefined, context);
     },
 
     renderResult(result, { expanded }, theme, context) {
@@ -1764,6 +1862,36 @@ Terse command-style prompts produce shallow, generic work.
     return `${label} (→ ${resolvedFull.replace(/-\d{8}$/, "")})`;
   }
 
+  const isFinished = (record: Pick<AgentRecord, "status">) =>
+    record.status !== "running" && record.status !== "queued";
+
+  type FinishedAgentSelection = {
+    id: string;
+    record?: AgentRecord;
+    archive?: ArchivedAgentRecord;
+  };
+
+  function finishedAgentsForSession(ctx: ExtensionCommandContext): FinishedAgentSelection[] {
+    const archives = new Map(listArchivedAgents(ctx.sessionManager).map((archive) => [archive.id, archive]));
+    const items = new Map<string, FinishedAgentSelection>();
+
+    // Prefer the live AgentRecord while it exists: its real AgentSession keeps
+    // the existing ConversationViewer behavior. The archive remains as a disk
+    // fallback if the live session has already been disposed.
+    for (const record of manager.listAgents().filter(isFinished)) {
+      items.set(record.id, { id: record.id, record, archive: archives.get(record.id) });
+    }
+    for (const archive of archives.values()) {
+      if (!items.has(archive.id)) items.set(archive.id, { id: archive.id, archive });
+    }
+
+    return [...items.values()].sort((a, b) => {
+      const aRecord = a.record ?? a.archive!;
+      const bRecord = b.record ?? b.archive!;
+      return (bRecord.completedAt ?? bRecord.startedAt) - (aRecord.completedAt ?? aRecord.startedAt);
+    });
+  }
+
   async function showAgentsMenu(ctx: ExtensionCommandContext) {
     reloadCustomAgents();
     const allNames = getAllTypes();
@@ -1771,12 +1899,14 @@ Terse command-style prompts produce shallow, generic work.
     // Build select options
     const options: string[] = [];
 
-    // Running agents entry (only if there are active agents)
-    const agents = manager.listAgents();
-    if (agents.length > 0) {
-      const running = agents.filter(a => a.status === "running" || a.status === "queued").length;
-      const done = agents.filter(a => a.status === "completed" || a.status === "steered").length;
-      options.push(`Running agents (${agents.length}) — ${running} running, ${done} done`);
+    const activeAgents = manager.listAgents().filter(a => !isFinished(a));
+    if (activeAgents.length > 0) {
+      options.push(`Running agents (${activeAgents.length})`);
+    }
+
+    const finishedAgents = finishedAgentsForSession(ctx);
+    if (finishedAgents.length > 0) {
+      options.push(`Finished agents in this session (${finishedAgents.length})`);
     }
 
     // Agent types list
@@ -1794,7 +1924,7 @@ Terse command-style prompts produce shallow, generic work.
     options.push("Create new agent");
     options.push("Settings");
 
-    const noAgentsMsg = allNames.length === 0 && agents.length === 0
+    const noAgentsMsg = allNames.length === 0 && activeAgents.length === 0 && finishedAgents.length === 0
       ? "No agents found. Create specialized subagents that can be delegated to.\n\n" +
         "Each subagent has its own context window, custom system prompt, and specific tools.\n\n" +
         "Try creating: Code Reviewer, Security Auditor, Test Writer, or Documentation Writer.\n\n"
@@ -1809,6 +1939,9 @@ Terse command-style prompts produce shallow, generic work.
 
     if (choice.startsWith("Running agents (")) {
       await showRunningAgents(ctx);
+      await showAgentsMenu(ctx);
+    } else if (choice.startsWith("Finished agents in this session (")) {
+      await showFinishedAgents(ctx);
       await showAgentsMenu(ctx);
     } else if (choice.startsWith("Agent types (")) {
       await showAllAgentsList(ctx);
@@ -1893,29 +2026,58 @@ Terse command-style prompts produce shallow, generic work.
   }
 
   async function showRunningAgents(ctx: ExtensionCommandContext) {
-    const agents = manager.listAgents();
+    const agents = manager.listAgents().filter(a => !isFinished(a));
     if (agents.length === 0) {
-      ctx.ui.notify("No agents.", "info");
+      ctx.ui.notify("No running agents.", "info");
       return;
     }
 
-    const options = agents.map(a => {
-      const dn = getDisplayName(a.type);
+    const options = agents.map((a, index) => {
+      const dn = getDisplayName(a.type, a.inlineDisplayName);
       const dur = formatDuration(a.startedAt, a.completedAt);
-      return `${dn} (${a.description}) · ${a.toolUses} tools · ${a.status} · ${dur}`;
+      return `${index + 1}. ${dn} (${a.description}) · ${a.toolUses} tools · ${a.status} · ${dur}`;
     });
 
     const choice = await ctx.ui.select("Running agents", options);
     if (!choice) return;
 
-    // Find the selected agent by matching the option index
     const idx = options.indexOf(choice);
     if (idx < 0) return;
-    const record = agents[idx];
-
-    await viewAgentConversation(ctx, record);
-    // Back-navigation: re-show the list
+    await viewAgentConversation(ctx, agents[idx]);
     await showRunningAgents(ctx);
+  }
+
+  async function showFinishedAgents(ctx: ExtensionCommandContext) {
+    const agents = finishedAgentsForSession(ctx);
+    if (agents.length === 0) {
+      ctx.ui.notify("No finished agents in this session.", "info");
+      return;
+    }
+
+    const options = agents.map((item, index) => {
+      const source = item.record ?? item.archive!;
+      const name = `${getDisplayName(source.type, source.inlineDisplayName)}#${source.id.slice(0, 8)}`;
+      return `${index + 1}. ${name} · ${source.status} · ${source.description}`;
+    });
+    const choice = await ctx.ui.select("Finished agents in this session", options);
+    if (!choice) return;
+
+    const idx = options.indexOf(choice);
+    if (idx < 0) return;
+    const selected = agents[idx];
+    if (selected.record?.session) {
+      await viewAgentConversation(ctx, selected.record);
+    } else if (selected.archive) {
+      try {
+        await viewAgentConversation(ctx, openArchivedAgent(selected.archive));
+      } catch (err) {
+        ctx.ui.notify(
+          `Could not open archived agent session: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+      }
+    }
+    await showFinishedAgents(ctx);
   }
 
   async function viewAgentConversation(ctx: ExtensionCommandContext, record: AgentRecord) {
@@ -2042,6 +2204,7 @@ Terse command-style prompts produce shallow, generic work.
     if (cfg.disallowedTools?.length) fmFields.push(`disallowed_tools: ${cfg.disallowedTools.join(", ")}`);
     if (cfg.inheritContext) fmFields.push("inherit_context: true");
     if (cfg.runInBackground) fmFields.push("run_in_background: true");
+    if (cfg.persistSession != null) fmFields.push(`persist_session: ${cfg.persistSession}`);
     if (cfg.outputTranscript === false) fmFields.push("output_transcript: false");
     if (cfg.isolated) fmFields.push("isolated: true");
     if (cfg.memory) fmFields.push(`memory: ${cfg.memory}`);
@@ -2150,6 +2313,11 @@ Terse command-style prompts produce shallow, generic work.
 
     ctx.ui.notify("Generating agent definition...", "info");
 
+    const isolationFrontmatter = isWorktreeIsolationEnabled()
+      ? `\nisolation: <"off" for the current checkout (default) or "worktree" for a temporary linked checkout>`
+      : "";
+    const isolationDiskNote = isWorktreeIsolationEnabled() ? ", isolation: worktree commits" : "";
+
     const generatePrompt = `Create a custom pi sub-agent definition file based on this description: "${description}"
 
 Write a markdown file to: ${targetPath}
@@ -2169,10 +2337,10 @@ skills: <true (inherit all), false (none), or comma-separated skill names to pre
 disallowed_tools: <comma-separated tool names to block, even if otherwise available. Omit for none>
 inherit_context: <true to fork parent conversation into agent so it sees chat history. Default: false>
 run_in_background: <true to run in background by default. Default: false>
+persist_session: <false to keep this agent in memory, or true to persist even when the project default is off. Default: true>
 output_transcript: <false to write no transcript file or path for this agent. Independent of persist_session. Default: true>
 isolated: <true for no extension/MCP tools, only built-in tools. Default: false>
-memory: <"user" (global), "project" (per-project), or "local" (gitignored per-project) for persistent memory. Omit for none>
-isolation: <"worktree" to run in isolated git worktree. Omit for normal>
+memory: <"user" (global), "project" (per-project), or "local" (gitignored per-project) for persistent memory. Omit for none>${isolationFrontmatter}
 ---
 
 <system prompt body — instructions for the agent>
@@ -2185,7 +2353,7 @@ Guidelines for choosing settings:
 - Use prompt_mode: replace for fully custom agents with their own personality/instructions
 - Set inherit_context: true if the agent needs to know what was discussed in the parent conversation
 - Set isolated: true if the agent should NOT have access to MCP servers or other extensions
-- Set output_transcript: false to skip writing this agent's transcript; this alone doesn't keep the run off disk (persist_session, isolation: worktree commits, and memory still write) — set those too if that's the goal
+- Set output_transcript: false to skip writing this agent's transcript; this alone doesn't keep the run off disk (persist_session${isolationDiskNote}, and memory still write) — set those too if that's the goal
 - Only include frontmatter fields that differ from defaults — omit fields where the default is fine
 
 Write the file using the write tool. Only write the file, nothing else.`;
@@ -2303,8 +2471,11 @@ ${systemPrompt}
       disableDefaultAgents: isDefaultsDisabled(),
       toolDescriptionMode: getToolDescriptionMode(),
       fleetView: isFleetViewEnabled(),
+      rememberAgents: getRememberAgents(),
       widgetMode: getWidgetMode(),
       outputTranscript: getOutputTranscriptDefault(),
+      worktreeIsolation: isWorktreeIsolationEnabled(),
+      ...(projectClearsPinnedExtensions ? { pinnedExtensions: [] } : {}),
     };
   }
 
@@ -2367,11 +2538,32 @@ ${systemPrompt}
           values: ["on", "off"],
         },
         {
+          id: "rememberAgents",
+          label: "Remember agents",
+          description: "Persist subagents as normal Pi sessions under their parent. A custom agent's persist_session frontmatter overrides this.",
+          currentValue: getRememberAgents() ? "on" : "off",
+          values: ["on", "off"],
+        },
+        {
           id: "outputTranscript",
           label: "Output transcript",
           description: "Write each subagent's .output transcript by default. A custom agent's output_transcript frontmatter overrides this.",
           currentValue: getOutputTranscriptDefault() ? "on" : "off",
           values: ["on", "off"],
+        },
+        {
+          id: "worktreeIsolation",
+          label: "Worktree isolation",
+          description: "Allow isolation: worktree. Off removes the parameter and its prose on the next Pi session; all requests run in the real checkout.",
+          currentValue: isWorktreeIsolationEnabled() ? "on" : "off",
+          values: ["off", "on"],
+        },
+        {
+          id: "pinnedExtensions",
+          label: "Pinned extensions",
+          description: "Global user allowlist only. Project settings may inherit it or clear it; edit the global config manually to add observers.",
+          currentValue: projectClearsPinnedExtensions ? "clear" : "inherit",
+          values: ["inherit", "clear"],
         },
         {
           id: "fleetView",
@@ -2442,10 +2634,34 @@ ${systemPrompt}
         const enabled = value === "on";
         setDisableDefaultAgents(enabled);
         notifyApplied(ctx, `Default agents ${enabled ? "disabled" : "enabled"}. Tool spec change takes effect on next pi session.`);
+      } else if (id === "rememberAgents") {
+        const enabled = value === "on";
+        setRememberAgents(enabled);
+        notifyApplied(ctx, `Remember agents ${enabled ? "enabled" : "disabled"} by default`);
       } else if (id === "outputTranscript") {
         const enabled = value === "on";
         setOutputTranscript(enabled);
         notifyApplied(ctx, `Output transcript ${enabled ? "enabled" : "disabled"} by default`);
+      } else if (id === "worktreeIsolation") {
+        const enabled = value === "on";
+        setWorktreeIsolationEnabled(enabled);
+        notifyApplied(
+          ctx,
+          `Worktree isolation ${enabled ? "enabled" : "disabled"}. Tool spec change takes effect on next Pi session.`,
+        );
+      } else if (id === "pinnedExtensions") {
+        projectClearsPinnedExtensions = value === "clear";
+        setPinnedExtensions(
+          projectClearsPinnedExtensions ? [] : globalPinnedExtensions,
+        );
+        notifyApplied(
+          ctx,
+          projectClearsPinnedExtensions
+            ? "Pinned extensions cleared for this project"
+            : globalPinnedExtensions.length > 0
+              ? `Pinned extensions inherited from global config: ${globalPinnedExtensions.join(", ")}`
+              : "Pinned extensions inherit the empty global allowlist",
+        );
       } else if (id === "toolDescriptionMode") {
         setToolDescriptionMode(value as ToolDescriptionMode);
         notifyApplied(ctx, `Tool description set to ${value}. Takes effect on next pi session.`);
@@ -2493,8 +2709,11 @@ ${systemPrompt}
             currentIndex = Math.min(items.length - 1, currentIndex + 1);
           }
 
-          // Enter on numeric field → close and prompt for typed input
-          if (matchesKey(data, Key.enter) && NUMERIC_IDS.has(items[currentIndex].id)) {
+          // Enter on numeric / free-text field → close and prompt for typed input
+          if (
+            matchesKey(data, Key.enter)
+            && (NUMERIC_IDS.has(items[currentIndex].id) || items[currentIndex].id === "pinnedExtensions")
+          ) {
             done(items[currentIndex].id);
             return;
           }
@@ -2530,6 +2749,17 @@ ${systemPrompt}
         }
         // Invalid — re-prompt with the user's last entry so they can edit it
         input = await ctx.ui.input(label, trimmed);
+      }
+    }
+
+    if (result === "pinnedExtensions") {
+      const input = await ctx.ui.input(
+        "Pinned extensions (comma-separated names; empty clears)",
+        getPinnedExtensions().join(", "),
+      );
+      if (input != null) {
+        applyValue("pinnedExtensions", input);
+        await showSettings(ctx);
       }
     }
   }

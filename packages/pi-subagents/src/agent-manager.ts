@@ -12,14 +12,33 @@ import { isAbsolute } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
-import type { AgentInvocation, AgentRecord, CompletionDelivery, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
+import type {
+  AgentInvocation,
+  AgentRecord,
+  CompletionDelivery,
+  CompletionOwner,
+  InlineAgentConfig,
+  IsolationMode,
+  SubagentType,
+  ThinkingLevel,
+} from "./types.js";
 import { addUsage, createLifetimeUsage, type LifetimeUsage } from "./usage.js";
-import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
+import {
+  cleanupWorktree,
+  createWorktree,
+  isWorktreeIsolationEnabled,
+  pruneWorktrees,
+} from "./worktree.js";
 
 export type OnAgentComplete = (record: AgentRecord) => void;
 export type OnAgentStart = (record: AgentRecord) => void;
 export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void;
 export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
+
+export interface AgentManagerOptions {
+  /** Normal extension shutdown prunes worktree registrations; embedded callers can opt out. */
+  pruneWorktreesOnDispose?: boolean;
+}
 
 /** Default max concurrent background agents. */
 const DEFAULT_MAX_CONCURRENT = 4;
@@ -54,13 +73,21 @@ interface SpawnArgs {
   options: SpawnOptions;
 }
 
-interface SpawnOptions {
+export interface SpawnOptions {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
+  /** Extra wrap-up turns after the soft maxTurns steer. Defaults to the global setting. */
+  graceTurns?: number;
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /** Optional role definition supplied directly by another extension. */
+  inlineAgentConfig?: InlineAgentConfig;
+  /** Defaults to runtime when omitted, preserving ordinary completion nudges. */
+  completionOwner?: CompletionOwner;
+  /** Opaque caller correlation key echoed through lifecycle events. */
+  correlationId?: string;
   isBackground?: boolean;
   /** How completion is delivered to the parent. Defaults to detached follow-up delivery. */
   completionDelivery?: CompletionDelivery;
@@ -114,12 +141,19 @@ export class AgentManager {
   private queue: { id: string; args: SpawnArgs }[] = [];
   /** Number of currently running background agents. */
   private runningBackground = 0;
+  /** Independent of display status: resolves only after the execution promise settles. */
+  private settlements = new Map<string, {
+    promise: Promise<void>;
+    resolve: () => void;
+    settled: boolean;
+  }>();
 
   constructor(
     onComplete?: OnAgentComplete,
     maxConcurrent = DEFAULT_MAX_CONCURRENT,
     onStart?: OnAgentStart,
     onCompact?: OnAgentCompact,
+    private readonly options: AgentManagerOptions = {},
   ) {
     this.onComplete = onComplete;
     this.onStart = onStart;
@@ -128,6 +162,23 @@ export class AgentManager {
     // Cleanup completed agents after 10 minutes (but keep sessions for resume)
     this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
     this.cleanupInterval.unref();
+  }
+
+  private createSettlement(id: string): void {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    this.settlements.set(id, { promise, resolve, settled: false });
+  }
+
+  private settleExecution(id: string): void {
+    const settlement = this.settlements.get(id);
+    if (!settlement || settlement.settled) return;
+    settlement.settled = true;
+    settlement.resolve();
+  }
+
+  private isExecutionSettled(id: string): boolean {
+    return this.settlements.get(id)?.settled ?? true;
   }
 
   /** Update the max concurrent background agents limit. */
@@ -157,6 +208,20 @@ export class AgentManager {
     // can fix and retry; the RPC layer converts throws into error envelopes.
     assertValidSpawnCwd(options.cwd);
 
+    // Enforce the repository capability below every caller boundary. Tool calls
+    // are schema-gated too, but agent files, schedules, and RPC can bypass that
+    // schema. `off` and disabled worktrees both become ordinary real-tree runs.
+    const isolation = options.isolation === "worktree" && isWorktreeIsolationEnabled()
+      ? "worktree"
+      : undefined;
+    options = {
+      ...options,
+      isolation,
+      ...(options.invocation
+        ? { invocation: { ...options.invocation, isolation } }
+        : {}),
+    };
+
     const id = randomUUID().slice(0, 17);
     const abortController = new AbortController();
     const record: AgentRecord = {
@@ -176,8 +241,29 @@ export class AgentManager {
       // only filter excludes only explicit `false`, so undefined agents — which
       // have no inline surface — stay visible instead of vanishing.
       isBackground: options.isBackground,
-      invocation: options.invocation,
+      invocation: options.invocation ?? (options.correlationId ? {
+        modelName: options.model?.id,
+        thinking: options.thinkingLevel,
+        maxTurns: options.maxTurns,
+        isolated: options.isolated,
+        inheritContext: options.inheritContext,
+        runInBackground: options.isBackground,
+        isolation: options.isolation,
+      } : undefined),
+      ...(options.inlineAgentConfig ? {
+        inlineDisplayName: options.inlineAgentConfig.displayName ?? options.inlineAgentConfig.name,
+        inlinePromptMode: options.inlineAgentConfig.promptMode,
+      } : {}),
+      ...(options.correlationId ? { correlationId: options.correlationId } : {}),
+      ...(options.completionOwner ? { completionOwner: options.completionOwner } : {}),
+      ...(options.correlationId && options.model ? {
+        requestedModel: { provider: options.model.provider, modelId: options.model.id },
+      } : {}),
+      ...(options.correlationId && options.thinkingLevel ? {
+        requestedThinkingLevel: options.thinkingLevel,
+      } : {}),
     };
+    this.createSettlement(id);
     this.agents.set(id, record);
 
     const args: SpawnArgs = { pi, ctx, type, prompt, options };
@@ -193,7 +279,9 @@ export class AgentManager {
     try {
       this.startAgent(id, record, args);
     } catch (err) {
+      this.settleExecution(id);
       this.agents.delete(id);
+      this.settlements.delete(id);
       throw err;
     }
     return id;
@@ -214,7 +302,13 @@ export class AgentManager {
     // fail loud if not possible (no silent fallback to main tree). Done
     // BEFORE state mutation so a throw doesn't leave the record half-running.
     let worktreeCwd: string | undefined;
-    if (options.isolation === "worktree") {
+    const useWorktree = options.isolation === "worktree" && isWorktreeIsolationEnabled();
+    // The setting can turn off while a background spawn is queued. Keep the UI
+    // snapshot honest if that accepted request is downgraded at queue drain.
+    if (!useWorktree && record.invocation?.isolation) {
+      record.invocation = { ...record.invocation, isolation: undefined };
+    }
+    if (useWorktree) {
       const wt = createWorktree(baseCwd, id);
       if (!wt) {
         throw new Error(
@@ -242,7 +336,8 @@ export class AgentManager {
     let detachParentSignal: (() => void) | undefined;
     if (options.signal) {
       const onParentAbort = () => this.abort(id);
-      options.signal.addEventListener("abort", onParentAbort, { once: true });
+      if (options.signal.aborted) onParentAbort();
+      else options.signal.addEventListener("abort", onParentAbort, { once: true });
       detachParentSignal = () => options.signal!.removeEventListener("abort", onParentAbort);
     }
     const detach = () => { detachParentSignal?.(); detachParentSignal = undefined; };
@@ -252,9 +347,11 @@ export class AgentManager {
       agentId: id,
       model: options.model,
       maxTurns: options.maxTurns,
+      ...(options.graceTurns !== undefined ? { graceTurns: options.graceTurns } : {}),
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
+      ...(options.inlineAgentConfig ? { inlineAgentConfig: options.inlineAgentConfig } : {}),
       // Worktree wins for the working dir (the agent must run in the copy —
       // which, with a custom cwd, was created from that target). Config stays
       // with the parent project when a caller-supplied cwd is in play; it must
@@ -280,6 +377,14 @@ export class AgentManager {
       },
       onSessionCreated: (session) => {
         record.session = session;
+        record.sessionFile = session.sessionManager?.getSessionFile?.();
+        if (record.correlationId) {
+          const effectiveModel = session.model;
+          if (effectiveModel) {
+            record.effectiveModel = { provider: effectiveModel.provider, modelId: effectiveModel.id };
+          }
+          record.effectiveThinkingLevel = session.thinkingLevel;
+        }
         // Flush any steers that arrived before the session was ready
         if (record.pendingSteers?.length) {
           for (const msg of record.pendingSteers) {
@@ -335,9 +440,11 @@ export class AgentManager {
         if (!options.isBackground) {
           record.resultConsumed = true;
           try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+          this.settleExecution(id);
         } else {
           this.runningBackground--;
           try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+          this.settleExecution(id);
           this.drainQueue();
         }
         return responseText;
@@ -370,10 +477,12 @@ export class AgentManager {
         // Mark resultConsumed so the callback skips notifications (result returned inline).
         if (!options.isBackground) {
           record.resultConsumed = true;
-          this.onComplete?.(record);
+          try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+          this.settleExecution(id);
         } else {
           this.runningBackground--;
-          this.onComplete?.(record);
+          try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+          this.settleExecution(id);
           this.drainQueue();
         }
         return "";
@@ -401,7 +510,8 @@ export class AgentManager {
         record.status = "error";
         record.error = err instanceof Error ? err.message : String(err);
         record.completedAt = Date.now();
-        this.onComplete?.(record);
+        try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+        this.settleExecution(next.id);
       }
     }
   }
@@ -528,6 +638,13 @@ export class AgentManager {
       this.queue = this.queue.filter(q => q.id !== id);
       record.status = "stopped";
       record.completedAt = Date.now();
+      // Caller-owned orchestration waits on terminal lifecycle events even for
+      // work that was cancelled before it started. Preserve the historical
+      // no-completion-callback behavior for ordinary queued agents.
+      if (record.completionOwner === "caller") {
+        try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+      }
+      this.settleExecution(id);
       return true;
     }
 
@@ -538,17 +655,27 @@ export class AgentManager {
     return true;
   }
 
+  /** Abort an agent and wait until its execution promise has actually settled. */
+  async abortAndWait(id: string): Promise<boolean> {
+    const settlement = this.settlements.get(id);
+    if (!settlement || !this.abort(id)) return false;
+    await settlement.promise;
+    return true;
+  }
+
   /** Dispose a record's session and remove it from the map. */
   private removeRecord(id: string, record: AgentRecord): void {
     record.session?.dispose?.();
     record.session = undefined;
     this.agents.delete(id);
+    this.settlements.delete(id);
   }
 
   private cleanup() {
     const cutoff = Date.now() - 10 * 60_000;
     for (const [id, record] of this.agents) {
       if (record.status === "running" || record.status === "queued") continue;
+      if (!this.isExecutionSettled(id)) continue;
       if ((record.completedAt ?? 0) >= cutoff) continue;
       this.removeRecord(id, record);
     }
@@ -563,6 +690,7 @@ export class AgentManager {
   clearCompleted(skipUnconsumed = false): void {
     for (const [id, record] of this.agents) {
       if (record.status === "running" || record.status === "queued") continue;
+      if (!this.isExecutionSettled(id)) continue;
       if (skipUnconsumed && !record.resultConsumed) continue;
       this.removeRecord(id, record);
     }
@@ -584,6 +712,13 @@ export class AgentManager {
       if (record) {
         record.status = "stopped";
         record.completedAt = Date.now();
+        // Ordinary queued work historically has no shutdown completion
+        // notification. Caller-owned work has no other result surface, so its
+        // correlated terminal event is required to unblock the orchestrator.
+        if (record.completionOwner === "caller") {
+          try { this.onComplete?.(record); } catch { /* ignore completion side-effect errors */ }
+        }
+        this.settleExecution(record.id);
         count++;
       }
     }
@@ -600,17 +735,14 @@ export class AgentManager {
     return count;
   }
 
-  /** Wait for all running and queued agents to complete (including queued ones). */
+  /** Wait for every execution to settle, including records already marked stopped. */
   async waitForAll(): Promise<void> {
-    // Loop because drainQueue respects the concurrency limit — as running
-    // agents finish they start queued ones, which need awaiting too.
     while (true) {
       this.drainQueue();
-      const pending = [...this.agents.values()]
-        .filter(r => r.status === "running" || r.status === "queued")
-        .map(r => r.promise)
-        .filter(Boolean);
-      if (pending.length === 0) break;
+      const pending = [...this.settlements.values()]
+        .filter((settlement) => !settlement.settled)
+        .map((settlement) => settlement.promise);
+      if (pending.length === 0) return;
       await Promise.allSettled(pending);
     }
   }
@@ -621,14 +753,19 @@ export class AgentManager {
     this.queue = [];
     for (const record of this.agents.values()) {
       record.session?.dispose();
+      // A queued record has no execution promise; a running/stopped record is
+      // settled only by its real promise callbacks, even after the map clears.
+      if (record.status === "queued") this.settleExecution(record.id);
     }
     this.agents.clear();
-    // Prune any orphaned git worktrees (crash recovery)
-    try { pruneWorktrees(process.cwd()); } catch { /* ignore */ }
-    // Also prune repos that caller-supplied cwds created worktrees in — a clean
-    // exit with in-flight agents would otherwise leave stale registrations there.
-    for (const repo of this.worktreeRepos) {
-      try { pruneWorktrees(repo); } catch { /* ignore */ }
+    if (this.options.pruneWorktreesOnDispose !== false) {
+      // Prune any orphaned git worktrees (crash recovery).
+      try { pruneWorktrees(process.cwd()); } catch { /* ignore */ }
+      // Also prune repos that caller-supplied cwds created worktrees in — a clean
+      // exit with in-flight agents would otherwise leave stale registrations there.
+      for (const repo of this.worktreeRepos) {
+        try { pruneWorktrees(repo); } catch { /* ignore */ }
+      }
     }
   }
 }

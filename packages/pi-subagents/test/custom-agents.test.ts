@@ -616,6 +616,28 @@ Isolated.`);
     expect(result.get("isolated-wt")!.isolation).toBe("worktree");
   });
 
+  it("parses isolation: off as an agent-level worktree veto", () => {
+    writeAgent("no-worktree", `---
+description: Real checkout agent
+isolation: off
+---
+
+No worktree.`);
+
+    const result = loadCustomAgents(tmpDir);
+    expect(result.get("no-worktree")!.isolation).toBe("off");
+  });
+
+  it.each([
+    ["none", "none"],
+    ["no", "no"],
+    ["false", false],
+  ])("parses isolation %s as off", (_label, value) => {
+    writeAgent("no-worktree-alias", `---\nisolation: ${String(value)}\n---\n\nNo worktree.`);
+    const result = loadCustomAgents(tmpDir);
+    expect(result.get("no-worktree-alias")!.isolation).toBe("off");
+  });
+
   it("isolation defaults to undefined when omitted", () => {
     writeAgent("no-isolation", `---
 description: Normal

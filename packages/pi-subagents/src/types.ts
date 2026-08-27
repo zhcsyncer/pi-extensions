@@ -2,11 +2,12 @@
  * types.ts — Type definitions for the subagent system.
  */
 
-import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { LifetimeUsage } from "./usage.js";
 
-export type { ThinkingLevel };
+/** Pi's full model thinking domain, including explicit `off`. */
+export type ThinkingLevel = ModelThinkingLevel;
 
 /** Agent type: any string name (built-in defaults or user-defined). */
 export type SubagentType = string;
@@ -17,8 +18,12 @@ export const DEFAULT_AGENT_NAMES = ["general-purpose", "Explore", "Plan"] as con
 /** Memory scope for persistent agent memory. */
 export type MemoryScope = "user" | "project" | "local";
 
-/** Isolation mode for agent execution. */
-export type IsolationMode = "worktree";
+/**
+ * Isolation mode accepted at invocation boundaries.
+ * `"off"` is an explicit no-worktree value and is collapsed to normal execution
+ * before the run starts; `"worktree"` is the only runtime isolation mode.
+ */
+export type IsolationMode = "off" | "worktree";
 
 /** Unified agent configuration — used for both default and user-defined agents. */
 export interface AgentConfig {
@@ -57,7 +62,10 @@ export interface AgentConfig {
   isolated?: boolean;
   /** Persistent memory scope — agents with memory get a persistent directory and MEMORY.md */
   memory?: MemoryScope;
-  /** Isolation mode — "worktree" runs the agent in a temporary git worktree */
+  /**
+   * Isolation mode — "worktree" requests a temporary git worktree; "off"
+   * vetoes a caller's worktree request because agent config has precedence.
+   */
   isolation?: IsolationMode;
   /** true = this is an embedded default agent (informational) */
   isDefault?: boolean;
@@ -65,6 +73,35 @@ export interface AgentConfig {
   enabled?: boolean;
   /** Where this agent was loaded from */
   source?: "default" | "project" | "global";
+}
+
+/**
+ * Complete caller-supplied agent definition for cross-extension orchestration.
+ * Model, thinking, context inheritance, isolation, worktree mode, and output
+ * transcript stay spawn-level choices. Registry/discovery metadata is excluded
+ * so an inline role cannot be mistaken for a persisted project/global agent.
+ */
+export type InlineAgentConfig = Omit<
+  AgentConfig,
+  | "model"
+  | "thinking"
+  | "source"
+  | "isDefault"
+  | "enabled"
+  | "inheritContext"
+  | "runInBackground"
+  | "isolated"
+  | "isolation"
+  | "outputTranscript"
+>;
+
+/** Who owns delivery of the terminal result to the parent conversation. */
+export type CompletionOwner = "runtime" | "caller";
+
+/** Stable, serializable model identity for lifecycle events. */
+export interface AgentModelIdentity {
+  provider: string;
+  modelId: string;
 }
 
 export type JoinMode = 'async' | 'group' | 'smart';
@@ -110,6 +147,8 @@ export interface AgentRecord {
   toolCallId?: string;
   /** Path to the streaming output transcript file. */
   outputFile?: string;
+  /** Persisted Pi session file, when this agent is not running in memory. */
+  sessionFile?: string;
   /** Cleanup function for the output file stream subscription. */
   outputCleanup?: () => void;
   /**
@@ -134,6 +173,19 @@ export interface AgentRecord {
   isBackground?: boolean;
   /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
   invocation?: AgentInvocation;
+  /** Inline role display metadata; absent for ordinary registry-backed agents. */
+  inlineDisplayName?: string;
+  inlinePromptMode?: "replace" | "append";
+  /** Optional cross-extension correlation key, never sourced from model output. */
+  correlationId?: string;
+  /** Defaults to runtime when omitted, preserving ordinary Agent notifications. */
+  completionOwner?: CompletionOwner;
+  /** Requested route, captured only for correlated cross-extension runs. */
+  requestedModel?: AgentModelIdentity;
+  requestedThinkingLevel?: ThinkingLevel;
+  /** Effective route after the child session has been constructed. */
+  effectiveModel?: AgentModelIdentity;
+  effectiveThinkingLevel?: ThinkingLevel;
 }
 
 export interface AgentInvocation {

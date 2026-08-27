@@ -16,6 +16,7 @@ const HERDR_COMPANION = "@zhcsyncer/pi-herdr-companion";
 const SUBAGENTS = "@zhcsyncer/pi-subagents";
 const FAST_MODE = "@zhcsyncer/pi-fast-mode";
 const METER = "@zhcsyncer/pi-meter";
+const ADVERSARIAL_REVIEW = "@zhcsyncer/pi-adversarial-review";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
 function releases(...entries) {
@@ -41,6 +42,12 @@ test("allows the root package to release independently", () => {
 
 test("allows the standalone Agent Plan provider to release without the root", () => {
 	assert.deepEqual(validateReleasePolicy(releases([AGENT_PLAN, "patch"])), []);
+});
+
+test("allows standalone adversarial review to release without the root", () => {
+	assert.deepEqual(validateReleasePolicy(releases([ADVERSARIAL_REVIEW, "minor"])), []);
+	const script = readFileSync(new URL("./reconcile-release.sh", import.meta.url), "utf8");
+	assert.match(script, /@zhcsyncer\/pi-adversarial-review/u);
 });
 
 test("requires the root package when recap releases", () => {

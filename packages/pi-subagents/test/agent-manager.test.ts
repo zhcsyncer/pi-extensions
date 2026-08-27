@@ -11,6 +11,7 @@ vi.mock("../src/agent-runner.js", () => ({
 vi.mock("../src/worktree.js", () => ({
   createWorktree: vi.fn(),
   cleanupWorktree: vi.fn(() => ({ hasChanges: false })),
+  isWorktreeIsolationEnabled: vi.fn(() => true),
   pruneWorktrees: vi.fn(),
 }));
 
@@ -19,7 +20,10 @@ import { runAgent } from "../src/agent-runner.js";
 const mockPi = {} as any;
 const mockCtx = { cwd: "/tmp" } as any;
 
-const mockSession = () => ({ dispose: vi.fn() } as any);
+const mockSession = () => ({
+  dispose: vi.fn(),
+  sessionManager: { getSessionFile: vi.fn(() => "/sessions/child.jsonl") },
+} as any);
 
 const resolvedRun = () =>
   vi.mocked(runAgent).mockResolvedValue({
@@ -110,6 +114,105 @@ describe("AgentManager — Bug 1 race condition (resultConsumed vs onComplete)",
     // resultConsumed is set by spawnAndWait so onComplete skips notifications
     expect(completedRecord!.resultConsumed).toBe(true);
     expect(record).toBe(completedRecord);
+  });
+});
+
+describe("AgentManager — caller-owned cross-extension runs", () => {
+  let manager: AgentManager;
+
+  afterEach(() => manager?.dispose());
+
+  it("forwards inline config and records requested/effective route metadata", async () => {
+    const inlineAgentConfig = {
+      name: "reviewer",
+      description: "Inline reviewer",
+      builtinToolNames: ["read"],
+      extensions: false as const,
+      skills: false as const,
+      systemPrompt: "Review.",
+      promptMode: "replace" as const,
+    };
+    const model = { provider: "test-provider", id: "test-model" } as any;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
+      const session = {
+        ...mockSession(),
+        model,
+        thinkingLevel: "off",
+      } as any;
+      opts.onSessionCreated?.(session);
+      return { responseText: "done", session, aborted: false, steered: false };
+    });
+    manager = new AgentManager();
+
+    const id = manager.spawn(mockPi, mockCtx, "reviewer", "review", {
+      description: "Inline reviewer",
+      model,
+      thinkingLevel: "off",
+      graceTurns: 15,
+      inlineAgentConfig,
+      completionOwner: "caller",
+      correlationId: "route-1",
+      isBackground: true,
+    });
+    await manager.getRecord(id)!.promise;
+
+    expect(runAgent).toHaveBeenCalledWith(
+      mockCtx,
+      "reviewer",
+      "review",
+      expect.objectContaining({ inlineAgentConfig, thinkingLevel: "off", graceTurns: 15 }),
+    );
+    expect(manager.getRecord(id)).toMatchObject({
+      completionOwner: "caller",
+      correlationId: "route-1",
+      inlineDisplayName: "reviewer",
+      inlinePromptMode: "replace",
+      requestedModel: { provider: "test-provider", modelId: "test-model" },
+      requestedThinkingLevel: "off",
+      effectiveModel: { provider: "test-provider", modelId: "test-model" },
+      effectiveThinkingLevel: "off",
+    });
+  });
+
+  it("emits completion for a caller-owned agent stopped while queued", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
+    manager.spawn(mockPi, mockCtx, "general-purpose", "first", {
+      description: "first",
+      isBackground: true,
+    });
+    const queuedId = manager.spawn(mockPi, mockCtx, "reviewer", "second", {
+      description: "second",
+      completionOwner: "caller",
+      correlationId: "route-2",
+      isBackground: true,
+    });
+
+    expect(manager.getRecord(queuedId)?.status).toBe("queued");
+    expect(manager.abort(queuedId)).toBe(true);
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+      id: queuedId,
+      status: "stopped",
+      completionOwner: "caller",
+    }));
+  });
+
+  it("preserves the old no-callback behavior for ordinary queued stops", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
+    manager.spawn(mockPi, mockCtx, "general-purpose", "first", {
+      description: "first",
+      isBackground: true,
+    });
+    const queuedId = manager.spawn(mockPi, mockCtx, "general-purpose", "second", {
+      description: "second",
+      isBackground: true,
+    });
+
+    expect(manager.abort(queuedId)).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });
 
@@ -516,14 +619,36 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
 // Regression: `isolation: "worktree"` MUST fail loud when the cwd can't host
 // a worktree. The previous behavior silently fell back to the main tree and
 // injected a warning into the LLM's prompt — invisible to the caller.
-describe("AgentManager — isolation: worktree fails loud, no silent fallback", () => {
+describe("AgentManager — repository worktree switch", () => {
   let manager: AgentManager;
 
-  afterEach(() => {
+  afterEach(async () => {
     manager?.dispose();
+    const { isWorktreeIsolationEnabled } = await import("../src/worktree.js");
+    vi.mocked(isWorktreeIsolationEnabled).mockReturnValue(true);
   });
 
-  it("spawn() throws when createWorktree returns undefined; no orphan record left behind", async () => {
+  it("downgrades a worktree request to the real tree when the switch is off", async () => {
+    const { createWorktree, isWorktreeIsolationEnabled } = await import("../src/worktree.js");
+    vi.mocked(isWorktreeIsolationEnabled).mockReturnValue(false);
+    vi.mocked(createWorktree).mockClear();
+    vi.mocked(runAgent).mockClear();
+    resolvedRun();
+
+    manager = new AgentManager();
+    const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
+      description: "test",
+      isolation: "worktree",
+      invocation: { isolation: "worktree" },
+    });
+    await manager.getRecord(id)!.promise;
+
+    expect(createWorktree).not.toHaveBeenCalled();
+    expect(vi.mocked(runAgent).mock.lastCall![3].cwd).toBeUndefined();
+    expect(manager.getRecord(id)?.invocation?.isolation).toBeUndefined();
+  });
+
+  it("still throws when worktrees are enabled but creation fails", async () => {
     const { createWorktree } = await import("../src/worktree.js");
     vi.mocked(createWorktree).mockReturnValueOnce(undefined);
     vi.mocked(runAgent).mockClear();
@@ -534,9 +659,7 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
       isolation: "worktree",
     })).toThrow(/isolation: "worktree"/);
 
-    // Cleaned up — no orphan in listAgents()
     expect(manager.listAgents()).toEqual([]);
-    // runAgent never invoked — strict, no silent fallback
     expect(runAgent).not.toHaveBeenCalled();
   });
 });
@@ -891,6 +1014,32 @@ describe("AgentManager — abortAll", () => {
     expect(manager.getRecord(running)?.status).toBe("stopped");
     expect(manager.getRecord(queued)?.status).toBe("stopped");
     expect(manager.hasRunning()).toBe(false);
+  });
+
+  it("emits terminal completion for queued caller-owned work during shutdown", () => {
+    const onComplete = vi.fn();
+    manager = new AgentManager(onComplete, 1);
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+
+    manager.spawn(mockPi, mockCtx, "X", "running", {
+      description: "running",
+      isBackground: true,
+    });
+    const queued = manager.spawn(mockPi, mockCtx, "Y", "queued", {
+      description: "queued caller",
+      isBackground: true,
+      completionOwner: "caller",
+      correlationId: "review:queued",
+    });
+
+    manager.abortAll();
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+      id: queued,
+      correlationId: "review:queued",
+      status: "stopped",
+    }));
   });
 
   it("returns 0 when there are no running or queued agents", () => {

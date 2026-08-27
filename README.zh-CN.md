@@ -26,6 +26,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr 集成，提供跨 Workspace 托管进程身份、可导航 Process Widget、紧凑 Tool 渲染、临时 `/btw` 支线、blocked 状态和统一设置；需单独安装，根 bundle 不会启用。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
+- [`@zhcsyncer/pi-adversarial-review`](./packages/pi-adversarial-review) — 确定性多模型对抗式代码评审。需单独安装，根 bundle 不包含。
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
 
   ![Fast Mode 底栏状态](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
@@ -38,7 +39,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 说明
 
-Search Hub 只随根 bundle 提供。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
+Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
 ## 独立 Providers
 
@@ -128,6 +129,12 @@ pi install npm:@zhcsyncer/pi-herdr-companion
 
 ```bash
 pi install npm:@zhcsyncer/pi-subagents
+```
+
+安装 standalone 对抗式评审（根 bundle 不包含）：
+
+```bash
+pi install npm:@zhcsyncer/pi-adversarial-review
 ```
 
 仅安装 Fast Mode：

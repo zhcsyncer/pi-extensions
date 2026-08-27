@@ -3,6 +3,7 @@
 // - Project: <cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json — written by /agents → Settings; overrides global
 
 import {
+  emitSubagentsConfigNotice,
   loadMigratedJsonConfig,
   type NormalizedJsonConfig,
   saveJsonConfig,
@@ -82,6 +83,12 @@ export interface SubagentsSettings {
    */
   fleetView?: boolean;
   /**
+   * Persist ordinary subagents as Pi sessions by default. Defaults to true;
+   * per-agent `persist_session` frontmatter overrides it in both directions.
+   * Persisted sessions appear under their parent in `/resume`.
+   */
+  rememberAgents?: boolean;
+  /**
    * Display mode for the persistent above-editor agent widget:
    *   - `all`: show every agent (foreground + background).
    *   - `background`: hide foreground agents — they already render inline as the
@@ -103,6 +110,24 @@ export interface SubagentsSettings {
    * (`isolation: worktree`), or memory files.
    */
   outputTranscript?: boolean;
+  /**
+   * Allow `isolation: "worktree"` to create a linked checkout. This fork
+   * defaults to false. When false, the Agent schema/prose omits isolation and
+   * requests from agent files, schedules, or RPC are downgraded to the real tree.
+   */
+  worktreeIsolation?: boolean;
+  /**
+   * Extension names that load in EVERY subagent session, regardless of the
+   * agent's `isolated` / `extensions:` / `exclude_extensions:` configuration.
+   * Load-and-observe only: pinning never exposes an extension's tools to the
+   * subagent LLM — tool visibility still follows the agent's own config.
+   * Intended for user-trusted stats/observer extensions (e.g. pi-meter).
+   *
+   * Security boundary: only the user-level global config may add names. A
+   * project config may set `[]` to opt out of the global pin, but a non-empty
+   * project value is ignored with a warning.
+   */
+  pinnedExtensions?: string[];
 }
 
 export type ToolDescriptionMode = "full" | "compact" | "custom";
@@ -118,8 +143,11 @@ export interface SettingsAppliers {
   setDisableDefaultAgents: (b: boolean) => void;
   setToolDescriptionMode: (mode: ToolDescriptionMode) => void;
   setFleetView: (b: boolean) => void;
+  setRememberAgents: (b: boolean) => void;
   setWidgetMode: (mode: WidgetMode) => void;
   setOutputTranscript: (b: boolean) => void;
+  setWorktreeIsolation: (b: boolean) => void;
+  setPinnedExtensions: (names: string[]) => void;
 }
 
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
@@ -180,11 +208,29 @@ function sanitize(raw: unknown): SubagentsSettings {
   if (typeof r.fleetView === "boolean") {
     out.fleetView = r.fleetView;
   }
+  if (typeof r.rememberAgents === "boolean") {
+    out.rememberAgents = r.rememberAgents;
+  }
   if (typeof r.widgetMode === "string" && VALID_WIDGET_MODES.has(r.widgetMode)) {
     out.widgetMode = r.widgetMode as WidgetMode;
   }
   if (typeof r.outputTranscript === "boolean") {
     out.outputTranscript = r.outputTranscript;
+  }
+  if (typeof r.worktreeIsolation === "boolean") {
+    out.worktreeIsolation = r.worktreeIsolation;
+  }
+  if (Array.isArray(r.pinnedExtensions)) {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of r.pinnedExtensions) {
+      if (typeof entry !== "string") continue;
+      const name = entry.trim().toLowerCase();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    out.pinnedExtensions = names;
   }
   return out;
 }
@@ -198,30 +244,78 @@ function normalizeSettings(raw: unknown): NormalizedJsonConfig<SubagentsSettings
   return { value, dropped };
 }
 
-/** Load merged settings: global provides defaults, project overrides. */
-export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
-  const global = loadMigratedJsonConfig({
+function loadGlobalSettings(): SubagentsSettings {
+  return loadMigratedJsonConfig({
     canonicalPath: getGlobalSubagentsSettingsPath(),
     legacyPath: getLegacyGlobalSubagentsSettingsPath(),
     scope: "global settings",
     normalize: normalizeSettings,
     fallback: {},
   });
-  const project = loadMigratedJsonConfig({
+}
+
+function loadProjectSettings(cwd: string): SubagentsSettings {
+  return loadMigratedJsonConfig({
     canonicalPath: getProjectSubagentsSettingsPath(cwd),
     legacyPath: getLegacyProjectSubagentsSettingsPath(cwd),
     scope: "project settings",
     normalize: normalizeSettings,
     fallback: {},
   });
-  return { ...global, ...project };
+}
+
+function warnNonEmptyProjectPin(cwd: string): void {
+  emitSubagentsConfigNotice(
+    `[pi-subagents] Ignoring non-empty project pinnedExtensions at ` +
+      `${getProjectSubagentsSettingsPath(cwd)}; only the user-level global config may add ` +
+      "pinned observer extensions. A project may use [] only to clear the global pin.",
+  );
+}
+
+export interface PinnedExtensionsPolicy {
+  globalPinnedExtensions: string[];
+  projectClearsPinnedExtensions: boolean;
+}
+
+/** Read pin provenance for the project Settings UI. */
+export function loadPinnedExtensionsPolicy(
+  cwd: string = process.cwd(),
+): PinnedExtensionsPolicy {
+  const global = loadGlobalSettings();
+  const project = loadProjectSettings(cwd);
+  if (project.pinnedExtensions && project.pinnedExtensions.length > 0) {
+    warnNonEmptyProjectPin(cwd);
+  }
+  return {
+    globalPinnedExtensions: [...(global.pinnedExtensions ?? [])],
+    projectClearsPinnedExtensions:
+      Array.isArray(project.pinnedExtensions) && project.pinnedExtensions.length === 0,
+  };
+}
+
+/**
+ * Load merged settings. Project fields override global fields except the pin
+ * allowlist: projects may clear a global pin with `[]`, never grant one.
+ */
+export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
+  const global = loadGlobalSettings();
+  const project = loadProjectSettings(cwd);
+  const { pinnedExtensions: projectPins, ...projectWithoutPins } = project;
+  const merged: SubagentsSettings = { ...global, ...projectWithoutPins };
+  if (Array.isArray(projectPins)) {
+    if (projectPins.length === 0) merged.pinnedExtensions = [];
+    else warnNonEmptyProjectPin(cwd);
+  }
+  return merged;
 }
 
 /**
  * Atomically write project-local settings to the canonical path. Global is
- * never touched from code. Returns `true` only after a semantic re-read.
+ * never touched from code. Non-empty project pins are rejected; `[]` is the
+ * only project-level pin value. Returns true after a semantic re-read.
  */
 export function saveSettings(s: SubagentsSettings, cwd: string = process.cwd()): boolean {
+  if (s.pinnedExtensions && s.pinnedExtensions.length > 0) return false;
   return saveJsonConfig({
     canonicalPath: getProjectSubagentsSettingsPath(cwd),
     value: s,
@@ -240,8 +334,11 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   if (typeof s.disableDefaultAgents === "boolean") appliers.setDisableDefaultAgents(s.disableDefaultAgents);
   if (s.toolDescriptionMode) appliers.setToolDescriptionMode(s.toolDescriptionMode);
   if (typeof s.fleetView === "boolean") appliers.setFleetView(s.fleetView);
+  if (typeof s.rememberAgents === "boolean") appliers.setRememberAgents(s.rememberAgents);
   if (s.widgetMode) appliers.setWidgetMode(s.widgetMode);
   if (typeof s.outputTranscript === "boolean") appliers.setOutputTranscript(s.outputTranscript);
+  if (typeof s.worktreeIsolation === "boolean") appliers.setWorktreeIsolation(s.worktreeIsolation);
+  if (Array.isArray(s.pinnedExtensions)) appliers.setPinnedExtensions(s.pinnedExtensions);
 }
 
 /**
