@@ -73,17 +73,18 @@ pi install git:github.com/zhcsyncer/pi-extensions
 提供商列表是固定的，没有用户白名单。
 
 - OpenAI 和 Codex 在 Fast Mode 开启时请求 `priority`。
-- xAI 在 Fast Mode 开启时请求 `priority`。
+- Pi 内置 xAI 模型已全部使用 Responses，并在 Fast Mode 开启时请求 `priority`。
+- `models.json` 里的自定义 xAI Completions 模型仍受支持。
 
 不支持的模型隐藏底栏状态，并且不改请求。
 
 ## 价格与计费
 
-不要假设每个模型都会被授予 priority，也不要假设本地费用总是大约 2 倍。
+不要假设每个模型都会被授予 priority。
 
 - OpenAI Fast / priority 官方定价面向 GPT-5.6 系列。更旧的模型可能拒绝或忽略该请求。
-- xAI 可能返回 `service_tier: "default"`。
-- Completions（当前 grok-4.6）不会把 priority 反映到本地 `usage.cost`。Glance 和 session 费用可能偏低。
+- 对 Responses 模型，Pi 会按响应里的 `service_tier` 计算本地 `usage.cost`：`priority` 通常约为 2 倍，`default` 仍为 1 倍。
+- 自定义 xAI Completions 模型可以请求 priority，但本地费用不会获得 Responses 专属的调整。
 
 ## Session 生命周期
 
