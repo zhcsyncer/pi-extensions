@@ -2,8 +2,8 @@
  * Fast / Priority mode for Pi.
  *
  * Same model, higher scheduling priority:
- * - openai / openai-codex Responses via options.serviceTier
- * - xAI Responses / Completions via payload service_tier
+ * - openai / openai-codex / xAI Responses via options.serviceTier
+ * - custom xAI Completions models via a payload service_tier fallback
  *
  * Toggle until you toggle again, /reload, or quit: /fast  or  Ctrl+F
  * Startup default: /fast default on|off
@@ -36,6 +36,7 @@ export const SHORTCUT_REPEAT_GUARD_MS = 800;
 export type ServiceTierOptions = ReturnType<typeof buildBaseOptions> & {
 	serviceTier?: typeof SERVICE_TIER;
 	reasoningEffort?: string;
+	toolChoice?: SimpleStreamOptions["toolChoice"];
 };
 
 export type FastModeModel = Pick<Model<Api>, "provider" | "api">;
@@ -110,7 +111,10 @@ export function buildStreamOptions(
 	options: SimpleStreamOptions | undefined,
 	serviceTier: typeof SERVICE_TIER | undefined,
 ): ServiceTierOptions {
-	const base = buildBaseOptions(model, context, options, options?.apiKey);
+	const base = {
+		...buildBaseOptions(model, context, options, options?.apiKey),
+		toolChoice: options?.toolChoice,
+	};
 	const clamped = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	const reasoningEffort = clamped === "off" ? undefined : clamped;
 	return {
@@ -138,7 +142,7 @@ export function applyXaiPriorityPayload(input: {
 	payload: unknown;
 }): Record<string, unknown> | undefined {
 	if (!input.enabled || input.model?.provider !== "xai") return undefined;
-	if (!supportsApi(input.model)) return undefined;
+	if (input.model.api !== "openai-completions") return undefined;
 	if (!isRecord(input.payload)) return undefined;
 	return { ...input.payload, service_tier: SERVICE_TIER };
 }
@@ -234,8 +238,20 @@ export default function fastMode(pi: ExtensionAPI): void {
 		},
 	});
 
-	// xAI is mixed-API (4.5 Responses, 4.6 Completions). registerProvider() can
-	// wrap only one api id, so inject the field on the serialized payload for both.
+	pi.registerProvider("xai", {
+		api: "openai-responses",
+		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
+			const tier = resolveTier(model);
+			return streamOpenAIResponses(
+				model as Model<"openai-responses">,
+				context,
+				buildStreamOptions(model, context, options, tier) as never,
+			);
+		},
+	});
+
+	// Pi's built-in xAI catalog is entirely Responses. Keep the serialized
+	// payload hook only for custom xAI Completions models from models.json.
 	pi.on("before_provider_request", (event, ctx) => {
 		return applyXaiPriorityPayload({
 			enabled,

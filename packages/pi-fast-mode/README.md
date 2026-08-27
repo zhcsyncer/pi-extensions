@@ -73,17 +73,18 @@ The supported settings key is `fast-mode.enabled` in Pi `settings.json`:
 The provider list is fixed. There is no user allowlist.
 
 - OpenAI and Codex request `priority` when Fast Mode is on.
-- xAI requests `priority` when Fast Mode is on.
+- Pi's built-in xAI models all use Responses and request `priority` when Fast Mode is on.
+- Custom xAI Completions models in `models.json` remain supported.
 
 Unsupported models hide the footer and leave the request unchanged.
 
 ## Pricing and billing
 
-Do not assume every model is granted priority, and do not assume local cost is always about 2×.
+Do not assume every model is granted priority.
 
 - OpenAI Fast / priority is officially priced for the GPT-5.6 family. Older models may reject or ignore the request.
-- xAI may return `service_tier: "default"`.
-- Completions (current grok-4.6) does not apply priority to local `usage.cost`. Glance and session cost can under-report.
+- On Responses models, Pi uses the returned `service_tier` for local `usage.cost`: `priority` is typically about 2×, while `default` stays at 1×.
+- Custom xAI Completions models can request priority, but their local cost does not receive the Responses-specific adjustment.
 
 ## Session lifetime
 

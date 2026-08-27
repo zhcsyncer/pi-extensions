@@ -15,6 +15,13 @@ type RegisteredCommand = {
 	handler: (args: string, ctx: ExtensionContext) => Promise<void> | void;
 };
 
+type RegisteredProvider = {
+	api?: string;
+	streamSimple?: (...args: never[]) => unknown;
+};
+
+type EventHandler = (event: { reason?: string; payload?: unknown }, ctx: ExtensionContext) => unknown;
+
 const KITTY_CTRL_F_RELEASE = "\x1b[102;5:3u";
 
 function createCtx(statuses: Array<string | undefined>, notifies: string[]) {
@@ -75,7 +82,8 @@ function createInputCtx(statuses: Array<string | undefined>, notifies: string[])
 async function withLoadedExtension<T>(
 	run: (input: {
 		commands: Map<string, RegisteredCommand>;
-		handlers: Map<string, (event: { reason?: string }, ctx: ExtensionContext) => void>;
+		handlers: Map<string, EventHandler>;
+		providers: Map<string, RegisteredProvider>;
 	}) => Promise<T>,
 ): Promise<T> {
 	const root = await mkdtemp(path.join(tmpdir(), "pi-fast-mode-cmd-"));
@@ -85,24 +93,35 @@ async function withLoadedExtension<T>(
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	try {
 		const commands = new Map<string, RegisteredCommand>();
-		const handlers = new Map<string, (event: { reason?: string }, ctx: ExtensionContext) => void>();
+		const handlers = new Map<string, EventHandler>();
+		const providers = new Map<string, RegisteredProvider>();
 		const pi = {
-			registerProvider() {},
+			registerProvider(name: string, spec: RegisteredProvider) {
+				providers.set(name, spec);
+			},
 			registerCommand(name: string, spec: RegisteredCommand) {
 				commands.set(name, spec);
 			},
-			on(event: string, handler: (event: { reason?: string }, ctx: ExtensionContext) => void) {
+			on(event: string, handler: EventHandler) {
 				handlers.set(event, handler);
 			},
 		} as unknown as ExtensionAPI;
 		fastMode(pi);
-		return await run({ commands, handlers });
+		return await run({ commands, handlers, providers });
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
 		await rm(root, { recursive: true, force: true });
 	}
 }
+
+test("registers built-in xAI on the Responses wrapper", async () => {
+	await withLoadedExtension(async ({ providers }) => {
+		const xai = providers.get("xai");
+		assert.equal(xai?.api, "openai-responses");
+		assert.equal(typeof xai?.streamSimple, "function");
+	});
+});
 
 test("/fast default writes settings and leaves the current switch unchanged", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {

@@ -7,7 +7,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildBaseOptions as installedBuildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
+import {
+	streamOpenAIResponses,
+	type Api,
+	type AssistantMessage,
+	type Context,
+	type Model,
+	type SimpleStreamOptions,
+} from "@earendil-works/pi-ai/compat";
 import {
 	applyXaiPriorityPayload,
 	buildStreamOptions,
@@ -125,9 +132,15 @@ test("local buildBaseOptions matches the installed pi-ai recipe", () => {
 
 test("buildStreamOptions copies Pi streamSimple options and only adds serviceTier", () => {
 	const gpt = openaiModel();
-	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2, apiKey: "test-key" };
+	const options: SimpleStreamOptions = {
+		maxTokens: 64000,
+		temperature: 0.2,
+		apiKey: "test-key",
+		toolChoice: "none",
+	};
 	const expected = {
 		...buildBaseOptions(gpt, emptyContext, options, options.apiKey),
+		toolChoice: "none",
 		reasoningEffort: undefined,
 	};
 
@@ -136,6 +149,69 @@ test("buildStreamOptions copies Pi streamSimple options and only adds serviceTie
 		...expected,
 		serviceTier: SERVICE_TIER,
 	});
+});
+
+async function runXaiResponses(responseServiceTier: "priority" | "default") {
+	const payloads: Array<Record<string, unknown>> = [];
+	const fakeFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+		const requestBody = init?.body;
+		if (typeof requestBody !== "string") throw new Error("Expected a JSON request body");
+		payloads.push(JSON.parse(requestBody) as Record<string, unknown>);
+		const response = {
+			id: "resp_test",
+			status: "completed",
+			output: [],
+			service_tier: responseServiceTier,
+			usage: {
+				input_tokens: 10,
+				output_tokens: 20,
+				total_tokens: 30,
+				input_tokens_details: { cached_tokens: 0 },
+				output_tokens_details: { reasoning_tokens: 0 },
+			},
+		};
+		return new Response(
+			`data: ${JSON.stringify({ type: "response.completed", response })}\n\ndata: [DONE]\n\n`,
+			{ status: 200, headers: { "content-type": "text/event-stream" } },
+		);
+	}) as typeof fetch;
+	const xai = openaiModel({
+		provider: "xai",
+		id: "grok-4.6",
+		baseUrl: "https://api.x.ai/v1",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
+	});
+	const options = buildStreamOptions(
+		xai,
+		emptyContext,
+		{ apiKey: "test-key", fetch: fakeFetch, toolChoice: "none" },
+		SERVICE_TIER,
+	);
+	let completed: AssistantMessage | undefined;
+	let errorMessage: string | undefined;
+	for await (const event of streamOpenAIResponses(
+		xai as Model<"openai-responses">,
+		emptyContext,
+		options as never,
+	)) {
+		if (event.type === "done") completed = event.message;
+		if (event.type === "error") errorMessage = event.error.errorMessage;
+	}
+	assert.ok(completed, errorMessage);
+	return { payload: payloads[0], cost: completed.usage.cost };
+}
+
+test("xAI Responses priority uses the returned service tier for local cost", async () => {
+	const priority = await runXaiResponses("priority");
+	assert.equal(priority.payload?.service_tier, SERVICE_TIER);
+	assert.equal(priority.payload?.tool_choice, "none");
+	assert.equal(priority.cost.total, 0.00028);
+
+	const fallback = await runXaiResponses("default");
+	assert.equal(fallback.payload?.service_tier, SERVICE_TIER);
+	assert.equal(fallback.cost.total, 0.00014);
 });
 
 test("buildStreamOptions keeps Pi maxTokens defaulting and context clamping", () => {
@@ -170,9 +246,9 @@ test("OpenAI streamSimple wrappers still match the installed pi-ai recipe", () =
 	const openaiSource = readInstalledApiSource("openai-responses.js");
 	const codexSource = readInstalledApiSource("openai-codex-responses.js");
 	const recipe =
-		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?buildBaseOptions\(model, context, options, options\?\.apiKey\);[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
+		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?const base = \{\s*\.\.\.buildBaseOptions\(model, context, options, options\?\.apiKey\),\s*toolChoice: options\?\.toolChoice,\s*\};[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
 	const codexRecipe =
-		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?buildBaseOptions\(model, context, options, apiKey\);[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
+		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?const base = \{\s*\.\.\.buildBaseOptions\(model, context, options, apiKey\),\s*toolChoice: options\?\.toolChoice,\s*\};[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
 
 	assert.match(
 		openaiSource,
@@ -191,7 +267,7 @@ function readInstalledApiSource(fileName: string): string {
 	return readFileSync(join(dirname(fileURLToPath(simpleOptionsUrl)), fileName), "utf8");
 }
 
-test("applyXaiPriorityPayload only mutates matching xAI payloads when enabled", () => {
+test("applyXaiPriorityPayload only mutates custom xAI Completions payloads when enabled", () => {
 	const payload = { model: "grok-4.6", max_tokens: 8000 };
 	assert.equal(
 		applyXaiPriorityPayload({ enabled: false, model: model("xai", "openai-completions"), payload }),
@@ -213,9 +289,9 @@ test("applyXaiPriorityPayload only mutates matching xAI payloads when enabled", 
 		applyXaiPriorityPayload({ enabled: true, model: model("xai", "openai-completions"), payload }),
 		{ model: "grok-4.6", max_tokens: 8000, service_tier: SERVICE_TIER },
 	);
-	assert.deepEqual(
+	assert.equal(
 		applyXaiPriorityPayload({ enabled: true, model: model("xai", "openai-responses"), payload }),
-		{ model: "grok-4.6", max_tokens: 8000, service_tier: SERVICE_TIER },
+		undefined,
 	);
 	assert.deepEqual(payload, { model: "grok-4.6", max_tokens: 8000 });
 });
