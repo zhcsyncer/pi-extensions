@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-adversarial-review",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Deterministic multi-model adversarial code review orchestration for Pi.",
   "keywords": [
     "pi-package",
@@ -51,7 +51,7 @@
     ]
   },
   "dependencies": {
-    "@zhcsyncer/pi-subagents": "^0.1.2"
+    "@zhcsyncer/pi-subagents": "^0.2.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.84.0 <1",

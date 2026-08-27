@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- e037dbe: Upgrade the in-process subagent spawn contract to protocol v3 for orchestrator extensions. Callers can provide an inline role, own completion delivery, correlate lifecycle events, inspect requested/effective model and thinking, discover the runtime concurrency limit, and optionally set per-spawn `graceTurns` after the soft max-turn steer. A side-effect-free `@zhcsyncer/pi-subagents/runtime` entry now exposes the same AgentManager/runAgent execution core to dependent packages without registering Agent tools, commands, scheduling, widgets, or FleetView. Ordinary Agent tools, named/project agents, fallback behavior, completion notifications, FleetView, scheduling, and the global five-turn grace default keep their existing behavior when the new fields are omitted.
+- e037dbe: Persist ordinary subagents as parent-linked Pi sessions by default so `/resume` can open their complete conversations, and add a finished-agent history in `/agents` that reopens retained or disk-only runs in the existing brief overlay. Caller-owned terminal events expose the persisted `sessionFile`, and the embedded runtime writes the same finished parent record as the external extension path so orchestrators retain `/agents` history without activating the full extension. Add `rememberAgents` for restoring memory-only defaults. Port the `isolation: "off" | "worktree"` shape with `off` first, and add a repository `worktreeIsolation` capability switch that defaults off in this fork: disabled repositories remove the Agent schema/prose and downgrade tool, agent-file, scheduler, and RPC worktree requests to the real checkout, while enabled worktree creation remains strict.
+- e037dbe: Add `pinnedExtensions` so trusted observer extensions (such as pi-meter) stay loaded in every subagent session, including isolated runs, without exposing their tools. Only the user-owned global config may grant observer names; project config can use `[]` to opt out, while non-empty project pins are ignored with a warning so checked-in repositories cannot authorize their own handlers.
+- e037dbe: Render Agent / get_subagent_result / steer_subagent transcript rows as unboxed Claude Code Task chrome (`● Type(description)` + a single `⎿` outcome clerk). Collapsed rows keep outcome stats and the resolved model; spawn config, cost, transcript path, and worktree details move to the expanded footer.
+
 ## 0.1.5
 
 ### Patch Changes
