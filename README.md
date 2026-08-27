@@ -26,6 +26,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
+- [`@zhcsyncer/pi-adversarial-review`](./packages/pi-adversarial-review) — deterministic multi-model adversarial code review. Install it separately; the root bundle does not include it.
 - [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
 
   ![Fast Mode footer status](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
@@ -38,7 +39,7 @@ A collection of Pi extensions by zhcsyncer.
 
 ## Notes
 
-Search Hub ships only in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
+Search Hub ships only in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
 ## Standalone providers
 
@@ -128,6 +129,12 @@ Install only Subagents:
 
 ```bash
 pi install npm:@zhcsyncer/pi-subagents
+```
+
+Install the standalone adversarial review extension (not included in the root bundle):
+
+```bash
+pi install npm:@zhcsyncer/pi-adversarial-review
 ```
 
 Install only Fast Mode:
