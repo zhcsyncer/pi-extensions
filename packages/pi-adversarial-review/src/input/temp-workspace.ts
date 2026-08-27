@@ -311,7 +311,20 @@ async function pathMissing(target: string): Promise<boolean> {
   }
 }
 
+async function chmodTreeForRemoval(target: string): Promise<void> {
+  let info;
+  try { info = await lstat(target); } catch { return; }
+  if (info.isSymbolicLink() || !info.isDirectory()) return;
+  try { await chmod(target, 0o700); } catch { return; }
+  let children: string[];
+  try { children = await readdir(target); } catch { return; }
+  for (const name of children) {
+    await chmodTreeForRemoval(path.join(target, name));
+  }
+}
+
 async function removePlainTree(target: string): Promise<void> {
+  await chmodTreeForRemoval(target);
   await rm(target, { recursive: true, force: true });
 }
 
@@ -833,6 +846,14 @@ export async function scavengeStaleReviewTempWorkspaces(
           }
           if (ownership.state !== "completed" && await isProcessAlive(ownership.ownerPid)) continue;
         }
+
+        // POSIX rename of a directory requires write on the directory itself.
+        await chmod(candidate, 0o700);
+        const writable = await lstat(candidate);
+        if (
+          writable.dev !== before.dev || writable.ino !== before.ino || writable.isSymbolicLink() ||
+          !writable.isDirectory() || writable.uid !== numericUid
+        ) continue;
 
         moved = path.join(await ensureQuarantine(), entry);
         await renameImpl(candidate, moved);

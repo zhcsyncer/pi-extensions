@@ -287,7 +287,7 @@ describe("Git adversarial-review preflight", () => {
           commitSha: commits[3],
           parentSha: commits[2],
           committedAt: expect.stringMatching(
-            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/u,
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/u,
           ),
           subject: "finalize release",
           commitCount: 1,
@@ -296,7 +296,7 @@ describe("Git adversarial-review preflight", () => {
           commitSha: commits[2],
           parentSha: commits[1],
           committedAt: expect.stringMatching(
-            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/u,
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/u,
           ),
           subject: "add worker",
           commitCount: 2,
