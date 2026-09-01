@@ -412,6 +412,10 @@ describe("provider parsers", () => {
 			title: "SuperGrok",
 			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
 			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+			resets: {
+				availableCount: 9,
+				items: [{ expiresAt: "2026-08-30T12:00:00Z", title: "not Codex" }],
+			},
 		}));
 		expect(resolveChromeQuota(store, "supergrok").view?.resets).toBeUndefined();
 		expect(resolveChromeQuota(store, "codex").view?.resets?.availableCount).toBe(2);
@@ -627,6 +631,35 @@ describe("Codex reset credits", () => {
 			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
 		} as never, now, fetchImpl as unknown as typeof fetch);
 		expect(result.ok).toBe(true);
+		expect(result.resets).toEqual({ availableCount: 2 });
+		expect(result.resets?.items).toBeUndefined();
+	});
+
+	it("keeps successful usage when reset details time out", async () => {
+		prepareAgentDir();
+		let detailsAborted = false;
+		const fetchImpl = vi.fn((url: string, init?: RequestInit): Promise<ReturnType<typeof jsonResponse>> => {
+			if (url === CODEX_USAGE_URL) {
+				return Promise.resolve(jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 2 } }));
+			}
+			return new Promise((_resolve, reject) => {
+				const signal = init?.signal;
+				if (!signal) {
+					reject(new Error("missing abort signal"));
+					return;
+				}
+				signal.addEventListener("abort", () => {
+					detailsAborted = true;
+					reject(new Error("aborted"));
+				}, { once: true });
+			});
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch, 5);
+		expect(detailsAborted).toBe(true);
+		expect(result.ok).toBe(true);
+		expect(result.windows).toHaveLength(2);
 		expect(result.resets).toEqual({ availableCount: 2 });
 		expect(result.resets?.items).toBeUndefined();
 	});

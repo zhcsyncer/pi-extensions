@@ -64,9 +64,9 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function formatExpiryClock(iso: string): string | undefined {
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return undefined;
-	const hh = String(date.getUTCHours()).padStart(2, "0");
-	const mm = String(date.getUTCMinutes()).padStart(2, "0");
-	return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()} ${hh}:${mm}`;
+	const hh = String(date.getHours()).padStart(2, "0");
+	const mm = String(date.getMinutes()).padStart(2, "0");
+	return `${MONTHS[date.getMonth()]} ${date.getDate()} ${hh}:${mm}`;
 }
 
 export function formatResetShort(resetsAt: string | undefined, now: Date): string | undefined {

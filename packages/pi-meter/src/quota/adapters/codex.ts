@@ -6,6 +6,7 @@ import type { QuotaResetCredit, QuotaResets, QuotaSnapshot, QuotaWindow } from "
 
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const CODEX_RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+export const CODEX_RESET_CREDITS_TIMEOUT_MS = 5_000;
 
 function windowName(seconds: unknown): string {
 	if (typeof seconds !== "number" || seconds <= 0) return "Window";
@@ -156,15 +157,20 @@ async function mergeResetCredits(
 	headers: Record<string, string>,
 	fetchedAt: number,
 	fetchImpl: typeof fetch,
+	timeoutMs: number,
 ): Promise<QuotaSnapshot> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
 	try {
-		const response = await fetchImpl(CODEX_RESET_CREDITS_URL, { headers });
+		const response = await fetchImpl(CODEX_RESET_CREDITS_URL, { headers, signal: controller.signal });
 		if (!response.ok) return snapshot;
 		const parsed = parseResetCreditsPayload(await response.json(), fetchedAt);
 		if (!parsed) return snapshot;
 		return applyResetCredits(snapshot, parsed);
 	} catch {
 		return snapshot;
+	} finally {
+		clearTimeout(timeout);
 	}
 }
 
@@ -172,6 +178,7 @@ export async function fetchCodexQuota(
 	ctx: Pick<ExtensionContext, "modelRegistry">,
 	fetchedAt = Date.now(),
 	fetchImpl: typeof fetch = fetch,
+	resetDetailsTimeoutMs = CODEX_RESET_CREDITS_TIMEOUT_MS,
 ): Promise<QuotaSnapshot> {
 	const auth = await resolveOAuthAccess(ctx, "openai-codex");
 	if (!auth.ok) return failedSnapshot(fetchedAt, auth.error);
@@ -184,7 +191,7 @@ export async function fetchCodexQuota(
 		if (!response.ok) return failedSnapshot(fetchedAt, `HTTP ${response.status}`);
 		const snapshot = parseCodexUsage(await response.json(), fetchedAt);
 		if (!snapshot.ok || (snapshot.resets?.availableCount ?? 0) <= 0) return snapshot;
-		return await mergeResetCredits(snapshot, headers, fetchedAt, fetchImpl);
+		return await mergeResetCredits(snapshot, headers, fetchedAt, fetchImpl, resetDetailsTimeoutMs);
 	} catch (error) {
 		return failedSnapshot(fetchedAt, sanitizeQuotaError(error));
 	}

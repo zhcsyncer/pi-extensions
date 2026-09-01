@@ -90,7 +90,7 @@ function chromeView(preferred: QuotaSourceId, snapshot: QuotaSnapshot & { primar
 		window: snapshot.primary,
 		stale: snapshot.stale === true,
 		fetchedAt: snapshot.fetchedAt,
-		...(snapshot.resets && snapshot.resets.availableCount > 0 ? { resets: snapshot.resets } : {}),
+		...(preferred === "codex" && snapshot.resets && snapshot.resets.availableCount > 0 ? { resets: snapshot.resets } : {}),
 	};
 }
 

@@ -76,7 +76,7 @@ export function renderUsagePanel(
 			continue;
 		}
 		const rows = snapshot.windows.map((window) => formatWindow(window, polarity, now));
-		const resetRows = formatResets(snapshot.resets, now);
+		const resetRows = snapshot.provider === "codex" ? formatResets(snapshot.resets, now) : undefined;
 		if (rows.length === 0 && !resetRows) {
 			blocks.push(`${heading}\n  (no usage data reported)`);
 			continue;

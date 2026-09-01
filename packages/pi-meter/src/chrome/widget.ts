@@ -38,6 +38,7 @@ function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date
 }
 
 function resetCreditsCaption(quota: QuotaWindowView, now: Date): string | undefined {
+	if (quota.provider !== "codex") return undefined;
 	const count = quota.resets?.availableCount ?? 0;
 	if (count <= 0) return undefined;
 	const noun = count === 1 ? "reset" : "resets";

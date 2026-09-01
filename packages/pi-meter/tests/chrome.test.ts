@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { displayedPercent, formatResetLong, formatResetShort, formatSnapshotAge, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
+import { displayedPercent, formatExpiryClock, formatResetLong, formatResetShort, formatSnapshotAge, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
 import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
 import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
@@ -211,6 +211,10 @@ describe("status chrome", () => {
 				provider: "supergrok",
 				stale: false,
 				window: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
+				resets: {
+					availableCount: 2,
+					items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" }],
+				},
 			},
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
@@ -272,6 +276,11 @@ describe("reset time", () => {
 		expect(formatResetShort(resetsAt, now)).toBe("1d 23h");
 		expect(formatResetLong(resetsAt, now)).toBe("resets in 1d 23h");
 		expect(formatSnapshotAge(Date.parse("2026-08-15T17:43:31Z"), now)).toBe("12m ago");
+	});
+
+	it("renders absolute reset expiry in the user's local time", () => {
+		const localExpiry = new Date(2026, 6, 12, 17, 30, 0);
+		expect(formatExpiryClock(localExpiry.toISOString())).toBe("Jul 12 17:30");
 	});
 });
 
@@ -399,23 +408,24 @@ describe("usage panel", () => {
 	});
 
 	it("shows Codex banked resets with expiry details", () => {
+		const now = new Date(2026, 7, 15, 12, 0, 0);
 		const panel = renderUsagePanel([snapshot({
 			provider: "codex",
 			title: "OpenAI Codex (plus)",
-			primary: { id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: "2026-08-15T16:00:00Z" },
+			primary: { id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: new Date(now.getTime() + 4 * 60 * 60 * 1000).toISOString() },
 			windows: [
-				{ id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: "2026-08-15T16:00:00Z" },
-				{ id: "main-secondary", label: "Week limit", usedPercent: 93, resetsAt: "2026-08-21T12:00:00Z" },
+				{ id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: new Date(now.getTime() + 4 * 60 * 60 * 1000).toISOString() },
+				{ id: "main-secondary", label: "Week limit", usedPercent: 93, resetsAt: new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString() },
 			],
-			fetchedAt: Date.parse("2026-08-15T11:48:00Z"),
+			fetchedAt: now.getTime() - 12 * 60_000,
 			resets: {
 				availableCount: 2,
 				items: [
-					{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" },
-					{ expiresAt: "2026-09-05T08:59:00Z", title: "Full reset (Weekly + 5h)" },
+					{ expiresAt: new Date(2026, 7, 27, 12, 0, 0).toISOString(), title: "Full reset (Weekly + 5h)" },
+					{ expiresAt: new Date(2026, 8, 5, 8, 59, 0).toISOString(), title: "Full reset (Weekly + 5h)" },
 				],
 			},
-		})], "remaining", new Date("2026-08-15T12:00:00Z"));
+		})], "remaining", now);
 		expect(panel).toContain("OpenAI Codex (plus) · 12m ago");
 		expect(panel).toContain("5h limit");
 		expect(panel).toContain("Week limit");
@@ -448,6 +458,22 @@ describe("usage panel", () => {
 		expect(panel).toContain("Week limit");
 		expect(panel).not.toContain("Resets");
 		expect(panel).not.toContain("available");
+	});
+
+	it("ignores reset-shaped data from non-Codex providers", () => {
+		const panel = renderUsagePanel([snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 20 }],
+			resets: {
+				availableCount: 2,
+				items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" }],
+			},
+		})], "remaining", new Date("2026-08-15T12:00:00Z"));
+		expect(panel).toContain("Weekly credits");
+		expect(panel).not.toContain("Resets");
+		expect(panel).not.toContain("available");
+		expect(panel).not.toContain("Full reset");
 	});
 
 	it("summarizes unsigned-in providers at the bottom without warning", () => {
