@@ -12,6 +12,7 @@
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |
 | [pi-meter/extension.md](./pi-meter/extension.md) | 已落地 | 本地账本与订阅剩余两套账 |
 | [pi-meter/quota-status.md](./pi-meter/quota-status.md) | 已落地 | 底栏只画当前模型套餐；本地滚动/日历窗口 |
+| [pi-consult/extension.md](./pi-consult/extension.md) | 已落地 | 主会话侧路顾问：consult / loop-done gate / 可选双路；配置走 extension-data |
 | [pi-fast-mode/extension.md](./pi-fast-mode/extension.md) | 已落地 | 同模型 Fast / Priority：按模型内存开关、loader 红线 |
 | [pi-herdr-companion/extension.md](./pi-herdr-companion/extension.md) | 已落地 | Herdr 可见进程、临时 `/btw`、blocked、当前 linked worktree 的确定性 cleanup；worker 实现保留但不注册 |
 | [pi-tool-display-intent/aggregate-layout.md](./pi-tool-display-intent/aggregate-layout.md) | 已落地 | aggregate Tools 账本：按请求汇总、不改执行与历史 |

@@ -1,0 +1,47 @@
+import type { GradedEffort } from "./types.ts";
+
+export const CONSULT_TOOL_NAME = "consult";
+export const TOOL_LABEL = "Consult";
+
+export const NONE_VALUE = "__none__";
+export const OFF_VALUE = "__off__";
+
+export const DEFAULT_EFFORT: GradedEffort = "high";
+
+export const MSG_CONSULT_NUDGE = "Please advise on the executor's situation above.";
+export const MSG_REQUIRES_INTERACTIVE = "/consult requires interactive mode";
+export const MSG_PERSIST_FAILED = "Failed to save consult configuration";
+export const MSG_CONSULT_DISABLED = "Consult disabled (empty panel)";
+export const MSG_CONSULT_LOG_HINT =
+	"In your next visible reply, restate the summary and declare adopt or reject with a reason as:\n" +
+	"CONSULT-LOG: <why> | <summary> | adopt|reject | <reason>";
+
+export const ERR_NO_PANEL = "No consult panel is configured. The user can enable one with /consult.";
+export const ERR_NO_PANEL_DETAIL = "no panel configured";
+export const ERR_NO_MODEL = "Configured consult models are not available in this session.";
+export const ERR_NO_MODEL_DETAIL = "panel models unavailable";
+export const ERR_EMPTY_WHY = "consult.why is required: say in 1-2 sentences why you need a second opinion now.";
+export const ERR_CALL_ABORTED = "Consult call was cancelled before it completed.";
+export const ERR_EMPTY_RESPONSE = "Consult returned no text content.";
+export const ERR_EMPTY_RESPONSE_DETAIL = "empty response";
+export const ERR_ABORTED_DETAIL = "aborted";
+export const ERR_UNKNOWN = "unknown error";
+export const ERR_BUDGET_TURN = "Consult budget exhausted for this turn.";
+export const ERR_BUDGET_SESSION = "Consult budget exhausted for this session.";
+
+export const LOOP_STEER_TEXT =
+	"Stop repeating the same tool call or the same error. Call consult({ why }) with a 1-2 sentence reason before continuing.";
+
+export const DONE_FOLLOWUP_TEXT =
+	"You made substantive file changes this turn. Before declaring the task done, call consult({ why }) for a wrap-up review. Do not skip this.";
+
+export const errMisconfigured = (label: string, err: string) => `Consult (${label}) is misconfigured: ${err}`;
+export const errNoApiKey = (label: string) => `Consult (${label}) has no API key available.`;
+export const errNoApiKeyDetail = (provider: string) => `no API key for ${provider}`;
+export const errCallFailed = (err: string | undefined) => `Consult call failed: ${err ?? ERR_UNKNOWN}`;
+export const errCallThrew = (msg: string) => `Consult call threw: ${msg}`;
+export const errModelUnavailable = (key: string) => `Configured consult model ${key} is no longer available`;
+export const msgConsulting = (label: string, effort: string | undefined) =>
+	`Consulting (${label}${effort ? `, ${effort}` : ""})…`;
+export const msgConsultEnabled = (labels: string[]) =>
+	labels.length === 0 ? MSG_CONSULT_DISABLED : `Consult panel: ${labels.join(" + ")}`;

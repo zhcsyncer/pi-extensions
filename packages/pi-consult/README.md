@@ -1,0 +1,76 @@
+# @zhcsyncer/pi-consult
+
+[简体中文](./README.zh-CN.md)
+
+A second-opinion primitive for the [Pi coding agent](https://pi.dev). The main model calls `consult({ why })`; an advisor model with no tools answers plan / correction / stop. Loop and done gates can force that call. Optional dual-path panel. Local behavior log.
+
+This package is also included in `@zhcsyncer/pi-extensions`.
+
+## Source
+
+New package. Side-call, inventory prefix, and active-tool reconcile are adapted from MIT-licensed [`@juicesharp/rpiv-advisor`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-advisor) 2.8.0. The tool is `consult` (required `why`), configuration is a panel array, and this package adds loop/done gates, budgets, and a local jsonl log. It is not a fork.
+
+## Features
+
+- `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
+- Unconfigured panel unloads the tool. Off costs nothing.
+- Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first.
+- Done gate: after a turn that used `edit`/`write`, follow up for a wrap-up consult.
+- `/consult` picks panel models and effort, toggles gates, and shows budget remaining plus recent log lines.
+
+## Install
+
+Standalone:
+
+```bash
+pi install npm:@zhcsyncer/pi-consult
+```
+
+Or install the whole extension bundle:
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
+
+Try without installing:
+
+```bash
+pi -e npm:@zhcsyncer/pi-consult
+```
+
+Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Until a panel is set, `consult` is not in the active tools.
+
+## Commands
+
+| Command | What you see |
+|---|---|
+| `/consult` | Panel, effort, fanout, loop/done gates |
+| `/consult status` | Panel, remaining budget, recent log lines |
+
+After each `consult` result, the next visible reply should restate the summary and add:
+
+```text
+CONSULT-LOG: <why> | <advice> | adopt|reject | <reason>
+```
+
+## Configuration
+
+Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (normally `~/.pi/agent/extension-data/pi-consult/config.json`).
+
+```json
+{
+  "panel": [{ "model": "anthropic/claude-fable-5", "effort": "high" }],
+  "fanout": false,
+  "gates": { "loop": 3, "done": true },
+  "budget": { "perTurn": 1, "perSession": 8 },
+  "disabledForModels": []
+}
+```
+
+Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an explicit `consult()`; auto gates always use the first advisor only. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
+
+## License
+
+MIT
+
+Side-call helpers are adapted from MIT-licensed [`@juicesharp/rpiv-advisor`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-advisor) 2.8.0.

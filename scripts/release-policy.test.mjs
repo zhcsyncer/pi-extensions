@@ -16,6 +16,7 @@ const HERDR_COMPANION = "@zhcsyncer/pi-herdr-companion";
 const SUBAGENTS = "@zhcsyncer/pi-subagents";
 const FAST_MODE = "@zhcsyncer/pi-fast-mode";
 const METER = "@zhcsyncer/pi-meter";
+const CONSULT = "@zhcsyncer/pi-consult";
 const ADVERSARIAL_REVIEW = "@zhcsyncer/pi-adversarial-review";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 
@@ -113,6 +114,12 @@ test("requires the root package when Fast Mode releases", () => {
 test("requires the root package when Meter releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([METER, "minor"])), [
 		`${METER} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Consult releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([CONSULT, "minor"])), [
+		`${CONSULT} has a minor release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 
