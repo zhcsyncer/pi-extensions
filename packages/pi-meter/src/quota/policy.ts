@@ -1,5 +1,5 @@
 import { isUnsignedQuotaSnapshot, shouldBypassQuotaMinInterval } from "./auth.ts";
-import type { QuotaRefreshDecision, QuotaSnapshot, QuotaSourceId, QuotaStoreFile, QuotaWindow } from "./types.ts";
+import type { QuotaRefreshDecision, QuotaResets, QuotaSnapshot, QuotaSourceId, QuotaStoreFile, QuotaWindow } from "./types.ts";
 import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS, quotaProviderBrand } from "./types.ts";
 
 export function emptyQuotaStore(now = Date.now(), ttlMs = QUOTA_TTL_MS, minIntervalMs = QUOTA_MIN_INTERVAL_MS): QuotaStoreFile {
@@ -80,6 +80,18 @@ export interface QuotaWindowView {
 	provider: QuotaSourceId;
 	window: QuotaWindow;
 	stale: boolean;
+	fetchedAt?: number;
+	resets?: QuotaResets;
+}
+
+function chromeView(preferred: QuotaSourceId, snapshot: QuotaSnapshot & { primary: QuotaWindow }): QuotaWindowView {
+	return {
+		provider: preferred,
+		window: snapshot.primary,
+		stale: snapshot.stale === true,
+		fetchedAt: snapshot.fetchedAt,
+		...(snapshot.resets && snapshot.resets.availableCount > 0 ? { resets: snapshot.resets } : {}),
+	};
 }
 
 export interface ChromeQuotaHint {
@@ -90,13 +102,7 @@ export interface ChromeQuotaHint {
 export function chromeWindow(store: QuotaStoreFile, preferred?: QuotaSourceId): QuotaWindowView | undefined {
 	if (!preferred) return undefined;
 	const snapshot = store.providers[preferred];
-	if (snapshot?.ok && snapshot.primary) {
-		return {
-			provider: preferred,
-			window: snapshot.primary,
-			stale: snapshot.stale === true,
-		};
-	}
+	if (snapshot?.ok && snapshot.primary) return chromeView(preferred, { ...snapshot, primary: snapshot.primary });
 	return undefined;
 }
 
@@ -119,13 +125,7 @@ export function resolveChromeQuota(
 	}
 	const snapshot = store?.providers[preferred];
 	if (snapshot?.ok && snapshot.primary) {
-		return {
-			view: {
-				provider: preferred,
-				window: snapshot.primary,
-				stale: snapshot.stale === true,
-			},
-		};
+		return { view: chromeView(preferred, { ...snapshot, primary: snapshot.primary }) };
 	}
 	// Live auth.json wins. A leftover unsigned snapshot after /login is "unavailable",
 	// not "not signed in".

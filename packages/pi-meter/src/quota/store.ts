@@ -2,7 +2,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord, pathExists, readTextFile, writeFileAtomically } from "../fs.ts";
 import { getMeterPaths } from "../paths.ts";
 import { emptyQuotaStore } from "./policy.ts";
-import type { QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
+import type { QuotaResetCredit, QuotaResets, QuotaSnapshot, QuotaStoreFile, QuotaWindow } from "./types.ts";
 import { QUOTA_MIN_INTERVAL_MS, QUOTA_TTL_MS } from "./types.ts";
 
 function parseWindow(value: unknown): QuotaWindow | undefined {
@@ -21,11 +21,36 @@ function isSourceId(value: unknown): value is string {
 	return typeof value === "string" && value.length > 0;
 }
 
+function parseResetItem(value: unknown): QuotaResetCredit | undefined {
+	if (!isRecord(value) || typeof value.expiresAt !== "string") return undefined;
+	if (Number.isNaN(new Date(value.expiresAt).getTime())) return undefined;
+	return {
+		expiresAt: value.expiresAt,
+		...(typeof value.title === "string" && value.title ? { title: value.title } : {}),
+	};
+}
+
+function parseResets(value: unknown): QuotaResets | undefined {
+	if (!isRecord(value) || typeof value.availableCount !== "number" || !Number.isFinite(value.availableCount)) {
+		return undefined;
+	}
+	const availableCount = Math.max(0, Math.floor(value.availableCount));
+	if (availableCount <= 0) return undefined;
+	const items = Array.isArray(value.items)
+		? value.items.map(parseResetItem).filter((item): item is QuotaResetCredit => item !== undefined)
+		: [];
+	return {
+		availableCount,
+		...(items.length > 0 ? { items } : {}),
+	};
+}
+
 function parseSnapshot(value: unknown): QuotaSnapshot | undefined {
 	if (!isRecord(value)) return undefined;
 	if (!isSourceId(value.provider)) return undefined;
 	if (typeof value.title !== "string" || typeof value.fetchedAt !== "number") return undefined;
 	const windows = Array.isArray(value.windows) ? value.windows.map(parseWindow).filter((item): item is QuotaWindow => item !== undefined) : [];
+	const resets = parseResets(value.resets);
 	return {
 		provider: value.provider,
 		title: value.title,
@@ -35,6 +60,7 @@ function parseSnapshot(value: unknown): QuotaSnapshot | undefined {
 		ok: value.ok === true,
 		...(typeof value.error === "string" ? { error: value.error } : {}),
 		...(value.stale === true ? { stale: true } : {}),
+		...(resets ? { resets } : {}),
 	};
 }
 

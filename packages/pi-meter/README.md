@@ -30,8 +30,8 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
   ![Meter footer](./assets/demo-meter-status.png)
 
 - Local dashboard by model, project, or session, including cache write.
-- Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider.
-- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar.
+- Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider. Codex also shows banked weekly resets when you have any; the footer adds `N resets …` only while the current model is Codex.
+- `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar. Snapshot titles show their age (`12m ago`) instead of the word stale.
 - Other extensions can register a quota source. The footer still follows the current model only.
 - Optional local budgets. They warn; they never block requests.
 - Optional import from older session files. Safe to re-run: already-captured turns are not counted twice.

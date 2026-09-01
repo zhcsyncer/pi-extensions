@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { displayedPercent, formatResetLong, formatResetShort, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
+import { displayedPercent, formatResetLong, formatResetShort, formatSnapshotAge, quotaTone, renderQuotaBar } from "../src/chrome/format.ts";
 import { FooterSettingsDashboard } from "../src/chrome/footer-settings.ts";
 import { QuotaDashboard } from "../src/chrome/quota-dashboard.ts";
 import { renderUsagePanel, usageSeverity } from "../src/chrome/usage-panel.ts";
@@ -149,6 +149,107 @@ describe("status chrome", () => {
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
 		expect(plain).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d)");
+		expect(plain).not.toContain("stale");
+	});
+
+	it("adds Codex reset credits only on the Codex footer row", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "openai-codex/gpt", budget: null });
+		const now = new Date("2026-08-15T12:00:00Z");
+		const withItems = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "codex",
+				stale: false,
+				window: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" },
+				resets: {
+					availableCount: 2,
+					items: [
+						{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" },
+						{ expiresAt: "2026-09-05T12:00:00Z", title: "Full reset (Weekly + 5h)" },
+					],
+				},
+			},
+			polarity: "remaining",
+			now,
+		}, theme));
+		expect(withItems).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d) · 2 resets 12d");
+
+		const countOnly = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "codex",
+				stale: false,
+				window: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" },
+				resets: { availableCount: 2 },
+			},
+			polarity: "remaining",
+			now,
+		}, theme));
+		expect(countOnly).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d) · 2 resets");
+		expect(countOnly).not.toMatch(/2 resets \d/);
+
+		const none = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "codex",
+				stale: false,
+				window: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" },
+				resets: { availableCount: 0 },
+			},
+			polarity: "remaining",
+			now,
+		}, theme));
+		expect(none).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d)");
+		expect(none).not.toContain("reset");
+	});
+
+	it("does not borrow Codex resets onto another vendor's footer", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
+		const plain = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "supergrok",
+				stale: false,
+				window: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
+			},
+			polarity: "remaining",
+			now: new Date("2026-08-15T12:00:00Z"),
+		}, theme));
+		expect(plain).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
+		expect(plain).not.toContain("reset");
+	});
+
+	it("shows snapshot age on the footer only when the snapshot is past TTL", () => {
+		const local = renderLocalFooter("today-spend", { today, todayTurns: 3, topModel: "xai/grok-4", budget: null });
+		const now = new Date("2026-08-15T12:00:00Z");
+		const stale = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "supergrok",
+				stale: true,
+				fetchedAt: Date.parse("2026-08-15T11:48:00Z"),
+				window: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
+			},
+			polarity: "remaining",
+			now,
+		}, theme));
+		expect(stale).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d) 12m ago");
+		expect(stale).not.toContain("stale");
+
+		const fresh = strip(renderStatusText({
+			local,
+			quota: {
+				provider: "supergrok",
+				stale: false,
+				fetchedAt: Date.parse("2026-08-15T11:48:00Z"),
+				window: { id: "weekly", label: "Weekly credits", usedPercent: 66, resetsAt: "2026-08-18T12:00:00Z" },
+			},
+			polarity: "remaining",
+			now,
+		}, theme));
+		expect(fresh).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
+		expect(fresh).not.toContain("ago");
+		expect(fresh).not.toContain("stale");
 	});
 
 	it("keeps SuperGrok failure on xai instead of drawing a Codex bar", () => {
@@ -170,6 +271,7 @@ describe("reset time", () => {
 		const resetsAt = "2026-08-17T16:55:31.897Z";
 		expect(formatResetShort(resetsAt, now)).toBe("1d 23h");
 		expect(formatResetLong(resetsAt, now)).toBe("resets in 1d 23h");
+		expect(formatSnapshotAge(Date.parse("2026-08-15T17:43:31Z"), now)).toBe("12m ago");
 	});
 });
 
@@ -257,6 +359,7 @@ describe("quota dashboard", () => {
 			title: "SuperGrok",
 			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
 			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+			fetchedAt: Date.parse("2026-08-15T11:48:00Z"),
 			stale: true,
 		})], "remaining", {
 			fg: (color, text) => theme.fg(color as never, text),
@@ -267,7 +370,8 @@ describe("quota dashboard", () => {
 		const panel = strip(dash.render(80).join("\n"));
 		expect(panel).toContain("pi-meter — subscription quota");
 		expect(panel).toContain("display: remaining");
-		expect(panel).toContain("SuperGrok (stale)");
+		expect(panel).toContain("SuperGrok · 12m ago");
+		expect(panel).not.toContain("stale");
 		expect(panel).toContain("49%");
 		expect(panel).toContain("[q] close");
 		dash.handleInput("q");
@@ -291,6 +395,59 @@ describe("usage panel", () => {
 		expect(panel).toContain("resets in 1d 23h");
 		expect(panel).not.toContain("Build");
 		expect(panel).not.toContain("Chat");
+		expect(panel).not.toContain("stale");
+	});
+
+	it("shows Codex banked resets with expiry details", () => {
+		const panel = renderUsagePanel([snapshot({
+			provider: "codex",
+			title: "OpenAI Codex (plus)",
+			primary: { id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: "2026-08-15T16:00:00Z" },
+			windows: [
+				{ id: "main-primary", label: "5h limit", usedPercent: 58, resetsAt: "2026-08-15T16:00:00Z" },
+				{ id: "main-secondary", label: "Week limit", usedPercent: 93, resetsAt: "2026-08-21T12:00:00Z" },
+			],
+			fetchedAt: Date.parse("2026-08-15T11:48:00Z"),
+			resets: {
+				availableCount: 2,
+				items: [
+					{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" },
+					{ expiresAt: "2026-09-05T08:59:00Z", title: "Full reset (Weekly + 5h)" },
+				],
+			},
+		})], "remaining", new Date("2026-08-15T12:00:00Z"));
+		expect(panel).toContain("OpenAI Codex (plus) · 12m ago");
+		expect(panel).toContain("5h limit");
+		expect(panel).toContain("Week limit");
+		expect(panel).toContain("2 available · next 12d");
+		expect(panel).toContain("#1 Full reset (Weekly + 5h) · Aug 27 12:00 (12d)");
+		expect(panel).toContain("#2 Full reset (Weekly + 5h) · Sep 5 08:59 (20d 20h)");
+		expect(panel).not.toContain("stale");
+		expect(panel).not.toContain("RateLimitResetCredit_");
+	});
+
+	it("keeps Codex reset count without fake expiry when details are missing", () => {
+		const panel = renderUsagePanel([snapshot({
+			provider: "codex",
+			title: "OpenAI Codex (plus)",
+			windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+			resets: { availableCount: 2 },
+		})], "remaining", new Date("2026-08-15T12:00:00Z"));
+		expect(panel).toContain("2 available");
+		expect(panel).not.toContain("next");
+		expect(panel).not.toContain("#1");
+	});
+
+	it("hides the Codex resets block when count is 0", () => {
+		const panel = renderUsagePanel([snapshot({
+			provider: "codex",
+			title: "OpenAI Codex",
+			windows: [{ id: "week", label: "Week limit", usedPercent: 20 }],
+			resets: { availableCount: 0 },
+		})], "remaining", new Date("2026-08-15T12:00:00Z"));
+		expect(panel).toContain("Week limit");
+		expect(panel).not.toContain("Resets");
+		expect(panel).not.toContain("available");
 	});
 
 	it("summarizes unsigned-in providers at the bottom without warning", () => {
@@ -340,8 +497,9 @@ describe("usage panel", () => {
 				error: "no subscription OAuth credentials — run /login",
 			}),
 		];
-		const failedPanel = renderUsagePanel(failed, "remaining");
+		const failedPanel = renderUsagePanel(failed, "remaining", new Date("2026-08-15T12:00:00Z"));
 		expect(failedPanel).toContain("Claude\n  HTTP 500");
+		expect(failedPanel).not.toContain("stale");
 		expect(failedPanel.endsWith("Not signed in: SuperGrok — run /login")).toBe(true);
 		expect(usageSeverity(failed, "remaining")).toBe("warning");
 

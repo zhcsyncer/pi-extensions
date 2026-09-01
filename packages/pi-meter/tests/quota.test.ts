@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseClaudeUsage } from "../src/quota/adapters/claude.ts";
-import { parseCodexUsage } from "../src/quota/adapters/codex.ts";
+import { CODEX_RESET_CREDITS_URL, CODEX_USAGE_URL, fetchCodexQuota, parseCodexUsage } from "../src/quota/adapters/codex.ts";
 import { fetchOllamaQuota, OLLAMA_USAGE_URL, parseOllamaUsage } from "../src/quota/adapters/ollama.ts";
 import { parseSuperGrokBilling } from "../src/quota/adapters/supergrok.ts";
 import { readLocalQuotaCache } from "../src/chrome/status-cache.ts";
@@ -12,7 +12,7 @@ import { QUOTA_OBSOLETE_SUPERGROK_PERCENT_ERROR, QUOTA_UNSIGNED_OAUTH_ERROR } fr
 import { decideRefresh, emptyQuotaStore, markAttempt, putSnapshot, resolveChromeQuota } from "../src/quota/policy.ts";
 import { preferredProvider, refreshQuotaSnapshots } from "../src/quota/refresh.ts";
 import { sanitizeQuotaError } from "../src/quota/sanitize.ts";
-import { saveQuotaStore } from "../src/quota/store.ts";
+import { loadQuotaStore, parseQuotaStore, saveQuotaStore } from "../src/quota/store.ts";
 import type { QuotaSnapshot } from "../src/quota/types.ts";
 
 const now = Date.parse("2026-08-15T12:00:00Z");
@@ -315,6 +315,33 @@ describe("provider parsers", () => {
 		}, now);
 		expect(codex.title).toBe("OpenAI Codex (pro)");
 		expect(codex.windows.map((window) => window.label)).toEqual(["5h limit", "Week limit"]);
+		expect(codex.resets).toBeUndefined();
+	});
+
+	it("keeps Codex flex credits as a window and reads banked reset count from usage", () => {
+		const parsed = parseCodexUsage({
+			plan_type: "plus",
+			rate_limit: {
+				primary_window: { used_percent: 42, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+				secondary_window: { used_percent: 7, limit_window_seconds: 604800, reset_after_seconds: 86400 },
+			},
+			credits: { has_credits: true, balance: 12.5 },
+			rate_limit_reset_credits: { available_count: 2 },
+		}, now);
+		expect(parsed.ok).toBe(true);
+		expect(parsed.windows.map((window) => window.label)).toEqual(["5h limit", "Week limit", "Credits"]);
+		expect(parsed.windows[2]).toMatchObject({ id: "credits", note: "balance 12.5" });
+		expect(parsed.resets).toEqual({ availableCount: 2 });
+	});
+
+	it("omits Codex resets when available_count is 0", () => {
+		const parsed = parseCodexUsage({
+			rate_limit: {
+				primary_window: { used_percent: 10, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+			},
+			rate_limit_reset_credits: { available_count: 0 },
+		}, now);
+		expect(parsed.resets).toBeUndefined();
 	});
 
 	it("never echoes tokens or emails from adapter errors", () => {
@@ -367,6 +394,27 @@ describe("provider parsers", () => {
 		expect(resolveChromeQuota(store, "supergrok", { signedIn: false })).toEqual({
 			hint: { label: "xai", value: "not signed in" },
 		});
+	});
+
+	it("does not put Codex resets on another vendor's footer", () => {
+		let store = putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "codex",
+			title: "OpenAI Codex",
+			primary: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" },
+			windows: [{ id: "week", label: "Week limit", usedPercent: 90, resetsAt: "2026-08-17T12:00:00Z" }],
+			resets: {
+				availableCount: 2,
+				items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" }],
+			},
+		}));
+		store = putSnapshot(store, snapshot({
+			provider: "supergrok",
+			title: "SuperGrok",
+			primary: { id: "weekly", label: "Weekly credits", usedPercent: 51 },
+			windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+		}));
+		expect(resolveChromeQuota(store, "supergrok").view?.resets).toBeUndefined();
+		expect(resolveChromeQuota(store, "codex").view?.resets?.availableCount).toBe(2);
 	});
 
 	it("parses Ollama Cloud session and weekly fractions without a reset time", () => {
@@ -467,5 +515,242 @@ describe("fetchOllamaQuota", () => {
 		expect(result.ok).toBe(false);
 		expect(result.error).toBe("HTTP 401");
 		expect(JSON.stringify(result)).not.toContain("ollama-live-key");
+	});
+});
+
+describe("Codex reset credits", () => {
+	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	let agentDir: string;
+
+	afterEach(() => {
+		rmSync(agentDir, { recursive: true, force: true });
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+	});
+
+	function prepareAgentDir(): void {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-meter-codex-"));
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"openai-codex": {
+				type: "oauth",
+				refresh: "r",
+				access: "a",
+				expires: 9999999999999,
+				accountId: "acct-codex-1",
+			},
+		})}\n`);
+	}
+
+	const usageBody = {
+		plan_type: "plus",
+		rate_limit: {
+			primary_window: { used_percent: 58, limit_window_seconds: 18000, reset_after_seconds: 14400 },
+			secondary_window: { used_percent: 93, limit_window_seconds: 604800, reset_after_seconds: 518400 },
+		},
+	};
+
+	function jsonResponse(body: unknown, status = 200) {
+		return {
+			ok: status >= 200 && status < 300,
+			status,
+			json: async () => body,
+		};
+	}
+
+	it("fetches reset details when usage reports available_count and keeps the details count", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn(async (url: string) => {
+			if (url === CODEX_USAGE_URL) {
+				return jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 1 } });
+			}
+			if (url === CODEX_RESET_CREDITS_URL) {
+				return jsonResponse({
+					available_count: 2,
+					credits: [
+						{
+							id: "RateLimitResetCredit_secret1",
+							reset_type: "codex_rate_limits",
+							status: "available",
+							expires_at: "2026-08-27T12:00:00Z",
+							title: "Full reset (Weekly + 5h)",
+						},
+						{
+							id: "RateLimitResetCredit_secret2",
+							status: "available",
+							expires_at: "2026-09-05T12:00:00Z",
+							title: "Full reset (Weekly + 5h)",
+						},
+					],
+				});
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(fetchImpl).toHaveBeenCalledWith(CODEX_USAGE_URL, expect.objectContaining({
+			headers: expect.objectContaining({
+				Authorization: "Bearer codex-live-token",
+				"ChatGPT-Account-Id": "acct-codex-1",
+			}),
+		}));
+		expect(fetchImpl).toHaveBeenCalledWith(CODEX_RESET_CREDITS_URL, expect.objectContaining({
+			headers: expect.objectContaining({
+				Authorization: "Bearer codex-live-token",
+				"ChatGPT-Account-Id": "acct-codex-1",
+			}),
+		}));
+		expect(fetchImpl.mock.calls.map((call) => call[0])).not.toEqual(expect.arrayContaining([
+			expect.stringContaining("consume"),
+		]));
+		expect(result.resets).toEqual({
+			availableCount: 2,
+			items: [
+				{ expiresAt: "2026-08-27T12:00:00.000Z", title: "Full reset (Weekly + 5h)" },
+				{ expiresAt: "2026-09-05T12:00:00.000Z", title: "Full reset (Weekly + 5h)" },
+			],
+		});
+		expect(JSON.stringify(result)).not.toContain("RateLimitResetCredit_");
+		expect(JSON.stringify(result)).not.toContain("codex-live-token");
+	});
+
+	it("keeps usage count and invents no expiry when reset details fail", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn(async (url: string) => {
+			if (url === CODEX_USAGE_URL) {
+				return jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 2 } });
+			}
+			return jsonResponse({ error: "nope" }, 500);
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(result.ok).toBe(true);
+		expect(result.resets).toEqual({ availableCount: 2 });
+		expect(result.resets?.items).toBeUndefined();
+	});
+
+	it("does not fetch reset details when count is 0", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn(async (url: string) => {
+			if (url === CODEX_USAGE_URL) {
+				return jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 0 } });
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(result.resets).toBeUndefined();
+	});
+
+	it("uses available_count rather than truncated credits.length", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn(async (url: string) => {
+			if (url === CODEX_USAGE_URL) {
+				return jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 2 } });
+			}
+			return jsonResponse({
+				available_count: 2,
+				credits: [{
+					id: "RateLimitResetCredit_only_one",
+					status: "available",
+					expires_at: "2026-08-27T12:00:00Z",
+					title: "Full reset (Weekly + 5h)",
+				}],
+			});
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(result.resets?.availableCount).toBe(2);
+		expect(result.resets?.items).toHaveLength(1);
+	});
+
+	it("drops consumed and expired reset items without changing available_count", async () => {
+		prepareAgentDir();
+		const fetchImpl = vi.fn(async (url: string) => {
+			if (url === CODEX_USAGE_URL) {
+				return jsonResponse({ ...usageBody, rate_limit_reset_credits: { available_count: 2 } });
+			}
+			return jsonResponse({
+				available_count: 2,
+				credits: [
+					{
+						id: "RateLimitResetCredit_used",
+						status: "consumed",
+						expires_at: "2026-08-27T12:00:00Z",
+						title: "Full reset (Weekly + 5h)",
+					},
+					{
+						id: "RateLimitResetCredit_old",
+						status: "available",
+						expires_at: "2026-08-01T12:00:00Z",
+						title: "Full reset (Weekly + 5h)",
+					},
+					{
+						id: "RateLimitResetCredit_ok",
+						expires_at: "2026-08-27T12:00:00Z",
+						title: "Full reset (Weekly + 5h)",
+					},
+				],
+			});
+		});
+		const result = await fetchCodexQuota({
+			modelRegistry: { getApiKeyForProvider: async () => "codex-live-token" },
+		} as never, now, fetchImpl as unknown as typeof fetch);
+		expect(result.resets).toEqual({
+			availableCount: 2,
+			items: [{ expiresAt: "2026-08-27T12:00:00.000Z", title: "Full reset (Weekly + 5h)" }],
+		});
+	});
+
+	it("persists reset credits without ids", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-meter-codex-store-"));
+		agentDir = dir;
+		mkdirSync(join(dir, "extension-data", "pi-meter"), { recursive: true });
+		const store = putSnapshot(emptyQuotaStore(now), snapshot({
+			provider: "codex",
+			title: "OpenAI Codex",
+			resets: {
+				availableCount: 2,
+				items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" }],
+			},
+		}));
+		await saveQuotaStore(store, dir);
+		const loaded = await loadQuotaStore(dir);
+		expect(loaded.providers.codex?.resets).toEqual({
+			availableCount: 2,
+			items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset (Weekly + 5h)" }],
+		});
+		const parsed = parseQuotaStore({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				codex: {
+					title: "OpenAI Codex",
+					windows: [],
+					fetchedAt: now,
+					ok: true,
+					resets: {
+						availableCount: 2,
+						items: [{
+							expiresAt: "2026-08-27T12:00:00Z",
+							title: "Full reset",
+							id: "RateLimitResetCredit_secret",
+						}],
+					},
+				},
+			},
+			lastAttemptAt: {},
+		});
+		expect(parsed.providers.codex?.resets).toEqual({
+			availableCount: 2,
+			items: [{ expiresAt: "2026-08-27T12:00:00Z", title: "Full reset" }],
+		});
+		expect(JSON.stringify(parsed)).not.toContain("RateLimitResetCredit_");
 	});
 });

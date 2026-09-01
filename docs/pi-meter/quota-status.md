@@ -30,6 +30,12 @@
 | 有窗口但没 `/login` | `{brand} · not signed in` |
 | 已登录但这次没拉到 | `{brand} · unavailable` |
 
+### Codex 重置额度
+
+Codex 可攒的周限额重置（banked Full reset）不是 5h/周窗口，也不是付费 flex 余额。有张数才在 Codex 看板多一块；底栏只在当前模型是 Codex 且张数 > 0 时加 `N resets …`，不借给别家。
+
+过期快照用年龄（`12m ago`）而不是单词 stale。看板标题旁总是写年龄；底栏只在超过刷新 TTL 时写。
+
 ### 品牌
 
 短小写，贴在窗口前面：

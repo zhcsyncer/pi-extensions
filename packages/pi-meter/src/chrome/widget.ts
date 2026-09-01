@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { QuotaPolarity } from "../config.ts";
 import type { QuotaWindowView } from "../quota/policy.ts";
 import { quotaProviderBrand } from "../quota/types.ts";
-import { displayedPercent, formatResetShort, quotaTone, renderQuotaBar } from "./format.ts";
+import { displayedPercent, formatResetDuration, formatResetShort, formatSnapshotAge, nearestExpiry, quotaTone, renderQuotaBar } from "./format.ts";
 
 export const STATUS_KEY = "pi-meter";
 
@@ -29,12 +29,20 @@ function quotaCaption(quota: QuotaWindowView, polarity: QuotaPolarity, now: Date
 	const verb = polarity === "remaining" ? "left" : "used";
 	const percent = Math.round(displayedPercent(quota.window.usedPercent, polarity));
 	const reset = formatResetShort(quota.window.resetsAt, now);
-	const stale = quota.stale ? " stale" : "";
+	const age = quota.stale ? formatSnapshotAge(quota.fetchedAt, now) : undefined;
 	return {
 		label: `${quotaProviderBrand(quota.provider)} ${kind} ${verb}`,
-		value: `${renderQuotaBar(quota.window.usedPercent, polarity)} ${percent}%${reset ? ` (${reset})` : ""}${stale}`,
+		value: `${renderQuotaBar(quota.window.usedPercent, polarity)} ${percent}%${reset ? ` (${reset})` : ""}${age ? ` ${age}` : ""}`,
 		tone: quotaTone(quota.window.usedPercent),
 	};
+}
+
+function resetCreditsCaption(quota: QuotaWindowView, now: Date): string | undefined {
+	const count = quota.resets?.availableCount ?? 0;
+	if (count <= 0) return undefined;
+	const noun = count === 1 ? "reset" : "resets";
+	const next = formatResetDuration(nearestExpiry(quota.resets?.items, now), now);
+	return next ? `${count} ${noun} ${next}` : `${count} ${noun}`;
 }
 
 export function renderStatusText(input: ChromeInput, theme: Theme): string | undefined {
@@ -44,6 +52,8 @@ export function renderStatusText(input: ChromeInput, theme: Theme): string | und
 	if (input.quota) {
 		const quota = quotaCaption(input.quota, input.polarity, now);
 		parts.push(`${theme.fg("muted", quota.label)} ${theme.fg(quota.tone, quota.value)}`);
+		const resets = resetCreditsCaption(input.quota, now);
+		if (resets) parts.push(theme.fg("muted", resets));
 	} else if (input.quotaHint) {
 		parts.push(theme.fg("muted", input.quotaHint.label), theme.fg("muted", input.quotaHint.value));
 	}
