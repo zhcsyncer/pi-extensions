@@ -382,6 +382,7 @@ describe("extension runtime", () => {
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		expect(statuses.get("pi-meter")).toContain("49%");
 		expect(statuses.get("pi-meter")).not.toContain("stale");
+		expect(statuses.get("pi-meter")).not.toContain("ago");
 		expect(setInterval).toHaveBeenCalledWith(expect.any(Function), STATUS_CACHE_POLL_MS);
 		expect(polls).toHaveLength(1);
 
@@ -392,10 +393,11 @@ describe("extension runtime", () => {
 		expect(statuses.get("pi-meter")).toContain("20%");
 		expect(fetchSpy).not.toHaveBeenCalled();
 
-		writeQuota(90, Date.now() - 120_000);
+		writeQuota(90, Date.now() - 12 * 60_000);
 		await polls[0]?.();
 		expect(statuses.get("pi-meter")).toContain("10%");
-		expect(statuses.get("pi-meter")).toContain("stale");
+		expect(statuses.get("pi-meter")).toMatch(/\d+m ago/);
+		expect(statuses.get("pi-meter")).not.toContain("stale");
 		expect(fetchSpy).not.toHaveBeenCalled();
 
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
@@ -435,6 +437,60 @@ describe("extension runtime", () => {
 		expect(statuses.get("pi-meter")).toContain("49%");
 		expect(statuses.get("pi-meter")).not.toContain("no quota window");
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, ctx);
+	});
+
+	it("shows Codex reset credits in the footer only for the current Codex model", async () => {
+		writeFileSync(join(agentDir, "auth.json"), `${JSON.stringify({
+			"openai-codex": { type: "oauth", refresh: "x", access: "y" },
+			xai: { type: "oauth", refresh: "x", access: "y" },
+		})}\n`);
+		const paths = getMeterPaths(agentDir);
+		mkdirSync(paths.dataDir, { recursive: true });
+		const expiresAt = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString();
+		writeFileSync(paths.quotaFile, `${JSON.stringify({
+			version: 1,
+			ttlMs: 60_000,
+			minIntervalMs: 30_000,
+			providers: {
+				codex: {
+					provider: "codex",
+					title: "OpenAI Codex",
+					primary: { id: "week", label: "Week limit", usedPercent: 90, resetsAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString() },
+					windows: [{ id: "week", label: "Week limit", usedPercent: 90 }],
+					fetchedAt: Date.now(),
+					ok: true,
+					resets: {
+						availableCount: 2,
+						items: [{ expiresAt, title: "Full reset (Weekly + 5h)" }],
+					},
+				},
+				supergrok: {
+					provider: "supergrok",
+					title: "SuperGrok",
+					primary: { id: "weekly", label: "Weekly credits", usedPercent: 51, resetsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() },
+					windows: [{ id: "weekly", label: "Weekly credits", usedPercent: 51 }],
+					fetchedAt: Date.now(),
+					ok: true,
+				},
+			},
+			lastAttemptAt: {},
+		})}\n`);
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const codex = harness({ hasUI: true, mode: "tui", model: { provider: "openai-codex", id: "gpt-5" } });
+		piMeter(codex.pi);
+		await codex.handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, codex.ctx);
+		expect(codex.statuses.get("pi-meter")).toContain("openai week left");
+		expect(codex.statuses.get("pi-meter")).toContain("2 resets");
+		await codex.handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, codex.ctx);
+
+		vi.resetModules();
+		const { default: piMeterAgain } = await import("../extensions/meter.ts");
+		const xai = harness({ hasUI: true, mode: "tui", model: { provider: "xai", id: "grok-4" } });
+		piMeterAgain(xai.pi);
+		await xai.handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, xai.ctx);
+		expect(xai.statuses.get("pi-meter")).toContain("xai week left");
+		expect(xai.statuses.get("pi-meter")).not.toContain("2 resets");
+		await xai.handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown" }, xai.ctx);
 	});
 
 	it("does not show another provider's quota window for local ollama", async () => {

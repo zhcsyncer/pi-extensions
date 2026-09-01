@@ -1,7 +1,7 @@
-import { displayedPercent, formatResetLong, quotaTone } from "./format.ts";
+import { displayedPercent, formatExpiryClock, formatResetDuration, formatResetLong, formatSnapshotAge, nearestExpiry, quotaTone } from "./format.ts";
 import type { QuotaPolarity } from "../config.ts";
 import { isUnsignedQuotaSnapshot } from "../quota/auth.ts";
-import type { QuotaSnapshot, QuotaWindow } from "../quota/types.ts";
+import type { QuotaResets, QuotaSnapshot, QuotaWindow } from "../quota/types.ts";
 
 function bar(usedPercent: number, polarity: QuotaPolarity, width = 10): string {
 	const ratio = displayedPercent(usedPercent, polarity) / 100;
@@ -18,6 +18,11 @@ function unsignedInHint(snapshots: readonly QuotaSnapshot[]): string | undefined
 	return `Not signed in: ${snapshots.map((snapshot) => snapshot.title).join(", ")} — run /login`;
 }
 
+function snapshotHeading(snapshot: QuotaSnapshot, now: Date): string {
+	const age = formatSnapshotAge(snapshot.fetchedAt, now);
+	return age ? `${snapshot.title} · ${age}` : snapshot.title;
+}
+
 function formatWindow(window: QuotaWindow, polarity: QuotaPolarity, now: Date): string {
 	const percent = Math.round(displayedPercent(window.usedPercent, polarity));
 	const reset = formatResetLong(window.resetsAt, now);
@@ -25,6 +30,32 @@ function formatWindow(window: QuotaWindow, polarity: QuotaPolarity, now: Date): 
 	if (reset) parts.push(`· ${reset}`);
 	if (window.note) parts.push(`· ${window.note}`);
 	return parts.join(" ");
+}
+
+function visibleResetItems(resets: QuotaResets, now: Date): NonNullable<QuotaResets["items"]> {
+	return (resets.items ?? []).filter((item) => {
+		const time = new Date(item.expiresAt).getTime();
+		return !Number.isNaN(time) && time > now.getTime();
+	});
+}
+
+function formatResetItem(item: { expiresAt: string; title?: string }, index: number, now: Date): string {
+	const title = item.title?.trim();
+	const clock = formatExpiryClock(item.expiresAt);
+	const duration = formatResetDuration(item.expiresAt, now);
+	const bits = [`    #${index + 1}`];
+	if (title) bits.push(title);
+	if (clock) bits.push(`· ${clock}`);
+	if (duration) bits.push(`(${duration})`);
+	return bits.join(" ");
+}
+
+function formatResets(resets: QuotaResets | undefined, now: Date): string[] | undefined {
+	if (!resets || resets.availableCount <= 0) return undefined;
+	const items = visibleResetItems(resets, now);
+	const next = formatResetDuration(nearestExpiry(items, now), now);
+	const header = `  ${"Resets".padEnd(22)} ${resets.availableCount} available${next ? ` · next ${next}` : ""}`;
+	return [header, ...items.map((item, index) => formatResetItem(item, index, now))];
 }
 
 export function renderUsagePanel(
@@ -39,17 +70,18 @@ export function renderUsagePanel(
 			unsignedIn.push(snapshot);
 			continue;
 		}
-		const stale = snapshot.stale ? " (stale)" : "";
+		const heading = snapshotHeading(snapshot, now);
 		if (!snapshot.ok) {
-			blocks.push(`${snapshot.title}${stale}\n  ${snapshot.error ?? "unavailable"}`);
-			continue;
-		}
-		if (snapshot.windows.length === 0) {
-			blocks.push(`${snapshot.title}${stale}\n  (no usage data reported)`);
+			blocks.push(`${heading}\n  ${snapshot.error ?? "unavailable"}`);
 			continue;
 		}
 		const rows = snapshot.windows.map((window) => formatWindow(window, polarity, now));
-		blocks.push([`${snapshot.title}${stale}`, ...rows].join("\n"));
+		const resetRows = snapshot.provider === "codex" ? formatResets(snapshot.resets, now) : undefined;
+		if (rows.length === 0 && !resetRows) {
+			blocks.push(`${heading}\n  (no usage data reported)`);
+			continue;
+		}
+		blocks.push([heading, ...rows, ...(resetRows ?? [])].join("\n"));
 	}
 	const hint = unsignedInHint(unsignedIn);
 	if (blocks.length === 0) return hint ?? "No subscription snapshots yet.";

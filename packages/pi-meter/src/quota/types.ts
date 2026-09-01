@@ -10,6 +10,17 @@ export interface QuotaWindow {
 	note?: string;
 }
 
+/** Banked Codex rate-limit resets. Not a usage window and not payload.credits. */
+export interface QuotaResetCredit {
+	expiresAt: string;
+	title?: string;
+}
+
+export interface QuotaResets {
+	availableCount: number;
+	items?: QuotaResetCredit[];
+}
+
 export interface QuotaSnapshot {
 	provider: QuotaSourceId;
 	title: string;
@@ -19,6 +30,8 @@ export interface QuotaSnapshot {
 	ok: boolean;
 	error?: string;
 	stale?: boolean;
+	/** Guest adapters may omit this. */
+	resets?: QuotaResets;
 }
 
 export interface QuotaStoreFile {
