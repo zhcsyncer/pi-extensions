@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 0.28.0
+
+### Minor Changes
+
+- 8027951: Show Codex banked weekly rate-limit resets in `/usage quota` and the Codex footer, and replace the word "stale" with snapshot age.
+
 ## 0.27.1
 
 ### Patch Changes
