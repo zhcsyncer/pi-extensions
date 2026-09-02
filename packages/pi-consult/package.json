@@ -1,7 +1,7 @@
 {
   "name": "@zhcsyncer/pi-consult",
   "version": "0.0.0",
-  "description": "Side-call advisor primitive for Pi: consult() plus loop/done gates, optional dual-path panel, and local behavior logs.",
+  "description": "Side-call advisor primitive for Pi: consult() plus a loop gate, optional dual-path panel, and local behavior logs.",
   "keywords": [
     "pi-package",
     "pi-extension",

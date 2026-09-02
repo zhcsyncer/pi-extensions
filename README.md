@@ -31,7 +31,7 @@ A collection of Pi extensions by zhcsyncer.
 
   ![Fast Mode footer status](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
 
-- [`@zhcsyncer/pi-consult`](./packages/pi-consult) — second-opinion `consult({ why })` with loop/done gates, an optional dual-path panel, and a local behavior log. Unconfigured, it unloads itself.
+- [`@zhcsyncer/pi-consult`](./packages/pi-consult) — second-opinion `consult({ why })` with a loop gate, an optional dual-path panel, and a local behavior log. Unconfigured, it unloads itself.
 - [`@zhcsyncer/pi-meter`](./packages/pi-meter) — local spend plus Claude / Codex / SuperGrok / Ollama Cloud remaining in one `/usage` command. Combines `pi-tracker` and `@pi-plugins/usage`; disable the latter because both register `/usage`.
 
   ![Meter footer](./packages/pi-meter/assets/demo-meter-status.png)

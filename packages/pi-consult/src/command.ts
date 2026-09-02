@@ -96,8 +96,6 @@ export function applyConsultSetting(config: ConsultConfig, id: string, value: st
 			const loop = value === "off" ? 0 : Number(value);
 			return { ...config, gates: { ...config.gates, loop: Number.isFinite(loop) ? loop : config.gates.loop } };
 		}
-		case "done":
-			return { ...config, gates: { ...config.gates, done: value === "on" } };
 		default:
 			return config;
 	}
@@ -151,13 +149,6 @@ export function consultSettingItems(config: ConsultConfig, models: Model<Api>[],
 			currentValue: config.gates.loop > 0 ? String(config.gates.loop) : "off",
 			values: ["off", "2", "3", "4", "5"],
 		},
-		{
-			id: "done",
-			label: "Done gate",
-			description: "Follow-up wrap-up consult after a turn that used edit/write.",
-			currentValue: config.gates.done ? "on" : "off",
-			values: ["on", "off"],
-		},
 	];
 }
 
@@ -168,7 +159,7 @@ export async function formatConsultStatus(config: ConsultConfig, tracker: Consul
 	return [
 		`Panel: ${panel}`,
 		`Fanout: ${config.fanout ? "on" : "off"}`,
-		`Gates: loop=${config.gates.loop > 0 ? config.gates.loop : "off"} done=${config.gates.done ? "on" : "off"}`,
+		`Loop gate: ${config.gates.loop > 0 ? config.gates.loop : "off"}`,
 		`Budget remaining: ${budget}`,
 		recent,
 	].join("\n");
@@ -224,7 +215,6 @@ export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandSt
 							settingsList.updateValue("effort1", next.panel[1] ? (next.panel[1].effort ?? "default") : "—");
 							settingsList.updateValue("fanout", next.fanout ? "on" : "off");
 							settingsList.updateValue("loop", next.gates.loop > 0 ? String(next.gates.loop) : "off");
-							settingsList.updateValue("done", next.gates.done ? "on" : "off");
 						})();
 					},
 					() => done(undefined),

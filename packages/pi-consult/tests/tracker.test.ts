@@ -28,32 +28,7 @@ describe("consult tracker gates", () => {
 		expect(tracker.evaluateLoop(1, budget).fire).toBe(true);
 	});
 
-	it("does not fire done without edit/write", () => {
-		const tracker = new ConsultTracker();
-		tracker.onToolStart("1", "read", { path: "a" });
-		tracker.onToolEnd("1", "read", false);
-		expect(tracker.evaluateDone(true, budget).fire).toBe(false);
-	});
-
-	it("fires done after substantive output and only once", () => {
-		const tracker = new ConsultTracker();
-		tracker.onToolStart("1", "write", { path: "a.ts" });
-		tracker.onToolEnd("1", "write", false);
-		expect(tracker.evaluateDone(true, budget).fire).toBe(true);
-		tracker.markDoneFired();
-		expect(tracker.evaluateDone(true, budget).fire).toBe(false);
-		expect(tracker.consumeTrigger()).toBe("done");
-	});
-
-	it("skips done when the loop steer is still pending", () => {
-		const tracker = new ConsultTracker();
-		tracker.onToolStart("1", "write", { path: "a.ts" });
-		tracker.onToolEnd("1", "write", false);
-		tracker.markLoopFired();
-		expect(tracker.evaluateDone(true, budget).fire).toBe(false);
-	});
-
-	it("skips gates when the budget is exhausted", () => {
+	it("skips the loop gate when the budget is exhausted", () => {
 		const tracker = new ConsultTracker();
 		tracker.recordConsult();
 		tracker.onToolStart("1", "bash", { command: "ls" });
@@ -63,9 +38,6 @@ describe("consult tracker gates", () => {
 		tracker.onToolStart("3", "bash", { command: "ls" });
 		tracker.onToolEnd("3", "bash", true);
 		expect(tracker.evaluateLoop(3, budget).fire).toBe(false);
-		tracker.onToolStart("4", "edit", { path: "a" });
-		tracker.onToolEnd("4", "edit", false);
-		expect(tracker.evaluateDone(true, budget).fire).toBe(false);
 	});
 
 	it("resets turn state on a user turn but keeps session spend", () => {

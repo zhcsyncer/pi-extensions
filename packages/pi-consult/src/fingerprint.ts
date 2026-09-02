@@ -1,8 +1,6 @@
 import { stableStringify } from "./inventory.ts";
 import { CONSULT_TOOL_NAME } from "./messages.ts";
 
-export const SUBSTANTIVE_TOOLS = new Set(["edit", "write"]);
-
 export interface ToolFingerprintEvent {
 	name: string;
 	fingerprint: string;
@@ -46,6 +44,3 @@ export function loopGateReason(state: FingerprintState, n: number): "same" | "er
 	return undefined;
 }
 
-export function hadSubstantiveOutput(state: FingerprintState): boolean {
-	return state.recent.some((event) => SUBSTANTIVE_TOOLS.has(event.name));
-}

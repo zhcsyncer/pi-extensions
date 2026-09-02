@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	emptyFingerprintState,
-	hadSubstantiveOutput,
 	loopGateReason,
 	recordToolEvent,
 	toolFingerprint,
@@ -46,11 +45,4 @@ describe("tool fingerprint", () => {
 		expect(loopGateReason(state, 2)).toBeUndefined();
 	});
 
-	it("detects edit/write as substantive output", () => {
-		let state = emptyFingerprintState();
-		state = recordToolEvent(state, { name: "read", input: { path: "a" }, isError: false });
-		expect(hadSubstantiveOutput(state)).toBe(false);
-		state = recordToolEvent(state, { name: "edit", input: { path: "a" }, isError: false });
-		expect(hadSubstantiveOutput(state)).toBe(true);
-	});
 });

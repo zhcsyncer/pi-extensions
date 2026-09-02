@@ -2,7 +2,7 @@ export type GradedEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "ma
 
 export const EFFORT_ORDINAL: readonly GradedEffort[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
-export type ConsultTrigger = "pull" | "loop" | "done";
+export type ConsultTrigger = "pull" | "loop";
 
 export type ConsultVerdict = "plan" | "correction" | "stop" | "split";
 
@@ -13,7 +13,6 @@ export interface PanelMember {
 
 export interface ConsultGates {
 	loop: number;
-	done: boolean;
 }
 
 export interface ConsultBudget {

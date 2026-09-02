@@ -28,7 +28,7 @@ describe("consult config", () => {
 	it("defaults to an empty panel so off costs nothing", () => {
 		expect(parseConsultConfig({})).toEqual(DEFAULT_CONSULT_CONFIG);
 		expect(DEFAULT_CONSULT_CONFIG.panel).toEqual([]);
-		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 3, done: true });
+		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 3 });
 		expect(DEFAULT_CONSULT_CONFIG.budget).toEqual({ perTurn: 1, perSession: 8 });
 	});
 
@@ -37,7 +37,7 @@ describe("consult config", () => {
 			parseConsultConfig({
 				panel: [{ model: "anthropic/claude-fable-5", effort: "high" }, { model: "openai-codex/gpt-5.6-sol" }],
 				fanout: true,
-				gates: { loop: 4, done: false },
+				gates: { loop: 4 },
 				budget: { perTurn: 2, perSession: 10 },
 				disabledForModels: ["anthropic/claude-fable-5"],
 			}),
@@ -47,7 +47,7 @@ describe("consult config", () => {
 				{ model: "openai-codex/gpt-5.6-sol" },
 			],
 			fanout: true,
-			gates: { loop: 4, done: false },
+			gates: { loop: 4 },
 			budget: { perTurn: 2, perSession: 10 },
 			disabledForModels: ["anthropic/claude-fable-5"],
 		});
@@ -56,7 +56,7 @@ describe("consult config", () => {
 	it("drops invalid panel entries and treats loop false as off", () => {
 		const parsed = parseConsultConfig({
 			panel: [{ model: "" }, { effort: "high" }, { model: "ok", effort: "nope" }, { model: "keep/me", effort: "low" }],
-			gates: { loop: false, done: true },
+			gates: { loop: false },
 		});
 		expect(parsed.panel).toEqual([{ model: "keep/me", effort: "low" }]);
 		expect(parsed.gates.loop).toBe(0);
@@ -86,7 +86,7 @@ describe("consult config", () => {
 		expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
 			fanout: true,
 			note: "hand-edited",
-			gates: { loop: 2, done: true },
+			gates: { loop: 2 },
 		});
 	});
 

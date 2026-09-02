@@ -2,21 +2,20 @@
 
 [简体中文](./README.zh-CN.md)
 
-A second-opinion primitive for the [Pi coding agent](https://pi.dev). The main model calls `consult({ why })`; an advisor model with no tools answers plan / correction / stop. Loop and done gates can force that call. Optional dual-path panel. Local behavior log.
+A second-opinion primitive for the [Pi coding agent](https://pi.dev). The main model calls `consult({ why })`; an advisor model with no tools answers plan / correction / stop. A loop gate can force that call. Optional dual-path panel. Local behavior log.
 
 This package is also included in `@zhcsyncer/pi-extensions`.
 
 ## Source
 
-New package. Side-call, inventory prefix, and active-tool reconcile are adapted from MIT-licensed [`@juicesharp/rpiv-advisor`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-advisor) 2.8.0. The tool is `consult` (required `why`), configuration is a panel array, and this package adds loop/done gates, budgets, and a local jsonl log. It is not a fork.
+New package. Side-call, inventory prefix, and active-tool reconcile are adapted from MIT-licensed [`@juicesharp/rpiv-advisor`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-advisor) 2.8.0. The tool is `consult` (required `why`), configuration is a panel array, and this package adds a loop gate, budgets, and a local jsonl log. It is not a fork.
 
 ## Features
 
 - `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
 - Unconfigured panel unloads the tool. Off costs nothing.
 - Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first.
-- Done gate: after a turn that used `edit`/`write`, follow up for a wrap-up consult.
-- `/consult` picks panel models and effort, toggles gates, and shows budget remaining plus recent log lines.
+- `/consult` picks panel models and effort, toggles the loop gate, and shows budget remaining plus recent log lines.
 
 ## Install
 
@@ -44,7 +43,7 @@ Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Unt
 
 | Command | What you see |
 |---|---|
-| `/consult` | Panel, effort, fanout, loop/done gates |
+| `/consult` | Panel, effort, fanout, loop gate |
 | `/consult status` | Panel, remaining budget, recent log lines |
 
 After each `consult` result, the next visible reply should restate the summary and add:
@@ -61,7 +60,7 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
 {
   "panel": [{ "model": "anthropic/claude-fable-5", "effort": "high" }],
   "fanout": false,
-  "gates": { "loop": 3, "done": true },
+  "gates": { "loop": 3 },
   "budget": { "perTurn": 1, "perSession": 8 },
   "disabledForModels": []
 }

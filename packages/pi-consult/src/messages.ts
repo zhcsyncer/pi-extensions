@@ -30,10 +30,7 @@ export const ERR_BUDGET_TURN = "Consult budget exhausted for this turn.";
 export const ERR_BUDGET_SESSION = "Consult budget exhausted for this session.";
 
 export const LOOP_STEER_TEXT =
-	"Stop repeating the same tool call or the same error. Call consult({ why }) with a 1-2 sentence reason before continuing.";
-
-export const DONE_FOLLOWUP_TEXT =
-	"You made substantive file changes this turn. Before declaring the task done, call consult({ why }) for a wrap-up review. Do not skip this.";
+	"先 consult 再继续\nStop repeating the same tool call or the same error. Call consult({ why }) with a 1-2 sentence reason before continuing.";
 
 export const errMisconfigured = (label: string, err: string) => `Consult (${label}) is misconfigured: ${err}`;
 export const errNoApiKey = (label: string) => `Consult (${label}) has no API key available.`;

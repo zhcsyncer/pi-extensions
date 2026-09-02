@@ -17,7 +17,7 @@ import {
 export const DEFAULT_CONSULT_CONFIG: ConsultConfig = {
 	panel: [],
 	fanout: false,
-	gates: { loop: 3, done: true },
+	gates: { loop: 3 },
 	budget: { perTurn: 1, perSession: 8 },
 	disabledForModels: [],
 };
@@ -73,8 +73,7 @@ function parseGates(value: unknown): ConsultGates {
 	if (record.loop === false) loop = 0;
 	else if (record.loop === true) loop = DEFAULT_CONSULT_CONFIG.gates.loop;
 	else loop = asNonNegativeInt(record.loop, DEFAULT_CONSULT_CONFIG.gates.loop);
-	const done = typeof record.done === "boolean" ? record.done : DEFAULT_CONSULT_CONFIG.gates.done;
-	return { loop, done };
+	return { loop };
 }
 
 function parseBudget(value: unknown): ConsultBudget {

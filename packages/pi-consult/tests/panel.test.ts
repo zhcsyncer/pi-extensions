@@ -15,7 +15,6 @@ describe("consult panel", () => {
 	it("uses only the first member unless pull+fanout", () => {
 		expect(selectPanel(panel, { fanout: false, trigger: "pull" })).toEqual([panel[0]]);
 		expect(selectPanel(panel, { fanout: true, trigger: "loop" })).toEqual([panel[0]]);
-		expect(selectPanel(panel, { fanout: true, trigger: "done" })).toEqual([panel[0]]);
 		expect(selectPanel(panel, { fanout: true, trigger: "pull" })).toEqual(panel);
 	});
 

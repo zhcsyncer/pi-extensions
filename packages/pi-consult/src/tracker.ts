@@ -1,11 +1,5 @@
 import { canSpendBudget } from "./budget.ts";
-import {
-	emptyFingerprintState,
-	hadSubstantiveOutput,
-	loopGateReason,
-	recordToolEvent,
-	type FingerprintState,
-} from "./fingerprint.ts";
+import { emptyFingerprintState, loopGateReason, recordToolEvent, type FingerprintState } from "./fingerprint.ts";
 import { CONSULT_TOOL_NAME } from "./messages.ts";
 import type { ConsultBudget, ConsultTrigger } from "./types.ts";
 
@@ -14,16 +8,11 @@ export interface LoopGateDecision {
 	reason?: "same" | "error";
 }
 
-export interface DoneGateDecision {
-	fire: boolean;
-}
-
 export class ConsultTracker {
 	fingerprint: FingerprintState = emptyFingerprintState();
 	pendingArgs = new Map<string, { name: string; args: unknown }>();
 	lock = false;
 	pendingTrigger: ConsultTrigger | undefined;
-	doneFired = false;
 	turnCount = 0;
 	sessionCount = 0;
 
@@ -37,7 +26,6 @@ export class ConsultTracker {
 		this.pendingArgs.clear();
 		this.lock = false;
 		this.pendingTrigger = undefined;
-		this.doneFired = false;
 		this.turnCount = 0;
 	}
 
@@ -80,20 +68,5 @@ export class ConsultTracker {
 	markLoopFired(): void {
 		this.lock = true;
 		this.pendingTrigger = "loop";
-	}
-
-	evaluateDone(enabled: boolean, budget: ConsultBudget): DoneGateDecision {
-		if (!enabled) return { fire: false };
-		if (this.doneFired) return { fire: false };
-		if (this.pendingTrigger) return { fire: false };
-		if (!hadSubstantiveOutput(this.fingerprint)) return { fire: false };
-		if (!canSpendBudget(budget, this.turnCount, this.sessionCount)) return { fire: false };
-		return { fire: true };
-	}
-
-	markDoneFired(): void {
-		this.doneFired = true;
-		this.lock = true;
-		this.pendingTrigger = "done";
 	}
 }

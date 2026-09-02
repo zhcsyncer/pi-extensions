@@ -4,8 +4,9 @@ import { registerConsultCommand } from "../src/command.ts";
 import { loadConsultConfig, loadConsultConfigSync, resolveGuidance } from "../src/config.ts";
 import { executeConsult } from "../src/execute.ts";
 import { backfillAdopted, parseConsultLog } from "../src/events.ts";
-import { DONE_FOLLOWUP_TEXT, LOOP_STEER_TEXT, CONSULT_TOOL_NAME, TOOL_LABEL, msgConsultEnabled } from "../src/messages.ts";
+import { LOOP_STEER_TEXT, CONSULT_TOOL_NAME, TOOL_LABEL, msgConsultEnabled } from "../src/messages.ts";
 import { isConsultBlocked, reconcileConsultTool } from "../src/reconcile.ts";
+import { renderConsultCall, renderConsultResult } from "../src/tool-display.ts";
 import { ConsultTracker } from "../src/tracker.ts";
 import { modelKeyOf, type ConsultConfig } from "../src/types.ts";
 
@@ -53,6 +54,9 @@ export default function consultExtension(pi: ExtensionAPI): void {
 		promptSnippet: guidance.promptSnippet,
 		promptGuidelines: guidance.promptGuidelines,
 		parameters: ConsultParams,
+		renderShell: "self",
+		renderCall: (args, theme, context) => renderConsultCall(args, theme, context),
+		renderResult: (result, options, theme, context) => renderConsultResult(result, options, theme, context),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const why = typeof params.why === "string" ? params.why : "";
 			return executeConsult({
@@ -111,14 +115,6 @@ export default function consultExtension(pi: ExtensionAPI): void {
 		if (isConsultBlocked(loaded.config, currentModelKey(ctx))) return;
 		tracker.markLoopFired();
 		pi.sendUserMessage(LOOP_STEER_TEXT, { deliverAs: "steer" });
-	});
-
-	pi.on("agent_end", async (_event, ctx) => {
-		const decision = tracker.evaluateDone(loaded.config.gates.done, loaded.config.budget);
-		if (!decision.fire) return;
-		if (isConsultBlocked(loaded.config, currentModelKey(ctx))) return;
-		tracker.markDoneFired();
-		pi.sendUserMessage(DONE_FOLLOWUP_TEXT, { deliverAs: "followUp" });
 	});
 
 	pi.on("message_end", async (event, ctx) => {

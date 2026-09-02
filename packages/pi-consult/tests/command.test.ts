@@ -30,7 +30,6 @@ describe("consult settings", () => {
 		expect(withEffort.panel[0]).toEqual({ model: "a/b" });
 		expect(applyConsultSetting(DEFAULT_CONSULT_CONFIG, "loop", "off").gates.loop).toBe(0);
 		expect(applyConsultSetting(DEFAULT_CONSULT_CONFIG, "loop", "5").gates.loop).toBe(5);
-		expect(applyConsultSetting(DEFAULT_CONSULT_CONFIG, "done", "off").gates.done).toBe(false);
 		expect(applyConsultSetting(DEFAULT_CONSULT_CONFIG, "fanout", "on").fanout).toBe(true);
 	});
 });
