@@ -72,6 +72,7 @@ import {
   MAX_INDIVIDUAL_BLOB_BYTES,
 } from "./tuning.js";
 import { markBlobMiss, trimBlobStore } from "./session-state.js";
+import { billedUsageFromTurnEnded } from "./pi-adapter.js";
 import type { PendingExec, StreamState } from "./types.js";
 import { setLastStreamEvent } from "../diagnostics/diagnostics.js";
 
@@ -154,6 +155,8 @@ export function processServerMessage(
       // Cursor closes the HTTP/2 connection right after this. Recorded so the close is
       // finalized as a completed turn instead of retried as a failure (upstream #3).
       state.turnEnded = true;
+      const billed = billedUsageFromTurnEnded(update.message.value ?? {});
+      if (billed) state.billedUsage = billed;
       return true;
     }
     // Liveness cases (heartbeat, toolCallStarted, partialToolCall, ...) are already defined by

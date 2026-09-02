@@ -17,14 +17,14 @@ const streamFn = createCursorNativeStream({
 });
 
 const model = {
-  id: process.env.CURSOR_SMOKE_MODEL || "composer-2",
+  id: process.env.CURSOR_SMOKE_MODEL || "composer-2.5",
   name: "smoke",
   provider: "cursor",
   api: "cursor-native",
   baseUrl: "https://agentn.us.api5.cursor.sh",
   reasoning: false,
   input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  cost: { input: 0.5, output: 2.5, cacheRead: 0.2, cacheWrite: 0 },
   contextWindow: 200000,
   maxTokens: 8192,
 };
@@ -47,6 +47,7 @@ for await (const event of stream) {
   }
   if (event.type === "done") {
     console.log("\nstop:", event.reason);
+    console.log("usage:", JSON.stringify(event.message?.usage ?? null, null, 2));
   }
 }
 console.log("smoke-stream: ok");
