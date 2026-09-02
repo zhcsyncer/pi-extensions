@@ -46,10 +46,10 @@ Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Unt
 | `/consult` | Panel, effort, fanout, loop gate |
 | `/consult status` | Panel, remaining budget, recent log lines |
 
-After each `consult` result, the next visible reply should restate the summary and add:
+After each `consult` result, the next visible reply should add:
 
 ```text
-CONSULT-LOG: <why> | <advice> | adopt|reject | <reason>
+CONSULT-LOG: adopt|reject | <reason>
 ```
 
 ## Configuration

@@ -150,6 +150,7 @@ export function buildConsultToolResult(opts: {
 		trigger: opts.trigger,
 		models: opts.models,
 		envelope: opts.envelope,
+		...(opts.effort ? { effort: opts.effort } : {}),
 		...(opts.envelope.error ? { errorMessage: opts.envelope.error } : {}),
 	};
 	return {

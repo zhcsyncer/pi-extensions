@@ -46,10 +46,10 @@ pi -e npm:@zhcsyncer/pi-consult
 | `/consult` | Panel、effort、fanout、loop gate |
 | `/consult status` | Panel、剩余预算、最近日志 |
 
-每次 `consult` 返回后，下一条可见回复应复述 summary，并附一行：
+每次 `consult` 返回后，下一条可见回复应附一行：
 
 ```text
-CONSULT-LOG: <why> | <advice> | adopt|reject | <reason>
+CONSULT-LOG: adopt|reject | <reason>
 ```
 
 ## 配置

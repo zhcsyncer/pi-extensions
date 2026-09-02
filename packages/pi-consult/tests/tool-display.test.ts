@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { consultResultLines, formatConsultCallLine, renderConsultResult } from "../src/tool-display.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	consultResultLines,
+	formatConsultCallLine,
+	formatElapsed,
+	renderConsultCall,
+	renderConsultResult,
+	tickElapsed,
+} from "../src/tool-display.ts";
 import { errorEnvelope } from "../src/envelope.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
@@ -7,6 +14,19 @@ const theme = {
 	fg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 } as Theme;
+
+const correctionResult = {
+	details: {
+		trigger: "pull" as const,
+		models: ["cursor/fable-5.1"],
+		effort: "xhigh",
+		envelope: { verdict: "correction" as const, summary: "Stop editing parser.ts", raw: [] },
+	},
+};
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe("consult Claude-style rows", () => {
 	it("formats the call as ● Consult(why)", () => {
@@ -16,27 +36,18 @@ describe("consult Claude-style rows", () => {
 		expect(formatConsultCallLine({ why: "x" }, theme, { isError: true })).toBe("● Consult(x)");
 	});
 
-	it("collapses the result to verdict · summary", () => {
-		const lines = consultResultLines(
-			{
-				details: {
-					trigger: "pull",
-					models: ["anthropic/claude-fable-5"],
-					envelope: { verdict: "correction", summary: "Stop editing parser.ts", raw: [] },
-				},
-			},
-			{ expanded: false },
-			theme,
-		);
-		expect(lines).toEqual(["correction · Stop editing parser.ts"]);
+	it("collapses the result to verdict · summary without repeating why", () => {
+		expect(consultResultLines(correctionResult, { expanded: false }, theme)).toEqual([
+			"correction · Stop editing parser.ts",
+		]);
 	});
 
-	it("expands why, models, and conflicts", () => {
+	it("expands summary and models, not why", () => {
 		const lines = consultResultLines(
 			{
 				details: {
 					trigger: "loop",
-					models: ["anthropic/claude-fable-5"],
+					models: ["cursor/fable-5.1"],
 					envelope: {
 						verdict: "split",
 						summary: "Advisors disagree",
@@ -50,12 +61,25 @@ describe("consult Claude-style rows", () => {
 			{ args: { why: "same bash failed twice" } },
 		);
 		expect(lines[0]).toBe("split");
-		expect(lines).toContain("same bash failed twice");
-		expect(lines).toContain("anthropic/claude-fable-5");
+		expect(lines).toContain("Advisors disagree");
 		expect(lines).toContain("a: plan — keep going");
+		expect(lines).toContain("cursor/fable-5.1");
+		expect(lines).not.toContain("same bash failed twice");
 	});
 
-	it("prefixes result rows with the Claude ⎿ gutter", () => {
+	it("renders waiting as consulting, not a fake plan verdict", () => {
+		expect(
+			consultResultLines(
+				{ details: { trigger: "pull", models: ["cursor/fable-5.1"], effort: "xhigh" } },
+				{ expanded: false, isPartial: true },
+				theme,
+				{ isPartial: true },
+				12_000,
+			),
+		).toEqual(["consulting cursor/fable-5.1 · xhigh  12s"]);
+	});
+
+	it("prefixes collapsed complete rows with the Claude ⎿ gutter and an expand hint", () => {
 		const component = renderConsultResult(
 			{
 				details: {
@@ -68,6 +92,71 @@ describe("consult Claude-style rows", () => {
 			theme,
 			{ isError: true, args: { why: "x" } },
 		);
-		expect(component.render(80)[0]).toMatch(/^ {2}⎿ /);
+		const line = component.render(80)[0] ?? "";
+		expect(line).toMatch(/^ {2}⎿ /);
+		expect(line).toContain("failed · Budget exhausted for this turn.");
+		expect(line).toMatch(/Ctrl\+O to expand\)$/);
+	});
+
+	it("wraps expanded why and summary instead of truncating them", () => {
+		const why =
+			"需要决定 infra-edge 最小内部监控实现，以及下一步先做现有数据可视化还是新增采集。候选包括容器化 Alloy。";
+		const call = renderConsultCall({ why }, theme, { expanded: true });
+		expect(call.render(40).length).toBeGreaterThan(1);
+		expect(call.render(40).every((line) => !line.includes("…"))).toBe(true);
+
+		const result = renderConsultResult(
+			{
+				details: {
+					trigger: "pull",
+					models: ["cursor/fable-5.1"],
+					envelope: {
+						verdict: "plan",
+						summary:
+							"推荐：infra-edge 用一个容器化 Alloy，不用 node_exporter+vmagent 第二套工具链，不用纯健康脚本。",
+						raw: [],
+					},
+				},
+			},
+			{ expanded: true, isPartial: false },
+			theme,
+			{ args: { why } },
+		);
+		const rows = result.render(42);
+		expect(rows[0]?.startsWith("  ⎿ ")).toBe(true);
+		expect(rows.some((line) => line.startsWith("    "))).toBe(true);
+		expect(rows.join("\n")).toContain("容器化 Alloy");
+		expect(rows.join("\n")).not.toContain(why);
+	});
+
+	it("truncates collapsed why to one line", () => {
+		const why = "need to choose the smallest infra-edge monitoring implementation and whether to visualize first";
+		const rows = renderConsultCall({ why }, theme, { expanded: false }).render(40);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.includes("…")).toBe(true);
+	});
+});
+
+describe("consult elapsed waiting", () => {
+	it("formats seconds then minutes", () => {
+		expect(formatElapsed(0)).toBe("0s");
+		expect(formatElapsed(12_000)).toBe("12s");
+		expect(formatElapsed(65_000)).toBe("1m 05s");
+	});
+
+	it("ticks elapsed while partial and clears the timer when done", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-02T00:00:00.000Z"));
+		const state: Record<string, unknown> = {};
+		const invalidate = vi.fn();
+		expect(tickElapsed({ state, invalidate }, true)).toBe(0);
+		vi.advanceTimersByTime(1000);
+		expect(invalidate).toHaveBeenCalled();
+		vi.setSystemTime(new Date("2026-09-02T00:00:12.000Z"));
+		expect(tickElapsed({ state, invalidate }, true)).toBe(12_000);
+		tickElapsed({ state, invalidate }, false);
+		invalidate.mockClear();
+		vi.advanceTimersByTime(1000);
+		expect(invalidate).not.toHaveBeenCalled();
 	});
 });

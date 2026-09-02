@@ -265,12 +265,14 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 	const inventoryMessage = getInventoryMessage(opts.pi.getAllTools());
 	const messages: Message[] = inventoryMessage ? [inventoryMessage, ...branchMessages] : branchMessages;
 
+	const models = members.map((member) => member.label);
+	const effort = members[0]?.effort;
 	opts.onUpdate?.({
-		content: [{ type: "text", text: msgConsulting(members.map((member) => member.label).join(" + "), members[0]?.effort) }],
+		content: [{ type: "text", text: msgConsulting(models.join(" + "), effort) }],
 		details: {
 			trigger,
-			models: members.map((member) => member.label),
-			envelope: errorEnvelope(msgConsulting(members.map((member) => member.label).join(" + "), members[0]?.effort)),
+			models,
+			...(effort ? { effort } : {}),
 		},
 	});
 
@@ -286,7 +288,6 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 	const envelope = mergeAdvisorOutcomes(outcomes);
 	opts.tracker.recordConsult();
 
-	const models = members.map((member) => member.label);
 	const usage = sumUsage(envelope.raw);
 	try {
 		await appendConsultEvent(

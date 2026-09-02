@@ -13,8 +13,8 @@ export const MSG_REQUIRES_INTERACTIVE = "/consult requires interactive mode";
 export const MSG_PERSIST_FAILED = "Failed to save consult configuration";
 export const MSG_CONSULT_DISABLED = "Consult disabled (empty panel)";
 export const MSG_CONSULT_LOG_HINT =
-	"In your next visible reply, restate the summary and declare adopt or reject with a reason as:\n" +
-	"CONSULT-LOG: <why> | <summary> | adopt|reject | <reason>";
+	"In your next visible reply, declare adopt or reject with a reason as:\n" +
+	"CONSULT-LOG: adopt|reject | <reason>";
 
 export const ERR_NO_PANEL = "No consult panel is configured. The user can enable one with /consult.";
 export const ERR_NO_PANEL_DETAIL = "no panel configured";

@@ -12,8 +12,8 @@ export function parseConsultLog(text: string): { adopted: boolean } | undefined 
 	const match = text.match(/CONSULT-LOG:\s*(.+)$/im);
 	if (!match) return undefined;
 	const line = match[1];
-	const parts = line.split("|").map((part) => part.trim());
-	const decision = parts.length >= 3 ? parts[2] : line;
+	const parts = line.split("|").map((part) => part.trim()).filter((part) => part.length > 0);
+	const decision = parts.length >= 3 ? parts[2] : (parts[0] ?? line);
 	if (ADOPT_FALSE.test(decision)) return { adopted: false };
 	if (ADOPT_TRUE.test(decision)) return { adopted: true };
 	return undefined;

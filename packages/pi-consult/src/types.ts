@@ -71,7 +71,8 @@ export interface ConsultEvent {
 export interface ConsultDetails {
 	trigger: ConsultTrigger;
 	models: string[];
-	envelope: ConsultEnvelope;
+	envelope?: ConsultEnvelope;
+	effort?: string;
 	errorMessage?: string;
 }
 
