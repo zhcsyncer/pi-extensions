@@ -13,7 +13,7 @@
 本 fork 的用户可见差异如下：
 
 - 使用与上游相同的 `cursor` provider/登录身份和 `cursor-native` stream API 直接替换旧扩展。
-- 不展示完整 Cursor 目录，只提供 4 行始终开启 thinking 的 1M Claude 模型，以及 Composer 2.5 / Composer 2.5 Fast；过滤其他所有模型系列。
+- 不展示完整 Cursor 目录，只提供 5 行始终开启 thinking 的 1M Claude 模型，以及 Composer 2.5 / Composer 2.5 Fast；过滤其他所有模型系列。
 - Picker 不再拆默认上下文行：Cursor 对这些 Claude 模型按同一费率计到 1M。
 - 只映射明确提供的 Pi thinking 档位。Claude 映射 Cursor `effort`。Composer 2.5 没有 effort 参数，因此只用 `off`/`max` 显式开关 Max Mode，其余档位保持不可用。
 - 只保留在本仓库源码中，不发布到 npm，也不进入 `@zhcsyncer/pi-extensions` 根 bundle。
@@ -22,13 +22,14 @@
 
 ## 模型
 
+- Fable 5.1
 - Fable 5
 - Opus 5
 - Opus 4.6
 - Sonnet 5
 - Composer 2.5 / Composer 2.5 Fast
 
-4 行 Claude 模型的 Thinking 无法关闭。根据 Cursor 为各 Claude 模型返回的 metadata，Pi 可能提供 `low`、`medium`、`high`、`xhigh` 和 `max`；不可用的档位不会显示。Composer 2.5 只提供 `off`（标准）和 `max`（Max Mode）。
+5 行 Claude 模型的 Thinking 无法关闭。根据 Cursor 为各 Claude 模型返回的 metadata，Pi 可能提供 `low`、`medium`、`high`、`xhigh` 和 `max`；不可用的档位不会显示。Composer 2.5 只提供 `off`（标准）和 `max`（Max Mode）。
 
 ## 要求
 
@@ -60,7 +61,7 @@ Provider 也可以复用受支持的 Cursor CLI 或桌面端凭证。自动化�
 pi --list-models cursor
 ```
 
-可选择 `cursor/fable-5`、`cursor/opus-5`、`cursor/opus-4.6` 或 `cursor/sonnet-5`。
+可选择 `cursor/fable-5.1`、`cursor/fable-5`、`cursor/opus-5`、`cursor/opus-4.6` 或 `cursor/sonnet-5`。
 
 可用命令：
 

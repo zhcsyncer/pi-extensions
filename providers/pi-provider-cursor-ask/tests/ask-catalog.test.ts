@@ -85,21 +85,26 @@ function parameters(route: CursorModelRouting): Record<string, string> {
 }
 
 describe("Cursor Ask catalog contract", () => {
-  it("always exposes the four 1M Claude rows plus Composer 2.5 / Fast", () => {
+  it("always exposes the curated 1M Claude rows plus Composer 2.5 / Fast", () => {
     const catalog = buildAskCatalog([]);
+    const claudeCount = ASK_MODEL_SPECS.length;
 
     expect(catalog.map(({ id, name }) => ({ id, name }))).toEqual([
       ...ASK_MODEL_SPECS.map(({ id, name }) => ({ id, name })),
       ...COMPOSER_ASK_SPECS.map(({ id, name }) => ({ id, name })),
     ]);
-    expect(catalog).toHaveLength(6);
+    expect(catalog).toHaveLength(claudeCount + COMPOSER_ASK_SPECS.length);
     expect(catalog.every((model) => model.reasoning && model.supportsEffort)).toBe(true);
-    expect(catalog.slice(0, 4).every((model) => model.effortMap?.off === null)).toBe(true);
+    expect(catalog.slice(0, claudeCount).every((model) => model.effortMap?.off === null)).toBe(
+      true,
+    );
     expect(catalog.every((model) => model.effortMap?.minimal === null)).toBe(true);
-    expect(catalog.slice(0, 4).every((model) => model.contextWindow === 1_000_000)).toBe(true);
+    expect(catalog.slice(0, claudeCount).every((model) => model.contextWindow === 1_000_000)).toBe(
+      true,
+    );
     expect(
       catalog
-        .slice(0, 4)
+        .slice(0, claudeCount)
         .some((model) => /200k|300k|\[1m\]|-1m$/i.test(`${model.id} ${model.name}`)),
     ).toBe(false);
   });
@@ -112,7 +117,7 @@ describe("Cursor Ask catalog contract", () => {
         context: spec.context,
       }),
     );
-    const catalog = buildAskCatalog(sources).slice(0, 4);
+    const catalog = buildAskCatalog(sources).slice(0, ASK_MODEL_SPECS.length);
 
     for (const [index, model] of catalog.entries()) {
       const spec = ASK_MODEL_SPECS[index]!;
@@ -143,7 +148,7 @@ describe("Cursor Ask catalog contract", () => {
       plainModel("claude-fable-5-thinking", "Fable backend row"),
     ]);
 
-    expect(catalog.slice(4).map(({ id, name }) => ({ id, name }))).toEqual([
+    expect(catalog.slice(ASK_MODEL_SPECS.length).map(({ id, name }) => ({ id, name }))).toEqual([
       { id: "composer-2.5", name: "Composer 2.5" },
       { id: "composer-2.5-fast", name: "Composer 2.5 Fast" },
     ]);
@@ -151,7 +156,7 @@ describe("Cursor Ask catalog contract", () => {
       catalog.some((model) => /^(gpt|gemini|claude-|composer-1|composer-2$)/i.test(model.id)),
     ).toBe(false);
 
-    for (const model of catalog.slice(4)) {
+    for (const model of catalog.slice(ASK_MODEL_SPECS.length)) {
       const fast = model.id.endsWith("-fast") ? "true" : "false";
       expect(supportedAskThinkingLevels(model)).toEqual(["off", "max"]);
       expect(model.effortMap).toEqual({
@@ -187,6 +192,26 @@ describe("Cursor Ask catalog contract", () => {
         /not supported/i,
       );
     }
+  });
+
+  it("does not treat Fable 5's 1M row as Fable 5.1", () => {
+    const catalog = buildAskCatalog([
+      sourceModel({
+        id: "claude-fable-5-1m-thinking",
+        requestedModelId: "claude-fable-5",
+        context: "1m",
+      }),
+      sourceModel({
+        id: "claude-fable-5-1-1m-thinking",
+        requestedModelId: "claude-fable-5-1",
+        context: "1m",
+      }),
+    ]);
+    const fable51 = catalog.find((model) => model.id === "fable-5.1");
+    const fable5 = catalog.find((model) => model.id === "fable-5");
+
+    expect(fable51?.rawRoutingByEffort?.high?.modelId).toBe("claude-fable-5-1");
+    expect(fable5?.rawRoutingByEffort?.high?.modelId).toBe("claude-fable-5");
   });
 
   it("accepts the old Opus 4.6 fallback id without inventing missing effort levels", () => {

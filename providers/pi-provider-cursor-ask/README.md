@@ -13,7 +13,7 @@ The package is a full fork of [`@rahularya01/pi-cursor`](https://github.com/Rahu
 The fork differs in these user-visible ways:
 
 - Replaces the upstream extension under the same `cursor` provider/login identity and `cursor-native` stream API.
-- Exposes four always-thinking 1M Claude rows plus Composer 2.5 / Composer 2.5 Fast; all other Cursor model families are filtered out.
+- Exposes five always-thinking 1M Claude rows plus Composer 2.5 / Composer 2.5 Fast; all other Cursor model families are filtered out.
 - Uses readable picker names without a separate default-context row, because Cursor bills these Claude models at one rate up to 1M.
 - Maps only advertised Pi thinking levels. Claude uses Cursor `effort`. Composer 2.5 has no effort parameter, so `off`/`max` are an explicit Max Mode switch and other levels stay unavailable.
 - Lives in this repository only, is not published to npm, and is not included in `@zhcsyncer/pi-extensions`.
@@ -22,13 +22,14 @@ See [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md) for the maintained fork record.
 
 ## Models
 
+- Fable 5.1
 - Fable 5
 - Opus 5
 - Opus 4.6
 - Sonnet 5
 - Composer 2.5 / Composer 2.5 Fast
 
-Thinking cannot be disabled on the four Claude rows. Depending on Cursor's metadata for a Claude model, Pi may offer `low`, `medium`, `high`, `xhigh`, and `max`; unavailable levels are omitted. Composer 2.5 exposes only `off` (standard) and `max` (Max Mode).
+Thinking cannot be disabled on the five Claude rows. Depending on Cursor's metadata for a Claude model, Pi may offer `low`, `medium`, `high`, `xhigh`, and `max`; unavailable levels are omitted. Composer 2.5 exposes only `off` (standard) and `max` (Max Mode).
 
 ## Requirements
 
@@ -60,7 +61,7 @@ List the filtered models:
 pi --list-models cursor
 ```
 
-Select `cursor/fable-5`, `cursor/opus-5`, `cursor/opus-4.6`, or `cursor/sonnet-5`.
+Select `cursor/fable-5.1`, `cursor/fable-5`, `cursor/opus-5`, `cursor/opus-4.6`, or `cursor/sonnet-5`.
 
 Available command:
 

@@ -302,7 +302,11 @@ export function modelConfig(m: ProcessedModel) {
         thinkingLevelMap: m.effortMap,
       }),
     input,
-    cost: estimateModelCost(m.id),
+    // Picker ids stay short (`fable-5.1`); price against the Cursor model id
+    // behind them, then the picker id so Fast/alias rows still match.
+    cost: estimateModelCost(
+      [m.requestedModelId, m.id].filter((value): value is string => Boolean(value)).join(" "),
+    ),
     contextWindow: m.contextWindow,
     maxTokens: m.maxTokens,
   };

@@ -20,6 +20,29 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Ordinary single-line typing keeps the compact composer.
   - Stash mark, status line, and border chrome still fit after the grow.
 
+## `@zhcsyncer/pi-meter`
+
+- [ ] **Guest quota adapters survive `/reload`**
+
+  Footer shows `cursor  no quota window` after `/reload` until Pi restarts. Guest sources (Cursor Ask) register through the `globalThis` mailbox host. Pi reloads extensions one at a time with `moduleCache: false`, so `src/quota/guest.ts` gets a fresh empty registry while the previous host object stays on `globalThis`. A guest that activates before pi-meter is re-imported sees the stale `register` and writes into the dead registry; the new `installQuotaAdapterHost()` then drains an empty mailbox. Fresh start is unaffected because no stale host exists. `tests/quota-guest-mailbox.test.ts` only covers the clean "registered before meter started" path.
+
+  Acceptance criteria:
+
+  - `installQuotaAdapterHost()` re-adopts adapters reachable from a previous host (`list()` / stale registry), not only the mailbox.
+  - A guest that calls a stale `register` still lands in the live registry, or the guest side also writes the mailbox so a later host install picks it up.
+  - Regression test: install host, register a guest, simulate reload (`vi.resetModules()` + re-import with the old host still on `globalThis`), assert `preferredProvider({ provider: "cursor", id: "fable-5.1" })` resolves.
+  - Cursor Ask footer keeps `cursor-api` / `cursor-auto` across `/reload` regardless of `settings.json` package order.
+
+- [ ] **Retry a failed quota snapshot while idle**
+
+  A failed guest fetch (10s timeout, token refresh miss, upstream 5xx) leaves `ok: false` and the footer shows `unavailable`. Refetch only happens on `agent_settled`, `model_select`, or `/usage`; the 30s status poll rereads `quota.json` but never fetches, so an idle session stays `unavailable` indefinitely. `quota.json` is shared across Pi processes, so another session's failure or `lastAttemptAt` also blocks this one.
+
+  Acceptance criteria:
+
+  - The idle status poll triggers a refresh when the preferred source's snapshot is `ok: false` and the min-interval has elapsed.
+  - A successful refetch replaces the failed snapshot without waiting for the next turn.
+  - Unsigned / built-in behavior is unchanged; no extra network calls when the snapshot is fresh.
+
 ## `@zhcsyncer/pi-tool-display-intent`
 
 - [ ] **Drop configurable visual styles; always use the Claude / aggregate look**
