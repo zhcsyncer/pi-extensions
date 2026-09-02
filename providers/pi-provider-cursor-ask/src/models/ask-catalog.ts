@@ -2,7 +2,7 @@
  * Stable, advisor-oriented Cursor Ask catalog.
  *
  * Upstream Cursor catalogs expose backend model ids and parameter variants.
- * This adapter runs after upstream processing, keeps four 1M Claude rows
+ * This adapter runs after upstream processing, keeps the curated 1M Claude rows
  * plus Composer 2.5 / Composer 2.5 Fast, and retains an explicit route back to
  * Cursor's requestedModelId and parameters for every supported Pi thinking level.
  * Composer has no Cursor effort parameter; its Pi thinking map is an explicit
@@ -26,6 +26,21 @@ export interface AskModelSpec {
 }
 
 const families = {
+  fable51: {
+    requestedModelId: "claude-fable-5-1",
+    defaultContext: "300k" as const,
+    candidates: [
+      "claude-fable-5-1-thinking",
+      "claude-fable-5.1-thinking",
+      "claude-5-1-fable-thinking",
+    ],
+    // Not `claude-fable-5-1m-thinking`: that is Fable 5's 1M row.
+    oneMillionCandidates: [
+      "claude-fable-5-1-1m-thinking",
+      "claude-fable-5.1-1m-thinking",
+      "claude-5-1-fable-1m-thinking",
+    ],
+  },
   fable5: {
     requestedModelId: "claude-fable-5",
     defaultContext: "300k" as const,
@@ -80,6 +95,7 @@ function specForFamily(options: {
 }
 
 export const ASK_MODEL_SPECS: readonly AskModelSpec[] = [
+  specForFamily({ id: "fable-5.1", name: "Fable 5.1", ...families.fable51 }),
   specForFamily({ id: "fable-5", name: "Fable 5", ...families.fable5 }),
   specForFamily({ id: "opus-5", name: "Opus 5", ...families.opus5 }),
   specForFamily({ id: "opus-4.6", name: "Opus 4.6", ...families.opus46 }),
@@ -283,7 +299,7 @@ function buildComposerCatalog(processedModels: ProcessedModel[]): ProcessedModel
   });
 }
 
-/** Return the four 1M Claude rows followed by Composer 2.5 / Fast. */
+/** Return the curated 1M Claude rows followed by Composer 2.5 / Fast. */
 export function buildAskCatalog(processedModels: ProcessedModel[]): ProcessedModel[] {
   const modelsById = new Map(processedModels.map((model) => [normalizedId(model.id), model]));
   const claudeModels = ASK_MODEL_SPECS.map((spec) => {

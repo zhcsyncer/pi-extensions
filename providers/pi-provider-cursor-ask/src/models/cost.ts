@@ -16,9 +16,16 @@ export const MODEL_COST_TABLE: Record<string, ModelCost> = {
   "claude-4.5-sonnet": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-4.6-opus": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-4.6-sonnet": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-fable-5": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  "claude-opus-4-6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "composer-1": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
   "composer-1.5": { input: 3.5, output: 17.5, cacheRead: 0.35, cacheWrite: 0 },
   "composer-2": { input: 0.5, output: 2.5, cacheRead: 0.2, cacheWrite: 0 },
+  "composer-2.5": { input: 0.5, output: 2.5, cacheRead: 0.2, cacheWrite: 0 },
+  "composer-2.5-fast": { input: 3, output: 15, cacheRead: 0.5, cacheWrite: 0 },
   "gemini-2.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0 },
   "gemini-3-flash": { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0 },
   "gemini-3-pro": { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 0 },
@@ -39,11 +46,23 @@ export const DEFAULT_COST: ModelCost = { input: 3, output: 15, cacheRead: 0.3, c
 
 export const MODEL_COST_PATTERNS: Array<{ match: (id: string) => boolean; cost: ModelCost }> = [
   {
+    match: (id) => /fable-5\.1|fable-5-1(?!m)/i.test(id),
+    cost: MODEL_COST_TABLE["claude-fable-5-1"] ?? DEFAULT_COST,
+  },
+  {
+    match: (id) => /fable/i.test(id),
+    cost: MODEL_COST_TABLE["claude-fable-5"] ?? DEFAULT_COST,
+  },
+  {
+    match: (id) => /sonnet-5/i.test(id),
+    cost: MODEL_COST_TABLE["claude-sonnet-5"] ?? DEFAULT_COST,
+  },
+  {
     match: (id) => /claude.*opus.*fast/i.test(id),
     cost: { input: 30, output: 150, cacheRead: 3, cacheWrite: 37.5 },
   },
   {
-    match: (id) => /claude.*opus/i.test(id),
+    match: (id) => /claude.*opus|opus-5|opus-4/i.test(id),
     cost: MODEL_COST_TABLE["claude-4.6-opus"] ?? DEFAULT_COST,
   },
   {
@@ -53,6 +72,14 @@ export const MODEL_COST_PATTERNS: Array<{ match: (id: string) => boolean; cost: 
   {
     match: (id) => /claude.*sonnet/i.test(id),
     cost: MODEL_COST_TABLE["claude-4.6-sonnet"] ?? DEFAULT_COST,
+  },
+  {
+    match: (id) => /composer-2\.5.*fast|composer-2\.5-fast/i.test(id),
+    cost: MODEL_COST_TABLE["composer-2.5-fast"] ?? DEFAULT_COST,
+  },
+  {
+    match: (id) => /composer-2\.5/i.test(id),
+    cost: MODEL_COST_TABLE["composer-2.5"] ?? DEFAULT_COST,
   },
   { match: (id) => /composer/i.test(id), cost: MODEL_COST_TABLE["composer-1"] ?? DEFAULT_COST },
   { match: (id) => /gpt-5\.5/i.test(id), cost: MODEL_COST_TABLE["gpt-5.5"] ?? DEFAULT_COST },

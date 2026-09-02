@@ -32,8 +32,9 @@ describe("drop-in Cursor provider identity", () => {
     expect(registeredName).toBe("cursor");
     expect(registeredConfig?.api).toBe("cursor-native");
     expect(registeredConfig?.oauth?.name).toBe("Cursor Ask");
-    expect(registeredConfig?.models).toHaveLength(6);
+    expect(registeredConfig?.models).toHaveLength(7);
     expect(models.map((model) => model.id)).toEqual([
+      "fable-5.1",
       "fable-5",
       "opus-5",
       "opus-4.6",

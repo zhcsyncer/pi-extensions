@@ -45,7 +45,7 @@ Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入
 
 以下 provider 不进入根 bundle。Cursor Ask 只保留在仓库源码中，不发布到 npm；Agent Plan 独立发版。
 
-- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — `@rahularya01/pi-cursor` 的整仓替代版，保留 `cursor` provider/登录身份，提供 4 行始终开启 thinking 的 1M Fable/Opus/Sonnet 模型及 Composer 2.5 / Fast。
+- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — `@rahularya01/pi-cursor` 的整仓替代版，保留 `cursor` provider/登录身份，提供 5 行始终开启 thinking 的 1M Fable/Opus/Sonnet 模型及 Composer 2.5 / Fast。
 - [`pi-provider-volcengine-agent-plan`](./providers/pi-provider-volcengine-agent-plan) — 非官方火山方舟 Agent Plan provider，支持按套餐过滤模型和 Pi 登录。
 
 ```bash
