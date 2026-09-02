@@ -1,12 +1,13 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getSettingsListTheme, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
-import { Container, type SelectItem, SelectList, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import { Container, type SelectItem, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import { formatBudgetRemaining } from "./budget.ts";
 import { saveConsultConfig } from "./config.ts";
 import { readRecentEvents, summarizeEvents } from "./events.ts";
 import { DEFAULT_EFFORT, MSG_PERSIST_FAILED, MSG_REQUIRES_INTERACTIVE, NONE_VALUE, OFF_VALUE } from "./messages.ts";
-import { modelKeyOf, type ConsultConfig, type GradedEffort, isGradedEffort } from "./types.ts";
+import { filterableSelect } from "./picker.ts";
+import { EFFORT_ORDINAL, modelKeyOf, type ConsultConfig, type GradedEffort, isGradedEffort } from "./types.ts";
 import { ConsultTracker } from "./tracker.ts";
 
 export interface ConsultCommandState {
@@ -18,43 +19,48 @@ export interface ConsultCommandState {
 	onConfigChanged: (ctx: ExtensionContext) => void;
 }
 
-function selectListTheme(theme: Theme) {
-	return {
-		selectedPrefix: (text: string) => theme.fg("accent", text),
-		selectedText: (text: string) => theme.fg("accent", text),
-		description: (text: string) => theme.fg("muted", text),
-		scrollInfo: (text: string) => theme.fg("dim", text),
-		noMatch: (text: string) => theme.fg("warning", text),
-	};
-}
-
-function modelPicker(models: Model<Api>[], includeNone: boolean, theme: Theme, done: (value?: string) => void) {
+function modelItems(models: Model<Api>[], includeNone: boolean): SelectItem[] {
 	const items: SelectItem[] = models.map((model) => ({
 		value: modelKeyOf(model),
 		label: `${model.name}  (${model.provider})`,
 	}));
 	if (includeNone) items.unshift({ value: NONE_VALUE, label: "None" });
-	const list = new SelectList(items, Math.min(items.length, 10), selectListTheme(theme));
-	list.onSelect = (item) => done(item.value);
-	list.onCancel = () => done(undefined);
-	return list;
+	return items;
 }
 
-function effortPicker(model: Model<Api> | undefined, theme: Theme, done: (value?: string) => void) {
-	const levels = model
+function effortItems(model: Model<Api> | undefined): SelectItem[] {
+	const supported = model
 		? getSupportedThinkingLevels(model).filter((level): level is GradedEffort => isGradedEffort(level))
 		: [];
-	const items: SelectItem[] = [
+	const levels = supported.length > 0 ? supported : [...EFFORT_ORDINAL];
+	return [
 		{ value: OFF_VALUE, label: "off (no reasoning sent)" },
 		...levels.map((level) => ({
 			value: level,
 			label: level === DEFAULT_EFFORT ? `${level}  (recommended)` : level,
 		})),
 	];
-	const list = new SelectList(items, Math.min(items.length, 10), selectListTheme(theme));
-	list.onSelect = (item) => done(item.value);
-	list.onCancel = () => done(undefined);
-	return list;
+}
+
+function modelPicker(
+	models: Model<Api>[],
+	includeNone: boolean,
+	theme: Theme,
+	done: (value?: string) => void,
+	preferredValue?: string,
+) {
+	return filterableSelect(modelItems(models, includeNone), theme, done, { preferredValue });
+}
+
+function effortPicker(
+	model: Model<Api> | undefined,
+	theme: Theme,
+	done: (value?: string) => void,
+	preferredValue?: string,
+) {
+	return filterableSelect(effortItems(model), theme, done, {
+		preferredValue: preferredValue ?? (model ? DEFAULT_EFFORT : OFF_VALUE),
+	});
 }
 
 export function applyConsultSetting(config: ConsultConfig, id: string, value: string): ConsultConfig {
@@ -62,9 +68,9 @@ export function applyConsultSetting(config: ConsultConfig, id: string, value: st
 	switch (id) {
 		case "panel0": {
 			if (value === NONE_VALUE) return { ...config, panel: [], fanout: false };
-			const effort = panel[0]?.effort;
+			const effort = panel[0]?.effort ?? DEFAULT_EFFORT;
 			const rest = panel.slice(1);
-			return { ...config, panel: [{ model: value, ...(effort ? { effort } : {}) }, ...rest] };
+			return { ...config, panel: [{ model: value, effort }, ...rest] };
 		}
 		case "effort0": {
 			if (!panel[0]) return config;
@@ -101,39 +107,52 @@ export function applyConsultSetting(config: ConsultConfig, id: string, value: st
 	}
 }
 
-export function consultSettingItems(config: ConsultConfig, models: Model<Api>[], theme: Theme): SettingItem[] {
+function findModel(models: Model<Api>[], key: string | undefined): Model<Api> | undefined {
+	return key ? models.find((model) => modelKeyOf(model) === key) : undefined;
+}
+
+export function consultSettingItems(
+	config: ConsultConfig,
+	models: Model<Api>[],
+	theme: Theme,
+	getConfig: () => ConsultConfig = () => config,
+): SettingItem[] {
 	const slot0 = config.panel[0];
 	const slot1 = config.panel[1];
-	const model0 = slot0 ? models.find((model) => modelKeyOf(model) === slot0.model) : undefined;
-	const model1 = slot1 ? models.find((model) => modelKeyOf(model) === slot1.model) : undefined;
 	return [
 		{
 			id: "panel0",
 			label: "Advisor 1",
-			description: "Primary advisor. Empty panel unloads consult (off costs nothing).",
+			description: "Primary advisor. Empty panel unloads consult (off costs nothing). Type to filter.",
 			currentValue: slot0?.model ?? "none",
-			submenu: (_current, done) => modelPicker(models, true, theme, done),
+			submenu: (_current, done) => modelPicker(models, true, theme, done, getConfig().panel[0]?.model),
 		},
 		{
 			id: "effort0",
 			label: "Advisor 1 effort",
 			description: "Reasoning effort for the primary advisor.",
 			currentValue: slot0 ? (slot0.effort ?? "default") : "—",
-			submenu: slot0 ? (_current, done) => effortPicker(model0, theme, done) : undefined,
+			submenu: (_current, done) => {
+				const slot = getConfig().panel[0];
+				return effortPicker(findModel(models, slot?.model), theme, done, slot?.effort ?? OFF_VALUE);
+			},
 		},
 		{
 			id: "panel1",
 			label: "Advisor 2",
-			description: "Optional second advisor for dissent. Auto gates always use Advisor 1 only.",
+			description: "Optional second advisor for dissent. Auto gates always use Advisor 1 only. Type to filter.",
 			currentValue: slot1?.model ?? "none",
-			submenu: slot0 ? (_current, done) => modelPicker(models, true, theme, done) : undefined,
+			submenu: (_current, done) => modelPicker(models, true, theme, done, getConfig().panel[1]?.model),
 		},
 		{
 			id: "effort1",
 			label: "Advisor 2 effort",
 			description: "Reasoning effort for the second advisor.",
 			currentValue: slot1 ? (slot1.effort ?? "default") : "—",
-			submenu: slot1 ? (_current, done) => effortPicker(model1, theme, done) : undefined,
+			submenu: (_current, done) => {
+				const slot = getConfig().panel[1];
+				return effortPicker(findModel(models, slot?.model), theme, done, slot?.effort ?? OFF_VALUE);
+			},
 		},
 		{
 			id: "fanout",
@@ -195,7 +214,7 @@ export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandSt
 
 				let settingsList: SettingsList;
 				settingsList = new SettingsList(
-					consultSettingItems(current, models, theme),
+					consultSettingItems(current, models, theme, () => current),
 					8,
 					getSettingsListTheme(),
 					(id, value) => {

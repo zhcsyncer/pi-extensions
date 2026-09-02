@@ -4,6 +4,11 @@ import { DEFAULT_CONSULT_CONFIG } from "../src/config.ts";
 import { NONE_VALUE, OFF_VALUE } from "../src/messages.ts";
 
 describe("consult settings", () => {
+	it("defaults a new advisor to high effort", () => {
+		const config = applyConsultSetting(DEFAULT_CONSULT_CONFIG, "panel0", "anthropic/claude-fable-5");
+		expect(config.panel).toEqual([{ model: "anthropic/claude-fable-5", effort: "high" }]);
+	});
+
 	it("clears the panel when advisor 1 is none", () => {
 		const config = applyConsultSetting(
 			{ ...DEFAULT_CONSULT_CONFIG, panel: [{ model: "a/b" }, { model: "c/d" }], fanout: true },
