@@ -52,6 +52,8 @@ pi -e npm:@zhcsyncer/pi-consult
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
+该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。
+
 ## 配置
 
 全局文件：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json`（通常是 `~/.pi/agent/extension-data/pi-consult/config.json`）。

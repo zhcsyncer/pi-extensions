@@ -21,7 +21,7 @@
 - 顾问看不到用户，也不回传 thinking。
 - 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。
 - 未配 panel：从 active tools 卸掉，prompt 零占用。
-- TUI 跟 tool-display-intent 的 Claude 行：等待期 `● Consult(why)` / `  ⎿ consulting model · effort  12s`；完成后收起 `verdict · summary` 带 Ctrl+O，展开后 why 在标题换行、结果区是态度 + summary 全文 + 模型。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
+- TUI 跟 tool-display-intent 的 Claude 行：等待期 `● Consult(why)` / `  ⎿ consulting model · effort  12s`；完成后收起 `verdict · summary` 带 Ctrl+O，展开后 why 在标题换行、结果区是态度 + summary 全文 + 模型。主模型后续输出的 `CONSULT-LOG:` 仍是普通 assistant 文本，同时把 `adopt/reject · reason` 派生回贴到对应 Consult 行；reload 从当前会话分支重建，不额外持久化副本。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
 
 ## 红线
 

@@ -57,17 +57,28 @@ describe("consult events jsonl", () => {
 		expect(events.find((item) => item.session === "other")?.adopted).toBeNull();
 	});
 
-	it("parses CONSULT-LOG adopt and reject", () => {
+	it("parses CONSULT-LOG adopt, reject, reasons, and the legacy shape", () => {
 		expect(parseConsultLog("hello\nCONSULT-LOG: adopt | tests failed\n")).toEqual({
 			adopted: true,
+			reason: "tests failed",
 		});
-		expect(parseConsultLog("CONSULT-LOG: 不采纳 | 证据相反")).toEqual({ adopted: false });
+		expect(parseConsultLog("CONSULT-LOG: 不采纳 | 证据相反")).toEqual({
+			adopted: false,
+			reason: "证据相反",
+		});
 		expect(parseConsultLog("CONSULT-LOG: approach | stop editing | adopt | tests failed")).toEqual({
 			adopted: true,
+			reason: "tests failed",
 		});
 		expect(parseConsultLog("CONSULT-LOG: reject | I would adopt extra complexity")).toEqual({
 			adopted: false,
+			reason: "I would adopt extra complexity",
 		});
+		expect(parseConsultLog("CONSULT-LOG: adopt | first | second")).toEqual({
+			adopted: true,
+			reason: "first | second",
+		});
+		expect(parseConsultLog("CONSULT-LOG: adopt|reject | <reason>")).toBeUndefined();
 		expect(parseConsultLog("no log here")).toBeUndefined();
 	});
 });

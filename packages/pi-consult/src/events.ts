@@ -5,17 +5,34 @@ import { getConsultPaths } from "./paths.ts";
 import type { ConsultEvent } from "./types.ts";
 import { isRecord } from "./types.ts";
 
-const ADOPT_FALSE = /不采纳|拒绝|\breject\b|\bignore\b/i;
-const ADOPT_TRUE = /采纳|\badopt\b/i;
+const ADOPT_FALSE = /^(?:不采纳|拒绝|reject|ignore)$/i;
+const ADOPT_TRUE = /^(?:采纳|adopt)$/i;
 
-export function parseConsultLog(text: string): { adopted: boolean } | undefined {
+export interface ConsultAdoption {
+	adopted: boolean;
+	reason: string;
+}
+
+function adoptionValue(value: string | undefined): boolean | undefined {
+	if (!value) return undefined;
+	if (ADOPT_FALSE.test(value)) return false;
+	if (ADOPT_TRUE.test(value)) return true;
+	return undefined;
+}
+
+export function parseConsultLog(text: string): ConsultAdoption | undefined {
 	const match = text.match(/CONSULT-LOG:\s*(.+)$/im);
 	if (!match) return undefined;
-	const line = match[1];
-	const parts = line.split("|").map((part) => part.trim()).filter((part) => part.length > 0);
-	const decision = parts.length >= 3 ? parts[2] : (parts[0] ?? line);
-	if (ADOPT_FALSE.test(decision)) return { adopted: false };
-	if (ADOPT_TRUE.test(decision)) return { adopted: true };
+	if (/\badopt\|reject\b/i.test(match[1])) return undefined;
+	const parts = match[1].split("|").map((part) => part.trim());
+	const firstDecision = adoptionValue(parts[0]);
+	if (firstDecision !== undefined) {
+		return { adopted: firstDecision, reason: parts.slice(1).join(" | ").trim() };
+	}
+	const legacyDecision = adoptionValue(parts[2]);
+	if (legacyDecision !== undefined) {
+		return { adopted: legacyDecision, reason: parts.slice(3).join(" | ").trim() };
+	}
 	return undefined;
 }
 

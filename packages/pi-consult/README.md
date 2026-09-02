@@ -52,6 +52,8 @@ After each `consult` result, the next visible reply should add:
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
+The line remains normal assistant output and its decision is also mirrored under the matching Consult row.
+
 ## Configuration
 
 Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (normally `~/.pi/agent/extension-data/pi-consult/config.json`).

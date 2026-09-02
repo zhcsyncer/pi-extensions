@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { ConsultAdoptionStore } from "../src/adoption.ts";
 import { registerConsultCommand } from "../src/command.ts";
 import { loadConsultConfig, loadConsultConfigSync, resolveGuidance } from "../src/config.ts";
 import { executeConsult } from "../src/execute.ts";
@@ -44,6 +45,7 @@ function applyReconcile(pi: ExtensionAPI, ctx: ExtensionContext, config: Consult
 export default function consultExtension(pi: ExtensionAPI): void {
 	const agentDir = getAgentDir();
 	const tracker = new ConsultTracker();
+	const adoptionStore = new ConsultAdoptionStore();
 	let loaded = loadConsultConfigSync(agentDir);
 
 	const guidance = resolveGuidance(loaded.config);
@@ -56,10 +58,16 @@ export default function consultExtension(pi: ExtensionAPI): void {
 		parameters: ConsultParams,
 		renderShell: "self",
 		renderCall: (args, theme, context) => renderConsultCall(args, theme, context),
-		renderResult: (result, options, theme, context) => renderConsultResult(result, options, theme, context),
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+		renderResult: (result, options, theme, context) => {
+			adoptionStore.watch(context.toolCallId, context.invalidate);
+			return renderConsultResult(result, options, theme, {
+				...context,
+				adoption: adoptionStore.get(context.toolCallId),
+			});
+		},
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const why = typeof params.why === "string" ? params.why : "";
-			return executeConsult({
+			const result = await executeConsult({
 				why,
 				ctx,
 				pi,
@@ -69,6 +77,8 @@ export default function consultExtension(pi: ExtensionAPI): void {
 				signal,
 				onUpdate,
 			});
+			if (result.details?.envelope && !result.details.envelope.error) adoptionStore.markConsult(toolCallId);
+			return result;
 		},
 	});
 
@@ -87,6 +97,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 		loaded = await loadConsultConfig(agentDir);
 		if (loaded.warning && ctx.hasUI) ctx.ui.notify(loaded.warning, "warning");
 		tracker.onSessionStart();
+		adoptionStore.restore(ctx.sessionManager.getBranch());
 		applyReconcile(pi, ctx, loaded.config, true);
 	});
 
@@ -102,6 +113,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 	pi.on("input", async (event) => {
 		if (event.source === "extension") return;
 		tracker.onUserTurn();
+		adoptionStore.clearPending();
 	});
 
 	pi.on("tool_execution_start", async (event) => {
@@ -126,6 +138,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 			.join("\n");
 		const parsed = parseConsultLog(text);
 		if (!parsed) return;
+		adoptionStore.recordLatest(parsed);
 		const sessionFile = ctx.sessionManager.getSessionFile?.();
 		const session = sessionFile ? sessionFile.split(/[/\\]/).pop()?.replace(/\.jsonl?$/, "") || "ephemeral" : "ephemeral";
 		try {

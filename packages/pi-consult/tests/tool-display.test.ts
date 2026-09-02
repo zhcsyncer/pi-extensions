@@ -129,6 +129,45 @@ describe("consult Claude-style rows", () => {
 		expect(rows.join("\n")).not.toContain(why);
 	});
 
+	it("mirrors adoption under the collapsed Consult result", () => {
+		const component = renderConsultResult(
+			correctionResult,
+			{ expanded: false, isPartial: false },
+			theme,
+			{ adoption: { adopted: true, reason: "matches the primary evidence" } },
+		);
+		const rows = component.render(80);
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toContain("correction · Stop editing parser.ts");
+		expect(rows[1]).toContain("adopt · matches the primary evidence");
+		expect(rows[1]).toMatch(/Ctrl\+O to expand\)$/);
+	});
+
+	it("wraps the full adoption reason before the model when expanded", () => {
+		const lines = consultResultLines(correctionResult, { expanded: true }, theme, {
+			adoption: {
+				adopted: false,
+				reason: "the primary-source evidence points in the opposite direction",
+			},
+		});
+		expect(lines).toEqual([
+			"correction",
+			"Stop editing parser.ts",
+			"reject · the primary-source evidence points in the opposite direction",
+			"cursor/fable-5.1",
+		]);
+	});
+
+	it("does not attach adoption to failed results", () => {
+		const lines = consultResultLines(
+			{ details: { models: [], envelope: errorEnvelope("No advisor model") } },
+			{ expanded: true },
+			theme,
+			{ isError: true, adoption: { adopted: true, reason: "irrelevant" } },
+		);
+		expect(lines).toEqual(["failed", "No advisor model"]);
+	});
+
 	it("truncates collapsed why to one line", () => {
 		const why = "need to choose the smallest infra-edge monitoring implementation and whether to visualize first";
 		const rows = renderConsultCall({ why }, theme, { expanded: false }).render(40);

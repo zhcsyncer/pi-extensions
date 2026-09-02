@@ -1,5 +1,6 @@
 import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import type { ConsultAdoption } from "./events.ts";
 import { isRecord, type ConsultEnvelope, type ConsultVerdict } from "./types.ts";
 
 const TOOL_LABEL = "Consult";
@@ -12,6 +13,8 @@ export interface ConsultRenderContext {
 	isPartial?: boolean;
 	expanded?: boolean;
 	args?: unknown;
+	toolCallId?: string;
+	adoption?: ConsultAdoption;
 	invalidate?: () => void;
 	state?: unknown;
 	lastComponent?: unknown;
@@ -130,6 +133,11 @@ function consultingLine(result: ConsultRenderResult, theme: Theme, elapsedMs: nu
 	return theme.fg("muted", text);
 }
 
+function adoptionLine(adoption: ConsultAdoption, theme: Theme): string {
+	const decision = adoption.adopted ? theme.fg("success", "adopt") : theme.fg("warning", "reject");
+	return adoption.reason ? `${decision}${theme.fg("muted", ` · ${adoption.reason}`)}` : decision;
+}
+
 export function consultResultLines(
 	result: ConsultRenderResult,
 	options: { expanded: boolean; isPartial?: boolean },
@@ -144,8 +152,11 @@ export function consultResultLines(
 	const verdict: ConsultVerdict | "failed" = failed ? "failed" : (envelope?.verdict ?? "plan");
 	const summary = oneLine(envelope?.error || envelope?.summary || "");
 
+	const adoption = failed ? undefined : context?.adoption;
 	if (!options.expanded) {
-		return [summary ? `${verdictColor(theme, verdict)} · ${theme.fg("text", summary)}` : verdictColor(theme, verdict)];
+		const lines = [summary ? `${verdictColor(theme, verdict)} · ${theme.fg("text", summary)}` : verdictColor(theme, verdict)];
+		if (adoption) lines.push(adoptionLine(adoption, theme));
+		return lines;
 	}
 
 	const lines = [verdictColor(theme, verdict)];
@@ -154,6 +165,7 @@ export function consultResultLines(
 	if (envelope?.conflicts) {
 		for (const conflict of envelope.conflicts) lines.push(theme.fg("warning", conflict));
 	}
+	if (adoption) lines.push(adoptionLine(adoption, theme));
 	const models = modelsFromResult(result);
 	if (models.length) lines.push(theme.fg("muted", models.join(" + ")));
 	return lines;
@@ -204,9 +216,13 @@ class ConsultResultComponent implements Component {
 
 		if (!this.options.expanded && !this.options.isPartial) {
 			const hint = ` (${expandHint()})`;
-			const budget = Math.max(1, width - visibleWidth(RESULT_FIRST_PREFIX) - visibleWidth(hint));
-			const shown = truncateToWidth(logical[0] ?? "", budget, "…");
-			return [`${RESULT_FIRST_PREFIX}${shown}${this.theme.fg("muted", hint)}`];
+			return logical.map((line, index) => {
+				const prefix = index === 0 ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
+				const suffix = index === logical.length - 1 ? hint : "";
+				const budget = Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix));
+				const shown = truncateToWidth(line, budget, "…");
+				return `${prefix}${shown}${suffix ? this.theme.fg("muted", suffix) : ""}`;
+			});
 		}
 
 		const rows: string[] = [];
