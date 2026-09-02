@@ -82,6 +82,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   const setConfig = (
     next: ToolDisplayConfig,
     ctx: ExtensionCommandContext,
+    options?: { skipReloadHint?: boolean },
   ): void => {
     const normalized = normalizeToolDisplayConfig(next);
     const requiresReload = toolRegistrationChanged(config, normalized);
@@ -92,9 +93,9 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(saved.error, "error");
     }
 
-    if (requiresReload) {
+    if (requiresReload && !options?.skipReloadHint) {
       ctx.ui.notify(
-        "Tool ownership, layout, intent schema, or call frame updates apply after /reload.",
+        "Tool ownership or intent schema updates apply after /reload.",
         "warning",
       );
     }
@@ -107,8 +108,8 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
   );
   registerNativeUserMessageBox(pi, getConfig);
 
-  pi.registerCommand("tool-display-intent", {
-    description: "Configure intent-aware tool rendering",
+  pi.registerCommand("tools", {
+    description: "Switch tool layout or open display settings",
     handler: async (args, ctx) => {
       const { runToolDisplayCommandHandler } = await import("./config-modal.js");
       await runToolDisplayCommandHandler(args, ctx, { getConfig, setConfig, getCapabilities });

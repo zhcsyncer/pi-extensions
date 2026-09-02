@@ -158,7 +158,7 @@ export default function registerNativeUserMessageBox(
 
   const getTheme = (): UserMessageTheme | undefined => activeTheme;
   const isAggregate = (): boolean => getConfig().toolCallLayout === "aggregate";
-  const isEnabled = (): boolean => isAggregate() || getConfig().enableNativeUserMessageBox;
+  const isEnabled = (): boolean => true;
   const isCompact = (): boolean => isAggregate();
 
   patchUserMessageRender(getTheme, isEnabled, isCompact);

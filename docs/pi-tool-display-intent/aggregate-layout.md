@@ -164,8 +164,7 @@ pending / running / success / failed / needsAttention
 要检查原始详情，切回 individual：
 
 ```text
-/tool-display-intent layout individual
-/reload
+/tools individual
 ```
 
 ## Custom 与交互工具

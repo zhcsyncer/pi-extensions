@@ -164,9 +164,9 @@ test("legacy config migrates to simple v2 and reports discarded bash rows throug
 		assert.equal(persisted.$schema, TOOL_DISPLAY_CONFIG_SCHEMA_URL);
 		assert.equal(persisted.enabled, undefined);
 		assert.deepEqual(persisted.intent, { language: "zh-CN" });
-		assert.deepEqual(persisted.toolCalls, { style: "claude" });
+		assert.equal(persisted.toolCalls, undefined);
 		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
-		assert.deepEqual(persisted.transcript, { userMessageStyle: "default" });
+		assert.equal(persisted.transcript, undefined);
 		assert.deepEqual(persisted.tools, {
 			passthrough: ["Agent", "grep"],
 			custom: {
@@ -251,7 +251,8 @@ test("v2 grouped config resolves simple result mode and clear field names", () =
 			kind: "mcp",
 			outputMode: "preview",
 		});
-		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal(loaded.config.enableNativeUserMessageBox, true);
+		assert.equal(loaded.config.toolCallStyle, "claude");
 		assert.equal(loaded.config.diffCollapsedRows, 40);
 		assert.equal(loaded.config.expandedPreviewMaxRows, 300);
 		assert.equal(loaded.config.debug, true);
@@ -347,14 +348,14 @@ test("removed thinkingLabel is dropped from existing v2 configs", () => {
 		writeFileSync(configFile, original, "utf8");
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
-		assert.equal(loaded.config.enableNativeUserMessageBox, false);
+		assert.equal(loaded.config.enableNativeUserMessageBox, true);
 		assert.equal("enableThinkingLabel" in loaded.config, false);
 		assert.match(loaded.notice ?? "", /transcript\.thinkingLabel: unknown setting/);
+		assert.match(loaded.notice ?? "", /transcript\.userMessageStyle: unknown setting/);
 		const persisted = JSON.parse(readFileSync(configFile, "utf8")) as {
 			transcript?: { thinkingLabel?: boolean; userMessageStyle?: string };
 		};
-		assert.equal(persisted.transcript?.thinkingLabel, undefined);
-		assert.equal(persisted.transcript?.userMessageStyle, "default");
+		assert.equal(persisted.transcript, undefined);
 	});
 });
 

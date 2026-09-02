@@ -201,8 +201,8 @@ test("listed generic custom tool override replaces existing extension renderers 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(enabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "ide_find_symbol (2 args) — Run ide_find_symbol");
-	assert.equal(renderToolResult(enabledTool, "alpha\nbeta\ngamma\n"), "↳ 3 lines returned • Ctrl+O to expand");
+	assert.equal(renderToText(enabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "● ide_find_symbol(2 args) — Run ide_find_symbol");
+	assert.equal(renderToolResult(enabledTool, "alpha\nbeta\ngamma\n"), "⎿ 3 lines returned • Ctrl+O to expand");
 	assert.equal(renderToText(disabledTool.renderCall?.({}, createTheme())), "RAW DISABLED CALL");
 	assert.equal(renderToolResult(disabledTool, "ignored"), "RAW DISABLED RESULT");
 	assert.equal(renderToText(unlistedTool.renderCall?.({}, createTheme())), "RAW UNLISTED CALL");
@@ -255,8 +255,8 @@ test("custom tool override defaults kind to generic unless the user chooses mcp"
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(genericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "remote_gateway (2 args) — Run remote_gateway");
-	assert.equal(renderToText(mcpTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args) — Run mcp");
+	assert.equal(renderToText(genericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● remote_gateway(2 args) — Run remote_gateway");
+	assert.equal(renderToText(mcpTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● MCP(call filesystem:read_file) (2 args) — Run mcp");
 });
 
 test("custom generic tool override honors per-tool hidden output mode", async () => {
@@ -298,7 +298,7 @@ test("generic custom tool errors stay visible in every output mode and expand fr
 		const tool = tools[index]!;
 		assert.equal(
 			renderToolResult(tool, "Remote request failed\nstack frame one\nstack frame two\n", {}, { isError: true }),
-			"↳ Remote request failed • Ctrl+O to expand",
+			"⎿ Remote request failed • Ctrl+O to expand",
 			`${mode} should show one collapsed error summary`,
 		);
 		assert.equal(
@@ -308,7 +308,7 @@ test("generic custom tool errors stay visible in every output mode and expand fr
 				{ expanded: true },
 				{ isError: true },
 			),
-			"Remote request failed\nstack frame one\nstack frame two",
+			"⎿ Remote request failed\n    stack frame one\n    stack frame two",
 			`${mode} should show complete expanded error content`,
 		);
 	}
@@ -316,7 +316,7 @@ test("generic custom tool errors stay visible in every output mode and expand fr
 	assert.equal(renderToolResult(tools[0]!, "successful but hidden"), "");
 	assert.equal(
 		renderToolRawResult(tools[0]!, { content: [], details: {} }, {}, { isError: true }),
-		"↳ Tool failed. • Ctrl+O to expand",
+		"⎿ Tool failed. • Ctrl+O to expand",
 	);
 });
 
@@ -374,13 +374,13 @@ test("generic custom tool renderCall handles absent, non-object, and nested argu
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(argumentProbe.renderCall?.(undefined, createTheme())), "argument_probe (no args) — Run argument_probe");
-	assert.equal(renderToText(argumentProbe.renderCall?.(null, createTheme())), "argument_probe (no args) — Run argument_probe");
-	assert.equal(renderToText(argumentProbe.renderCall?.("raw string args", createTheme())), "argument_probe (no args) — Run argument_probe");
-	assert.equal(renderToText(argumentProbe.renderCall?.(["array", "args"], createTheme())), "argument_probe (no args) — Run argument_probe");
+	assert.equal(renderToText(argumentProbe.renderCall?.(undefined, createTheme())), "● argument_probe(no args) — Run argument_probe");
+	assert.equal(renderToText(argumentProbe.renderCall?.(null, createTheme())), "● argument_probe(no args) — Run argument_probe");
+	assert.equal(renderToText(argumentProbe.renderCall?.("raw string args", createTheme())), "● argument_probe(no args) — Run argument_probe");
+	assert.equal(renderToText(argumentProbe.renderCall?.(["array", "args"], createTheme())), "● argument_probe(no args) — Run argument_probe");
 	assert.equal(
 		renderToText(argumentProbe.renderCall?.({ path: "src/index.ts", options: { recursive: true }, tags: ["a", "b"] }, createTheme())),
-		"argument_probe (3 args) — Run argument_probe",
+		"● argument_probe(3 args) — Run argument_probe",
 	);
 });
 
@@ -402,18 +402,18 @@ test("generic custom tool preview mode supports collapsed previews, expanded pre
 
 	assert.equal(
 		renderToolResult(previewTool, "alpha\nbeta\ngamma\ndelta\n"),
-		"alpha\nbeta\n... (2 more lines • Ctrl+O to expand)",
+		"⎿ alpha\n    beta\n    ... (2 more lines • Ctrl+O to expand)",
 	);
 	assert.equal(
 		renderToolResult(previewTool, "alpha\nbeta\ngamma\ndelta\n", { expanded: true }),
-		"alpha\nbeta\ngamma\ndelta",
+		"⎿ alpha\n    beta\n    gamma\n    delta",
 	);
-	assert.equal(renderToolResult(previewTool, "still running", { isPartial: true }), "running...");
+	assert.equal(renderToolResult(previewTool, "still running", { isPartial: true }), "⎿ running...");
 	assert.equal(
 		renderToolRawResult(previewTool, { content: [{ type: "image", data: "ignored" }], details: {} }),
-		"↳ (no output)",
+		"⎿ (no output)",
 	);
-	assert.equal(renderToolRawResult(previewTool, { details: {} }), "↳ (no output)");
+	assert.equal(renderToolRawResult(previewTool, { details: {} }), "⎿ (no output)");
 });
 
 test("explicit mcp custom tool override interprets MCP proxy argument variants", async () => {
@@ -431,12 +431,12 @@ test("explicit mcp custom tool override interprets MCP proxy argument variants",
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(customMcpProxy.renderCall?.({}, createTheme())), "MCP status (no args) — Run mcp");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ connect: "filesystem" }, createTheme())), "MCP connect filesystem (1 arg) — Run mcp");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ describe: "read_file", server: "filesystem" }, createTheme())), "MCP describe read_file @filesystem (2 args) — Run mcp");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ search: "browser", server: "exa" }, createTheme())), "MCP search \"browser\" @exa (2 args) — Run mcp");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ server: "filesystem" }, createTheme())), "MCP tools filesystem (1 arg) — Run mcp");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({}, createTheme())), "● MCP(status) (no args) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({ connect: "filesystem" }, createTheme())), "● MCP(connect filesystem) (1 arg) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({ describe: "read_file", server: "filesystem" }, createTheme())), "● MCP(describe read_file @filesystem) (2 args) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({ search: "browser", server: "exa" }, createTheme())), "● MCP(search \"browser\" @exa) (2 args) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({ server: "filesystem" }, createTheme())), "● MCP(tools filesystem) (1 arg) — Run mcp");
+	assert.equal(renderToText(customMcpProxy.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● MCP(call filesystem:read_file) (2 args) — Run mcp");
 });
 
 test("custom tool override preserves execution contract, parameters, and prepareArguments", async () => {
@@ -484,5 +484,5 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 
 	assert.equal(typeof lateTool.renderCall, "function");
 	assert.equal(typeof lateTool.renderResult, "function");
-	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg) — Run late_custom_tool");
+	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "● late_custom_tool(1 arg) — Run late_custom_tool");
 });

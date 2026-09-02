@@ -56,15 +56,13 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	const layout = schema.properties?.toolCalls?.properties?.layout as { enum?: string[]; default?: string } | undefined;
 	assert.deepEqual(layout?.enum, ["individual", "aggregate"]);
 	assert.equal(layout?.default, "individual");
-	assert.ok(schema.properties?.toolCalls?.properties?.style);
+	assert.equal(schema.properties?.toolCalls?.properties?.style, undefined);
 	assert.ok(schema.properties?.toolCalls?.properties?.bashCommandPreviewRows);
 	assert.equal(schema.properties?.toolCalls?.properties?.frame, undefined);
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);
 	assert.equal(schema.properties?.extension, undefined);
-	const transcript = schema.properties?.transcript as { properties?: Record<string, unknown> } | undefined;
-	assert.ok(transcript?.properties?.userMessageStyle);
-	assert.equal(transcript?.properties?.thinkingLabel, undefined);
+	assert.equal(schema.properties?.transcript, undefined);
 	const collapsedMode = schema.properties?.diff?.properties?.collapsedMode as { enum?: string[]; default?: string } | undefined;
 	assert.deepEqual(collapsedMode?.enum, ["body", "summary"]);
 	assert.equal(collapsedMode?.default, "body");

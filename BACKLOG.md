@@ -51,26 +51,27 @@ Repository-level follow-up work that should remain discoverable across sessions.
 
 ## `@zhcsyncer/pi-tool-display-intent`
 
-- [ ] **Drop configurable visual styles; always use the Claude / aggregate look**
+- [x] **Drop configurable visual styles; always use the Claude / aggregate look**
 
-  Individual `toolCalls.style`, boxed-user, and related visual toggles are leftover now that aggregate already defines the look.
+  Individual `toolCalls.style`, boxed-user, and related visual toggles are leftover now that aggregate already defines the look. Bundled extensions already default to Claude chrome, so the old compact/default rows are dead weight.
 
   Acceptance criteria:
 
   - The default path renders only the Claude Code / aggregate visual language.
-  - Style / boxed-user controls leave the TUI and example config, or become inert and migrate away.
+  - Style / boxed-user controls leave the TUI and example config, and migrate off disk.
   - Aggregate and individual no longer diverge in chrome style.
 
-- [ ] **Replace `/tool-display-intent` with `/tools` that only switches layout**
+- [x] **Rename `/tool-display-intent` to `/tools`; keep the settings panel; auto-reload layout changes**
 
-  Layout still has to reload because it rebuilds tool schemas and renderer shells. Pi already exposes `ctx.reload()`. A binary switch does not need a settings inspector or leftover `show` / `reset` / `mode` / `preset` subcommands.
+  Layout still has to reload because it rebuilds tool schemas and renderer shells. Pi already exposes `ctx.reload()`. Keep the settings inspector. The slash command is shorter and can also switch aggregate ↔ individual.
 
   Acceptance criteria:
 
-  - Command name is `/tools`. It only toggles aggregate ↔ individual.
-  - Confirm that the session will reload, then save and `await ctx.reload(); return`.
+  - Command name is `/tools`. Empty args open the settings panel.
+  - `/tools aggregate` and `/tools individual` confirm that the session will reload, then save and `await ctx.reload()`.
   - Cancel leaves the previous layout on disk and does not reload.
-  - Drop the settings inspector and all other subcommands.
+  - Changing layout in the settings panel uses the same confirm + save + reload path.
+  - Drop leftover slash subcommands (`show` / `reset` / `mode` / `preset`). Remaining knobs stay in the panel or config file.
 
 ## Next root bundle release
 

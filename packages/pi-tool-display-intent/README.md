@@ -19,7 +19,7 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 ## Features
 
 - Shows model intent next to paths, commands, patterns, and diffs for owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`.
-- Optional Claude-style rows: status mark, `Name(target)`, and indented results.
+- Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one Tools ledger per user request. `Agent` keeps its own renderer by default.
 - Same compact / summary / preview result modes as upstream.
 - Cooperative API so other tools can add the same intent field.
@@ -38,17 +38,12 @@ Then restart Pi or run `/reload`.
 ## Use
 
 ```text
-/tool-display-intent
-/tool-display-intent show
-/tool-display-intent reset
-/tool-display-intent layout individual
-/tool-display-intent layout aggregate
-/tool-display-intent mode compact
-/tool-display-intent mode summary
-/tool-display-intent mode preview
+/tools
+/tools aggregate
+/tools individual
 ```
 
-Layout and ownership changes take effect after `/reload`.
+Empty `/tools` opens the settings panel. Switching layout asks to reload this session, then saves and reloads. Remaining knobs stay in the panel.
 
 ## Layouts
 
@@ -72,24 +67,23 @@ Layout and ownership changes take effect after `/reload`.
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, without dumping file contents or diffs. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tool-display-intent layout individual` then `/reload`.
+While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, without dumping file contents or diffs. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tools individual`.
 
-Aggregate always uses a compact accent-gutter user prompt.
+User prompts always use the accent-gutter box.
 
 ## Settings
 
-Open `/tool-display-intent` or edit the example at [`config/config.example.json`](./config/config.example.json).
+Open `/tools` or edit the example at [`config/config.example.json`](./config/config.example.json).
 
 | What you change | Effect |
 |---|---|
 | `toolCalls.layout` | `individual` or `aggregate` |
-| `toolCalls.style` | Default or Claude-style rows |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Language for model-written intent |
 | `diff.collapsedMode` | `body` preview, or `summary` stats only |
 | `tools.passthrough` | Tools that keep their original renderer in aggregate |
 
-Older `transcript.thinkingLabel` settings are ignored.
+Older `toolCalls.style` and `transcript.userMessageStyle` settings are ignored.
 
 ## Custom tools
 

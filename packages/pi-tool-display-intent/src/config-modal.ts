@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ToolDisplayCapabilities } from "./capabilities.js";
-import { getToolDisplayConfigPath, normalizeToolDisplayConfig } from "./config-store.js";
+import { getToolDisplayConfigPath } from "./config-store.js";
 import { applyToolDisplayMode, parseToolDisplayMode } from "./presets.js";
 import { shortenPath } from "./render-utils.js";
 import type { InspectorSettingItem } from "./settings-inspector-modal.js";
@@ -13,7 +13,11 @@ import {
 
 interface ToolDisplayConfigController {
 	getConfig(): ToolDisplayConfig;
-	setConfig(next: ToolDisplayConfig, ctx: ExtensionCommandContext): void;
+	setConfig(
+		next: ToolDisplayConfig,
+		ctx: ExtensionCommandContext,
+		options?: { skipReloadHint?: boolean },
+	): void;
 	getCapabilities(): ToolDisplayCapabilities;
 }
 
@@ -26,18 +30,15 @@ interface ModalOverlayOptions {
 
 const PREVIEW_ROW_VALUES = ["2", "4", "8", "12", "20", "40"] as const;
 const BASH_COMMAND_PREVIEW_ROW_VALUES = ["1", "2", "3", "4"] as const;
-const MODE_COMMAND_HINT = RESULT_DISPLAY_MODES.join("|");
 const LAYOUT_COMMAND_HINT = TOOL_CALL_LAYOUTS.join("|");
 const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"resultMode",
 	"previewRows",
 	"toolIntentEnabled",
-	"toolCallStyle",
 	"bashCommandPreviewRows",
 	"diffViewMode",
 	"diffIndicatorMode",
 	"diffCollapsedMode",
-	"enableNativeUserMessageBox",
 ]);
 
 function toOnOff(value: boolean): string {
@@ -47,31 +48,6 @@ function toOnOff(value: boolean): string {
 function toolOwnershipSummary(config: ToolDisplayConfig): string {
 	const ownership = config.registerToolOverrides;
 	return `read:${toOnOff(ownership.read)},grep:${toOnOff(ownership.grep)},find:${toOnOff(ownership.find)},ls:${toOnOff(ownership.ls)},bash:${toOnOff(ownership.bash)},edit:${toOnOff(ownership.edit)},write:${toOnOff(ownership.write)}`;
-}
-
-function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCapabilities): string {
-	const parts = [
-		`layout=${config.toolCallLayout}`,
-		`results=${config.resultMode}/${config.previewRows}rows`,
-		`intent=${toOnOff(config.toolIntent.enabled)}/${config.toolIntent.language}`,
-		`toolCalls=${config.toolCallStyle}/bash${config.bashCommandPreviewRows}rows`,
-		`userMessage=${config.enableNativeUserMessageBox ? "boxed" : "default"}`,
-		`diff=${config.diffViewMode}/${config.diffIndicatorMode}@${config.diffSplitMinWidth}`,
-		`diffRows=${config.diffCollapsedRows}`,
-		`diffFold=${config.diffCollapsedMode}`,
-		`diffWrap=${toOnOff(config.diffWordWrap)}`,
-		`ownership={${toolOwnershipSummary(config)}}`,
-	];
-	if (config.toolCallLayout === "aggregate") {
-		parts.push("individualSettings=retained (inactive in aggregate layout)");
-	}
-	parts.push(capabilities.hasMcpTooling ? "mcp=available" : "mcp=unavailable");
-	parts.push(
-		capabilities.hasRtkOptimizer
-			? `rtkHints=${toOnOff(config.showRtkCompactionHints)}`
-			: "rtkHints=unavailable",
-	);
-	return parts.join(", ");
 }
 
 function parseNumber(value: string, fallback: number): number {
@@ -109,7 +85,7 @@ export function buildInspectorSettings(
 					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
 					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
-					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool and boxed-user settings are retained but inactive.",
+					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
@@ -120,7 +96,7 @@ export function buildInspectorSettings(
 				"aggregate — summarize tools and hide mid-turn narration; Ctrl+O restores the timeline",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Changing the layout updates tool schemas and renderer shells after /reload and redraws the whole current branch.",
+				"Changing the layout confirms a session reload, then rebuilds tool schemas and renderer shells for the whole current branch.",
 				"Aggregate never generates displaySummary or reveals grouped output/diff bodies.",
 			]),
 			inspectorPath: configPath,
@@ -188,26 +164,6 @@ export function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["intent", "summary", "model", "rpc", "displaySummary"],
-		},
-		{
-			id: "toolCallStyle",
-			label: "Tool call style",
-			currentValue: config.toolCallStyle,
-			values: ["compact", "claude"],
-			inspectorTitle: "Tool Call Style",
-			inspectorSummary: [
-				"Controls the framing used for tool calls and results in the Pi transcript.",
-				"Claude style uses status markers, Name(target) headers, an unboxed shell, and indented result rows.",
-			],
-			inspectorOptions: [
-				"compact — original boxed pi-tool-display layout",
-				"claude — Claude Code-inspired call framing",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Changing the shell style takes effect after /reload.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["tool", "style", "claude", "compact", "status", "shell"],
 		},
 		{
 			id: "bashCommandPreviewRows",
@@ -288,24 +244,6 @@ export function buildInspectorSettings(
 			inspectorPath: configPath,
 			searchTerms: ["diff", "collapsed", "summary", "body", "fold", "compact", "ctrl+o"],
 		},
-		{
-			id: "enableNativeUserMessageBox",
-			label: "User message style",
-			currentValue: config.enableNativeUserMessageBox ? "boxed" : "default",
-			values: ["boxed", "default"],
-			inspectorTitle: "User Message Style",
-			inspectorSummary: [
-				"Controls whether user prompts use a bordered box or Pi's default transcript style.",
-				"This setting is inactive in aggregate, which always uses a compact accent-gutter block with vertical padding.",
-			],
-			inspectorOptions: [
-				"boxed — bordered native user prompt box",
-				"default — Pi's default user message rendering",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
-			inspectorPath: configPath,
-			searchTerms: ["user", "message", "style", "box", "prompt"],
-		},
 	];
 	return config.toolCallLayout === "aggregate"
 		? settings.filter((setting) => !INDIVIDUAL_ONLY_SETTING_IDS.has(setting.id))
@@ -327,15 +265,11 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 				...config,
 				toolIntent: { ...config.toolIntent, enabled: value === "on" },
 			};
-		case "toolCallStyle":
-			return { ...config, toolCallStyle: value as ToolDisplayConfig["toolCallStyle"] };
 		case "bashCommandPreviewRows":
 			return {
 				...config,
 				bashCommandPreviewRows: parseNumber(value, config.bashCommandPreviewRows),
 			};
-		case "enableNativeUserMessageBox":
-			return { ...config, enableNativeUserMessageBox: value === "boxed" };
 		case "diffViewMode":
 			return { ...config, diffViewMode: value as ToolDisplayConfig["diffViewMode"] };
 		case "diffIndicatorMode":
@@ -380,6 +314,10 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 				{
 					getSettings: () => buildInspectorSettings(controller.getConfig(), capabilities),
 					onChange: (id, newValue) => {
+						if (id === "toolCallLayout") {
+							void applyLayoutChange(newValue, ctx, controller);
+							return;
+						}
 						const next = applySetting(controller.getConfig(), id, newValue);
 						controller.setConfig(next, ctx);
 					},
@@ -410,63 +348,46 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 	);
 }
 
-function applyLayoutCommand(
+async function applyLayoutChange(
 	candidate: string,
 	ctx: ExtensionCommandContext,
 	controller: ToolDisplayConfigController,
-): boolean {
+): Promise<boolean> {
 	const layout = TOOL_CALL_LAYOUTS.find((entry) => entry === candidate);
 	if (!layout) {
-		ctx.ui.notify(`Unknown tool call layout. Use: /tool-display-intent layout ${LAYOUT_COMMAND_HINT}`, "warning");
+		ctx.ui.notify(`Unknown tool call layout. Use: /tools ${LAYOUT_COMMAND_HINT}`, "warning");
 		return true;
 	}
-	controller.setConfig({ ...controller.getConfig(), toolCallLayout: layout }, ctx);
-	ctx.ui.notify(`Tool call layout set to ${layout}. Run /reload to apply.`, "info");
+	if (controller.getConfig().toolCallLayout === layout) {
+		ctx.ui.notify(`Tool call layout is already ${layout}.`, "info");
+		return true;
+	}
+	const confirmed = await ctx.ui.confirm(
+		"Reload session?",
+		`Switch to ${layout} and reload this session so tool renderers rebuild.`,
+	);
+	if (!confirmed) {
+		ctx.ui.notify("Layout unchanged.", "info");
+		return true;
+	}
+	controller.setConfig({ ...controller.getConfig(), toolCallLayout: layout }, ctx, { skipReloadHint: true });
+	await ctx.reload();
 	return true;
 }
 
-function applyModeCommand(
-	candidate: string,
+export async function handleToolDisplayArgs(
+	args: string,
 	ctx: ExtensionCommandContext,
 	controller: ToolDisplayConfigController,
-): boolean {
-	const mode = parseToolDisplayMode(candidate);
-	if (!mode) {
-		ctx.ui.notify(`Unknown result mode. Use: /tool-display-intent mode ${MODE_COMMAND_HINT}`, "warning");
-		return true;
-	}
-	controller.setConfig(applyToolDisplayMode(controller.getConfig(), mode), ctx);
-	ctx.ui.notify(`Tool result mode set to ${mode}.`, "info");
-	return true;
-}
-
-export function handleToolDisplayArgs(args: string, ctx: ExtensionCommandContext, controller: ToolDisplayConfigController): boolean {
+): Promise<boolean> {
 	const raw = args.trim();
 	if (!raw) return false;
 	const normalized = raw.toLowerCase();
-
-	if (normalized === "show") {
-		ctx.ui.notify(
-			`tool-display-intent: ${summarizeConfig(controller.getConfig(), controller.getCapabilities())}`,
-			"info",
-		);
-		return true;
+	const layoutArg = normalized.startsWith("layout ") ? normalized.slice("layout ".length).trim() : normalized;
+	if (TOOL_CALL_LAYOUTS.includes(layoutArg as (typeof TOOL_CALL_LAYOUTS)[number])) {
+		return applyLayoutChange(layoutArg, ctx, controller);
 	}
-	if (normalized === "reset") {
-		controller.setConfig(normalizeToolDisplayConfig({}), ctx);
-		ctx.ui.notify("Tool display settings reset to defaults.", "info");
-		return true;
-	}
-	if (normalized.startsWith("layout ")) {
-		return applyLayoutCommand(normalized.slice("layout ".length).trim(), ctx, controller);
-	}
-	if (normalized.startsWith("mode ")) {
-		return applyModeCommand(normalized.slice("mode ".length).trim(), ctx, controller);
-	}
-	if (normalized.startsWith("preset ")) {
-		return applyModeCommand(normalized.slice("preset ".length).trim(), ctx, controller);
-	}
-	ctx.ui.notify(`Usage: /tool-display-intent [show|reset|layout ${LAYOUT_COMMAND_HINT}|mode ${MODE_COMMAND_HINT}]`, "warning");
+	ctx.ui.notify(`Usage: /tools [${LAYOUT_COMMAND_HINT}]`, "warning");
 	return true;
 }
 
@@ -475,17 +396,17 @@ export async function runToolDisplayCommandHandler(
 	ctx: ExtensionCommandContext,
 	controller: ToolDisplayConfigController,
 ): Promise<void> {
-	if (handleToolDisplayArgs(args, ctx, controller)) return;
+	if (await handleToolDisplayArgs(args, ctx, controller)) return;
 	if (!ctx.hasUI) {
-		ctx.ui.notify("/tool-display-intent requires interactive TUI mode.", "warning");
+		ctx.ui.notify("/tools requires interactive TUI mode.", "warning");
 		return;
 	}
 	await openSettingsModal(ctx, controller);
 }
 
 export function registerToolDisplayCommand(pi: ExtensionAPI, controller: ToolDisplayConfigController): void {
-	pi.registerCommand("tool-display-intent", {
-		description: "Configure intent-aware tool rendering",
+	pi.registerCommand("tools", {
+		description: "Switch tool layout or open display settings",
 		handler: async (args, ctx) => {
 			await runToolDisplayCommandHandler(args, ctx, controller);
 		},

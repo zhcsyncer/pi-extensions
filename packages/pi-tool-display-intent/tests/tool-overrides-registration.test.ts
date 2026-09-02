@@ -253,7 +253,7 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 			},
 			{},
 		) as { render(width: number): string[] };
-		assert.match(component.render(160).join("\n"), /read sample\.txt — Checking the sample file/);
+		assert.match(component.render(160).join("\n"), /● Read\(sample\.txt\) — Checking the sample file/);
 
 		const result = await read.execute("call-1", prepared, undefined, undefined, { cwd: dir });
 		assert.match(getTextOutput(result), /hello intent/);
@@ -450,7 +450,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 		bold: (text: string) => text,
 	};
 	const callComponent = customTool.renderCall?.(args, theme, {}) as { render(width: number): string[] };
-	assert.match(callComponent.render(160).join("\n"), /custom_probe remote alpha · cached — Checking the remote value/);
+	assert.match(callComponent.render(160).join("\n"), /● custom_probe\(remote alpha · cached\) — Checking the remote value/);
 
 	const resultComponent = customTool.renderResult?.(
 		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
@@ -473,7 +473,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 	const collapsedErrorLines = collapsedError.render(32).map((line) => line.trimEnd());
 	assert.equal(collapsedErrorLines.length, 1);
 	assert.ok(visibleWidth(collapsedErrorLines[0] ?? "") <= 32);
-	assert.match(collapsedErrorLines[0] ?? "", /^↳ Remote content failure/u);
+	assert.match(collapsedErrorLines[0] ?? "", /⎿ Remote content failure/u);
 	assert.doesNotMatch(collapsedErrorLines[0] ?? "", /Remote · 2 values/);
 
 	const expandedError = customTool.renderResult?.(
@@ -484,7 +484,7 @@ test("cooperative custom tools can share intent, execution stripping, and inheri
 	) as { render(width: number): string[] };
 	assert.equal(
 		expandedError.render(160).map((line) => line.trimEnd()).join("\n"),
-		"Remote content failure\nstack frame one\nstack frame two",
+		"  ⎿ Remote content failure\n    stack frame one\n    stack frame two",
 	);
 
 	await customTool.execute("call-custom", args);
@@ -529,7 +529,7 @@ test("cooperative result presentations share preview rows and skip duplicated ra
 		{},
 	) as { render(width: number): string[] };
 	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
-	assert.equal(rendered, "↳ Remote · 2 values\nalpha\nbeta");
+	assert.equal(rendered, "  ⎿ Remote · 2 values\n    alpha\n    beta");
 	assert.doesNotMatch(rendered, /duplicate/);
 });
 
@@ -719,14 +719,14 @@ test("tool intent can be disabled without changing built-in execution schemas", 
 	assert.equal(schema.required?.includes("displaySummary") ?? false, false);
 });
 
-test("registerToolDisplayOverrides forces edit into the default render shell so tool backgrounds fill the full row", async () => {
+test("registerToolDisplayOverrides uses the Claude self render shell for edit", async () => {
 	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 	await eventHandlers.before_agent_start?.();
 
 	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	assert.equal(byName.get("edit")?.renderShell, "default");
+	assert.equal(byName.get("edit")?.renderShell, "self");
 });
 
 test("Claude style uses self-rendered tool headers, deterministic fallbacks, and indented results", () => {

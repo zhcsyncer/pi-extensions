@@ -24,7 +24,6 @@ import {
 	DIFF_VIEW_MODES,
 	RESULT_DISPLAY_MODES,
 	TOOL_CALL_LAYOUTS,
-	TOOL_CALL_STYLES,
 	TOOL_DISPLAY_CONFIG_SCHEMA_URL,
 	TOOL_DISPLAY_CONFIG_VERSION,
 	TOOL_INTENT_LANGUAGES,
@@ -101,12 +100,6 @@ function toToolCallLayout(value: unknown): ToolDisplayConfig["toolCallLayout"] {
 	return TOOL_CALL_LAYOUTS.includes(value as ToolDisplayConfig["toolCallLayout"])
 		? (value as ToolDisplayConfig["toolCallLayout"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallLayout;
-}
-
-function toToolCallStyle(value: unknown): ToolDisplayConfig["toolCallStyle"] {
-	return TOOL_CALL_STYLES.includes(value as ToolDisplayConfig["toolCallStyle"])
-		? (value as ToolDisplayConfig["toolCallStyle"])
-		: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle;
 }
 
 function toDiffViewMode(value: unknown): ToolDisplayConfig["diffViewMode"] {
@@ -329,7 +322,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: normalizeCustomToolOverrides(source.customToolOverrides),
 		toolIntent: normalizeToolIntentConfig(rawToolIntent),
 		toolCallLayout: toToolCallLayout(source.toolCallLayout),
-		toolCallStyle: toToolCallStyle(source.toolCallStyle),
+		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: clampNumber(
 			source.bashCommandPreviewRows,
 			1,
@@ -338,10 +331,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		resultMode: resultResolution.mode,
 		...resultConfig,
-		enableNativeUserMessageBox: toBoolean(
-			source.enableNativeUserMessageBox,
-			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
-		),
+		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
 			2,
@@ -461,9 +451,8 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["layout", "style", "bashCommandPreviewRows"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["layout", "bashCommandPreviewRows"], "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "layout", TOOL_CALL_LAYOUTS, "toolCalls.", errors);
-	validateOptionalEnum(toolCalls, "style", TOOL_CALL_STYLES, "toolCalls.", errors);
 	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
@@ -483,8 +472,7 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
-	validateKnownKeys(transcript, ["userMessageStyle"], "transcript.", errors);
-	validateOptionalEnum(transcript, "userMessageStyle", ["boxed", "default"], "transcript.", errors);
+	validateKnownKeys(transcript, [], "transcript.", errors);
 
 	const tools = getV2Section(source, "tools", errors);
 	validateKnownKeys(tools, ["passthrough", "custom"], "tools.", errors);
@@ -586,14 +574,9 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		customToolOverrides: tools.custom,
 		toolIntent: source.intent,
 		toolCallLayout: toolCalls.layout,
-		toolCallStyle: toolCalls.style,
+		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
-		enableNativeUserMessageBox:
-			transcript.userMessageStyle === "default"
-				? false
-				: transcript.userMessageStyle === "boxed"
-					? true
-					: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
+		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		previewRows: results.previewRows,
 		expandedPreviewMaxRows: advanced.expandedRows,
 		diffViewMode: diff.layout,
@@ -627,7 +610,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 
 	const toolCalls: Record<string, unknown> = {};
 	if (config.toolCallLayout !== defaults.toolCallLayout) toolCalls.layout = config.toolCallLayout;
-	if (config.toolCallStyle !== defaults.toolCallStyle) toolCalls.style = config.toolCallStyle;
 	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
 		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
 	}
@@ -645,12 +627,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.diffCollapsedMode !== defaults.diffCollapsedMode) diff.collapsedMode = config.diffCollapsedMode;
 	if (config.diffWordWrap !== defaults.diffWordWrap) diff.wordWrap = config.diffWordWrap;
 	assignSection(output, "diff", diff);
-
-	const transcript: Record<string, unknown> = {};
-	if (config.enableNativeUserMessageBox !== defaults.enableNativeUserMessageBox) {
-		transcript.userMessageStyle = config.enableNativeUserMessageBox ? "boxed" : "default";
-	}
-	assignSection(output, "transcript", transcript);
 
 	const tools: Record<string, unknown> = {};
 	const passthrough = new Set(config.passthroughToolNames);

@@ -100,12 +100,12 @@ test("entry point registers expected lifecycle handlers", () => {
   assert.ok(beforeAgentStartCount >= 1, "at least one before_agent_start handler registered");
 });
 
-test("entry point registers tool-display-intent command", () => {
+test("entry point registers tools command", () => {
   const { api, capturedCommands } = createApiStub();
   toolDisplayExtension(api);
 
   const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.includes("tool-display-intent"), "tool-display-intent command registered");
+  assert.ok(cmdNames.includes("tools"), "tools command registered");
 });
 
 test("entry point registers built-in tool overrides", () => {
@@ -168,7 +168,7 @@ test("multiple calls to toolDisplayExtension are idempotent", () => {
   assert.ok(toolNames.filter((n) => n === "write").length >= 1, "write registered at least once");
 
   const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.filter((n) => n === "tool-display-intent").length >= 1, "command registered at least once");
+  assert.ok(cmdNames.filter((n) => n === "tools").length >= 1, "command registered at least once");
 });
 
 test("entry point tolerates empty getAllTools and getCommands results", () => {

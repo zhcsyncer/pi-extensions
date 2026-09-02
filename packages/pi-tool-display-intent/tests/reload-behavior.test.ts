@@ -543,23 +543,23 @@ test("5: patchNativeUserMessagePrototype can be called multiple times safely", (
 // 6. Command unregistration / re-registration
 // ---------------------------------------------------------------------------
 
-test("6: /tool-display-intent command is registered on first call and re-registered on reload", () => {
+test("6: /tools command is registered on first call and re-registered on reload", () => {
   const { api, capturedCommands } = createApiStub();
 
   toolDisplayExtension(api);
   const firstToolDisplayCmds = capturedCommands.filter(
-    (c) => c.name === "tool-display-intent",
+    (c) => c.name === "tools",
   );
-  assert.equal(firstToolDisplayCmds.length, 1, "tool-display-intent command registered");
+  assert.equal(firstToolDisplayCmds.length, 1, "tools command registered");
 
   // Reload
   toolDisplayExtension(api);
   const secondToolDisplayCmds = capturedCommands.filter(
-    (c) => c.name === "tool-display-intent",
+    (c) => c.name === "tools",
   );
   assert.ok(
     secondToolDisplayCmds.length >= 1,
-    "tool-display-intent command registered after reload",
+    "tools command registered after reload",
   );
 });
 
@@ -1047,13 +1047,13 @@ test("14: extension re-initialization does not leave stale modal references", ()
   const { api: api1, capturedCommands: cmds1 } = createApiStub();
   toolDisplayExtension(api1);
 
-  const firstCommandHandler = cmds1.find((c) => c.name === "tool-display-intent")?.handler;
+  const firstCommandHandler = cmds1.find((c) => c.name === "tools")?.handler;
 
   // Reload
   const { api: api2, capturedCommands: cmds2 } = createApiStub();
   toolDisplayExtension(api2);
 
-  const secondCommandHandler = cmds2.find((c) => c.name === "tool-display-intent")?.handler;
+  const secondCommandHandler = cmds2.find((c) => c.name === "tools")?.handler;
 
   // Each extension call creates its own handler closure with fresh state
   assert.ok(firstCommandHandler, "first handler exists");

@@ -109,7 +109,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		maxLength: 96,
 	},
 	toolCallLayout: "individual",
-	toolCallStyle: "compact",
+	toolCallStyle: "claude",
 	bashCommandPreviewRows: 1,
 	resultMode: "compact",
 	enableNativeUserMessageBox: true,

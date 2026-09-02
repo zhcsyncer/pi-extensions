@@ -19,7 +19,7 @@ $ pnpm test — 验证 extension 测试套件
 ## 功能
 
 - 在持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` 旁同时显示意图和路径 / 命令 / pattern / diff。
-- 可选 Claude 风格：状态标记、`Name(target)`、缩进结果。
+- Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 Tools 账本。`Agent` 默认仍用自己的 renderer。
 - 保留上游的 compact / summary / preview 结果模式。
 - 提供合作式 API，让其他工具也能加同一意图字段。
@@ -38,17 +38,12 @@ pi install npm:@zhcsyncer/pi-extensions
 ## 使用
 
 ```text
-/tool-display-intent
-/tool-display-intent show
-/tool-display-intent reset
-/tool-display-intent layout individual
-/tool-display-intent layout aggregate
-/tool-display-intent mode compact
-/tool-display-intent mode summary
-/tool-display-intent mode preview
+/tools
+/tools aggregate
+/tools individual
 ```
 
-改 layout 或 ownership 后需要 `/reload`。
+空的 `/tools` 打开设置面板。切布局会先确认再保存并 reload。其余旋钮仍在面板里。
 
 ## 布局
 
@@ -72,24 +67,23 @@ pi install npm:@zhcsyncer/pi-extensions
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，不倾倒文件内容或 diff。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tool-display-intent layout individual` 再 `/reload`。
+进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，不倾倒文件内容或 diff。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tools individual`。
 
-Aggregate 固定用左侧强调色细杠的用户行。
+用户行固定用左侧强调色细杠。
 
 ## 设置
 
-打开 `/tool-display-intent`，或看 [`config/config.example.json`](./config/config.example.json)。
+打开 `/tools`，或看 [`config/config.example.json`](./config/config.example.json)。
 
 | 改什么 | 效果 |
 |---|---|
 | `toolCalls.layout` | `individual` 或 `aggregate` |
-| `toolCalls.style` | 默认或 Claude 风格 |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | 模型意图语言 |
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |
 | `tools.passthrough` | aggregate 里仍用原 renderer 的工具 |
 
-旧的 `transcript.thinkingLabel` 设置会被丢掉。
+旧的 `toolCalls.style` 和 `transcript.userMessageStyle` 会被丢掉。
 
 ## 自定义工具
 

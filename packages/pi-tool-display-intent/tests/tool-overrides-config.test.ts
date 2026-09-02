@@ -185,44 +185,44 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), "alpha\nbeta\n"),
-		"↳ loaded 2 lines • Ctrl+O to expand",
+		"⎿ loaded 2 lines • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), "a.txt:1\nb.txt:2\n"),
-		"↳ 2 matches returned • Ctrl+O to expand",
+		"⎿ 2 matches returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "find"), "a.txt\nb.txt\n"),
-		"↳ 2 results returned • Ctrl+O to expand",
+		"⎿ 2 results returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "ls"), "a.txt\nb.txt\n"),
-		"↳ 2 entries returned • Ctrl+O to expand",
+		"⎿ 2 entries returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(mcpTool, "one\ntwo\n"),
-		"↳ 2 lines returned • Ctrl+O to expand",
+		"⎿ 2 lines returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), {
 			text: "alpha\nbeta\n",
 			expanded: true,
 		}),
-		"alpha\nbeta",
+		"⎿ alpha\n    beta",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), {
 			text: "a.txt:1\nb.txt:2\n",
 			expanded: true,
 		}),
-		"a.txt:1\nb.txt:2",
+		"⎿ a.txt:1\n    b.txt:2",
 	);
 	assert.equal(
 		renderToolResult(mcpTool, {
 			text: "one\ntwo\n",
 			expanded: true,
 		}),
-		"one\ntwo",
+		"⎿ one\n    two",
 	);
 });
 
@@ -250,7 +250,7 @@ test("MCP errors stay visible in every output mode and expand from content", asy
 				text: "Gateway timed out\nrequest id: 42\nretry exhausted\n",
 				isError: true,
 			}),
-			"↳ Gateway timed out • Ctrl+O to expand",
+			"⎿ Gateway timed out • Ctrl+O to expand",
 			`${mode} should show one collapsed error summary`,
 		);
 		assert.equal(
@@ -259,7 +259,7 @@ test("MCP errors stay visible in every output mode and expand from content", asy
 				isError: true,
 				expanded: true,
 			}),
-			"Gateway timed out\nrequest id: 42\nretry exhausted",
+			"⎿ Gateway timed out\n    request id: 42\n    retry exhausted",
 			`${mode} should show complete expanded error content`,
 		);
 		if (mode === "hidden") {
@@ -332,7 +332,7 @@ test("read-only ownership keeps summary line counts confined to read", async () 
 	);
 	assert.equal(
 		renderToolResult(registeredTools[0], "single line\n"),
-		"↳ loaded 1 line • Ctrl+O to expand",
+		"⎿ loaded 1 line • Ctrl+O to expand",
 	);
 });
 
@@ -363,21 +363,21 @@ test("showTruncationHints=false suppresses backend truncation summaries across r
 			text: "alpha\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ loaded 1 line • Ctrl+O to expand",
+		"⎿ loaded 1 line • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "grep"), {
 			text: "a.txt:1\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ 1 match returned • Ctrl+O to expand",
+		"⎿ 1 match returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(mcpTool, {
 			text: "alpha\n",
 			details: { truncation: { truncated: true } },
 		}),
-		"↳ 1 line returned • Ctrl+O to expand",
+		"⎿ 1 line returned • Ctrl+O to expand",
 	);
 });
 
@@ -500,14 +500,14 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 	await summaryStub.eventHandlers.before_agent_start?.();
 	assert.equal(
 		renderToolResult(summaryStub.registeredTools.find((tool) => tool.name === "bash"), output),
-		"↳ 3 lines returned • Ctrl+O to expand",
+		"└ 3 lines returned • Ctrl+O to expand",
 	);
 	assert.equal(
 		renderToolResult(summaryStub.registeredTools.find((tool) => tool.name === "bash"), {
 			text: output,
 			expanded: true,
 		}),
-		"alpha\nbeta\ngamma",
+		"│ alpha\n  │ beta\n  └ gamma",
 	);
 
 	const previewConfig = buildConfig({
@@ -519,7 +519,7 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 	await previewStub.eventHandlers.before_agent_start?.();
 	assert.equal(
 		renderToolResult(previewStub.registeredTools.find((tool) => tool.name === "bash"), output),
-		"alpha\nbeta\n... (1 more line • Ctrl+O to expand)",
+		"│ alpha\n  │ beta\n  └ ... (1 more line • Ctrl+O to expand)",
 	);
 });
 
@@ -558,7 +558,7 @@ test("bash call spinner appears only while execution is active", async () => {
 		{ command: "npm test" },
 		{ executionStarted: true, isPartial: false },
 	);
-	assert.equal(idle.output, "$ npm test — Run command");
+	assert.equal(idle.output, "● Bash(npm test) — Run command");
 
 	let invalidateCount = 0;
 	const running = renderToolCall(
@@ -573,12 +573,12 @@ test("bash call spinner appears only while execution is active", async () => {
 			},
 		},
 	);
-	assert.match(running.output, /^⠋ \$ npm test · 0s — Run command$/);
+	assert.match(running.output, /^⠋ Bash\(npm test\) · 0s — Run command$/);
 
 	await new Promise((resolve) => setTimeout(resolve, 220));
 	const animatedFrame = normalizeRenderedText(running.component);
 	assert.notEqual(animatedFrame, running.output);
-	assert.match(animatedFrame, /^⠙ \$ npm test · 0s — Run command$/);
+	assert.match(animatedFrame, /^⠙ Bash\(npm test\) · 0s — Run command$/);
 	assert.ok(invalidateCount > 0);
 
 	const complete = renderToolCall(
@@ -591,7 +591,7 @@ test("bash call spinner appears only while execution is active", async () => {
 			isPartial: false,
 		},
 	);
-	assert.equal(complete.output, "$ npm test — Run command");
+	assert.equal(complete.output, "● Bash(npm test) — Run command");
 });
 
 test("bash render keeps the running result area empty until output exists", async () => {
@@ -624,7 +624,7 @@ test("bash render shows live partial output once streaming begins", async () => 
 			text: "alpha\nbeta\ngamma\n",
 			isPartial: true,
 		}),
-		"alpha\nbeta\n... (1 more line • Ctrl+O to expand)",
+		"│ alpha\n  │ beta\n  └ ... (1 more line • Ctrl+O to expand)",
 	);
 });
 
@@ -643,7 +643,7 @@ test("bash live partial output uses the shared preview row budget", async () => 
 			text: "alpha\nbeta\ngamma\n",
 			isPartial: true,
 		}),
-		"alpha\n... (2 more lines • Ctrl+O to expand)",
+		"│ alpha\n  └ ... (2 more lines • Ctrl+O to expand)",
 	);
 });
 
@@ -662,7 +662,7 @@ test("bash errors render with an explicit failure header and preview", async () 
 			text: "npm ERR! missing script: test\nSee npm help run-script\n",
 			isError: true,
 		}),
-		"↳ command failed\nnpm ERR! missing script: test\nSee npm help run-script",
+		"│ command failed\n  │ npm ERR! missing script: test\n  └ See npm help run-script",
 	);
 });
 
@@ -693,11 +693,11 @@ test("previewRows bounds long single-line read, search, and MCP results", async 
 	for (const tool of previewTools) {
 		const output = renderToolResult(tool, "x".repeat(200), 20);
 		assert.equal(
-			output.split("\n").filter((line) => /^x+$/.test(line)).length,
+			output.split("\n").filter((line) => /x{10,}/.test(line)).length,
 			2,
 			`${tool?.name} should render at most two content rows`,
 		);
-		assert.match(output.replace(/\n/g, " "), /long line truncated/);
+		assert.match(output.replace(/\s+/g, " "), /long line truncated/);
 	}
 });
 
@@ -719,9 +719,9 @@ test("bash completed, live, and error previews share the long-line row budget", 
 	for (const input of inputs) {
 		const output = renderToolResult(bashTool, input, 20);
 		assert.equal(
-			output.split("\n").filter((line) => /^y+$/.test(line)).length,
+			output.split("\n").filter((line) => /y{10,}/.test(line)).length,
 			2,
 		);
-		assert.match(output.replace(/\n/g, " "), /long line truncated/);
+		assert.match(output.replace(/[│└]/g, " ").replace(/\s+/g, " "), /long line truncated/);
 	}
 });

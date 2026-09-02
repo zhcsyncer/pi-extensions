@@ -8,7 +8,6 @@
   },
   "toolCalls": {
     "layout": "individual",
-    "style": "claude",
     "bashCommandPreviewRows": 1
   },
   "results": {
@@ -22,9 +21,6 @@
     "collapsedRows": 24,
     "collapsedMode": "body",
     "wordWrap": true
-  },
-  "transcript": {
-    "userMessageStyle": "boxed"
   },
   "tools": {
     "passthrough": ["Agent"],
