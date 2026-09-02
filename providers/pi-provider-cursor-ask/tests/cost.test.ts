@@ -30,9 +30,7 @@ describe("estimateModelCost", () => {
 describe("Ask catalog local prices", () => {
   it("keeps short picker ids and prices them from the Cursor model behind each row", () => {
     const catalog = buildAskCatalog([]);
-    const cost = Object.fromEntries(
-      catalog.map((model) => [model.id, modelConfig(model).cost]),
-    );
+    const cost = Object.fromEntries(catalog.map((model) => [model.id, modelConfig(model).cost]));
 
     expect(catalog.map((model) => model.name)).toEqual([
       "Fable 5.1",
