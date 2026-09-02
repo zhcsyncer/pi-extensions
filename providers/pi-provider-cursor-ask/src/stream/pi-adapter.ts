@@ -81,10 +81,7 @@ export function billedUsageFromTurnEnded(ended: {
   };
 }
 
-function usageFromBilled(
-  billed: CursorBilledUsage,
-  model: Model<Api>,
-): AssistantMessage["usage"] {
+function usageFromBilled(billed: CursorBilledUsage, model: Model<Api>): AssistantMessage["usage"] {
   const costInput = tokenCost(billed.input, model.cost?.input);
   const costOutput = tokenCost(billed.output, model.cost?.output);
   const costCacheRead = tokenCost(billed.cacheRead, model.cost?.cacheRead);

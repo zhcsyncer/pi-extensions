@@ -62,9 +62,13 @@ describe("billedUsageFromTurnEnded", () => {
 describe("applyCursorUsage", () => {
   it("prices Composer cache reads from turnEnded instead of treating them as input", () => {
     const output = createCursorAssistantMessage(composerModel());
-    applyCursorUsage(output, composerModel(), emptyState({
-      billedUsage: { input: 1000, output: 40, cacheRead: 8000, cacheWrite: 0 },
-    }));
+    applyCursorUsage(
+      output,
+      composerModel(),
+      emptyState({
+        billedUsage: { input: 1000, output: 40, cacheRead: 8000, cacheWrite: 0 },
+      }),
+    );
     expect(output.usage).toEqual({
       input: 1000,
       output: 40,
@@ -83,11 +87,7 @@ describe("applyCursorUsage", () => {
 
   it("keeps cache at 0 when turnEnded had no billed split", () => {
     const output = createCursorAssistantMessage(composerModel());
-    applyCursorUsage(
-      output,
-      composerModel(),
-      emptyState({ outputTokens: 40, totalTokens: 1040 }),
-    );
+    applyCursorUsage(output, composerModel(), emptyState({ outputTokens: 40, totalTokens: 1040 }));
     expect(output.usage).toMatchObject({
       input: 1000,
       output: 40,
@@ -120,7 +120,15 @@ describe("processServerMessage turnEnded", () => {
       },
     });
     expect(
-      processServerMessage(message, new Map(), [], () => {}, state, () => {}, () => {}),
+      processServerMessage(
+        message,
+        new Map(),
+        [],
+        () => {},
+        state,
+        () => {},
+        () => {},
+      ),
     ).toBe(true);
     expect(state.turnEnded).toBe(true);
     expect(state.billedUsage).toEqual({
