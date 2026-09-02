@@ -6,7 +6,7 @@
 
 最终定义：
 
-> `aggregate` 是按 user turn 汇总所有已注册工具的有界 `Tools` 视图。它只改变交互渲染，不改写工具执行、Session call/result 或模型历史上下文；不推断文件变更，不展示逐工具 output/diff body。`Agent` 默认保留原 renderer，图片结果 fail-open。
+> `aggregate` 是按 user turn 汇总所有已注册工具的有界 `Tools` 视图。它只改变交互渲染，不改写工具执行、Session call/result 或模型历史上下文；不推断文件变更，不展示逐工具 output/diff/image body。`Agent` 默认保留原 renderer。
 
 `individual` 完整保留原有逐工具行为。layout 切换在 `/reload` 后按当前 branch 重绘全部历史，而不是只影响未来调用。
 
@@ -14,16 +14,16 @@
 
 - 一次用户请求中的 built-in、custom、MCP 和延迟加载工具统一计数。
 - Tools 首行直接展示每类工具的总调用次数和失败总数。
-- 当前工具显示确定性 target；无法可靠提取 target 的 custom tool 只显示名称。
+- 当前工具显示确定性 target；custom tool 优先用 `getCallPresentation`，否则只用 query/url/path/command/pattern，再不行显示 `(N args)`。
 - 成功行用 `✓` 表示，由下一调用替换；最终成功行在 agent settled 后延迟收起。
 - 收起时错误只显示总数；夹在工具之间的中途旁白默认隐藏，最终结论仍可见。
-- `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用各自显示一行目标/状态概要。
+- `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用显示有界目标/状态概要。
 - thinking 不是旁白，也不进入展开边框；aggregate 剥掉收起的 `Thinking...` 占位和 thinking 正文，但不隐藏错误。显式展开且没有最终 text 时，reasoning 仍可单独查看。
 - 原始 tool call/result 保持可恢复；切回 individual 后原 renderer 重新展示历史详情。
 
 ## 非目标
 
-- 不展示 read/bash/custom output、文件正文或 diff body。
+- 不展示 read/bash/custom output、文件正文、diff body 或图片像素。
 - 不计算文件数、`+A/−B` 或所谓“本轮净变更”。父 Session 无法完整观察 Bash、custom tool 和子 Agent 的文件副作用。
 - 不生成组合 intent，不让模型额外解释工具阶段。
 - 不根据工具名猜测“分析中、实现中、测试中”等过程语义。
@@ -80,12 +80,9 @@ pending / running / success / failed / needsAttention
 
 ### 聚合渲染成员
 
-默认所有工具的 transcript renderer 都被 Tools 投影接管。以下工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行：
+默认所有工具的 transcript renderer 都被 Tools 投影接管。`tools.passthrough` 中的工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行。
 
-- `tools.passthrough` 中的工具；
-- 运行时返回图片的工具。
-
-`Agent` 是默认 passthrough，因为其前台进度、步骤和结果 renderer 具有独立价值。若本轮只有 passthrough/image 工具，没有可承载 Tools 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
+`Agent` 是默认 passthrough，因为其前台进度、步骤和结果 renderer 具有独立价值。若本轮只有 passthrough 工具，没有可承载 Tools 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
 
 ## 展示行为
 
@@ -132,6 +129,8 @@ pending / running / success / failed / needsAttention
 - 新工具出现会取消旧的 settled 计时；
 - done 仅是实时 UI 状态，历史重建不恢复；
 - 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开；
+- 每条调用最多 1 行主行 + 1 行续行；过长 path/query 硬折到第 2 行，不靠截断把括号内容吃掉；
+- bash 长脚本不写成 `Bash(整段脚本)`：主行 `Bash`，续行是宽度内预览，多行/超长用 `… (N lines · size)`；
 - 没有 Tools 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
 
 ### 错误
@@ -157,10 +156,10 @@ pending / running / success / failed / needsAttention
 - 展开内容共用一条贯通边线：中间行 `│`，同一 group 只有一条 `└`；
 - 展开只框工具调用和中途 text；thinking 不标 `›`、不进框；最终结论区留在框外；
 - 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在汇总头下方、工具行上方，整轮结束后再全部收起；
-- 有 deterministic target 时显示目标；
-- generic custom tool 不猜参数含义，只显示名称；
+- 有 deterministic target 时显示目标；custom 用 presentation / 启发式键 / `(N args)`，不用 `displaySummary`；
+- 展开行按宽度 wrap，再用 8 行硬顶；bash 同样只给预览 + `… (N lines · size)`，完整脚本走 individual；
 - 失败行附带一行错误摘要；
-- 不恢复 raw output、文件列表或 diff body。
+- 不恢复 raw output、文件列表、diff body 或图片。
 
 要检查原始详情，切回 individual：
 
@@ -180,16 +179,11 @@ Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `ex
 
 需要持续查看原 renderer 的工具加入 `tools.passthrough`。passthrough 工具仍计入 Tools；只是不被零行隐藏。
 
-## 图片 fail-open
+## 图片当普通 output
 
-任意工具结果包含 image block 时：
+交互贴图会写成 `/tmp/pi-clipboard-*.png`，user message 只有路径文本；模型用 `read` 读文件，tool result 才带 image block。像素是工具结果，不是 user 附件。
 
-1. member 转为 `needsAttention`；
-2. 原 `ToolExecutionComponent` renderer 和图片组件恢复；
-3. leader 重新选择最新非 passthrough、非 needsAttention 工具；
-4. 图片调用仍保留在工具计数中。
-
-Aggregate 不用文本统计替代图片。
+因此 image block 视为普通 read output：收进 Tools 账本，显示 `Read(/tmp/pi-clipboard-….png)`，成功走 done 槽。不恢复 Kitty/iTerm 原图。要看图切回 individual。
 
 ## Session 与上下文
 
@@ -216,7 +210,7 @@ Pi 的 `getAllTools()` 只提供 ToolInfo，不能安全取得并重注册其他
 ```text
 latest eligible component -> Tools lines
 other aggregated members  -> []
-passthrough/image          -> original render()
+passthrough               -> original render()
 ```
 
 工具 definition 保持原样，因此：
@@ -261,7 +255,7 @@ ctx.sessionManager.buildSessionContext()?.messages
 6. 不生成、保存或恢复任何 aggregate 文件变更统计。
 7. `Agent` 默认保留原 renderer但仍计数；任意配置 passthrough 同样处理。
 8. `ask_user_question` 交互正常，aggregate 隐藏完成结果；individual + reload 恢复答案。
-9. 图片结果 fail-open，unknown/custom 普通文本工具默认聚合。
+9. 图片结果收进账本，不 fail-open；unknown/custom 普通文本工具默认聚合，并显示确定性 target。
 10. 非 leader 成员真实零高度，无 Spacer、空 Box 或背景行。
 11. reload/resume/tree/compaction 后 counts、leader、failed 正确，瞬态 done 不恢复。
 12. 聚合不改写 Session call/result，不向模型上下文注入 Tools 数据。

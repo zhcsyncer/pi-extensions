@@ -21,6 +21,7 @@ import {
 	renderExpandedAggregateSteer,
 	restoreAggregateToolExecutions,
 } from "../src/aggregate-activity.ts";
+import { setAggregateCallPresentationLookup } from "../src/call-presentation-registry.ts";
 
 function userEntry(id: string, text = "request") {
 	return {
@@ -282,7 +283,7 @@ test("in-progress Tools ledger pins the latest narration above the tool rows", (
 	assert.match(rendered.join("\n"), /› 先定位两边的设计与实现入口/);
 	assert.ok(
 		rendered.findIndex((line) => line.includes("先定位两边的设计与实现入口"))
-			< rendered.findIndex((line) => /◐ custom_1(?:\s|$)/.test(line)),
+			< rendered.findIndex((line) => /◐ custom_1/.test(line)),
 	);
 	const wrapped = renderAggregateActivity({
 		...view!,
@@ -915,22 +916,32 @@ test("reload shutdown restores original custom history renderers", async () => {
 	assert.match(component.render(120).join("\n"), /restored answer/);
 });
 
-test("image results fail open to the original custom renderer", () => {
+test("image results stay in the Tools ledger like ordinary output", () => {
 	initTheme("dark", false);
 	const projection = createProjection();
 	patchAggregateToolExecutions(projection);
 	try {
 		projection.startUserGroup("user-image");
 		projection.markStarted("image-1", "custom_image", {});
-		const component = createComponent("custom_image", "image-1", {}, createTool("custom_image", "ORIGINAL IMAGE TOOL"));
+		const image = createComponent("custom_image", "image-1", {}, createTool("custom_image", "ORIGINAL IMAGE TOOL"));
+		projection.markStarted("read-1", "read", { path: "/tmp/pi-clipboard-abc.png" });
+		const read = createComponent("read", "read-1", { path: "/tmp/pi-clipboard-abc.png" });
 		const result = {
 			content: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }],
 			isError: false,
 		};
 		projection.markComplete("image-1", result, false);
-		component.updateResult(result);
-		assert.match(component.render(120).join("\n"), /ORIGINAL IMAGE TOOL/);
-		assert.equal(projection.getMember("image-1")?.state, "needsAttention");
+		image.updateResult(result);
+		assert.equal(projection.getMember("image-1")?.state, "success");
+		assert.equal(projection.getGroups()[0]?.leaderToolCallId, "read-1");
+		assert.match(read.render(120).join("\n"), /Tools.*custom_image ×1.*read ×1/);
+		assert.match(read.render(120).join("\n"), /Read\(\/tmp\/pi-clipboard-abc\.png\)/);
+		assert.deepEqual(image.render(120), []);
+		assert.doesNotMatch(read.render(120).join("\n"), /ORIGINAL IMAGE TOOL/);
+		read.setExpanded(true);
+		image.setExpanded(true);
+		assert.doesNotMatch(read.render(120).join("\n"), /ORIGINAL IMAGE TOOL/);
+		assert.doesNotMatch(image.render(120).join("\n"), /ORIGINAL IMAGE TOOL/);
 	} finally {
 		restoreAggregateToolExecutions();
 	}
@@ -956,11 +967,94 @@ test("branch rebuild invalidates and releases tool rows removed by tree or compa
 test("deterministic targets never invent intent for generic custom tools", () => {
 	assert.equal(formatAggregateTarget({ toolName: "read", args: { path: "/tmp/a.ts" } }), "Read(/tmp/a.ts)");
 	assert.equal(formatAggregateTarget({ toolName: "grep", args: { pattern: "x", path: "src" } }), "Search(/x/ in src)");
-	assert.equal(formatAggregateTarget({ toolName: "custom_probe", args: { displaySummary: "Secret intent" } }), "custom_probe");
+	assert.equal(
+		formatAggregateTarget({ toolName: "custom_probe", args: { displaySummary: "Secret intent" } }),
+		"custom_probe(no args)",
+	);
+	assert.equal(
+		formatAggregateTarget({
+			toolName: "web_search",
+			args: { query: "prod metrics", displaySummary: "Secret intent" },
+		}),
+		"web_search(prod metrics)",
+	);
+	assert.equal(
+		formatAggregateTarget({ toolName: "web_read", args: { url: "https://example.com/a/b" } }),
+		"web_read(example.com/a/b)",
+	);
+	assert.equal(
+		formatAggregateTarget({ toolName: "custom_probe", args: { alpha: 1, beta: 2, displaySummary: "Secret intent" } }),
+		"custom_probe(2 args)",
+	);
+	assert.equal(
+		formatAggregateTarget({ toolName: "mcp", args: { server: "github", tool: "search" } }),
+		"mcp(call github:search)",
+	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "read", args: { path: "/tmp/\x1b]8;;https://evil.example\x07secret.ts" } }),
 		"Read(/tmp/secret.ts)",
 	);
+});
+
+test("getCallPresentation wins over heuristic keys for custom tools", () => {
+	setAggregateCallPresentationLookup((name) => (
+		name === "web_search" ? { target: "from adapter", metadata: ["cached", "extra"] } : undefined
+	));
+	try {
+		assert.equal(
+			formatAggregateTarget({ toolName: "web_search", args: { query: "ignored" } }),
+			"web_search(from adapter · cached)",
+		);
+	} finally {
+		setAggregateCallPresentationLookup(undefined);
+	}
+});
+
+test("long custom targets wrap to a second ledger row instead of eating the query", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-long-query");
+	const query = `metrics ${"abcdefghij".repeat(12)} rollout`;
+	projection.markStarted("search-1", "web_search", { query });
+	const view = projection.getView("search-1");
+	assert.ok(view);
+	const rendered = renderAggregateActivity(view, 36, plainTheme());
+	const callLines = rendered.filter((line) => /web_search\(|^\s{4}\S/.test(line));
+	assert.ok(callLines.length >= 2);
+	assert.ok(callLines.length <= 2);
+	assert.match(rendered.join("\n"), /metrics/);
+	assert.match(rendered.join("\n"), /abcdefghij/);
+});
+
+test("long bash commands use a preview row instead of stuffing the script into Bash()", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-long-bash");
+	const script = Array.from({ length: 12 }, (_, index) => `echo line-${index} with extra text`).join("\n");
+	projection.markStarted("bash-1", "bash", { command: script });
+	const view = projection.getView("bash-1");
+	assert.ok(view);
+	const collapsed = renderAggregateActivity(view, 48, plainTheme());
+	assert.doesNotMatch(collapsed.join("\n"), /Bash\(echo line-0/);
+	assert.match(collapsed.join("\n"), /Bash/);
+	assert.match(collapsed.join("\n"), /echo line-0/);
+	assert.match(collapsed.join("\n"), /12 lines/);
+	const bashLines = collapsed.filter((line) => /Bash(?:\s|$)|echo line-/.test(line) || /^\s{4}\S/.test(line));
+	assert.ok(bashLines.length <= 2);
+
+	const member = projection.getMember("bash-1");
+	assert.ok(member);
+	const expanded = renderAggregateMemberRow(member, 40, plainTheme(), "only");
+	assert.ok(expanded.length <= 8);
+	assert.doesNotMatch(expanded.join("\n"), /echo line-11/);
+	assert.match(expanded.join("\n"), /12 lines/);
+
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-bash-narration",
+		stopReason: "toolUse",
+		content: [{ type: "text", text: "先对照两边入口\n再核对脚本边界\n最后再跑测试" }],
+	});
+	const withNarration = renderAggregateActivity(projection.getView("bash-1")!, 48, plainTheme());
+	assert.equal(withNarration.filter((line) => line.includes("›") || line.includes("先对照") || line.includes("再核对") || line.includes("最后再跑")).length <= 3, true);
 });
 
 test("streaming assistant updates keep one turn identity after the first tool call appears", () => {

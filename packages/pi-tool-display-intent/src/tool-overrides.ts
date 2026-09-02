@@ -34,6 +34,7 @@ import {
   AggregateProjection,
   registerAggregateProjectionEvents,
 } from "./aggregate-activity.js";
+import { setAggregateCallPresentationLookup } from "./call-presentation-registry.js";
 import { renderBashCall } from "./bash-display.js";
 import {
   normalizeDisplaySummary,
@@ -1813,6 +1814,13 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
   const api: ToolDisplayApi = {
     version: 1,
     decorateTool<T extends RuntimeToolDefinition>(tool: T, adapter?: ToolDisplayAdapter): T {
+      if (adapter) {
+        const toolName = adapter.toolName || getTextField(tool, "name");
+        api.registerAdapter({
+          ...adapter,
+          toolName,
+        });
+      }
       if (getConfig().toolCallLayout === "aggregate") return tool;
       const resolvedAdapter = resolveAdapter(tool, adapter);
       const kind = getAdapterKind(tool, resolvedAdapter);
@@ -1900,14 +1908,12 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
 
   const globalWithApi = globalThis as GlobalWithToolDisplayApi;
   globalWithApi[TOOL_DISPLAY_API_KEY] = api;
-  if (getConfig().toolCallLayout === "aggregate") {
-    // Pending entries belong to this runtime's original tool definitions. Drop
-    // the decoration requests instead of flattening descriptors with a no-op
-    // Object.assign; a later individual reload receives fresh registrations.
-    globalWithApi[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?.splice(0);
-  } else {
-    drainPendingToolDisplayDecorations(api);
-  }
+  setAggregateCallPresentationLookup((toolName, args) => {
+    const adapter = adapters.get(toolName);
+    if (!adapter?.getCallPresentation) return undefined;
+    return resolveCallPresentation(toRecord(stripDisplaySummary(args)), adapter);
+  });
+  drainPendingToolDisplayDecorations(api);
   return api;
 }
 
@@ -1933,6 +1939,7 @@ export function registerToolDisplayOverrides(
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
     if (globalWithApi[TOOL_DISPLAY_API_KEY] === toolDisplayApi) {
       delete globalWithApi[TOOL_DISPLAY_API_KEY];
+      setAggregateCallPresentationLookup(undefined);
     }
   });
   const bootstrapTools = getBuiltInTools(process.cwd());

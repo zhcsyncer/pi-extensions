@@ -28,7 +28,8 @@ import {
 	withDisplaySummary,
 } from "../tool-display-api-consumer.js";
 import { addDisplaySummaryParameter } from "../src/display-summary.js";
-import { restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
+import { formatAggregateTarget, restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
+import { setAggregateCallPresentationLookup } from "../src/call-presentation-registry.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { shortenPath } from "../src/render-utils.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
@@ -661,6 +662,44 @@ test("aggregate respects passthrough and external ownership boundaries", () => {
 	assert.equal(names.has("edit"), false, "externally owned edit remains independent");
 	assert.equal(names.has("bash"), true);
 	restoreAggregateToolExecutions();
+});
+
+test("aggregate decorateTool keeps call presentation for the Tools ledger", () => {
+	const config = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate" as const,
+	};
+	const { api } = createExtensionApiStub();
+	registerToolDisplayOverrides(api, () => config);
+	try {
+		const customTool = decorateToolForDisplay(
+			{
+				name: "web_search",
+				description: "Search the web",
+				parameters: { type: "object", properties: { query: { type: "string" } } },
+				execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+				renderCall: () => ({ render: () => ["ORIGINAL SEARCH CALL"] }),
+			},
+			{
+				getCallPresentation(args: unknown) {
+					const query = (args as { query?: unknown }).query;
+					return typeof query === "string" ? { target: query } : undefined;
+				},
+			},
+		);
+		assert.equal(
+			formatAggregateTarget({ toolName: "web_search", args: { query: "prod metrics" } }),
+			"web_search(prod metrics)",
+		);
+		const call = customTool.renderCall?.({ query: "prod metrics" }, { fg: (_c: string, t: string) => t, bold: (t: string) => t });
+		assert.deepEqual(
+			(call as { render(width: number): string[] }).render(80),
+			["ORIGINAL SEARCH CALL"],
+		);
+	} finally {
+		setAggregateCallPresentationLookup(undefined);
+		restoreAggregateToolExecutions();
+	}
 });
 
 test("tool intent can be disabled without changing built-in execution schemas", () => {

@@ -1,12 +1,15 @@
 import {
+	formatSize,
 	getMarkdownTheme,
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { normalizeDisplaySummary } from "./display-summary.js";
+import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
+import { normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
-import { shortenPath } from "./render-utils.js";
+import { layoutPreviewRows } from "./preview-text.js";
+import { pluralize, shortenPath } from "./render-utils.js";
 
 export type AggregateMemberState =
 	| "pending"
@@ -138,6 +141,10 @@ export const AGGREGATE_ASSISTANT_MARK = "›";
 export const AGGREGATE_STEER_MARK = "↳";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
 const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
+const COLLAPSED_CALL_ROW_LIMIT = 2;
+const EXPANDED_CALL_ROW_LIMIT = 8;
+const CALL_CONTINUATION_PREFIX = "    ";
+const CUSTOM_TARGET_KEYS = ["query", "url", "path", "file_path", "command", "pattern"] as const;
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const NARRATION_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
@@ -210,11 +217,6 @@ function textContent(result: unknown): string {
 		.join("\n");
 }
 
-export function aggregateResultHasImage(result: unknown): boolean {
-	const content = toRecord(result).content;
-	return Array.isArray(content) && content.some((entry) => toRecord(entry).type === "image");
-}
-
 function firstMeaningfulLine(value: unknown, fallback: string): string {
 	for (const line of textContent(value).replace(/\r/g, "").split("\n")) {
 		const normalized = normalizeDisplaySummary(line, FAILED_SUMMARY_MAX_LENGTH);
@@ -237,6 +239,67 @@ function formatAggregatePath(args: unknown): string {
 	return normalizeTargetText(shortenPath(getPath(args) ?? "."), ".");
 }
 
+function stringArg(args: Record<string, unknown>, key: string): string | undefined {
+	const value = args[key];
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed || undefined;
+}
+
+function shortenUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
+		return `${parsed.host}${path}`;
+	} catch {
+		return url;
+	}
+}
+
+function formatHeuristicTarget(key: string, value: string): string {
+	if (key === "url") return normalizeTargetText(shortenUrl(value), "url");
+	if (key === "path" || key === "file_path") return normalizeTargetText(shortenPath(value), "path");
+	return normalizeTargetText(value, key);
+}
+
+function formatMcpAggregateTarget(args: Record<string, unknown>): string {
+	const tool = stringArg(args, "tool");
+	const connect = stringArg(args, "connect");
+	const describe = stringArg(args, "describe");
+	const search = stringArg(args, "search");
+	const server = stringArg(args, "server");
+	if (tool) return server ? `call ${server}:${tool}` : `call ${tool}`;
+	if (connect) return `connect ${connect}`;
+	if (describe) return server ? `describe ${describe} @${server}` : `describe ${describe}`;
+	if (search) return server ? `search "${search}" @${server}` : `search "${search}"`;
+	if (server) return `tools ${server}`;
+	return "status";
+}
+
+function formatCustomAggregateTarget(toolName: string, args: unknown): string {
+	const presentation = lookupAggregateCallPresentation(toolName, args);
+	if (presentation?.target) {
+		const suffix = presentation.metadata?.[0];
+		const inner = suffix ? `${presentation.target} · ${suffix}` : presentation.target;
+		return `${toolName}(${inner})`;
+	}
+	const record = toRecord(stripDisplaySummary(args));
+	if (toolName === "mcp") return `mcp(${formatMcpAggregateTarget(record)})`;
+	for (const key of CUSTOM_TARGET_KEYS) {
+		const value = stringArg(record, key);
+		if (!value) continue;
+		return `${toolName}(${formatHeuristicTarget(key, value)})`;
+	}
+	const argCount = Object.keys(record).length;
+	return argCount === 0
+		? `${toolName}(no args)`
+		: `${toolName}(${argCount} ${pluralize(argCount, "arg")})`;
+}
+
+function bashCommandSource(args: Record<string, unknown>): string {
+	return typeof args.command === "string" ? args.command.replace(/\r\n?/g, "\n") : "";
+}
+
 export function formatAggregateTarget(
 	member: Pick<AggregateMember, "toolName" | "args">,
 ): string {
@@ -253,14 +316,17 @@ export function formatAggregateTarget(
 			return `Find(${normalizeTargetText(args.pattern, "pattern")} in ${path})`;
 		case "ls":
 			return `List(${path})`;
-		case "bash":
-			return `Bash(${normalizeTargetText(args.command, "command")})`;
+		case "bash": {
+			const command = bashCommandSource(args);
+			if (command.includes("\n")) return "Bash";
+			return `Bash(${normalizeTargetText(command, "command")})`;
+		}
 		case "edit":
 			return `Edit(${path})`;
 		case "write":
 			return `Write(${path})`;
 		default:
-			return member.toolName;
+			return formatCustomAggregateTarget(member.toolName, args);
 	}
 }
 
@@ -275,6 +341,75 @@ function formatColoredTarget(
 	theme: AggregateRenderTheme,
 ): string {
 	return theme.fg(toolColor(member.toolName), formatAggregateTarget(member));
+}
+
+function bashOverflowHint(command: string, lineCount: number, contentWidth: number): string {
+	const size = formatSize(Buffer.byteLength(command, "utf8"));
+	const candidates = lineCount > 1
+		? [` … (${lineCount} lines · ${size})`, ` … (${lineCount} lines)`, " …"]
+		: [` … (${size})`, " …"];
+	const suffixBudget = Math.max(0, contentWidth - 8);
+	return candidates.find((candidate) => visibleWidth(candidate) <= suffixBudget)
+		?? (contentWidth >= 2 ? " …" : "");
+}
+
+function appendTruncationMark(row: string, contentWidth: number): string {
+	const mark = "…";
+	return `${truncateToWidth(row, Math.max(0, contentWidth - visibleWidth(mark)), "")}${mark}`;
+}
+
+function renderBashCallRows(
+	args: Record<string, unknown>,
+	contentWidth: number,
+	maxRows: number,
+	theme: AggregateRenderTheme,
+): string[] {
+	const command = bashCommandSource(args);
+	const coloredName = theme.fg(toolColor("bash"), "Bash");
+	if (!command.trim()) return [`${coloredName}(command)`];
+	const lineCount = command.split("\n").length;
+	const shortLabel = `Bash(${normalizeTargetText(command.replace(/\n/g, " "), "command")})`;
+	if (lineCount === 1 && visibleWidth(shortLabel) <= contentWidth) {
+		return [theme.fg(toolColor("bash"), shortLabel)];
+	}
+	if (maxRows <= 1) return [coloredName];
+	const previewRows = Math.max(1, maxRows - 1);
+	const layout = layoutPreviewRows(command.split("\n"), previewRows, contentWidth);
+	const rows = layout.rows.length > 0 ? [...layout.rows] : [""];
+	const truncated = layout.hiddenLineCount > 0 || layout.longLineTruncated || layout.rowLimitReached;
+	if (truncated) {
+		const hint = bashOverflowHint(command, lineCount, contentWidth);
+		const last = rows.length - 1;
+		rows[last] = `${truncateToWidth(rows[last] ?? "", Math.max(0, contentWidth - visibleWidth(hint)), "")}${hint}`;
+	}
+	return [coloredName, ...rows];
+}
+
+function renderCallContentLines(
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	theme: AggregateRenderTheme,
+	contentWidth: number,
+	maxRows: number,
+	options: { includeErrorSuffix?: boolean } = {},
+): string[] {
+	const safeWidth = Math.max(1, contentWidth);
+	const rowLimit = Math.max(1, maxRows);
+	const suffix = options.includeErrorSuffix === true
+		? memberStatusChrome(member, theme).suffix
+		: "";
+	if (member.toolName === "bash") {
+		const rows = renderBashCallRows(member.args, safeWidth, rowLimit, theme);
+		if (suffix && rows[0]) rows[0] = `${rows[0]}${suffix}`;
+		return rows.slice(0, rowLimit);
+	}
+	const target = `${formatColoredTarget(member, theme)}${suffix}`;
+	const layout = layoutPreviewRows([target], rowLimit, safeWidth);
+	const rows = layout.rows.length > 0 ? [...layout.rows] : [target];
+	if (layout.longLineTruncated || layout.rowLimitReached) {
+		const last = rows.length - 1;
+		rows[last] = appendTruncationMark(rows[last] ?? "", safeWidth);
+	}
+	return rows.slice(0, rowLimit);
 }
 
 function messageRole(value: unknown): string | undefined {
@@ -1058,10 +1193,6 @@ export class AggregateProjection {
 	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
-		if (aggregateResultHasImage(result)) {
-			this.markNeedsAttention(toolCallId);
-			return;
-		}
 		if (isError) {
 			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."));
 			return;
@@ -1467,13 +1598,19 @@ export function renderAggregateMemberRow(
 	theme: AggregateRenderTheme,
 	edge: AggregateFrameEdge = "only",
 ): string[] {
-	const { marker, suffix } = memberStatusChrome(member, theme);
-	return applyAggregateGroupFrame(
-		[`${marker} ${formatColoredTarget(member, theme)}${suffix}`],
-		width,
+	const { marker } = memberStatusChrome(member, theme);
+	const framePrefixWidth = visibleWidth(AGGREGATE_FRAME_CONTINUE);
+	const innerWidth = Math.max(1, (Number.isFinite(width) ? Math.floor(width) : 0) - framePrefixWidth);
+	const bodyWidth = Math.max(1, innerWidth - visibleWidth(`${marker} `));
+	const body = renderCallContentLines(
+		member,
 		theme,
-		edge,
+		bodyWidth,
+		EXPANDED_CALL_ROW_LIMIT,
+		{ includeErrorSuffix: true },
 	);
+	const inner = body.map((row, index) => index === 0 ? `${marker} ${row}` : `  ${row}`);
+	return applyAggregateGroupFrame(inner, width, theme, edge);
 }
 
 export function renderAggregateActivity(
@@ -1511,23 +1648,18 @@ export function renderAggregateActivity(
 		lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
 	}
 	for (const row of view.displayRows) {
-		if (row.state === "success") {
-			lines.push(
-				truncateToWidth(
-					`  ${theme.fg("success", "✓")} ${formatColoredTarget(row, theme)}`,
-					safeWidth,
-					"…",
-				),
-			);
-			continue;
-		}
-		lines.push(
-			truncateToWidth(
-				`  ${theme.fg("warning", "◐")} ${formatColoredTarget(row, theme)}`,
-				safeWidth,
-				"…",
-			),
+		const marker = row.state === "success" ? theme.fg("success", "✓") : theme.fg("warning", "◐");
+		const prefixWidth = visibleWidth("  ◐ ");
+		const body = renderCallContentLines(
+			row,
+			theme,
+			Math.max(1, safeWidth - prefixWidth),
+			COLLAPSED_CALL_ROW_LIMIT,
 		);
+		lines.push(truncateToWidth(`  ${marker} ${body[0] ?? ""}`, safeWidth, "…"));
+		for (const extra of body.slice(1)) {
+			lines.push(truncateToWidth(`${CALL_CONTINUATION_PREFIX}${extra}`, safeWidth, "…"));
+		}
 	}
 	if (view.activeOverflow > 0) {
 		lines.push(
@@ -1587,10 +1719,6 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 			createComponentInvalidator(this),
 		);
 		if (activeProjection.isPassthrough(toolName)) {
-			return state.originalRender.call(this, width);
-		}
-		if (aggregateResultHasImage(this.result)) {
-			activeProjection.markNeedsAttention(toolCallId);
 			return state.originalRender.call(this, width);
 		}
 		if (!activeProjection.isInitialized()) return [];
