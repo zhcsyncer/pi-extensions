@@ -23,6 +23,7 @@ import type { CursorNativeModelRouting } from "./model-routing.js";
 import type {
   ChatCompletionRequest,
   ContentPart,
+  CursorBilledUsage,
   CursorNativeStreamConfig,
   CursorNativeStreamOptions,
   OpenAIMessage,
@@ -46,12 +47,71 @@ export function tokenCost(tokens: number, ratePerMillion = 0): number {
   return (tokens * ratePerMillion) / 1_000_000;
 }
 
+function protoTokenCount(value: bigint | number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = typeof value === "bigint" ? Number(value) : value;
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.trunc(n);
+}
+
+/** Decode Cursor `turnEnded` billed fields. Missing all four means fall back to usedTokens. */
+export function billedUsageFromTurnEnded(ended: {
+  inputTokens?: bigint | number;
+  outputTokens?: bigint | number;
+  cacheReadTokens?: bigint | number;
+  cacheWriteTokens?: bigint | number;
+}): CursorBilledUsage | undefined {
+  const input = protoTokenCount(ended.inputTokens);
+  const output = protoTokenCount(ended.outputTokens);
+  const cacheRead = protoTokenCount(ended.cacheReadTokens);
+  const cacheWrite = protoTokenCount(ended.cacheWriteTokens);
+  if (
+    input === undefined &&
+    output === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    input: input ?? 0,
+    output: output ?? 0,
+    cacheRead: cacheRead ?? 0,
+    cacheWrite: cacheWrite ?? 0,
+  };
+}
+
+function usageFromBilled(billed: CursorBilledUsage, model: Model<Api>): AssistantMessage["usage"] {
+  const costInput = tokenCost(billed.input, model.cost?.input);
+  const costOutput = tokenCost(billed.output, model.cost?.output);
+  const costCacheRead = tokenCost(billed.cacheRead, model.cost?.cacheRead);
+  const costCacheWrite = tokenCost(billed.cacheWrite, model.cost?.cacheWrite);
+  return {
+    input: billed.input,
+    output: billed.output,
+    cacheRead: billed.cacheRead,
+    cacheWrite: billed.cacheWrite,
+    totalTokens: billed.input + billed.output + billed.cacheRead + billed.cacheWrite,
+    cost: {
+      input: costInput,
+      output: costOutput,
+      cacheRead: costCacheRead,
+      cacheWrite: costCacheWrite,
+      total: costInput + costOutput + costCacheRead + costCacheWrite,
+    },
+  };
+}
+
 export function applyCursorUsage(
   output: AssistantMessage,
   model: Model<Api>,
   state?: StreamState,
 ): void {
   if (!state) return;
+  if (state.billedUsage) {
+    output.usage = usageFromBilled(state.billedUsage, model);
+    return;
+  }
   const usage = computeUsage(state);
   const costInput = tokenCost(usage.prompt_tokens, model.cost?.input);
   const costOutput = tokenCost(usage.completion_tokens, model.cost?.output);

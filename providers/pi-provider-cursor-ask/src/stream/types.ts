@@ -212,6 +212,14 @@ export interface StoredConversation {
   lastAccessMs: number;
 }
 
+/** Per-turn billed split from `turnEnded`, when Cursor sent the four fields. */
+export interface CursorBilledUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface StreamState {
   toolCallIndex: number;
   pendingExecs: PendingExec[];
@@ -219,6 +227,7 @@ export interface StreamState {
   totalTokens: number;
   /** Set once Cursor reported `turnEnded`; a connection close after it is a completed turn. */
   turnEnded: boolean;
+  billedUsage?: CursorBilledUsage;
 }
 
 // ── Native streamSimple runtime ──
