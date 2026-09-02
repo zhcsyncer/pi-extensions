@@ -152,8 +152,15 @@ export function isInterimAssistantNarration(component: unknown): boolean {
 	if (stopReason === "error" || stopReason === "aborted" || stopReason === "length" || stopReason === "stop") {
 		return false;
 	}
-	if (stopReason === "toolUse") return true;
-	return messageContentBlocks(message).some((blockValue) => toRecord(blockValue).type === "toolCall");
+	if (stopReason !== "toolUse" && !messageContentBlocks(message).some((blockValue) => toRecord(blockValue).type === "toolCall")) {
+		return false;
+	}
+	const projection = resolveAggregateProjection(
+		undefined,
+		aggregateAssistantFrameId(message),
+		firstToolCallId(message),
+	);
+	return projection?.shouldFrameAssistantNarration(message) === true;
 }
 
 /** @deprecated Use shouldHideCollapsedThinkingPlaceholder. */

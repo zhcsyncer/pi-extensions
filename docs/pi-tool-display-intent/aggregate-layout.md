@@ -85,7 +85,7 @@ pending / running / success / failed / needsAttention
 - `tools.passthrough` 中的工具；
 - 运行时返回图片的工具。
 
-`Agent` 是默认 passthrough，因为其前台进度、步骤和结果 renderer 具有独立价值。若本轮只有 passthrough/image 工具，没有可承载 Tools 的 leader，则不额外制造空 summary 行。
+`Agent` 是默认 passthrough，因为其前台进度、步骤和结果 renderer 具有独立价值。若本轮只有 passthrough/image 工具，没有可承载 Tools 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
 
 ## 展示行为
 

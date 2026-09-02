@@ -174,6 +174,49 @@ test("call counts include running, failed, successful, and passthrough tools", (
 	assert.equal(view?.hasRunning, true);
 });
 
+test("a passthrough-only turn has no Tools ledger to pin narration on", () => {
+	const projection = new AggregateProjection((toolName) =>
+		toolName === "Agent" || toolName === "consult");
+	projection.startUserGroup("user-passthrough-only");
+	const message = {
+		role: "assistant",
+		id: "assistant-consult",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "Prod has no Metrics on purpose" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		],
+	};
+	projection.ingestAssistantMessage(message);
+
+	assert.equal(projection.getGroups()[0]?.leaderToolCallId, undefined);
+	assert.equal(projection.getView("consult-1"), undefined);
+	assert.equal(projection.hasPaintedToolsLedger(message), false);
+	assert.equal(projection.shouldFrameAssistantNarration(message), false);
+});
+
+test("aggregate tools still pin pre-tool narration on the Tools ledger", () => {
+	const projection = new AggregateProjection((toolName) =>
+		toolName === "Agent" || toolName === "consult");
+	projection.startUserGroup("user-mixed-ledger");
+	const message = {
+		role: "assistant",
+		id: "assistant-mixed",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "Locate both entries first" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		],
+	};
+	projection.ingestAssistantMessage(message);
+
+	assert.equal(projection.getGroups()[0]?.leaderToolCallId, "read-1");
+	assert.equal(projection.hasPaintedToolsLedger(message), true);
+	assert.equal(projection.shouldFrameAssistantNarration(message), true);
+	assert.equal(projection.getView("read-1")?.latestNarration, "Locate both entries first");
+});
+
 test("Agent stays renderer-passthrough but remains in counts and never steals the leader", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-agent");

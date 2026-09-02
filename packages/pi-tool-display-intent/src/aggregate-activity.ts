@@ -699,6 +699,12 @@ export class AggregateProjection {
 		return Boolean(active?.leaderToolCallId);
 	}
 
+	shouldFrameAssistantNarration(message?: unknown): boolean {
+		if (this.hasPaintedToolsLedger(message)) return true;
+		if (!message) return false;
+		return toolCallsFromMessage(message).some((call) => !this.isPassthrough(call.name));
+	}
+
 	getMember(toolCallId: string): AggregateMember | undefined {
 		return this.membersById.get(toolCallId);
 	}

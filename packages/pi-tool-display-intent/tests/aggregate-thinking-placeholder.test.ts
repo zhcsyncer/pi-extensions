@@ -50,6 +50,11 @@ function render(message: unknown, hideThinkingBlock: boolean): string[] {
 	return createComponent(message, hideThinkingBlock).render(100);
 }
 
+function passthroughProjection(...names: string[]) {
+	const passthrough = new Set(names);
+	return new AggregateProjection((toolName) => passthrough.has(toolName));
+}
+
 test("aggregate strips collapsed Thinking placeholders but keeps final assistant text", () => {
 	initTheme("dark", false);
 	let aggregate = true;
@@ -96,6 +101,69 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 		render(assistant([{ type: "thinking", thinking: "reasoning" }]), true).join("\n"),
 		/Thinking\.\.\./,
 	);
+});
+
+test("passthrough-only turns keep pre-tool narration as ordinary assistant text", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-passthrough-narration");
+		const message = assistant([
+			{ type: "text", text: "Prod has no Metrics on purpose during rollout" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-consult" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const rendered = component.render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /Prod has no Metrics on purpose/);
+		assert.doesNotMatch(rendered.join("\n"), /[›│└]/);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.equal(expanded[0], "");
+		assert.match(expanded.join("\n"), /Prod has no Metrics on purpose/);
+		assert.doesNotMatch(expanded.join("\n"), /[›│└]/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("a turn with aggregate tools still folds narration into the Tools frame", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-mixed-narration");
+		const message = assistant([
+			{ type: "text", text: "Locate both design and implementation entries first" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-mixed" });
+		projection.ingestAssistantMessage(message);
+		assert.equal(
+			projection.getView("read-1")?.latestNarration,
+			"Locate both design and implementation entries first",
+		);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), true);
+		assert.deepEqual(component.render(100), []);
+
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100);
+		assert.match(expanded.join("\n"), /│.*›.*Locate both design and implementation entries first/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
 });
 
 test("aggregate hides interim narration until Ctrl+O restores it in place", () => {
