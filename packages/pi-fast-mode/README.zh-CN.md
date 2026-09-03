@@ -64,9 +64,10 @@ pi install git:github.com/zhcsyncer/pi-extensions
 
 ![Fast Mode 底栏状态](./assets/demo-fast-mode-status.png)
 
-- 支持的模型，开启：`⚡ FAST` 加上 `priority if granted`
-- 支持的模型，关闭：暗色 `fast: off · Ctrl+F`
+- 支持的模型，开启：`⚡ FAST`
+- 支持的模型，关闭：暗色 `fast`
 - 不支持的模型：隐藏状态，并且不改请求
+- `/fast` 和 `Ctrl+F` 只更新底栏。它们不会往聊天记录里加提示。
 
 ## 支持的提供商
 

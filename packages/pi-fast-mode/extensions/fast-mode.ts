@@ -28,6 +28,8 @@ import { join } from "node:path";
 import { buildBaseOptions } from "./stream-options.ts";
 
 export const STATUS_KEY = "fast-mode";
+export const STATUS_ON = "⚡ FAST";
+export const STATUS_OFF = "fast";
 export const SETTINGS_FIELD = "fast-mode";
 export const SERVICE_TIER = "priority" as const;
 export const SHORTCUT = "ctrl+f";
@@ -132,6 +134,11 @@ export function resolveServiceTier(
 	return SERVICE_TIER;
 }
 
+export function footerStatusLabel(enabled: boolean, supported: boolean): string | undefined {
+	if (!supported) return undefined;
+	return enabled ? STATUS_ON : STATUS_OFF;
+}
+
 export function shouldReloadEnabledFromSettings(reason: unknown): boolean {
 	return reason === "startup" || reason === "reload";
 }
@@ -163,35 +170,26 @@ export default function fastMode(pi: ExtensionAPI): void {
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		if (!supportsApi(ctx.model)) {
+		const label = footerStatusLabel(enabled, supportsApi(ctx.model));
+		if (!label) {
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		if (!enabled) {
-			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "fast: off · Ctrl+F"));
+		if (enabled) {
+			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("warning", ctx.ui.theme.bold(label)));
 			return;
 		}
-		const label = ctx.ui.theme.fg("warning", ctx.ui.theme.bold("⚡ FAST"));
-		const detail = ctx.ui.theme.fg("muted", " priority if granted");
-		ctx.ui.setStatus(STATUS_KEY, `${label}${detail}`);
-	}
-
-	function announce(ctx: ExtensionContext): void {
-		if (!enabled) {
-			ctx.ui.notify("Fast mode OFF", "info");
-			return;
-		}
-		if (supportsApi(ctx.model)) {
-			ctx.ui.notify(`Fast mode ON · requesting ${SERVICE_TIER} · billed if granted`, "warning");
-			return;
-		}
-		ctx.ui.notify(`Fast mode ON, but ${modelLabel(ctx.model)} is not supported`, "warning");
+		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", label));
 	}
 
 	function setEnabled(ctx: ExtensionContext, next: boolean): void {
 		enabled = next;
 		updateStatus(ctx);
-		announce(ctx);
+		// Successful toggles stay in the footer. notify() is appended to the chat
+		// transcript, so only use it when the footer cannot show the new state.
+		if (next && !supportsApi(ctx.model)) {
+			ctx.ui.notify(`Fast mode ON, but ${modelLabel(ctx.model)} is not supported`, "warning");
+		}
 	}
 
 	function toggle(ctx: ExtensionContext): void {

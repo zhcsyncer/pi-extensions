@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import fastMode, {
+	footerStatusLabel,
 	loadDefaultEnabled,
 	SHORTCUT_REPEAT_GUARD_MS,
 	STATUS_KEY,
@@ -24,9 +25,17 @@ type EventHandler = (event: { reason?: string; payload?: unknown }, ctx: Extensi
 
 const KITTY_CTRL_F_RELEASE = "\x1b[102;5:3u";
 
-function createCtx(statuses: Array<string | undefined>, notifies: string[]) {
+function createCtx(
+	statuses: Array<string | undefined>,
+	notifies: string[],
+	model: { provider: string; id: string; api: string } = {
+		provider: "openai",
+		id: "gpt-5.6",
+		api: "openai-responses",
+	},
+) {
 	return {
-		model: { provider: "openai", id: "gpt-5.6", api: "openai-responses" },
+		model,
 		ui: {
 			theme: {
 				fg: (_color: string, text: string) => text,
@@ -135,14 +144,14 @@ test("/fast default writes settings and leaves the current switch unchanged", as
 
 		sessionStart({ reason: "startup" }, ctx);
 		await command.handler("on", ctx);
-		assert.match(String(statuses.at(-1)), /FAST/);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
 
 		statuses.length = 0;
 		notifies.length = 0;
 		await command.handler("default off", ctx);
 
 		assert.equal(loadDefaultEnabled(), false);
-		assert.match(String(statuses.at(-1)), /FAST/);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
 		assert.match(notifies.join("\n"), /Current switch is unchanged/);
 	});
 });
@@ -159,11 +168,13 @@ test("Ctrl+F consumes the key and keeps the repeat guard", async () => {
 		assert.equal(handle("x"), undefined);
 
 		assert.deepEqual(handle("\u0006"), { consume: true });
-		assert.match(String(statuses.at(-1)), /FAST/);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.equal(notifies.length, 0);
 		const afterFirst = statuses.at(-1);
 
 		assert.deepEqual(handle("\u0006"), { consume: true });
 		assert.equal(statuses.at(-1), afterFirst);
+		assert.equal(notifies.length, 0);
 	});
 });
 
@@ -177,12 +188,13 @@ test("Kitty Ctrl+F release is consumed and does not toggle", async () => {
 
 		sessionStart({ reason: "startup" }, ctx);
 		assert.deepEqual(handle("\u0006"), { consume: true });
-		assert.match(String(statuses.at(-1)), /FAST/);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.equal(notifies.length, 0);
 		const afterPress = statuses.at(-1);
 
 		assert.deepEqual(handle(KITTY_CTRL_F_RELEASE), { consume: true });
 		assert.equal(statuses.at(-1), afterPress);
-		assert.equal(notifies.at(-1)?.includes("Fast mode OFF"), false);
+		assert.equal(notifies.length, 0);
 	});
 });
 
@@ -197,13 +209,14 @@ test("Kitty Ctrl+F release after the repeat guard expires still does not toggle"
 
 		sessionStart({ reason: "startup" }, ctx);
 		assert.deepEqual(handle("\u0006"), { consume: true });
-		assert.match(String(statuses.at(-1)), /FAST/);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.equal(notifies.length, 0);
 		const afterPress = statuses.at(-1);
 
 		t.mock.timers.tick(SHORTCUT_REPEAT_GUARD_MS);
 		assert.deepEqual(handle(KITTY_CTRL_F_RELEASE), { consume: true });
 		assert.equal(statuses.at(-1), afterPress);
-		assert.equal(notifies.at(-1)?.includes("Fast mode OFF"), false);
+		assert.equal(notifies.length, 0);
 	});
 });
 
@@ -219,15 +232,63 @@ test("/new /resume /fork keep the current switch; /reload rereads settings", asy
 
 		sessionStart({ reason: "startup" }, ctx);
 		await command.handler("on", ctx);
+		assert.equal(notifies.length, 0);
 		writeDefaultEnabled(false);
 
 		for (const reason of ["new", "resume", "fork"] as const) {
 			sessionStart({ reason }, ctx);
-			assert.match(String(statuses.at(-1)), /FAST/, reason);
+			assert.equal(statuses.at(-1), footerStatusLabel(true, true), reason);
 		}
 
 		sessionStart({ reason: "reload" }, ctx);
-		assert.match(String(statuses.at(-1)), /fast: off/);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
 		assert.equal(loadDefaultEnabled(), false);
+	});
+});
+
+test("/fast toggle updates the footer without a transcript notify", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		assert.ok(command);
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.equal(notifies.length, 0);
+
+		await command.handler("", ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.deepEqual(notifies, []);
+
+		await command.handler("off", ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.deepEqual(notifies, []);
+	});
+});
+
+test("/fast on notifies only when the footer cannot show the state", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, {
+			provider: "anthropic",
+			id: "claude-opus-4-6",
+			api: "anthropic-messages",
+		});
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		assert.ok(command);
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), undefined);
+
+		await command.handler("on", ctx);
+		assert.equal(statuses.at(-1), undefined);
+		assert.match(notifies.join("\n"), /not supported/);
 	});
 });

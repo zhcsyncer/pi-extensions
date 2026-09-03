@@ -64,9 +64,10 @@ The supported settings key is `fast-mode.enabled` in Pi `settings.json`:
 
 ![Fast Mode footer status](./assets/demo-fast-mode-status.png)
 
-- Supported model, on: `⚡ FAST` plus `priority if granted`
-- Supported model, off: dim `fast: off · Ctrl+F`
+- Supported model, on: `⚡ FAST`
+- Supported model, off: dim `fast`
 - Unsupported model: hide the status and do not mutate the request
+- `/fast` and `Ctrl+F` update the footer only. They do not add a chat notification.
 
 ## Supported providers
 

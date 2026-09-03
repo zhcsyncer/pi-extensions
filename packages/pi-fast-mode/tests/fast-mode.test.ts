@@ -18,10 +18,13 @@ import {
 import {
 	applyXaiPriorityPayload,
 	buildStreamOptions,
+	footerStatusLabel,
 	loadDefaultEnabled,
 	resolveServiceTier,
 	resolveSettingsPath,
 	SERVICE_TIER,
+	STATUS_OFF,
+	STATUS_ON,
 	shouldReloadEnabledFromSettings,
 	supportsApi,
 	writeDefaultEnabled,
@@ -58,6 +61,13 @@ test("supportsApi accepts only the hardcoded OpenAI and xAI surfaces", () => {
 	assert.equal(supportsApi(model("openai-codex", "openai-responses")), true);
 	assert.equal(supportsApi(model("anthropic", "openai-responses")), false);
 	assert.equal(supportsApi(model("google", "google-generative-ai")), false);
+});
+
+test("footerStatusLabel is a short on/off badge and hides unsupported models", () => {
+	assert.equal(footerStatusLabel(true, true), STATUS_ON);
+	assert.equal(footerStatusLabel(false, true), STATUS_OFF);
+	assert.equal(footerStatusLabel(true, false), undefined);
+	assert.equal(footerStatusLabel(false, false), undefined);
 });
 
 test("resolveServiceTier injects priority only when the in-memory switch is on", () => {
