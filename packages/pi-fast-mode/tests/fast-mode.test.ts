@@ -18,10 +18,16 @@ import {
 import {
 	applyXaiPriorityPayload,
 	buildStreamOptions,
+	footerStatusLabel,
 	loadDefaultEnabled,
+	migrateFastModeSettings,
+	modelKey,
+	readEnabledModelList,
 	resolveServiceTier,
 	resolveSettingsPath,
 	SERVICE_TIER,
+	STATUS_OFF,
+	STATUS_ON,
 	shouldReloadEnabledFromSettings,
 	supportsApi,
 	writeDefaultEnabled,
@@ -58,6 +64,13 @@ test("supportsApi accepts only the hardcoded OpenAI and xAI surfaces", () => {
 	assert.equal(supportsApi(model("openai-codex", "openai-responses")), true);
 	assert.equal(supportsApi(model("anthropic", "openai-responses")), false);
 	assert.equal(supportsApi(model("google", "google-generative-ai")), false);
+});
+
+test("footerStatusLabel is a short on/off badge and hides unsupported models", () => {
+	assert.equal(footerStatusLabel(true, true), STATUS_ON);
+	assert.equal(footerStatusLabel(false, true), STATUS_OFF);
+	assert.equal(footerStatusLabel(true, false), undefined);
+	assert.equal(footerStatusLabel(false, false), undefined);
 });
 
 test("resolveServiceTier injects priority only when the in-memory switch is on", () => {
@@ -305,65 +318,163 @@ test("new, resume, and fork keep the current switch; startup and reload reread s
 	assert.equal(shouldReloadEnabledFromSettings(undefined), false);
 });
 
-test("loadDefaultEnabled reads only settings.json fast-mode.enabled", async () => {
+test("readEnabledModelList keeps unique string ids and ignores the rest", () => {
+	assert.deepEqual(readEnabledModelList(undefined), []);
+	assert.deepEqual(readEnabledModelList({ models: { "openai/gpt-5.6": true } }), []);
+	assert.deepEqual(
+		readEnabledModelList({ models: ["openai/gpt-5.6", "", 1, "openai/gpt-5.6", "xai/grok-4.6"] }),
+		["openai/gpt-5.6", "xai/grok-4.6"],
+	);
+});
+
+test("modelKey uses provider/id and ignores incomplete models", () => {
+	assert.equal(modelKey(undefined), undefined);
+	assert.equal(modelKey({ provider: "openai" }), undefined);
+	assert.equal(modelKey({ id: "gpt-5.6" }), undefined);
+	assert.equal(modelKey({ provider: "openai", id: "gpt-5.6" }), "openai/gpt-5.6");
+	assert.equal(modelKey({ provider: "openai-codex", id: "gpt-5.6" }), "openai-codex/gpt-5.6");
+});
+
+test("loadDefaultEnabled reads only the named model's default and ignores the old global flag", async () => {
 	await withSettingsDir(async (agentDir) => {
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
 		assert.equal(resolveSettingsPath(), path.join(agentDir, "settings.json"));
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
 			`${JSON.stringify({ "fast-mode": { enabled: true }, other: 1 })}\n`,
 			"utf8",
 		);
-		assert.equal(loadDefaultEnabled(), true);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
-			`${JSON.stringify({ "fast-mode": { enabled: false } })}\n`,
+			`${JSON.stringify({ "fast-mode": { models: [gpt] } })}\n`,
 			"utf8",
 		);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
+		assert.equal(loadDefaultEnabled("openai-codex/gpt-5.6"), false);
+
+		await writeFile(
+			path.join(agentDir, "settings.json"),
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true } } })}\n`,
+			"utf8",
+		);
+		assert.equal(loadDefaultEnabled(gpt), false);
+
+		await writeFile(
+			path.join(agentDir, "settings.json"),
+			`${JSON.stringify({ "fast-mode": { models: [] } })}\n`,
+			"utf8",
+		);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(path.join(agentDir, "settings.json"), "{not-json", "utf8");
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 	});
 });
 
-test("writeDefaultEnabled atomically updates only the fast-mode object", async () => {
+test("writeDefaultEnabled atomically updates only the named model default", async () => {
 	await withSettingsDir(async (agentDir) => {
 		const settingsPath = path.join(agentDir, "settings.json");
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
 		await writeFile(
 			settingsPath,
-			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me" } }, null, 2)}\n`,
+			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me", enabled: true } }, null, 2)}\n`,
 			"utf8",
 		);
 
-		writeDefaultEnabled(true);
+		writeDefaultEnabled(gpt, true);
 		const afterOn = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOn, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", enabled: true },
+			"fast-mode": { extra: "keep-me", models: [gpt] },
 		});
-		assert.equal(loadDefaultEnabled(), true);
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
 
-		writeDefaultEnabled(false);
+		writeDefaultEnabled(gpt, true);
+		writeDefaultEnabled(grok, true);
+		writeDefaultEnabled(gpt, false);
 		const afterOff = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOff, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", enabled: false },
+			"fast-mode": { extra: "keep-me", models: [grok] },
 		});
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
+		assert.equal(loadDefaultEnabled(grok), true);
+	});
+});
+
+test("migrateFastModeSettings rewrites legacy shapes and only notices behavior changes", async () => {
+	await withSettingsDir(async (agentDir) => {
+		const settingsPath = path.join(agentDir, "settings.json");
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
+
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me", enabled: false } })}\n`,
+			"utf8",
+		);
+		assert.deepEqual(migrateFastModeSettings(), { migrated: true });
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), {
+			theme: "dark",
+			"fast-mode": { extra: "keep-me" },
+		});
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { enabled: true } })}\n`,
+			"utf8",
+		);
+		const globalOn = migrateFastModeSettings();
+		assert.equal(globalOn.migrated, true);
+		assert.match(String(globalOn.notice), /no longer has a global ON default/);
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { "fast-mode": {} });
+		assert.equal(loadDefaultEnabled(gpt), false);
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true, [grok]: false, extra: 1 } } })}\n`,
+			"utf8",
+		);
+		const fromMap = migrateFastModeSettings();
+		assert.equal(fromMap.migrated, true);
+		assert.match(String(fromMap.notice), /allowlist/);
+		assert.match(String(fromMap.notice), /openai\/gpt-5\.6/);
+		assert.equal(String(fromMap.notice).includes(grok), false);
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), {
+			"fast-mode": { models: [gpt] },
+		});
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { models: [gpt] } })}\n`,
+			"utf8",
+		);
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
 	});
 });
 
 test("writing the default does not imply a current-switch change", async () => {
 	await withSettingsDir(async () => {
+		const gpt = "openai/gpt-5.6";
 		let current = true;
-		writeDefaultEnabled(false);
+		writeDefaultEnabled(gpt, false);
 		assert.equal(current, true);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 		current = !current;
 		assert.equal(current, false);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 	});
 });

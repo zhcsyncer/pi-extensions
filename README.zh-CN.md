@@ -27,7 +27,7 @@ zhcsyncer 维护的一组 Pi extensions。
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr 集成，提供跨 Workspace 托管进程身份、可导航 Process Widget、紧凑 Tool 渲染、临时 `/btw` 支线、blocked 状态和统一设置；需单独安装，根 bundle 不会启用。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
 - [`@zhcsyncer/pi-adversarial-review`](./packages/pi-adversarial-review) — 确定性多模型对抗式代码评审。需单独安装，根 bundle 不包含。
-- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，内存开关为 `/fast` 和 Ctrl+F。
+- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — 同一模型的 Fast / Priority 调度，面向 OpenAI 与 xAI，按模型的内存开关为 `/fast` 和 Ctrl+F。
 
   ![Fast Mode 底栏状态](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
 
