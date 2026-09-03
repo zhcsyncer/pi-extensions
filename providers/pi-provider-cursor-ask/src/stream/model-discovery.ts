@@ -28,6 +28,7 @@ import { getBridgeFactory } from "./bridge-session.js";
 import { getCursorAgentUrl } from "./config.js";
 import { writeCachedCatalog } from "./model-cache.js";
 import { inferCursorContextWindow, inferCursorMaxOutputTokens } from "../models/limits.js";
+import { lifecycleLog, reportCursorAnomaly } from "./debug-log.js";
 
 // Re-exported so existing importers of the model-discovery surface keep working.
 export {
@@ -204,12 +205,22 @@ export async function getCursorModels(
       }
     }
   } catch (err) {
-    console.error(
-      "[cursor-provider] Model discovery failed:",
-      err instanceof Error ? err.message : err,
+    if (options?.signal?.aborted) return [];
+    reportCursorAnomaly(
+      "model_discovery_failed",
+      "Cursor model discovery failed",
+      { message: err instanceof Error ? err.message : String(err) },
+      { level: "error", stderrIfNoSink: true },
     );
+    return [];
   }
-  console.warn("[cursor-provider] Model discovery returned no models");
+  if (options?.signal?.aborted) return [];
+  reportCursorAnomaly(
+    "model_discovery_failed",
+    "Cursor model discovery failed",
+    { reason: "no_models" },
+    { level: "warning", stderrIfNoSink: true },
+  );
   return [];
 }
 
@@ -256,10 +267,11 @@ export async function getCursorParameterizedModels(
     cachedParameterizedModels = { tokenHash, models, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
     return models;
   } catch (err) {
-    console.error(
-      "[cursor-provider] Parameterized model discovery failed:",
-      err instanceof Error ? err.message : err,
-    );
+    if (options?.signal?.aborted) return [];
+    lifecycleLog("model_discovery_failed", {
+      kind: "parameterized",
+      message: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }

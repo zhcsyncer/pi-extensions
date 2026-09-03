@@ -27,6 +27,7 @@ import {
   debugExtensionLog,
   getExtensionDebugLogFilePath,
   isExtensionDebugEnabled,
+  registerCursorNotifySink,
   registerExtensionDebugHooks,
   registerSessionLifecycleCleanup,
 } from "./extension/debug-hooks.js";
@@ -148,6 +149,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   };
 
   registerSessionLifecycleCleanup(pi);
+  registerCursorNotifySink(pi);
   registerExtensionDebugHooks(pi);
   debugExtensionLog("extension.start", {
     mode: "native-streamSimple",

@@ -1,10 +1,11 @@
 /**
  * Diagnostics sinks for the stream runtime.
  *
- * Three separate channels, deliberately:
- *   - `debugLog`     verbose JSONL, opt-in via PI_CURSOR_PROVIDER_DEBUG
- *   - `lifecycleLog` always-on compact log for diagnosing multi-minute stalls
- *   - `emitMetric`   structured counters, redirectable in tests
+ * Four separate channels, deliberately:
+ *   - `debugLog`             verbose JSONL, opt-in via PI_CURSOR_PROVIDER_DEBUG
+ *   - `lifecycleLog`         always-on compact log for diagnosing multi-minute stalls
+ *   - `emitMetric`           structured counters; defaults to lifecycleLog (never TUI)
+ *   - `reportCursorAnomaly`  key user-visible recoveries: lifecycle + optional TUI notify
  *
  * Everything here swallows its own errors: diagnostics must never break a turn.
  * Payloads pass through `sanitizeForDebug`, which truncates strings, summarizes
@@ -241,14 +242,7 @@ export function lifecycleLog(event: string, data?: Record<string, unknown>): voi
 export type MetricEmitter = (event: string, data: Record<string, unknown>) => void;
 
 const defaultMetricEmitter: MetricEmitter = (event, data) => {
-  console.warn(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      pid: process.pid,
-      event,
-      ...(sanitizeForDebug(data) as Record<string, unknown>),
-    }),
-  );
+  lifecycleLog(event, data);
 };
 
 let metricEmitter: MetricEmitter = defaultMetricEmitter;
@@ -258,6 +252,46 @@ export function emitMetric(event: string, data: Record<string, unknown>): void {
     metricEmitter(event, data);
   } catch (error) {
     console.error("[pi-cursor-provider] failed to emit metric", error);
+  }
+}
+
+export type CursorNotifyLevel = "info" | "warning" | "error";
+export type CursorNotifySink = (message: string, level?: CursorNotifyLevel) => void;
+
+let cursorNotifySink: CursorNotifySink | undefined;
+
+/** Register a TUI notify sink from extension context. Omit to clear. */
+export function setCursorNotifySink(sink?: CursorNotifySink): void {
+  cursorNotifySink = sink;
+}
+
+/**
+ * Persist a rare user-visible anomaly to the lifecycle file.
+ * Notifies the TUI when a sink is registered; otherwise no-op unless this is a
+ * real failure with no other sink, in which case a short human line goes to stderr.
+ */
+export function reportCursorAnomaly(
+  event: string,
+  message: string,
+  data?: Record<string, unknown>,
+  options?: { level?: CursorNotifyLevel; stderrIfNoSink?: boolean },
+): void {
+  lifecycleLog(event, data);
+  const level = options?.level ?? "warning";
+  if (cursorNotifySink) {
+    try {
+      cursorNotifySink(message, level);
+    } catch {
+      // Never throw from diagnostics.
+    }
+    return;
+  }
+  if (options?.stderrIfNoSink) {
+    try {
+      console.error(message);
+    } catch {
+      // Never throw from diagnostics.
+    }
   }
 }
 

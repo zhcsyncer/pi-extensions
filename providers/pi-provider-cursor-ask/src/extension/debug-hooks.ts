@@ -8,6 +8,7 @@ import { join as pathJoin } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCacheDir } from "../utils/cache-dir.js";
 import { cleanupSessionState } from "../stream/session-state.js";
+import { setCursorNotifySink } from "../stream/debug-log.js";
 
 let extensionDebugLogFilePath: string | undefined;
 
@@ -239,6 +240,21 @@ export function debugExtensionLog(event: string, data?: Record<string, unknown>)
   } catch {
     // Debug logging must never break extension hooks.
   }
+}
+
+export function registerCursorNotifySink(pi: ExtensionAPI): void {
+  const capture = (_event: unknown, ctx: ExtensionContext) => {
+    if (!ctx.hasUI) {
+      setCursorNotifySink(undefined);
+      return;
+    }
+    setCursorNotifySink((message, level) => {
+      ctx.ui.notify(message, level);
+    });
+  };
+
+  pi.on("session_start", capture);
+  pi.on("before_agent_start", capture);
 }
 
 export function registerSessionLifecycleCleanup(pi: ExtensionAPI): void {

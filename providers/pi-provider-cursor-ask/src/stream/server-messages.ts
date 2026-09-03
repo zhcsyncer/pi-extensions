@@ -61,7 +61,7 @@ import {
   type McpToolDefinition,
 } from "../proto/agent_pb.js";
 import { frameConnectMessage } from "../client/bridge.js";
-import { debugLog, lifecycleLog } from "./debug-log.js";
+import { debugLog, lifecycleLog, reportCursorAnomaly } from "./debug-log.js";
 import { recordDriftSignal, recordUnknownFields } from "./drift.js";
 import { handleInteractionQuery } from "./interaction-query.js";
 import { decodeMcpArgsMap } from "./request-build.js";
@@ -674,8 +674,14 @@ function handleExecMessageInner(
 
   // Fail closed: a guessed result case with an MCP payload is indistinguishable
   // from a successful reply for a future destructive exec and can strand the run.
-  console.error(`[cursor-provider] UNHANDLED exec case: "${execCase}". Bridge may stall.`);
-  setLastStreamEvent(`unhandled_exec:${String(execCase ?? "unknown")}`);
+  const unhandledCase = String(execCase ?? "unknown");
+  reportCursorAnomaly(
+    "unhandled_exec",
+    `Cursor unhandled exec may stall (${unhandledCase})`,
+    { execCase: unhandledCase },
+    { level: "warning", stderrIfNoSink: true },
+  );
+  setLastStreamEvent(`unhandled_exec:${unhandledCase}`);
   return false;
 }
 

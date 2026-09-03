@@ -176,10 +176,10 @@ import {
   debugBase64ImageSummary,
   debugLog,
   decodeRequestForTests,
-  emitMetric,
   lifecycleLog,
   nextDebugRequestId,
   redactForDebug,
+  reportCursorAnomaly,
   setMetricEmitter,
   type MetricEmitter,
 } from "./debug-log.js";
@@ -279,6 +279,7 @@ export const __testInternals = {
   trimBlobStore,
   classifyBridgeExit,
   writeNativeStream,
+  logFullHistoryRebuild,
   setMetricEmitterForTests(factory?: MetricEmitter) {
     setMetricEmitter(factory);
   },
@@ -364,17 +365,19 @@ function logFullHistoryRebuild(
     sentinelInjectionDetected: toolResultsContainRecoverySentinel(input.decision.toolResults),
   };
   debugLog(event, fields);
-  const metricFields = {
-    metric: "cursor_provider.rebuild_full_history",
+  const lifecycleFields = {
     reason: input.decision.rebuildReason,
-    model: input.modelId,
-    count: 1,
+    modelId: input.modelId,
+    convKey: input.convKey,
     requestId: input.requestId,
     bridgeKeyPrefix: bridgeKeyPrefix(input.bridgeKey),
-    convKey: input.convKey,
   };
-  debugLog("metric.cursor_provider.rebuild_full_history", metricFields);
-  emitMetric("metric.cursor_provider.rebuild_full_history", metricFields);
+  debugLog("metric.cursor_provider.rebuild_full_history", lifecycleFields);
+  reportCursorAnomaly(
+    "rebuild_full_history",
+    `Cursor rebuilt conversation history (${input.decision.rebuildReason})`,
+    lifecycleFields,
+  );
 }
 
 export type RecoveryDecision = ExtractedRecoveryDecision;
