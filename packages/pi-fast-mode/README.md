@@ -59,7 +59,7 @@ Defaults are a list of `provider/id` in Pi `settings.json`. Only listed models s
 }
 ```
 
-`/fast default` is the supported way to change that map. Manual edits are read on `/reload` or process restart. The old `fast-mode.enabled` boolean is ignored.
+`/fast default` is the supported way to change that list. Manual edits are read on `/reload` or process restart. An old `fast-mode.enabled` boolean or `{ "provider/id": true }` map is rewritten on startup or `/reload`. A former global ON does not enable every model; Fast Mode posts a warning in the chat when that happens.
 
 ## Footer
 

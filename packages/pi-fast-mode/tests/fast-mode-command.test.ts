@@ -334,7 +334,7 @@ test("/fast default refuses unsupported models and does not write settings", asy
 	});
 });
 
-test("legacy global enabled does not turn Fast on at startup", async () => {
+test("legacy global ON migrates off and warns once at startup", async () => {
 	await withLoadedExtension(async ({ handlers }) => {
 		await writeFile(
 			resolveSettingsPath(),
@@ -349,7 +349,37 @@ test("legacy global enabled does not turn Fast on at startup", async () => {
 
 		sessionStart({ reason: "startup" }, ctx);
 		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.match(notifies.join("\n"), /no longer has a global ON default/);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), false);
+
+		notifies.length = 0;
+		sessionStart({ reason: "new" }, ctx);
 		assert.equal(notifies.length, 0);
+
+		sessionStart({ reason: "reload" }, ctx);
+		assert.equal(notifies.length, 0);
+	});
+});
+
+test("legacy model map migrates to an allowlist and warns at startup", async () => {
+	await withLoadedExtension(async ({ handlers }) => {
+		await writeFile(
+			resolveSettingsPath(),
+			`${JSON.stringify({ "fast-mode": { models: { "openai/gpt-5.6": true, "xai/grok-4.6": false } } })}\n`,
+			"utf8",
+		);
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, GPT);
+		const sessionStart = handlers.get("session_start");
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.match(notifies.join("\n"), /allowlist/);
+		assert.match(notifies.join("\n"), /openai\/gpt-5\.6/);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), true);
+		assert.equal(loadDefaultEnabled("xai/grok-4.6"), false);
 	});
 });
 

@@ -59,7 +59,7 @@ pi install git:github.com/zhcsyncer/pi-extensions
 }
 ```
 
-`/fast default` 是修改该列表的官方方式。手动编辑会在 `/reload` 或进程重启后生效。旧的 `fast-mode.enabled` 布尔值会被忽略。
+`/fast default` 是修改该列表的官方方式。手动编辑会在 `/reload` 或进程重启后生效。旧的 `fast-mode.enabled` 布尔值或 `{ "provider/id": true }` 映射会在启动或 `/reload` 时改写。以前的全局开不会变成所有模型都开；发生这种迁移时，Fast Mode 会在聊天里给出警告。
 
 ## 状态栏
 

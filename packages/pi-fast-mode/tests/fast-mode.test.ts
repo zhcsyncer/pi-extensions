@@ -20,6 +20,7 @@ import {
 	buildStreamOptions,
 	footerStatusLabel,
 	loadDefaultEnabled,
+	migrateFastModeSettings,
 	modelKey,
 	readEnabledModelList,
 	resolveServiceTier,
@@ -406,6 +407,62 @@ test("writeDefaultEnabled atomically updates only the named model default", asyn
 		});
 		assert.equal(loadDefaultEnabled(gpt), false);
 		assert.equal(loadDefaultEnabled(grok), true);
+	});
+});
+
+test("migrateFastModeSettings rewrites legacy shapes and only notices behavior changes", async () => {
+	await withSettingsDir(async (agentDir) => {
+		const settingsPath = path.join(agentDir, "settings.json");
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
+
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me", enabled: false } })}\n`,
+			"utf8",
+		);
+		assert.deepEqual(migrateFastModeSettings(), { migrated: true });
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), {
+			theme: "dark",
+			"fast-mode": { extra: "keep-me" },
+		});
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { enabled: true } })}\n`,
+			"utf8",
+		);
+		const globalOn = migrateFastModeSettings();
+		assert.equal(globalOn.migrated, true);
+		assert.match(String(globalOn.notice), /no longer has a global ON default/);
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { "fast-mode": {} });
+		assert.equal(loadDefaultEnabled(gpt), false);
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true, [grok]: false, extra: 1 } } })}\n`,
+			"utf8",
+		);
+		const fromMap = migrateFastModeSettings();
+		assert.equal(fromMap.migrated, true);
+		assert.match(String(fromMap.notice), /allowlist/);
+		assert.match(String(fromMap.notice), /openai\/gpt-5\.6/);
+		assert.equal(String(fromMap.notice).includes(grok), false);
+		assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), {
+			"fast-mode": { models: [gpt] },
+		});
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
+
+		await writeFile(
+			settingsPath,
+			`${JSON.stringify({ "fast-mode": { models: [gpt] } })}\n`,
+			"utf8",
+		);
+		assert.deepEqual(migrateFastModeSettings(), { migrated: false });
 	});
 });
 

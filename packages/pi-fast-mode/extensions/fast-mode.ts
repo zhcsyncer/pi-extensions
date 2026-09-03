@@ -79,16 +79,50 @@ export function modelKey(model: FastModeModelRef | undefined): string | undefine
 	return `${model.provider}/${model.id}`;
 }
 
-export function readEnabledModelList(block: unknown): string[] {
-	if (!isRecord(block) || !Array.isArray(block.models)) return [];
+export type SettingsMigration = {
+	migrated: boolean;
+	notice?: string;
+};
+
+export function uniqueModelIds(items: string[]): string[] {
 	const seen = new Set<string>();
 	const models: string[] = [];
-	for (const item of block.models) {
-		if (typeof item !== "string" || item.length === 0 || seen.has(item)) continue;
+	for (const item of items) {
+		if (item.length === 0 || seen.has(item)) continue;
 		seen.add(item);
 		models.push(item);
 	}
 	return models;
+}
+
+export function readEnabledModelList(block: unknown): string[] {
+	if (!isRecord(block) || !Array.isArray(block.models)) return [];
+	return uniqueModelIds(block.models.filter((item): item is string => typeof item === "string"));
+}
+
+export function modelsFromLegacyMap(models: unknown): string[] | undefined {
+	if (!isRecord(models)) return undefined;
+	return uniqueModelIds(
+		Object.entries(models)
+			.filter(([, value]) => value === true)
+			.map(([key]) => key),
+	);
+}
+
+function writeSettingsFile(parsed: Record<string, unknown>): void {
+	const path = resolveSettingsPath();
+	const temporary = `${path}.${process.pid}.tmp`;
+	writeFileSync(temporary, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: "utf8" });
+	try {
+		renameSync(temporary, path);
+	} catch (error) {
+		try {
+			unlinkSync(temporary);
+		} catch {
+			// ignore cleanup failure
+		}
+		throw error;
+	}
 }
 
 export function loadDefaultEnabled(key: string): boolean {
@@ -113,18 +147,42 @@ export function writeDefaultEnabled(key: string, enabled: boolean): void {
 	if (models.length > 0) next.models = models;
 	else delete next.models;
 	parsed[SETTINGS_FIELD] = next;
-	const temporary = `${path}.${process.pid}.tmp`;
-	writeFileSync(temporary, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: "utf8" });
-	try {
-		renameSync(temporary, path);
-	} catch (error) {
-		try {
-			unlinkSync(temporary);
-		} catch {
-			// ignore cleanup failure
-		}
-		throw error;
+	writeSettingsFile(parsed);
+}
+
+export function migrateFastModeSettings(): SettingsMigration {
+	const settings = readSettingsFile();
+	if (!settings) return { migrated: false };
+	const block = settings.parsed[SETTINGS_FIELD];
+	if (!isRecord(block)) return { migrated: false };
+
+	const hasLegacyEnabled = Object.hasOwn(block, "enabled");
+	const fromMap = modelsFromLegacyMap(block.models);
+	if (!hasLegacyEnabled && fromMap === undefined) return { migrated: false };
+
+	const models = fromMap ?? readEnabledModelList(block);
+	const hadGlobalOn = block.enabled === true;
+	const next: Record<string, unknown> = { ...block };
+	delete next.enabled;
+	if (models.length > 0) next.models = models;
+	else delete next.models;
+	settings.parsed[SETTINGS_FIELD] = next;
+	writeSettingsFile(settings.parsed);
+
+	const notices: string[] = [];
+	if (hadGlobalOn) {
+		notices.push(
+			"Fast Mode no longer has a global ON default. Unconfigured models start off. Use /fast default on for each model you want Fast.",
+		);
 	}
+	if (fromMap !== undefined) {
+		notices.push(
+			fromMap.length > 0
+				? `Fast Mode defaults are now an allowlist. Kept: ${fromMap.join(", ")}.`
+				: "Fast Mode defaults are now an allowlist. No models were kept.",
+		);
+	}
+	return notices.length > 0 ? { migrated: true, notice: notices.join(" ") } : { migrated: true };
 }
 
 export function supportsApi(model: FastModeModel | undefined): boolean {
@@ -347,6 +405,15 @@ export default function fastMode(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (event, ctx) => {
 		if (shouldReloadEnabledFromSettings(event.reason)) {
+			try {
+				const migration = migrateFastModeSettings();
+				if (migration.notice) ctx.ui.notify(migration.notice, "warning");
+			} catch (error) {
+				ctx.ui.notify(
+					`Failed to migrate fast-mode settings: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
 			remembered.clear();
 		}
 		unsubscribeTerminalInput?.();
