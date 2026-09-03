@@ -18,7 +18,7 @@ export const DEFAULT_CONSULT_CONFIG: ConsultConfig = {
 	panel: [],
 	fanout: false,
 	gates: { loop: 3 },
-	budget: { perTurn: 1, perSession: 8 },
+	budget: { perRun: 3, perSession: 8 },
 	disabledForModels: [],
 };
 
@@ -79,7 +79,7 @@ function parseGates(value: unknown): ConsultGates {
 function parseBudget(value: unknown): ConsultBudget {
 	const record = isRecord(value) ? value : {};
 	return {
-		perTurn: asNonNegativeInt(record.perTurn, DEFAULT_CONSULT_CONFIG.budget.perTurn),
+		perRun: asNonNegativeInt(record.perRun ?? record.perTurn, DEFAULT_CONSULT_CONFIG.budget.perRun),
 		perSession: asNonNegativeInt(record.perSession, DEFAULT_CONSULT_CONFIG.budget.perSession),
 	};
 }

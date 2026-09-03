@@ -55,13 +55,21 @@ describe("consult envelope", () => {
 		expect(envelope.verdict).toBe("plan");
 	});
 
-	it("constructs tool results only through the envelope helper", () => {
-		const envelope = errorEnvelope("Consult budget exhausted for this turn.");
-		const result = buildConsultToolResult({ envelope, trigger: "pull", models: [] });
+	it("marks blocked results without asking for a CONSULT-LOG", () => {
+		const envelope = errorEnvelope("Consult run budget exhausted.");
+		const result = buildConsultToolResult({ envelope, trigger: "pull", models: [], outcome: "blocked" });
 		expect(result.content[0]).toMatchObject({ type: "text" });
-		expect(result.content[0]?.type === "text" && result.content[0].text).toContain("CONSULT-LOG:");
+		expect(result.content[0]?.type === "text" && result.content[0].text).not.toContain("CONSULT-LOG:");
+		expect(result.details?.outcome).toBe("blocked");
 		expect(result.details?.envelope).toEqual(envelope);
 		expect(result.details?.errorMessage).toBe(envelope.error);
+	});
+
+	it("asks for a CONSULT-LOG only after completed advice", () => {
+		const envelope = buildConsultEnvelope({ verdict: "plan", summary: "continue", raw: [] });
+		const result = buildConsultToolResult({ envelope, trigger: "pull", models: ["advisor"] });
+		expect(result.content[0]?.type === "text" && result.content[0].text).toContain("CONSULT-LOG:");
+		expect(result.details?.outcome).toBe("completed");
 	});
 
 	it("sums usage across raw paths", () => {

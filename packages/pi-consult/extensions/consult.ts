@@ -78,7 +78,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 				signal,
 				onUpdate,
 			});
-			if (result.details?.envelope && !result.details.envelope.error) adoptionStore.markConsult(toolCallId);
+			if (result.details?.outcome === "completed") adoptionStore.markConsult(toolCallId);
 			return result;
 		},
 	});

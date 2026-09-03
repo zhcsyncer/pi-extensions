@@ -173,7 +173,7 @@ export function consultSettingItems(
 
 export async function formatConsultStatus(config: ConsultConfig, tracker: ConsultTracker, agentDir?: string): Promise<string> {
 	const panel = config.panel.length === 0 ? "none" : config.panel.map((member) => `${member.model}${member.effort ? ` @${member.effort}` : ""}`).join(" + ");
-	const budget = formatBudgetRemaining(config.budget, tracker.turnCount, tracker.sessionCount);
+	const budget = formatBudgetRemaining(config.budget, tracker.runCount, tracker.sessionCount);
 	const recent = summarizeEvents(await readRecentEvents(5, agentDir));
 	return [
 		`Panel: ${panel}`,
@@ -205,7 +205,7 @@ export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandSt
 				const status = new Text(
 					theme.fg(
 						"dim",
-						`Budget remaining: ${formatBudgetRemaining(current.budget, state.tracker.turnCount, state.tracker.sessionCount)}`,
+						`Budget remaining: ${formatBudgetRemaining(current.budget, state.tracker.runCount, state.tracker.sessionCount)}`,
 					),
 					1,
 					0,

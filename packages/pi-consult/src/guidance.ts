@@ -7,5 +7,5 @@ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
 	"Do not call `consult` for short mechanical steps whose next action is already dictated by the tool output you just read.",
 	"Give the advisor's advice serious weight. Empirical failure or primary-source evidence beats the suggestion; a passing self-test is not enough to dismiss it.",
 	"If evidence points one way and consult points another, do not silently switch — surface the conflict and ask once more, or ask the user. Never quietly change course.",
-	"After each `consult` result, the next visible reply must declare adopt or reject with a reason as a `CONSULT-LOG:` line.",
+	"After each completed `consult` result, the next visible reply must declare adopt or reject with a reason as a `CONSULT-LOG:` line. If the run budget blocks consult, do not retry until the next user message.",
 ];

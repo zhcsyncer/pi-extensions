@@ -52,7 +52,7 @@ After each `consult` result, the next visible reply should add:
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
-The line remains normal assistant output and its decision is also mirrored under the matching Consult row.
+The line remains normal assistant output and its decision is also mirrored under the matching Consult row. The TUI distinguishes `consulting`, advisor verdicts, policy `blocked`, request `failed`, and user `cancelled` states.
 
 ## Configuration
 
@@ -63,12 +63,12 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
   "panel": [{ "model": "anthropic/claude-fable-5", "effort": "high" }],
   "fanout": false,
   "gates": { "loop": 3 },
-  "budget": { "perTurn": 1, "perSession": 8 },
+  "budget": { "perRun": 3, "perSession": 8 },
   "disabledForModels": []
 }
 ```
 
-Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an explicit `consult()`; auto gates always use the first advisor only. Budgets count started advisor requests, including attempts that later fail or are cancelled. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
+Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an explicit `consult()`; auto gates always use the first advisor only. `perRun` spans one real user input through all following model/tool rounds; the next user input resets it. Budgets count started advisor requests, including attempts that later fail or are cancelled. Legacy `perTurn` is accepted as an alias. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
 
 ## License
 

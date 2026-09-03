@@ -1,7 +1,7 @@
 import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { ConsultAdoption } from "./events.ts";
-import { isRecord, type ConsultEnvelope, type ConsultVerdict } from "./types.ts";
+import { isRecord, type ConsultEnvelope, type ConsultOutcome, type ConsultVerdict } from "./types.ts";
 
 const TOOL_LABEL = "Consult";
 const RESULT_FIRST_PREFIX = "  ⎿ ";
@@ -117,10 +117,25 @@ export function tickElapsed(context: ConsultRenderContext | undefined, isPartial
 	return Date.now() - elapsed.startedAt;
 }
 
-function verdictColor(theme: Theme, verdict: ConsultVerdict | "failed"): string {
-	if (verdict === "stop" || verdict === "failed") return theme.fg("error", verdict);
-	if (verdict === "correction" || verdict === "split") return theme.fg("warning", verdict);
-	return theme.fg("success", verdict);
+type ConsultDisplayStatus = ConsultVerdict | Exclude<ConsultOutcome, "completed">;
+
+function outcomeFromResult(
+	result: ConsultRenderResult,
+	context: ConsultRenderContext | undefined,
+	envelope: ConsultEnvelope | undefined,
+): ConsultOutcome {
+	const outcome = detailsRecord(result)?.outcome;
+	if (outcome === "completed" || outcome === "blocked" || outcome === "failed" || outcome === "cancelled") {
+		return outcome;
+	}
+	return context?.isError || envelope?.error ? "failed" : "completed";
+}
+
+function statusColor(theme: Theme, status: ConsultDisplayStatus): string {
+	if (status === "stop" || status === "failed") return theme.fg("error", status);
+	if (status === "correction" || status === "split" || status === "blocked") return theme.fg("warning", status);
+	if (status === "cancelled") return theme.fg("muted", status);
+	return theme.fg("success", status);
 }
 
 function consultingLine(result: ConsultRenderResult, theme: Theme, elapsedMs: number): string {
@@ -148,21 +163,22 @@ export function consultResultLines(
 	if (options.isPartial || context?.isPartial) return [consultingLine(result, theme, elapsedMs)];
 
 	const envelope = envelopeFromResult(result);
-	const failed = Boolean(context?.isError || envelope?.error);
-	const verdict: ConsultVerdict | "failed" = failed ? "failed" : (envelope?.verdict ?? "plan");
+	const outcome = outcomeFromResult(result, context, envelope);
+	const completed = outcome === "completed";
+	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "plan") : outcome;
 	const summary = oneLine(envelope?.error || envelope?.summary || "");
 
-	const adoption = failed ? undefined : context?.adoption;
+	const adoption = completed ? context?.adoption : undefined;
 	if (!options.expanded) {
-		const lines = [summary ? `${verdictColor(theme, verdict)} · ${theme.fg("text", summary)}` : verdictColor(theme, verdict)];
+		const lines = [summary ? `${statusColor(theme, status)} · ${theme.fg("text", summary)}` : statusColor(theme, status)];
 		if (adoption) lines.push(adoptionLine(adoption, theme));
 		return lines;
 	}
 
-	const lines = [verdictColor(theme, verdict)];
-	if (envelope?.summary && !failed) lines.push(theme.fg("text", envelope.summary));
-	if (failed && envelope?.error) lines.push(theme.fg("text", envelope.error));
-	if (envelope?.conflicts) {
+	const lines = [statusColor(theme, status)];
+	if (envelope?.summary && completed) lines.push(theme.fg("text", envelope.summary));
+	if (!completed && envelope?.error) lines.push(theme.fg("text", envelope.error));
+	if (completed && envelope?.conflicts) {
 		for (const conflict of envelope.conflicts) lines.push(theme.fg("warning", conflict));
 	}
 	if (adoption) lines.push(adoptionLine(adoption, theme));

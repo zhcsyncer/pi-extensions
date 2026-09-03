@@ -29,7 +29,7 @@ describe("consult config", () => {
 		expect(parseConsultConfig({})).toEqual(DEFAULT_CONSULT_CONFIG);
 		expect(DEFAULT_CONSULT_CONFIG.panel).toEqual([]);
 		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 3 });
-		expect(DEFAULT_CONSULT_CONFIG.budget).toEqual({ perTurn: 1, perSession: 8 });
+		expect(DEFAULT_CONSULT_CONFIG.budget).toEqual({ perRun: 3, perSession: 8 });
 	});
 
 	it("parses panel, gates, budget, and disabledForModels", () => {
@@ -38,7 +38,7 @@ describe("consult config", () => {
 				panel: [{ model: "anthropic/claude-fable-5", effort: "high" }, { model: "openai-codex/gpt-5.6-sol" }],
 				fanout: true,
 				gates: { loop: 4 },
-				budget: { perTurn: 2, perSession: 10 },
+				budget: { perRun: 2, perSession: 10 },
 				disabledForModels: ["anthropic/claude-fable-5"],
 			}),
 		).toEqual({
@@ -48,8 +48,17 @@ describe("consult config", () => {
 			],
 			fanout: true,
 			gates: { loop: 4 },
-			budget: { perTurn: 2, perSession: 10 },
+			budget: { perRun: 2, perSession: 10 },
 			disabledForModels: ["anthropic/claude-fable-5"],
+		});
+	});
+
+	it("accepts perTurn as a legacy alias and serializes perRun", () => {
+		const parsed = parseConsultConfig({ budget: { perTurn: 1, perSession: 5 } });
+		expect(parsed.budget).toEqual({ perRun: 1, perSession: 5 });
+		expect(serializeConsultConfig(parsed, { budget: { perTurn: 1 } }).budget).toEqual({
+			perRun: 1,
+			perSession: 5,
 		});
 	});
 

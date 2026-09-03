@@ -5,6 +5,7 @@ export const EFFORT_ORDINAL: readonly GradedEffort[] = ["minimal", "low", "mediu
 export type ConsultTrigger = "pull" | "loop";
 
 export type ConsultVerdict = "plan" | "correction" | "stop" | "split";
+export type ConsultOutcome = "completed" | "blocked" | "failed" | "cancelled";
 
 export interface PanelMember {
 	model: string;
@@ -16,7 +17,7 @@ export interface ConsultGates {
 }
 
 export interface ConsultBudget {
-	perTurn: number;
+	perRun: number;
 	perSession: number;
 }
 
@@ -72,6 +73,7 @@ export interface ConsultDetails {
 	trigger: ConsultTrigger;
 	models: string[];
 	envelope?: ConsultEnvelope;
+	outcome?: ConsultOutcome;
 	effort?: string;
 	errorMessage?: string;
 }

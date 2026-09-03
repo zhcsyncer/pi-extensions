@@ -31,6 +31,8 @@ describe("consult tracker gates", () => {
 	it("skips the loop gate when the budget is exhausted", () => {
 		const tracker = new ConsultTracker();
 		tracker.recordConsult();
+		tracker.recordConsult();
+		tracker.recordConsult();
 		tracker.onToolStart("1", "bash", { command: "ls" });
 		tracker.onToolEnd("1", "bash", true);
 		tracker.onToolStart("2", "bash", { command: "ls" });
@@ -40,11 +42,11 @@ describe("consult tracker gates", () => {
 		expect(tracker.evaluateLoop(3, budget).fire).toBe(false);
 	});
 
-	it("resets turn state on a user turn but keeps session spend", () => {
+	it("resets run state on user input but keeps session spend", () => {
 		const tracker = new ConsultTracker();
 		tracker.recordConsult();
 		tracker.onUserTurn();
-		expect(tracker.turnCount).toBe(0);
+		expect(tracker.runCount).toBe(0);
 		expect(tracker.sessionCount).toBe(1);
 		expect(tracker.lock).toBe(false);
 	});

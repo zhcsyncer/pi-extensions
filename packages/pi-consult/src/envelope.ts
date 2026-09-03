@@ -1,6 +1,14 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { MSG_CONSULT_LOG_HINT } from "./messages.ts";
-import type { ConsultDetails, ConsultEnvelope, ConsultRaw, ConsultTrigger, ConsultVerdict, UsageSnapshot } from "./types.ts";
+import type {
+	ConsultDetails,
+	ConsultEnvelope,
+	ConsultOutcome,
+	ConsultRaw,
+	ConsultTrigger,
+	ConsultVerdict,
+	UsageSnapshot,
+} from "./types.ts";
 import { isRecord } from "./types.ts";
 
 const VERDICTS = new Set<ConsultVerdict>(["plan", "correction", "stop", "split"]);
@@ -125,14 +133,16 @@ export function mergeAdvisorOutcomes(outcomes: AdvisorOutcome[]): ConsultEnvelop
 	});
 }
 
-export function formatConsultResultText(envelope: ConsultEnvelope): string {
+export function formatConsultResultText(envelope: ConsultEnvelope, outcome: ConsultOutcome): string {
 	const payload = {
+		outcome,
 		verdict: envelope.verdict,
 		summary: envelope.summary,
 		...(envelope.conflicts ? { conflicts: envelope.conflicts } : {}),
 		...(envelope.error ? { error: envelope.error } : {}),
 		raw: envelope.raw,
 	};
+	if (outcome !== "completed") return JSON.stringify(payload, null, 2);
 	const splitHint =
 		envelope.verdict === "split"
 			? "Conflict: show both sides and ask once more or ask the user. Do not silently change course.\n\n"
@@ -144,17 +154,20 @@ export function buildConsultToolResult(opts: {
 	envelope: ConsultEnvelope;
 	trigger: ConsultTrigger;
 	models: string[];
+	outcome?: ConsultOutcome;
 	effort?: string;
 }): AgentToolResult<ConsultDetails> {
+	const outcome = opts.outcome ?? (opts.envelope.error ? "failed" : "completed");
 	const details: ConsultDetails = {
 		trigger: opts.trigger,
 		models: opts.models,
 		envelope: opts.envelope,
+		outcome,
 		...(opts.effort ? { effort: opts.effort } : {}),
 		...(opts.envelope.error ? { errorMessage: opts.envelope.error } : {}),
 	};
 	return {
-		content: [{ type: "text", text: formatConsultResultText(opts.envelope) }],
+		content: [{ type: "text", text: formatConsultResultText(opts.envelope, outcome) }],
 		details,
 	};
 }

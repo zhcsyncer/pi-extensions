@@ -52,7 +52,7 @@ pi -e npm:@zhcsyncer/pi-consult
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
-该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。
+该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。TUI 会区分 `consulting`、顾问反馈类型、策略 `blocked`、请求 `failed` 与用户 `cancelled` 状态。
 
 ## 配置
 
@@ -63,12 +63,12 @@ CONSULT-LOG: adopt|reject | <reason>
   "panel": [{ "model": "anthropic/claude-fable-5", "effort": "high" }],
   "fanout": false,
   "gates": { "loop": 3 },
-  "budget": { "perTurn": 1, "perSession": 8 },
+  "budget": { "perRun": 3, "perSession": 8 },
   "disabledForModels": []
 }
 ```
 
-空 `panel` 保持工具卸载。`fanout: true` 时显式 `consult()` 会并行问整组 panel；自动 gate 始终只用第一路。预算按已开始的顾问请求计数，包括之后失败或取消的尝试。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。
+空 `panel` 保持工具卸载。`fanout: true` 时显式 `consult()` 会并行问整组 panel；自动 gate 始终只用第一路。`perRun` 从一次真实用户输入开始，覆盖其后的所有模型/工具轮次，并在下一次用户输入时重置。预算按已开始的顾问请求计数，包括之后失败或取消的尝试；旧 `perTurn` 仍作为兼容别名。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。
 
 ## 许可证
 

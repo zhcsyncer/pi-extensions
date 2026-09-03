@@ -49,7 +49,7 @@ import { resolvePanelMembers, selectPanel, type ResolvedPanelMember } from "./pa
 import { getRuntimeCompleteSimple, loadCompleteSimple } from "./pi-compat.ts";
 import { CONSULT_SYSTEM_PROMPT } from "./prompt.ts";
 import type { ConsultTracker } from "./tracker.ts";
-import type { ConsultConfig, ConsultDetails, ConsultTrigger } from "./types.ts";
+import type { ConsultConfig, ConsultDetails, ConsultOutcome, ConsultTrigger } from "./types.ts";
 
 export type CompleteSimpleFn = (
 	model: ResolvedPanelMember["model"],
@@ -216,17 +216,24 @@ export interface ExecuteConsultOptions {
 
 export async function executeConsult(opts: ExecuteConsultOptions): Promise<AgentToolResult<ConsultDetails>> {
 	const why = opts.why.trim();
-	const fail = (activeTrigger: ConsultTrigger, summary: string, error = summary, models: string[] = []) =>
+	const fail = (
+		activeTrigger: ConsultTrigger,
+		summary: string,
+		error = summary,
+		models: string[] = [],
+		outcome: Exclude<ConsultOutcome, "completed"> = "blocked",
+	) =>
 		buildConsultToolResult({
 			envelope: errorEnvelope(summary, error),
 			trigger: activeTrigger,
 			models,
+			outcome,
 		});
 
 	if (!why) return fail(opts.tracker.pendingTrigger ?? "pull", ERR_EMPTY_WHY);
 	const trigger: ConsultTrigger = opts.tracker.consumeTrigger();
 
-	const budgetError = budgetBlockReason(opts.config.budget, opts.tracker.turnCount, opts.tracker.sessionCount);
+	const budgetError = budgetBlockReason(opts.config.budget, opts.tracker.runCount, opts.tracker.sessionCount);
 	if (budgetError) return fail(trigger, budgetError);
 
 	const selected = selectPanel(opts.config.panel, { fanout: opts.config.fanout, trigger });
@@ -244,7 +251,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 			completeSimple = await loadCompleteSimple();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			return fail(trigger, errCallThrew(message), message, members.map((member) => member.label));
+			return fail(trigger, errCallThrew(message), message, members.map((member) => member.label), "failed");
 		}
 	}
 
@@ -273,7 +280,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 
 	// Authentication can yield while another consult reserves the same budget.
 	// Re-check and increment synchronously immediately before the paid request.
-	const reservationError = budgetBlockReason(opts.config.budget, opts.tracker.turnCount, opts.tracker.sessionCount);
+	const reservationError = budgetBlockReason(opts.config.budget, opts.tracker.runCount, opts.tracker.sessionCount);
 	if (reservationError) return fail(trigger, reservationError);
 	opts.tracker.recordConsult();
 
@@ -299,6 +306,11 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 	});
 
 	const envelope = mergeAdvisorOutcomes(outcomes);
+	const outcome: ConsultOutcome = !envelope.error
+		? "completed"
+		: opts.signal?.aborted || (outcomes.length > 0 && outcomes.every((item) => !item.ok && item.error === ERR_CALL_ABORTED))
+			? "cancelled"
+			: "failed";
 
 	const usage = sumUsage(envelope.raw);
 	try {
@@ -321,5 +333,5 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		// Logging must not smash the session; the tool result still returns.
 	}
 
-	return buildConsultToolResult({ envelope, trigger, models, effort: members[0]?.effort });
+	return buildConsultToolResult({ envelope, trigger, models, outcome, effort: members[0]?.effort });
 }

@@ -20,9 +20,9 @@
 
 - 顾问看不到用户，也不回传 thinking。
 - `consult` 必须作为当前 assistant step 的唯一工具调用，并等结果后再调其他工具；顾问快照只剥离当前 consult，同时保留用户图片。
-- 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。
+- 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。`budget.perRun` 默认 3，从一次真实用户输入覆盖到下一次用户输入；旧 `perTurn` 只作解析别名。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。
 - 未配 panel：从 active tools 卸掉，prompt 零占用。
-- TUI 跟 tool-display-intent 的 Claude 行：等待期 `● Consult(why)` / `  ⎿ consulting model · effort  12s`；完成后收起 `verdict · summary` 带 Ctrl+O，展开后 why 在标题换行、结果区是态度 + summary 全文 + 模型。主模型后续输出的 `CONSULT-LOG:` 仍是普通 assistant 文本，同时把 `adopt/reject · reason` 派生回贴到对应 Consult 行；reload 从当前会话分支重建，不额外持久化副本。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
+- TUI 跟 tool-display-intent 的 Claude 行：等待期 `consulting model · effort  12s`；正常完成显示 `plan/correction/stop/split`，策略拒绝显示 `blocked`，请求错误显示 `failed`，用户取消显示 `cancelled`。完成结果收起为 `status · summary` 并带 Ctrl+O，展开后 why 在标题换行、结果区是状态 + summary 全文 + 模型。只有正常顾问反馈要求 `CONSULT-LOG:`；该行仍是普通 assistant 文本，同时把 `adopt/reject · reason` 派生回贴到对应 Consult 行。reload 从当前会话分支重建，不额外持久化副本。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
 
 ## 红线
 

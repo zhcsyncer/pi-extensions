@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { executeConsult, runConsultPanel, type CompleteSimpleFn } from "../src/execute.ts";
-import { ERR_BUDGET_TURN } from "../src/messages.ts";
+import { ERR_BUDGET_RUN } from "../src/messages.ts";
 import type { ResolvedPanelMember } from "../src/panel.ts";
 import { ConsultTracker } from "../src/tracker.ts";
 import type { ConsultConfig } from "../src/types.ts";
@@ -43,7 +43,7 @@ function member(id: string): ResolvedPanelMember {
 }
 
 describe("executeConsult budget reservation", () => {
-	it("allows only one parallel paid request at the per-turn cap", async () => {
+	it("allows only one parallel paid request at the per-run cap", async () => {
 		const directory = await mkdtemp(path.join(tmpdir(), "pi-consult-execute-"));
 		try {
 			const advisor = member("one").model;
@@ -52,7 +52,7 @@ describe("executeConsult budget reservation", () => {
 				panel: [{ model: "anthropic/one", effort: "high" }],
 				fanout: false,
 				gates: { loop: 3 },
-				budget: { perTurn: 1, perSession: 8 },
+				budget: { perRun: 1, perSession: 8 },
 				disabledForModels: [],
 			};
 			let authCalls = 0;
@@ -89,9 +89,12 @@ describe("executeConsult budget reservation", () => {
 			const results = await Promise.all([call(), call()]);
 			expect(paidCalls).toBe(1);
 			expect(authCalls).toBe(2);
-			expect(tracker.turnCount).toBe(1);
-			expect(results.some((result) => result.details?.envelope?.summary === "continue")).toBe(true);
-			expect(results.some((result) => result.details?.envelope?.error === ERR_BUDGET_TURN)).toBe(true);
+			expect(tracker.runCount).toBe(1);
+			const completed = results.find((result) => result.details?.envelope?.summary === "continue");
+			const blocked = results.find((result) => result.details?.envelope?.error === ERR_BUDGET_RUN);
+			expect(completed?.details?.outcome).toBe("completed");
+			expect(blocked?.details?.outcome).toBe("blocked");
+			expect(blocked?.content[0]?.type === "text" && blocked.content[0].text).not.toContain("CONSULT-LOG:");
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

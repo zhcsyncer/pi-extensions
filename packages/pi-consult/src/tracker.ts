@@ -13,7 +13,7 @@ export class ConsultTracker {
 	pendingArgs = new Map<string, { name: string; args: unknown }>();
 	lock = false;
 	pendingTrigger: ConsultTrigger | undefined;
-	turnCount = 0;
+	runCount = 0;
 	sessionCount = 0;
 
 	onSessionStart(): void {
@@ -26,7 +26,7 @@ export class ConsultTracker {
 		this.pendingArgs.clear();
 		this.lock = false;
 		this.pendingTrigger = undefined;
-		this.turnCount = 0;
+		this.runCount = 0;
 	}
 
 	onToolStart(toolCallId: string, name: string, args: unknown): void {
@@ -53,13 +53,13 @@ export class ConsultTracker {
 	}
 
 	recordConsult(): void {
-		this.turnCount += 1;
+		this.runCount += 1;
 		this.sessionCount += 1;
 	}
 
 	evaluateLoop(n: number, budget: ConsultBudget): LoopGateDecision {
 		if (this.lock) return { fire: false };
-		if (!canSpendBudget(budget, this.turnCount, this.sessionCount)) return { fire: false };
+		if (!canSpendBudget(budget, this.runCount, this.sessionCount)) return { fire: false };
 		const reason = loopGateReason(this.fingerprint, n);
 		if (!reason) return { fire: false };
 		return { fire: true, reason };

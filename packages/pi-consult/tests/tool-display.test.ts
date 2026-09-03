@@ -79,22 +79,24 @@ describe("consult Claude-style rows", () => {
 		).toEqual(["consulting cursor/fable-5.1 · xhigh  12s"]);
 	});
 
-	it("prefixes collapsed complete rows with the Claude ⎿ gutter and an expand hint", () => {
+	it("renders a budget refusal as blocked rather than failed", () => {
 		const component = renderConsultResult(
 			{
 				details: {
 					trigger: "pull",
 					models: [],
-					envelope: errorEnvelope("Budget exhausted for this turn."),
+					outcome: "blocked",
+					envelope: errorEnvelope("Consult run budget exhausted; resets on next user message."),
 				},
 			},
 			{ expanded: false, isPartial: false },
 			theme,
-			{ isError: true, args: { why: "x" } },
+			{ args: { why: "x" } },
 		);
-		const line = component.render(80)[0] ?? "";
+		const line = component.render(100)[0] ?? "";
 		expect(line).toMatch(/^ {2}⎿ /);
-		expect(line).toContain("failed · Budget exhausted for this turn.");
+		expect(line).toContain("blocked · Consult run budget exhausted; resets on next user message.");
+		expect(line).not.toContain("failed");
 		expect(line).toMatch(/Ctrl\+O to expand\)$/);
 	});
 
@@ -158,14 +160,21 @@ describe("consult Claude-style rows", () => {
 		]);
 	});
 
-	it("does not attach adoption to failed results", () => {
-		const lines = consultResultLines(
-			{ details: { models: [], envelope: errorEnvelope("No advisor model") } },
+	it("distinguishes failed and cancelled results without adoption", () => {
+		const failed = consultResultLines(
+			{ details: { models: [], outcome: "failed", envelope: errorEnvelope("Provider failed") } },
 			{ expanded: true },
 			theme,
-			{ isError: true, adoption: { adopted: true, reason: "irrelevant" } },
+			{ adoption: { adopted: true, reason: "irrelevant" } },
 		);
-		expect(lines).toEqual(["failed", "No advisor model"]);
+		expect(failed).toEqual(["failed", "Provider failed"]);
+
+		const cancelled = consultResultLines(
+			{ details: { models: [], outcome: "cancelled", envelope: errorEnvelope("Request cancelled") } },
+			{ expanded: true },
+			theme,
+		);
+		expect(cancelled).toEqual(["cancelled", "Request cancelled"]);
 	});
 
 	it("truncates collapsed why to one line", () => {
