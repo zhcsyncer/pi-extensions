@@ -297,7 +297,11 @@ function registerRuntimeTool(
   }
   const config = getConfig();
   const toolIntent = config.toolIntent;
-  const registeredTool = config.toolCallLayout === "individual" && toolIntent.enabled
+  const wantsIntent = toolIntent.enabled && (
+    config.toolCallLayout === "individual" ||
+    (config.toolCallLayout === "aggregate" && tool.name === "bash")
+  );
+  const registeredTool = wantsIntent
     ? withDisplaySummary(styledTool as never, {
         required: true,
         language: toolIntent.language,
@@ -1948,10 +1952,13 @@ export function registerToolDisplayOverrides(
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
   const aggregateProjection = getConfig().toolCallLayout === "aggregate"
-    ? new AggregateProjection((toolName) =>
-        getConfig().passthroughToolNames.includes(toolName) ||
-        ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
-          !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]))
+    ? new AggregateProjection(
+        (toolName) =>
+          getConfig().passthroughToolNames.includes(toolName) ||
+          ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
+            !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]),
+        () => getConfig().expandedTimeline,
+      )
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
     registerRuntimeTool(pi, tool, getConfig, aggregateProjection);

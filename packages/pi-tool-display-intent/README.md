@@ -60,14 +60,14 @@ Empty `/tools` opens the settings panel. Switching layout asks to reload this se
 ```text
 ◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   › 先对照两边入口
-  ◐ Bash(pnpm test)
+  ◐ Bash — 把策略固化成 zone · 54 lines · 2.3KB           12s
 
 ✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
   ↳ 2 steers
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, without dumping file contents or diffs. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tools individual`.
+While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. Each visible call row right-aligns that call's elapsed time. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place. The default `flat` timeline still shows one timed row per call; set `toolCalls.expandedTimeline` to `turns` to group those rows under `↻ 1/3 · 3 calls` headers with indented calls. Long bash scripts show intent and size instead of the body. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tools individual`.
 
 User prompts always use the accent-gutter box.
 
@@ -78,6 +78,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | What you change | Effect |
 |---|---|
 | `toolCalls.layout` | `individual` or `aggregate` |
+| `toolCalls.expandedTimeline` | `flat` per-call Ctrl+O rows, or `turns` grouped by agent turn (aggregate only; no reload) |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Language for model-written intent |
 | `diff.collapsedMode` | `body` preview, or `summary` stats only |

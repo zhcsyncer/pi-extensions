@@ -44,6 +44,11 @@
           "maximum": 8,
           "default": 1,
           "description": "Maximum rendered terminal rows used by collapsed Bash command arguments. Ctrl+O shows the complete command."
+        },
+        "expandedTimeline": {
+          "enum": ["flat", "turns"],
+          "default": "flat",
+          "description": "Controls the Ctrl+O aggregate timeline. flat keeps one target/status row per call. turns groups those rows by agent turn with a ↻ 1/N header and indented calls. Collapsed Tools is unchanged. Changing this does not reload the session."
         }
       }
     },

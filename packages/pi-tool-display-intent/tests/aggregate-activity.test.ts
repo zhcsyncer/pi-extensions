@@ -8,8 +8,10 @@ import {
 import { Container, Text } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
+	composeLedgerCallLine,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
 	formatAggregateClock,
+	formatAggregateClockHms,
 	formatAggregateTarget,
 	getActiveAggregateProjection,
 	normalizeAssistantNarration,
@@ -52,15 +54,17 @@ function resultEntry(
 	id: string,
 	toolCallId: string,
 	toolName: string,
-	options: { text?: string; isError?: boolean; image?: boolean } = {},
+	options: { text?: string; isError?: boolean; image?: boolean; timestamp?: number } = {},
 ) {
 	return {
 		type: "message",
 		id,
+		timestamp: options.timestamp,
 		message: {
 			role: "toolResult",
 			toolCallId,
 			toolName,
+			timestamp: options.timestamp,
 			content: options.image
 				? [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }]
 				: [{ type: "text", text: options.text ?? "ok" }],
@@ -75,9 +79,11 @@ function messages(entries: unknown[]): unknown[] {
 		.filter((message) => message !== undefined);
 }
 
-function createProjection(): AggregateProjection {
-	return new AggregateProjection((toolName) =>
-		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
+function createProjection(expandedTimeline: "flat" | "turns" = "flat"): AggregateProjection {
+	return new AggregateProjection(
+		(toolName) => (DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName),
+		() => expandedTimeline,
+	);
 }
 
 function call(id: string, name: string, args: Record<string, unknown> = {}) {
@@ -818,6 +824,70 @@ test("expanded tool rows leave the Tools ledger and show one summary per call", 
 	}
 });
 
+test("expanded turns timeline groups calls under 1/N headers without per-row clocks", () => {
+	const startedAt = Date.parse("2026-04-08T14:13:45");
+	const turnOneEndedAt = startedAt + 112_000;
+	const turnTwoEndedAt = turnOneEndedAt + 19_000;
+	const projection = createProjection("turns");
+	const branch = [
+		userEntry("user-turns"),
+		{
+			...assistantEntry("assistant-1", [
+				call("read-1", "read", { path: "a.ts" }),
+				call("read-2", "read", { path: "b.ts" }),
+			], { id: "assistant-1", timestamp: startedAt }),
+			timestamp: startedAt,
+		},
+		resultEntry("result-1", "read-1", "read", { timestamp: turnOneEndedAt }),
+		resultEntry("result-2", "read-2", "read", { timestamp: turnOneEndedAt }),
+		{
+			...assistantEntry("assistant-2", [
+				call("edit-1", "edit", { path: "a.ts" }),
+			], { id: "assistant-2", timestamp: turnOneEndedAt }),
+			timestamp: turnOneEndedAt,
+		},
+		resultEntry("result-3", "edit-1", "edit", { timestamp: turnTwoEndedAt }),
+	];
+	projection.rebuild(branch, messages(branch));
+
+	const first = visibleText(projection.renderExpandedToolRow("read-1", 80).join("\n"));
+	const second = visibleText(projection.renderExpandedToolRow("read-2", 80).join("\n"));
+	const third = visibleText(projection.renderExpandedToolRow("edit-1", 80).join("\n"));
+
+	assert.match(first, /↻ 1\/2 · 2 calls · 1m52s {2}14:15:37/);
+	assert.match(first, /Read\(a\.ts\)/);
+	assert.doesNotMatch(first, /Read\(b\.ts\)/);
+	assert.doesNotMatch(second, /↻|1\/2|2\/2/);
+	assert.match(second, / {2}✓ Read\(b\.ts\)/);
+	assert.match(third, /↻ 2\/2 · 1 call · 19s {2}14:15:56/);
+	assert.match(third, /Edit\(a\.ts\)/);
+	assert.doesNotMatch(first, /14:13:45/);
+	assert.doesNotMatch(second, /1m52s|14:15:37/);
+});
+
+test("flat expanded timeline keeps one timed row per call", () => {
+	const startedAt = Date.parse("2026-04-08T14:13:45");
+	const endedAt = startedAt + 112_000;
+	const projection = createProjection("flat");
+	const branch = [
+		userEntry("user-flat"),
+		{
+			...assistantEntry("assistant-1", [
+				call("read-1", "read", { path: "a.ts" }),
+				call("read-2", "read", { path: "b.ts" }),
+			], { id: "assistant-1", timestamp: startedAt }),
+			timestamp: startedAt,
+		},
+		resultEntry("result-1", "read-1", "read", { timestamp: endedAt }),
+		resultEntry("result-2", "read-2", "read", { timestamp: endedAt }),
+	];
+	projection.rebuild(branch, messages(branch));
+	const first = visibleText(projection.renderExpandedToolRow("read-1", 80).join("\n"));
+	assert.doesNotMatch(first, /1\/1/);
+	assert.match(first, /Read\(a\.ts\)/);
+	assert.match(first, /1m52s/);
+});
+
 test("expanded Tools summary stays on the first visible framed row after empty thinking", () => {
 	initTheme("dark", false);
 	const projection = createProjection();
@@ -1059,40 +1129,45 @@ test("getCallPresentation wins over heuristic keys for custom tools", () => {
 	}
 });
 
-test("long custom targets wrap to a second ledger row instead of eating the query", () => {
+test("long custom targets truncate on the left so the timing column stays", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-long-query");
 	const query = `metrics ${"abcdefghij".repeat(12)} rollout`;
 	projection.markStarted("search-1", "web_search", { query });
 	const view = projection.getView("search-1");
 	assert.ok(view);
-	const rendered = renderAggregateActivity(view, 36, plainTheme());
-	const callLines = rendered.filter((line) => /web_search\(|^\s{4}\S/.test(line));
-	assert.ok(callLines.length >= 2);
-	assert.ok(callLines.length <= 2);
-	assert.match(rendered.join("\n"), /metrics/);
-	assert.match(rendered.join("\n"), /abcdefghij/);
+	const startedAt = projection.getMember("search-1")?.startedAtMs ?? Date.now();
+	const rendered = renderAggregateActivity(view, 36, plainTheme(), startedAt + 1_500);
+	const callLines = rendered.filter((line) => /web_search\(/.test(line));
+	assert.equal(callLines.length, 1);
+	assert.match(callLines[0] ?? "", /metrics/);
+	assert.match(callLines[0] ?? "", /1\.5s\s*$/);
+	assert.doesNotMatch(callLines[0] ?? "", /rollout/);
 });
 
-test("long bash commands use a preview row instead of stuffing the script into Bash()", () => {
+test("multiline bash stays on one ledger row with size, not the script body", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-long-bash");
 	const script = Array.from({ length: 12 }, (_, index) => `echo line-${index} with extra text`).join("\n");
-	projection.markStarted("bash-1", "bash", { command: script });
+	projection.markStarted("bash-1", "bash", {
+		command: script,
+		displaySummary: "把策略固化成 zone 245093",
+	});
 	const view = projection.getView("bash-1");
 	assert.ok(view);
-	const collapsed = renderAggregateActivity(view, 48, plainTheme());
+	const startedAt = projection.getMember("bash-1")?.startedAtMs ?? Date.now();
+	const collapsed = renderAggregateActivity(view, 80, plainTheme(), startedAt + 12_000);
 	assert.doesNotMatch(collapsed.join("\n"), /Bash\(echo line-0/);
-	assert.match(collapsed.join("\n"), /Bash/);
-	assert.match(collapsed.join("\n"), /echo line-0/);
-	assert.match(collapsed.join("\n"), /12 lines/);
-	const bashLines = collapsed.filter((line) => /Bash(?:\s|$)|echo line-/.test(line) || /^\s{4}\S/.test(line));
-	assert.ok(bashLines.length <= 2);
+	assert.doesNotMatch(collapsed.join("\n"), /echo line-0/);
+	assert.match(collapsed.join("\n"), /Bash — 把策略固化成 zone 245093 · 12 lines/);
+	assert.match(collapsed.join("\n"), /12s\s*$/m);
+	const bashLines = collapsed.filter((line) => /Bash/.test(line));
+	assert.equal(bashLines.length, 1);
 
 	const member = projection.getMember("bash-1");
 	assert.ok(member);
-	const expanded = renderAggregateMemberRow(member, 40, plainTheme(), "only");
-	assert.ok(expanded.length <= 8);
+	const expanded = renderAggregateMemberRow(member, 80, plainTheme(), "only", startedAt + 12_000);
+	assert.equal(expanded.length, 1);
 	assert.doesNotMatch(expanded.join("\n"), /echo line-11/);
 	assert.match(expanded.join("\n"), /12 lines/);
 
@@ -1102,7 +1177,7 @@ test("long bash commands use a preview row instead of stuffing the script into B
 		stopReason: "toolUse",
 		content: [{ type: "text", text: "先对照两边入口\n再核对脚本边界\n最后再跑测试" }],
 	});
-	const withNarration = renderAggregateActivity(projection.getView("bash-1")!, 48, plainTheme());
+	const withNarration = renderAggregateActivity(projection.getView("bash-1")!, 48, plainTheme(), startedAt);
 	assert.equal(withNarration.filter((line) => line.includes("›") || line.includes("先对照") || line.includes("再核对") || line.includes("最后再跑")).length <= 3, true);
 });
 
@@ -1204,4 +1279,124 @@ test("child session_start and before_agent_start keep the host ledger pointer", 
 		await hostHandlers.get("session_shutdown")?.[0]?.({ reason: "reload" });
 		restoreAggregateToolExecutions();
 	}
+});
+
+test("short bash keeps Bash(command) and puts model intent on the same row", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-short-bash");
+	projection.markStarted("bash-1", "bash", {
+		command: "pnpm test",
+		displaySummary: "跑扩展测试",
+	});
+	const member = projection.getMember("bash-1");
+	assert.ok(member);
+	const startedAt = member.startedAtMs ?? Date.now();
+	member.startedAtMs = startedAt;
+	member.endedAtMs = startedAt + 3_100;
+	member.state = "success";
+	const rendered = renderAggregateMemberRow(member, 80, plainTheme(), "only", startedAt + 3_100);
+	assert.match(rendered.join("\n"), /Bash\(pnpm test\) — 跑扩展测试/);
+	assert.match(rendered.join("\n"), new RegExp(`3\\.1s\\s+${formatAggregateClockHms(startedAt + 3_100)}`));
+	assert.doesNotMatch(rendered.join("\n"), /lines ·/);
+});
+
+test("multiline bash without intent keeps only the size on the Bash row", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-bash-size-only");
+	projection.markStarted("bash-1", "bash", {
+		command: "cd /tmp\npython3 - <<'PY'\nprint(1)\nPY",
+	});
+	const rendered = renderAggregateActivity(projection.getView("bash-1")!, 80, plainTheme());
+	assert.match(rendered.join("\n"), /Bash · 4 lines/);
+	assert.doesNotMatch(rendered.join("\n"), / — /);
+	assert.doesNotMatch(rendered.join("\n"), /python3/);
+});
+
+test("completed call rows right-align duration and end clock", () => {
+	const startedAt = Date.parse("2026-04-08T14:32:01");
+	const endedAt = startedAt + 1_200;
+	const line = composeLedgerCallLine(
+		"  ✓ Read(a.ts)",
+		`   1.2s  ${formatAggregateClockHms(endedAt)}`,
+		60,
+	);
+	assert.equal(line.length, 60);
+	assert.equal(line.endsWith(`1.2s  ${formatAggregateClockHms(endedAt)}`), true);
+	assert.match(line, /^ {2}✓ Read\(a\.ts\) /);
+
+	const projection = createProjection();
+	const branch = [
+		{
+			type: "message",
+			id: "user-timing",
+			timestamp: startedAt,
+			message: { role: "user", content: "request", timestamp: startedAt },
+		},
+		{
+			type: "message",
+			id: "assistant-timing",
+			timestamp: startedAt,
+			message: {
+				role: "assistant",
+				stopReason: "toolUse",
+				timestamp: startedAt,
+				content: [{ type: "toolCall", ...call("read-1", "read", { path: "a.ts" }) }],
+			},
+		},
+		{
+			type: "message",
+			id: "result-timing",
+			timestamp: endedAt,
+			message: {
+				role: "toolResult",
+				toolCallId: "read-1",
+				timestamp: endedAt,
+				content: [{ type: "text", text: "ok" }],
+				isError: false,
+			},
+		},
+	];
+	projection.rebuild(branch, messages(branch));
+	const member = projection.getMember("read-1");
+	assert.equal(member?.startedAtMs, startedAt);
+	assert.equal(member?.endedAtMs, endedAt);
+	const rendered = renderAggregateMemberRow(member!, 80, plainTheme(), "only");
+	assert.match(rendered.join("\n"), /Read\(a\.ts\)/);
+	assert.match(rendered.join("\n"), new RegExp(`${formatAggregateClockHms(endedAt)}$`));
+});
+
+test("live execution clocks do not inherit the assistant message timestamp", () => {
+	const batchAt = Date.parse("2026-04-08T14:00:00");
+	const projection = createProjection();
+	projection.startUserGroup("user-live-clocks");
+	projection.ingestAssistantMessage({
+		role: "assistant",
+		id: "assistant-batch",
+		stopReason: "toolUse",
+		timestamp: batchAt,
+		content: [
+			{ type: "toolCall", ...call("read-1", "read", { path: "a.ts" }) },
+			{ type: "toolCall", ...call("read-2", "read", { path: "b.ts" }) },
+		],
+	});
+	assert.equal(projection.getMember("read-1")?.startedAtMs, undefined);
+	assert.equal(projection.getMember("read-2")?.startedAtMs, undefined);
+
+	projection.markStarted("read-1", "read", { path: "a.ts" });
+	const firstStart = projection.getMember("read-1")?.startedAtMs;
+	assert.ok(firstStart !== undefined && firstStart > batchAt);
+
+	projection.markComplete("read-1", { content: [{ type: "text", text: "ok" }] }, false);
+	const firstEnd = projection.getMember("read-1")?.endedAtMs;
+	assert.ok(firstEnd !== undefined && firstEnd >= firstStart!);
+
+	projection.ingestToolResult({
+		role: "toolResult",
+		toolCallId: "read-1",
+		timestamp: batchAt + 9_100,
+		content: [{ type: "text", text: "ok" }],
+		isError: false,
+	});
+	assert.equal(projection.getMember("read-1")?.endedAtMs, firstEnd);
+	assert.equal(projection.getMember("read-2")?.startedAtMs, undefined);
 });

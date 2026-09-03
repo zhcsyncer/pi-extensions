@@ -553,6 +553,12 @@ test("aggregate keeps built-in definitions intact without displaySummary schemas
 	for (const tool of registeredTools) {
 		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
 		assert.notEqual(tool.renderShell, "self", `${tool.name} keeps its individual renderer shell for reload recovery`);
+		if (tool.name === "bash") {
+			assert.ok(schema.properties?.displaySummary, "aggregate bash asks for displaySummary");
+			assert.equal(schema.required?.includes("displaySummary"), true);
+			assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)), true);
+			continue;
+		}
 		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
 		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
 		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);

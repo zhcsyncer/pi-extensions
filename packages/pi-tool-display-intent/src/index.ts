@@ -28,10 +28,13 @@ export function publishToolDisplayMigrationNotice(
   },
   notice: string | undefined,
 ): void {
-  if (notice) {
-    ui.setStatus("tool-display-intent-migration", notice);
-    ui.notify?.(notice, "warning");
+  if (!notice) return;
+  ui.setStatus("tool-display-intent-migration", undefined);
+  if (typeof ui.notify === "function") {
+    ui.notify(notice, "warning");
+    return;
   }
+  ui.setStatus("tool-display-intent-migration", notice);
 }
 
 function toolRegistrationChanged(

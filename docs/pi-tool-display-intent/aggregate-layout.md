@@ -129,8 +129,9 @@ pending / running / success / failed / needsAttention
 - 新工具出现会取消旧的 settled 计时；
 - done 仅是实时 UI 状态，历史重建不恢复；
 - 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开；
-- 每条调用最多 1 行主行 + 1 行续行；过长 path/query 硬折到第 2 行，不靠截断把括号内容吃掉；
-- bash 长脚本不写成 `Bash(整段脚本)`：主行 `Bash`，续行是宽度内预览，多行/超长用 `… (N lines · size)`；
+- 每条调用一行；过长 target 截左边，右边留给耗时；
+- 进行中与展开行右侧显示这条的耗时；结束后再加时分秒。整轮收据仍是 `took … · at …`；
+- 多行 bash 不倒正文：有 intent 则 `Bash — … · N lines · size`，没有则只留体积。短命令仍是 `Bash(pnpm test)`，intent 跟在后面。完整脚本走 individual；
 - 没有 Tools 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
 
 ### 错误
@@ -145,19 +146,41 @@ pending / running / success / failed / needsAttention
 ✓ Tools (3 calls · 2 turns) · read ×1 · bash ×1
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
   │ › 先定位两边的设计与实现入口，再对照分组、渲染和边界。
-  │ ✓ Read(src/index.ts)
+  │ ✓ Read(src/index.ts)                         0.3s  14:32:01
   │ › 先把两边的设计文档和关键实现读清楚。
-  │ ! Bash(pnpm test): 1 test failed
-  └ ✓ ask_user_question
+  │ ! Bash(pnpm test): 1 test failed             3.1s  14:34:02
+  └ ✓ Bash — 把策略固化成 zone · 54 lines · 2.3KB  8.4s  14:33:11
 ```
+
+`toolCalls.expandedTimeline` 默认 `flat`，即上面这张逐条时间线。设为 `turns` 后，同一拍的调用收进拍头，时间挂在拍上，调用行缩进；旁白仍插在原位置。收起 Tools 不变，切换不用 reload：
+
+```text
+✓ Tools (8 calls · 3 turns) · read ×3 · edit ×2 · bash ×1
+  took 2m14s · tok ↑62k ↓8.4k · at 2026-04-08 14:32:14
+  │ › 先定位入口
+  │
+  │ ↻ 1/3 · 3 calls · 1m52s  14:13:45
+  │   ✓ Read(a.ts)
+  │   ✓ Read(b.ts)
+  │   ✓ Search(pattern)
+  │ › 对照两边实现
+  │
+  │ ↻ 2/3 · 2 calls · 19s  14:14:04
+  │   ✓ Edit(a.ts)
+  │   ✓ Edit(b.ts)
+  │
+  │ ↻ 3/3 · 1 call · 8s  14:14:12
+  └   ✓ Bash — 跑测试 · 12 lines · 400B
+```
+
+拍时间是这一条 assistant 消息发出工具到这批结果写完的墙钟，不是每条 execute 的耗时。
 
 - 汇总条留在框外，没有边线；
 - 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
 - 展开内容共用一条贯通边线：中间行 `│`，同一 group 只有一条 `└`；
 - 展开只框工具调用和中途 text；thinking 不标 `›`、不进框；最终结论区留在框外；
 - 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在汇总头下方、工具行上方，整轮结束后再全部收起；
-- 有 deterministic target 时显示目标；custom 用 presentation / 启发式键 / `(N args)`，不用 `displaySummary`；
-- 展开行按宽度 wrap，再用 8 行硬顶；bash 同样只给预览 + `… (N lines · size)`，完整脚本走 individual；
+- 有 deterministic target 时显示目标；custom 用 presentation / 启发式键 / `(N args)`。只有 bash 用模型写的 `displaySummary` 当 intent，其它工具不用；
 - 失败行附带一行错误摘要；
 - 不恢复 raw output、文件列表、diff body 或图片。
 
@@ -200,7 +223,7 @@ Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `ex
 
 投影只存在于当前扩展运行时，并从所属 Session branch 重建。Custom tool 原 result 因此可在 individual 恢复。
 
-本扩展持有的 built-in 在 aggregate 下不注册 `displaySummary`，所以未来模型调用不会为这些工具生成 intent；这改变未来 tool schema，不改变已有历史消息。Interactive Tools 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。
+本扩展持有的 built-in 在 aggregate 下只有 bash 注册 `displaySummary`；read/edit 等仍不生成 intent。这改变未来 bash schema，不改变已有历史消息。Interactive Tools 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。
 
 ## 渲染机制
 

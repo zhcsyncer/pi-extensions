@@ -7,6 +7,7 @@ import type { InspectorSettingItem } from "./settings-inspector-modal.js";
 import {
 	DIFF_COLLAPSED_MODES,
 	RESULT_DISPLAY_MODES,
+	EXPANDED_TIMELINES,
 	TOOL_CALL_LAYOUTS,
 	type ToolDisplayConfig,
 } from "./types.js";
@@ -40,6 +41,7 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"diffIndicatorMode",
 	"diffCollapsedMode",
 ]);
+const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline"]);
 
 function toOnOff(value: boolean): string {
 	return value ? "on" : "off";
@@ -97,10 +99,31 @@ export function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing the layout confirms a session reload, then rebuilds tool schemas and renderer shells for the whole current branch.",
-				"Aggregate never generates displaySummary or reveals grouped output/diff bodies.",
+				"Aggregate only asks bash for displaySummary. Other tools keep deterministic targets and never reveal grouped output/diff bodies.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["layout", "individual", "aggregate", "tools", "summary", "reload"],
+		},
+		{
+			id: "expandedTimeline",
+			label: "Expanded timeline",
+			currentValue: config.expandedTimeline,
+			values: EXPANDED_TIMELINES,
+			inspectorTitle: "Expanded Timeline",
+			inspectorSummary: [
+				"Controls only the Ctrl+O aggregate timeline. Collapsed Tools stays the same bounded ledger.",
+				"flat keeps one target/status row per call. turns groups those rows by agent turn with ↻ 1/N headers and indented calls.",
+				"Turn time is the span of that agent turn, not per-call execute duration. Switching this does not reload the session.",
+			],
+			inspectorOptions: [
+				"flat — one target/status row per call (default)",
+				"turns — group Ctrl+O by agent turn with ↻ 1/N headers and indented calls",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"This setting is render-only. It does not change tool schemas, Session messages, or collapsed Tools.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["timeline", "turn", "expand", "ctrl+o", "group", "flat", "aggregate"],
 		},
 		{
 			id: "resultMode",
@@ -247,13 +270,15 @@ export function buildInspectorSettings(
 	];
 	return config.toolCallLayout === "aggregate"
 		? settings.filter((setting) => !INDIVIDUAL_ONLY_SETTING_IDS.has(setting.id))
-		: settings;
+		: settings.filter((setting) => !AGGREGATE_ONLY_SETTING_IDS.has(setting.id));
 }
 
 export function applySetting(config: ToolDisplayConfig, id: string, value: string): ToolDisplayConfig {
 	switch (id) {
 		case "toolCallLayout":
 			return { ...config, toolCallLayout: value as ToolDisplayConfig["toolCallLayout"] };
+		case "expandedTimeline":
+			return { ...config, expandedTimeline: value as ToolDisplayConfig["expandedTimeline"] };
 		case "resultMode": {
 			const mode = parseToolDisplayMode(value);
 			return mode ? applyToolDisplayMode(config, mode) : config;

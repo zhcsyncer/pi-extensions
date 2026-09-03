@@ -6,9 +6,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
-import { normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
+import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
+import type { ExpandedTimeline } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
-import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
 
 export type AggregateMemberState =
@@ -29,6 +29,9 @@ export interface AggregateMember {
 	visible: boolean;
 	retainedDone?: boolean;
 	completionOrder?: number;
+	startedAtMs?: number;
+	endedAtMs?: number;
+	agentTurnId?: string;
 }
 
 export interface AggregateUsageTotals {
@@ -60,6 +63,12 @@ export interface AggregateGroup {
 }
 
 export type AggregateFrameEdge = "start" | "continue" | "end" | "only";
+
+export interface ExpandedTurnPresentation {
+	indent: boolean;
+	leadingBlank?: boolean;
+	header?: string;
+}
 
 export interface AggregateToolSummary {
 	toolName: string;
@@ -124,12 +133,18 @@ interface FrameInvalidator {
 
 interface PatchableToolExecutionPrototype {
 	render(width: number): string[];
+	markExecutionStarted?(): void;
+	updateResult?(result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean): void;
 	[AGGREGATE_TOOL_EXECUTION_PATCH_KEY]?: AggregateToolExecutionPatchState;
 }
 
 interface AggregateToolExecutionPatchState {
 	originalRender: (this: PatchableToolExecution, width: number) => string[];
 	patchedRender: (this: PatchableToolExecution, width: number) => string[];
+	originalMarkExecutionStarted?: (this: PatchableToolExecution) => void;
+	patchedMarkExecutionStarted?: (this: PatchableToolExecution) => void;
+	originalUpdateResult?: (this: PatchableToolExecution, result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean) => void;
+	patchedUpdateResult?: (this: PatchableToolExecution, result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean) => void;
 	projection?: AggregateProjection;
 }
 
@@ -141,9 +156,6 @@ export const AGGREGATE_ASSISTANT_MARK = "›";
 export const AGGREGATE_STEER_MARK = "↳";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
 const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
-const COLLAPSED_CALL_ROW_LIMIT = 2;
-const EXPANDED_CALL_ROW_LIMIT = 8;
-const CALL_CONTINUATION_PREFIX = "    ";
 const CUSTOM_TARGET_KEYS = ["query", "url", "path", "file_path", "command", "pattern"] as const;
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -343,73 +355,118 @@ function formatColoredTarget(
 	return theme.fg(toolColor(member.toolName), formatAggregateTarget(member));
 }
 
-function bashOverflowHint(command: string, lineCount: number, contentWidth: number): string {
-	const size = formatSize(Buffer.byteLength(command, "utf8"));
-	const candidates = lineCount > 1
-		? [` … (${lineCount} lines · ${size})`, ` … (${lineCount} lines)`, " …"]
-		: [` … (${size})`, " …"];
-	const suffixBudget = Math.max(0, contentWidth - 8);
-	return candidates.find((candidate) => visibleWidth(candidate) <= suffixBudget)
-		?? (contentWidth >= 2 ? " …" : "");
-}
-
-function appendTruncationMark(row: string, contentWidth: number): string {
-	const mark = "…";
-	return `${truncateToWidth(row, Math.max(0, contentWidth - visibleWidth(mark)), "")}${mark}`;
-}
-
-function renderBashCallRows(
-	args: Record<string, unknown>,
-	contentWidth: number,
-	maxRows: number,
-	theme: AggregateRenderTheme,
-): string[] {
-	const command = bashCommandSource(args);
-	const coloredName = theme.fg(toolColor("bash"), "Bash");
-	if (!command.trim()) return [`${coloredName}(command)`];
+function bashSizeText(command: string): string | undefined {
+	if (!command.trim()) return undefined;
 	const lineCount = command.split("\n").length;
-	const shortLabel = `Bash(${normalizeTargetText(command.replace(/\n/g, " "), "command")})`;
-	if (lineCount === 1 && visibleWidth(shortLabel) <= contentWidth) {
-		return [theme.fg(toolColor("bash"), shortLabel)];
-	}
-	if (maxRows <= 1) return [coloredName];
-	const previewRows = Math.max(1, maxRows - 1);
-	const layout = layoutPreviewRows(command.split("\n"), previewRows, contentWidth);
-	const rows = layout.rows.length > 0 ? [...layout.rows] : [""];
-	const truncated = layout.hiddenLineCount > 0 || layout.longLineTruncated || layout.rowLimitReached;
-	if (truncated) {
-		const hint = bashOverflowHint(command, lineCount, contentWidth);
-		const last = rows.length - 1;
-		rows[last] = `${truncateToWidth(rows[last] ?? "", Math.max(0, contentWidth - visibleWidth(hint)), "")}${hint}`;
-	}
-	return [coloredName, ...rows];
+	const size = formatSize(Buffer.byteLength(command, "utf8"));
+	return lineCount > 1 ? `${lineCount} lines · ${size}` : undefined;
 }
 
-function renderCallContentLines(
+function bashIntentText(args: Record<string, unknown>): string | undefined {
+	return getDisplaySummary(args);
+}
+
+function renderBashLedgerLabel(
+	args: Record<string, unknown>,
+	theme: AggregateRenderTheme,
+): string {
+	const command = bashCommandSource(args);
+	const intent = bashIntentText(args);
+	const intentPart = intent
+		? `${theme.fg("muted", " — ")}${theme.fg("accent", intent)}`
+		: "";
+	if (!command.includes("\n")) {
+		const inner = command.trim() ? normalizeTargetText(command, "command") : "command";
+		return `${theme.fg(toolColor("bash"), `Bash(${inner})`)}${intentPart}`;
+	}
+	const size = bashSizeText(command);
+	const sizePart = size ? `${theme.fg("muted", " · ")}${theme.fg("muted", size)}` : "";
+	return `${theme.fg(toolColor("bash"), "Bash")}${intentPart}${sizePart}`;
+}
+
+function renderCallLabel(
 	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
 	theme: AggregateRenderTheme,
-	contentWidth: number,
-	maxRows: number,
 	options: { includeErrorSuffix?: boolean } = {},
-): string[] {
-	const safeWidth = Math.max(1, contentWidth);
-	const rowLimit = Math.max(1, maxRows);
+): string {
 	const suffix = options.includeErrorSuffix === true
 		? memberStatusChrome(member, theme).suffix
 		: "";
-	if (member.toolName === "bash") {
-		const rows = renderBashCallRows(member.args, safeWidth, rowLimit, theme);
-		if (suffix && rows[0]) rows[0] = `${rows[0]}${suffix}`;
-		return rows.slice(0, rowLimit);
+	const label = member.toolName === "bash"
+		? renderBashLedgerLabel(member.args, theme)
+		: formatColoredTarget(member, theme);
+	return `${label}${suffix}`;
+}
+
+export function formatAggregateClockHms(ms: number): string {
+	const date = new Date(ms);
+	const hours = String(date.getHours()).padStart(2, "0");
+	const minutes = String(date.getMinutes()).padStart(2, "0");
+	const seconds = String(date.getSeconds()).padStart(2, "0");
+	return `${hours}:${minutes}:${seconds}`;
+}
+
+export function formatAggregateCallDuration(ms: number): string {
+	if (ms < 10_000) {
+		const tenths = Math.round(Math.max(0, ms) / 100) / 10;
+		return Number.isInteger(tenths) ? `${tenths}s` : tenths.toFixed(1) + "s";
 	}
-	const target = `${formatColoredTarget(member, theme)}${suffix}`;
-	const layout = layoutPreviewRows([target], rowLimit, safeWidth);
-	const rows = layout.rows.length > 0 ? [...layout.rows] : [target];
-	if (layout.longLineTruncated || layout.rowLimitReached) {
-		const last = rows.length - 1;
-		rows[last] = appendTruncationMark(rows[last] ?? "", safeWidth);
+	return formatAggregateDuration(ms);
+}
+
+function padDurationSlot(duration: string, width = 6): string {
+	const extra = width - visibleWidth(duration);
+	return extra > 0 ? `${" ".repeat(extra)}${duration}` : duration;
+}
+
+export function formatExpandedTurnHeader(
+	chrome: {
+		index: number;
+		total: number;
+		callCount: number;
+		failedCount: number;
+		startedAtMs?: number;
+		endedAtMs?: number;
+		running: boolean;
+	},
+	theme: AggregateRenderTheme,
+	nowMs = Date.now(),
+): string {
+	const calls = `${chrome.callCount} ${chrome.callCount === 1 ? "call" : "calls"}`;
+	let text = `↻ ${chrome.index}/${chrome.total} · ${calls}`;
+	if (chrome.startedAtMs !== undefined) {
+		const endedAtMs = chrome.running ? undefined : chrome.endedAtMs;
+		const durationMs = Math.max(0, (endedAtMs ?? nowMs) - chrome.startedAtMs);
+		text += ` · ${formatAggregateCallDuration(durationMs)}`;
+		if (endedAtMs !== undefined) text += `  ${formatAggregateClockHms(endedAtMs)}`;
 	}
-	return rows.slice(0, rowLimit);
+	if (chrome.failedCount > 0) text += theme.fg("error", ` · ${chrome.failedCount} failed`);
+	return text;
+}
+
+export function formatMemberTiming(
+	member: Pick<AggregateMember, "state" | "startedAtMs" | "endedAtMs">,
+	theme: AggregateRenderTheme,
+	nowMs = Date.now(),
+): string {
+	if (member.startedAtMs === undefined) return "";
+	const running = member.state === "pending" || member.state === "running";
+	const endedAtMs = running ? undefined : member.endedAtMs;
+	const durationMs = Math.max(0, (endedAtMs ?? nowMs) - member.startedAtMs);
+	const duration = formatAggregateCallDuration(durationMs);
+	if (endedAtMs === undefined) return theme.fg("muted", duration);
+	return theme.fg("muted", `${padDurationSlot(duration)}  ${formatAggregateClockHms(endedAtMs)}`);
+}
+
+export function composeLedgerCallLine(left: string, timing: string, width: number): string {
+	const safeWidth = Math.max(0, Math.floor(width));
+	if (safeWidth === 0) return "";
+	if (!timing) return truncateToWidth(left, safeWidth, "…");
+	const rightW = visibleWidth(timing);
+	if (rightW + 2 > safeWidth) return truncateToWidth(left, safeWidth, "…");
+	const trimmedLeft = truncateToWidth(left, safeWidth - rightW - 2, "…");
+	const pad = Math.max(2, safeWidth - visibleWidth(trimmedLeft) - rightW);
+	return `${trimmedLeft}${" ".repeat(pad)}${timing}`;
 }
 
 function messageRole(value: unknown): string | undefined {
@@ -645,6 +702,24 @@ export function steerFirstLine(text: string): string {
 	return "";
 }
 
+function minDefined(values: Array<number | undefined>): number | undefined {
+	let min: number | undefined;
+	for (const value of values) {
+		if (value === undefined) continue;
+		if (min === undefined || value < min) min = value;
+	}
+	return min;
+}
+
+function maxDefined(values: Array<number | undefined>): number | undefined {
+	let max: number | undefined;
+	for (const value of values) {
+		if (value === undefined) continue;
+		if (max === undefined || value > max) max = value;
+	}
+	return max;
+}
+
 function parseTimestampMs(value: unknown): number | undefined {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
 	if (typeof value === "string" && value.trim()) {
@@ -801,7 +876,10 @@ export class AggregateProjection {
 	private initialized = false;
 	private renderTheme: AggregateRenderTheme | undefined;
 
-	constructor(private readonly isPassthroughTool: (toolName: string) => boolean = () => false) {}
+	constructor(
+		private readonly isPassthroughTool: (toolName: string) => boolean = () => false,
+		private readonly getExpandedTimeline: () => ExpandedTimeline = () => "flat",
+	) {}
 
 	isInitialized(): boolean {
 		return this.initialized;
@@ -850,6 +928,75 @@ export class AggregateProjection {
 
 	getMember(toolCallId: string): AggregateMember | undefined {
 		return this.membersById.get(toolCallId);
+	}
+
+	renderExpandedToolRow(toolCallId: string, width: number, nowMs = Date.now()): string[] {
+		const member = this.getMember(toolCallId);
+		if (!member) return [];
+		const theme = this.getRenderTheme();
+		const edge = this.getFrameEdge(toolCallId) ?? "only";
+		if (this.getExpandedTimeline() !== "turns") {
+			return renderAggregateMemberRow(member, width, theme, edge, nowMs);
+		}
+		return renderExpandedAggregateMember(
+			member,
+			width,
+			theme,
+			edge,
+			nowMs,
+			this.getExpandedTurnPresentation(member, edge, nowMs),
+		);
+	}
+
+	private toolTurnIds(group: AggregateGroup): string[] {
+		return group.agentTurnIds.filter((turnId) =>
+			group.members.some((member) => (
+				member.visible &&
+				member.agentTurnId === turnId &&
+				!this.isPassthrough(member.toolName)
+			)),
+		);
+	}
+
+	private turnPeers(group: AggregateGroup, turnId: string): AggregateMember[] {
+		return group.members
+			.filter((member) => (
+				member.visible &&
+				member.agentTurnId === turnId &&
+				!this.isPassthrough(member.toolName)
+			))
+			.sort((left, right) => left.sourceOrder - right.sourceOrder);
+	}
+
+	private getExpandedTurnPresentation(
+		member: AggregateMember,
+		edge: AggregateFrameEdge,
+		nowMs: number,
+	): ExpandedTurnPresentation {
+		const group = this.groupsById.get(member.groupId);
+		if (!group || !member.agentTurnId) return { indent: false };
+		const turnIds = this.toolTurnIds(group);
+		const index = turnIds.indexOf(member.agentTurnId);
+		if (index < 0) return { indent: false };
+		const peers = this.turnPeers(group, member.agentTurnId);
+		const isFirst = peers[0]?.toolCallId === member.toolCallId;
+		if (!isFirst) return { indent: true };
+		const running = peers.some((peer) => peer.state === "pending" || peer.state === "running");
+		const startedAtMs = minDefined(peers.map((peer) => peer.startedAtMs));
+		const endedAtMs = running ? undefined : maxDefined(peers.map((peer) => peer.endedAtMs));
+		return {
+			indent: true,
+			leadingBlank: edge === "continue" || edge === "end",
+			header: formatExpandedTurnHeader({
+				index: index + 1,
+				total: turnIds.length,
+				callCount: peers.length,
+				failedCount: peers.filter((peer) => peer.state === "failed").length,
+				startedAtMs,
+				endedAtMs,
+				running,
+			}, this.getRenderTheme(), nowMs),
+		};
 	}
 
 	getFrameEdge(itemId: string): AggregateFrameEdge | undefined {
@@ -1169,6 +1316,8 @@ export class AggregateProjection {
 			}
 			this.markComplete(record.toolCallId, record, record.isError === true, {
 				retainDone: options.retainDone,
+				endedAtMs: messageTimestampMs(message, options.fallbackTimestamp),
+				stampNow: false,
 			});
 		}
 		this.markGroupSawToolBatch(this.membersById.get(String(record.toolCallId))?.groupId);
@@ -1180,9 +1329,11 @@ export class AggregateProjection {
 		if (!normalizedName) return;
 		const member = this.addOrUpdateMember(toolCallId, normalizedName, args, true);
 		if (!member || member.state === "needsAttention") return;
+		member.startedAtMs = Date.now();
 		member.state = "running";
 		member.retainedDone = false;
 		member.completionOrder = undefined;
+		member.endedAtMs = undefined;
 		const group = this.groupsById.get(member.groupId);
 		if (group) group.settled = false;
 		this.invalidateGroup(member.groupId, toolCallId);
@@ -1200,18 +1351,19 @@ export class AggregateProjection {
 		toolCallId: string,
 		result: unknown,
 		isError: boolean,
-		options: { retainDone?: boolean } = {},
+		options: { retainDone?: boolean; endedAtMs?: number; stampNow?: boolean } = {},
 	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
 		if (isError) {
-			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."));
+			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."), options);
 			return;
 		}
 
 		const firstSuccess = member.state !== "success";
 		member.state = "success";
 		member.errorSummary = undefined;
+		this.stampMemberEnd(member, options);
 		if (firstSuccess && options.retainDone !== false && !this.isPassthrough(member.toolName)) {
 			member.retainedDone = true;
 			member.completionOrder = ++this.completionOrder;
@@ -1231,14 +1383,31 @@ export class AggregateProjection {
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
 
-	markFailed(toolCallId: string, summary: string): void {
+	markFailed(
+		toolCallId: string,
+		summary: string,
+		options: { endedAtMs?: number; stampNow?: boolean } = {},
+	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member || member.state === "needsAttention") return;
 		member.state = "failed";
 		member.errorSummary = normalizeDisplaySummary(summary, FAILED_SUMMARY_MAX_LENGTH) ?? "Tool failed.";
 		member.retainedDone = false;
 		member.completionOrder = undefined;
+		this.stampMemberEnd(member, options);
 		this.invalidateGroup(member.groupId, toolCallId);
+	}
+
+	private stampMemberEnd(
+		member: AggregateMember,
+		options: { endedAtMs?: number; stampNow?: boolean } = {},
+	): void {
+		if (options.endedAtMs !== undefined) {
+			member.endedAtMs ??= options.endedAtMs;
+			return;
+		}
+		if (options.stampNow === false) return;
+		member.endedAtMs = Date.now();
 	}
 
 	collapseRetainedDone(): void {
@@ -1289,13 +1458,15 @@ export class AggregateProjection {
 			}
 			if (role === "assistant") {
 				this.ingestAssistantMessage(message);
-				this.rememberEndedAt(messageTimestampMs(message, toRecord(entry).timestamp));
+				const startedAtMs = messageTimestampMs(message, toRecord(entry).timestamp);
+				this.rememberEndedAt(startedAtMs);
 				for (const call of toolCallsFromMessage(message)) {
 					const member = this.membersById.get(call.id);
 					if (!member) continue;
 					const visible = visibleIds?.has(call.id) ?? true;
 					member.visible = visible;
 					if (!visible) this.untrackFramedItem(call.id);
+					if (startedAtMs !== undefined) member.startedAtMs ??= startedAtMs;
 				}
 				continue;
 			}
@@ -1449,6 +1620,8 @@ export class AggregateProjection {
 			existing.toolName = toolName;
 			const becameVisible = !existing.visible && visible;
 			existing.visible ||= visible;
+			const turnId = this.groupsById.get(existing.groupId)?.agentTurnIds.at(-1);
+			if (turnId) existing.agentTurnId ??= turnId;
 			if (becameVisible) this.recomputeLeader(existing.groupId);
 			return existing;
 		}
@@ -1465,6 +1638,7 @@ export class AggregateProjection {
 			args: { ...toRecord(args) },
 			state: "pending",
 			visible,
+			agentTurnId: group.agentTurnIds.at(-1),
 		};
 		group.members.push(member);
 		this.membersById.set(toolCallId, member);
@@ -1604,23 +1778,39 @@ export function attachExpandedAggregateSummary(
 }
 
 export function renderAggregateMemberRow(
-	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs">,
 	width: number,
 	theme: AggregateRenderTheme,
 	edge: AggregateFrameEdge = "only",
+	nowMs = Date.now(),
 ): string[] {
 	const { marker } = memberStatusChrome(member, theme);
-	const framePrefixWidth = visibleWidth(AGGREGATE_FRAME_CONTINUE);
-	const innerWidth = Math.max(1, (Number.isFinite(width) ? Math.floor(width) : 0) - framePrefixWidth);
-	const bodyWidth = Math.max(1, innerWidth - visibleWidth(`${marker} `));
-	const body = renderCallContentLines(
-		member,
-		theme,
-		bodyWidth,
-		EXPANDED_CALL_ROW_LIMIT,
-		{ includeErrorSuffix: true },
+	const prefixPlain = framePrefixForEdge(edge);
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	const innerWidth = Math.max(1, safeWidth - visibleWidth(prefixPlain));
+	const inner = composeLedgerCallLine(
+		`${marker} ${renderCallLabel(member, theme, { includeErrorSuffix: true })}`,
+		formatMemberTiming(member, theme, nowMs),
+		innerWidth,
 	);
-	const inner = body.map((row, index) => index === 0 ? `${marker} ${row}` : `  ${row}`);
+	return [`${theme.fg("muted", prefixPlain)}${inner}`];
+}
+
+export function renderExpandedAggregateMember(
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs">,
+	width: number,
+	theme: AggregateRenderTheme,
+	edge: AggregateFrameEdge = "only",
+	nowMs = Date.now(),
+	turn?: ExpandedTurnPresentation,
+): string[] {
+	if (turn === undefined) return renderAggregateMemberRow(member, width, theme, edge, nowMs);
+	const { marker } = memberStatusChrome(member, theme);
+	const indent = turn.indent === true ? "  " : "";
+	const inner: string[] = [];
+	if (turn.leadingBlank === true) inner.push("");
+	if (turn.header) inner.push(turn.header);
+	inner.push(`${indent}${marker} ${renderCallLabel(member, theme, { includeErrorSuffix: true })}`);
 	return applyAggregateGroupFrame(inner, width, theme, edge);
 }
 
@@ -1628,6 +1818,7 @@ export function renderAggregateActivity(
 	view: AggregateActivityView,
 	width: number,
 	theme: AggregateRenderTheme,
+	nowMs = Date.now(),
 ): string[] {
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 	if (safeWidth === 0) return [];
@@ -1660,17 +1851,11 @@ export function renderAggregateActivity(
 	}
 	for (const row of view.displayRows) {
 		const marker = row.state === "success" ? theme.fg("success", "✓") : theme.fg("warning", "◐");
-		const prefixWidth = visibleWidth("  ◐ ");
-		const body = renderCallContentLines(
-			row,
-			theme,
-			Math.max(1, safeWidth - prefixWidth),
-			COLLAPSED_CALL_ROW_LIMIT,
-		);
-		lines.push(truncateToWidth(`  ${marker} ${body[0] ?? ""}`, safeWidth, "…"));
-		for (const extra of body.slice(1)) {
-			lines.push(truncateToWidth(`${CALL_CONTINUATION_PREFIX}${extra}`, safeWidth, "…"));
-		}
+		lines.push(composeLedgerCallLine(
+			`  ${marker} ${renderCallLabel(row, theme)}`,
+			formatMemberTiming(row, theme, nowMs),
+			safeWidth,
+		));
 	}
 	if (view.activeOverflow > 0) {
 		lines.push(
@@ -1695,13 +1880,54 @@ function createComponentInvalidator(component: PatchableToolExecution): () => vo
 	};
 }
 
+function stampLiveExecutionStart(component: PatchableToolExecution, fallback?: AggregateProjection): void {
+	const toolName = normalizeToolName(component.toolName);
+	const toolCallId = typeof component.toolCallId === "string" ? component.toolCallId : undefined;
+	if (!toolName || !toolCallId) return;
+	const projection = resolveAggregateProjection(undefined, toolCallId) ?? fallback;
+	projection?.markStarted(toolCallId, toolName, component.args);
+}
+
+function stampLiveExecutionEnd(
+	component: PatchableToolExecution,
+	result: { isError?: boolean } & Record<string, unknown>,
+	fallback?: AggregateProjection,
+): void {
+	const toolCallId = typeof component.toolCallId === "string" ? component.toolCallId : undefined;
+	if (!toolCallId) return;
+	const projection = resolveAggregateProjection(undefined, toolCallId) ?? fallback;
+	projection?.markComplete(toolCallId, result, result.isError === true);
+}
+
+function installExecutionClockHooks(
+	prototype: PatchableToolExecutionPrototype,
+	state: AggregateToolExecutionPatchState,
+): void {
+	if (!state.patchedMarkExecutionStarted && typeof prototype.markExecutionStarted === "function") {
+		state.originalMarkExecutionStarted = prototype.markExecutionStarted;
+		state.patchedMarkExecutionStarted = function markAggregateExecutionStarted(): void {
+			stampLiveExecutionStart(this, state.projection);
+			state.originalMarkExecutionStarted?.call(this);
+		};
+		prototype.markExecutionStarted = state.patchedMarkExecutionStarted;
+	}
+	if (!state.patchedUpdateResult && typeof prototype.updateResult === "function") {
+		state.originalUpdateResult = prototype.updateResult;
+		state.patchedUpdateResult = function markAggregateExecutionEnded(result, isPartial = false): void {
+			state.originalUpdateResult?.call(this, result, isPartial);
+			if (isPartial !== true) stampLiveExecutionEnd(this, result, state.projection);
+		};
+		prototype.updateResult = state.patchedUpdateResult;
+	}
+}
+
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
 	claimHostProjection(undefined, projection);
 	const prototype = getToolExecutionPrototype();
 	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (existing) {
 		if (prototype.render === existing.patchedRender || existing.projection !== undefined) {
-			// A later session must not steal the already-painting host ledger.
+			installExecutionClockHooks(prototype, existing);
 			return;
 		}
 		// A wrapper installed before us may restore its own original render after
@@ -1738,12 +1964,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		if (!member) return [];
 		const view = activeProjection.getView(toolCallId);
 		if (this.expanded === true) {
-			const detail = renderAggregateMemberRow(
-				member,
-				width,
-				activeProjection.getRenderTheme(),
-				activeProjection.getFrameEdge(toolCallId) ?? "only",
-			);
+			const detail = activeProjection.renderExpandedToolRow(toolCallId, width);
 			if (activeProjection.shouldHostExpandedSummary(toolCallId)) {
 				const headerView = activeProjection.getViewForGroup(toolCallId);
 				if (headerView) {
@@ -1763,6 +1984,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		value: state,
 	});
 	prototype.render = state.patchedRender;
+	installExecutionClockHooks(prototype, state);
 }
 
 export function restoreAggregateToolExecutions(): void {
@@ -1773,6 +1995,12 @@ export function restoreAggregateToolExecutions(): void {
 	if (!state) return;
 	if (prototype.render === state.patchedRender) {
 		prototype.render = state.originalRender;
+		if (state.patchedMarkExecutionStarted && prototype.markExecutionStarted === state.patchedMarkExecutionStarted) {
+			prototype.markExecutionStarted = state.originalMarkExecutionStarted;
+		}
+		if (state.patchedUpdateResult && prototype.updateResult === state.patchedUpdateResult) {
+			prototype.updateResult = state.originalUpdateResult;
+		}
 		delete prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 		return;
 	}

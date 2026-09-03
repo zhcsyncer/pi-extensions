@@ -58,6 +58,9 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.equal(layout?.default, "individual");
 	assert.equal(schema.properties?.toolCalls?.properties?.style, undefined);
 	assert.ok(schema.properties?.toolCalls?.properties?.bashCommandPreviewRows);
+	const expandedTimeline = schema.properties?.toolCalls?.properties?.expandedTimeline as { enum?: string[]; default?: string } | undefined;
+	assert.deepEqual(expandedTimeline?.enum, ["flat", "turns"]);
+	assert.equal(expandedTimeline?.default, "flat");
 	assert.equal(schema.properties?.toolCalls?.properties?.frame, undefined);
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);

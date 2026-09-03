@@ -67,21 +67,28 @@ function createApiStub(
 // Tests
 // ---------------------------------------------------------------------------
 
-test("migration notice is published through Pi status output", () => {
+test("migration notice uses notify and does not park a long status line", () => {
   const statuses: Array<{ key: string; text: string | undefined }> = [];
+  const notices: Array<{ message: string; level: string }> = [];
   publishToolDisplayMigrationNotice(
     {
       setStatus(key, text): void {
         statuses.push({ key, text });
       },
+      notify(message, level): void {
+        notices.push({ message, level });
+      },
     },
     "bashCollapsedLines was removed; adjust results.previewRows",
   );
-  assert.deepEqual(statuses, [
+  assert.deepEqual(notices, [
     {
-      key: "tool-display-intent-migration",
-      text: "bashCollapsedLines was removed; adjust results.previewRows",
+      message: "bashCollapsedLines was removed; adjust results.previewRows",
+      level: "warning",
     },
+  ]);
+  assert.deepEqual(statuses, [
+    { key: "tool-display-intent-migration", text: undefined },
   ]);
 });
 

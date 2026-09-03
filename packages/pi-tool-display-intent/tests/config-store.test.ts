@@ -303,6 +303,25 @@ test("default Agent passthrough stays sparse while arbitrary escape tools round-
 	assert.deepEqual(serializeToolDisplayConfigV2(aggregateEverything).tools, { passthrough: [] });
 });
 
+test("v2 expandedTimeline serializes sparsely and round-trips", () => {
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.expandedTimeline, "flat");
+	const defaults = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
+	assert.equal(defaults.toolCalls, undefined);
+
+	const config = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		expandedTimeline: "turns",
+	});
+	const serialized = serializeToolDisplayConfigV2(config);
+	assert.deepEqual(serialized.toolCalls, { expandedTimeline: "turns" });
+
+	withTempDir("pi-tool-display-config-expanded-timeline-", (dir) => {
+		const configFile = join(dir, "config.json");
+		writeFileSync(configFile, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+		assert.equal(loadToolDisplayConfig(configFile).config.expandedTimeline, "turns");
+	});
+});
+
 test("default individual layout stays sparse and old v2 configs remain compatible", () => {
 	const serialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(serialized.toolCalls, undefined);

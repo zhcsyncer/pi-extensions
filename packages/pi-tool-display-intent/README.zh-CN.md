@@ -60,14 +60,14 @@ pi install npm:@zhcsyncer/pi-extensions
 ```text
 ◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   › 先对照两边入口
-  ◐ Bash(pnpm test)
+  ◐ Bash — 把策略固化成 zone · 54 lines · 2.3KB           12s
 
 ✓ Tools (17 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
   ↳ 2 steers
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，不倾倒文件内容或 diff。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tools individual`。
+进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。可见的调用行右侧显示这条已经过了多久。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置。默认 `flat` 仍是逐条带时间；把 `toolCalls.expandedTimeline` 调成 `turns` 后，按拍显示 `↻ 1/3 · 3 calls` 拍头，调用行缩进，不用 reload。多行 bash 只显示 intent 和体积，不倒脚本。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tools individual`。
 
 用户行固定用左侧强调色细杠。
 
@@ -78,6 +78,7 @@ pi install npm:@zhcsyncer/pi-extensions
 | 改什么 | 效果 |
 |---|---|
 | `toolCalls.layout` | `individual` 或 `aggregate` |
+| `toolCalls.expandedTimeline` | `flat` 展开逐条，或 `turns` 按 agent turn 分组（仅 aggregate，不用 reload） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | 模型意图语言 |
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |

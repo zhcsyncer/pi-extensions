@@ -214,8 +214,9 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout"],
+		["toolCallLayout", "expandedTimeline"],
 	);
+	assert.equal(applySetting(retained, "expandedTimeline", "turns").expandedTimeline, "turns");
 	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
 	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);
 	assert.match(layoutSummary, /successful rows stay done until replacement/);
@@ -229,10 +230,12 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	assert.equal(individual.resultMode, "preview");
 	assert.equal(individual.previewRows, 40);
 	assert.equal(individual.toolIntent.enabled, false);
-	assert.ok(buildInspectorSettings(individual, {
+	const individualSettings = buildInspectorSettings(individual, {
 		hasMcpTooling: false,
 		hasRtkOptimizer: false,
-	}).some((setting) => setting.id === "diffCollapsedMode"));
+	});
+	assert.ok(individualSettings.some((setting) => setting.id === "diffCollapsedMode"));
+	assert.equal(individualSettings.some((setting) => setting.id === "expandedTimeline"), false);
 });
 
 test("empty args opens the modal in TUI mode", async () => {
