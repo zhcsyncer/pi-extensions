@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- 82238c7: Make Fast Mode defaults per model. `/fast default` sets only the current model's startup default and turns this session's switch to match. Unconfigured models start off. Switching models follows that model's in-memory switch. Old global `enabled` and boolean maps are migrated on startup with a warning; a former global ON does not enable every model.
+
+### Patch Changes
+
+- 82238c7: Stop Fast Mode toggles from adding a chat notification. The footer now shows only `⚡ FAST` or dim `fast`.
+
 ## 0.1.3
 
 ### Patch Changes
