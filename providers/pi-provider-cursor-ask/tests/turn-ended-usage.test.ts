@@ -129,7 +129,7 @@ describe("processServerMessage turnEnded", () => {
         () => {},
         () => {},
       ),
-    ).toBe(true);
+    ).toBe("work");
     expect(state.turnEnded).toBe(true);
     expect(state.billedUsage).toEqual({
       input: 1000,
