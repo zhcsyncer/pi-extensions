@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	consultResultLines,
 	formatConsultCallLine,
+	markdownPreview,
 	formatElapsed,
 	renderConsultCall,
 	renderConsultResult,
@@ -40,6 +41,21 @@ describe("consult Claude-style rows", () => {
 		expect(consultResultLines(correctionResult, { expanded: false }, theme)).toEqual([
 			"correction · Stop editing parser.ts",
 		]);
+	});
+
+	it("removes Markdown chrome without damaging protected technical syntax", () => {
+		const summary =
+			"**先停止**编辑 `__dirname__`。\n```c\n#define RETRY_FLAG 1\n```\n- 运行 [相关测试](https://example.test)\n- ~~删除~~旧分支";
+		expect(markdownPreview(summary)).toBe(
+			"先停止编辑 __dirname__。 #define RETRY_FLAG 1 运行 相关测试 删除旧分支",
+		);
+		expect(
+			consultResultLines(
+				{ details: { ...correctionResult.details, envelope: { verdict: "correction", summary, raw: [] } } },
+				{ expanded: false },
+				theme,
+			),
+		).toEqual(["correction · 先停止编辑 __dirname__。 #define RETRY_FLAG 1 运行 相关测试 删除旧分支"]);
 	});
 
 	it("expands summary and models, not why", () => {

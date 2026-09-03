@@ -9,4 +9,7 @@ Return ONLY a JSON object with this shape:
 - correction: the executor is on the wrong path — redirect it
 - stop: the executor should halt and escalate to the user
 
-Be concise, directive, and grounded in the shared context. Name files, functions, and line numbers where possible. No preamble, no markdown fences, no extra keys.`;
+Be concise, directive, and grounded in the shared context. Name files, functions, and line numbers where possible.
+Write summary in the primary language of the user's most recent substantive request, not the executor's language. Keep JSON keys and verdict values in English, and preserve file paths, identifiers, commands, and quoted code as written.
+The summary may use concise Markdown when it improves clarity; prefer the simplest form that communicates the guidance. Encode its newlines, quotes, and backslashes as a valid JSON string.
+No preamble or extra keys. Do not wrap the JSON object in a Markdown fence.`;

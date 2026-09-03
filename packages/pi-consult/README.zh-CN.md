@@ -16,6 +16,7 @@
 - 未配置 panel 时卸载该工具。关掉零占用。
 - Loop gate：连续 N 次相同工具调用或连续 N 次 error 后，steer 先 consult。
 - `/consult` 选择 panel 模型和 effort、开关 loop gate。`/consult status` 用临时 dashboard 展示预算和最近活动，不向 transcript 添加任何内容。
+- 顾问 summary 跟随用户最近一条实质性请求的语言，同时保留技术语法。展开态渲染 Markdown；折叠态保持干净的单行预览。
 - 顾问用量包含重试、fanout、cache read/write 与费用，并附在 Consult tool result 上，因此 Pi session 总量会计入；dashboard 的最近记录会显示缓存命中率。
 
 ## 安装

@@ -16,6 +16,7 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 - Unconfigured panel unloads the tool. Off costs nothing.
 - Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first.
 - `/consult` picks panel models and effort and toggles the loop gate. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.
+- Advisor summaries follow the language of the user's latest substantive request while preserving technical syntax. Expanded results render Markdown; collapsed rows remain clean one-line previews.
 - Advisor usage includes retries, fanout, cache reads/writes, and cost. It is attached to the Consult tool result so Pi session totals include it; recent dashboard rows show cache hit rate.
 
 ## Install

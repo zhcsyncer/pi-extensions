@@ -18,7 +18,7 @@
                 └── loop steer 只催这一次调用，不替主模型执行
 ```
 
-- 顾问看不到用户，也不回传 thinking。
+- 顾问看不到用户，也不回传 thinking。summary 跟随最近一条实质性用户请求的主要语言，JSON keys/verdict 与路径、标识符、命令、引用代码保持原样。summary 可在有助表达时使用 Markdown，不额外禁止标题、表格或代码块；展开态交给 Pi 原生 Markdown 渲染，折叠态仅生成去除展示标记的单行预览。
 - `consult` 必须作为当前 assistant step 的唯一工具调用，并等结果后再调其他工具；顾问快照只剥离当前 consult，同时保留用户图片。
 - 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。`budget.perRun` 默认 3，从一次真实用户输入覆盖到下一次用户输入；旧 `perTurn` 只作解析别名。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。所有实际请求（含空响应重试和 fanout）按标准 Usage 聚合到顶层 toolResult，Pi session 计入 Tools/summaries；raw/events 保留顾问模型与 cache 拆分，`/consult status` 显示命中率。
 - 未配 panel：从 active tools 卸掉，prompt 零占用。

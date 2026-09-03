@@ -1,5 +1,5 @@
-import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
+import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { ConsultAdoption } from "./events.ts";
 import { isRecord, type ConsultEnvelope, type ConsultOutcome, type ConsultVerdict } from "./types.ts";
 
@@ -31,6 +31,26 @@ interface ElapsedState {
 
 function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
+}
+
+export function markdownPreview(value: string): string {
+	const code: string[] = [];
+	const protect = (content: string): string => {
+		const index = code.push(oneLine(content)) - 1;
+		return `\uE000${index}\uE001`;
+	};
+	const preview = oneLine(
+		value
+			.replace(/```[^\n]*\n([\s\S]*?)```/g, (_match, content: string) => protect(content))
+			.replace(/`([^`\n]+)`/g, (_match, content: string) => protect(content))
+			.replace(/```[^\n]*\n?/g, "")
+			.replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-+*]\s+|\d+[.)]\s+)/gm, "")
+			.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+			.replace(/(\*\*|~~)(.*?)\1/g, "$2")
+			.replace(/(^|[^\w])(\*)([^*\n]+)\2(?!\w)/g, "$1$3"),
+	);
+	return preview.replace(/\uE000(\d+)\uE001/g, (_match, index: string) => code[Number(index)] ?? "");
 }
 
 function whyFromArgs(args: unknown): string {
@@ -166,7 +186,7 @@ export function consultResultLines(
 	const outcome = outcomeFromResult(result, context, envelope);
 	const completed = outcome === "completed";
 	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "plan") : outcome;
-	const summary = oneLine(envelope?.error || envelope?.summary || "");
+	const summary = markdownPreview(envelope?.error || envelope?.summary || "");
 
 	const adoption = completed ? context?.adoption : undefined;
 	if (!options.expanded) {
@@ -204,6 +224,42 @@ class ConsultCallComponent implements Component {
 	invalidate(): void {}
 }
 
+function expandedResultRows(
+	result: ConsultRenderResult,
+	theme: Theme,
+	context: ConsultRenderContext,
+	width: number,
+): string[] {
+	const envelope = envelopeFromResult(result);
+	const outcome = outcomeFromResult(result, context, envelope);
+	const completed = outcome === "completed";
+	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "plan") : outcome;
+	const rows: string[] = [];
+	const appendPlain = (text: string, first = false): void => {
+		const prefix = first ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
+		const wrapped = wrapTextWithAnsi(text, Math.max(1, width - visibleWidth(prefix)));
+		for (const row of wrapped) rows.push(truncateToWidth(`${prefix}${row}`, width, ""));
+	};
+
+	appendPlain(statusColor(theme, status), true);
+	if (completed && envelope?.summary) {
+		const prefix = RESULT_CONT_PREFIX;
+		const markdown = new Markdown(envelope.summary, 0, 0, getMarkdownTheme());
+		for (const row of markdown.render(Math.max(1, width - visibleWidth(prefix)))) {
+			rows.push(truncateToWidth(`${prefix}${row}`, width, ""));
+		}
+	} else if (!completed && envelope?.error) {
+		appendPlain(theme.fg("text", envelope.error));
+	}
+	if (completed && envelope?.conflicts) {
+		for (const conflict of envelope.conflicts) appendPlain(theme.fg("warning", conflict));
+	}
+	if (completed && context.adoption) appendPlain(adoptionLine(context.adoption, theme));
+	const models = modelsFromResult(result);
+	if (models.length > 0) appendPlain(theme.fg("muted", models.join(" + ")));
+	return rows;
+}
+
 class ConsultResultComponent implements Component {
 	constructor(
 		private result: ConsultRenderResult,
@@ -226,30 +282,31 @@ class ConsultResultComponent implements Component {
 
 	render(width: number): string[] {
 		if (width <= 0) return [];
-		const elapsedMs = tickElapsed(this.context, this.options.isPartial);
+		const partial = this.options.isPartial || Boolean(this.context.isPartial);
+		const elapsedMs = tickElapsed(this.context, partial);
 		const logical = consultResultLines(this.result, this.options, this.theme, this.context, elapsedMs);
 		if (logical.length === 0) return [];
 
-		if (!this.options.expanded && !this.options.isPartial) {
-			const hint = ` (${expandHint()})`;
-			return logical.map((line, index) => {
+		if (partial) {
+			const rows: string[] = [];
+			for (const [index, line] of logical.entries()) {
 				const prefix = index === 0 ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
-				const suffix = index === logical.length - 1 ? hint : "";
-				const budget = Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix));
-				const shown = truncateToWidth(line, budget, "…");
-				return `${prefix}${shown}${suffix ? this.theme.fg("muted", suffix) : ""}`;
-			});
-		}
-
-		const rows: string[] = [];
-		for (const [index, line] of logical.entries()) {
-			const prefix = index === 0 ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
-			const wrapped = wrapTextWithAnsi(line, Math.max(1, width - visibleWidth(prefix)));
-			for (const [wrapIndex, row] of wrapped.entries()) {
-				rows.push(`${index === 0 && wrapIndex === 0 ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX}${row}`);
+				for (const row of wrapTextWithAnsi(line, Math.max(1, width - visibleWidth(prefix)))) {
+					rows.push(truncateToWidth(`${prefix}${row}`, width, ""));
+				}
 			}
+			return rows;
 		}
-		return rows;
+		if (this.options.expanded) return expandedResultRows(this.result, this.theme, this.context, width);
+
+		const hint = ` (${expandHint()})`;
+		return logical.map((line, index) => {
+			const prefix = index === 0 ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
+			const suffix = index === logical.length - 1 ? hint : "";
+			const budget = Math.max(1, width - visibleWidth(prefix) - visibleWidth(suffix));
+			const shown = truncateToWidth(line, budget, "…");
+			return truncateToWidth(`${prefix}${shown}${suffix ? this.theme.fg("muted", suffix) : ""}`, width, "");
+		});
 	}
 
 	invalidate(): void {}
