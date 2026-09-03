@@ -4,7 +4,7 @@ import { ConsultAdoptionStore } from "../src/adoption.ts";
 import { registerConsultCommand } from "../src/command.ts";
 import { loadConsultConfig, loadConsultConfigSync, resolveGuidance } from "../src/config.ts";
 import { executeConsult } from "../src/execute.ts";
-import { backfillAdopted, parseConsultLog } from "../src/events.ts";
+import { appendConsultAdoption, parseConsultLog } from "../src/events.ts";
 import { LOOP_STEER_TEXT, CONSULT_TOOL_NAME, TOOL_LABEL, msgConsultEnabled } from "../src/messages.ts";
 import { isConsultBlocked, reconcileConsultTool } from "../src/reconcile.ts";
 import { renderConsultCall, renderConsultResult } from "../src/tool-display.ts";
@@ -69,6 +69,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 			const why = typeof params.why === "string" ? params.why : "";
 			const result = await executeConsult({
 				why,
+				toolCallId,
 				ctx,
 				pi,
 				config: loaded.config,
@@ -142,7 +143,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 		const sessionFile = ctx.sessionManager.getSessionFile?.();
 		const session = sessionFile ? sessionFile.split(/[/\\]/).pop()?.replace(/\.jsonl?$/, "") || "ephemeral" : "ephemeral";
 		try {
-			await backfillAdopted(session, parsed.adopted, agentDir);
+			await appendConsultAdoption(session, parsed.adopted, agentDir);
 		} catch {
 			// Adoption is best-effort self-report.
 		}

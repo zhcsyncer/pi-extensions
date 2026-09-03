@@ -203,6 +203,7 @@ export async function runConsultPanel(opts: {
 
 export interface ExecuteConsultOptions {
 	why: string;
+	toolCallId?: string;
 	ctx: ExtensionContext;
 	pi: ExtensionAPI;
 	config: ConsultConfig;
@@ -247,8 +248,13 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		}
 	}
 
+	const authByLabel = new Map<
+		string,
+		Awaited<ReturnType<typeof opts.ctx.modelRegistry.getApiKeyAndHeaders>>
+	>();
 	for (const member of members) {
 		const auth = await opts.ctx.modelRegistry.getApiKeyAndHeaders(member.model);
+		authByLabel.set(member.label, auth);
 		if (!auth.ok) {
 			return fail(trigger, errMisconfigured(member.label, auth.error), auth.error, members.map((item) => item.label));
 		}
@@ -261,9 +267,15 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		opts.ctx.sessionManager.getEntries(),
 		opts.ctx.sessionManager.getLeafId(),
 	);
-	const branchMessages = prepareConsultMessages(convertToLlm(sessionMessages), why);
+	const branchMessages = prepareConsultMessages(convertToLlm(sessionMessages), why, opts.toolCallId);
 	const inventoryMessage = getInventoryMessage(opts.pi.getAllTools());
 	const messages: Message[] = inventoryMessage ? [inventoryMessage, ...branchMessages] : branchMessages;
+
+	// Authentication can yield while another consult reserves the same budget.
+	// Re-check and increment synchronously immediately before the paid request.
+	const reservationError = budgetBlockReason(opts.config.budget, opts.tracker.turnCount, opts.tracker.sessionCount);
+	if (reservationError) return fail(trigger, reservationError);
+	opts.tracker.recordConsult();
 
 	const models = members.map((member) => member.label);
 	const effort = members[0]?.effort;
@@ -282,11 +294,11 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		completeSimple: completeSimple as CompleteSimpleFn,
 		signal: opts.signal,
 		useRuntimeFacade: Boolean(runtimeCompleteSimple) && !opts.completeSimple,
-		authFor: async (member) => opts.ctx.modelRegistry.getApiKeyAndHeaders(member.model),
+		authFor: async (member) =>
+			authByLabel.get(member.label) ?? { ok: false, error: `missing cached auth for ${member.label}` },
 	});
 
 	const envelope = mergeAdvisorOutcomes(outcomes);
-	opts.tracker.recordConsult();
 
 	const usage = sumUsage(envelope.raw);
 	try {

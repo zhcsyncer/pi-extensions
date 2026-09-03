@@ -1,6 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { getConsultPaths } from "./paths.ts";
 import type { ConsultEvent } from "./types.ts";
 import { isRecord } from "./types.ts";
@@ -11,6 +9,13 @@ const ADOPT_TRUE = /^(?:采纳|adopt)$/i;
 export interface ConsultAdoption {
 	adopted: boolean;
 	reason: string;
+}
+
+interface ConsultAdoptionEvent {
+	kind: "adoption";
+	ts: string;
+	session: string;
+	adopted: boolean;
 }
 
 function adoptionValue(value: string | undefined): boolean | undefined {
@@ -70,6 +75,14 @@ export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 	};
 }
 
+function parseAdoptionEvent(value: unknown): ConsultAdoptionEvent | undefined {
+	if (!isRecord(value) || value.kind !== "adoption") return undefined;
+	if (typeof value.ts !== "string" || typeof value.session !== "string" || typeof value.adopted !== "boolean") {
+		return undefined;
+	}
+	return { kind: "adoption", ts: value.ts, session: value.session, adopted: value.adopted };
+}
+
 async function readEventLines(file: string): Promise<string[]> {
 	try {
 		const raw = await readFile(file, "utf8");
@@ -80,47 +93,18 @@ async function readEventLines(file: string): Promise<string[]> {
 	}
 }
 
-async function writeLinesAtomically(file: string, lines: string[]): Promise<void> {
-	const directory = dirname(file);
-	await mkdir(directory, { recursive: true, mode: 0o700 });
-	const temporary = join(directory, `.${randomUUID()}.tmp`);
-	const body = lines.filter((line, index) => line.length > 0 || index < lines.length - 1).join("\n");
-	const contents = body.endsWith("\n") || body.length === 0 ? body : `${body}\n`;
-	try {
-		await writeFile(temporary, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
-		await rename(temporary, file);
-	} finally {
-		await rm(temporary, { force: true });
-	}
+async function appendEventLine(value: ConsultEvent | ConsultAdoptionEvent, agentDir?: string): Promise<void> {
+	const paths = getConsultPaths(agentDir);
+	await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
+	await appendFile(paths.eventsFile, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
 export async function appendConsultEvent(event: ConsultEvent, agentDir?: string): Promise<void> {
-	const file = getConsultPaths(agentDir).eventsFile;
-	const lines = await readEventLines(file);
-	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-	lines.push(JSON.stringify(event));
-	await writeLinesAtomically(file, [...lines, ""]);
+	await appendEventLine(event, agentDir);
 }
 
-export async function backfillAdopted(session: string, adopted: boolean, agentDir?: string): Promise<boolean> {
-	const file = getConsultPaths(agentDir).eventsFile;
-	const lines = await readEventLines(file);
-	for (let index = lines.length - 1; index >= 0; index--) {
-		const line = lines[index].trim();
-		if (!line) continue;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line) as unknown;
-		} catch {
-			continue;
-		}
-		const event = parseConsultEvent(parsed);
-		if (!event || event.session !== session || event.adopted !== null) continue;
-		lines[index] = JSON.stringify({ ...event, adopted });
-		await writeLinesAtomically(file, lines);
-		return true;
-	}
-	return false;
+export async function appendConsultAdoption(session: string, adopted: boolean, agentDir?: string): Promise<void> {
+	await appendEventLine({ kind: "adoption", ts: new Date().toISOString(), session, adopted }, agentDir);
 }
 
 export async function readRecentEvents(limit: number, agentDir?: string): Promise<ConsultEvent[]> {
@@ -129,11 +113,24 @@ export async function readRecentEvents(limit: number, agentDir?: string): Promis
 	for (const line of await readEventLines(file)) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
+		let value: unknown;
 		try {
-			const event = parseConsultEvent(JSON.parse(trimmed) as unknown);
-			if (event) events.push(event);
+			value = JSON.parse(trimmed) as unknown;
 		} catch {
-			// skip malformed lines
+			continue;
+		}
+		const event = parseConsultEvent(value);
+		if (event) {
+			events.push(event);
+			continue;
+		}
+		const adoption = parseAdoptionEvent(value);
+		if (!adoption) continue;
+		for (let index = events.length - 1; index >= 0; index--) {
+			const candidate = events[index];
+			if (!candidate || candidate.session !== adoption.session || candidate.adopted !== null) continue;
+			events[index] = { ...candidate, adopted: adoption.adopted };
+			break;
 		}
 	}
 	return events.slice(-limit);

@@ -68,7 +68,7 @@ CONSULT-LOG: adopt|reject | <reason>
 }
 ```
 
-空 `panel` 保持工具卸载。`fanout: true` 时显式 `consult()` 会并行问整组 panel；自动 gate 始终只用第一路。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。
+空 `panel` 保持工具卸载。`fanout: true` 时显式 `consult()` 会并行问整组 panel；自动 gate 始终只用第一路。预算按已开始的顾问请求计数，包括之后失败或取消的尝试。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。
 
 ## 许可证
 

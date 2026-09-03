@@ -68,7 +68,7 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
 }
 ```
 
-Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an explicit `consult()`; auto gates always use the first advisor only. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
+Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an explicit `consult()`; auto gates always use the first advisor only. Budgets count started advisor requests, including attempts that later fail or are cancelled. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
 
 ## License
 

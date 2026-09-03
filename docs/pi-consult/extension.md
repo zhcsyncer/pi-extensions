@@ -19,7 +19,8 @@
 ```
 
 - 顾问看不到用户，也不回传 thinking。
-- 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。
+- `consult` 必须作为当前 assistant step 的唯一工具调用，并等结果后再调其他工具；顾问快照只剥离当前 consult，同时保留用户图片。
+- 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。
 - 未配 panel：从 active tools 卸掉，prompt 零占用。
 - TUI 跟 tool-display-intent 的 Claude 行：等待期 `● Consult(why)` / `  ⎿ consulting model · effort  12s`；完成后收起 `verdict · summary` 带 Ctrl+O，展开后 why 在标题换行、结果区是态度 + summary 全文 + 模型。主模型后续输出的 `CONSULT-LOG:` 仍是普通 assistant 文本，同时把 `adopt/reject · reason` 派生回贴到对应 Consult 行；reload 从当前会话分支重建，不额外持久化副本。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
 
@@ -27,5 +28,5 @@
 
 - 不做 subagent、council/debate、每 turn 后台审、合成模型、CLI backend、自动 done/review gate。
 - 失败全部落 tool result，不砸会话。
-- jsonl 只记行为字段，不写会话原文。`adopted` 靠后续 `CONSULT-LOG:` 自报回填，可信度有限。
+- jsonl 只记行为字段，不写会话原文。`adopted` 靠后续 `CONSULT-LOG:` 自报，可信度有限。consult 与 adoption 各追加一条记录，读取时按 session 归并，避免并发重写；仍保留单个 events.jsonl。
 - 配置与日志走仓库统一根：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/`。规格草稿里的 `~/.config/pi-consult/consult.json` 与 `~/.pi/agent/consult/events.jsonl` 不采用，避免和本仓库 extension-data 方案分叉。
