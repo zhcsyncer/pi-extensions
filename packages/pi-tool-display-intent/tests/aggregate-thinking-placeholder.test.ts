@@ -134,6 +134,33 @@ test("passthrough-only turns keep pre-tool narration as ordinary assistant text"
 	}
 });
 
+test("passthrough-only narration stays visible even after the same user turn already painted a Tools ledger", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-later-consult-narration");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "text", text: "Locate both design and implementation entries first" },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-read" }));
+		const message = assistant([
+			{ type: "text", text: "I'll ask the advisor whether session files close the race" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-consult" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const rendered = component.render(100);
+		assert.match(rendered.join("\n"), /I'll ask the advisor whether session files close the race/);
+		assert.doesNotMatch(rendered.join("\n"), /[›│└]/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("a turn with aggregate tools still folds narration into the Tools frame", () => {
 	initTheme("dark", false);
 	const projection = passthroughProjection("Agent", "consult");

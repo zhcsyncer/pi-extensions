@@ -218,6 +218,55 @@ test("aggregate tools still pin pre-tool narration on the Tools ledger", () => {
 	assert.equal(projection.getView("read-1")?.latestNarration, "Locate both entries first");
 });
 
+test("a later passthrough-only assistant message is not framed just because the user turn already has a Tools ledger", () => {
+	const projection = new AggregateProjection((toolName) =>
+		toolName === "Agent" || toolName === "consult");
+	projection.startUserGroup("user-later-consult");
+	const readMessage = {
+		role: "assistant",
+		id: "assistant-read",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "Locate both entries first" },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		],
+	};
+	const consultMessage = {
+		role: "assistant",
+		id: "assistant-consult",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "I'll ask the advisor whether session files close the race" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		],
+	};
+	projection.ingestAssistantMessage(readMessage);
+	projection.ingestAssistantMessage(consultMessage);
+
+	assert.equal(projection.getGroups()[0]?.leaderToolCallId, "read-1");
+	assert.equal(projection.hasPaintedToolsLedger(readMessage), true);
+	assert.equal(projection.shouldFrameAssistantNarration(readMessage), true);
+	assert.equal(projection.hasPaintedToolsLedger(consultMessage), true);
+	assert.equal(projection.shouldFrameAssistantNarration(consultMessage), false);
+});
+
+test("a turn id that is not in any group does not inherit another group's Tools ledger", () => {
+	const projection = new AggregateProjection((toolName) => toolName === "consult");
+	projection.startUserGroup("user-previous");
+	projection.markStarted("read-1", "read", { path: "a.ts" });
+	const later = {
+		role: "assistant",
+		id: "assistant-consult",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "Ask the advisor" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		],
+	};
+	assert.equal(projection.hasPaintedToolsLedger(later), false);
+	assert.equal(projection.shouldFrameAssistantNarration(later), false);
+});
+
 test("Agent stays renderer-passthrough but remains in counts and never steals the leader", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-agent");

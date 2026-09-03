@@ -829,15 +829,23 @@ export class AggregateProjection {
 			for (const group of this.groups) {
 				if (group.agentTurnIds.includes(turnId)) return Boolean(group.leaderToolCallId);
 			}
+			return false;
 		}
 		const active = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
 		return Boolean(active?.leaderToolCallId);
 	}
 
 	shouldFrameAssistantNarration(message?: unknown): boolean {
+		if (this.isPassthroughOnlyAssistantMessage(message)) return false;
 		if (this.hasPaintedToolsLedger(message)) return true;
 		if (!message) return false;
 		return toolCallsFromMessage(message).some((call) => !this.isPassthrough(call.name));
+	}
+
+	private isPassthroughOnlyAssistantMessage(message?: unknown): boolean {
+		if (!message) return false;
+		const calls = toolCallsFromMessage(message);
+		return calls.length > 0 && calls.every((call) => this.isPassthrough(call.name));
 	}
 
 	getMember(toolCallId: string): AggregateMember | undefined {
@@ -1125,7 +1133,10 @@ export class AggregateProjection {
 		this.rememberAgentTurn(message);
 		const calls = toolCallsFromMessage(message);
 		if (calls.length > 0) this.markGroupSawToolBatch();
-		if (isInterimAssistantMessage(message)) {
+		if (
+			isInterimAssistantMessage(message) &&
+			!this.isPassthroughOnlyAssistantMessage(message)
+		) {
 			const frameId = aggregateAssistantFrameId(message);
 			const narration = firstVisibleAssistantText(message);
 			if (frameId && narration) {
