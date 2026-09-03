@@ -29,12 +29,12 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 
   ![Meter footer](./assets/demo-meter-status.png)
 
-- Local dashboard by model, project, or session, including cache write.
+- Local dashboard by model, project, or session, including cache write. Usage-bearing tool results are counted too; Consult fanout is attributed to each advisor model instead of the main model.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider. Codex also shows banked weekly resets when you have any; the footer adds `N resets …` only while the current model is Codex.
 - `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar. Snapshot titles show their age (`12m ago`) instead of the word stale.
 - Other extensions can register a quota source. The footer still follows the current model only.
 - Optional local budgets. They warn; they never block requests.
-- Optional import from older session files. Safe to re-run: already-captured turns are not counted twice.
+- Optional import from older session files. Safe to re-run: already-captured turns are not counted twice, and every run reports files scanned, records parsed, additions, known duplicates, skips, and whether the ledger changed.
 
   ![Quota dashboard](./assets/demo-quota-dashboard.png)
 
@@ -70,7 +70,7 @@ Then restart Pi or run `/reload`. If `@pi-plugins/usage` is already in `settings
 | `/usage quota` | Open the remaining/reset-time dashboard for Claude, Codex, SuperGrok, and Ollama Cloud |
 | `/usage quota refresh` | Refresh subscription windows and open the dashboard |
 | `/usage footer` | Configure the local summary, rolling/calendar window, quota visibility, and used/remaining display |
-| `/usage import` | Back-fill from session files without double-counting live turns |
+| `/usage import` | Back-fill from session files with an explicit added/duplicate/skipped/unchanged summary |
 | `/usage budget` | View or add a local budget |
 
 ## License

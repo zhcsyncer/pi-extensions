@@ -1,3 +1,5 @@
+import type { Usage } from "@earendil-works/pi-ai";
+
 export type GradedEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export const EFFORT_ORDINAL: readonly GradedEffort[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
@@ -35,12 +37,7 @@ export interface ConsultConfig {
 	guidance?: ConsultGuidance;
 }
 
-export interface UsageSnapshot {
-	input: number;
-	output: number;
-	totalTokens: number;
-	cost: number;
-}
+export type UsageSnapshot = Usage;
 
 export interface ConsultRaw {
 	model: string;
@@ -66,6 +63,8 @@ export interface ConsultEvent {
 	adopted: boolean | null;
 	tokensIn: number;
 	tokensOut: number;
+	cacheRead: number;
+	cacheWrite: number;
 	costUsd: number;
 }
 

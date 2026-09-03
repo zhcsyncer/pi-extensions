@@ -176,6 +176,44 @@ describe("extension runtime", () => {
 		expect(raw).not.toContain("creditUsagePercent");
 	});
 
+	it("captures usage-bearing Consult tool results under the advisor model", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("message_end")?.[0]?.({
+			type: "message_end",
+			message: {
+				role: "toolResult",
+				toolCallId: "consult-1",
+				toolName: "consult",
+				timestamp: 1_700_000_000_100,
+				usage: { input: 10, output: 2, cacheRead: 100, cacheWrite: 4, totalTokens: 116, cost: { total: 0.35 } },
+				details: {
+					models: ["cursor/fable-5.1"],
+					envelope: {
+						raw: [{
+							model: "cursor/fable-5.1",
+							usage: { input: 10, output: 2, cacheRead: 100, cacheWrite: 4, totalTokens: 116, cost: { total: 0.35 } },
+						}],
+					},
+				},
+			},
+		}, ctx);
+		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			model: "cursor/fable-5.1",
+			in: 10,
+			out: 2,
+			cR: 100,
+			cW: 4,
+			tot: 116,
+			cost: 0.35,
+			sourceId: "consult-1:0",
+		});
+	});
+
 	it("does not import a live-captured turn when the session entry timestamp is later", async () => {
 		const messageTs = 1_700_000_000_000;
 		const sid = "hist-sess";
@@ -214,7 +252,62 @@ describe("extension runtime", () => {
 		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.ts).toBe(messageTs);
-		expect(notifications.some((item) => item.message.includes("Nothing new to import"))).toBe(true);
+		expect(notifications.some((item) => item.message.includes("Import: 0 new records"))).toBe(true);
+		expect(notifications.some((item) => item.message.includes("ledger unchanged"))).toBe(true);
+	});
+
+	it("reports complete zero metrics when no session files exist", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({ hasUI: true, mode: "print" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await commands.get("usage").handler("import", ctx);
+		const summary = notifications.find((item) => item.message.startsWith("Import:"))?.message;
+		expect(summary).toContain("Import: 0 new records");
+		expect(summary).toContain("0 session files scanned");
+		expect(summary).toContain("0 usage records parsed");
+		expect(summary).toContain("0 records already tracked or duplicated");
+		expect(summary).toContain("0 usage messages skipped without timestamp");
+		expect(summary).toContain("0 session files unreadable");
+		expect(summary).toContain("ledger unchanged");
+	});
+
+	it("reports explicit evidence and leaves the ledger byte-identical on repeated import", async () => {
+		const messageTs = 1_700_000_000_000;
+		const sid = "repeat-sess";
+		const sessionFile = join(agentDir, "sessions", `${sid}.jsonl`);
+		mkdirSync(join(agentDir, "sessions"), { recursive: true });
+		writeFileSync(sessionFile, [
+			JSON.stringify({ type: "session", cwd: "/work" }),
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					provider: "xai",
+					model: "grok-4",
+					timestamp: messageTs,
+					usage: { input: 11, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 20, cost: { total: 0.01 } },
+				},
+			}),
+		].join("\n"));
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers, commands, notifications } = harness({ hasUI: true, mode: "print", sessionFile });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+
+		await commands.get("usage").handler("import", ctx);
+		const ledgerPath = getMeterPaths(agentDir).usageFile;
+		const firstLedger = readFileSync(ledgerPath, "utf8");
+		await commands.get("usage").handler("import", ctx);
+		expect(readFileSync(ledgerPath, "utf8")).toBe(firstLedger);
+
+		const summaries = notifications.filter((item) => item.message.startsWith("Import:"));
+		expect(summaries[0]?.message).toContain("Import: 1 new record (+20 tokens, $0.0100)");
+		expect(summaries[0]?.message).toContain("1 session file scanned");
+		expect(summaries[0]?.message).toContain("1 usage record parsed");
+		expect(summaries.at(-1)?.message).toContain("Import: 0 new records");
+		expect(summaries.at(-1)?.message).toContain("1 record already tracked or duplicated");
+		expect(summaries.at(-1)?.message).toContain("ledger unchanged");
 	});
 
 	it("collapses already-written live/import duplicates when the ledger opens", async () => {

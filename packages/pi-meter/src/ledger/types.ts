@@ -1,4 +1,4 @@
-/** One captured assistant turn. Local ledger only — never stores remote quota. */
+/** One captured assistant or usage-bearing tool result. Local ledger only — never stores remote quota. */
 export interface UsageRecord {
 	ts: number;
 	sid: string;
@@ -11,6 +11,8 @@ export interface UsageRecord {
 	tot: number;
 	cost: number;
 	costKnown: boolean;
+	/** Stable assistant-message or tool-call identity for live/import dedupe. */
+	sourceId?: string;
 }
 
 export type Dimension = "model" | "session" | "project";

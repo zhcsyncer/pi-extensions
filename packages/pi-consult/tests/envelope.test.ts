@@ -6,6 +6,7 @@ import {
 	mergeAdvisorOutcomes,
 	parseAdvisorText,
 	sumUsage,
+	usageSnapshotFrom,
 } from "../src/envelope.ts";
 
 describe("consult envelope", () => {
@@ -55,7 +56,7 @@ describe("consult envelope", () => {
 		expect(envelope.verdict).toBe("plan");
 	});
 
-	it("marks blocked results without asking for a CONSULT-LOG", () => {
+	it("marks blocked results without asking for a CONSULT-LOG or recording phantom usage", () => {
 		const envelope = errorEnvelope("Consult run budget exhausted.");
 		const result = buildConsultToolResult({ envelope, trigger: "pull", models: [], outcome: "blocked" });
 		expect(result.content[0]).toMatchObject({ type: "text" });
@@ -63,6 +64,27 @@ describe("consult envelope", () => {
 		expect(result.details?.outcome).toBe("blocked");
 		expect(result.details?.envelope).toEqual(envelope);
 		expect(result.details?.errorMessage).toBe(envelope.error);
+		expect(result.usage).toBeUndefined();
+	});
+
+	it("normalizes provider cache and cost usage", () => {
+		expect(
+			usageSnapshotFrom({
+				input: 10,
+				output: 2,
+				cacheRead: 100,
+				cacheWrite: 4,
+				totalTokens: 116,
+				cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.04, total: 0.35 },
+			}),
+		).toEqual({
+			input: 10,
+			output: 2,
+			cacheRead: 100,
+			cacheWrite: 4,
+			totalTokens: 116,
+			cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.04, total: 0.35 },
+		});
 	});
 
 	it("asks for a CONSULT-LOG only after completed advice", () => {
@@ -72,15 +94,51 @@ describe("consult envelope", () => {
 		expect(result.details?.outcome).toBe("completed");
 	});
 
-	it("sums usage across raw paths", () => {
+	it("sums input, cache, output, and cost across raw paths", () => {
 		const envelope = buildConsultEnvelope({
 			verdict: "plan",
 			summary: "ok",
 			raw: [
-				{ model: "a", text: "x", usage: { input: 10, output: 2, totalTokens: 12, cost: 0.25 } },
-				{ model: "b", text: "y", usage: { input: 5, output: 1, totalTokens: 6, cost: 0.25 } },
+				{
+					model: "a",
+					text: "x",
+					usage: {
+						input: 10,
+						output: 2,
+						cacheRead: 100,
+						cacheWrite: 3,
+						totalTokens: 115,
+						cost: { input: 0.1, output: 0.1, cacheRead: 0.01, cacheWrite: 0.03, total: 0.24 },
+					},
+				},
+				{
+					model: "b",
+					text: "y",
+					usage: {
+						input: 5,
+						output: 1,
+						cacheRead: 50,
+						cacheWrite: 0,
+						totalTokens: 56,
+						cost: { input: 0.05, output: 0.05, cacheRead: 0.01, cacheWrite: 0, total: 0.11 },
+					},
+				},
 			],
 		});
-		expect(sumUsage(envelope.raw)).toEqual({ tokensIn: 15, tokensOut: 3, costUsd: 0.5 });
+		const usage = sumUsage(envelope.raw);
+		expect(usage).toMatchObject({
+			input: 15,
+			output: 3,
+			cacheRead: 150,
+			cacheWrite: 3,
+			totalTokens: 171,
+		});
+		expect(usage?.cost.input).toBeCloseTo(0.15);
+		expect(usage?.cost.output).toBeCloseTo(0.15);
+		expect(usage?.cost.cacheRead).toBeCloseTo(0.02);
+		expect(usage?.cost.cacheWrite).toBeCloseTo(0.03);
+		expect(usage?.cost.total).toBeCloseTo(0.35);
+		const result = buildConsultToolResult({ envelope, trigger: "pull", models: ["a", "b"], usage });
+		expect(result.usage).toEqual(usage);
 	});
 });

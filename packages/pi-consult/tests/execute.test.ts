@@ -93,7 +93,9 @@ describe("executeConsult budget reservation", () => {
 			const completed = results.find((result) => result.details?.envelope?.summary === "continue");
 			const blocked = results.find((result) => result.details?.envelope?.error === ERR_BUDGET_RUN);
 			expect(completed?.details?.outcome).toBe("completed");
+			expect(completed?.usage).toEqual(usage());
 			expect(blocked?.details?.outcome).toBe("blocked");
+			expect(blocked?.usage).toBeUndefined();
 			expect(blocked?.content[0]?.type === "text" && blocked.content[0].text).not.toContain("CONSULT-LOG:");
 		} finally {
 			await rm(directory, { recursive: true, force: true });
@@ -116,7 +118,18 @@ describe("runConsultPanel", () => {
 			useRuntimeFacade: true,
 		});
 		expect(calls).toBe(2);
-		expect(outcome).toMatchObject({ ok: true, text: '{"verdict":"plan","summary":"next"}' });
+		expect(outcome).toMatchObject({
+			ok: true,
+			text: '{"verdict":"plan","summary":"next"}',
+			usage: {
+				input: 22,
+				output: 6,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 28,
+				cost: { input: 0.2, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.22 },
+			},
+		});
 	});
 
 	it("does not retry aborted or error stops", async () => {

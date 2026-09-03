@@ -71,6 +71,8 @@ export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 		adopted: value.adopted,
 		tokensIn: value.tokensIn,
 		tokensOut: value.tokensOut,
+		cacheRead: typeof value.cacheRead === "number" ? value.cacheRead : 0,
+		cacheWrite: typeof value.cacheWrite === "number" ? value.cacheWrite : 0,
 		costUsd: value.costUsd,
 	};
 }
@@ -141,7 +143,9 @@ export function summarizeEvents(events: ConsultEvent[]): string {
 	return events
 		.map((event) => {
 			const adopted = event.adopted === null ? "pending" : event.adopted ? "adopted" : "rejected";
-			return `${event.ts.slice(0, 19)} ${event.verdict} (${event.trigger}, ${adopted})`;
+			const cacheable = event.tokensIn + event.cacheRead + event.cacheWrite;
+			const cache = cacheable > 0 ? `, cache ${Math.round((event.cacheRead / cacheable) * 100)}%` : "";
+			return `${event.ts.slice(0, 19)} ${event.verdict} (${event.trigger}, ${adopted}${cache})`;
 		})
 		.join("\n");
 }

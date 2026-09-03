@@ -15,7 +15,13 @@ import { Dashboard } from "../src/ledger/dashboard.ts";
 import { DIMENSIONS } from "../src/ledger/enums.ts";
 import { fmtCompactTokens, fmtCost, fmtNum } from "../src/ledger/format.ts";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
-import { parseSession, diffRecords, collapseDuplicateRecords, usageFromAssistantMessage, assistantUsageWithoutTimestamp } from "../src/ledger/session-parser.ts";
+import {
+	collapseDuplicateRecords,
+	diffRecords,
+	parseSession,
+	usageMessageWithoutTimestamp,
+	usageRecordsFromMessage,
+} from "../src/ledger/session-parser.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
 import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
 import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
@@ -110,20 +116,24 @@ export default function piMeter(pi: ExtensionAPI): void {
 
 	async function captureMessage(ctx: ExtensionContext, message: unknown): Promise<void> {
 		await ensureReady(ctx);
-		const record = usageFromAssistantMessage(message, {
+		const records = usageRecordsFromMessage(message, {
 			sid: session.sessionId,
 			cwd: session.cwd,
 		});
-		if (!record) {
-			if (assistantUsageWithoutTimestamp(message)) {
-				notify(ctx, "pi-meter skipped a turn: assistant usage has no message.timestamp.", "warning");
+		if (records.length === 0) {
+			if (usageMessageWithoutTimestamp(message)) {
+				notify(ctx, "pi-meter skipped usage: message.timestamp is missing.", "warning");
 			}
 			return;
 		}
 		if (!store) return;
-		await store.append(record);
-		await checkBudgets(ctx, record);
-		await renderChrome(ctx);
+		let appended = false;
+		for (const record of records) {
+			if (!(await store.append(record))) continue;
+			appended = true;
+			await checkBudgets(ctx, record);
+		}
+		if (appended) await renderChrome(ctx);
 	}
 
 	async function checkBudgets(ctx: ExtensionContext, _record: UsageRecord): Promise<void> {
@@ -570,22 +580,31 @@ async function collectSessionFiles(dir: string): Promise<string[]> {
 	return out;
 }
 
+function counted(count: number, singular: string, plural = `${singular}s`): string {
+	return `${fmtNum(count)} ${count === 1 ? singular : plural}`;
+}
+
 async function importHistory(store: FileLedgerStore, notify: Notify): Promise<void> {
 	const sessionsDir = join(getAgentDir(), "sessions");
 	notify("Importing session history…", "info");
 	const files = await collectSessionFiles(sessionsDir);
 	if (files.length === 0) {
-		notify("No session files found.", "warning");
+		notify(
+			"Import: 0 new records; 0 session files scanned; 0 usage records parsed; 0 records already tracked or duplicated; 0 usage messages skipped without timestamp; 0 session files unreadable; ledger unchanged.",
+			"warning",
+		);
 		return;
 	}
 	const existing = await store.readAll();
 	const incoming: UsageRecord[] = [];
 	let skipped = 0;
+	let unreadable = 0;
 	for (const file of files) {
 		let content: string;
 		try {
 			content = await readFile(file, "utf8");
 		} catch {
+			unreadable += 1;
 			continue;
 		}
 		const sid = (file.split(/[/\\]/).pop() ?? file).replace(/\.jsonl$/, "");
@@ -596,19 +615,38 @@ async function importHistory(store: FileLedgerStore, notify: Notify): Promise<vo
 	const collapsed = collapseDuplicateRecords(existing);
 	const fresh = diffRecords(collapsed, incoming);
 	const removed = existing.length - collapsed.length;
-	if (fresh.length === 0 && removed === 0) {
-		const detail = skipped > 0 ? ` Skipped ${fmtNum(skipped)} assistant turns without message.timestamp.` : "";
-		notify(`Nothing new to import. (${existing.length} records already tracked.)${detail}`, skipped > 0 ? "warning" : "info");
-		return;
+	const alreadyKnown = Math.max(0, incoming.length - fresh.length);
+	const added: UsageRecord[] = [];
+	let writeFailures = 0;
+	if (removed > 0) {
+		await store.replaceAll([...collapsed, ...fresh]);
+		added.push(...fresh);
+	} else {
+		for (const record of fresh) {
+			if (await store.append(record)) added.push(record);
+			else writeFailures += 1;
+		}
 	}
-	if (removed > 0) await store.replaceAll([...collapsed, ...fresh]);
-	else for (const record of fresh) await store.append(record);
-	const parts: string[] = [];
-	if (fresh.length > 0) parts.push(`Imported ${fmtNum(fresh.length)} records from ${files.length} session files`);
-	else parts.push("Nothing new to import");
-	if (removed > 0) parts.push(`removed ${fmtNum(removed)} duplicate records`);
-	if (skipped > 0) parts.push(`skipped ${fmtNum(skipped)} without message.timestamp`);
-	notify(`${parts.join("; ")}.`, skipped > 0 ? "warning" : "info");
+
+	const addedTokens = added.reduce((total, record) => total + record.tot, 0);
+	const addedCost = added.reduce((total, record) => total + (record.costKnown ? record.cost : 0), 0);
+	const knownCosts = added.filter((record) => record.costKnown).length;
+	const addedUsage = added.length > 0
+		? ` (+${fmtCompactTokens(addedTokens)} tokens${knownCosts > 0 ? `, ${fmtCost(addedCost)}` : ""})`
+		: "";
+	const parts = [
+		`Import: ${counted(added.length, "new record")}${addedUsage}`,
+		`${counted(files.length, "session file")} scanned`,
+		`${counted(incoming.length, "usage record")} parsed`,
+		`${counted(alreadyKnown, "record")} already tracked or duplicated`,
+		`${counted(skipped, "usage message")} skipped without timestamp`,
+		`${counted(unreadable, "session file")} unreadable`,
+	];
+	if (removed > 0) parts.push(`${counted(removed, "duplicate ledger row")} removed`);
+	if (writeFailures > 0) parts.push(`${counted(writeFailures, "new record")} failed to write`);
+	if (added.length === 0 && removed === 0 && writeFailures === 0) parts.push("ledger unchanged");
+	const warning = skipped > 0 || unreadable > 0 || writeFailures > 0;
+	notify(`${parts.join("; ")}.`, warning ? "warning" : "info");
 }
 
 async function addBudget(arg: string, store: FileLedgerStore, session: SessionBits, ctx: ExtensionContext): Promise<void> {

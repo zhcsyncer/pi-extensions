@@ -27,6 +27,7 @@ export function serializeUsageRecord(record: UsageRecord): unknown[] {
 		record.tot,
 		record.cost,
 		record.costKnown ? 1 : 0,
+		record.sourceId ?? null,
 	];
 }
 
@@ -58,6 +59,7 @@ function parseArrayRecord(value: unknown[]): UsageRecord | undefined {
 		tot,
 		cost,
 		costKnown: value.length > 10 ? value[10] === 1 : cost > 0,
+		...(typeof value[11] === "string" && value[11] ? { sourceId: value[11] } : {}),
 	};
 }
 
@@ -75,6 +77,7 @@ function parseObjectRecord(value: Record<string, unknown>): UsageRecord | undefi
 		tot: asNumber(value.tot),
 		cost: asNumber(value.cost),
 		costKnown: value.costKnown === true || (value.costKnown !== false && asNumber(value.cost) > 0),
+		...(typeof value.sourceId === "string" && value.sourceId ? { sourceId: value.sourceId } : {}),
 	};
 }
 

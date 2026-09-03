@@ -6,7 +6,7 @@
 
 落地边界：
 
-- 两套账分开：`message_end` → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
+- 两套账分开：`message_end` 中主 assistant 与带 usage 的 tool result → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
 - 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
 - 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`（临时看板，不留在聊天记录里）。
 - 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要默认显示过去 24 小时的总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
@@ -41,7 +41,7 @@
 | 面 | 问的问题 | 数据从哪来 | 丢不丢 |
 |---|---|---|---|
 | 套餐 | 这个订阅窗口还剩百分之几、何时重置 | 各家订阅 API，轮询快照 | 不进本地账本 |
-| 账本 | 这次调用花了多少 token / 钱 | Pi `message_end` 的 `usage`，追加写盘 | 不依赖 session 文件 |
+| 账本 | 这次调用花了多少 token / 钱 | Pi `message_end` 的 assistant/toolResult `usage`，追加写盘 | 不依赖 session 文件 |
 
 否决把 Claude 5h/周百分比、SuperGrok 周池、xAI 预付余额写进现有 `budgets.json`。本地 budget 继续只约束本地累加（费用 / tot / in / out，后续可加 cache）。远端告警若要做，另开 quota watch，不共用同一条上限。
 
@@ -56,7 +56,7 @@
 - 套餐条极性可选「已用」或「剩余」。本地摘要默认显示紧凑的过去 24 小时总量/费用。
 - `/usage budget`：本地上限提醒，不拦请求。预算警告可以闪一下，不占常驻条。
 - `--no-session`、默认内存 sub-agent：只要扩展加载进该进程，用量进独立账本。
-- 旧 session 可选 `/usage import` 回填；装好之后的新用量不靠 import。
+- 旧 session 可选 `/usage import` 回填；装好之后的新用量不靠 import。每次 import 明示扫描、解析、新增、已知重复、跳过和 ledger 是否变化，重复执行不再只说模糊的“nothing new”。
 
 ## 常驻 TUI：caption 行 + 短套餐条
 
@@ -90,7 +90,7 @@ SuperGrok 本机已验证的主窗口是周池。账单 JSON 有 `config` 但没
   ──► 所有 session / sub-agent 只读
         ──► 常驻套餐条 + /usage
 
-message_end
+message_end（assistant + usage-bearing toolResult）
   ──► 本地账本 JSONL（每个进程自己追加）
   ──► token 条 /usage /usage budget
 
@@ -166,7 +166,7 @@ Claude / Codex 仍走 `@pi-plugins/usage` 现有官方订阅接口，本方案�
 - 用远端剩余驱动现有 budget，或硬拦请求。
 - SuperGrok 网页周池 / 浏览器 cookie。
 - isolated 子代理的旁路记账。
-- 把 compaction / `tool_result.usage` 补进账本（知道会漏，不假装已覆盖）。
+- 把没有 message/toolResult usage 契约的旁路调用猜进账本；side-call 必须显式附顶层 usage。compaction 仍不进入 pi-meter 账本。
 - 独立跨进程 daemon。共享文件 + hasUI 写者够用。
 - 改 Glance，或把 meter 画进 Glance 输入框内部。
 

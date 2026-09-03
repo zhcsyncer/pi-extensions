@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
-import { collapseDuplicateRecords, diffRecords, parseSession, usageFromAssistantMessage } from "../src/ledger/session-parser.ts";
+import {
+	collapseDuplicateRecords,
+	diffRecords,
+	parseSession,
+	usageFromAssistantMessage,
+	usageFromToolResultMessage,
+} from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
 import { parseMeterConfig } from "../src/config.ts";
 import { sessionIdFrom } from "../src/ledger/time.ts";
@@ -51,7 +57,118 @@ describe("usage capture", () => {
 			tot: 99,
 			cost: 0.02,
 			costKnown: true,
+			sourceId: "assistant:1000",
 		});
+	});
+
+	it("attributes a Consult tool result to its advisor model", () => {
+		const records = usageFromToolResultMessage({
+			role: "toolResult",
+			toolCallId: "consult-1",
+			toolName: "consult",
+			timestamp: 2000,
+			usage: {
+				input: 10,
+				output: 2,
+				cacheRead: 100,
+				cacheWrite: 4,
+				totalTokens: 116,
+				cost: { total: 0.35 },
+			},
+			details: {
+				models: ["cursor/fable-5.1"],
+				envelope: {
+					raw: [{
+						model: "cursor/fable-5.1",
+						usage: {
+							input: 10,
+							output: 2,
+							cacheRead: 100,
+							cacheWrite: 4,
+							totalTokens: 116,
+							cost: { total: 0.35 },
+						},
+					}],
+				},
+			},
+		}, { sid: "sess", cwd: "/work" });
+		expect(records).toEqual([{
+			ts: 2000,
+			sid: "sess",
+			cwd: "/work",
+			model: "cursor/fable-5.1",
+			in: 10,
+			out: 2,
+			cR: 100,
+			cW: 4,
+			tot: 116,
+			cost: 0.35,
+			costKnown: true,
+			sourceId: "consult-1:0",
+		}]);
+	});
+
+	it("splits fanout Consult usage by advisor without counting the aggregate twice", () => {
+		const records = usageFromToolResultMessage({
+			role: "toolResult",
+			toolCallId: "consult-2",
+			toolName: "consult",
+			timestamp: 3000,
+			usage: { input: 15, output: 3, cacheRead: 150, cacheWrite: 0, totalTokens: 168, cost: { total: 0.5 } },
+			details: {
+				models: ["cursor/fable-5.1", "cursor/opus-5"],
+				envelope: {
+					raw: [
+						{ model: "cursor/fable-5.1", usage: { input: 10, output: 2, cacheRead: 100, cacheWrite: 0, totalTokens: 112, cost: { total: 0.3 } } },
+						{ model: "cursor/opus-5", usage: { input: 5, output: 1, cacheRead: 50, cacheWrite: 0, totalTokens: 56, cost: { total: 0.2 } } },
+					],
+				},
+			},
+		}, { sid: "sess", cwd: "/work" });
+		expect(records).toHaveLength(2);
+		expect(records.map((record) => record.model)).toEqual(["cursor/fable-5.1", "cursor/opus-5"]);
+		expect(records.reduce((sum, record) => sum + record.tot, 0)).toBe(168);
+		expect(records.reduce((sum, record) => sum + record.cost, 0)).toBe(0.5);
+	});
+
+	it("does not apply Consult raw attribution to another tool", () => {
+		const records = usageFromToolResultMessage({
+			role: "toolResult",
+			toolCallId: "summary-1",
+			toolName: "summarize",
+			timestamp: 3500,
+			usage: { input: 7, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 10, cost: { total: 0.02 } },
+			details: {
+				envelope: {
+					raw: [{ model: "wrong/advisor", usage: { input: 99, output: 99, totalTokens: 198, cost: { total: 9 } } }],
+				},
+			},
+		}, { sid: "sess", cwd: "/work" });
+		expect(records).toHaveLength(1);
+		expect(records[0]).toMatchObject({ model: "tool/summarize", tot: 10, cost: 0.02, sourceId: "summary-1" });
+	});
+
+	it("ignores tool results without normalized or raw usage", () => {
+		expect(usageFromToolResultMessage({
+			role: "toolResult",
+			toolCallId: "plain",
+			toolName: "read",
+			timestamp: 4000,
+		}, { sid: "sess", cwd: "/work" })).toEqual([]);
+	});
+
+	it("keeps legitimate equal-usage assistant calls distinct", () => {
+		const message = {
+			role: "assistant",
+			provider: "xai",
+			model: "grok-4",
+			usage: { input: 1, output: 1, cacheRead: 8, cacheWrite: 0, totalTokens: 10, cost: { total: 0.01 } },
+		};
+		const first = usageFromAssistantMessage({ ...message, timestamp: 1000 }, { sid: "sess", cwd: "/work" });
+		const second = usageFromAssistantMessage({ ...message, timestamp: 2000 }, { sid: "sess", cwd: "/work" });
+		if (!first || !second) throw new Error("usage did not parse");
+		expect(collapseDuplicateRecords([first, second])).toEqual([first, second]);
+		expect(diffRecords([first], [second])).toEqual([second]);
 	});
 
 	it("skips assistant usage without message.timestamp instead of inventing a clock", () => {
@@ -305,8 +422,8 @@ describe("config parsing", () => {
 });
 
 describe("ledger serialization", () => {
-	it("round-trips compact JSONL rows including costKnown", () => {
-		const original = rec({ costKnown: false, cost: 0 });
+	it("round-trips compact JSONL rows including costKnown and sourceId", () => {
+		const original = rec({ costKnown: false, cost: 0, sourceId: "consult-1:0" });
 		const parsed = parseUsageLine(JSON.stringify(serializeUsageRecord(original)));
 		expect(parsed).toEqual(original);
 	});

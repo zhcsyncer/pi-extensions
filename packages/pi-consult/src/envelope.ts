@@ -14,19 +14,88 @@ import { isRecord } from "./types.ts";
 const VERDICTS = new Set<ConsultVerdict>(["plan", "correction", "stop", "split"]);
 const ADVISOR_VERDICTS = new Set<Exclude<ConsultVerdict, "split">>(["plan", "correction", "stop"]);
 
-export function usageSnapshotFrom(usage: {
+interface UsageLike {
 	input?: number;
 	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	cacheWrite1h?: number;
+	reasoning?: number;
 	totalTokens?: number;
-	cost?: { total?: number };
-} | undefined): UsageSnapshot | undefined {
-	if (!usage) return undefined;
-	return {
-		input: usage.input ?? 0,
-		output: usage.output ?? 0,
-		totalTokens: usage.totalTokens ?? (usage.input ?? 0) + (usage.output ?? 0),
-		cost: usage.cost?.total ?? 0,
+	cost?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		total?: number;
 	};
+}
+
+export function usageSnapshotFrom(usage: UsageLike | undefined): UsageSnapshot | undefined {
+	if (!usage) return undefined;
+	const input = usage.input ?? 0;
+	const output = usage.output ?? 0;
+	const cacheRead = usage.cacheRead ?? 0;
+	const cacheWrite = usage.cacheWrite ?? 0;
+	const cost = {
+		input: usage.cost?.input ?? 0,
+		output: usage.cost?.output ?? 0,
+		cacheRead: usage.cost?.cacheRead ?? 0,
+		cacheWrite: usage.cost?.cacheWrite ?? 0,
+		total:
+			usage.cost?.total ??
+			(usage.cost?.input ?? 0) +
+				(usage.cost?.output ?? 0) +
+				(usage.cost?.cacheRead ?? 0) +
+				(usage.cost?.cacheWrite ?? 0),
+	};
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		totalTokens: usage.totalTokens ?? input + output + cacheRead + cacheWrite,
+		cost,
+		...(usage.cacheWrite1h !== undefined ? { cacheWrite1h: usage.cacheWrite1h } : {}),
+		...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
+	};
+}
+
+export function addUsage(left: UsageSnapshot | undefined, right: UsageSnapshot | undefined): UsageSnapshot | undefined {
+	if (!left) return right;
+	if (!right) return left;
+	return {
+		input: left.input + right.input,
+		output: left.output + right.output,
+		cacheRead: left.cacheRead + right.cacheRead,
+		cacheWrite: left.cacheWrite + right.cacheWrite,
+		totalTokens: left.totalTokens + right.totalTokens,
+		cost: {
+			input: left.cost.input + right.cost.input,
+			output: left.cost.output + right.cost.output,
+			cacheRead: left.cost.cacheRead + right.cost.cacheRead,
+			cacheWrite: left.cost.cacheWrite + right.cost.cacheWrite,
+			total: left.cost.total + right.cost.total,
+		},
+		...(left.cacheWrite1h !== undefined || right.cacheWrite1h !== undefined
+			? { cacheWrite1h: (left.cacheWrite1h ?? 0) + (right.cacheWrite1h ?? 0) }
+			: {}),
+		...(left.reasoning !== undefined || right.reasoning !== undefined
+			? { reasoning: (left.reasoning ?? 0) + (right.reasoning ?? 0) }
+			: {}),
+	};
+}
+
+export function hasUsage(usage: UsageSnapshot | undefined): usage is UsageSnapshot {
+	return Boolean(
+		usage &&
+			(usage.input > 0 ||
+				usage.output > 0 ||
+				usage.cacheRead > 0 ||
+				usage.cacheWrite > 0 ||
+				usage.totalTokens > 0 ||
+				usage.cost.total > 0),
+	);
 }
 
 function extractJsonObject(text: string): unknown {
@@ -156,6 +225,7 @@ export function buildConsultToolResult(opts: {
 	models: string[];
 	outcome?: ConsultOutcome;
 	effort?: string;
+	usage?: UsageSnapshot;
 }): AgentToolResult<ConsultDetails> {
 	const outcome = opts.outcome ?? (opts.envelope.error ? "failed" : "completed");
 	const details: ConsultDetails = {
@@ -169,18 +239,12 @@ export function buildConsultToolResult(opts: {
 	return {
 		content: [{ type: "text", text: formatConsultResultText(opts.envelope, outcome) }],
 		details,
+		...(hasUsage(opts.usage) ? { usage: opts.usage } : {}),
 	};
 }
 
-export function sumUsage(raw: ConsultRaw[]): { tokensIn: number; tokensOut: number; costUsd: number } {
-	let tokensIn = 0;
-	let tokensOut = 0;
-	let costUsd = 0;
-	for (const entry of raw) {
-		if (!entry.usage) continue;
-		tokensIn += entry.usage.input;
-		tokensOut += entry.usage.output;
-		costUsd += entry.usage.cost;
-	}
-	return { tokensIn, tokensOut, costUsd };
+export function sumUsage(raw: ConsultRaw[]): UsageSnapshot | undefined {
+	let total: UsageSnapshot | undefined;
+	for (const entry of raw) total = addUsage(total, entry.usage);
+	return total;
 }

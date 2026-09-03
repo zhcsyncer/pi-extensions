@@ -2,7 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendConsultAdoption, appendConsultEvent, parseConsultLog, readRecentEvents } from "../src/events.ts";
+import {
+	appendConsultAdoption,
+	appendConsultEvent,
+	parseConsultEvent,
+	parseConsultLog,
+	readRecentEvents,
+	summarizeEvents,
+} from "../src/events.ts";
 import { getConsultPaths } from "../src/paths.ts";
 import type { ConsultEvent } from "../src/types.ts";
 
@@ -20,19 +27,20 @@ async function agentDir(): Promise<string> {
 }
 
 function event(overrides: Partial<ConsultEvent> = {}): ConsultEvent {
-	return {
+	const merged = {
 		ts: "2026-09-01T00:00:00.000Z",
 		session: "sess-1",
-		trigger: "pull",
+		trigger: "pull" as const,
 		why: "need a second opinion on the approach",
 		models: ["anthropic/claude-fable-5"],
-		verdict: "correction",
+		verdict: "correction" as const,
 		adopted: null,
 		tokensIn: 100,
 		tokensOut: 20,
 		costUsd: 0.5,
 		...overrides,
 	};
+	return { ...merged, cacheRead: merged.cacheRead ?? 0, cacheWrite: merged.cacheWrite ?? 0 } as ConsultEvent;
 }
 
 describe("consult events jsonl", () => {
@@ -93,10 +101,20 @@ describe("consult events jsonl", () => {
 		expect(events.find((item) => item.ts === "second")?.adopted).toBe(false);
 	});
 
-	it("keeps reading legacy consult lines with inline adoption", async () => {
+	it("keeps reading legacy consult lines with inline adoption and no cache fields", async () => {
 		const directory = await agentDir();
-		await appendConsultEvent(event({ ts: "legacy", adopted: false }), directory);
+		const current = event({ ts: "legacy", adopted: false });
+		const { cacheRead: _cacheRead, cacheWrite: _cacheWrite, ...legacy } = current;
+		const parsed = parseConsultEvent(legacy);
+		expect(parsed).toMatchObject({ adopted: false, cacheRead: 0, cacheWrite: 0 });
+		if (!parsed) throw new Error("legacy event did not parse");
+		await appendConsultEvent(parsed, directory);
 		expect((await readRecentEvents(10, directory))[0]?.adopted).toBe(false);
+	});
+
+	it("shows cache hit rate in recent-event summaries", () => {
+		const summary = summarizeEvents([event({ tokensIn: 100, cacheRead: 300, cacheWrite: 0 })]);
+		expect(summary).toContain("cache 75%");
 	});
 
 	it("parses CONSULT-LOG adopt, reject, reasons, and the legacy shape", () => {

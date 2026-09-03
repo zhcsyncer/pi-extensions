@@ -20,6 +20,7 @@ import {
 import { budgetBlockReason } from "./budget.ts";
 import { prepareConsultMessages } from "./context.ts";
 import {
+	addUsage,
 	type AdvisorOutcome,
 	buildConsultToolResult,
 	errorEnvelope,
@@ -78,69 +79,58 @@ async function callAdvisorMember(opts: {
 		? { signal: opts.signal, reasoning: opts.member.effort }
 		: { apiKey: opts.apiKey, headers: opts.headers, signal: opts.signal, reasoning: opts.member.effort };
 
-	const call = (): Promise<AssistantMessage> =>
-		opts.completeSimple(
+	let accumulatedUsage: ReturnType<typeof usageSnapshotFrom>;
+	const call = async (): Promise<AssistantMessage> => {
+		const response = await opts.completeSimple(
 			opts.member.model,
 			{ systemPrompt: CONSULT_SYSTEM_PROMPT, messages: opts.messages, tools: [] },
 			requestOptions,
 		);
+		accumulatedUsage = addUsage(accumulatedUsage, usageSnapshotFrom(response.usage));
+		return response;
+	};
 
 	try {
 		let response = await call();
 		if (response.stopReason === "aborted") {
-			return {
-				ok: false,
-				label: opts.member.label,
-				error: ERR_CALL_ABORTED,
-				usage: usageSnapshotFrom(response.usage),
-			};
+			return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage };
 		}
 		if (response.stopReason === "error") {
 			return {
 				ok: false,
 				label: opts.member.label,
 				error: errCallFailed(response.errorMessage),
-				usage: usageSnapshotFrom(response.usage),
+				usage: accumulatedUsage,
 			};
 		}
 		let text = advisorTextFromResponse(response);
 		if (!text) {
 			response = await call();
 			if (response.stopReason === "aborted") {
-				return {
-					ok: false,
-					label: opts.member.label,
-					error: ERR_CALL_ABORTED,
-					usage: usageSnapshotFrom(response.usage),
-				};
+				return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage };
 			}
 			if (response.stopReason === "error") {
 				return {
 					ok: false,
 					label: opts.member.label,
 					error: errCallFailed(response.errorMessage),
-					usage: usageSnapshotFrom(response.usage),
+					usage: accumulatedUsage,
 				};
 			}
 			text = advisorTextFromResponse(response);
 			if (!text) {
-				return {
-					ok: false,
-					label: opts.member.label,
-					error: ERR_EMPTY_RESPONSE,
-					usage: usageSnapshotFrom(response.usage),
-				};
+				return { ok: false, label: opts.member.label, error: ERR_EMPTY_RESPONSE, usage: accumulatedUsage };
 			}
 		}
-		return {
-			ok: true,
-			label: opts.member.label,
-			text,
-			usage: usageSnapshotFrom(response.usage),
-		};
+		return { ok: true, label: opts.member.label, text, usage: accumulatedUsage };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return { ok: false, label: opts.member.label, error: errCallThrew(message) };
+		return {
+			ok: false,
+			label: opts.member.label,
+			error: errCallThrew(message),
+			...(accumulatedUsage ? { usage: accumulatedUsage } : {}),
+		};
 	}
 }
 
@@ -323,9 +313,11 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 				models,
 				verdict: envelope.error ? "error" : envelope.verdict,
 				adopted: null,
-				tokensIn: usage.tokensIn,
-				tokensOut: usage.tokensOut,
-				costUsd: usage.costUsd,
+				tokensIn: usage?.input ?? 0,
+				tokensOut: usage?.output ?? 0,
+				cacheRead: usage?.cacheRead ?? 0,
+				cacheWrite: usage?.cacheWrite ?? 0,
+				costUsd: usage?.cost.total ?? 0,
 			},
 			opts.agentDir,
 		);
@@ -333,5 +325,5 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		// Logging must not smash the session; the tool result still returns.
 	}
 
-	return buildConsultToolResult({ envelope, trigger, models, outcome, effort: members[0]?.effort });
+	return buildConsultToolResult({ envelope, trigger, models, outcome, effort: members[0]?.effort, usage });
 }
