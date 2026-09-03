@@ -8,7 +8,7 @@
 
 - 用 `/fast` 或 `Ctrl+F` 开关 Fast / Priority。
 - 每个模型的当前开关只存在内存里，不会写入 session jsonl。
-- 用 `/fast default on|off` 设置**当前模型**下次进程的默认值。该命令只写 `settings.json`，不改当前开关。
+- 用 `/fast default on|off` 设置**当前模型**下次进程的默认值。当前这次会话的开关也会跟着改。
 - 没配过的模型默认关闭。没有「所有模型」默认。
 - 在支持的模型上显示 footer 状态。不支持的模型隐藏状态，并且不改请求。
 
@@ -43,20 +43,18 @@ pi install git:github.com/zhcsyncer/pi-extensions
 /fast default off
 ```
 
-只写入当前模型的下次默认。当前开关保持不变。当前模型不支持 Fast 时命令失败。
+写入当前模型的下次默认，并且当前这次会话的开关跟着改。当前模型不支持 Fast 时命令失败。
 
 没有 `/fast status` 命令，也没有 `gpt-fast-mode` 兼容别名。
 
 ## 设置
 
-默认值按 `provider/id` 存在 Pi `settings.json`。只有写进列表的模型会默认开启：
+默认值是 Pi `settings.json` 里一份 `provider/id` 名单。只有写进列表的模型会默认开启：
 
 ```json
 {
   "fast-mode": {
-    "models": {
-      "openai/gpt-5.6": true
-    }
+    "models": ["openai/gpt-5.6"]
   }
 }
 ```
@@ -96,4 +94,4 @@ pi install git:github.com/zhcsyncer/pi-extensions
 - 换模型跟该模型自己的开关。第一次用到时读它的下次默认；没配过就是关。
 - 同一 Pi 进程里的 `/new`、`/resume`、`/fork` 会保留各模型当前开关。
 - `/reload` 或进程重启会从 `settings.json` 重新读取按模型默认。
-- `/fast default on|off` 只写当前模型的设置默认。
+- `/fast default on|off` 写当前模型的设置默认，并且当前这次会话的开关跟着改。

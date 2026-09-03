@@ -8,7 +8,7 @@
 
 - Toggle Fast / Priority with `/fast` or `Ctrl+F`.
 - Keep each model's current switch in memory only. It is never written to the session jsonl.
-- Set the next-process default for the **current model** with `/fast default on|off`. That command writes `settings.json` only and does not change the current switch.
+- Set the next-process default for the **current model** with `/fast default on|off`. That command also turns the current session switch to match.
 - Unconfigured models start off. There is no all-models default.
 - Show a footer status on supported models. Hide it on unsupported models and leave the request unchanged.
 
@@ -43,20 +43,18 @@ Toggle or set the **current** in-memory switch. `Ctrl+F` is the same toggle, wit
 /fast default off
 ```
 
-Write only this model's startup default. The current switch stays as it is. Unsupported models reject the command.
+Write this model's startup default and turn the current session switch to match. Unsupported models reject the command.
 
 There is no `/fast status` command and no `gpt-fast-mode` compatibility alias.
 
 ## Settings
 
-Defaults are stored per `provider/id` in Pi `settings.json`. Only listed models start Fast:
+Defaults are a list of `provider/id` in Pi `settings.json`. Only listed models start Fast:
 
 ```json
 {
   "fast-mode": {
-    "models": {
-      "openai/gpt-5.6": true
-    }
+    "models": ["openai/gpt-5.6"]
   }
 }
 ```
@@ -96,4 +94,4 @@ Do not assume every model is granted priority.
 - Switching models follows that model's switch. First use reads its startup default, or off if it has none.
 - `/new`, `/resume`, and `/fork` in the same Pi process keep each model's current switch.
 - `/reload` or a process restart rereads per-model defaults from `settings.json`.
-- `/fast default on|off` writes only the current model's settings default.
+- `/fast default on|off` writes the current model's settings default and turns this session's switch to match.

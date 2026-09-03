@@ -7,9 +7,10 @@
  *
  * Toggle until you toggle that model again, /reload, or quit: /fast  or  Ctrl+F
  * Startup default for the current model: /fast default on|off
+ * That command also turns this session's switch to match.
  * Unconfigured models start off. There is no all-models default.
  *
- * Settings: fast-mode.models["provider/id"] = true
+ * Settings: fast-mode.models is a list of "provider/id" that start Fast.
  * Current switches are in-memory per model; they are not stored in the session.
  */
 import {
@@ -78,13 +79,22 @@ export function modelKey(model: FastModeModelRef | undefined): string | undefine
 	return `${model.provider}/${model.id}`;
 }
 
+export function readEnabledModelList(block: unknown): string[] {
+	if (!isRecord(block) || !Array.isArray(block.models)) return [];
+	const seen = new Set<string>();
+	const models: string[] = [];
+	for (const item of block.models) {
+		if (typeof item !== "string" || item.length === 0 || seen.has(item)) continue;
+		seen.add(item);
+		models.push(item);
+	}
+	return models;
+}
+
 export function loadDefaultEnabled(key: string): boolean {
 	const settings = readSettingsFile();
 	if (!settings) return false;
-	const block = settings.parsed[SETTINGS_FIELD];
-	if (!isRecord(block)) return false;
-	const models = block.models;
-	return isRecord(models) && models[key] === true;
+	return readEnabledModelList(settings.parsed[SETTINGS_FIELD]).includes(key);
 }
 
 export function writeDefaultEnabled(key: string, enabled: boolean): void {
@@ -96,12 +106,11 @@ export function writeDefaultEnabled(key: string, enabled: boolean): void {
 		parsed = raw;
 	}
 	const previous = isRecord(parsed[SETTINGS_FIELD]) ? parsed[SETTINGS_FIELD] : {};
-	const models = isRecord(previous.models) ? { ...previous.models } : {};
-	if (enabled) models[key] = true;
-	else delete models[key];
+	const models = readEnabledModelList(previous).filter((item) => item !== key);
+	if (enabled) models.push(key);
 	const next: Record<string, unknown> = { ...previous };
 	delete next.enabled;
-	if (Object.keys(models).length > 0) next.models = models;
+	if (models.length > 0) next.models = models;
 	else delete next.models;
 	parsed[SETTINGS_FIELD] = next;
 	const temporary = `${path}.${process.pid}.tmp`;
@@ -246,13 +255,11 @@ export default function fastMode(pi: ExtensionAPI): void {
 			ctx.ui.notify(`Failed to write fast-mode default: ${error instanceof Error ? error.message : String(error)}`, "error");
 			return;
 		}
+		setEnabled(ctx, next);
 		ctx.ui.notify(
-			next
-				? `Startup default for ${key} is Fast ON. Current switch is unchanged.`
-				: `Startup default for ${key} is Fast OFF. Current switch is unchanged.`,
+			next ? `Startup default for ${key} is Fast ON.` : `Startup default for ${key} is Fast OFF.`,
 			"info",
 		);
-		updateStatus(ctx);
 	}
 
 	pi.registerProvider("openai-codex", {

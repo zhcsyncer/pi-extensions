@@ -9,7 +9,7 @@
 ## 红线
 
 - `/fast` 和 `Ctrl+F` 只改当前模型的内存开关，不写 session jsonl。松开 `Ctrl+F` 不再切换。
-- `/fast default` 只写当前模型的下次默认，不改当前开关。不支持 Fast 的模型直接失败。没有「所有模型」默认；旧的全局 `enabled` 布尔不再读取。
+- `/fast default` 写当前模型的下次默认，并且当前这次会话的开关跟着改。不支持 Fast 的模型直接失败。没有「所有模型」默认；旧的全局 `enabled` 布尔不再读取。
 - 换模型使用该模型自己的内存开关；第一次用到时从设置读取，没配过就是关。`/new` `/resume` `/fork` 保留各模型内存开关；`/reload` 或重启才重读设置。
 - 提供商列表写死：OpenAI、Codex、xAI。没有用户白名单。
 - Pi 0.84.3 的内置 xAI 模型已全部走 Responses。OpenAI、Codex 与内置 xAI 都通过 `registerProvider` 包官方 Responses 流；官方适配器负责序列化 `service_tier`，并按响应值调整本地费用：`priority` 通常约 2 倍，`default` 为 1 倍。

@@ -151,7 +151,7 @@ test("registers built-in xAI on the Responses wrapper", async () => {
 	});
 });
 
-test("/fast default writes this model's setting and leaves the current switch unchanged", async () => {
+test("/fast default writes this model's setting and turns the current switch to match", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];
 		const notifies: string[] = [];
@@ -170,9 +170,9 @@ test("/fast default writes this model's setting and leaves the current switch un
 		await command.handler("default off", ctx);
 
 		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), false);
-		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
 		assert.match(notifies.join("\n"), /openai\/gpt-5\.6/);
-		assert.match(notifies.join("\n"), /Current switch is unchanged/);
+		assert.match(notifies.join("\n"), /Fast OFF/);
 
 		statuses.length = 0;
 		notifies.length = 0;
@@ -180,6 +180,7 @@ test("/fast default writes this model's setting and leaves the current switch un
 		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), true);
 		assert.equal(loadDefaultEnabled("xai/grok-4.6"), false);
 		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.match(notifies.join("\n"), /Fast ON/);
 	});
 });
 
@@ -411,7 +412,7 @@ test("first use of a model reads only that model's startup default", async () =>
 	});
 });
 
-test("/fast default on does not turn the current switch on until reload", async () => {
+test("/fast default on turns the current switch on immediately", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];
 		const notifies: string[] = [];
@@ -426,7 +427,7 @@ test("/fast default on does not turn the current switch on until reload", async 
 
 		await command.handler("default on", ctx);
 		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), true);
-		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
 
 		sessionStart({ reason: "reload" }, ctx);
 		assert.equal(statuses.at(-1), footerStatusLabel(true, true));

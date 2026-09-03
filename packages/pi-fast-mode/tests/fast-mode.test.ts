@@ -21,6 +21,7 @@ import {
 	footerStatusLabel,
 	loadDefaultEnabled,
 	modelKey,
+	readEnabledModelList,
 	resolveServiceTier,
 	resolveSettingsPath,
 	SERVICE_TIER,
@@ -316,6 +317,15 @@ test("new, resume, and fork keep the current switch; startup and reload reread s
 	assert.equal(shouldReloadEnabledFromSettings(undefined), false);
 });
 
+test("readEnabledModelList keeps unique string ids and ignores the rest", () => {
+	assert.deepEqual(readEnabledModelList(undefined), []);
+	assert.deepEqual(readEnabledModelList({ models: { "openai/gpt-5.6": true } }), []);
+	assert.deepEqual(
+		readEnabledModelList({ models: ["openai/gpt-5.6", "", 1, "openai/gpt-5.6", "xai/grok-4.6"] }),
+		["openai/gpt-5.6", "xai/grok-4.6"],
+	);
+});
+
 test("modelKey uses provider/id and ignores incomplete models", () => {
 	assert.equal(modelKey(undefined), undefined);
 	assert.equal(modelKey({ provider: "openai" }), undefined);
@@ -340,7 +350,7 @@ test("loadDefaultEnabled reads only the named model's default and ignores the ol
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
-			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true } } })}\n`,
+			`${JSON.stringify({ "fast-mode": { models: [gpt] } })}\n`,
 			"utf8",
 		);
 		assert.equal(loadDefaultEnabled(gpt), true);
@@ -349,7 +359,14 @@ test("loadDefaultEnabled reads only the named model's default and ignores the ol
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
-			`${JSON.stringify({ "fast-mode": { models: { [gpt]: false } } })}\n`,
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true } } })}\n`,
+			"utf8",
+		);
+		assert.equal(loadDefaultEnabled(gpt), false);
+
+		await writeFile(
+			path.join(agentDir, "settings.json"),
+			`${JSON.stringify({ "fast-mode": { models: [] } })}\n`,
 			"utf8",
 		);
 		assert.equal(loadDefaultEnabled(gpt), false);
@@ -374,17 +391,18 @@ test("writeDefaultEnabled atomically updates only the named model default", asyn
 		const afterOn = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOn, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", models: { [gpt]: true } },
+			"fast-mode": { extra: "keep-me", models: [gpt] },
 		});
 		assert.equal(loadDefaultEnabled(gpt), true);
 		assert.equal(loadDefaultEnabled(grok), false);
 
+		writeDefaultEnabled(gpt, true);
 		writeDefaultEnabled(grok, true);
 		writeDefaultEnabled(gpt, false);
 		const afterOff = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOff, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", models: { [grok]: true } },
+			"fast-mode": { extra: "keep-me", models: [grok] },
 		});
 		assert.equal(loadDefaultEnabled(gpt), false);
 		assert.equal(loadDefaultEnabled(grok), true);
