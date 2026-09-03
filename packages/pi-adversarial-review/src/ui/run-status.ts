@@ -12,7 +12,12 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { safeReviewDiagnosticText } from "../output/headless-output.ts";
+import {
+  compactTarget,
+  compactTargetSummary,
+  formatBytes,
+  oneLine,
+} from "../output/format.ts";
 import type {
   ReviewerFleetItemProgress,
   ReviewerFleetProgress,
@@ -31,28 +36,6 @@ function elapsedText(startedAtMs: number, nowMs = Date.now()): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return minutes > 0 ? `${minutes}m${String(remainder).padStart(2, "0")}s` : `${remainder}s`;
-}
-
-function oneLine(value: string): string {
-  return safeReviewDiagnosticText(value).replace(/\s+/gu, " ").trim();
-}
-
-function compactTargetSummary(summary: string): string {
-  return oneLine(summary)
-    .replace(/^Adversarial review target:\s*/u, "")
-    .replace(/\.$/u, "");
-}
-
-function compactFrozenTarget(description: string): string {
-  return oneLine(description)
-    .replace(/\b([0-9a-f]{7})[0-9a-f]{33,57}\b/gu, "$1")
-    .replace(/\b([0-9a-f]{7}) \(\1\)/gu, "$1");
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 export interface ReviewRunGateSummary {
@@ -407,7 +390,7 @@ export function createReviewRunStatus(
     frozen(input) {
       if (disposed) return;
       frozen = {
-        description: compactFrozenTarget(input.target.description),
+        description: compactTarget(input.target.description),
         bytes: input.inputSize.bytes,
         lines: input.inputSize.lines,
         files: input.target.changedFiles.length,

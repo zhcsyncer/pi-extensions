@@ -92,8 +92,8 @@ During a run:
 - the extension does not occupy Pi's footer status area or register a separate above-editor widget;
 - with a compatible external Subagents runtime, its Agents/FleetView surface exclusively owns per-agent model, execution, conversation, and tool-call detail; the Review card does not repeat those rows;
 - the embedded fallback has no FleetView, so the same editor card retains bounded per-agent status there;
-- a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
-- the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
+- a durable, non-model-context transcript node records that the run dispatched (how many reviewers, and whether Refute is armed) without repeating the live card;
+- the final report is a separate durable transcript node. Collapsed, it shows the verdict, short target, blocking titles, and any failed routes so you can start adjudicating; expansion adds full findings and per-route outcomes. Successful TUI runs do not also toast the target or completion summary.
 
 Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. A format-repair session receives only the original raw output and parser error, has no tools, extensions, skills, frozen-input path, or review assignment, and is capped at 3 turns plus 2 wrap-up turns. It may remove framing only; if the source lacks exactly one complete valid ReviewReport, the host never starts repair, and any semantic change in a retry leaves the route invalid. Those low-level calls and repair details are intentionally not duplicated in the Review status card.
 
