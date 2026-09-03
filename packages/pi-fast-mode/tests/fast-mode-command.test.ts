@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import fastMode, {
 	footerStatusLabel,
 	loadDefaultEnabled,
+	resolveSettingsPath,
 	SHORTCUT_REPEAT_GUARD_MS,
 	STATUS_KEY,
 	writeDefaultEnabled,
@@ -24,15 +25,33 @@ type RegisteredProvider = {
 type EventHandler = (event: { reason?: string; payload?: unknown }, ctx: ExtensionContext) => unknown;
 
 const KITTY_CTRL_F_RELEASE = "\x1b[102;5:3u";
+const GPT = {
+	provider: "openai",
+	id: "gpt-5.6",
+	api: "openai-responses",
+} as const;
+const GROK = {
+	provider: "xai",
+	id: "grok-4.6",
+	api: "openai-responses",
+} as const;
+const CLAUDE = {
+	provider: "anthropic",
+	id: "claude-opus-4-6",
+	api: "anthropic-messages",
+} as const;
+
+function setCtxModel(
+	ctx: ExtensionContext,
+	model: { provider: string; id: string; api: string },
+): void {
+	(ctx as unknown as { model: { provider: string; id: string; api: string } }).model = model;
+}
 
 function createCtx(
 	statuses: Array<string | undefined>,
 	notifies: string[],
-	model: { provider: string; id: string; api: string } = {
-		provider: "openai",
-		id: "gpt-5.6",
-		api: "openai-responses",
-	},
+	model: { provider: string; id: string; api: string } = GPT,
 ) {
 	return {
 		model,
@@ -132,7 +151,7 @@ test("registers built-in xAI on the Responses wrapper", async () => {
 	});
 });
 
-test("/fast default writes settings and leaves the current switch unchanged", async () => {
+test("/fast default writes this model's setting and leaves the current switch unchanged", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];
 		const notifies: string[] = [];
@@ -150,9 +169,17 @@ test("/fast default writes settings and leaves the current switch unchanged", as
 		notifies.length = 0;
 		await command.handler("default off", ctx);
 
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), false);
 		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.match(notifies.join("\n"), /openai\/gpt-5\.6/);
 		assert.match(notifies.join("\n"), /Current switch is unchanged/);
+
+		statuses.length = 0;
+		notifies.length = 0;
+		await command.handler("default on", ctx);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), true);
+		assert.equal(loadDefaultEnabled("xai/grok-4.6"), false);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
 	});
 });
 
@@ -233,7 +260,7 @@ test("/new /resume /fork keep the current switch; /reload rereads settings", asy
 		sessionStart({ reason: "startup" }, ctx);
 		await command.handler("on", ctx);
 		assert.equal(notifies.length, 0);
-		writeDefaultEnabled(false);
+		writeDefaultEnabled("openai/gpt-5.6", false);
 
 		for (const reason of ["new", "resume", "fork"] as const) {
 			sessionStart({ reason }, ctx);
@@ -242,7 +269,7 @@ test("/new /resume /fork keep the current switch; /reload rereads settings", asy
 
 		sessionStart({ reason: "reload" }, ctx);
 		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), false);
 	});
 });
 
@@ -274,11 +301,7 @@ test("/fast on notifies only when the footer cannot show the state", async () =>
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];
 		const notifies: string[] = [];
-		const ctx = createCtx(statuses, notifies, {
-			provider: "anthropic",
-			id: "claude-opus-4-6",
-			api: "anthropic-messages",
-		});
+		const ctx = createCtx(statuses, notifies, CLAUDE);
 		const command = commands.get("fast");
 		const sessionStart = handlers.get("session_start");
 		assert.ok(command);
@@ -290,5 +313,144 @@ test("/fast on notifies only when the footer cannot show the state", async () =>
 		await command.handler("on", ctx);
 		assert.equal(statuses.at(-1), undefined);
 		assert.match(notifies.join("\n"), /not supported/);
+	});
+});
+
+test("/fast default refuses unsupported models and does not write settings", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, CLAUDE);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		assert.ok(command);
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		await command.handler("default on", ctx);
+		assert.match(notifies.join("\n"), /Cannot set Fast default/);
+		assert.equal(loadDefaultEnabled("anthropic/claude-opus-4-6"), false);
+	});
+});
+
+test("legacy global enabled does not turn Fast on at startup", async () => {
+	await withLoadedExtension(async ({ handlers }) => {
+		await writeFile(
+			resolveSettingsPath(),
+			`${JSON.stringify({ "fast-mode": { enabled: true } })}\n`,
+			"utf8",
+		);
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies);
+		const sessionStart = handlers.get("session_start");
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.equal(notifies.length, 0);
+	});
+});
+
+test("switching models follows that model's in-memory switch", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, GPT);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		const modelSelect = handlers.get("model_select");
+		assert.ok(command);
+		assert.ok(sessionStart);
+		assert.ok(modelSelect);
+
+		sessionStart({ reason: "startup" }, ctx);
+		await command.handler("on", ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+
+		setCtxModel(ctx, GROK);
+		modelSelect({}, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+
+		setCtxModel(ctx, GPT);
+		modelSelect({}, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+		assert.equal(notifies.length, 0);
+	});
+});
+
+test("first use of a model reads only that model's startup default", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		writeDefaultEnabled("openai/gpt-5.6", true);
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, GPT);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		const modelSelect = handlers.get("model_select");
+		assert.ok(command);
+		assert.ok(sessionStart);
+		assert.ok(modelSelect);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+
+		setCtxModel(ctx, GROK);
+		modelSelect({}, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+
+		await command.handler("on", ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+
+		sessionStart({ reason: "new" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+
+		sessionStart({ reason: "reload" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+		assert.equal(loadDefaultEnabled("xai/grok-4.6"), false);
+	});
+});
+
+test("/fast default on does not turn the current switch on until reload", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, GPT);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		assert.ok(command);
+		assert.ok(sessionStart);
+
+		sessionStart({ reason: "startup" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+
+		await command.handler("default on", ctx);
+		assert.equal(loadDefaultEnabled("openai/gpt-5.6"), true);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
+
+		sessionStart({ reason: "reload" }, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(true, true));
+	});
+});
+
+test("turning Fast on for an unsupported model does not leak to the next model", async () => {
+	await withLoadedExtension(async ({ commands, handlers }) => {
+		const statuses: Array<string | undefined> = [];
+		const notifies: string[] = [];
+		const ctx = createCtx(statuses, notifies, CLAUDE);
+		const command = commands.get("fast");
+		const sessionStart = handlers.get("session_start");
+		const modelSelect = handlers.get("model_select");
+		assert.ok(command);
+		assert.ok(sessionStart);
+		assert.ok(modelSelect);
+
+		sessionStart({ reason: "startup" }, ctx);
+		await command.handler("on", ctx);
+		assert.match(notifies.join("\n"), /not supported/);
+
+		setCtxModel(ctx, GPT);
+		modelSelect({}, ctx);
+		assert.equal(statuses.at(-1), footerStatusLabel(false, true));
 	});
 });

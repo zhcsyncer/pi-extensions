@@ -20,6 +20,7 @@ import {
 	buildStreamOptions,
 	footerStatusLabel,
 	loadDefaultEnabled,
+	modelKey,
 	resolveServiceTier,
 	resolveSettingsPath,
 	SERVICE_TIER,
@@ -315,65 +316,90 @@ test("new, resume, and fork keep the current switch; startup and reload reread s
 	assert.equal(shouldReloadEnabledFromSettings(undefined), false);
 });
 
-test("loadDefaultEnabled reads only settings.json fast-mode.enabled", async () => {
+test("modelKey uses provider/id and ignores incomplete models", () => {
+	assert.equal(modelKey(undefined), undefined);
+	assert.equal(modelKey({ provider: "openai" }), undefined);
+	assert.equal(modelKey({ id: "gpt-5.6" }), undefined);
+	assert.equal(modelKey({ provider: "openai", id: "gpt-5.6" }), "openai/gpt-5.6");
+	assert.equal(modelKey({ provider: "openai-codex", id: "gpt-5.6" }), "openai-codex/gpt-5.6");
+});
+
+test("loadDefaultEnabled reads only the named model's default and ignores the old global flag", async () => {
 	await withSettingsDir(async (agentDir) => {
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
 		assert.equal(resolveSettingsPath(), path.join(agentDir, "settings.json"));
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
 			`${JSON.stringify({ "fast-mode": { enabled: true }, other: 1 })}\n`,
 			"utf8",
 		);
-		assert.equal(loadDefaultEnabled(), true);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(
 			path.join(agentDir, "settings.json"),
-			`${JSON.stringify({ "fast-mode": { enabled: false } })}\n`,
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: true } } })}\n`,
 			"utf8",
 		);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
+		assert.equal(loadDefaultEnabled("openai-codex/gpt-5.6"), false);
+
+		await writeFile(
+			path.join(agentDir, "settings.json"),
+			`${JSON.stringify({ "fast-mode": { models: { [gpt]: false } } })}\n`,
+			"utf8",
+		);
+		assert.equal(loadDefaultEnabled(gpt), false);
 
 		await writeFile(path.join(agentDir, "settings.json"), "{not-json", "utf8");
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 	});
 });
 
-test("writeDefaultEnabled atomically updates only the fast-mode object", async () => {
+test("writeDefaultEnabled atomically updates only the named model default", async () => {
 	await withSettingsDir(async (agentDir) => {
 		const settingsPath = path.join(agentDir, "settings.json");
+		const gpt = "openai/gpt-5.6";
+		const grok = "xai/grok-4.6";
 		await writeFile(
 			settingsPath,
-			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me" } }, null, 2)}\n`,
+			`${JSON.stringify({ theme: "dark", "fast-mode": { extra: "keep-me", enabled: true } }, null, 2)}\n`,
 			"utf8",
 		);
 
-		writeDefaultEnabled(true);
+		writeDefaultEnabled(gpt, true);
 		const afterOn = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOn, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", enabled: true },
+			"fast-mode": { extra: "keep-me", models: { [gpt]: true } },
 		});
-		assert.equal(loadDefaultEnabled(), true);
+		assert.equal(loadDefaultEnabled(gpt), true);
+		assert.equal(loadDefaultEnabled(grok), false);
 
-		writeDefaultEnabled(false);
+		writeDefaultEnabled(grok, true);
+		writeDefaultEnabled(gpt, false);
 		const afterOff = JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
 		assert.deepEqual(afterOff, {
 			theme: "dark",
-			"fast-mode": { extra: "keep-me", enabled: false },
+			"fast-mode": { extra: "keep-me", models: { [grok]: true } },
 		});
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
+		assert.equal(loadDefaultEnabled(grok), true);
 	});
 });
 
 test("writing the default does not imply a current-switch change", async () => {
 	await withSettingsDir(async () => {
+		const gpt = "openai/gpt-5.6";
 		let current = true;
-		writeDefaultEnabled(false);
+		writeDefaultEnabled(gpt, false);
 		assert.equal(current, true);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 		current = !current;
 		assert.equal(current, false);
-		assert.equal(loadDefaultEnabled(), false);
+		assert.equal(loadDefaultEnabled(gpt), false);
 	});
 });

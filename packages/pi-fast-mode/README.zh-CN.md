@@ -7,8 +7,9 @@
 ## 功能
 
 - 用 `/fast` 或 `Ctrl+F` 开关 Fast / Priority。
-- 当前开关只存在内存里，不会写入 session jsonl。
-- 用 `/fast default on|off` 设置下次进程的默认值。该命令只写 `settings.json`，不改当前开关。
+- 每个模型的当前开关只存在内存里，不会写入 session jsonl。
+- 用 `/fast default on|off` 设置**当前模型**下次进程的默认值。该命令只写 `settings.json`，不改当前开关。
+- 没配过的模型默认关闭。没有「所有模型」默认。
 - 在支持的模型上显示 footer 状态。不支持的模型隐藏状态，并且不改请求。
 
 ## 安装
@@ -42,23 +43,25 @@ pi install git:github.com/zhcsyncer/pi-extensions
 /fast default off
 ```
 
-只写入 `settings.json` 的 `fast-mode.enabled`。当前开关保持不变。
+只写入当前模型的下次默认。当前开关保持不变。当前模型不支持 Fast 时命令失败。
 
 没有 `/fast status` 命令，也没有 `gpt-fast-mode` 兼容别名。
 
 ## 设置
 
-支持的设置键是 Pi `settings.json` 里的 `fast-mode.enabled`：
+默认值按 `provider/id` 存在 Pi `settings.json`。只有写进列表的模型会默认开启：
 
 ```json
 {
   "fast-mode": {
-    "enabled": false
+    "models": {
+      "openai/gpt-5.6": true
+    }
   }
 }
 ```
 
-`/fast default` 是修改该字段的官方方式。手动编辑会在 `/reload` 或进程重启后生效。
+`/fast default` 是修改该列表的官方方式。手动编辑会在 `/reload` 或进程重启后生效。旧的 `fast-mode.enabled` 布尔值会被忽略。
 
 ## 状态栏
 
@@ -89,7 +92,8 @@ pi install git:github.com/zhcsyncer/pi-extensions
 
 ## Session 生命周期
 
-- `/fast` 和 `Ctrl+F` 只改内存开关。
-- 同一 Pi 进程里的 `/new`、`/resume`、`/fork` 会保留当前开关。
-- `/reload` 或进程重启会从 `settings.json` 重新读取 `fast-mode.enabled`。
-- `/fast default on|off` 只写设置里的默认值。
+- `/fast` 和 `Ctrl+F` 只改当前模型的内存开关。
+- 换模型跟该模型自己的开关。第一次用到时读它的下次默认；没配过就是关。
+- 同一 Pi 进程里的 `/new`、`/resume`、`/fork` 会保留各模型当前开关。
+- `/reload` 或进程重启会从 `settings.json` 重新读取按模型默认。
+- `/fast default on|off` 只写当前模型的设置默认。

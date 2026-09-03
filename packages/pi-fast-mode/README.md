@@ -7,8 +7,9 @@
 ## Features
 
 - Toggle Fast / Priority with `/fast` or `Ctrl+F`.
-- Keep the current switch in memory only. It is never written to the session jsonl.
-- Set the next-process default with `/fast default on|off`. That command writes `settings.json` only and does not change the current switch.
+- Keep each model's current switch in memory only. It is never written to the session jsonl.
+- Set the next-process default for the **current model** with `/fast default on|off`. That command writes `settings.json` only and does not change the current switch.
+- Unconfigured models start off. There is no all-models default.
 - Show a footer status on supported models. Hide it on unsupported models and leave the request unchanged.
 
 ## Install
@@ -42,23 +43,25 @@ Toggle or set the **current** in-memory switch. `Ctrl+F` is the same toggle, wit
 /fast default off
 ```
 
-Write only `settings.json` `fast-mode.enabled`. The current switch stays as it is.
+Write only this model's startup default. The current switch stays as it is. Unsupported models reject the command.
 
 There is no `/fast status` command and no `gpt-fast-mode` compatibility alias.
 
 ## Settings
 
-The supported settings key is `fast-mode.enabled` in Pi `settings.json`:
+Defaults are stored per `provider/id` in Pi `settings.json`. Only listed models start Fast:
 
 ```json
 {
   "fast-mode": {
-    "enabled": false
+    "models": {
+      "openai/gpt-5.6": true
+    }
   }
 }
 ```
 
-`/fast default` is the supported way to change that field. Manual edits are read on `/reload` or process restart.
+`/fast default` is the supported way to change that map. Manual edits are read on `/reload` or process restart. The old `fast-mode.enabled` boolean is ignored.
 
 ## Footer
 
@@ -89,7 +92,8 @@ Do not assume every model is granted priority.
 
 ## Session lifetime
 
-- `/fast` and `Ctrl+F` change the in-memory switch only.
-- `/new`, `/resume`, and `/fork` in the same Pi process keep the current switch.
-- `/reload` or a process restart reloads `fast-mode.enabled` from `settings.json`.
-- `/fast default on|off` writes only the settings default.
+- `/fast` and `Ctrl+F` change the current model's in-memory switch only.
+- Switching models follows that model's switch. First use reads its startup default, or off if it has none.
+- `/new`, `/resume`, and `/fork` in the same Pi process keep each model's current switch.
+- `/reload` or a process restart rereads per-model defaults from `settings.json`.
+- `/fast default on|off` writes only the current model's settings default.

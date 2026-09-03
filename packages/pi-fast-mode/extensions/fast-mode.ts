@@ -5,11 +5,12 @@
  * - openai / openai-codex / xAI Responses via options.serviceTier
  * - custom xAI Completions models via a payload service_tier fallback
  *
- * Toggle until you toggle again, /reload, or quit: /fast  or  Ctrl+F
- * Startup default: /fast default on|off
+ * Toggle until you toggle that model again, /reload, or quit: /fast  or  Ctrl+F
+ * Startup default for the current model: /fast default on|off
+ * Unconfigured models start off. There is no all-models default.
  *
- * Settings key: fast-mode.enabled
- * Current switch is in-memory only; it is not stored in the session.
+ * Settings: fast-mode.models["provider/id"] = true
+ * Current switches are in-memory per model; they are not stored in the session.
  */
 import {
 	clampThinkingLevel,
@@ -41,7 +42,14 @@ export type ServiceTierOptions = ReturnType<typeof buildBaseOptions> & {
 	toolChoice?: SimpleStreamOptions["toolChoice"];
 };
 
-export type FastModeModel = Pick<Model<Api>, "provider" | "api">;
+export type FastModeModel = Pick<Model<Api>, "provider" | "api"> & {
+	id?: string;
+};
+
+export type FastModeModelRef = {
+	provider?: string;
+	id?: string;
+};
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,14 +73,21 @@ export function readSettingsFile(): { path: string; parsed: Record<string, unkno
 	}
 }
 
-export function loadDefaultEnabled(): boolean {
+export function modelKey(model: FastModeModelRef | undefined): string | undefined {
+	if (!model?.provider || !model.id) return undefined;
+	return `${model.provider}/${model.id}`;
+}
+
+export function loadDefaultEnabled(key: string): boolean {
 	const settings = readSettingsFile();
 	if (!settings) return false;
 	const block = settings.parsed[SETTINGS_FIELD];
-	return isRecord(block) && block.enabled === true;
+	if (!isRecord(block)) return false;
+	const models = block.models;
+	return isRecord(models) && models[key] === true;
 }
 
-export function writeDefaultEnabled(enabled: boolean): void {
+export function writeDefaultEnabled(key: string, enabled: boolean): void {
 	const path = resolveSettingsPath();
 	let parsed: Record<string, unknown> = {};
 	if (existsSync(path)) {
@@ -81,7 +96,14 @@ export function writeDefaultEnabled(enabled: boolean): void {
 		parsed = raw;
 	}
 	const previous = isRecord(parsed[SETTINGS_FIELD]) ? parsed[SETTINGS_FIELD] : {};
-	parsed[SETTINGS_FIELD] = { ...previous, enabled };
+	const models = isRecord(previous.models) ? { ...previous.models } : {};
+	if (enabled) models[key] = true;
+	else delete models[key];
+	const next: Record<string, unknown> = { ...previous };
+	delete next.enabled;
+	if (Object.keys(models).length > 0) next.models = models;
+	else delete next.models;
+	parsed[SETTINGS_FIELD] = next;
 	const temporary = `${path}.${process.pid}.tmp`;
 	writeFileSync(temporary, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: "utf8" });
 	try {
@@ -160,22 +182,33 @@ function modelLabel(model: ExtensionContext["model"]): string {
 }
 
 export default function fastMode(pi: ExtensionAPI): void {
-	let enabled = loadDefaultEnabled();
+	const remembered = new Map<string, boolean>();
 	let unsubscribeTerminalInput: (() => void) | undefined;
 	let shortcutRepeatGuard: ReturnType<typeof setTimeout> | undefined;
 	let shortcutLatched = false;
 
+	function enabledFor(model: FastModeModelRef | undefined): boolean {
+		const key = modelKey(model);
+		if (!key) return false;
+		const cached = remembered.get(key);
+		if (cached !== undefined) return cached;
+		const fromSettings = loadDefaultEnabled(key);
+		remembered.set(key, fromSettings);
+		return fromSettings;
+	}
+
 	function resolveTier(model: Model<Api> | undefined): typeof SERVICE_TIER | undefined {
-		return resolveServiceTier(enabled, model);
+		return resolveServiceTier(enabledFor(model), model);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		const label = footerStatusLabel(enabled, supportsApi(ctx.model));
+		const on = enabledFor(ctx.model);
+		const label = footerStatusLabel(on, supportsApi(ctx.model));
 		if (!label) {
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		if (enabled) {
+		if (on) {
 			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("warning", ctx.ui.theme.bold(label)));
 			return;
 		}
@@ -183,7 +216,8 @@ export default function fastMode(pi: ExtensionAPI): void {
 	}
 
 	function setEnabled(ctx: ExtensionContext, next: boolean): void {
-		enabled = next;
+		const key = modelKey(ctx.model);
+		if (key) remembered.set(key, next);
 		updateStatus(ctx);
 		// Successful toggles stay in the footer. notify() is appended to the chat
 		// transcript, so only use it when the footer cannot show the new state.
@@ -193,20 +227,29 @@ export default function fastMode(pi: ExtensionAPI): void {
 	}
 
 	function toggle(ctx: ExtensionContext): void {
-		setEnabled(ctx, !enabled);
+		setEnabled(ctx, !enabledFor(ctx.model));
 	}
 
 	function setDefaultEnabled(ctx: ExtensionContext, next: boolean): void {
+		if (!supportsApi(ctx.model)) {
+			ctx.ui.notify(`Cannot set Fast default: ${modelLabel(ctx.model)} is not supported`, "error");
+			return;
+		}
+		const key = modelKey(ctx.model);
+		if (!key) {
+			ctx.ui.notify("Cannot set Fast default: unknown model", "error");
+			return;
+		}
 		try {
-			writeDefaultEnabled(next);
+			writeDefaultEnabled(key, next);
 		} catch (error) {
 			ctx.ui.notify(`Failed to write fast-mode default: ${error instanceof Error ? error.message : String(error)}`, "error");
 			return;
 		}
 		ctx.ui.notify(
 			next
-				? "Startup default is Fast ON. Current switch is unchanged."
-				: "Startup default is Fast OFF. Current switch is unchanged.",
+				? `Startup default for ${key} is Fast ON. Current switch is unchanged.`
+				: `Startup default for ${key} is Fast OFF. Current switch is unchanged.`,
 			"info",
 		);
 		updateStatus(ctx);
@@ -252,14 +295,14 @@ export default function fastMode(pi: ExtensionAPI): void {
 	// payload hook only for custom xAI Completions models from models.json.
 	pi.on("before_provider_request", (event, ctx) => {
 		return applyXaiPriorityPayload({
-			enabled,
+			enabled: enabledFor(ctx.model),
 			model: ctx.model,
 			payload: event.payload,
 		});
 	});
 
 	pi.registerCommand("fast", {
-		description: "Toggle Fast / Priority mode, or set the new-session default",
+		description: "Toggle Fast / Priority mode, or set this model's startup default",
 		getArgumentCompletions: (prefix) => {
 			const values = ["on", "off", "default on", "default off"];
 			const items = values.filter((value) => value.startsWith(prefix.trim().toLowerCase()));
@@ -297,7 +340,7 @@ export default function fastMode(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (event, ctx) => {
 		if (shouldReloadEnabledFromSettings(event.reason)) {
-			enabled = loadDefaultEnabled();
+			remembered.clear();
 		}
 		unsubscribeTerminalInput?.();
 		if (shortcutRepeatGuard) clearTimeout(shortcutRepeatGuard);

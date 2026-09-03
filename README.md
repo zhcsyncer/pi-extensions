@@ -27,7 +27,7 @@ A collection of Pi extensions by zhcsyncer.
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
 - [`@zhcsyncer/pi-adversarial-review`](./packages/pi-adversarial-review) — deterministic multi-model adversarial code review. Install it separately; the root bundle does not include it.
-- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with an in-memory `/fast` and Ctrl+F switch.
+- [`@zhcsyncer/pi-fast-mode`](./packages/pi-fast-mode) — same-model Fast / Priority scheduling for OpenAI and xAI, with a per-model in-memory `/fast` and Ctrl+F switch.
 
   ![Fast Mode footer status](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
 
