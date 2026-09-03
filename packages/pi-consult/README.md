@@ -15,8 +15,8 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 - `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
 - Unconfigured panel unloads the tool. Off costs nothing.
 - Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first.
-- `/consult` picks panel models and effort, toggles the loop gate, and shows budget remaining plus recent log lines.
-- Advisor usage includes retries, fanout, cache reads/writes, and cost. It is attached to the Consult tool result so Pi session totals include it; recent `/consult status` rows show cache hit rate.
+- `/consult` picks panel models and effort and toggles the loop gate. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.
+- Advisor usage includes retries, fanout, cache reads/writes, and cost. It is attached to the Consult tool result so Pi session totals include it; recent dashboard rows show cache hit rate.
 
 ## Install
 
@@ -45,7 +45,7 @@ Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Unt
 | Command | What you see |
 |---|---|
 | `/consult` | Panel, effort, fanout, loop gate |
-| `/consult status` | Panel, remaining budget, recent log lines |
+| `/consult status` | Temporary panel/budget/recent-activity dashboard; `q`/Esc closes it without writing to the transcript |
 
 After each `consult` result, the next visible reply should add:
 

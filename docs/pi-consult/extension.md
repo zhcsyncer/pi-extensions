@@ -22,6 +22,7 @@
 - `consult` 必须作为当前 assistant step 的唯一工具调用，并等结果后再调其他工具；顾问快照只剥离当前 consult，同时保留用户图片。
 - 自动 gate 强制 panel[0]；`fanout` 只作用于显式 pull。`budget.perRun` 默认 3，从一次真实用户输入覆盖到下一次用户输入；旧 `perTurn` 只作解析别名。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。所有实际请求（含空响应重试和 fanout）按标准 Usage 聚合到顶层 toolResult，Pi session 计入 Tools/summaries；raw/events 保留顾问模型与 cache 拆分，`/consult status` 显示命中率。
 - 未配 panel：从 active tools 卸掉，prompt 零占用。
+- `/consult status` 只打开 `ctx.ui.custom()` 临时 dashboard，集中展示 panel、gates、预算和最近五次活动；`q`/Esc 关闭。它不发 notify/custom message，也不向 transcript 写状态文本。
 - TUI 跟 tool-display-intent 的 Claude 行：等待期 `consulting model · effort  12s`；正常完成显示 `plan/correction/stop/split`，策略拒绝显示 `blocked`，请求错误显示 `failed`，用户取消显示 `cancelled`。完成结果收起为 `status · summary` 并带 Ctrl+O，展开后 why 在标题换行、结果区是状态 + summary 全文 + 模型。只有正常顾问反馈要求 `CONSULT-LOG:`；该行仍是普通 assistant 文本，同时把 `adopt/reject · reason` 派生回贴到对应 Consult 行。reload 从当前会话分支重建，不额外持久化副本。loop 用 `sendUserMessage(..., { deliverAs: "steer" })`，首行 `先 consult 再继续`，有 aggregate 时进同一本 Tools 账本的 `↳`。
 
 ## 红线

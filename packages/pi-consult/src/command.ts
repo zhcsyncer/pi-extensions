@@ -4,10 +4,18 @@ import { getSettingsListTheme, type ExtensionAPI, type ExtensionContext, type Th
 import { Container, type SelectItem, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import { formatBudgetRemaining } from "./budget.ts";
 import { saveConsultConfig } from "./config.ts";
-import { readRecentEvents, summarizeEvents } from "./events.ts";
+import { ConsultStatusDashboard } from "./dashboard.ts";
+import { readRecentEvents } from "./events.ts";
 import { DEFAULT_EFFORT, MSG_PERSIST_FAILED, MSG_REQUIRES_INTERACTIVE, NONE_VALUE, OFF_VALUE } from "./messages.ts";
 import { filterableSelect } from "./picker.ts";
-import { EFFORT_ORDINAL, modelKeyOf, type ConsultConfig, type GradedEffort, isGradedEffort } from "./types.ts";
+import {
+	EFFORT_ORDINAL,
+	modelKeyOf,
+	type ConsultConfig,
+	type ConsultEvent,
+	type GradedEffort,
+	isGradedEffort,
+} from "./types.ts";
 import { ConsultTracker } from "./tracker.ts";
 
 export interface ConsultCommandState {
@@ -171,17 +179,44 @@ export function consultSettingItems(
 	];
 }
 
-export async function formatConsultStatus(config: ConsultConfig, tracker: ConsultTracker, agentDir?: string): Promise<string> {
-	const panel = config.panel.length === 0 ? "none" : config.panel.map((member) => `${member.model}${member.effort ? ` @${member.effort}` : ""}`).join(" + ");
-	const budget = formatBudgetRemaining(config.budget, tracker.runCount, tracker.sessionCount);
-	const recent = summarizeEvents(await readRecentEvents(5, agentDir));
-	return [
-		`Panel: ${panel}`,
-		`Fanout: ${config.fanout ? "on" : "off"}`,
-		`Loop gate: ${config.gates.loop > 0 ? config.gates.loop : "off"}`,
-		`Budget remaining: ${budget}`,
-		recent,
-	].join("\n");
+export async function openConsultStatusDashboard(
+	config: ConsultConfig,
+	tracker: ConsultTracker,
+	agentDir: string | undefined,
+	ctx: ExtensionContext,
+): Promise<void> {
+	let recent: ConsultEvent[] = [];
+	let recentError: string | undefined;
+	try {
+		recent = await readRecentEvents(5, agentDir);
+	} catch {
+		recentError = "Recent consult log is unavailable.";
+	}
+	await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+		const dashboard = new ConsultStatusDashboard(
+			{
+				panel: config.panel,
+				fanout: config.fanout,
+				loopGate: config.gates.loop,
+				budgetRemaining: formatBudgetRemaining(config.budget, tracker.runCount, tracker.sessionCount),
+				recent,
+				...(recentError ? { recentError } : {}),
+			},
+			{
+				fg: (color, text) => theme.fg(color as never, text),
+				bold: (text) => theme.bold(text),
+			},
+		);
+		dashboard.onDone = () => done();
+		return {
+			render: (width: number) => dashboard.render(width),
+			invalidate: () => dashboard.invalidate(),
+			handleInput: (data: string) => {
+				dashboard.handleInput(data);
+				tui.requestRender();
+			},
+		};
+	});
 }
 
 export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandState): void {
@@ -193,7 +228,7 @@ export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandSt
 				return;
 			}
 			if (args.trim() === "status") {
-				ctx.ui.notify(await formatConsultStatus(state.getConfig(), state.tracker, state.agentDir), "info");
+				await openConsultStatusDashboard(state.getConfig(), state.tracker, state.agentDir, ctx);
 				return;
 			}
 

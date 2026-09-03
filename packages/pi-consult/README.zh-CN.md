@@ -15,8 +15,8 @@
 - `consult({ why })` 把当前会话转给已配置的顾问。顾问没有工具，也不对用户说话。
 - 未配置 panel 时卸载该工具。关掉零占用。
 - Loop gate：连续 N 次相同工具调用或连续 N 次 error 后，steer 先 consult。
-- `/consult` 选择 panel 模型和 effort、开关 loop gate，并显示预算余量和最近日志。
-- 顾问用量包含重试、fanout、cache read/write 与费用，并附在 Consult tool result 上，因此 Pi session 总量会计入；`/consult status` 的最近记录会显示缓存命中率。
+- `/consult` 选择 panel 模型和 effort、开关 loop gate。`/consult status` 用临时 dashboard 展示预算和最近活动，不向 transcript 添加任何内容。
+- 顾问用量包含重试、fanout、cache read/write 与费用，并附在 Consult tool result 上，因此 Pi session 总量会计入；dashboard 的最近记录会显示缓存命中率。
 
 ## 安装
 
@@ -45,7 +45,7 @@ pi -e npm:@zhcsyncer/pi-consult
 | 命令 | 你会看到 |
 |---|---|
 | `/consult` | Panel、effort、fanout、loop gate |
-| `/consult status` | Panel、剩余预算、最近日志 |
+| `/consult status` | 临时展示 panel、剩余预算和最近活动；按 `q`/Esc 关闭，不写入 transcript |
 
 每次 `consult` 返回后，下一条可见回复应附一行：
 
