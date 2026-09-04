@@ -1,8 +1,8 @@
 /**
- * The active-bridge registry and the h2-bridge lifecycle that fills it.
+ * The active-bridge registry and the in-process HTTP/2 transport lifecycle that fills it.
  *
- * These two belong together: a bridge parked mid-tool is only reachable through
- * the registry, and every registry eviction path has to tear the bridge down
+ * These two belong together: a transport parked mid-tool is only reachable through
+ * the registry, and every registry eviction path has to tear the transport down
  * (cancel action + heartbeat timer) rather than just dropping the reference.
  *
  * Conversation/checkpoint state lives one layer up in ./session-state.ts, which
@@ -17,8 +17,8 @@ import {
   ConversationActionSchema,
 } from "../proto/agent_pb.js";
 import {
+  createBridge,
   frameConnectMessage,
-  spawnBridge,
   type BridgeFactory,
   type BridgeHandle,
 } from "../client/bridge.js";
@@ -31,14 +31,14 @@ import {
 } from "./tuning.js";
 import type { ActiveBridge } from "./types.js";
 
-/** Test seam: the bridge factory used for both streaming and unary RPCs. */
+/** Test seam for the streaming HTTP/2 transport factory. */
 export function getBridgeFactory(): BridgeFactory {
   return bridgeFactory;
 }
 
 export const activeBridges = new Map<string, ActiveBridge>();
 
-const defaultBridgeFactory: BridgeFactory = (options) => spawnBridge(options, debugLog);
+const defaultBridgeFactory: BridgeFactory = (options) => createBridge(options, debugLog);
 
 let bridgeFactory: BridgeFactory = defaultBridgeFactory;
 
@@ -61,7 +61,7 @@ export const idleBridges = new Map<
 >();
 
 function canReuseBridge(bridge: BridgeHandle): boolean {
-  return bridge.alive && typeof bridge.openStream === "function";
+  return bridge.alive && bridge.reusable;
 }
 
 export function destroyIdleBridge(bridgeKey: string): void {
@@ -76,10 +76,10 @@ export function destroyAllIdleBridges(): void {
   for (const key of [...idleBridges.keys()]) destroyIdleBridge(key);
 }
 
-/** Keep a live HTTP/2 child around so the next user turn can skip spawn + TLS. */
+/** Keep a live HTTP/2 session around so the next user turn can skip reconnect + TLS. */
 export function parkIdleBridge(bridgeKey: string, bridge: BridgeHandle): void {
-  // Drop the active-registry entry without killing the process — the leftover-turn
-  // path in native-core ends any bridge still listed as active.
+  // Drop the active-registry entry without closing the session — the leftover-turn
+  // path in native-core ends any transport still listed as active.
   removeActiveBridge(bridgeKey);
   destroyIdleBridge(bridgeKey);
   if (!canReuseBridge(bridge)) {
@@ -160,14 +160,13 @@ export function startBridge(
       accessToken,
       rpcPath: "/agent.v1.AgentService/Run",
       url: getCursorAgentUrl(),
-      persistent: true,
       connectTimeoutMs: resolveH2ConnectTimeoutMs(process.env.PI_CURSOR_H2_CONNECT_TIMEOUT_MS),
       idleTimeoutMs: resolveH2IdleTimeoutMs(process.env.PI_CURSOR_H2_IDLE_TIMEOUT_MS),
     });
     debugLog("bridge.start_run", { requestBytes });
     bridge.write(frameConnectMessage(requestBytes));
   }
-  // Keep heartbeats referenced so long tool pauses do not look idle to the process.
+  // Keep heartbeats referenced so long tool pauses do not look idle to the transport.
   // 15s interval: frequent enough to prevent mid-pause idle kills, low enough to
   // avoid flooding a quiet stream with IPC chatter. Also slides the parked-bridge
   // TTL so multi-round tool chains are not killed by the original park timestamp.

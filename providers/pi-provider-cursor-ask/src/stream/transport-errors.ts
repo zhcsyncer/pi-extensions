@@ -1,7 +1,7 @@
 /**
  * Structured classification for Cursor transport failures.
  *
- * Callers use this to decide whether a bridge death / Connect error is safe to
+ * Callers use this to decide whether a transport close / Connect error is safe to
  * recover from (new generation + checkpoint/history) versus permanent.
  */
 
@@ -17,9 +17,9 @@ export interface TransportFailure {
   refreshAuth: boolean;
   /** Human-readable summary (secrets must already be redacted by caller). */
   message: string;
-  /** Optional raw bridge exit code. */
+  /** Optional normalized transport close code. */
   exitCode?: number;
-  /** Optional child stderr tail. */
+  /** Optional in-process transport diagnostics tail. */
   stderr?: string;
 }
 
@@ -114,8 +114,8 @@ export function classifyBridgeExit(input: {
       retryable: true,
       refreshAuth: false,
       message: combined
-        ? `Bridge connection lost (exit ${input.exitCode}): ${combined}`
-        : `Bridge connection lost (exit ${input.exitCode}).`,
+        ? `Cursor transport connection lost (code ${input.exitCode}): ${combined}`
+        : `Cursor transport connection lost (code ${input.exitCode}).`,
       exitCode: input.exitCode,
       stderr: stderr || undefined,
     };
@@ -125,7 +125,7 @@ export function classifyBridgeExit(input: {
     kind: TransportFailureKind.Unknown,
     retryable: false,
     refreshAuth: false,
-    message: combined || "Bridge closed cleanly.",
+    message: combined || "Cursor transport closed cleanly.",
     exitCode: input.exitCode,
     stderr: stderr || undefined,
   };

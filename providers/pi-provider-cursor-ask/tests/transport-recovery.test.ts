@@ -227,17 +227,15 @@ describe("native stream terminal cleanup", () => {
     let onData: (chunk: Buffer) => void = () => {};
     let onClose: (code: number) => void = () => {};
     const bridge = {
-      proc: {
-        kill: () => {
-          killCalls++;
-          return true;
-        },
-      },
       alive: true,
+      reusable: true,
       lastStderr: () => "",
       write: () => {},
       end: () => {
         endCalls++;
+      },
+      kill: () => {
+        killCalls++;
       },
       onData: (cb: (chunk: Buffer) => void) => {
         onData = cb;
@@ -245,6 +243,8 @@ describe("native stream terminal cleanup", () => {
       onClose: (cb: (code: number) => void) => {
         onClose = cb;
       },
+      openStream: () => {},
+      onStreamDone: () => {},
     };
     const writer = {
       output: {} as never,
@@ -325,7 +325,7 @@ describe("native stream terminal cleanup", () => {
     expect(harness.killCalls).toBe(1);
     expect(harness.calls).toEqual([]);
 
-    // Simulate the process actually exiting after the kill, as a real bridge would.
+    // Simulate the transport close callback after kill.
     harness.onClose(1);
     clearInterval(harness.heartbeatTimer);
     expect(harness.calls[0]).toMatch(/^error:/);
@@ -373,17 +373,20 @@ describe("completed-turn connection close", () => {
     let onData: (chunk: Buffer) => void = () => {};
     let onClose: (code: number) => void = () => {};
     const bridge = {
-      proc: { kill: () => true },
       alive: true,
+      reusable: true,
       lastStderr: () => "GOAWAY errorCode=0",
       write: () => {},
       end: () => {},
+      kill: () => {},
       onData: (cb: (chunk: Buffer) => void) => {
         onData = cb;
       },
       onClose: (cb: (code: number) => void) => {
         onClose = cb;
       },
+      openStream: () => {},
+      onStreamDone: () => {},
     };
     const heartbeatTimer = setInterval(() => {}, 60_000);
 
@@ -412,7 +415,7 @@ describe("completed-turn connection close", () => {
       }),
     );
     onData(updateFrame({ case: "turnEnded", value: create(TurnEndedUpdateSchema, {}) }));
-    // Cursor's GOAWAY arrives as a Connect end-stream error, then the bridge exits 2.
+    // A legacy bridge may report GOAWAY as both a Connect error and close code 2.
     onData(
       frame(
         new TextEncoder().encode(
@@ -453,15 +456,18 @@ describe("completed-turn connection close", () => {
     };
     let onData: (chunk: Buffer) => void = () => {};
     const bridge = {
-      proc: { kill: () => true },
       alive: true,
+      reusable: true,
       lastStderr: () => "",
       write: (data: Uint8Array) => written.push(data),
       end: () => {},
+      kill: () => {},
       onData: (cb: (chunk: Buffer) => void) => {
         onData = cb;
       },
       onClose: () => {},
+      openStream: () => {},
+      onStreamDone: () => {},
     };
     const heartbeatTimer = setInterval(() => {}, 60_000);
 
@@ -520,23 +526,25 @@ describe("idle HTTP/2 bridge reuse", () => {
     setBridgeFactoryForTests();
   });
 
-  it("reopens a parked persistent bridge instead of spawning a new process", () => {
-    const spawned: string[] = [];
+  it("reopens a parked persistent transport instead of creating a new session", () => {
+    const created: string[] = [];
     const opens: string[] = [];
     const handle = {
-      proc: { kill: () => true },
       alive: true,
+      reusable: true,
       lastStderr: () => "",
       write: () => {},
       end: () => {},
+      kill: () => {},
       onData: () => {},
       onClose: () => {},
       openStream: (token: string) => {
         opens.push(token);
       },
+      onStreamDone: () => {},
     };
     setBridgeFactoryForTests(() => {
-      spawned.push("spawn");
+      created.push("create");
       return handle;
     });
 
@@ -544,7 +552,7 @@ describe("idle HTTP/2 bridge reuse", () => {
     const started = startBridge("tok-2", new Uint8Array([1, 2, 3]), { bridgeKey: "bk-reuse" });
     clearInterval(started.heartbeatTimer);
 
-    expect(spawned).toEqual([]);
+    expect(created).toEqual([]);
     expect(opens).toEqual(["tok-2"]);
     expect(started.bridge).toBe(handle);
   });
