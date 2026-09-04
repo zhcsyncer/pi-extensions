@@ -174,7 +174,7 @@ export function consultSettingItems(
 			label: "Loop gate",
 			description: "Steer to consult after N identical tool calls or N consecutive errors. off disables it.",
 			currentValue: config.gates.loop > 0 ? String(config.gates.loop) : "off",
-			values: ["off", "2", "3", "4", "5"],
+			values: ["off", "2", "3", "4", "5", "6", "8"],
 		},
 	];
 }

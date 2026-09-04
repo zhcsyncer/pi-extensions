@@ -14,7 +14,7 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 
 - `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
 - Unconfigured panel unloads the tool. Off costs nothing.
-- Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first.
+- Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first. The default threshold is 5; completing Consult clears the prior loop evidence.
 - `/consult` picks panel models and effort and toggles the loop gate. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.
 - Advisor summaries follow the language of the user's latest substantive request while preserving technical syntax. Expanded results render Markdown; collapsed rows remain clean one-line previews.
 - Advisor usage includes retries, fanout, cache reads/writes, and cost. It is attached to the Consult tool result so Pi session totals include it; recent dashboard rows show cache hit rate.
@@ -64,7 +64,7 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
 {
   "panel": [{ "model": "anthropic/claude-fable-5", "effort": "high" }],
   "fanout": false,
-  "gates": { "loop": 3 },
+  "gates": { "loop": 5 },
   "budget": { "perRun": 3, "perSession": 8 },
   "disabledForModels": []
 }

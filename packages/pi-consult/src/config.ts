@@ -17,7 +17,7 @@ import {
 export const DEFAULT_CONSULT_CONFIG: ConsultConfig = {
 	panel: [],
 	fanout: false,
-	gates: { loop: 3 },
+	gates: { loop: 5 },
 	budget: { perRun: 3, perSession: 8 },
 	disabledForModels: [],
 };

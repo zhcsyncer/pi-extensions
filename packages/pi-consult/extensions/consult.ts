@@ -123,6 +123,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_execution_end", async (event, ctx) => {
 		tracker.onToolEnd(event.toolCallId, event.toolName, event.isError, event.result);
+		if (event.toolName === CONSULT_TOOL_NAME) return;
 		const decision = tracker.evaluateLoop(loaded.config.gates.loop, loaded.config.budget);
 		if (!decision.fire) return;
 		if (isConsultBlocked(loaded.config, currentModelKey(ctx))) return;

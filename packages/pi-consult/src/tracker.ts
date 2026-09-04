@@ -35,7 +35,12 @@ export class ConsultTracker {
 	}
 
 	onToolEnd(toolCallId: string, name: string, isError: boolean, args?: unknown): void {
-		if (name === CONSULT_TOOL_NAME) return;
+		if (name === CONSULT_TOOL_NAME) {
+			this.fingerprint = emptyFingerprintState();
+			this.lock = false;
+			this.pendingTrigger = undefined;
+			return;
+		}
 		const pending = this.pendingArgs.get(toolCallId);
 		this.pendingArgs.delete(toolCallId);
 		this.fingerprint = recordToolEvent(this.fingerprint, {
@@ -48,7 +53,6 @@ export class ConsultTracker {
 	consumeTrigger(): ConsultTrigger {
 		const trigger = this.pendingTrigger ?? "pull";
 		this.pendingTrigger = undefined;
-		this.lock = false;
 		return trigger;
 	}
 

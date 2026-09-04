@@ -28,7 +28,7 @@ describe("consult config", () => {
 	it("defaults to an empty panel so off costs nothing", () => {
 		expect(parseConsultConfig({})).toEqual(DEFAULT_CONSULT_CONFIG);
 		expect(DEFAULT_CONSULT_CONFIG.panel).toEqual([]);
-		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 3 });
+		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 5 });
 		expect(DEFAULT_CONSULT_CONFIG.budget).toEqual({ perRun: 3, perSession: 8 });
 	});
 
