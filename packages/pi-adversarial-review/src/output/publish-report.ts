@@ -387,10 +387,11 @@ function attentionWarning(details: SerializedMergedReport): string | undefined {
 function collapsedRefuteNote(details: SerializedMergedReport): string | undefined {
   if (!details.refuteRequested) return undefined;
   const results = details.refuteResults;
-  if (results.length > 0) {
-    return results.some((result) => result.status === "completed") ? undefined : "Refute failed";
-  }
-  return "Refute skipped";
+  if (results.length === 0) return "Refute skipped";
+  const failed = results.filter((result) => result.status !== "completed").length;
+  if (failed === 0) return undefined;
+  if (failed === results.length) return "Refute failed";
+  return `Refute ${failed}/${results.length} incomplete`;
 }
 
 function countsLine(details: SerializedMergedReport): string | undefined {
@@ -490,6 +491,8 @@ function appendExpandedRoutes(
         if (result.formatRepair.retry.sessionFile) {
           lines.push(`  repair session: ${safeDisplayText(result.formatRepair.retry.sessionFile)}`);
         }
+      } else if (result.sessionFile) {
+        lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
       }
       continue;
     }

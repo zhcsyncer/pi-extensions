@@ -284,6 +284,70 @@ describe("merged report output", () => {
     expect(completedCollapsed).toContain("Success is returned before persistence");
     expect(completedCollapsed).not.toContain("Refute 1/1");
     expect(completedCollapsed).not.toContain("0 contested");
+    expect(completedCollapsed).not.toContain("incomplete");
+
+    const second = {
+      ...mergedFinding("Retry drops the original write"),
+      file: "src/other.ts",
+      lineStart: 20,
+      lineEnd: 24,
+    };
+    const timedOutRefuter = { ...refuter, key: "provider/model-b@high", modelId: "model-b", ordinal: 1 };
+    const mixedCollapsed = renderMergedReviewMessage(
+      serializeMergedReviewReport(report({
+        overall: "needs-adjudication",
+        blocking: [finding, second],
+        contested: [{
+          findingIndex: 0,
+          finding,
+          refuterRoute: refuter,
+          reason: "finding holds",
+          evidence: [],
+        }],
+        refuteRequested: true,
+        refuterRoute: refuter,
+        refuteResults: [
+          {
+            findingIndex: 0,
+            route: refuter,
+            status: "completed",
+            report: { refuted: false, reason: "finding holds", evidence: [] },
+          },
+          {
+            findingIndex: 1,
+            route: timedOutRefuter,
+            status: "timed-out",
+            error: "Refuter exceeded route timeout",
+          },
+        ],
+      })),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n");
+    expect(mixedCollapsed).toContain("Refute 1/2 incomplete");
+    expect(mixedCollapsed).toContain("[high, contested] src/example.ts:10");
+    expect(mixedCollapsed).toContain("src/other.ts:20");
+    expect(mixedCollapsed).not.toContain("Refute failed");
+    expect(mixedCollapsed).not.toContain("Refute 1/1");
+
+    const allFailedCollapsed = renderMergedReviewMessage(
+      serializeMergedReviewReport(report({
+        overall: "needs-adjudication",
+        blocking: [finding],
+        refuteRequested: true,
+        refuterRoute: refuter,
+        refuteResults: [{
+          findingIndex: 0,
+          route: refuter,
+          status: "timed-out",
+          error: "Refuter exceeded route timeout",
+        }],
+      })),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n");
+    expect(allFailedCollapsed).toContain("Refute failed");
+    expect(allFailedCollapsed).not.toContain("incomplete");
   });
 
   it("restores collapsed and expanded renderers from durable JSON details", () => {
@@ -335,6 +399,7 @@ describe("merged report output", () => {
             summary: "one advisory",
             findings: [],
           },
+          sessionFile: "/sessions/reviewer.jsonl",
         },
         {
           route: routes[1]!,
@@ -365,6 +430,7 @@ describe("merged report output", () => {
     expect(expanded).toContain("Fallback intent is hidden for live tool rows");
     expect(expanded).toContain("Routes (3)");
     expect(expanded).toContain("✓ provider/model@high · needs-attention · 0 findings · 51s");
+    expect(expanded).toContain("session: /sessions/reviewer.jsonl");
     expect(expanded).not.toContain("12.5k tokens");
     expect(expanded).toContain("× provider-b/model-b@high · errored · 3m46s — Reviewer terminated with status aborted");
   });
