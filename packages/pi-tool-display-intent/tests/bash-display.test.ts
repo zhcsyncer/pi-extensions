@@ -162,7 +162,7 @@ test("renderBashCall gives collapsed Claude calls an intent-first header and com
 		},
 		createPassThroughTheme(),
 		makeContext(),
-		{ enabled: true, language: "en", maxLength: 96 },
+		{ language: "en", maxLength: 96 },
 		"claude",
 	);
 	assert.equal(
@@ -267,7 +267,7 @@ test("renderBashCall uses accent for model intent and muted for fallback intent"
 		fg: (color: string, value: string): string => `<${color}>${value}</${color}>`,
 		bold: (value: string): string => value,
 	};
-	const toolIntent = { enabled: true, language: "en" as const, maxLength: 96 };
+	const toolIntent = { language: "en" as const, maxLength: 96 };
 
 	const modelIntent = renderBashCall(
 		{ command: "pnpm test", displaySummary: "Running the test suite" },

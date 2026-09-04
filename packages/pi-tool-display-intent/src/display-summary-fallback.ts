@@ -43,10 +43,6 @@ export function resolveDisplaySummaryForTool(
 	toolName: string | undefined,
 	config: ToolIntentConfig,
 ): ResolvedDisplaySummary | undefined {
-	if (!config.enabled) {
-		return undefined;
-	}
-
 	const modelSummary = getDisplaySummary(args, config.maxLength);
 	if (modelSummary) {
 		return { text: modelSummary, source: "model" };

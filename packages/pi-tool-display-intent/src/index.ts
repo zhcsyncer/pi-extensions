@@ -47,7 +47,6 @@ function toolRegistrationChanged(
       next.registerToolOverrides[toolName],
   );
   const intentSchemaChanged =
-    previous.toolIntent.enabled !== next.toolIntent.enabled ||
     previous.toolIntent.language !== next.toolIntent.language ||
     previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
     previous.toolCallLayout !== next.toolCallLayout ||
@@ -113,6 +112,11 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand("tools", {
     description: "Switch tool layout or open display settings",
+    getArgumentCompletions: (argumentPrefix) => {
+      return import("./config-modal.js").then(({ getToolDisplayArgumentCompletions }) =>
+        getToolDisplayArgumentCompletions(argumentPrefix),
+      );
+    },
     handler: async (args, ctx) => {
       const { runToolDisplayCommandHandler } = await import("./config-modal.js");
       await runToolDisplayCommandHandler(args, ctx, { getConfig, setConfig, getCapabilities });

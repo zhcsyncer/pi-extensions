@@ -158,18 +158,18 @@ test("registerToolDisplayOverrides copies built-in prompt metadata onto overridd
 	assert.equal((builtInTools.read as unknown as RegisteredToolLike).promptSnippet, undefined);
 	assert.notEqual(byName.get("read")?.promptSnippet, undefined);
 
-	const intentGuidelines = new Set<string>();
 	for (const [name, definition] of Object.entries(builtInDefinitions)) {
 		const registeredGuidelines = byName.get(name)?.promptGuidelines ?? [];
 		const builtInGuidelines = Array.isArray(definition.promptGuidelines)
 			? definition.promptGuidelines
 			: [];
-		assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
-		const intentGuideline = registeredGuidelines.at(-1) ?? "";
-		assert.match(intentGuideline, /displaySummary/);
-		intentGuidelines.add(intentGuideline);
+		if (name === "bash") {
+			assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
+			assert.match(registeredGuidelines.at(-1) ?? "", /displaySummary/);
+			continue;
+		}
+		assert.deepEqual(registeredGuidelines, builtInGuidelines);
 	}
-	assert.equal(intentGuidelines.size, 1);
 });
 
 test("registerToolDisplayOverrides registers built-in display renderers during extension load for pre-bind history rendering", () => {
@@ -212,26 +212,25 @@ test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI k
 			builtInTool.parameters,
 			`expected '${name}' to use a cloned parameter object`,
 		);
-		assert.deepEqual(
-			registeredTool.parameters,
-			addDisplaySummaryParameter(builtInTool.parameters, {
+		const expectedParameters = name === "bash"
+			? addDisplaySummaryParameter(builtInTool.parameters, {
 				required: true,
 				language: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language,
 				maxLength: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.maxLength,
-			}),
-		);
+			})
+			: builtInTool.parameters;
+		assert.deepEqual(registeredTool.parameters, expectedParameters);
 	}
 });
 
-test("registered built-ins expose intent in schemas and TUI while stripping it before execution", async () => {
-	await withTempDir("pi-tool-display-intent-read-", async (dir) => {
-		writeFileSync(join(dir, "sample.txt"), "hello intent\n", "utf-8");
+test("registered bash exposes intent in schemas and TUI while stripping it before execution", async () => {
+	await withTempDir("pi-tool-display-intent-bash-", async (dir) => {
 		const { api, registeredTools } = createExtensionApiStub();
 		registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 
-		const read = registeredTools.find((tool) => tool.name === "read") as ExecutableToolLike | undefined;
-		assert.ok(read);
-		const schema = read.parameters as {
+		const bash = registeredTools.find((tool) => tool.name === "bash") as ExecutableToolLike | undefined;
+		assert.ok(bash);
+		const schema = bash.parameters as {
 			properties: Record<string, unknown>;
 			required: string[];
 		};
@@ -239,13 +238,13 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 		assert.ok(schema.required.includes("displaySummary"));
 
 		const args = {
-			path: "sample.txt",
+			command: "printf hello",
 			displaySummary: "Checking the sample file",
 		};
-		const prepared = read.prepareArguments?.(args) as Record<string, unknown>;
+		const prepared = bash.prepareArguments?.(args) as Record<string, unknown>;
 		assert.equal(prepared.displaySummary, "Checking the sample file");
 
-		const component = read.renderCall?.(
+		const component = bash.renderCall?.(
 			args,
 			{
 				fg: (_color: string, text: string) => text,
@@ -253,10 +252,10 @@ test("registered built-ins expose intent in schemas and TUI while stripping it b
 			},
 			{},
 		) as { render(width: number): string[] };
-		assert.match(component.render(160).join("\n"), /● Read\(sample\.txt\) — Checking the sample file/);
+		assert.match(component.render(160).join("\n"), /● Bash\(printf hello\) — Checking the sample file/);
 
-		const result = await read.execute("call-1", prepared, undefined, undefined, { cwd: dir });
-		assert.match(getTextOutput(result), /hello intent/);
+		const result = await bash.execute("call-1", prepared, undefined, undefined, { cwd: dir });
+		assert.match(getTextOutput(result), /hello/);
 	});
 });
 
@@ -539,10 +538,6 @@ test("aggregate keeps built-in definitions intact without displaySummary schemas
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallLayout: "aggregate" as const,
 		toolCallStyle: "compact" as const,
-		toolIntent: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
-			enabled: true,
-		},
 	};
 	registerToolDisplayOverrides(api, () => config);
 
@@ -708,16 +703,9 @@ test("aggregate decorateTool keeps call presentation for the Tools ledger", () =
 	}
 });
 
-test("tool intent can be disabled without changing built-in execution schemas", () => {
+test("non-bash built-ins omit displaySummary schemas", () => {
 	const { api, registeredTools } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolIntent: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
-			enabled: false,
-		},
-	};
-	registerToolDisplayOverrides(api, () => config);
+	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
 
 	const read = registeredTools.find((tool) => tool.name === "read");
 	const schema = read?.parameters as { properties: Record<string, unknown>; required?: string[] };

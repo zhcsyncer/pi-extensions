@@ -274,16 +274,18 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		if (trimmed.length === 0) return [];
 		if (!interim) {
 			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
-			// Put that gap back after the user prompt; leave it off when a Tools
-			// ledger already supplied the trailing blank.
-			const stackedOnTools = projection?.hasPaintedToolsLedger(this.lastMessage) === true;
+			// Put that gap back after the user prompt or a passthrough tool.
+			// Only the reply sitting under the Tools ledger omits it, so later
+			// tools in the same user turn cannot steal the blank from earlier text.
+			const stackedOnTools = projection?.assistantFollowsAggregateLedger(this.lastMessage) === true;
 			if (stackedOnTools) return next;
 			return visibleText(next[0] ?? "") === "" ? next : ["", ...next];
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
+		const inner = projection?.framedItemFollowsTool(frameId) === true ? ["", ...marked] : marked;
 		const edge = projection?.getFrameEdge(frameId) ?? "only";
-		const framed = applyAggregateGroupFrame(marked, width, theme, edge);
+		const framed = applyAggregateGroupFrame(inner, width, theme, edge);
 		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {

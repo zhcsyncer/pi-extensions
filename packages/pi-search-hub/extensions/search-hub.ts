@@ -42,7 +42,6 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
 	decorateToolForDisplay,
-	withDisplaySummary,
 } from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
 import type { BackendConfig, ReaderName, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
@@ -106,10 +105,7 @@ export default function (pi: ExtensionAPI) {
 			getResultPresentation(result: unknown): { summary: string; previewStartLine?: number } | undefined;
 		},
 	) => decorateToolForDisplay(
-		withDisplaySummary(tool, {
-			language: "auto",
-			required: true,
-		}),
+		tool,
 		{
 			kind: "generic",
 			outputMode: "inherit",

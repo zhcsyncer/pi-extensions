@@ -226,6 +226,56 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 	}
 });
 
+test("early unframed narration keeps a blank under the user after later Tools appear", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-early-narration");
+		const early = assistant([
+			{ type: "text", text: "Prod has no Metrics on purpose" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		], { id: "assistant-early" });
+		projection.ingestAssistantMessage(early);
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-tools" }));
+		const rendered = createComponent(early, true).render(100);
+		assert.equal(rendered[0], "");
+		assert.match(rendered.join("\n"), /Prod has no Metrics on purpose/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded narration after a previous tool turn keeps a framed blank", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent", "consult");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("user-framed-gap");
+		projection.ingestAssistantMessage(assistant([
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { id: "assistant-first" }));
+		const later = assistant([
+			{ type: "text", text: "接着补文档、changeset，然后跑测试。" },
+			{ type: "toolCall", id: "read-2", name: "read", arguments: { path: "b.ts" } },
+		], { id: "assistant-later" });
+		projection.ingestAssistantMessage(later);
+		const component = createComponent(later, true);
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		expandable.setExpanded(true);
+		const expanded = component.render(100).join("\n");
+		assert.match(expanded, /│[^\n]*\n[^\n]*›[^\n]*接着补文档/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("a direct final answer keeps a blank row under the user prompt", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>

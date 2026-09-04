@@ -41,8 +41,6 @@ Important call options include:
 
 Both tools use the cooperative API from [`pi-tool-display-intent`](../pi-tool-display-intent) rather than maintaining separate TUI renderers:
 
-- the current model writes a required `displaySummary` intent in the normal tool call, with no additional inference request;
-- the presentation-only field is removed before Search Hub execution;
 - call lines show the search query or a shortened URL instead of generic `(N args)` text;
 - result rendering inherits the active global `results.mode` through `outputMode: "inherit"`.
 

@@ -32,10 +32,29 @@ interface ModalOverlayOptions {
 const PREVIEW_ROW_VALUES = ["2", "4", "8", "12", "20", "40"] as const;
 const BASH_COMMAND_PREVIEW_ROW_VALUES = ["1", "2", "3", "4"] as const;
 const LAYOUT_COMMAND_HINT = TOOL_CALL_LAYOUTS.join("|");
+
+export function getToolDisplayArgumentCompletions(argumentPrefix: string): Array<{
+	value: string;
+	label: string;
+	description: string;
+}> {
+	const prefix = argumentPrefix.trim().toLowerCase().replace(/^layout\s+/, "");
+	return [
+		{
+			value: "aggregate",
+			label: "aggregate",
+			description: "One bounded Tools ledger per user turn",
+		},
+		{
+			value: "individual",
+			label: "individual",
+			description: "Original per-tool renderers",
+		},
+	].filter((option) => option.value.startsWith(prefix));
+}
 const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"resultMode",
 	"previewRows",
-	"toolIntentEnabled",
 	"bashCommandPreviewRows",
 	"diffViewMode",
 	"diffIndicatorMode",
@@ -168,27 +187,6 @@ export function buildInspectorSettings(
 			searchTerms: ["preview", "rows", "range", "collapsed", "read", "search", "mcp", "bash"],
 		},
 		{
-			id: "toolIntentEnabled",
-			label: "Model-written intent",
-			currentValue: toOnOff(config.toolIntent.enabled),
-			values: ["on", "off"],
-			inspectorTitle: "Model-written Tool Intent",
-			inspectorSummary: [
-				"Adds a displaySummary field to owned built-in tool schemas so the current model describes each call's intent.",
-				"The phrase is shown beside deterministic tool metadata and remains available to RPC clients without another inference request.",
-			],
-			inspectorOptions: [
-				"on — request and render a short intent phrase",
-				"off — keep deterministic tool rendering only",
-			],
-			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Changing this setting updates tool schemas and therefore takes effect after /reload.",
-				"Use intent.language and intent.maxLength in config.json for advanced control.",
-			]),
-			inspectorPath: configPath,
-			searchTerms: ["intent", "summary", "model", "rpc", "displaySummary"],
-		},
-		{
 			id: "bashCommandPreviewRows",
 			label: "Bash command rows",
 			currentValue: String(config.bashCommandPreviewRows),
@@ -285,11 +283,6 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 		}
 		case "previewRows":
 			return { ...config, previewRows: parseNumber(value, config.previewRows) };
-		case "toolIntentEnabled":
-			return {
-				...config,
-				toolIntent: { ...config.toolIntent, enabled: value === "on" },
-			};
 		case "bashCommandPreviewRows":
 			return {
 				...config,
@@ -432,6 +425,7 @@ export async function runToolDisplayCommandHandler(
 export function registerToolDisplayCommand(pi: ExtensionAPI, controller: ToolDisplayConfigController): void {
 	pi.registerCommand("tools", {
 		description: "Switch tool layout or open display settings",
+		getArgumentCompletions: getToolDisplayArgumentCompletions,
 		handler: async (args, ctx) => {
 			await runToolDisplayCommandHandler(args, ctx, controller);
 		},

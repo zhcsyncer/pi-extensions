@@ -65,7 +65,7 @@ test("applying a result mode preserves preview rows and independent settings", (
 		previewRows: 37,
 		expandedPreviewMaxRows: 777,
 		toolCallStyle: "claude",
-		toolIntent: { enabled: false, language: "zh-CN", maxLength: 64 },
+		toolIntent: { language: "zh-CN", maxLength: 64 },
 		enableNativeUserMessageBox: false,
 		diffViewMode: "split",
 		diffIndicatorMode: "none",

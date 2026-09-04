@@ -297,10 +297,7 @@ function registerRuntimeTool(
   }
   const config = getConfig();
   const toolIntent = config.toolIntent;
-  const wantsIntent = toolIntent.enabled && (
-    config.toolCallLayout === "individual" ||
-    (config.toolCallLayout === "aggregate" && tool.name === "bash")
-  );
+  const wantsIntent = tool.name === "bash";
   const registeredTool = wantsIntent
     ? withDisplaySummary(styledTool as never, {
         required: true,

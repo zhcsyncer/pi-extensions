@@ -72,7 +72,6 @@ test("legacy normalization validates toolIntent and displaySummary independently
 		displaySummary: { enabled: true, language: "en", maxLength: 32 },
 	});
 	assert.deepEqual(normalized.toolIntent, {
-		enabled: false,
 		language: "zh-CN",
 		maxLength: 256,
 	});
@@ -87,7 +86,6 @@ test("legacy normalization validates toolIntent and displaySummary independently
 		},
 	});
 	assert.deepEqual(migrated.toolIntent, {
-		enabled: false,
 		language: "en",
 		maxLength: 64,
 	});
@@ -264,13 +262,13 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		resultMode: "preview",
 		previewRows: 16,
-		toolIntent: { enabled: false, language: "zh-CN", maxLength: 80 },
+		toolIntent: { language: "zh-CN", maxLength: 80 },
 		toolCallLayout: "aggregate",
 		bashCommandPreviewRows: 2,
 	});
 	const serialized = serializeToolDisplayConfigV2(config);
 	assert.deepEqual(serialized.results, { mode: "preview", previewRows: 16 });
-	assert.deepEqual(serialized.intent, { enabled: false, language: "zh-CN", maxLength: 80 });
+	assert.deepEqual(serialized.intent, { language: "zh-CN", maxLength: 80 });
 	assert.deepEqual(serialized.toolCalls, { layout: "aggregate", bashCommandPreviewRows: 2 });
 	assert.equal(serialized.transcript, undefined);
 

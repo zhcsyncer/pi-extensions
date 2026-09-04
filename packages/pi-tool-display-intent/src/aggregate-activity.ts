@@ -913,6 +913,26 @@ export class AggregateProjection {
 		return Boolean(active?.leaderToolCallId);
 	}
 
+	assistantFollowsAggregateLedger(message?: unknown): boolean {
+		const turnId = aggregateAssistantTurnId(message);
+		if (!turnId) return false;
+		for (const group of this.groups) {
+			if (!group.agentTurnIds.includes(turnId) || !group.leaderToolCallId) continue;
+			const firstToolTurn = this.toolTurnIds(group)[0];
+			if (!firstToolTurn) return false;
+			return group.agentTurnIds.indexOf(turnId) > group.agentTurnIds.indexOf(firstToolTurn);
+		}
+		return false;
+	}
+
+	framedItemFollowsTool(itemId: string): boolean {
+		const items = this.getFramedItemIds(itemId);
+		const index = items.indexOf(itemId);
+		if (index <= 0) return false;
+		const previous = items[index - 1] ?? "";
+		return !previous.startsWith("assistant") && !previous.startsWith("steer:");
+	}
+
 	shouldFrameAssistantNarration(message?: unknown): boolean {
 		if (this.isPassthroughOnlyAssistantMessage(message)) return false;
 		if (this.hasPaintedToolsLedger(message)) return true;

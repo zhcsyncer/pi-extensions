@@ -256,6 +256,40 @@ test("a later passthrough-only assistant message is not framed just because the 
 	assert.equal(projection.shouldFrameAssistantNarration(consultMessage), false);
 });
 
+test("assistantFollowsAggregateLedger is true only after the first aggregate tool turn", () => {
+	const projection = new AggregateProjection((toolName) =>
+		toolName === "Agent" || toolName === "consult");
+	projection.startUserGroup("user-spacing");
+	const early = {
+		role: "assistant",
+		id: "assistant-early",
+		stopReason: "toolUse",
+		content: [
+			{ type: "text", text: "先说明现状" },
+			{ type: "toolCall", id: "consult-1", name: "consult", arguments: { why: "plan" } },
+		],
+	};
+	const tools = {
+		role: "assistant",
+		id: "assistant-tools",
+		stopReason: "toolUse",
+		content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } }],
+	};
+	const later = {
+		role: "assistant",
+		id: "assistant-final",
+		stopReason: "stop",
+		content: [{ type: "text", text: "对照完了。" }],
+	};
+	projection.ingestAssistantMessage(early);
+	assert.equal(projection.assistantFollowsAggregateLedger(early), false);
+	projection.ingestAssistantMessage(tools);
+	assert.equal(projection.assistantFollowsAggregateLedger(early), false);
+	assert.equal(projection.assistantFollowsAggregateLedger(tools), false);
+	projection.ingestAssistantMessage(later);
+	assert.equal(projection.assistantFollowsAggregateLedger(later), true);
+});
+
 test("a turn id that is not in any group does not inherit another group's Tools ledger", () => {
 	const projection = new AggregateProjection((toolName) => toolName === "consult");
 	projection.startUserGroup("user-previous");

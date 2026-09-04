@@ -98,19 +98,15 @@ describe("tool display integration", () => {
 				"Set web_read objective only to a valid CSS selector for Jina targeted extraction; do not pass a natural-language question",
 			);
 
-			const intentGuidelines = registeredTools.map((tool) => tool.promptGuidelines.at(-1));
 			for (const tool of registeredTools) {
 				const schema = tool.parameters as {
-					properties: Record<string, unknown>;
-					required: string[];
+					properties?: Record<string, unknown>;
+					required?: string[];
 				};
-				expect(schema.properties.displaySummary).toBeDefined();
-				expect(schema.required).toContain("displaySummary");
-				expect(tool.promptGuidelines.at(-1)).toContain(
-					"Every tool call whose schema defines displaySummary must include it",
-				);
+				expect(schema.properties?.displaySummary).toBeUndefined();
+				expect(schema.required?.includes("displaySummary") ?? false).toBe(false);
+				expect(tool.promptGuidelines?.some((line) => line.includes("displaySummary")) ?? false).toBe(false);
 			}
-			expect(new Set(intentGuidelines).size).toBe(1);
 		} finally {
 			if (previousApi === undefined) {
 				delete globalWithApi[apiKey];

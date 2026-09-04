@@ -18,11 +18,11 @@ $ pnpm test — 验证 extension 测试套件
 
 ## 功能
 
-- 在持有的 `read`、`grep`、`find`、`ls`、`bash`、`edit`、`write` 旁同时显示意图和路径 / 命令 / pattern / diff。
+- 只有 bash 会向当前模型要 `displaySummary` 意图。其它内置工具只用确定性 target。
 - Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 Tools 账本。`Agent` 默认仍用自己的 renderer。
 - 保留上游的 compact / summary / preview 结果模式。
-- 提供合作式 API，让其他工具也能加同一意图字段。
+- 提供合作式 API，其它工具仍可自行选择同一意图字段。
 
 不要同时加载 `pi-tool-display`、`pi-tool-display-summary` 和本扩展。它们会注册同名内置工具。
 

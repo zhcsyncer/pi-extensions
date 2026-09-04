@@ -138,7 +138,6 @@ function normalizeToolIntentConfig(rawConfig: unknown): ToolDisplayConfig["toolI
 		: defaults.language;
 
 	return {
-		enabled: toBoolean(source.enabled, defaults.enabled),
 		language,
 		maxLength: clampNumber(source.maxLength, 16, 256, defaults.maxLength),
 	};
@@ -453,8 +452,7 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	}
 
 	const intent = getV2Section(source, "intent", errors);
-	validateKnownKeys(intent, ["enabled", "language", "maxLength"], "intent.", errors);
-	validateOptionalBoolean(intent, "enabled", "intent.", errors);
+	validateKnownKeys(intent, ["language", "maxLength"], "intent.", errors);
 	validateOptionalEnum(intent, "language", TOOL_INTENT_LANGUAGES, "intent.", errors);
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
@@ -613,7 +611,6 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	};
 
 	const intent: Record<string, unknown> = {};
-	if (config.toolIntent.enabled !== defaults.toolIntent.enabled) intent.enabled = config.toolIntent.enabled;
 	if (config.toolIntent.language !== defaults.toolIntent.language) intent.language = config.toolIntent.language;
 	if (config.toolIntent.maxLength !== defaults.toolIntent.maxLength) intent.maxLength = config.toolIntent.maxLength;
 	assignSection(output, "intent", intent);

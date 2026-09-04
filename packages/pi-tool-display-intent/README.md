@@ -18,11 +18,11 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 
 ## Features
 
-- Shows model intent next to paths, commands, patterns, and diffs for owned `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`.
+- Bash always asks the current model for a `displaySummary` intent. Other built-ins keep deterministic targets only.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one Tools ledger per user request. `Agent` keeps its own renderer by default.
 - Same compact / summary / preview result modes as upstream.
-- Cooperative API so other tools can add the same intent field.
+- Cooperative API so other tools can still opt into the same intent field.
 
 Do not load `pi-tool-display`, `pi-tool-display-summary`, and this extension together. They register the same built-in tool names.
 

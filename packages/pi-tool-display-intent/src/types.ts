@@ -59,7 +59,6 @@ export interface CustomToolOverrideConfig {
 }
 
 export interface ToolIntentConfig {
-	enabled: boolean;
 	language: ToolIntentLanguage;
 	maxLength: number;
 }
@@ -107,7 +106,6 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	passthroughToolNames: ["Agent"],
 	customToolOverrides: {},
 	toolIntent: {
-		enabled: true,
 		language: "auto",
 		maxLength: 96,
 	},

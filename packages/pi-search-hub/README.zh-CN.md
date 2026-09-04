@@ -41,8 +41,6 @@
 
 两个工具都使用 [`pi-tool-display-intent`](../pi-tool-display-intent) 的合作式 API，而不是维护独立 TUI renderer：
 
-- 当前模型在正常 tool call 中写入必填的 `displaySummary` intent，不会增加额外推理请求；
-- 纯展示字段会在 Search Hub 执行前移除；
 - 调用行显示搜索词或缩短后的 URL，而不是通用 `(N args)`；
 - 结果通过 `outputMode: "inherit"` 继承当前全局 `results.mode`。
 

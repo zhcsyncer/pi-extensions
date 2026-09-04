@@ -16,7 +16,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
         "language": {
           "enum": ["auto", "zh-CN", "en"],
           "default": "auto"

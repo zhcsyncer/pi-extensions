@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import {
 	applySetting,
 	buildInspectorSettings,
+	getToolDisplayArgumentCompletions,
 	registerToolDisplayCommand,
 } from "../src/config-modal.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
@@ -18,16 +19,22 @@ function createPiStub(): {
 	api: ExtensionAPI;
 	getName: () => string | undefined;
 	getHandler: () => ((args: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
+	getCompletions: () => ((prefix: string) => unknown) | undefined;
 } {
 	let name: string | undefined;
 	let handler: ((args: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
+	let completions: ((prefix: string) => unknown) | undefined;
 	const api = {
-		registerCommand(cmdName: string, cmd: { handler: typeof handler }) {
+		registerCommand(cmdName: string, cmd: {
+			handler: typeof handler;
+			getArgumentCompletions?: typeof completions;
+		}) {
 			name = cmdName;
 			handler = cmd.handler;
+			completions = cmd.getArgumentCompletions;
 		},
 	} as unknown as ExtensionAPI;
-	return { api, getName: () => name, getHandler: () => handler };
+	return { api, getName: () => name, getHandler: () => handler, getCompletions: () => completions };
 }
 
 function createCtxStub(options?: {
@@ -116,10 +123,26 @@ function createControllerStub(
 }
 
 test("registerToolDisplayCommand registers tools", () => {
-	const { api, getName, getHandler } = createPiStub();
+	const { api, getName, getHandler, getCompletions } = createPiStub();
 	registerToolDisplayCommand(api, createControllerStub().controller);
 	assert.equal(getName(), "tools");
 	assert.ok(getHandler());
+	assert.ok(getCompletions());
+});
+
+test("/tools argument completions list layouts and filter by prefix", () => {
+	assert.deepEqual(
+		getToolDisplayArgumentCompletions("").map((item) => item.value),
+		["aggregate", "individual"],
+	);
+	assert.deepEqual(
+		getToolDisplayArgumentCompletions("a").map((item) => item.value),
+		["aggregate"],
+	);
+	assert.deepEqual(
+		getToolDisplayArgumentCompletions("layout in").map((item) => item.value),
+		["individual"],
+	);
 });
 
 test("/tools aggregate confirms, saves, and reloads", async () => {
@@ -206,7 +229,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 		previewRows: 40,
 		bashCommandPreviewRows: 4,
 		diffCollapsedMode: "summary" as const,
-		toolIntent: { enabled: false, language: "zh-CN" as const, maxLength: 64 },
+		toolIntent: { language: "zh-CN" as const, maxLength: 64 },
 	};
 	const aggregateSettings = buildInspectorSettings(retained, {
 		hasMcpTooling: false,
@@ -229,7 +252,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	const individual = applySetting(retained, "toolCallLayout", "individual");
 	assert.equal(individual.resultMode, "preview");
 	assert.equal(individual.previewRows, 40);
-	assert.equal(individual.toolIntent.enabled, false);
+	assert.equal(individual.toolIntent.language, "zh-CN");
 	const individualSettings = buildInspectorSettings(individual, {
 		hasMcpTooling: false,
 		hasRtkOptimizer: false,
