@@ -237,8 +237,15 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "expandedTimeline"],
+		["toolCallLayout", "toolIntentLanguage", "expandedTimeline"],
 	);
+	const intentLanguageSetting = aggregateSettings.find((setting) => setting.id === "toolIntentLanguage");
+	assert.equal(intentLanguageSetting?.currentValue, "zh-CN");
+	assert.deepEqual(intentLanguageSetting?.values, ["auto", "zh-CN", "en"]);
+	assert.match(intentLanguageSetting?.inspectorSummary.join(" ") ?? "", /does not detect or enforce/);
+	const englishIntent = applySetting(retained, "toolIntentLanguage", "en");
+	assert.equal(englishIntent.toolIntent.language, "en");
+	assert.equal(englishIntent.toolIntent.maxLength, 64);
 	assert.equal(applySetting(retained, "expandedTimeline", "turns").expandedTimeline, "turns");
 	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
 	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);
@@ -258,6 +265,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 		hasRtkOptimizer: false,
 	});
 	assert.ok(individualSettings.some((setting) => setting.id === "diffCollapsedMode"));
+	assert.ok(individualSettings.some((setting) => setting.id === "toolIntentLanguage"));
 	assert.equal(individualSettings.some((setting) => setting.id === "expandedTimeline"), false);
 });
 

@@ -43,7 +43,7 @@ pi install npm:@zhcsyncer/pi-extensions
 /tools individual
 ```
 
-空的 `/tools` 打开设置面板。切布局会先确认再保存并 reload。其余旋钮仍在面板里。
+空的 `/tools` 打开设置面板。切布局会先确认再保存并 reload。两种布局都能配置 bash intent 语言，修改后经 `/reload` 生效；其它展示旋钮按布局显示。
 
 ## 布局
 
@@ -80,7 +80,7 @@ pi install npm:@zhcsyncer/pi-extensions
 | `toolCalls.layout` | `individual` 或 `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` 展开逐条，或 `turns` 按 agent turn 分组（仅 aggregate，不用 reload） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
-| `intent.language` | 模型意图语言 |
+| `intent.language` | bash intent 语言：尽量跟随请求、固定简体中文或固定英文（经 `/reload` 生效） |
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |
 | `tools.passthrough` | aggregate 里仍用原 renderer 的工具 |
 

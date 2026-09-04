@@ -43,7 +43,7 @@ Then restart Pi or run `/reload`.
 /tools individual
 ```
 
-Empty `/tools` opens the settings panel. Switching layout asks to reload this session, then saves and reloads. Remaining knobs stay in the panel.
+Empty `/tools` opens the settings panel. Switching layout asks to reload this session, then saves and reloads. Bash intent language is available in both layouts and applies after `/reload`; layout-specific display knobs stay in the panel.
 
 ## Layouts
 
@@ -80,7 +80,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | `toolCalls.layout` | `individual` or `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` per-call Ctrl+O rows, or `turns` grouped by agent turn (aggregate only; no reload) |
 | `results.mode` | `compact`, `summary`, or `preview` |
-| `intent.language` | Language for model-written intent |
+| `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
 | `diff.collapsedMode` | `body` preview, or `summary` stats only |
 | `tools.passthrough` | Tools that keep their original renderer in aggregate |
 

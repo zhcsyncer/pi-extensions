@@ -9,6 +9,7 @@ import {
 	RESULT_DISPLAY_MODES,
 	EXPANDED_TIMELINES,
 	TOOL_CALL_LAYOUTS,
+	TOOL_INTENT_LANGUAGES,
 	type ToolDisplayConfig,
 } from "./types.js";
 
@@ -122,6 +123,28 @@ export function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["layout", "individual", "aggregate", "tools", "summary", "reload"],
+		},
+		{
+			id: "toolIntentLanguage",
+			label: "Bash intent language",
+			currentValue: config.toolIntent.language,
+			values: TOOL_INTENT_LANGUAGES,
+			inspectorTitle: "Bash Intent Language",
+			inspectorSummary: [
+				"Controls the model-written displaySummary language for Bash calls in both layouts.",
+				"auto only asks the model to follow the current user request; it does not detect or enforce the session language.",
+			],
+			inspectorOptions: [
+				"auto — ask the model to follow the current request language (best effort)",
+				"zh-CN — always write intent in Simplified Chinese",
+				"en — always write intent in English",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Changing the language updates the Bash tool schema after /reload.",
+				"Manual JSON tuning exposes intent.maxLength.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["bash", "intent", "language", "displaySummary", "auto", "Chinese", "English"],
 		},
 		{
 			id: "expandedTimeline",
@@ -275,6 +298,14 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 	switch (id) {
 		case "toolCallLayout":
 			return { ...config, toolCallLayout: value as ToolDisplayConfig["toolCallLayout"] };
+		case "toolIntentLanguage":
+			return {
+				...config,
+				toolIntent: {
+					...config.toolIntent,
+					language: value as ToolDisplayConfig["toolIntent"]["language"],
+				},
+			};
 		case "expandedTimeline":
 			return { ...config, expandedTimeline: value as ToolDisplayConfig["expandedTimeline"] };
 		case "resultMode": {
