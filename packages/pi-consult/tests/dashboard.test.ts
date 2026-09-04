@@ -50,7 +50,9 @@ describe("consult status dashboard", () => {
 		expect(output).toContain("fanout on  •  loop gate 3");
 		expect(output).toContain("2/3 run, 7/8 session");
 		expect(output).toContain("correction  adopted");
-		expect(output).toContain("cache 75%  •  420 tok  •  $0.1250");
+		expect(output).toContain("in 400  •  out 20  •  total 420");
+		expect(output).not.toContain("cache");
+		expect(output).not.toContain("$");
 		expect(lines.every((line) => visibleWidth(line) <= 56)).toBe(true);
 	});
 

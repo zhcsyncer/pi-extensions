@@ -22,19 +22,9 @@ function compactTokens(value: number): string {
 	return String(value);
 }
 
-function formatCost(value: number): string {
-	if (value === 0) return "$0";
-	return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
-}
-
 function eventTime(ts: string): string {
 	const match = ts.match(/^\d{4}-(\d{2}-\d{2})T(\d{2}:\d{2})/);
 	return match ? `${match[1]} ${match[2]}` : ts.slice(0, 11);
-}
-
-function cacheRate(event: ConsultEvent): number | undefined {
-	const cacheable = event.tokensIn + event.cacheRead + event.cacheWrite;
-	return cacheable > 0 ? Math.round((event.cacheRead / cacheable) * 100) : undefined;
 }
 
 function verdictColor(verdict: ConsultEvent["verdict"]): string {
@@ -102,14 +92,14 @@ export class ConsultStatusDashboard {
 		} else {
 			for (const event of [...this.data.recent].reverse()) {
 				const adoption = adoptionLabel(event);
-				const tokens = event.tokensIn + event.tokensOut + event.cacheRead + event.cacheWrite;
-				const cache = cacheRate(event);
+				const input = event.tokensIn + event.cacheRead + event.cacheWrite;
+				const total = input + event.tokensOut;
 				const metrics = [
 					event.trigger,
-					cache === undefined ? undefined : `cache ${cache}%`,
-					`${compactTokens(tokens)} tok`,
-					formatCost(event.costUsd),
-				].filter((item): item is string => Boolean(item));
+					`in ${compactTokens(input)}`,
+					`out ${compactTokens(event.tokensOut)}`,
+					`total ${compactTokens(total)}`,
+				];
 				push(
 					`  ${t.fg("dim", eventTime(event.ts))}  ${t.fg(verdictColor(event.verdict), event.verdict)}  ${t.fg(adoption.color, adoption.text)}`,
 				);

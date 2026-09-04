@@ -3,20 +3,20 @@
  * (https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-advisor).
  * Copyright (c) 2026 juicesharp.
  *
- * Host-version-tolerant loader for pi-ai's completeSimple, plus the runtime
+ * Host-version-tolerant loader for pi-ai's streamSimple, plus the runtime
  * facade bridge on ModelRegistry so OAuth providers keep credential-derived
  * fields such as Copilot's baseUrl.
  */
 
-type CompleteSimpleFn = typeof import("@earendil-works/pi-ai/compat").completeSimple;
+type StreamSimpleFn = typeof import("@earendil-works/pi-ai/compat").streamSimple;
 
-export function getRuntimeCompleteSimple(modelRegistry: unknown): CompleteSimpleFn | undefined {
+export function getRuntimeStreamSimple(modelRegistry: unknown): StreamSimpleFn | undefined {
 	try {
 		if (modelRegistry === null || typeof modelRegistry !== "object") return undefined;
 		const runtime = (modelRegistry as { runtime?: unknown }).runtime;
 		if (runtime === null || typeof runtime !== "object") return undefined;
-		const completeSimple = (runtime as { completeSimple?: unknown }).completeSimple;
-		return typeof completeSimple === "function" ? (completeSimple.bind(runtime) as CompleteSimpleFn) : undefined;
+		const streamSimple = (runtime as { streamSimple?: unknown }).streamSimple;
+		return typeof streamSimple === "function" ? (streamSimple.bind(runtime) as StreamSimpleFn) : undefined;
 	} catch {
 		return undefined;
 	}
@@ -37,19 +37,19 @@ function isModuleNotFound(err: unknown): boolean {
 	return false;
 }
 
-export async function loadCompleteSimple(): Promise<CompleteSimpleFn> {
-	let mod: { completeSimple?: CompleteSimpleFn };
+export async function loadStreamSimple(): Promise<StreamSimpleFn> {
+	let mod: { streamSimple?: StreamSimpleFn };
 	try {
-		mod = (await import("@earendil-works/pi-ai/compat")) as { completeSimple?: CompleteSimpleFn };
+		mod = (await import("@earendil-works/pi-ai/compat")) as { streamSimple?: StreamSimpleFn };
 	} catch (err) {
 		if (!isModuleNotFound(err)) throw err;
-		mod = (await import("@earendil-works/pi-ai")) as { completeSimple?: CompleteSimpleFn };
+		mod = (await import("@earendil-works/pi-ai")) as { streamSimple?: StreamSimpleFn };
 	}
-	const completeSimple = mod.completeSimple;
-	if (typeof completeSimple !== "function") {
+	const streamSimple = mod.streamSimple;
+	if (typeof streamSimple !== "function") {
 		throw new Error(
-			"pi-ai does not expose completeSimple on /compat or the package root — unsupported host pi-ai version",
+			"pi-ai does not expose streamSimple on /compat or the package root — unsupported host pi-ai version",
 		);
 	}
-	return completeSimple;
+	return streamSimple;
 }

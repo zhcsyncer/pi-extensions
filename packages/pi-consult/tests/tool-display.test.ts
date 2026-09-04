@@ -83,16 +83,23 @@ describe("consult Claude-style rows", () => {
 		expect(lines).not.toContain("same bash failed twice");
 	});
 
-	it("renders waiting as consulting, not a fake plan verdict", () => {
+	it("renders live advisor phase and approximate output while waiting", () => {
 		expect(
 			consultResultLines(
-				{ details: { trigger: "pull", models: ["cursor/fable-5.1"], effort: "xhigh" } },
+				{
+					details: {
+						trigger: "pull",
+						models: ["cursor/fable-5.1"],
+						effort: "xhigh",
+						live: [{ model: "cursor/fable-5.1", phase: "thinking", approxOutputTokens: 1_234 }],
+					},
+				},
 				{ expanded: false, isPartial: true },
 				theme,
 				{ isPartial: true },
 				12_000,
 			),
-		).toEqual(["consulting cursor/fable-5.1 · xhigh  12s"]);
+		).toEqual(["consulting cursor/fable-5.1 · xhigh · thinking · ~1.2k out  12s"]);
 	});
 
 	it("renders a budget refusal as blocked rather than failed", () => {

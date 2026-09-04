@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { executeConsult, runConsultPanel, type CompleteSimpleFn } from "../src/execute.ts";
+import { describe, expect, it } from "vitest";
+import { estimateOutputTokens, executeConsult, runConsultPanel, type StreamSimpleFn } from "../src/execute.ts";
 import { ERR_BUDGET_RUN } from "../src/messages.ts";
 import type { ResolvedPanelMember } from "../src/panel.ts";
 import { ConsultTracker } from "../src/tracker.ts";
@@ -21,6 +21,17 @@ function usage() {
 	};
 }
 
+function emptyUsage() {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 function response(text: string, stopReason: AssistantMessage["stopReason"] = "stop"): AssistantMessage {
 	return {
 		role: "assistant",
@@ -32,6 +43,33 @@ function response(text: string, stopReason: AssistantMessage["stopReason"] = "st
 		stopReason,
 		timestamp: Date.now(),
 	};
+}
+
+function responseStream(message: AssistantMessage, deltas: { thinking?: string; text?: string } = {}) {
+	const stream = createAssistantMessageEventStream();
+	queueMicrotask(() => {
+		const partial: AssistantMessage = { ...message, content: [], usage: emptyUsage() };
+		stream.push({ type: "start", partial });
+		if (deltas.thinking !== undefined) {
+			stream.push({ type: "thinking_start", contentIndex: 0, partial });
+			stream.push({ type: "thinking_delta", contentIndex: 0, delta: deltas.thinking, partial });
+			stream.push({ type: "thinking_end", contentIndex: 0, content: deltas.thinking, partial });
+		}
+		if (deltas.text !== undefined) {
+			stream.push({ type: "text_start", contentIndex: 1, partial });
+			stream.push({ type: "text_delta", contentIndex: 1, delta: deltas.text, partial });
+			stream.push({ type: "text_end", contentIndex: 1, content: deltas.text, partial });
+		}
+		if (message.stopReason === "error" || message.stopReason === "aborted") {
+			stream.push({ type: "error", reason: message.stopReason, error: message });
+		} else {
+			const reason = message.stopReason === "length" || message.stopReason === "toolUse" || message.stopReason === "deferred"
+				? message.stopReason
+				: "stop";
+			stream.push({ type: "done", reason, message });
+		}
+	});
+	return stream;
 }
 
 function member(id: string): ResolvedPanelMember {
@@ -72,9 +110,9 @@ describe("executeConsult budget reservation", () => {
 			} as unknown as ExtensionContext;
 			const pi = { getAllTools: () => [] } as unknown as ExtensionAPI;
 			let paidCalls = 0;
-			const completeSimple: CompleteSimpleFn = async () => {
+			const streamSimple: StreamSimpleFn = () => {
 				paidCalls += 1;
-				return response('{"verdict":"plan","summary":"continue"}');
+				return responseStream(response('{"verdict":"plan","summary":"continue"}'));
 			};
 			const call = () => executeConsult({
 				why: "two approaches change the structure",
@@ -83,7 +121,10 @@ describe("executeConsult budget reservation", () => {
 				config,
 				tracker,
 				agentDir: directory,
-				completeSimple,
+				streamSimple,
+				onUpdate: () => {
+					throw new Error("render failed");
+				},
 			});
 
 			const results = await Promise.all([call(), call()]);
@@ -104,20 +145,38 @@ describe("executeConsult budget reservation", () => {
 });
 
 describe("runConsultPanel", () => {
-	it("retries a single empty response then succeeds", async () => {
+	it("streams connecting, thinking, and writing progress with an output estimate", async () => {
+		const progress: Array<{ phase: string; approxOutputTokens: number }> = [];
+		const finalText = '{"verdict":"plan","summary":"继续验证"}';
+		const [outcome] = await runConsultPanel({
+			members: [member("one")],
+			messages: [],
+			streamSimple: () => responseStream(response(finalText), { thinking: "先分析证据", text: finalText }),
+			useRuntimeFacade: true,
+			onProgress: (_label, update) => progress.push(update),
+		});
+		expect(outcome?.ok).toBe(true);
+		expect(progress.map((item) => item.phase)).toEqual(expect.arrayContaining(["connecting", "thinking", "writing"]));
+		expect(progress.filter((item) => item.phase === "writing").at(-1)?.approxOutputTokens).toBeGreaterThan(0);
+		expect(estimateOutputTokens("abcd中文")).toBe(3);
+	});
+
+	it("retries a single empty response, preserves live progress, and sums exact usage", async () => {
 		let calls = 0;
-		const completeSimple: CompleteSimpleFn = async () => {
+		const progress: Array<{ phase: string; approxOutputTokens: number; attempt: number }> = [];
+		const streamSimple: StreamSimpleFn = () => {
 			calls += 1;
-			if (calls === 1) return response("");
-			return response('{"verdict":"plan","summary":"next"}');
+			return responseStream(calls === 1 ? response("") : response('{"verdict":"plan","summary":"next"}'));
 		};
 		const [outcome] = await runConsultPanel({
 			members: [member("one")],
 			messages: [],
-			completeSimple,
+			streamSimple,
 			useRuntimeFacade: true,
+			onProgress: (_label, update) => progress.push(update),
 		});
 		expect(calls).toBe(2);
+		expect(progress).toContainEqual({ phase: "connecting", approxOutputTokens: 3, attempt: 2 });
 		expect(outcome).toMatchObject({
 			ok: true,
 			text: '{"verdict":"plan","summary":"next"}',
@@ -134,30 +193,30 @@ describe("runConsultPanel", () => {
 
 	it("does not retry aborted or error stops", async () => {
 		let calls = 0;
-		const completeSimple: CompleteSimpleFn = async () => {
+		const streamSimple: StreamSimpleFn = () => {
 			calls += 1;
-			return response("", "aborted");
+			return responseStream(response("", "aborted"));
 		};
 		const [outcome] = await runConsultPanel({
 			members: [member("one")],
 			messages: [],
-			completeSimple,
+			streamSimple,
 			useRuntimeFacade: true,
 		});
 		expect(calls).toBe(1);
-		expect(outcome.ok).toBe(false);
+		expect(outcome?.ok).toBe(false);
 	});
 
 	it("fans out in parallel", async () => {
 		const seen: string[] = [];
-		const completeSimple: CompleteSimpleFn = async (model) => {
+		const streamSimple: StreamSimpleFn = (model) => {
 			seen.push(model.id);
-			return response(`{"verdict":"plan","summary":"${model.id}"}`);
+			return responseStream(response(`{"verdict":"plan","summary":"${model.id}"}`));
 		};
 		const outcomes = await runConsultPanel({
 			members: [member("one"), member("two")],
 			messages: [],
-			completeSimple,
+			streamSimple,
 			useRuntimeFacade: true,
 		});
 		expect(seen.sort()).toEqual(["one", "two"]);

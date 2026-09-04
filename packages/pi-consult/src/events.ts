@@ -137,15 +137,3 @@ export async function readRecentEvents(limit: number, agentDir?: string): Promis
 	}
 	return events.slice(-limit);
 }
-
-export function summarizeEvents(events: ConsultEvent[]): string {
-	if (events.length === 0) return "No consult events yet.";
-	return events
-		.map((event) => {
-			const adopted = event.adopted === null ? "pending" : event.adopted ? "adopted" : "rejected";
-			const cacheable = event.tokensIn + event.cacheRead + event.cacheWrite;
-			const cache = cacheable > 0 ? `, cache ${Math.round((event.cacheRead / cacheable) * 100)}%` : "";
-			return `${event.ts.slice(0, 19)} ${event.verdict} (${event.trigger}, ${adopted}${cache})`;
-		})
-		.join("\n");
-}

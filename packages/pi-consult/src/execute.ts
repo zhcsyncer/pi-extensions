@@ -4,11 +4,18 @@
  * Copyright (c) 2026 juicesharp.
  *
  * Side-call path: buildSessionContext → convertToLlm → tail massage →
- * inventory prefix → completeSimple({ tools: [] }). Failures all funnel through
+ * inventory prefix → streamSimple({ tools: [] }). Failures all funnel through
  * the single envelope constructor.
  */
 
-import type { AssistantMessage, Message, TextContent, ThinkingLevel } from "@earendil-works/pi-ai";
+import type {
+	AssistantMessage,
+	AssistantMessageEvent,
+	AssistantMessageEventStream,
+	Message,
+	TextContent,
+	ThinkingLevel,
+} from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
@@ -47,16 +54,23 @@ import {
 } from "./messages.ts";
 import { sessionIdFrom } from "./paths.ts";
 import { resolvePanelMembers, selectPanel, type ResolvedPanelMember } from "./panel.ts";
-import { getRuntimeCompleteSimple, loadCompleteSimple } from "./pi-compat.ts";
+import { getRuntimeStreamSimple, loadStreamSimple } from "./pi-compat.ts";
 import { CONSULT_SYSTEM_PROMPT } from "./prompt.ts";
 import type { ConsultTracker } from "./tracker.ts";
-import type { ConsultConfig, ConsultDetails, ConsultOutcome, ConsultTrigger } from "./types.ts";
+import type {
+	ConsultConfig,
+	ConsultDetails,
+	ConsultLiveMember,
+	ConsultLivePhase,
+	ConsultOutcome,
+	ConsultTrigger,
+} from "./types.ts";
 
-export type CompleteSimpleFn = (
+export type StreamSimpleFn = (
 	model: ResolvedPanelMember["model"],
 	context: { systemPrompt: string; messages: Message[]; tools: [] },
 	options: { signal?: AbortSignal; reasoning?: ThinkingLevel; apiKey?: string; headers?: unknown },
-) => Promise<AssistantMessage>;
+) => AssistantMessageEventStream;
 
 function advisorTextFromResponse(response: AssistantMessage): string {
 	return response.content
@@ -66,26 +80,120 @@ function advisorTextFromResponse(response: AssistantMessage): string {
 		.trim();
 }
 
+interface MemberProgress {
+	phase: ConsultLivePhase;
+	approxOutputTokens: number;
+	attempt: number;
+}
+
+export function estimateOutputTokens(value: string): number {
+	let ascii = 0;
+	let nonAscii = 0;
+	for (const char of value) {
+		if (char.codePointAt(0)! <= 0x7f) ascii += 1;
+		else nonAscii += 1;
+	}
+	return Math.ceil(ascii / 4 + nonAscii);
+}
+
+function partialOutputUsage(event: AssistantMessageEvent): number {
+	return "partial" in event && Number.isFinite(event.partial.usage.output) ? event.partial.usage.output : 0;
+}
+
 async function callAdvisorMember(opts: {
 	member: ResolvedPanelMember;
 	messages: Message[];
-	completeSimple: CompleteSimpleFn;
+	streamSimple: StreamSimpleFn;
 	signal?: AbortSignal;
 	apiKey?: string;
 	headers?: unknown;
 	useRuntimeFacade: boolean;
+	onProgress?: (label: string, progress: MemberProgress) => void;
 }): Promise<AdvisorOutcome> {
 	const requestOptions = opts.useRuntimeFacade
 		? { signal: opts.signal, reasoning: opts.member.effort }
 		: { apiKey: opts.apiKey, headers: opts.headers, signal: opts.signal, reasoning: opts.member.effort };
 
 	let accumulatedUsage: ReturnType<typeof usageSnapshotFrom>;
+	let accumulatedApprox = 0;
+	let attempt = 0;
 	const call = async (): Promise<AssistantMessage> => {
-		const response = await opts.completeSimple(
+		attempt += 1;
+		let phase: ConsultLivePhase = "connecting";
+		let currentApprox = 0;
+		let thinking = "";
+		let text = "";
+		let sawThinkingDelta = false;
+		let sawTextDelta = false;
+		let final: AssistantMessage | undefined;
+		let lastPhase: ConsultLivePhase | undefined;
+		let lastApprox = -1;
+		let lastUpdateAt = 0;
+		const report = (nextPhase: ConsultLivePhase, approxOutputTokens: number, force = false): void => {
+			const now = Date.now();
+			if (!force && nextPhase === lastPhase && (approxOutputTokens === lastApprox || now - lastUpdateAt < 500)) return;
+			lastPhase = nextPhase;
+			lastApprox = approxOutputTokens;
+			lastUpdateAt = now;
+			try {
+				opts.onProgress?.(opts.member.label, { phase: nextPhase, approxOutputTokens, attempt });
+			} catch {
+				// Progress rendering is best effort and must not fail the advisor request.
+			}
+		};
+
+		report(phase, accumulatedApprox, true);
+		const stream = opts.streamSimple(
 			opts.member.model,
 			{ systemPrompt: CONSULT_SYSTEM_PROMPT, messages: opts.messages, tools: [] },
 			requestOptions,
 		);
+		const phaseRank: Record<ConsultLivePhase, number> = { connecting: 0, thinking: 1, writing: 2 };
+		const advance = (next: ConsultLivePhase): void => {
+			if (phaseRank[next] >= phaseRank[phase]) phase = next;
+		};
+		for await (const event of stream) {
+			switch (event.type) {
+				case "start":
+					advance("thinking");
+					break;
+				case "thinking_start":
+					advance("thinking");
+					break;
+				case "thinking_delta":
+					advance("thinking");
+					thinking += event.delta;
+					sawThinkingDelta = true;
+					break;
+				case "thinking_end":
+					advance("thinking");
+					if (!sawThinkingDelta) thinking = event.content;
+					break;
+				case "text_start":
+					advance("writing");
+					break;
+				case "text_delta":
+					advance("writing");
+					text += event.delta;
+					sawTextDelta = true;
+					break;
+				case "text_end":
+					advance("writing");
+					if (!sawTextDelta) text = event.content;
+					break;
+				case "done":
+					final = event.message;
+					continue;
+				case "error":
+					final = event.error;
+					continue;
+			}
+			const estimated = estimateOutputTokens(thinking + text);
+			currentApprox = Math.max(currentApprox, estimated, partialOutputUsage(event));
+			report(phase, accumulatedApprox + currentApprox);
+		}
+		const response = final ?? (await stream.result());
+		accumulatedApprox += Math.max(currentApprox, response.usage.output);
 		accumulatedUsage = addUsage(accumulatedUsage, usageSnapshotFrom(response.usage));
 		return response;
 	};
@@ -103,8 +211,8 @@ async function callAdvisorMember(opts: {
 				usage: accumulatedUsage,
 			};
 		}
-		let text = advisorTextFromResponse(response);
-		if (!text) {
+		let responseText = advisorTextFromResponse(response);
+		if (!responseText) {
 			response = await call();
 			if (response.stopReason === "aborted") {
 				return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage };
@@ -117,12 +225,12 @@ async function callAdvisorMember(opts: {
 					usage: accumulatedUsage,
 				};
 			}
-			text = advisorTextFromResponse(response);
-			if (!text) {
+			responseText = advisorTextFromResponse(response);
+			if (!responseText) {
 				return { ok: false, label: opts.member.label, error: ERR_EMPTY_RESPONSE, usage: accumulatedUsage };
 			}
 		}
-		return { ok: true, label: opts.member.label, text, usage: accumulatedUsage };
+		return { ok: true, label: opts.member.label, text: responseText, usage: accumulatedUsage };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
@@ -137,8 +245,9 @@ async function callAdvisorMember(opts: {
 export async function runConsultPanel(opts: {
 	members: ResolvedPanelMember[];
 	messages: Message[];
-	completeSimple: CompleteSimpleFn;
+	streamSimple: StreamSimpleFn;
 	signal?: AbortSignal;
+	onProgress?: (label: string, progress: MemberProgress) => void;
 	authFor?: (member: ResolvedPanelMember) => Promise<{
 		ok: boolean;
 		error?: string;
@@ -167,19 +276,21 @@ export async function runConsultPanel(opts: {
 			return callAdvisorMember({
 				member,
 				messages: opts.messages,
-				completeSimple: opts.completeSimple,
+				streamSimple: opts.streamSimple,
 				signal: opts.signal,
 				apiKey: auth.apiKey,
 				headers: auth.headers,
 				useRuntimeFacade: opts.useRuntimeFacade,
+				onProgress: opts.onProgress,
 			});
 		}
 		return callAdvisorMember({
 			member,
 			messages: opts.messages,
-			completeSimple: opts.completeSimple,
+			streamSimple: opts.streamSimple,
 			signal: opts.signal,
 			useRuntimeFacade: opts.useRuntimeFacade,
+			onProgress: opts.onProgress,
 		});
 	};
 
@@ -201,7 +312,7 @@ export interface ExecuteConsultOptions {
 	agentDir?: string;
 	signal?: AbortSignal;
 	onUpdate?: AgentToolUpdateCallback<ConsultDetails>;
-	completeSimple?: CompleteSimpleFn;
+	streamSimple?: StreamSimpleFn;
 }
 
 export async function executeConsult(opts: ExecuteConsultOptions): Promise<AgentToolResult<ConsultDetails>> {
@@ -234,11 +345,11 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		return fail(trigger, ERR_NO_MODEL, ERR_NO_MODEL_DETAIL, selected.map((member) => member.model));
 	}
 
-	const runtimeCompleteSimple = getRuntimeCompleteSimple(opts.ctx.modelRegistry);
-	let completeSimple = opts.completeSimple ?? runtimeCompleteSimple;
-	if (!completeSimple) {
+	const runtimeStreamSimple = getRuntimeStreamSimple(opts.ctx.modelRegistry);
+	let streamSimple = opts.streamSimple ?? runtimeStreamSimple;
+	if (!streamSimple) {
 		try {
-			completeSimple = await loadCompleteSimple();
+			streamSimple = await loadStreamSimple();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			return fail(trigger, errCallThrew(message), message, members.map((member) => member.label), "failed");
@@ -255,7 +366,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		if (!auth.ok) {
 			return fail(trigger, errMisconfigured(member.label, auth.error), auth.error, members.map((item) => item.label));
 		}
-		if (!auth.apiKey && !runtimeCompleteSimple && !opts.completeSimple) {
+		if (!auth.apiKey && !runtimeStreamSimple && !opts.streamSimple) {
 			return fail(trigger, errNoApiKey(member.label), errNoApiKeyDetail(member.model.provider), members.map((item) => item.label));
 		}
 	}
@@ -276,21 +387,47 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 
 	const models = members.map((member) => member.label);
 	const effort = members[0]?.effort;
-	opts.onUpdate?.({
-		content: [{ type: "text", text: msgConsulting(models.join(" + "), effort) }],
-		details: {
-			trigger,
-			models,
-			...(effort ? { effort } : {}),
-		},
-	});
+	const live = new Map<string, ConsultLiveMember>(
+		models.map((model) => [model, { model, phase: "connecting", approxOutputTokens: 0, attempt: 1 }]),
+	);
+	const publishProgress = (): void => {
+		try {
+			opts.onUpdate?.({
+				content: [{ type: "text", text: msgConsulting(models.join(" + "), effort) }],
+				details: {
+					trigger,
+					models,
+					...(effort ? { effort } : {}),
+					live: models.flatMap((model) => {
+						const progress = live.get(model);
+						return progress ? [progress] : [];
+					}),
+				},
+			});
+		} catch {
+			// Streaming UI updates are best effort and must not fail Consult.
+		}
+	};
+	publishProgress();
 
 	const outcomes = await runConsultPanel({
 		members,
 		messages,
-		completeSimple: completeSimple as CompleteSimpleFn,
+		streamSimple: streamSimple as StreamSimpleFn,
 		signal: opts.signal,
-		useRuntimeFacade: Boolean(runtimeCompleteSimple) && !opts.completeSimple,
+		useRuntimeFacade: Boolean(runtimeStreamSimple) && !opts.streamSimple,
+		onProgress: (model, progress) => {
+			const previous = live.get(model);
+			if (
+				previous?.phase === progress.phase &&
+				previous.approxOutputTokens === progress.approxOutputTokens &&
+				(previous.attempt ?? 1) === progress.attempt
+			) {
+				return;
+			}
+			live.set(model, { model, ...progress });
+			publishProgress();
+		},
 		authFor: async (member) =>
 			authByLabel.get(member.label) ?? { ok: false, error: `missing cached auth for ${member.label}` },
 	});

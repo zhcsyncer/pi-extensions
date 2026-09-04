@@ -56,6 +56,41 @@ describe("consult expanded Markdown", () => {
 		expect(partialOutput).not.toContain("先运行");
 	});
 
+	it("shows only exact input, output, and total tokens after completion", () => {
+		const result = renderConsultResult(
+			{
+				details: {
+					trigger: "pull",
+					models: ["cursor/fable-5.1"],
+					envelope: {
+						verdict: "plan",
+						summary: "继续验证。",
+						raw: [{
+							model: "cursor/fable-5.1",
+							text: "result",
+							usage: {
+								input: 11,
+								output: 3,
+								cacheRead: 100,
+								cacheWrite: 20,
+								totalTokens: 134,
+								cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, total: 4 },
+							},
+						}],
+					},
+				},
+			},
+			{ expanded: true, isPartial: false },
+			theme,
+			{},
+		);
+		const output = stripSgr(result.render(100).join("\n"));
+		expect(output).toContain("cursor/fable-5.1");
+		expect(output).toContain("in 131 · out 3 · total 134");
+		expect(output).not.toContain("cache");
+		expect(output).not.toContain("$");
+	});
+
 	it("keeps every result branch within extremely narrow widths", () => {
 		const components = [
 			renderConsultResult(markdownResult, { expanded: true, isPartial: false }, theme, {

@@ -1,7 +1,14 @@
 import { getMarkdownTheme, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { ConsultAdoption } from "./events.ts";
-import { isRecord, type ConsultEnvelope, type ConsultOutcome, type ConsultVerdict } from "./types.ts";
+import {
+	isRecord,
+	type ConsultEnvelope,
+	type ConsultLiveMember,
+	type ConsultOutcome,
+	type ConsultRaw,
+	type ConsultVerdict,
+} from "./types.ts";
 
 const TOOL_LABEL = "Consult";
 const RESULT_FIRST_PREFIX = "  ⎿ ";
@@ -79,6 +86,31 @@ function modelsFromResult(result: ConsultRenderResult): string[] {
 function effortFromResult(result: ConsultRenderResult): string | undefined {
 	const details = detailsRecord(result);
 	return typeof details?.effort === "string" && details.effort.trim() ? details.effort.trim() : undefined;
+}
+
+function liveFromResult(result: ConsultRenderResult): ConsultLiveMember[] {
+	const live = detailsRecord(result)?.live;
+	if (!Array.isArray(live)) return [];
+	return live.filter(
+		(item): item is ConsultLiveMember =>
+			isRecord(item) &&
+			typeof item.model === "string" &&
+			(item.phase === "connecting" || item.phase === "thinking" || item.phase === "writing") &&
+			typeof item.approxOutputTokens === "number",
+	);
+}
+
+function compactTokens(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+	if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+	return String(Math.max(0, Math.round(value)));
+}
+
+function exactTokenLine(raw: ConsultRaw): string | undefined {
+	if (!raw.usage) return undefined;
+	const input = raw.usage.input + raw.usage.cacheRead + raw.usage.cacheWrite;
+	const total = input + raw.usage.output;
+	return `in ${compactTokens(input)} · out ${compactTokens(raw.usage.output)} · total ${compactTokens(total)}`;
 }
 
 function claudeMarker(theme: Theme, context?: ConsultRenderContext): string {
@@ -159,11 +191,22 @@ function statusColor(theme: Theme, status: ConsultDisplayStatus): string {
 }
 
 function consultingLine(result: ConsultRenderResult, theme: Theme, elapsedMs: number): string {
-	const models = modelsFromResult(result).join(" + ");
+	const models = modelsFromResult(result);
 	const effort = effortFromResult(result);
+	const live = liveFromResult(result);
 	let text = "consulting";
-	if (models) text += ` ${models}`;
+	if (models.length > 0) text += ` ${models.join(" + ")}`;
 	if (effort) text += ` · ${effort}`;
+	if (live.length === 1 && live[0]) {
+		if ((live[0].attempt ?? 1) > 1) text += ` · retry ${live[0].attempt}`;
+		text += ` · ${live[0].phase}`;
+		if (live[0].approxOutputTokens > 0) text += ` · ~${compactTokens(live[0].approxOutputTokens)} out`;
+	} else if (live.length > 1) {
+		const phases = [...new Set(live.map((item) => item.phase))].join("+");
+		const approximate = live.reduce((sum, item) => sum + item.approxOutputTokens, 0);
+		text += ` · ${phases}`;
+		if (approximate > 0) text += ` · ~${compactTokens(approximate)} out`;
+	}
 	text += `  ${formatElapsed(elapsedMs)}`;
 	return theme.fg("muted", text);
 }
@@ -255,8 +298,16 @@ function expandedResultRows(
 		for (const conflict of envelope.conflicts) appendPlain(theme.fg("warning", conflict));
 	}
 	if (completed && context.adoption) appendPlain(adoptionLine(context.adoption, theme));
-	const models = modelsFromResult(result);
-	if (models.length > 0) appendPlain(theme.fg("muted", models.join(" + ")));
+	if (envelope?.raw.length) {
+		for (const raw of envelope.raw) {
+			appendPlain(theme.fg("muted", raw.model));
+			const tokens = exactTokenLine(raw);
+			if (tokens) appendPlain(theme.fg("muted", tokens));
+		}
+	} else {
+		const models = modelsFromResult(result);
+		if (models.length > 0) appendPlain(theme.fg("muted", models.join(" + ")));
+	}
 	return rows;
 }
 

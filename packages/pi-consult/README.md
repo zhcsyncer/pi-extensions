@@ -17,7 +17,8 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 - Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first. The default threshold is 5; completing Consult clears the prior loop evidence.
 - `/consult` picks panel models and effort and toggles the loop gate. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.
 - Advisor summaries follow the language of the user's latest substantive request while preserving technical syntax. Expanded results render Markdown; collapsed rows remain clean one-line previews.
-- Advisor usage includes retries, fanout, cache reads/writes, and cost. It is attached to the Consult tool result so Pi session totals include it; recent dashboard rows show cache hit rate.
+- Waiting rows stream `connecting` / `thinking` / `writing` and an approximate `~out` count. Completed expanded rows and the status dashboard show exact input, output, and total tokens only.
+- Full advisor usage still includes retries, fanout, cache reads/writes, and cost and is attached to the Consult tool result for Pi/pi-meter accounting; cache and cost stay out of the Consult UI.
 
 ## Install
 
@@ -54,7 +55,7 @@ After each `consult` result, the next visible reply should add:
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
-The line remains normal assistant output and its decision is also mirrored under the matching Consult row. The TUI distinguishes `consulting`, advisor verdicts, policy `blocked`, request `failed`, and user `cancelled` states.
+The line remains normal assistant output and its decision is also mirrored under the matching Consult row. The TUI distinguishes streamed `connecting` / `thinking` / `writing`, advisor verdicts, policy `blocked`, request `failed`, and user `cancelled` states.
 
 ## Configuration
 

@@ -68,12 +68,22 @@ export interface ConsultEvent {
 	costUsd: number;
 }
 
+export type ConsultLivePhase = "connecting" | "thinking" | "writing";
+
+export interface ConsultLiveMember {
+	model: string;
+	phase: ConsultLivePhase;
+	approxOutputTokens: number;
+	attempt?: number;
+}
+
 export interface ConsultDetails {
 	trigger: ConsultTrigger;
 	models: string[];
 	envelope?: ConsultEnvelope;
 	outcome?: ConsultOutcome;
 	effort?: string;
+	live?: ConsultLiveMember[];
 	errorMessage?: string;
 }
 

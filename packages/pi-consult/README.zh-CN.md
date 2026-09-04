@@ -17,7 +17,8 @@
 - Loop gate：连续 N 次相同工具调用或连续 N 次 error 后，steer 先 consult。默认阈值为 5；Consult 完成后清空此前的循环证据。
 - `/consult` 选择 panel 模型和 effort、开关 loop gate。`/consult status` 用临时 dashboard 展示预算和最近活动，不向 transcript 添加任何内容。
 - 顾问 summary 跟随用户最近一条实质性请求的语言，同时保留技术语法。展开态渲染 Markdown；折叠态保持干净的单行预览。
-- 顾问用量包含重试、fanout、cache read/write 与费用，并附在 Consult tool result 上，因此 Pi session 总量会计入；dashboard 的最近记录会显示缓存命中率。
+- 等待行实时显示 `connecting` / `thinking` / `writing` 和估算的 `~out`；完成后的展开态与 status dashboard 只显示精确 input、output 和 total tokens。
+- 完整顾问用量仍包含重试、fanout、cache read/write 与费用，并附在 Consult tool result 上供 Pi/pi-meter 统计；Consult UI 不展示 cache 和费用。
 
 ## 安装
 
@@ -54,7 +55,7 @@ pi -e npm:@zhcsyncer/pi-consult
 CONSULT-LOG: adopt|reject | <reason>
 ```
 
-该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。TUI 会区分 `consulting`、顾问反馈类型、策略 `blocked`、请求 `failed` 与用户 `cancelled` 状态。
+该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。TUI 会区分流式 `connecting` / `thinking` / `writing`、顾问反馈类型、策略 `blocked`、请求 `failed` 与用户 `cancelled` 状态。
 
 ## 配置
 

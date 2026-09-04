@@ -8,7 +8,6 @@ import {
 	parseConsultEvent,
 	parseConsultLog,
 	readRecentEvents,
-	summarizeEvents,
 } from "../src/events.ts";
 import { getConsultPaths } from "../src/paths.ts";
 import type { ConsultEvent } from "../src/types.ts";
@@ -110,11 +109,6 @@ describe("consult events jsonl", () => {
 		if (!parsed) throw new Error("legacy event did not parse");
 		await appendConsultEvent(parsed, directory);
 		expect((await readRecentEvents(10, directory))[0]?.adopted).toBe(false);
-	});
-
-	it("shows cache hit rate in recent-event summaries", () => {
-		const summary = summarizeEvents([event({ tokensIn: 100, cacheRead: 300, cacheWrite: 0 })]);
-		expect(summary).toContain("cache 75%");
 	});
 
 	it("parses CONSULT-LOG adopt, reject, reasons, and the legacy shape", () => {
