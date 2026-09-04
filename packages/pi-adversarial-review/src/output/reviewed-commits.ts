@@ -53,6 +53,8 @@ export function reviewTargetSpan(target: {
 /**
  * Mark first-parent picker rows covered by prior completed reviews.
  * `starts` is newest-first. A span with no exclusive left marks only its endpoint.
+ * Intermediate commits are marked only when the walk from the endpoint actually
+ * reaches `exclusiveLeft` on this list; otherwise only the endpoint is marked.
  */
 export function reviewedCommitShas(
   starts: readonly RangeStartIdentity[],
@@ -60,20 +62,28 @@ export function reviewedCommitShas(
 ): Set<string> {
   const reviewed = new Set<string>();
   for (const span of spans) {
-    if (!span.exclusiveLeft) {
-      if (starts.some((start) => start.commitSha === span.inclusiveRight)) {
-        reviewed.add(span.inclusiveRight);
-      }
-      continue;
+    if (starts.some((start) => start.commitSha === span.inclusiveRight)) {
+      reviewed.add(span.inclusiveRight);
     }
+    if (!span.exclusiveLeft) continue;
+    const covered: string[] = [];
     let covering = false;
+    let reachedLeft = false;
     for (const start of starts) {
       if (start.commitSha === span.inclusiveRight) covering = true;
       if (!covering) continue;
-      if (start.commitSha === span.exclusiveLeft) break;
-      reviewed.add(start.commitSha);
-      if (start.parentSha === span.exclusiveLeft) break;
+      if (start.commitSha === span.exclusiveLeft) {
+        reachedLeft = true;
+        break;
+      }
+      covered.push(start.commitSha);
+      if (start.parentSha === span.exclusiveLeft) {
+        reachedLeft = true;
+        break;
+      }
     }
+    if (!reachedLeft) continue;
+    for (const sha of covered) reviewed.add(sha);
   }
   return reviewed;
 }

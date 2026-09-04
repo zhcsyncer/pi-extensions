@@ -55,6 +55,14 @@ describe("reviewed commit replay", () => {
     expect([...reviewedCommitShas(starts, [{ inclusiveRight: second }])]).toEqual([second]);
   });
 
+  it("does not mark older picker rows when the left bound is not on the list", () => {
+    const peer = "c".repeat(40);
+    expect([...reviewedCommitShas(starts, [{
+      inclusiveRight: latest,
+      exclusiveLeft: peer,
+    }])]).toEqual([latest]);
+  });
+
   it("replays completed session entries and ignores other custom types", () => {
     const spans = completedReviewSpansFromSessionEntries([
       { type: "message", customType: ADVERSARIAL_REVIEW_RESULT_TYPE, data: { overall: "needs-adjudication" } },
