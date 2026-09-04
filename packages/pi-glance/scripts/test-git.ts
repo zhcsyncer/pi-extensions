@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -256,6 +256,12 @@ function runGit(cwd: string, args: string[]): Promise<void> {
 	});
 }
 
+function runCommandOutput(command: string, args: string[]): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile(command, args, { encoding: "utf8" }, (error, stdout) => error ? reject(error) : resolve(stdout));
+	});
+}
+
 async function initRepository(prefix: string): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), prefix));
 	await runGit(dir, ["init", "--quiet"]);
@@ -333,16 +339,28 @@ function gitCommandKey(args: readonly string[]): string {
 	return args.join(" ");
 }
 
+interface RecordedGitExecOptions {
+	network?: boolean;
+}
+
 function createGitExec(handlers: Record<string, { ok?: boolean; stdout?: string } | ((args: readonly string[]) => { ok?: boolean; stdout?: string })>) {
 	const calls: string[][] = [];
-	const exec = async (_cwd: string, args: readonly string[]): Promise<{ ok: boolean; stdout: string }> => {
+	const callOptions: Array<RecordedGitExecOptions | undefined> = [];
+	const exec = async (
+		_cwd: string,
+		args: readonly string[],
+		_timeout: number,
+		_input?: string,
+		options?: RecordedGitExecOptions,
+	): Promise<{ ok: boolean; stdout: string }> => {
 		calls.push([...args]);
+		callOptions.push(options);
 		const exact = handlers[gitCommandKey(args)];
 		const match = exact ?? Object.entries(handlers).find(([key]) => gitCommandKey(args).startsWith(key))?.[1];
 		const result = typeof match === "function" ? match(args) : match;
 		return { ok: result?.ok ?? false, stdout: result?.stdout ?? "" };
 	};
-	return { exec, calls };
+	return { exec, calls, callOptions };
 }
 
 const CLEAN_STATUS = "# branch.oid 1234567890abcdef1234567890abcdef12345678\n# branch.head feat/glance-main-behind\n";
@@ -419,16 +437,56 @@ async function assertBaseRefFetchStaysOffStatusPath(): Promise<void> {
 		"--no-optional-locks fetch --no-tags --quiet origin main": { ok: true, stdout: "" },
 	});
 	assert.equal(await maybeFetchGitBaseRef("/repo", "session", { exec: fetch.exec, nowMs: () => 1_000 }), true, "session start may fetch origin main");
-	assert.equal(
-		fetch.calls.filter((args) => args.includes("fetch")).length,
-		1,
-		"session fetch should run git fetch origin main once",
-	);
+	const fetchIndex = fetch.calls.findIndex((args) => args.includes("fetch"));
+	assert.notEqual(fetchIndex, -1, "session fetch should run git fetch origin main once");
+	assert.deepEqual(fetch.callOptions[fetchIndex], { network: true }, "background network fetch must opt into non-interactive process isolation");
+	const commonDirIndex = fetch.calls.findIndex((args) => args.includes("--git-common-dir"));
+	assert.equal(fetch.callOptions[commonDirIndex], undefined, "local git inspection should keep the ordinary execution path");
 	assert.equal(
 		await maybeFetchGitBaseRef("/repo", "stale", { exec: fetch.exec, nowMs: () => 2_000, staleMs: 12 * 60 * 1000 }),
 		false,
 		"fresh origin/main should not be fetched again from the 5s status path",
 	);
+}
+
+async function assertBaseRefFetchCannotClaimTerminal(): Promise<void> {
+	if (process.platform === "win32") return;
+	const dir = await initRepository("pi-glance-fetch-");
+	const sshScript = join(dir, "fake-ssh.sh");
+	const marker = join(dir, "ssh-process.txt");
+	const parentSession = (await runCommandOutput("ps", ["-o", "sid=", "-p", String(process.pid)])).trim();
+	const previousEnv = {
+		GIT_TERMINAL_PROMPT: process.env.GIT_TERMINAL_PROMPT,
+		SSH_ASKPASS_REQUIRE: process.env.SSH_ASKPASS_REQUIRE,
+		GCM_INTERACTIVE: process.env.GCM_INTERACTIVE,
+	};
+	try {
+		await writeFile(
+			sshScript,
+			`#!/bin/sh\ntty_state=no-tty\nif (: </dev/tty) 2>/dev/null; then tty_state=has-tty; fi\nsid=$(ps -o sid= -p $$ | tr -d ' ')\nprintf '%s\\t%s\\t%s\\t%s\\n' "$GIT_TERMINAL_PROMPT" "$SSH_ASKPASS_REQUIRE" "$GCM_INTERACTIVE" "$tty_state:$sid" > '${marker}'\nexit 255\n`,
+			{ encoding: "utf8", mode: 0o700 },
+		);
+		await runGit(dir, ["remote", "add", "origin", "git@example.invalid:repo.git"]);
+		await runGit(dir, ["config", "core.sshCommand", sshScript]);
+		process.env.GIT_TERMINAL_PROMPT = "1";
+		process.env.SSH_ASKPASS_REQUIRE = "force";
+		process.env.GCM_INTERACTIVE = "Always";
+		resetGitBaseCaches();
+		assert.equal(await maybeFetchGitBaseRef(dir, "session", { timeoutMs: 1_000 }), false, "failed non-interactive fetch should settle without updating the base ref");
+		const [gitPrompt, askpass, credentialManager, processState] = (await readFile(marker, "utf8")).trim().split("\t");
+		assert.equal(gitPrompt, "0", "network fetch should disable Git terminal credential prompts");
+		assert.equal(askpass, "never", "network fetch should disable SSH askpass prompts");
+		assert.equal(credentialManager, "Never", "network fetch should disable Git Credential Manager prompts");
+		const [ttyState, childSession] = processState!.split(":");
+		assert.equal(ttyState, "no-tty", "network fetch should not expose Pi's controlling terminal to SSH");
+		assert.notEqual(childSession, parentSession, "network fetch should run in a separate process session");
+	} finally {
+		for (const [key, value] of Object.entries(previousEnv)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
 }
 
 function assertRefreshDelays(): void {
@@ -451,6 +509,7 @@ assertRefreshDelays();
 resetGitBaseCaches();
 await assertBaseBehindCollection();
 await assertBaseRefFetchStaysOffStatusPath();
+await assertBaseRefFetchCannotClaimTerminal();
 await assertNonGitSnapshot();
 await assertUnbornAndSpecialPathCollection();
 await assertRenameAndBinaryCollection();
