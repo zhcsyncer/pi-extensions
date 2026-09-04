@@ -229,6 +229,7 @@ describe("merged report output", () => {
     expect(collapsed).toContain(
       "Adversarial review · candidate-approve · 1/1 valid",
     );
+    expect(collapsed).not.toContain("HEAD head");
     expect(collapsed).toContain("local changes · 1 file");
     expect(collapsed).not.toContain("Refute off");
     expect(collapsed).not.toContain("0 blocking");
@@ -497,7 +498,7 @@ describe("merged report output", () => {
       .render(180).join("\n");
     const collapsedLines = collapsed.split("\n").filter((line) => line.trim().length > 0);
     expect(collapsedLines.length).toBeLessThanOrEqual(8);
-    expect(collapsed).toContain("needs-adjudication · 3/3 valid · 8m44s");
+    expect(collapsed).toContain("needs-adjudication · 3/3 valid · 8m44s · HEAD 69c2136");
     expect(collapsed).toContain("base origin/main (d310689) ... HEAD (69c2136) plus local changes · 58 files");
     expect(collapsed).toContain("2 blocking · 3 advisory · 1 contested");
     expect(collapsed).toContain("[high, contested] packages/pi-consult/src/context.ts:14");

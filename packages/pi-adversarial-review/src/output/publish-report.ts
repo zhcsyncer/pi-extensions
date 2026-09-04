@@ -21,6 +21,7 @@ import {
   expandHint,
   formatDurationMs,
   formatUsageTotal,
+  headMarker,
 } from "./format.ts";
 
 export const ADVERSARIAL_REVIEW_MESSAGE_TYPE = "adversarial-review-report";
@@ -538,7 +539,8 @@ function buildTuiReportLines(
     `${icon} Adversarial review · ${details.overall} · ` +
     `${details.successfulReviewerCount}/${details.requestedRoutes.length} valid` +
     `${failedRoutes.length > 0 ? ` · ${failedRoutes.length} failed` : ""}` +
-    `${duration ? ` · ${duration}` : ""}`;
+    `${duration ? ` · ${duration}` : ""}` +
+    headMarker(details.target.headSha);
   const files = details.target.changedFiles.length;
   const lines = [
     theme.fg(color, header),

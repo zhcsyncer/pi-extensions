@@ -6,6 +6,17 @@ export function oneLine(value: string): string {
 }
 
 /** Shorten frozen-target Git identities for TUI; full SHAs stay in audit payloads. */
+export function shortSha(sha: string): string | undefined {
+  const trimmed = sha.trim();
+  if (!/^[0-9a-f]{7,64}$/iu.test(trimmed)) return undefined;
+  return trimmed.slice(0, 7).toLowerCase();
+}
+
+export function headMarker(sha: string | undefined): string {
+  const short = sha ? shortSha(sha) : undefined;
+  return short ? ` · HEAD ${short}` : "";
+}
+
 export function compactTarget(description: string): string {
   return oneLine(description)
     .replace(/\b([0-9a-f]{7})[0-9a-f]{33,57}\b/gu, "$1")

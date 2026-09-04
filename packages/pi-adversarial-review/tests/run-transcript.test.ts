@@ -64,6 +64,7 @@ describe("review dispatch transcript", () => {
     expect(entry).toMatchObject({
       status: "dispatched",
       runId: "run-123",
+      target: { headSha: "a".repeat(40), baseSha: "b".repeat(40) },
       input: { bytes: 61_440, lines: 824, files: 2 },
       requestedRoutes: [{ key: "provider-0/model-0@high" }, { key: "provider-1/model-1@high" }],
       refuterRoute: { key: "provider-2/model-2@high" },
@@ -88,7 +89,7 @@ describe("review dispatch transcript", () => {
     const expanded = renderReviewDispatchEntry(entry, { expanded: true }, theme)
       .render(140).join("\n");
 
-    expect(collapsed).toContain("Adversarial review dispatched · 2 reviewers");
+    expect(collapsed).toContain("Adversarial review dispatched · 2 reviewers · HEAD aaaaaaa");
     expect(collapsed).not.toContain("strict");
     expect(collapsed).not.toContain("Target ·");
     expect(collapsed).not.toContain("Ctrl+O");

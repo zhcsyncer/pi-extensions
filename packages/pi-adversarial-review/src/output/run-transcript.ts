@@ -11,6 +11,7 @@ import type {
 } from "../types.ts";
 import type { ReviewRuntimeCapabilities } from "../runtime/types.ts";
 import type { SerializedReviewerRouteIdentity } from "./publish-cancellation.ts";
+import { headMarker } from "./format.ts";
 import { safeReviewDiagnosticText } from "./headless-output.ts";
 
 export const ADVERSARIAL_REVIEW_DISPATCH_TYPE = "adversarial-review-dispatch";
@@ -22,6 +23,10 @@ export interface ReviewDispatchEntry {
   target: {
     description: string;
     inputSha256: string;
+    headSha?: string;
+    baseSha?: string;
+    fromSha?: string;
+    toSha?: string;
   };
   input: {
     bytes: number;
@@ -68,6 +73,16 @@ export function buildReviewDispatchEntry(options: {
     target: {
       description: options.frozenInput.target.description,
       inputSha256: options.frozenInput.inputSha256,
+      headSha: options.frozenInput.target.headSha,
+      ...(options.frozenInput.target.baseSha
+        ? { baseSha: options.frozenInput.target.baseSha }
+        : {}),
+      ...(options.frozenInput.target.fromSha
+        ? { fromSha: options.frozenInput.target.fromSha }
+        : {}),
+      ...(options.frozenInput.target.toSha
+        ? { toSha: options.frozenInput.target.toSha }
+        : {}),
     },
     input: {
       bytes: options.frozenInput.inputSize.bytes,
@@ -108,7 +123,8 @@ export function renderReviewDispatchEntry(
   const refute = data.refuteRequested ? " · refute" : "";
   const header = theme.fg(
     "accent",
-    `● Adversarial review dispatched · ${data.requestedRoutes.length} reviewers${refute}`,
+    `● Adversarial review dispatched · ${data.requestedRoutes.length} reviewers${refute}` +
+      headMarker(data.target.headSha),
   );
   if (!options.expanded) {
     return new Text(header, 1, 0);
