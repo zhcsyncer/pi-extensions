@@ -1,13 +1,11 @@
 export {
-  spawnBridge,
+  createBridge,
   createConnectFrameParser,
   frameConnectMessage,
   parseConnectEndStream,
-  lpEncode,
-  STREAM_DONE_MAGIC,
   type BridgeHandle,
   type BridgeFactory,
-  type SpawnBridgeOptions,
+  type CreateBridgeOptions,
 } from "./bridge.js";
 export {
   encodeAvailableModelsRequest,

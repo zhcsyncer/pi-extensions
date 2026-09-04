@@ -11,7 +11,6 @@ import { getCursorAgentUrl, getCursorClientVersion } from "../stream/config.js";
 import { resolveSystemCredentialPolicy } from "../auth/consent.js";
 import { getLifecycleLogPath } from "../stream/debug-log.js";
 import { redactSecrets } from "../utils/security.js";
-import { supportsInProcessH2 } from "../client/h2-unary.js";
 import { formatCursorUsage, getCursorUsageSummary } from "../usage.js";
 import { CURSOR_ASK_COMMAND, CURSOR_ASK_IDENTITY } from "../identity.js";
 import { ProviderConstant, type CredentialSource } from "../types/enums.js";
@@ -146,7 +145,7 @@ function formatCursorDoctorReport(options: CursorCommandOptions): string {
     `lifecycleLog=${getLifecycleLogPath()}`,
     `lastError=${d.error ? redactSecrets(d.error) : "none"}`,
     "transport=native-streamSimple",
-    `unaryTransport=${supportsInProcessH2() ? "in-process-h2" : "bridge-subprocess"}`,
+    "unaryTransport=in-process-h2",
     "runtimeCli=not-used",
     "proxyPath=removed",
     `commands=${CURSOR_ASK_COMMAND} usage|doctor`,

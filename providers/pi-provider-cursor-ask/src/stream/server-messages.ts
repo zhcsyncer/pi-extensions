@@ -158,7 +158,16 @@ export function processServerMessage(
       // finalized as a completed turn instead of retried as a failure (upstream #3).
       state.turnEnded = true;
       const billed = billedUsageFromTurnEnded(update.message.value ?? {});
-      if (billed) state.billedUsage = billed;
+      if (billed) {
+        if (billed.cacheRead + billed.cacheWrite > billed.input) {
+          debugLog("native.stream.turn_ended_cache_exceeds_input", {
+            input: billed.input,
+            cacheRead: billed.cacheRead,
+            cacheWrite: billed.cacheWrite,
+          });
+        }
+        state.billedUsage = billed;
+      }
       return "work";
     }
     // Remaining cases (heartbeat, toolCallStarted, partialToolCall, ...) are already

@@ -3,7 +3,7 @@
  * protobuf/HTTP2 Connect protocol.
  *
  * Based on https://github.com/ephraimduncan/opencode-cursor by Ephraim Duncan.
- * Uses Node's http2 via a child process bridge (h2-bridge.mjs).
+ * Uses Node's in-process http2 client with persistent streaming sessions.
  */
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
@@ -1318,16 +1318,16 @@ function writeNativeStream(
       debugLog("native.stream.frame_error", { requestId, message, desync });
       // A corrupted/misaligned Connect frame boundary can't be recovered within this
       // connection, but the desync is local per-connection state, not a permanent condition —
-      // killing the bridge (rather than failing the stream outright) routes this through the
+      // killing the transport (rather than failing the stream outright) routes this through the
       // same bridge.onClose retry path as any other transport loss (GOAWAY, ECONNRESET, ...),
       // so a fresh connection + checkpoint/history recovery can continue the turn instead of
       // the whole turn failing on what may be a one-off glitch.
       if (!cancelled && !frameParseFailed) {
         frameParseFailed = true;
         try {
-          bridge.proc.kill();
+          bridge.kill();
         } catch {
-          // Process may already be exiting.
+          // Transport may already be closing.
         }
       }
       return;

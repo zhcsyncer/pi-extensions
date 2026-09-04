@@ -9,9 +9,9 @@ This document describes the reverse-engineered wire protocol, HTTP/2 streaming a
 Unlike OpenAI or Anthropic API providers that use standard REST/SSE endpoints, Cursor uses a custom **Connect / Protobuf protocol over HTTP/2**:
 
 ```text
-Pi Coding Agent (Extension)
+Pi Coding Agent (Extension, Node.js)
     ↓ (streamSimple)
-h2-bridge.mjs (Child Process)
+In-process node:http2 transport
     ↓ (HTTP/2 POST with Connect framing & Protobuf payloads)
 https://agentn.us.api5.cursor.sh / https://api2.cursor.sh
 ```
@@ -55,14 +55,15 @@ To prevent Cursor models from being derailed by side-channel injections:
 2. `normalizeMessagesForCursor()` folds side-channel messages into the `system` prompt framed inside `<provider_context source="context-mode">`.
 3. The user's actual prompt is preserved as `userText` for the active turn.
 
-## Bridge Architecture (`h2-bridge.mjs`)
+## In-process HTTP/2 transport
 
-Because Node.js HTTP/2 client sessions require persistent stream handling, `pi-cursor` spawns a lightweight child process (`h2-bridge.mjs`) to manage the HTTP/2 connection.
+Cursor Ask is Node-only and manages streaming and unary RPCs directly with `node:http2`; normal operation does not launch a transport subprocess. Chat turns reuse one HTTP/2 session across sequential `/AgentService/Run` streams, preserving the existing active/idle bridge lifecycle while avoiding another process and TLS handshake.
 
 - **Request:** Serialized `AgentClientMessage` binary frame.
 - **Headers:** `x-cursor-client-version` (default: `cli-2026.05.01-eea359f`), `authorization: Bearer <token>`, `connect-protocol-version: 1`.
 - **Response:** Streaming binary Connect frames parsed via `@bufbuild/protobuf` `fromBinary()`.
-- **Idle safety net:** Connect timeout defaults to 30s (handshake only). **Activity idle is disabled by default** so long agent turns are not killed. Parent heartbeats every 5s reset the activity timer when it is enabled via `PI_CURSOR_H2_IDLE_TIMEOUT_MS`.
+- **Session liveness:** HTTP/2 PING runs every 20s. Completed streams leave the session reusable; idle sessions are unreferenced and active streams are referenced when the runtime supports it.
+- **Idle safety net:** Connect timeout defaults to 30s (handshake only). **Activity idle is disabled by default** so long agent turns are not killed. Parent heartbeats every 15s reset the activity timer when it is enabled via `PI_CURSOR_H2_IDLE_TIMEOUT_MS`.
 
 ## Stream idle watchdog
 

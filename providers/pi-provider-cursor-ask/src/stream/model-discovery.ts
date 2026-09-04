@@ -1,10 +1,9 @@
 /**
- * Live model discovery over Connect unary RPCs.
+ * Live model discovery over in-process Node HTTP/2 unary RPCs.
  *
  * Cursor exposes the account's usable models through `GetUsableModels` plus a
- * parameterized-metadata variant. Both go over the same child-process bridge as
- * streaming, just without the bidirectional half, so responses arrive as a
- * single length-prefixed Connect frame that `decodeConnectUnaryBody` unwraps.
+ * parameterized-metadata variant. Responses may be raw protobuf or a Connect
+ * frame that `decodeConnectUnaryBody` unwraps.
  *
  * Results are memoized per access token: a token hash keys the cache so a
  * re-login or account switch invalidates it without a manual reset.
@@ -19,12 +18,7 @@ import {
   type CursorModelParameter,
   type CursorParameterizedModel,
 } from "../client/cursor-wire.js";
-import {
-  callUnaryOverH2,
-  MAX_UNARY_RESPONSE_BYTES,
-  supportsInProcessH2,
-} from "../client/h2-unary.js";
-import { getBridgeFactory } from "./bridge-session.js";
+import { callUnaryOverH2, UnaryH2TimeoutError } from "../client/h2-unary.js";
 import { getCursorAgentUrl } from "./config.js";
 import { writeCachedCatalog } from "./model-cache.js";
 import { inferCursorContextWindow, inferCursorMaxOutputTokens } from "../models/limits.js";
@@ -46,94 +40,21 @@ export async function callCursorUnaryRpc(options: {
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<{ body: Uint8Array; exitCode: number; timedOut: boolean }> {
-  // Prefer the in-process HTTP/2 client: it skips a child-process spawn, a
-  // second TLS handshake and the bridge's exit flush. Any transport failure
-  // falls through to the bridge, which remains the only path on Bun.
-  if (supportsInProcessH2()) {
-    try {
-      const result = await callUnaryOverH2({
-        accessToken: options.accessToken,
-        rpcPath: options.rpcPath,
-        requestBody: options.requestBody,
-        url: options.url,
-        timeoutMs: options.timeoutMs,
-        signal: options.signal,
-      });
-      const ok = result.status >= 200 && result.status < 300;
-      return { body: result.body, exitCode: ok ? 0 : 1, timedOut: false };
-    } catch {
-      if (options.signal?.aborted) return { body: new Uint8Array(0), exitCode: 1, timedOut: true };
-      // Fall back to the child-process bridge below.
-    }
+  try {
+    const result = await callUnaryOverH2({
+      accessToken: options.accessToken,
+      rpcPath: options.rpcPath,
+      requestBody: options.requestBody,
+      url: options.url,
+      timeoutMs: options.timeoutMs ?? 5_000,
+      signal: options.signal,
+    });
+    const ok = result.status >= 200 && result.status < 300;
+    return { body: result.body, exitCode: ok ? 0 : 1, timedOut: false };
+  } catch (error) {
+    const timedOut = options.signal?.aborted === true || error instanceof UnaryH2TimeoutError;
+    return { body: new Uint8Array(0), exitCode: 1, timedOut };
   }
-
-  const bridge = getBridgeFactory()({
-    accessToken: options.accessToken,
-    rpcPath: options.rpcPath,
-    url: options.url,
-    unary: true,
-  });
-  const chunks: Buffer[] = [];
-  return new Promise((resolve) => {
-    let timedOut = false;
-    let settled = false;
-    let responseBytes = 0;
-    const finish = (exitCode: number) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      options.signal?.removeEventListener("abort", abort);
-      resolve({ body: Buffer.concat(chunks), exitCode, timedOut });
-    };
-    const stopBridge = () => {
-      try {
-        bridge.proc.kill();
-      } catch {
-        // The bridge may have exited between the event and this cleanup.
-      }
-    };
-    const abort = () => {
-      timedOut = true;
-      stopBridge();
-      finish(1);
-    };
-    const timeoutMs = options.timeoutMs ?? 5_000;
-    const timeout =
-      timeoutMs > 0
-        ? setTimeout(() => {
-            timedOut = true;
-            stopBridge();
-            finish(1);
-          }, timeoutMs)
-        : undefined;
-
-    if (options.signal?.aborted) {
-      abort();
-      return;
-    }
-    options.signal?.addEventListener("abort", abort, { once: true });
-
-    bridge.onData((chunk) => {
-      responseBytes += chunk.byteLength;
-      if (responseBytes > MAX_UNARY_RESPONSE_BYTES) {
-        stopBridge();
-        finish(1);
-        return;
-      }
-      chunks.push(Buffer.from(chunk));
-    });
-    bridge.onClose((exitCode) => {
-      finish(exitCode);
-    });
-
-    try {
-      bridge.write(options.requestBody);
-      bridge.end();
-    } catch {
-      stopBridge();
-      finish(1);
-    }
-  });
 }
 
 export interface CursorModel {

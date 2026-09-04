@@ -1,98 +1,128 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import http2 from "node:http2";
+import { once } from "node:events";
+import { afterEach, describe, expect, it } from "vitest";
 
-import type { BridgeHandle } from "../src/client/bridge.js";
-import { setBridgeFactoryForTests } from "../src/stream/bridge-session.js";
 import { callCursorUnaryRpc } from "../src/stream/model-discovery.js";
 
-describe("model discovery child-process transport", () => {
-  afterEach(() => {
-    setBridgeFactoryForTests();
-    delete process.env.PI_CURSOR_UNARY_BRIDGE;
-    vi.useRealTimers();
+const servers = new Set<http2.Http2Server>();
+const sessions = new Set<http2.ServerHttp2Session>();
+
+async function startServer(
+  onStream: (stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders) => void,
+): Promise<string> {
+  const server = http2.createServer();
+  servers.add(server);
+  server.on("session", (session) => {
+    sessions.add(session);
+    session.once("close", () => sessions.delete(session));
   });
+  server.on("stream", onStream);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing HTTP/2 server address");
+  return `http://127.0.0.1:${address.port}`;
+}
 
-  function bridgeHarness(options?: { throwOnWrite?: boolean }) {
-    let onData: (data: Buffer) => void = () => {};
-    let onClose: (exitCode: number) => void = () => {};
-    const writes: Uint8Array[] = [];
-    const kill = vi.fn(() => true);
-    const bridge: BridgeHandle = {
-      proc: { kill } as BridgeHandle["proc"],
-      alive: true,
-      lastStderr: () => "",
-      write(data) {
-        if (options?.throwOnWrite) throw new Error("write failed");
-        writes.push(data);
-      },
-      end() {},
-      onData(callback) {
-        onData = callback;
-      },
-      onClose(callback) {
-        onClose = callback;
-      },
-    };
-    return {
-      bridge,
-      writes,
-      kill,
-      emitData: (data: Uint8Array) => onData(Buffer.from(data)),
-      close: (exitCode = 0) => onClose(exitCode),
-    };
-  }
+afterEach(async () => {
+  for (const session of sessions) session.destroy();
+  sessions.clear();
+  await Promise.all(
+    [...servers].map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        }),
+    ),
+  );
+  servers.clear();
+});
 
-  it("collects the bounded response and closes successfully", async () => {
-    process.env.PI_CURSOR_UNARY_BRIDGE = "1";
-    const harness = bridgeHarness();
-    setBridgeFactoryForTests(() => harness.bridge);
+describe("model discovery in-process HTTP/2 transport", () => {
+  it("sends raw protobuf and returns a bounded successful response", async () => {
+    let requestBody = Buffer.alloc(0);
+    let authorization: string | undefined;
+    const url = await startServer((stream, headers) => {
+      authorization = String(headers.authorization);
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      stream.on("end", () => {
+        requestBody = Buffer.concat(chunks);
+        stream.respond({ ":status": 200 });
+        stream.end(Buffer.from([3, 4]));
+      });
+    });
 
-    const pending = callCursorUnaryRpc({
+    const result = await callCursorUnaryRpc({
       accessToken: "token",
       rpcPath: "/models",
       requestBody: new Uint8Array([1, 2]),
-      timeoutMs: 0,
+      url,
+      timeoutMs: 1_000,
     });
-    harness.emitData(new Uint8Array([3, 4]));
-    harness.close();
 
-    const result = await pending;
     expect(result).toMatchObject({ exitCode: 0, timedOut: false });
     expect(Array.from(result.body)).toEqual([3, 4]);
-    expect(harness.writes).toEqual([new Uint8Array([1, 2])]);
+    expect(Array.from(requestBody)).toEqual([1, 2]);
+    expect(authorization).toBe("Bearer token");
   });
 
-  it("kills the bridge when the request is already aborted", async () => {
-    process.env.PI_CURSOR_UNARY_BRIDGE = "1";
-    const harness = bridgeHarness();
-    setBridgeFactoryForTests(() => harness.bridge);
+  it("preserves a non-2xx response body with exit code 1", async () => {
+    const url = await startServer((stream) => {
+      stream.on("data", () => {});
+      stream.on("end", () => {
+        stream.respond({ ":status": 503 });
+        stream.end("maintenance");
+      });
+    });
+
+    const result = await callCursorUnaryRpc({
+      accessToken: "token",
+      rpcPath: "/models",
+      requestBody: new Uint8Array(),
+      url,
+      timeoutMs: 1_000,
+    });
+
+    expect(result).toMatchObject({ exitCode: 1, timedOut: false });
+    expect(Buffer.from(result.body).toString("utf8")).toBe("maintenance");
+  });
+
+  it("reports an already-aborted request as timed out without opening a session", async () => {
+    let sessionCount = 0;
+    const url = await startServer(() => {});
+    [...servers][0]!.on("session", () => {
+      sessionCount += 1;
+    });
     const controller = new AbortController();
     controller.abort();
 
-    await expect(
-      callCursorUnaryRpc({
-        accessToken: "token",
-        rpcPath: "/models",
-        requestBody: new Uint8Array(),
-        signal: controller.signal,
-      }),
-    ).resolves.toMatchObject({ exitCode: 1, timedOut: true });
-    expect(harness.kill).toHaveBeenCalledOnce();
-    expect(harness.writes).toHaveLength(0);
+    const result = await callCursorUnaryRpc({
+      accessToken: "token",
+      rpcPath: "/models",
+      requestBody: new Uint8Array(),
+      url,
+      signal: controller.signal,
+    });
+
+    expect(result).toMatchObject({ exitCode: 1, timedOut: true });
+    expect(sessionCount).toBe(0);
   });
 
-  it("cleans up a bridge whose stdin write fails", async () => {
-    process.env.PI_CURSOR_UNARY_BRIDGE = "1";
-    const harness = bridgeHarness({ throwOnWrite: true });
-    setBridgeFactoryForTests(() => harness.bridge);
+  it("reports an in-flight timeout with the existing timedOut result shape", async () => {
+    const url = await startServer((stream) => {
+      stream.on("data", () => {});
+    });
 
-    await expect(
-      callCursorUnaryRpc({
-        accessToken: "token",
-        rpcPath: "/models",
-        requestBody: new Uint8Array([1]),
-        timeoutMs: 0,
-      }),
-    ).resolves.toMatchObject({ exitCode: 1, timedOut: false });
-    expect(harness.kill).toHaveBeenCalledOnce();
+    const result = await callCursorUnaryRpc({
+      accessToken: "token",
+      rpcPath: "/models",
+      requestBody: new Uint8Array([1]),
+      url,
+      timeoutMs: 20,
+    });
+
+    expect(result).toMatchObject({ exitCode: 1, timedOut: true });
+    expect(result.body).toHaveLength(0);
   });
 });

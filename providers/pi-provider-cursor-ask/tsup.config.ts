@@ -1,10 +1,8 @@
 import { defineConfig } from "tsup";
 
-// Bundles the extension to a single minified ESM file in dist/. The generated
+// Bundles the extension to a single minified Node ESM file in dist/. The generated
 // proto module (src/proto/agent_pb.ts) exports ~1000 symbols but only ~70 are
-// used; tree-shaking drops the rest, which is where most of the size win comes
-// from. h2-bridge.mjs is spawned as a child process by path, so it is copied
-// verbatim next to the bundle rather than inlined.
+// used; tree-shaking drops the rest, which is where most of the size win comes from.
 export default defineConfig({
   entry: ["src/index.ts"],
   outDir: "dist",
@@ -26,5 +24,4 @@ export default defineConfig({
     "@bufbuild/protobuf",
   ],
   outExtension: () => ({ js: ".js" }),
-  onSuccess: "cp src/client/h2-bridge.mjs dist/h2-bridge.mjs",
 });

@@ -12,7 +12,6 @@ export default tseslint.config(
       "eslint.config.js",
       // Generated protocol surface (see npm run proto:gen). Keep typecheck strict instead.
       "src/proto/**",
-      "src/client/h2-bridge.mjs",
     ],
   },
   eslint.configs.recommended,

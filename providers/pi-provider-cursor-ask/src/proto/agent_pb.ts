@@ -2985,8 +2985,8 @@ export const ShellOutputDeltaUpdateSchema: GenMessage<ShellOutputDeltaUpdate> = 
   messageDesc(file_agent, 104);
 
 /**
- * Billed per-turn split. Cursor CLI dumps these four fields; an empty
- * message means the server omitted them and we fall back to usedTokens.
+ * Billed per-turn fields. Input includes cache read and write; an empty
+ * message means the server omitted all fields and we fall back to usedTokens.
  *
  * @generated from message agent.v1.TurnEndedUpdate
  */
