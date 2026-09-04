@@ -81,17 +81,19 @@ export function billedUsageFromTurnEnded(ended: {
   };
 }
 
+/** Convert Cursor's cache-inclusive input count into Pi's disjoint usage buckets. */
 function usageFromBilled(billed: CursorBilledUsage, model: Model<Api>): AssistantMessage["usage"] {
-  const costInput = tokenCost(billed.input, model.cost?.input);
+  const uncachedInput = Math.max(0, billed.input - billed.cacheRead - billed.cacheWrite);
+  const costInput = tokenCost(uncachedInput, model.cost?.input);
   const costOutput = tokenCost(billed.output, model.cost?.output);
   const costCacheRead = tokenCost(billed.cacheRead, model.cost?.cacheRead);
   const costCacheWrite = tokenCost(billed.cacheWrite, model.cost?.cacheWrite);
   return {
-    input: billed.input,
+    input: uncachedInput,
     output: billed.output,
     cacheRead: billed.cacheRead,
     cacheWrite: billed.cacheWrite,
-    totalTokens: billed.input + billed.output + billed.cacheRead + billed.cacheWrite,
+    totalTokens: uncachedInput + billed.output + billed.cacheRead + billed.cacheWrite,
     cost: {
       input: costInput,
       output: costOutput,

@@ -664,8 +664,8 @@ message ShellOutputDeltaUpdate {
   }
 }
 
-// Billed per-turn split. Cursor CLI dumps these four fields; an empty
-// message means the server omitted them and we fall back to usedTokens.
+// Billed per-turn fields. Input includes cache read and write; an empty
+// message means the server omitted all fields and we fall back to usedTokens.
 message TurnEndedUpdate {
   optional int64 input_tokens = 1;
   optional int64 output_tokens = 2;

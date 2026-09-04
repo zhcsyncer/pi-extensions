@@ -212,7 +212,7 @@ export interface StoredConversation {
   lastAccessMs: number;
 }
 
-/** Per-turn billed split from `turnEnded`, when Cursor sent the four fields. */
+/** Per-turn raw billed fields from `turnEnded`; `input` includes cache read and write. */
 export interface CursorBilledUsage {
   input: number;
   output: number;
