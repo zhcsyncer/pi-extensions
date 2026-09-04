@@ -13,6 +13,7 @@
 ## 功能
 
 - `consult({ why })` 把当前会话转给已配置的顾问。顾问没有工具，也不对用户说话。
+- 主动 Consult 仅用于用户明确要求顾问、后果重大的证据未决结构选择，或真正卡住的方案。已拍板、可逆、机械和只需主模型直接判断的工作不 Consult；有证据时拒绝顾问是正常结果。
 - 未配置 panel 时卸载该工具。关掉零占用。
 - Loop gate：连续 N 次相同工具调用或连续 N 次 error 后，steer 先 consult。默认阈值为 5；Consult 完成后清空此前的循环证据。
 - `/consult` 选择 panel 模型和 effort、开关 loop gate。`/consult status` 用临时 dashboard 展示预算和最近活动，不向 transcript 添加任何内容。

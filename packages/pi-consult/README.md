@@ -13,6 +13,7 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 ## Features
 
 - `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
+- Proactive Consult is limited to explicit advisor requests, consequential unresolved structural choices, or genuinely stuck approaches. Decided, reversible, mechanical, and direct-assessment work proceeds without Consult; rejecting advice with evidence is valid.
 - Unconfigured panel unloads the tool. Off costs nothing.
 - Loop gate: after N identical tool calls or N consecutive errors, steer the model to consult first. The default threshold is 5; completing Consult clears the prior loop evidence.
 - `/consult` picks panel models and effort and toggles the loop gate. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.

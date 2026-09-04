@@ -1,11 +1,11 @@
 export const DEFAULT_PROMPT_SNIPPET =
-	"Ask consult({ why }) for a second opinion before structural decisions or after repeated failure";
+	"Use consult for explicit advisor requests, consequential unresolved structural choices, or genuinely stuck approaches";
 
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	"Call `consult` alone with a required `why` (1-2 sentences) before choosing among ≥2 approaches that will shape later structure; wait for its result before calling other tools.",
+	"Call `consult` alone with a required `why` (1-2 sentences) and wait for its result before other tools only when the user explicitly asks for an advisor, or before choosing among ≥2 materially different approaches with lasting or high-cost consequences when current evidence does not favor one.",
 	"Call `consult` when the same error has been patched twice without holding, or when you are about to abandon the current approach.",
-	"Do not call `consult` for short mechanical steps whose next action is already dictated by the tool output you just read.",
-	"Give the advisor's advice serious weight. Empirical failure or primary-source evidence beats the suggestion; a passing self-test is not enough to dismiss it.",
-	"If evidence points one way and consult points another, do not silently switch — surface the conflict and ask once more, or ask the user. Never quietly change course.",
-	"After each completed `consult` result, the next visible reply must declare adopt or reject with a reason as a `CONSULT-LOG:` line. If the run budget blocks consult, do not retry until the next user message.",
+	"Do not call `consult` merely because multiple options can be named. Answer or act directly when the user has already decided, is asking for your own assessment rather than an advisor, the choice is reversible (including routine UI, default, or calibration choices), or tool output already dictates the next mechanical step.",
+	"Treat advisor output as a challenge, not authority. Adopt it only when it improves or validates the decision; rejecting it with evidence is a valid outcome.",
+	"If evidence points one way and consult points another, reject the advice with a reason. Ask again or ask the user only when the conflict remains material and unresolved; never quietly change course.",
+	"After each completed `consult` result, the next visible reply must declare adopt or reject with a reason as a `CONSULT-LOG:` line. State whether adoption changed the plan or merely confirmed it. If the run budget blocks consult, do not retry until the next user message.",
 ];
