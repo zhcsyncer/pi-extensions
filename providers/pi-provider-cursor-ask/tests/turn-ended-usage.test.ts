@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type Api, type Model } from "@earendil-works/pi-ai";
 import {
   AgentServerMessageSchema,
   InteractionUpdateSchema,
@@ -12,6 +12,7 @@ import {
   createCursorAssistantMessage,
 } from "../src/stream/pi-adapter.js";
 import { processServerMessage } from "../src/stream/server-messages.js";
+import { createNativeStreamWriter } from "../src/stream/stream-writer.js";
 import type { StreamState } from "../src/stream/types.js";
 
 const composerCost = { input: 0.5, output: 2.5, cacheRead: 0.2, cacheWrite: 0 };
@@ -91,6 +92,34 @@ describe("applyCursorUsage", () => {
         cacheRead: 0.0016,
         cacheWrite: 0,
         total: 0.0022,
+      },
+    });
+  });
+
+  it("uses the latest checkpoint for context while preserving cumulative billed buckets", () => {
+    const output = createCursorAssistantMessage(composerModel());
+    applyCursorUsage(
+      output,
+      composerModel(),
+      emptyState({
+        // Two internal model calls around one tool execution billed 23,423 tokens in total,
+        // while Cursor's final checkpoint says the live context is only 11,775 tokens.
+        totalTokens: 11_775,
+        billedUsage: { input: 23_308, output: 115, cacheRead: 12_128, cacheWrite: 0 },
+      }),
+    );
+    expect(output.usage).toEqual({
+      input: 11_180,
+      output: 115,
+      cacheRead: 12_128,
+      cacheWrite: 0,
+      totalTokens: 11_775,
+      cost: {
+        input: 0.00559,
+        output: 0.0002875,
+        cacheRead: 0.0024256,
+        cacheWrite: 0,
+        total: 0.0083031,
       },
     });
   });
@@ -177,6 +206,27 @@ describe("applyCursorUsage", () => {
     });
     expect(output.usage.cost.cacheRead).toBe(0);
     expect(output.usage.cost.total).toBeCloseTo(0.0006);
+  });
+});
+
+describe("createNativeStreamWriter usage", () => {
+  it("leaves intermediate toolUse usage empty until cumulative turnEnded billing arrives", async () => {
+    const stream = createAssistantMessageEventStream();
+    const writer = createNativeStreamWriter(stream, composerModel());
+
+    writer.done("toolUse", emptyState({ outputTokens: 29, totalTokens: 11_648 }));
+
+    await expect(stream.result()).resolves.toMatchObject({
+      stopReason: "toolUse",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { total: 0 },
+      },
+    });
   });
 });
 
