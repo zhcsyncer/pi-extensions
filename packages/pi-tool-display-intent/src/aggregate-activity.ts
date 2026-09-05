@@ -5,10 +5,12 @@ import {
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { formatFlatArgumentPreview } from "./arg-preview.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
 import type { ExpandedTimeline } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
+import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
 
 export type AggregateMemberState =
@@ -156,7 +158,9 @@ export const AGGREGATE_ASSISTANT_MARK = "›";
 export const AGGREGATE_STEER_MARK = "↳";
 const COLLAPSED_NARRATION_ROW_LIMIT = 3;
 const COLLAPSED_NARRATION_SOURCE_MAX_LENGTH = 2_000;
-const CUSTOM_TARGET_KEYS = ["query", "url", "path", "file_path", "command", "pattern"] as const;
+const COLLAPSED_CALL_ROW_LIMIT = 2;
+const EXPANDED_CALL_ROW_LIMIT = 8;
+const FAILED_DETAIL_ROW_LIMIT = 2;
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const NARRATION_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
@@ -258,22 +262,6 @@ function stringArg(args: Record<string, unknown>, key: string): string | undefin
 	return trimmed || undefined;
 }
 
-function shortenUrl(url: string): string {
-	try {
-		const parsed = new URL(url);
-		const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
-		return `${parsed.host}${path}`;
-	} catch {
-		return url;
-	}
-}
-
-function formatHeuristicTarget(key: string, value: string): string {
-	if (key === "url") return normalizeTargetText(shortenUrl(value), "url");
-	if (key === "path" || key === "file_path") return normalizeTargetText(shortenPath(value), "path");
-	return normalizeTargetText(value, key);
-}
-
 function formatMcpAggregateTarget(args: Record<string, unknown>): string {
 	const tool = stringArg(args, "tool");
 	const connect = stringArg(args, "connect");
@@ -297,15 +285,7 @@ function formatCustomAggregateTarget(toolName: string, args: unknown): string {
 	}
 	const record = toRecord(stripDisplaySummary(args));
 	if (toolName === "mcp") return `mcp(${formatMcpAggregateTarget(record)})`;
-	for (const key of CUSTOM_TARGET_KEYS) {
-		const value = stringArg(record, key);
-		if (!value) continue;
-		return `${toolName}(${formatHeuristicTarget(key, value)})`;
-	}
-	const argCount = Object.keys(record).length;
-	return argCount === 0
-		? `${toolName}(no args)`
-		: `${toolName}(${argCount} ${pluralize(argCount, "arg")})`;
+	return `${toolName}(${formatFlatArgumentPreview(record)})`;
 }
 
 function bashCommandSource(args: Record<string, unknown>): string {
@@ -385,17 +365,12 @@ function renderBashLedgerLabel(
 }
 
 function renderCallLabel(
-	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	member: Pick<AggregateMember, "toolName" | "args">,
 	theme: AggregateRenderTheme,
-	options: { includeErrorSuffix?: boolean } = {},
 ): string {
-	const suffix = options.includeErrorSuffix === true
-		? memberStatusChrome(member, theme).suffix
-		: "";
-	const label = member.toolName === "bash"
+	return member.toolName === "bash"
 		? renderBashLedgerLabel(member.args, theme)
 		: formatColoredTarget(member, theme);
-	return `${label}${suffix}`;
 }
 
 export function formatAggregateClockHms(ms: number): string {
@@ -1743,24 +1718,87 @@ export class AggregateProjection {
 function memberStatusChrome(
 	member: Pick<AggregateMember, "state" | "errorSummary">,
 	theme: AggregateRenderTheme,
-): { marker: string; suffix: string } {
+): { marker: string; detail?: string } {
 	if (member.state === "failed") {
-		const detail = member.errorSummary ?? "Tool failed.";
 		return {
 			marker: theme.fg("error", "!"),
-			suffix: theme.fg("error", `: ${detail}`),
+			detail: member.errorSummary ?? "Tool failed.",
 		};
 	}
-	if (member.state === "success") {
-		return {
-			marker: theme.fg("success", "✓"),
-			suffix: "",
-		};
+	if (member.state === "success") return { marker: theme.fg("success", "✓") };
+	return { marker: theme.fg("warning", "◐") };
+}
+
+function appendTruncationMark(row: string, width: number): string {
+	const mark = "…";
+	return `${truncateToWidth(row, Math.max(0, width - visibleWidth(mark)), "")}${mark}`;
+}
+
+function renderBoundedCallRows(
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	contentWidth: number,
+	theme: AggregateRenderTheme,
+	options: {
+		indent?: string;
+		maxRows: number;
+		timing?: string;
+		includeFailureDetail?: boolean;
+	},
+): string[] {
+	const safeWidth = Math.max(1, Math.floor(contentWidth));
+	const rowLimit = Math.max(1, Math.floor(options.maxRows));
+	const indent = options.indent ?? "";
+	const { marker, detail } = memberStatusChrome(member, theme);
+	const callPrefix = `${indent}${marker} `;
+	const continuation = " ".repeat(visibleWidth(callPrefix));
+	const requestedTiming = options.timing ?? "";
+	const timing = requestedTiming && visibleWidth(requestedTiming) + 2 <= safeWidth
+		? requestedTiming
+		: "";
+	const timingReserve = timing ? visibleWidth(timing) + 2 : 0;
+	const firstLabelWidth = Math.max(1, safeWidth - visibleWidth(callPrefix) - timingReserve);
+	const includeDetail = options.includeFailureDetail !== false && Boolean(detail);
+	const labelRowLimit = Math.max(1, rowLimit - (includeDetail ? 1 : 0));
+	const moveLabelBelowTiming = Boolean(timing) && firstLabelWidth < 8 && labelRowLimit > 1;
+	const labelWidth = moveLabelBelowTiming
+		? Math.max(1, safeWidth - visibleWidth(continuation))
+		: firstLabelWidth;
+	const labelLayout = layoutPreviewRows(
+		[renderCallLabel(member, theme)],
+		labelRowLimit - (moveLabelBelowTiming ? 1 : 0),
+		labelWidth,
+	);
+	const labelRows = labelLayout.rows.length > 0 ? [...labelLayout.rows] : [""];
+	if (labelLayout.longLineTruncated || labelLayout.rowLimitReached) {
+		const last = labelRows.length - 1;
+		labelRows[last] = appendTruncationMark(labelRows[last] ?? "", labelWidth);
 	}
-	return {
-		marker: theme.fg("warning", "◐"),
-		suffix: "",
-	};
+	const lines = moveLabelBelowTiming
+		? [
+			composeLedgerCallLine(`${callPrefix}…`, timing, safeWidth),
+			...labelRows.map((row) => `${continuation}${row}`),
+		]
+		: labelRows.map((row, index) => {
+			const left = `${index === 0 ? callPrefix : continuation}${row}`;
+			return index === 0 ? composeLedgerCallLine(left, timing, safeWidth) : left;
+		});
+
+	const detailRowBudget = Math.min(FAILED_DETAIL_ROW_LIMIT, rowLimit - lines.length);
+	if (includeDetail && detail && detailRowBudget > 0) {
+		const detailWidth = Math.max(1, safeWidth - visibleWidth(continuation));
+		const detailLayout = layoutPreviewRows(
+			[theme.fg("error", detail)],
+			detailRowBudget,
+			detailWidth,
+		);
+		const detailRows = detailLayout.rows.length > 0 ? [...detailLayout.rows] : [theme.fg("error", detail)];
+		if (detailLayout.longLineTruncated || detailLayout.rowLimitReached) {
+			const last = detailRows.length - 1;
+			detailRows[last] = appendTruncationMark(detailRows[last] ?? "", detailWidth);
+		}
+		lines.push(...detailRows.map((row) => `${continuation}${row}`));
+	}
+	return lines.slice(0, rowLimit);
 }
 
 export function framePrefixForEdge(edge: AggregateFrameEdge): string {
@@ -1804,16 +1842,18 @@ export function renderAggregateMemberRow(
 	edge: AggregateFrameEdge = "only",
 	nowMs = Date.now(),
 ): string[] {
-	const { marker } = memberStatusChrome(member, theme);
-	const prefixPlain = framePrefixForEdge(edge);
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
-	const innerWidth = Math.max(1, safeWidth - visibleWidth(prefixPlain));
-	const inner = composeLedgerCallLine(
-		`${marker} ${renderCallLabel(member, theme, { includeErrorSuffix: true })}`,
-		formatMemberTiming(member, theme, nowMs),
-		innerWidth,
+	if (safeWidth === 0) return [];
+	const contentWidth = Math.max(1, safeWidth - visibleWidth(framePrefixForEdge(edge)));
+	return applyAggregateGroupFrame(
+		renderBoundedCallRows(member, contentWidth, theme, {
+			maxRows: EXPANDED_CALL_ROW_LIMIT,
+			timing: formatMemberTiming(member, theme, nowMs),
+		}),
+		safeWidth,
+		theme,
+		edge,
 	);
-	return [`${theme.fg("muted", prefixPlain)}${inner}`];
 }
 
 export function renderExpandedAggregateMember(
@@ -1825,13 +1865,19 @@ export function renderExpandedAggregateMember(
 	turn?: ExpandedTurnPresentation,
 ): string[] {
 	if (turn === undefined) return renderAggregateMemberRow(member, width, theme, edge, nowMs);
-	const { marker } = memberStatusChrome(member, theme);
+	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+	if (safeWidth === 0) return [];
 	const indent = turn.indent === true ? "  " : "";
 	const inner: string[] = [];
 	if (turn.leadingBlank === true) inner.push("");
 	if (turn.header) inner.push(turn.header);
-	inner.push(`${indent}${marker} ${renderCallLabel(member, theme, { includeErrorSuffix: true })}`);
-	return applyAggregateGroupFrame(inner, width, theme, edge);
+	inner.push(...renderBoundedCallRows(
+		member,
+		Math.max(1, safeWidth - visibleWidth(framePrefixForEdge(edge))),
+		theme,
+		{ indent, maxRows: EXPANDED_CALL_ROW_LIMIT },
+	));
+	return applyAggregateGroupFrame(inner, safeWidth, theme, edge);
 }
 
 export function renderAggregateActivity(
@@ -1870,12 +1916,12 @@ export function renderAggregateActivity(
 		lines.push(...renderCollapsedAssistantNarration(view.latestNarration, safeWidth, theme));
 	}
 	for (const row of view.displayRows) {
-		const marker = row.state === "success" ? theme.fg("success", "✓") : theme.fg("warning", "◐");
-		lines.push(composeLedgerCallLine(
-			`  ${marker} ${renderCallLabel(row, theme)}`,
-			formatMemberTiming(row, theme, nowMs),
-			safeWidth,
-		));
+		lines.push(...renderBoundedCallRows(row, safeWidth, theme, {
+			indent: "  ",
+			maxRows: COLLAPSED_CALL_ROW_LIMIT,
+			timing: formatMemberTiming(row, theme, nowMs),
+			includeFailureDetail: false,
+		}));
 	}
 	if (view.activeOverflow > 0) {
 		lines.push(

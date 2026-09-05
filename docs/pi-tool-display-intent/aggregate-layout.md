@@ -14,7 +14,7 @@
 
 - 一次用户请求中的 built-in、custom、MCP 和延迟加载工具统一计数。
 - Tools 首行直接展示每类工具的总调用次数和失败总数。
-- 当前工具显示确定性 target；custom tool 优先用 `getCallPresentation`，否则只用 query/url/path/command/pattern，再不行显示 `(N args)`。
+- 当前工具显示确定性 target；custom tool 优先用 `getCallPresentation`，否则在 120 字符预算内平铺顶层参数。标量显示值，数组/对象只显示形状，敏感字段和值脱敏。
 - 成功行用 `✓` 表示，由下一调用替换；最终成功行在 agent settled 后延迟收起。
 - 收起时错误只显示总数；夹在工具之间的中途旁白默认隐藏，最终结论仍可见。
 - `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用显示有界目标/状态概要。
@@ -129,7 +129,7 @@ pending / running / success / failed / needsAttention
 - 新工具出现会取消旧的 settled 计时；
 - done 仅是实时 UI 状态，历史重建不恢复；
 - 进行中的 `›` 旁白走 Markdown，最多 3 行；标题、列表、代码块也算进这 3 行，不把账本撑开；
-- 每条调用一行；过长 target 截左边，右边留给耗时；
+- 每条调用收起最多 2 行；过长 target 在耗时左侧换行，首行继续把耗时靠右；
 - 进行中与展开行右侧显示这条的耗时；结束后再加时分秒。整轮收据仍是 `took … · at …`；
 - 多行 bash 不倒正文：有 intent 则 `Bash — … · N lines · size`，没有则只留体积。短命令仍是 `Bash(pnpm test)`，intent 跟在后面。完整脚本走 individual；
 - 没有 Tools 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
@@ -148,7 +148,8 @@ pending / running / success / failed / needsAttention
   │ › 先定位两边的设计与实现入口，再对照分组、渲染和边界。
   │ ✓ Read(src/index.ts)                         0.3s  14:32:01
   │ › 先把两边的设计文档和关键实现读清楚。
-  │ ! Bash(pnpm test): 1 test failed             3.1s  14:34:02
+  │ ! Bash(pnpm test)                            3.1s  14:34:02
+  │   1 test failed
   └ ✓ Bash — 把策略固化成 zone · 54 lines · 2.3KB  8.4s  14:33:11
 ```
 
@@ -180,8 +181,9 @@ pending / running / success / failed / needsAttention
 - 展开内容共用一条贯通边线：中间行 `│`，同一 group 只有一条 `└`；
 - 展开只框工具调用和中途 text；thinking 不标 `›`、不进框；最终结论区留在框外；
 - 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在汇总头下方、工具行上方，整轮结束后再全部收起；
-- 有 deterministic target 时显示目标；custom 用 presentation / 启发式键 / `(N args)`。只有 bash 用模型写的 `displaySummary` 当 intent，其它工具不用；
-- 失败行附带一行错误摘要；
+- 有 deterministic target 时显示目标；custom 优先用 presentation，否则显示有界参数预览。只有 bash 用模型写的 `displaySummary` 当 intent，其它工具不用；
+- 调用概要最多 8 行；过长 target 换行后以 `…` 收口；
+- 失败详情另起缩进行，最多 2 行，并计入调用概要的 8 行上限；
 - 不恢复 raw output、文件列表、diff body 或图片。
 
 要检查原始详情，切回 individual：
@@ -192,7 +194,7 @@ pending / running / success / failed / needsAttention
 
 ## Custom 与交互工具
 
-Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `execute()`：
+Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `execute()`。没有 `getCallPresentation` 时，调用行按原顺序平铺顶层参数，总预算 120 字符：string/number/boolean/null 显示有界值，数组显示 `[N]`，对象显示 `{…}`，`displaySummary` 与敏感字段/值不展示。
 
 - `ctx.ui.custom()`、dialog、overlay、widget、外部 pane 等执行期 UI 继续工作；
 - 例如 `ask_user_question` 的问卷仍会临时替换 editor；完成后的答案 renderer 在 aggregate 中收起；

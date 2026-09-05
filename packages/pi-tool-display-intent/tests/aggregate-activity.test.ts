@@ -813,7 +813,12 @@ test("rendered Tools header keeps failed first and treats every tool uniformly",
 	assert.doesNotMatch(rendered, /network exploded/);
 	const failed = projection.getMember("custom-1");
 	assert.ok(failed);
-	assert.match(renderAggregateMemberRow(failed, 500, plainTheme()).join("\n"), /network exploded/);
+	const expandedFailure = visibleText(renderAggregateMemberRow(failed, 500, plainTheme()).join("\n"));
+	assert.match(expandedFailure, /network exploded/);
+	const failureLines = expandedFailure.split("\n");
+	assert.match(failureLines[0] ?? "", /! custom_probe\(no args\)/);
+	assert.doesNotMatch(failureLines[0] ?? "", /network exploded/);
+	assert.match(failureLines[1] ?? "", /^  └   network exploded$/);
 	assert.doesNotMatch(rendered, /files|Changes|\+\d|−\d/);
 });
 
@@ -897,6 +902,29 @@ test("expanded turns timeline groups calls under 1/N headers without per-row clo
 	assert.match(third, /Edit\(a\.ts\)/);
 	assert.doesNotMatch(first, /14:13:45/);
 	assert.doesNotMatch(second, /1m52s|14:15:37/);
+});
+
+test("expanded turns keep long call targets readable within the eight-row bound", () => {
+	const projection = createProjection("turns");
+	const branch = [
+		userEntry("user-long-turn"),
+		assistantEntry("assistant-long-turn", [call("todo-1", "todo", {
+			action: "batch",
+			subject: "Restore bounded multiline tool call rendering",
+			description: "Keep useful custom arguments visible without allowing an unbounded transcript row",
+			owner: "agent",
+			metadata: { source: "regression" },
+		})]),
+		resultEntry("result-long-turn", "todo-1", "todo"),
+	];
+	projection.rebuild(branch, messages(branch));
+	const lines = visibleText(projection.renderExpandedToolRow("todo-1", 40).join("\n")).split("\n");
+	assert.match(lines[0] ?? "", /↻ 1\/1/);
+	assert.match(lines[1] ?? "", /✓ todo\(action=batch/);
+	assert.ok(lines.some((line) => /subject=/.test(line)));
+	assert.ok(lines.length > 2 && lines.length <= 9, "one turn header plus at most eight call rows");
+	assert.ok(lines.every((line) => line.length <= 40));
+	assert.match(lines.at(-1) ?? "", /…\)$/);
 });
 
 test("flat expanded timeline keeps one timed row per call", () => {
@@ -1117,7 +1145,7 @@ test("branch rebuild invalidates and releases tool rows removed by tree or compa
 	assert.equal(projection.getGroups()[0]?.leaderToolCallId, "new-1");
 });
 
-test("deterministic targets never invent intent for generic custom tools", () => {
+test("custom targets flatten bounded arguments without inventing intent", () => {
 	assert.equal(formatAggregateTarget({ toolName: "read", args: { path: "/tmp/a.ts" } }), "Read(/tmp/a.ts)");
 	assert.equal(formatAggregateTarget({ toolName: "grep", args: { pattern: "x", path: "src" } }), "Search(/x/ in src)");
 	assert.equal(
@@ -1129,15 +1157,15 @@ test("deterministic targets never invent intent for generic custom tools", () =>
 			toolName: "web_search",
 			args: { query: "prod metrics", displaySummary: "Secret intent" },
 		}),
-		"web_search(prod metrics)",
+		"web_search(query=\"prod metrics\")",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "web_read", args: { url: "https://example.com/a/b" } }),
-		"web_read(example.com/a/b)",
+		"web_read(url=example.com/a/b)",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "custom_probe", args: { alpha: 1, beta: 2, displaySummary: "Secret intent" } }),
-		"custom_probe(2 args)",
+		"custom_probe(alpha=1 · beta=2)",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "mcp", args: { server: "github", tool: "search" } }),
@@ -1163,7 +1191,7 @@ test("getCallPresentation wins over heuristic keys for custom tools", () => {
 	}
 });
 
-test("long custom targets truncate on the left so the timing column stays", () => {
+test("long collapsed call targets wrap to a bounded second row while timing stays first", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-long-query");
 	const query = `metrics ${"abcdefghij".repeat(12)} rollout`;
@@ -1171,12 +1199,15 @@ test("long custom targets truncate on the left so the timing column stays", () =
 	const view = projection.getView("search-1");
 	assert.ok(view);
 	const startedAt = projection.getMember("search-1")?.startedAtMs ?? Date.now();
-	const rendered = renderAggregateActivity(view, 36, plainTheme(), startedAt + 1_500);
-	const callLines = rendered.filter((line) => /web_search\(/.test(line));
-	assert.equal(callLines.length, 1);
-	assert.match(callLines[0] ?? "", /metrics/);
+	const rendered = visibleText(renderAggregateActivity(view, 36, plainTheme(), startedAt + 1_500).join("\n"));
+	const callLines = rendered.split("\n").slice(1);
+	assert.equal(callLines.length, 2);
+	assert.match(callLines[0] ?? "", /web_search\(query=/);
 	assert.match(callLines[0] ?? "", /1\.5s\s*$/);
-	assert.doesNotMatch(callLines[0] ?? "", /rollout/);
+	assert.match(callLines[1] ?? "", /abcdefghij/);
+	assert.doesNotMatch(callLines[1] ?? "", /1\.5s/);
+	assert.match(callLines[1] ?? "", /…$/);
+	assert.doesNotMatch(rendered, /rollout/);
 });
 
 test("multiline bash stays on one ledger row with size, not the script body", () => {
@@ -1397,6 +1428,22 @@ test("completed call rows right-align duration and end clock", () => {
 	const rendered = renderAggregateMemberRow(member!, 80, plainTheme(), "only");
 	assert.match(rendered.join("\n"), /Read\(a\.ts\)/);
 	assert.match(rendered.join("\n"), new RegExp(`${formatAggregateClockHms(endedAt)}$`));
+});
+
+test("narrow flat rows retain a fitting timing column", () => {
+	const startedAt = Date.parse("2026-04-08T14:13:45");
+	const endedAt = startedAt + 1_200;
+	const member = {
+		toolName: "read",
+		args: { path: "a/very/long/path/that/cannot/fit.ts" },
+		state: "success" as const,
+		startedAtMs: startedAt,
+		endedAtMs: endedAt,
+	};
+	const lines = visibleText(renderAggregateMemberRow(member, 24, plainTheme(), "only").join("\n")).split("\n");
+	assert.match(lines[0] ?? "", /1\.2s {2}14:13:46$/);
+	assert.match(lines[1] ?? "", /Read\(/);
+	assert.ok(lines.length <= 8);
 });
 
 test("live execution clocks do not inherit the assistant message timestamp", () => {

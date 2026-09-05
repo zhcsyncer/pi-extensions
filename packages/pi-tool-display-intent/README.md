@@ -21,6 +21,7 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 - Bash always asks the current model for a `displaySummary` intent. Other built-ins keep deterministic targets only.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one Tools ledger per user request. `Agent` keeps its own renderer by default.
+- Bounded multiline call targets, indented failure details, and safe top-level argument previews for generic custom tools.
 - Same compact / summary / preview result modes as upstream.
 - Cooperative API so other tools can still opt into the same intent field.
 
@@ -67,7 +68,7 @@ Empty `/tools` opens the settings panel. Switching layout asks to reload this se
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. Each visible call row right-aligns that call's elapsed time. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place. The default `flat` timeline still shows one timed row per call; set `toolCalls.expandedTimeline` to `turns` to group those rows under `↻ 1/3 · 3 calls` headers with indented calls. Long bash scripts show intent and size instead of the body. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tools individual`.
+While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. Each visible call keeps its elapsed time right-aligned on the first row and may use one bounded continuation row. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Tools ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, up to eight rows per call; failure details use an indented continuation row. The default `flat` timeline still shows one timed entry per call; set `toolCalls.expandedTimeline` to `turns` to group those entries under `↻ 1/3 · 3 calls` headers with indented calls. Long bash scripts show intent and size instead of the body. `Agent` keeps its original renderer. Image reads stay in the Tools ledger like other output. Switch back with `/tools individual`.
 
 User prompts always use the accent-gutter box.
 
@@ -87,6 +88,8 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 Older `toolCalls.style` and `transcript.userMessageStyle` settings are ignored.
 
 ## Custom tools
+
+Generic custom tools without a call-presentation adapter show a safe, bounded preview of their top-level arguments. The preview is capped at 120 characters; scalar values are shortened, arrays and objects show only their shape, and credential-like keys or values are redacted. A tool-provided `getCallPresentation` remains authoritative.
 
 Wrap the tool **before** `pi.registerTool` if you want the same intent field:
 

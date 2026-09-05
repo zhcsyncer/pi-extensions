@@ -201,7 +201,7 @@ test("listed generic custom tool override replaces existing extension renderers 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(enabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "● ide_find_symbol(2 args) — Run ide_find_symbol");
+	assert.equal(renderToText(enabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "● ide_find_symbol(query=Widget · limit=5) — Run ide_find_symbol");
 	assert.equal(renderToolResult(enabledTool, "alpha\nbeta\ngamma\n"), "⎿ 3 lines returned • Ctrl+O to expand");
 	assert.equal(renderToText(disabledTool.renderCall?.({}, createTheme())), "RAW DISABLED CALL");
 	assert.equal(renderToolResult(disabledTool, "ignored"), "RAW DISABLED RESULT");
@@ -255,7 +255,7 @@ test("custom tool override defaults kind to generic unless the user chooses mcp"
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(genericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● remote_gateway(2 args) — Run remote_gateway");
+	assert.equal(renderToText(genericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● remote_gateway(tool=read_file · server=filesystem) — Run remote_gateway");
 	assert.equal(renderToText(mcpTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "● MCP(call filesystem:read_file) (2 args) — Run mcp");
 });
 
@@ -380,7 +380,7 @@ test("generic custom tool renderCall handles absent, non-object, and nested argu
 	assert.equal(renderToText(argumentProbe.renderCall?.(["array", "args"], createTheme())), "● argument_probe(no args) — Run argument_probe");
 	assert.equal(
 		renderToText(argumentProbe.renderCall?.({ path: "src/index.ts", options: { recursive: true }, tags: ["a", "b"] }, createTheme())),
-		"● argument_probe(3 args) — Run argument_probe",
+		"● argument_probe(path=src/index.ts · options{…} · tags[2]) — Run argument_probe",
 	);
 });
 
@@ -484,5 +484,5 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 
 	assert.equal(typeof lateTool.renderCall, "function");
 	assert.equal(typeof lateTool.renderResult, "function");
-	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "● late_custom_tool(1 arg) — Run late_custom_tool");
+	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "● late_custom_tool(query=late) — Run late_custom_tool");
 });

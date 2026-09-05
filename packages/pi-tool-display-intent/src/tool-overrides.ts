@@ -30,6 +30,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
+import { formatFlatArgumentPreview } from "./arg-preview.js";
 import {
   AggregateProjection,
   registerAggregateProjectionEvents,
@@ -1527,18 +1528,17 @@ function formatGenericToolCallLine(
     return new Text(line, 0, 0);
   }
 
-  const argCount = Object.keys(argRecord).length;
-  const argSuffix = formatArgCountSuffix(argCount, theme);
+  const argumentPreview = formatFlatArgumentPreview(argRecord);
   const line = config.toolCallStyle === "claude"
     ? formatClaudeToolCall(
         toolName,
-        theme.fg("muted", argCount === 0 ? "no args" : `${argCount} ${pluralize(argCount, "arg")}`),
+        theme.fg("muted", argumentPreview),
         "",
         intentSuffix,
         theme,
         context,
       )
-    : `${theme.fg("toolTitle", theme.bold(toolName))}${argSuffix}${intentSuffix}`;
+    : `${theme.fg("toolTitle", theme.bold(toolName))} (${theme.fg("muted", argumentPreview)})${intentSuffix}`;
   return new Text(line, 0, 0);
 }
 

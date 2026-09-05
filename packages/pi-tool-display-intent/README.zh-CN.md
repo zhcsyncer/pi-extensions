@@ -21,6 +21,7 @@ $ pnpm test — 验证 extension 测试套件
 - 只有 bash 会向当前模型要 `displaySummary` 意图。其它内置工具只用确定性 target。
 - Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 Tools 账本。`Agent` 默认仍用自己的 renderer。
+- 有界多行调用目标、缩进失败详情，以及 generic custom tool 的安全顶层参数预览。
 - 保留上游的 compact / summary / preview 结果模式。
 - 提供合作式 API，其它工具仍可自行选择同一意图字段。
 
@@ -67,7 +68,7 @@ pi install npm:@zhcsyncer/pi-extensions
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
-进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。可见的调用行右侧显示这条已经过了多久。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置。默认 `flat` 仍是逐条带时间；把 `toolCalls.expandedTimeline` 调成 `turns` 后，按拍显示 `↻ 1/3 · 3 calls` 拍头，调用行缩进，不用 reload。多行 bash 只显示 intent 和体积，不倒脚本。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tools individual`。
+进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。每条可见调用把耗时靠右放在首行，目标过长时最多再占一行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Tools：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，每条调用最多 8 行；失败详情另起缩进行。默认 `flat` 仍是逐条带时间；把 `toolCalls.expandedTimeline` 调成 `turns` 后，按拍显示 `↻ 1/3 · 3 calls` 拍头，调用行缩进，不用 reload。多行 bash 只显示 intent 和体积，不倒脚本。`Agent` 仍用原 renderer。图片 read 像其它 output 一样收进 Tools 账本。切回：`/tools individual`。
 
 用户行固定用左侧强调色细杠。
 
@@ -87,6 +88,8 @@ pi install npm:@zhcsyncer/pi-extensions
 旧的 `toolCalls.style` 和 `transcript.userMessageStyle` 会被丢掉。
 
 ## 自定义工具
+
+没有 call-presentation adapter 的 generic custom tool 会显示安全、有界的顶层参数预览：总长最多 120 字符，标量值会缩短，数组和对象只显示形状，疑似凭据的键和值会脱敏。工具自己提供的 `getCallPresentation` 始终优先。
 
 若要同一意图字段，在 `pi.registerTool` **之前**包装：
 
