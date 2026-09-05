@@ -3,9 +3,15 @@ import {
 	getMarkdownTheme,
 	ToolExecutionComponent,
 	type ExtensionAPI,
+	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatFlatArgumentPreview } from "./arg-preview.js";
+import { ContextGrowthLedger, formatContextGrowth, type ContextGrowth } from "./context-growth.js";
+import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
+import { layoutSteerPreview } from "./steer-preview.js";
+import { patchAggregateGlobalExpansion, restoreAggregateGlobalExpansion } from "./aggregate-expansion.js";
+import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
 import type { ExpandedTimeline } from "./types.js";
@@ -89,6 +95,7 @@ export interface AggregateActivityView {
 	durationMs?: number;
 	completedAtMs?: number;
 	usage?: AggregateUsageTotals;
+	contextGrowth?: ContextGrowth;
 	active: AggregateMember[];
 	displayRows: AggregateMember[];
 	activeOverflow: number;
@@ -128,14 +135,10 @@ interface PatchableToolExecution {
 	invalidate?: () => void;
 }
 
-interface FrameInvalidator {
-	id: string;
-	invalidate: () => void;
-}
-
 interface PatchableToolExecutionPrototype {
 	render(width: number): string[];
 	markExecutionStarted?(): void;
+	setExpanded?(expanded: boolean): void;
 	updateResult?(result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean): void;
 	[AGGREGATE_TOOL_EXECUTION_PATCH_KEY]?: AggregateToolExecutionPatchState;
 }
@@ -143,6 +146,8 @@ interface PatchableToolExecutionPrototype {
 interface AggregateToolExecutionPatchState {
 	originalRender: (this: PatchableToolExecution, width: number) => string[];
 	patchedRender: (this: PatchableToolExecution, width: number) => string[];
+	originalSetExpanded?: (this: PatchableToolExecution, expanded: boolean) => void;
+	patchedSetExpanded?: (this: PatchableToolExecution, expanded: boolean) => void;
 	originalMarkExecutionStarted?: (this: PatchableToolExecution) => void;
 	patchedMarkExecutionStarted?: (this: PatchableToolExecution) => void;
 	originalUpdateResult?: (this: PatchableToolExecution, result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean) => void;
@@ -400,6 +405,7 @@ export function formatExpandedTurnHeader(
 		total: number;
 		callCount: number;
 		failedCount: number;
+		contextGrowth?: ContextGrowth;
 		startedAtMs?: number;
 		endedAtMs?: number;
 		running: boolean;
@@ -408,7 +414,9 @@ export function formatExpandedTurnHeader(
 	nowMs = Date.now(),
 ): string {
 	const calls = `${chrome.callCount} ${chrome.callCount === 1 ? "call" : "calls"}`;
-	let text = `↻ ${chrome.index}/${chrome.total} · ${calls}`;
+	let text = `↻ ${chrome.index}/${chrome.total}${chrome.callCount > 0 ? ` · ${calls}` : ""}`;
+	const growth = formatContextGrowth(chrome.contextGrowth);
+	if (growth) text += theme.fg("muted", ` · ${growth}`);
 	if (chrome.startedAtMs !== undefined) {
 		const endedAtMs = chrome.running ? undefined : chrome.endedAtMs;
 		const durationMs = Math.max(0, (endedAtMs ?? nowMs) - chrome.startedAtMs);
@@ -566,17 +574,24 @@ export function renderExpandedAggregateSteer(
 	theme: AggregateRenderTheme,
 	edge: AggregateFrameEdge = "only",
 ): string[] {
-	const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-	while (lines.length > 0 && !lines[0]!.trim()) lines.shift();
-	while (lines.length > 0 && !lines[lines.length - 1]!.trim()) lines.pop();
-	const body = lines.length > 0 ? lines : [""];
-	const marked = [
-		"",
-		...body.map((line, index) =>
-			index === 0 ? colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${line}`) : line),
-		"",
-	];
-	return applyAggregateGroupFrame(marked, width, theme, edge);
+	return renderExpandedAggregateSteerLayout(text, width, theme, edge).lines;
+}
+
+export function renderExpandedAggregateSteerLayout(
+	text: string,
+	width: number,
+	theme: AggregateRenderTheme,
+	edge: AggregateFrameEdge = "only",
+): { lines: string[]; omissionRow?: number } {
+	const bodyWidth = Math.max(0, width - visibleWidth(framePrefixForEdge(edge)) - 2);
+	const preview = layoutSteerPreview(text, bodyWidth);
+	if (preview.rows.length === 0) return { lines: [] };
+	const marked = ["", ...preview.rows.map((line, index) => index === 0
+		? colorSteerText(theme, `${AGGREGATE_STEER_MARK} ${line}`) : `  ${line}`), ""];
+	return {
+		lines: applyAggregateGroupFrame(marked, width, theme, edge),
+		omissionRow: preview.omissionRow === undefined ? undefined : preview.omissionRow + 1,
+	};
 }
 
 export function renderCollapsedAssistantNarration(
@@ -765,11 +780,13 @@ export function formatAggregateClock(ms: number): string {
 }
 
 export function formatAggregateStatsLine(
-	view: Pick<AggregateActivityView, "settled" | "durationMs" | "completedAtMs" | "usage">,
+	view: Pick<AggregateActivityView, "settled" | "durationMs" | "completedAtMs" | "usage" | "contextGrowth">,
 ): string | undefined {
 	if (!view.settled) return undefined;
 	const parts: string[] = [];
 	if (typeof view.durationMs === "number") parts.push(`took ${formatAggregateDuration(view.durationMs)}`);
+	const growth = formatContextGrowth(view.contextGrowth);
+	if (growth) parts.push(growth);
 	if (view.usage) {
 		const tokenParts: string[] = [];
 		if (view.usage.input) tokenParts.push(`↑${formatCompactTokenCount(view.usage.input)}`);
@@ -840,7 +857,7 @@ export class AggregateProjection {
 	private readonly membersById = new Map<string, AggregateMember>();
 	private readonly framedGroupById = new Map<string, string>();
 	private readonly visibleFrameContent = new Set<string>();
-	private readonly frameInvalidators: FrameInvalidator[] = [];
+	private readonly frameInvalidators = new Map<string, () => void>();
 	private readonly invalidators = new Map<string, () => void>();
 	private readonly assignedSteerIds = new Set<string>();
 	private readonly steersByInstance = new WeakMap<object, string>();
@@ -850,10 +867,19 @@ export class AggregateProjection {
 	private activeGroupId: string | undefined;
 	private initialized = false;
 	private renderTheme: AggregateRenderTheme | undefined;
+	private readonly contextGrowth = new ContextGrowthLedger();
+	private readonly contextInvalidators = new Map<string, () => void>();
+	private readonly turnIdsByMessage = new WeakMap<object, string>();
+	private timelineExpanded = false;
+	private timelineExpansionObserved = false;
+	private readonly expandedGroups = new Map<string, boolean>();
+	private detailOpener?: (request: DetailRequest) => Promise<void>;
+	private detailOpen = false;
 
 	constructor(
 		private readonly isPassthroughTool: (toolName: string) => boolean = () => false,
 		private readonly getExpandedTimeline: () => ExpandedTimeline = () => "flat",
+		private readonly showContextGrowth: () => boolean = () => false,
 	) {}
 
 	isInitialized(): boolean {
@@ -870,6 +896,57 @@ export class AggregateProjection {
 
 	getRenderTheme(): AggregateRenderTheme {
 		return this.renderTheme ?? publicThemeFallback();
+	}
+
+	noteTimelineExpansion(expanded: boolean): void {
+		const changed = this.timelineExpanded !== expanded;
+		this.timelineExpansionObserved = true;
+		this.timelineExpanded = expanded;
+		if (changed) {
+			this.expandedGroups.clear();
+			this.invalidateAll();
+		}
+	}
+
+	isTimelineExpanded(): boolean {
+		return this.timelineExpanded;
+	}
+
+	private groupForItem(itemId: string): AggregateGroup | undefined {
+		const groupId = this.membersById.get(itemId)?.groupId ?? this.framedGroupById.get(itemId);
+		return this.groupsById.get(groupId ?? itemId)
+			?? this.groups.find((group) => group.agentTurnIds.includes(itemId));
+	}
+
+	isItemExpanded(itemId: string, fallback = false): boolean {
+		const group = this.groupForItem(itemId);
+		return (group && this.expandedGroups.get(group.members[0]?.toolCallId ?? group.groupId))
+			?? (this.timelineExpansionObserved ? this.timelineExpanded : fallback);
+	}
+
+	isMessageExpanded(message: unknown, fallback = false): boolean {
+		return this.isItemExpanded(this.contextTurnId(message) ?? aggregateAssistantFrameId(message) ?? "", fallback);
+	}
+
+	toggleGroupExpansion(itemId: string): void {
+		const group = this.groupForItem(itemId);
+		if (!group) return;
+		const expanded = !this.isItemExpanded(itemId);
+		this.timelineExpansionObserved = true;
+		this.expandedGroups.set(group.members[0]?.toolCallId ?? group.groupId, expanded);
+		this.invalidateIds(...group.members.map((member) => member.toolCallId), ...group.framedItemIds);
+		for (const id of group.agentTurnIds) this.contextInvalidators.get(id)?.();
+	}
+
+	setDetailOpener(opener: ((request: DetailRequest) => Promise<void>) | undefined): void {
+		this.detailOpener = opener;
+	}
+
+	openDetail(request: DetailRequest): void {
+		if (!this.detailOpener || this.detailOpen) return;
+		this.detailOpen = true;
+		void this.detailOpener(request).catch(() => { /* The UI may have closed with its session. */ })
+			.finally(() => { this.detailOpen = false; });
 	}
 
 	getGroups(): readonly AggregateGroup[] {
@@ -926,21 +1003,22 @@ export class AggregateProjection {
 	}
 
 	renderExpandedToolRow(toolCallId: string, width: number, nowMs = Date.now()): string[] {
+		return this.renderExpandedToolRowLayout(toolCallId, width, nowMs).lines;
+	}
+
+	renderExpandedToolRowLayout(toolCallId: string, width: number, nowMs = Date.now()): { lines: string[]; callStart: number } {
 		const member = this.getMember(toolCallId);
-		if (!member) return [];
+		if (!member) return { lines: [], callStart: 0 };
 		const theme = this.getRenderTheme();
 		const edge = this.getFrameEdge(toolCallId) ?? "only";
 		if (this.getExpandedTimeline() !== "turns") {
-			return renderAggregateMemberRow(member, width, theme, edge, nowMs);
+			return { lines: renderAggregateMemberRow(member, width, theme, edge, nowMs), callStart: 0 };
 		}
-		return renderExpandedAggregateMember(
-			member,
-			width,
-			theme,
-			edge,
-			nowMs,
-			this.getExpandedTurnPresentation(member, edge, nowMs),
-		);
+		const turn = this.getExpandedTurnPresentation(member, edge, nowMs);
+		return {
+			lines: renderExpandedAggregateMember(member, width, theme, edge, nowMs, turn),
+			callStart: (turn.leadingBlank ? 1 : 0) + (turn.header ? 1 : 0),
+		};
 	}
 
 	private toolTurnIds(group: AggregateGroup): string[] {
@@ -970,7 +1048,7 @@ export class AggregateProjection {
 	): ExpandedTurnPresentation {
 		const group = this.groupsById.get(member.groupId);
 		if (!group || !member.agentTurnId) return { indent: false };
-		const turnIds = this.toolTurnIds(group);
+		const turnIds = this.showContextGrowth() ? group.agentTurnIds : this.toolTurnIds(group);
 		const index = turnIds.indexOf(member.agentTurnId);
 		if (index < 0) return { indent: false };
 		const peers = this.turnPeers(group, member.agentTurnId);
@@ -987,6 +1065,7 @@ export class AggregateProjection {
 				total: turnIds.length,
 				callCount: peers.length,
 				failedCount: peers.filter((peer) => peer.state === "failed").length,
+				contextGrowth: this.showContextGrowth() ? this.contextGrowth.getTurn(member.agentTurnId) : undefined,
 				startedAtMs,
 				endedAtMs,
 				running,
@@ -1090,8 +1169,7 @@ export class AggregateProjection {
 
 	connectFrameRenderer(itemId: string, invalidate: (() => void) | undefined): void {
 		if (!invalidate || !itemId) return;
-		if (this.frameInvalidators.some((entry) => entry.id === itemId && entry.invalidate === invalidate)) return;
-		this.frameInvalidators.push({ id: itemId, invalidate });
+		this.frameInvalidators.set(itemId, invalidate);
 	}
 
 	rememberNarration(itemId: string, text: string, groupId?: string): void {
@@ -1104,8 +1182,24 @@ export class AggregateProjection {
 
 	rememberAgentTurn(message: unknown): void {
 		const group = this.ensureActiveGroup();
-		const id = aggregateAssistantTurnId(message) ?? `assistant-turn:${group.agentTurnIds.length + 1}`;
+		const previousId = message && typeof message === "object"
+			? this.turnIdsByMessage.get(message) ?? this.membersById.get(toolCallsFromMessage(message)[0]?.id ?? "")?.agentTurnId
+			: undefined;
+		const id = aggregateAssistantTurnId(message) ?? previousId ?? `assistant-turn:${group.agentTurnIds.length + 1}`;
+		// A later message_end handler may replace timestamp/id in place. Reconcile
+		// the streaming turn instead of creating a phantom turn at turn_end.
+		if (previousId && previousId !== id && group.agentTurnIds.includes(previousId)) {
+			group.agentTurnIds = [...new Set(group.agentTurnIds.map((value) => value === previousId ? id : value))];
+			group.usageByKey.delete(previousId);
+			for (const member of group.members) {
+				if (member.agentTurnId === previousId) member.agentTurnId = id;
+			}
+			const invalidate = this.contextInvalidators.get(previousId);
+			if (invalidate) this.contextInvalidators.set(id, invalidate);
+			this.contextInvalidators.delete(previousId);
+		}
 		if (!group.agentTurnIds.includes(id)) group.agentTurnIds.push(id);
+		if (message && typeof message === "object") this.turnIdsByMessage.set(message, id);
 		this.rememberUsage(id, message);
 		this.rememberEndedAt(messageTimestampMs(message));
 	}
@@ -1431,7 +1525,7 @@ export class AggregateProjection {
 		this.membersById.clear();
 		this.framedGroupById.clear();
 		this.visibleFrameContent.clear();
-		this.frameInvalidators.length = 0;
+		this.frameInvalidators.clear();
 		this.assignedSteerIds.clear();
 		this.sourceOrder = 0;
 		this.completionOrder = 0;
@@ -1477,7 +1571,7 @@ export class AggregateProjection {
 		this.markUnsettledInterrupted();
 		for (const group of this.groups) {
 			this.recomputeLeader(group.groupId);
-			group.settled = group.members.length > 0
+			group.settled ||= group.members.length > 0
 				&& !group.members.some((member) => member.state === "pending" || member.state === "running");
 		}
 		const staleInvalidators: Array<() => void> = [];
@@ -1494,7 +1588,95 @@ export class AggregateProjection {
 				// A removed row may already belong to a disposed transcript.
 			}
 		}
+		const expansionKeys = new Set(this.groups.map((group) => group.members[0]?.toolCallId ?? group.groupId));
+		for (const key of this.expandedGroups.keys()) {
+			if (!expansionKeys.has(key)) this.expandedGroups.delete(key);
+		}
+		this.rebuildContextGrowth(branchEntries);
+	}
+
+	private contextTurnId(message: unknown): string | undefined {
+		return aggregateAssistantTurnId(message)
+			?? (message && typeof message === "object" ? this.turnIdsByMessage.get(message) : undefined);
+	}
+
+	/** Reuse the final branch for live turns and history, never streaming usage. */
+	rebuildContextGrowth(entries: readonly unknown[]): void {
+		this.contextGrowth.reset();
+		const groupsByTurn = new Map(this.groups.flatMap((group) => group.agentTurnIds.map((id) => [id, group] as const)));
+		let previousGroup: AggregateGroup | undefined;
+		let previousTerminal = true;
+		for (const entry of entries) {
+			const source = toRecord(entry);
+			const message = entryMessage(entry);
+			const role = messageRole(message);
+			if (role === "assistant") {
+				const id = this.contextTurnId(message);
+				const group = id ? groupsByTurn.get(id) : undefined;
+				if (!id || !group) {
+					this.contextGrowth.breakChain(previousGroup?.groupId);
+					continue;
+				}
+				this.contextGrowth.recordAssistant(group.groupId, id, message);
+				previousGroup = group;
+				previousTerminal = isAssistantTerminal(message);
+			} else if (role === "toolResult") {
+				this.contextGrowth.recordToolResult(message);
+			} else if (role === "user") {
+				// A new run does not invalidate the preceding run's own total. A steer
+				// will be detected when the next assistant stays in the same group.
+				this.contextGrowth.breakChain();
+			} else if (message || ["custom_message", "compaction", "branch_summary", "model_change", "thinking_level_change"].includes(String(source.type))) {
+				this.contextGrowth.breakChain(previousTerminal ? undefined : previousGroup?.groupId);
+			}
+		}
 		this.invalidateAll();
+	}
+
+	finishContextTurn(message: unknown, toolResults: readonly unknown[], entries?: readonly unknown[]): void {
+		this.ingestAssistantMessage(message);
+		if (entries) {
+			this.rebuildContextGrowth(entries);
+			return;
+		}
+		const id = this.contextTurnId(message);
+		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		if (!id || !group) return;
+		this.contextGrowth.recordAssistant(group.groupId, id, message);
+		for (const result of toolResults) this.contextGrowth.recordToolResult(result);
+		this.invalidateAll();
+	}
+
+	connectContextRenderer(message: unknown, invalidate: () => void): void {
+		const id = this.contextTurnId(message);
+		if (id) this.contextInvalidators.set(id, invalidate);
+	}
+
+	getAssistantContextLines(message: unknown, expanded: boolean): string[] {
+		if (!this.showContextGrowth()) return [];
+		const id = this.contextTurnId(message);
+		const group = id ? this.groups.find((entry) => entry.agentTurnIds.includes(id)) : undefined;
+		if (!id || !group) return [];
+		const lines: string[] = [];
+		const growth = this.contextGrowth.getTurn(id);
+		if (expanded && this.getExpandedTimeline() === "turns" && growth && this.turnPeers(group, id).length === 0) {
+			const peers = group.members.filter((member) => member.agentTurnId === id);
+			lines.push(formatExpandedTurnHeader({
+				index: group.agentTurnIds.indexOf(id) + 1,
+				total: group.agentTurnIds.length,
+				callCount: peers.length,
+				failedCount: peers.filter((member) => member.state === "failed").length,
+				running: false,
+				contextGrowth: growth,
+			}, this.getRenderTheme()));
+		}
+		// No dummy Tools ledger for text-only or passthrough-only runs.
+		if (!group.leaderToolCallId && group.settled && group.agentTurnIds.at(-1) === id
+			&& !(lines.length > 0 && group.agentTurnIds.length === 1)) {
+			const summary = formatContextGrowth(this.contextGrowth.getRun(group.groupId, group.agentTurnIds));
+			if (summary) lines.push(summary);
+		}
+		return lines;
 	}
 
 	getView(toolCallId: string): AggregateActivityView | undefined {
@@ -1549,6 +1731,7 @@ export class AggregateProjection {
 				: undefined,
 			completedAtMs: group.endedAtMs,
 			usage: sumUsage(group.usageByKey),
+			contextGrowth: this.showContextGrowth() ? this.contextGrowth.getRun(group.groupId, group.agentTurnIds) : undefined,
 			active,
 			displayRows,
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
@@ -1694,10 +1877,10 @@ export class AggregateProjection {
 				// Rendering must remain fail-open if a stale component rejects invalidation.
 			}
 		}
-		for (const entry of this.frameInvalidators) {
-			if (!requested.has(entry.id)) continue;
+		for (const [id, invalidate] of this.frameInvalidators) {
+			if (!requested.has(id)) continue;
 			try {
-				entry.invalidate();
+				invalidate();
 			} catch {
 				// A stale transcript component may already be disposed.
 			}
@@ -1705,7 +1888,11 @@ export class AggregateProjection {
 	}
 
 	private invalidateAll(): void {
-		for (const invalidate of this.invalidators.values()) {
+		const turnIds = new Set(this.groups.flatMap((group) => group.agentTurnIds));
+		for (const id of this.contextInvalidators.keys()) {
+			if (!turnIds.has(id)) this.contextInvalidators.delete(id);
+		}
+		for (const invalidate of [...this.invalidators.values(), ...this.contextInvalidators.values(), ...this.frameInvalidators.values()]) {
 			try {
 				invalidate();
 			} catch {
@@ -1931,6 +2118,11 @@ export function renderAggregateActivity(
 	return lines;
 }
 
+export function renderExpandedAggregateSummary(view: AggregateActivityView, width: number, theme: AggregateRenderTheme): string[] {
+	// Expanded rows already contain these notes, steers and calls in source order.
+	return renderAggregateActivity({ ...view, latestNarration: undefined, displayRows: [], activeOverflow: 0, pinnedSteers: [] }, width, theme);
+}
+
 function getToolExecutionPrototype(): PatchableToolExecutionPrototype {
 	return ToolExecutionComponent.prototype as unknown as PatchableToolExecutionPrototype;
 }
@@ -1969,6 +2161,17 @@ function installExecutionClockHooks(
 	prototype: PatchableToolExecutionPrototype,
 	state: AggregateToolExecutionPatchState,
 ): void {
+	if (!state.patchedSetExpanded && typeof prototype.setExpanded === "function") {
+		state.originalSetExpanded = prototype.setExpanded;
+		state.patchedSetExpanded = function noteGlobalToolExpansion(expanded): void {
+			state.originalSetExpanded?.call(this, expanded);
+			const projection = resolveAggregateProjection(undefined, this.toolCallId) ?? state.projection;
+			if (projection && typeof this.toolName === "string" && !projection.isPassthrough(this.toolName)) {
+				projection.noteTimelineExpansion(expanded);
+			}
+		};
+		prototype.setExpanded = state.patchedSetExpanded;
+	}
 	if (!state.patchedMarkExecutionStarted && typeof prototype.markExecutionStarted === "function") {
 		state.originalMarkExecutionStarted = prototype.markExecutionStarted;
 		state.patchedMarkExecutionStarted = function markAggregateExecutionStarted(): void {
@@ -1990,6 +2193,8 @@ function installExecutionClockHooks(
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
 	claimHostProjection(undefined, projection);
 	const prototype = getToolExecutionPrototype();
+	patchAggregateMouseHandling(prototype);
+	patchAggregateGlobalExpansion((expanded) => getActiveAggregateProjection()?.noteTimelineExpansion(expanded));
 	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (existing) {
 		if (prototype.render === existing.patchedRender || existing.projection !== undefined) {
@@ -2007,6 +2212,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 	state.originalRender = prototype.render as AggregateToolExecutionPatchState["originalRender"];
 	state.projection = projection;
 	state.patchedRender = function renderAggregateToolExecution(width: number): string[] {
+		releaseAggregateClickRegions(this);
 		const toolName = normalizeToolName(this.toolName);
 		const toolCallId = typeof this.toolCallId === "string" ? this.toolCallId : undefined;
 		const activeProjection = resolveAggregateProjection(undefined, toolCallId)
@@ -2014,7 +2220,6 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		if (!activeProjection || !toolName || !toolCallId) {
 			return state.originalRender.call(this, width);
 		}
-
 		activeProjection.connectRenderer(
 			toolCallId,
 			toolName,
@@ -2024,26 +2229,41 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		if (activeProjection.isPassthrough(toolName)) {
 			return state.originalRender.call(this, width);
 		}
+		recordAggregateClickRegions(this, width, 0);
 		if (!activeProjection.isInitialized()) return [];
 		const member = activeProjection.getMember(toolCallId);
-		if (member?.state === "needsAttention") return state.originalRender.call(this, width);
+		if (member?.state === "needsAttention") {
+			releaseAggregateClickRegions(this);
+			return state.originalRender.call(this, width);
+		}
 		if (!member) return [];
 		const view = activeProjection.getView(toolCallId);
-		if (this.expanded === true) {
-			const detail = activeProjection.renderExpandedToolRow(toolCallId, width);
+		const regions: AggregateClickRegion[] = [];
+		const toggle = () => activeProjection.toggleGroupExpansion(toolCallId);
+		if (activeProjection.isItemExpanded(toolCallId, this.expanded === true)) {
+			const detail = activeProjection.renderExpandedToolRowLayout(toolCallId, width);
+			let lines = detail.lines;
+			let offset = 0;
 			if (activeProjection.shouldHostExpandedSummary(toolCallId)) {
 				const headerView = activeProjection.getViewForGroup(toolCallId);
 				if (headerView) {
-					return attachExpandedAggregateSummary(
-						renderAggregateActivity(headerView, width, activeProjection.getRenderTheme()),
-						detail,
-					);
+					const header = renderExpandedAggregateSummary(headerView, width, activeProjection.getRenderTheme());
+					lines = attachExpandedAggregateSummary(header, detail.lines);
+					offset = 1 + header.length;
+					regions.push({ startRow: 1, endRow: offset, onClick: toggle });
 				}
 			}
-			return detail;
+			regions.push({ startRow: offset + detail.callStart, endRow: lines.length, onClick: () => activeProjection.openDetail({
+				kind: "tool", toolName, target: formatAggregateTarget(member), args: this.args, result: this.result,
+				status: member.state, timing: formatMemberTiming(member, PLAIN_THEME),
+			}) });
+			recordAggregateClickRegions(this, width, lines.length, regions);
+			return lines;
 		}
 		if (!view) return [];
-		return padAggregateBlock(renderAggregateActivity(view, width, activeProjection.getRenderTheme()));
+		const lines = padAggregateBlock(renderAggregateActivity(view, width, activeProjection.getRenderTheme()));
+		recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: lines.length - 1, onClick: toggle }]);
+		return lines;
 	};
 	Object.defineProperty(prototype, AGGREGATE_TOOL_EXECUTION_PATCH_KEY, {
 		configurable: true,
@@ -2057,10 +2277,15 @@ export function restoreAggregateToolExecutions(): void {
 	hostAggregateProjection = undefined;
 	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
+	restoreAggregateMouseHandling(prototype);
+	restoreAggregateGlobalExpansion();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (!state) return;
 	if (prototype.render === state.patchedRender) {
 		prototype.render = state.originalRender;
+		if (state.patchedSetExpanded && prototype.setExpanded === state.patchedSetExpanded) {
+			prototype.setExpanded = state.originalSetExpanded;
+		}
 		if (state.patchedMarkExecutionStarted && prototype.markExecutionStarted === state.patchedMarkExecutionStarted) {
 			prototype.markExecutionStarted = state.originalMarkExecutionStarted;
 		}
@@ -2101,6 +2326,13 @@ export function registerAggregateProjectionEvents(
 	};
 	const rebuild = (ctx: SessionContextLike) => {
 		clearSettleTimer();
+		const uiContext = ctx as ExtensionContext;
+		projection.setDetailOpener(uiContext?.hasUI !== false && typeof uiContext?.ui?.custom === "function"
+			? async (request) => {
+				const { openDetailViewer } = await import("./detail-viewer.js");
+				await openDetailViewer(uiContext, request);
+			}
+			: undefined);
 		rebuildProjectionFromContext(projection, ctx);
 	};
 	const adoptHostIfNeeded = () => {
@@ -2112,6 +2344,7 @@ export function registerAggregateProjectionEvents(
 	adoptHostIfNeeded();
 	onReloadShutdown(pi, () => {
 		clearSettleTimer();
+		projection.setDetailOpener(undefined);
 		forgetProjection(pi, projection);
 		// Only the last live ledger may drop the shared renderer patch.
 		if (liveProjections.size === 0) restoreAggregateToolExecutions();
@@ -2147,6 +2380,9 @@ export function registerAggregateProjectionEvents(
 		const role = messageRole(event.message);
 		if (role === "assistant") projection.ingestAssistantMessage(event.message);
 		else if (role === "toolResult") projection.ingestToolResult(event.message);
+	});
+	pi.on("turn_end", async (event, ctx) => {
+		projection.finishContextTurn(event.message, event.toolResults, ctx?.sessionManager?.getBranch());
 	});
 	pi.on("tool_execution_start", async (event) => {
 		clearSettleTimer();

@@ -59,7 +59,7 @@ const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
 const USER_MESSAGE_TOP_MARGIN_LINES = 1;
 const AGGREGATE_USER_GUTTER = "▎";
 const AGGREGATE_USER_GUTTER_GAP = " ";
-const USER_MESSAGE_PATCH_VERSION = 15;
+const USER_MESSAGE_PATCH_VERSION = 16;
 export const USER_MESSAGE_EXPANDED_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-user-expanded.v1",
 );
@@ -428,24 +428,23 @@ export function patchNativeUserMessagePrototype(
     (originalRender) =>
       function renderWithNativeUserBorder(width: number): string[] {
         const safeWidth = Math.max(0, Math.floor(width));
-        if (!isEnabled() || safeWidth < MIN_BORDER_WIDTH) {
-          return originalRender.call(this, safeWidth) as string[];
-        }
-
+        if (!isEnabled()) return originalRender.call(this, safeWidth) as string[];
         const canCacheFinalOutput = typeof this === "object" && this !== null;
-        const markdownState = canCacheFinalOutput
-          ? extractUserMessageMarkdownState(this as { children?: unknown[] })
-          : undefined;
-        if (markdownState && shouldBypassUserMessageMarkdownRebuild(markdownState)) {
-          return originalRender.call(this, safeWidth) as string[];
-        }
-
-        const theme = getTheme();
         const compact = isCompact?.() === true;
+        // Steers must stay bounded/hidden even when native Markdown rebuilding is
+        // bypassed for a huge paste or a tiny viewport.
         if (compact && getSteerPresentation && canCacheFinalOutput) {
           const presentation = getSteerPresentation(this as object, safeWidth);
           if (presentation?.hide === true) return [];
           if (presentation?.lines) return presentation.lines;
+        }
+        if (safeWidth < MIN_BORDER_WIDTH) return originalRender.call(this, safeWidth) as string[];
+        const markdownState = canCacheFinalOutput
+          ? extractUserMessageMarkdownState(this as { children?: unknown[] })
+          : undefined;
+        const theme = getTheme();
+        if (markdownState && shouldBypassUserMessageMarkdownRebuild(markdownState)) {
+          return originalRender.call(this, safeWidth) as string[];
         }
         if (canCacheFinalOutput) {
           const cached = finalOutputCache.get(this as object);

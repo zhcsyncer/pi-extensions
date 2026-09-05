@@ -48,6 +48,11 @@
           "enum": ["flat", "turns"],
           "default": "flat",
           "description": "Controls the Ctrl+O aggregate timeline. flat keeps one target/status row per call. turns groups those rows by agent turn with a ↻ 1/N header and indented calls. Collapsed Tools is unchanged. Changing this does not reload the session."
+        },
+        "showContextGrowth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Shows ctx +/- tokens in the aggregate run receipt and agent-turn headers in the turns timeline. flat still shows the run total, without per-turn changes. Context changes are attributed to the originating agent turn after the next compatible request usage is available; terminal or unconfirmed changes are approximate (≈), and boundary gaps are never exact growth. Separate from total token consumption. Individual layout retains but does not use this setting. Changing this does not reload the session."
         }
       }
     },

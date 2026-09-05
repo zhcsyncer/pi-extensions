@@ -61,7 +61,7 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"diffIndicatorMode",
 	"diffCollapsedMode",
 ]);
-const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline"]);
+const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline", "showContextGrowth"]);
 
 function toOnOff(value: boolean): string {
 	return value ? "on" : "off";
@@ -166,6 +166,28 @@ export function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["timeline", "turn", "expand", "ctrl+o", "group", "flat", "aggregate"],
+		},
+		{
+			id: "showContextGrowth",
+			label: "Context growth",
+			currentValue: toOnOff(config.showContextGrowth),
+			values: ["off", "on"],
+			inspectorTitle: "Context Growth",
+			inspectorSummary: [
+				"Shows ctx +/- tokens in the aggregate run receipt and, with the turns timeline, in agent-turn headers. flat still shows the run total, but not per-turn changes.",
+				"Context changes are attributed to the originating agent turn after usage from the next compatible request becomes available.",
+				"Terminal or unconfirmed changes are approximate and marked ≈. Boundary gaps are never treated as exact growth.",
+				"Context growth is separate from total token consumption. Switching this does not reload the session.",
+			],
+			inspectorOptions: [
+				"off — hide context growth (default)",
+				"on — show run context growth and per-turn changes in the turns timeline",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Manual JSON tuning exposes toolCalls.showContextGrowth. Individual layout retains this setting but does not use it.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["context", "growth", "ctx", "tokens", "approximate", "receipt", "turn", "aggregate"],
 		},
 		{
 			id: "resultMode",
@@ -308,6 +330,8 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 			};
 		case "expandedTimeline":
 			return { ...config, expandedTimeline: value as ToolDisplayConfig["expandedTimeline"] };
+		case "showContextGrowth":
+			return { ...config, showContextGrowth: value === "on" };
 		case "resultMode": {
 			const mode = parseToolDisplayMode(value);
 			return mode ? applyToolDisplayMode(config, mode) : config;

@@ -21,6 +21,8 @@ $ pnpm test — 验证 extension 测试套件
 - 只有 bash 会向当前模型要 `displaySummary` 意图。其它内置工具只用确定性 target。
 - Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 Tools 账本。`Agent` 默认仍用自己的 renderer。
+- Fullscreen 鼠标交互：点击收起的 Tools 内容区展开本账本，点击展开后的摘要区收起；工具行可查看结果，不重新执行工具。
+- 可选上下文增长汇总与逐拍标记，帮助定位占用上下文较多的步骤。
 - 有界多行调用目标、缩进失败详情，以及 generic custom tool 的安全顶层参数预览。
 - 保留上游的 compact / summary / preview 结果模式。
 - 提供合作式 API，其它工具仍可自行选择同一意图字段。
@@ -72,6 +74,29 @@ pi install npm:@zhcsyncer/pi-extensions
 
 用户行固定用左侧强调色细杠。
 
+### 点击查看详情
+
+在 Pi **0.85+ fullscreen 模式**下，点击**收起的 Tools 内容区**任意位置（包括统计收据、当前调用预览）即可只展开这一本 run 账本。展开后，整个标题／统计摘要区都可点击收起。上下空白间距和展开后的旁白正文不触发开合，拖动仍用于选择文本。`Ctrl+O` 仍切换整个会话，并覆盖局部选择。透传工具保留自己的原生交互。
+
+点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 为 JSON 加语法颜色，对明确的自定义工具 Markdown 做排版，源码和日志则保持原文。Args 用键值行和多行文本块展示，不再满屏转义 JSON。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 可把格式化页面切回文本或 JSON 原文，但不绕过凭据脱敏和安全限制。长行自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。只有实际脱敏或截断才显示小提示。凭据脱敏针对 Args 和 Metadata；Result/steer 原文（包括 diff 代码）不擅自改写，分享前应核查内容。工具本身已截断的输出无法恢复。
+
+成功的 Edit 调用若返回了 diff，**Result 就是 diff**：单栏增删配色、行号和自动换行，不另设 Diff 标签，续行不重复行号。Raw 保留原始返回文字和 diff 原文；失败或没有 diff 时显示普通结果，不根据当前文件猜测历史改动。
+
+展开的 steer 按终端宽度换行：不超过 8 行内容时完整显示，超过后保留头 3 行、尾 2 行，中间显示 `… N lines hidden · click to view`。点击省略行查看原始消息。收起态仍每条一行。
+
+### 上下文增长
+
+在 aggregate 下打开 `/tools`，将 **Context growth** 设为 on（默认 off）。收据显示整个 run 的净增长；把 **Expanded timeline** 设为 **turns**，可查看各拍贡献：
+
+```text
+took 18s · ctx ≈+3.2k · tok ↑… ↓…
+↻ 1/2 · 2 calls · ctx +2.4k
+```
+
+下一次请求完成后，输入差值回填到**上一拍**。末拍或尚未确认的拍使用本地估算，标记 `≈`；总计含估算时也保留 `≈`。纯文本和仅透传工具的拍用轻量尾注承载，不制造空 Tools 框。`flat` 只显示 run 总计。开关修改不用 reload。
+
+`ctx` 表示上下文增长，不是累计 token 消耗（`tok`），也不代表逐工具的独立成本。报告差值也可能包含提示词或供应商转换带来的变化。缺少数据，或遇到 steer、压缩、换模型等已知上下文边界时，run 总计显示 `ctx n/a`，不拼出误导性数字。
+
 ## 设置
 
 打开 `/tools`，或看 [`config/config.example.json`](./config/config.example.json)。
@@ -80,6 +105,7 @@ pi install npm:@zhcsyncer/pi-extensions
 |---|---|
 | `toolCalls.layout` | `individual` 或 `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` 展开逐条，或 `turns` 按 agent turn 分组（仅 aggregate，不用 reload） |
+| `toolCalls.showContextGrowth` | 显示 `ctx` run 总计与逐拍标记；默认 `false`（仅 aggregate，不用 reload） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | bash intent 语言：尽量跟随请求、固定简体中文或固定英文（经 `/reload` 生效） |
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |

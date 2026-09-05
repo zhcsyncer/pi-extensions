@@ -225,6 +225,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	const retained = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallLayout: "aggregate" as const,
+		showContextGrowth: true,
 		resultMode: "preview" as const,
 		previewRows: 40,
 		bashCommandPreviewRows: 4,
@@ -237,7 +238,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "toolIntentLanguage", "expandedTimeline"],
+		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth"],
 	);
 	const intentLanguageSetting = aggregateSettings.find((setting) => setting.id === "toolIntentLanguage");
 	assert.equal(intentLanguageSetting?.currentValue, "zh-CN");
@@ -260,6 +261,7 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	assert.equal(individual.resultMode, "preview");
 	assert.equal(individual.previewRows, 40);
 	assert.equal(individual.toolIntent.language, "zh-CN");
+	assert.equal(individual.showContextGrowth, true);
 	const individualSettings = buildInspectorSettings(individual, {
 		hasMcpTooling: false,
 		hasRtkOptimizer: false,
@@ -267,7 +269,41 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	assert.ok(individualSettings.some((setting) => setting.id === "diffCollapsedMode"));
 	assert.ok(individualSettings.some((setting) => setting.id === "toolIntentLanguage"));
 	assert.equal(individualSettings.some((setting) => setting.id === "expandedTimeline"), false);
+	assert.equal(individualSettings.some((setting) => setting.id === "showContextGrowth"), false);
 });
+
+for (const expandedTimeline of ["flat", "turns"] as const) {
+	test(`context growth toggles in the ${expandedTimeline} aggregate timeline without changing other settings`, () => {
+		const config: ToolDisplayConfig = {
+			...DEFAULT_TOOL_DISPLAY_CONFIG,
+			toolCallLayout: "aggregate",
+			expandedTimeline,
+			resultMode: "preview",
+			previewRows: 40,
+			bashCommandPreviewRows: 4,
+			diffCollapsedMode: "summary",
+			toolIntent: { language: "zh-CN", maxLength: 64 },
+			passthroughToolNames: ["Agent", "custom_ui"],
+			customToolOverrides: { web_search: { kind: "generic", outputMode: "summary" } },
+		};
+		const original = structuredClone(config);
+		const capabilities = { hasMcpTooling: false, hasRtkOptimizer: false };
+		const setting = buildInspectorSettings(config, capabilities).find((item) => item.id === "showContextGrowth");
+		assert.equal(setting?.label, "Context growth");
+		assert.equal(setting?.currentValue, "off");
+		assert.deepEqual(setting?.values, ["off", "on"]);
+
+		const enabled = applySetting(config, "showContextGrowth", "on");
+		assert.deepEqual(enabled, { ...original, showContextGrowth: true });
+		assert.deepEqual(config, original);
+		assert.equal(
+			buildInspectorSettings(enabled, capabilities).find((item) => item.id === "showContextGrowth")?.currentValue,
+			"on",
+		);
+		assert.deepEqual(applySetting(enabled, "showContextGrowth", "off"), original);
+		assert.equal(enabled.showContextGrowth, true);
+	});
+}
 
 test("empty args opens the modal in TUI mode", async () => {
 	const { api, getHandler } = createPiStub();

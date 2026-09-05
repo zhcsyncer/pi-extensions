@@ -7,11 +7,13 @@ import {
 	aggregateAssistantFrameId,
 	applyAggregateGroupFrame,
 	attachExpandedAggregateSummary,
-	renderAggregateActivity,
+	renderExpandedAggregateSummary,
 	resolveAggregateProjection,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
 	render(width: number): string[];
@@ -168,8 +170,8 @@ export function isPureHiddenThinkingMessage(component: unknown): boolean {
 	return shouldHideCollapsedThinkingPlaceholder(component);
 }
 
-function isExpanded(component: PatchableAssistantMessage): boolean {
-	return component[AGGREGATE_ASSISTANT_EXPANDED_KEY] === true;
+function isExpanded(component: PatchableAssistantMessage, fallback = false): boolean {
+	return component[AGGREGATE_ASSISTANT_EXPANDED_KEY] ?? fallback;
 }
 
 function assistantFrameId(component: PatchableAssistantMessage): string {
@@ -213,6 +215,7 @@ function getPrototype(): PatchableAssistantPrototype {
 
 export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boolean): void {
 	const prototype = getPrototype();
+	patchAggregateMouseHandling(prototype);
 	const existing = prototype[AGGREGATE_THINKING_PATCH_KEY];
 	if (existing) {
 		existing.isAggregateEnabled = isAggregateEnabled;
@@ -229,6 +232,8 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 	state.isAggregateEnabled = isAggregateEnabled;
 	state.patchedSetExpanded = function setAggregateAssistantExpanded(expanded: boolean): void {
 		this[AGGREGATE_ASSISTANT_EXPANDED_KEY] = expanded === true;
+		resolveAggregateProjection(undefined, aggregateAssistantFrameId(this.lastMessage), firstToolCallId(this.lastMessage))
+			?.noteTimelineExpansion(expanded === true);
 		state.originalSetExpanded?.call(this, expanded);
 		try {
 			this.invalidate?.();
@@ -237,6 +242,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		}
 	};
 	state.patchedRender = function renderAggregateAssistantMessage(width: number): string[] {
+		releaseAggregateClickRegions(this);
 		if (!state.isAggregateEnabled()) return state.originalRender.call(this, width);
 
 		const hideThinking = this.hideThinkingBlock === true;
@@ -253,9 +259,17 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
 		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
+		projection?.connectContextRenderer(this.lastMessage, () => {
+			try { this.invalidate?.(); } catch { /* Disposed transcript component. */ }
+		});
+		const expanded = projection?.isMessageExpanded(this.lastMessage, isExpanded(this, projection?.isTimelineExpanded()))
+			?? isExpanded(this);
+		const contextLines = (projection?.getAssistantContextLines(this.lastMessage, expanded) ?? [])
+			.map((line) => truncateToWidth(`  ${resolveAggregateRenderTheme(projection).fg("muted", line)}`, Math.max(0, width), "…"));
 		const trimmed = trimBlankEdges(next);
 		if (interim) {
-			if (!hasNarrationText || trimmed.length === 0 || !isExpanded(this)) {
+			recordAggregateClickRegions(this, width, 0);
+			if (!hasNarrationText || trimmed.length === 0 || !expanded) {
 				projection?.markFrameContentVisible(frameId, false);
 				if (!hasNarrationText || trimmed.length === 0) projection?.untrackFramedItem(frameId);
 				else projection?.trackFramedItem(frameId, undefined, toolCallId);
@@ -271,15 +285,15 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			});
 			projection?.markFrameContentVisible(frameId, true);
 		}
-		if (trimmed.length === 0) return [];
+		if (trimmed.length === 0) return contextLines.length > 0 ? ["", ...contextLines] : [];
 		if (!interim) {
 			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
 			// Put that gap back after the user prompt or a passthrough tool.
 			// Only the reply sitting under the Tools ledger omits it, so later
 			// tools in the same user turn cannot steal the blank from earlier text.
 			const stackedOnTools = projection?.assistantFollowsAggregateLedger(this.lastMessage) === true;
-			if (stackedOnTools) return next;
-			return visibleText(next[0] ?? "") === "" ? next : ["", ...next];
+			const body = stackedOnTools || visibleText(next[0] ?? "") === "" ? next : ["", ...next];
+			return [...body, ...contextLines];
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
@@ -289,12 +303,13 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {
-				return attachExpandedAggregateSummary(
-					renderAggregateActivity(headerView, width, theme),
-					framed,
-				);
+				const header = renderExpandedAggregateSummary(headerView, width, theme);
+				const lines = attachExpandedAggregateSummary(header, framed);
+				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansion(frameId) }]);
+				return lines;
 			}
 		}
+		recordAggregateClickRegions(this, width, framed.length);
 		return framed;
 	};
 	Object.defineProperty(prototype, AGGREGATE_THINKING_PATCH_KEY, {
@@ -307,6 +322,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 
 export function restoreAggregateThinkingPlaceholders(): void {
 	const prototype = getPrototype();
+	restoreAggregateMouseHandling(prototype);
 	const state = prototype[AGGREGATE_THINKING_PATCH_KEY];
 	if (!state) return;
 	if (prototype.render === state.patchedRender) {

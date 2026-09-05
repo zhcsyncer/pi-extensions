@@ -19,6 +19,8 @@ test("bundled config example is valid simple v2", () => {
 		writeFileSync(configFile, readFileSync(examplePath, "utf8"), "utf8");
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.notice, undefined);
+		assert.equal(loaded.config.showContextGrowth, false);
 		assert.equal(loaded.config.resultMode, "summary");
 		assert.equal(loaded.config.toolIntent.language, "zh-CN");
 		assert.equal(loaded.config.toolCallLayout, "individual");
@@ -64,6 +66,10 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	const expandedTimeline = schema.properties?.toolCalls?.properties?.expandedTimeline as { enum?: string[]; default?: string } | undefined;
 	assert.deepEqual(expandedTimeline?.enum, ["flat", "turns"]);
 	assert.equal(expandedTimeline?.default, "flat");
+	const showContextGrowth = schema.properties?.toolCalls?.properties?.showContextGrowth as { type?: string; default?: boolean } | undefined;
+	assert.equal(showContextGrowth?.type, "boolean");
+	assert.equal(showContextGrowth?.default, false);
+	assert.equal(schema.properties?.showContextGrowth, undefined);
 	assert.equal(schema.properties?.toolCalls?.properties?.frame, undefined);
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);

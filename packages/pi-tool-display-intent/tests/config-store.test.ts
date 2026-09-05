@@ -320,6 +320,78 @@ test("v2 expandedTimeline serializes sparsely and round-trips", () => {
 	});
 });
 
+test("context growth defaults off and normalization accepts only booleans", () => {
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.showContextGrowth, false);
+	assert.equal(normalizeToolDisplayConfig({}).showContextGrowth, false);
+	assert.equal(serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG).toolCalls, undefined);
+	assert.equal(normalizeToolDisplayConfig({ showContextGrowth: true }).showContextGrowth, true);
+	assert.equal(normalizeToolDisplayConfig({ showContextGrowth: false }).showContextGrowth, false);
+	for (const invalid of [undefined, null, "true", "false", 1, 0, [], {}]) {
+		assert.equal(normalizeToolDisplayConfig({ showContextGrowth: invalid }).showContextGrowth, false);
+	}
+	withTempDir("pi-tool-display-config-context-default-", (dir) => {
+		assert.equal(loadToolDisplayConfig(join(dir, "missing.json")).config.showContextGrowth, false);
+	});
+});
+
+test("v2 context growth persists only when enabled and round-trips without losing other settings", () => {
+	const enabled = normalizeToolDisplayConfig({
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate",
+		expandedTimeline: "turns",
+		showContextGrowth: true,
+		resultMode: "preview",
+		previewRows: 16,
+	});
+	assert.deepEqual(serializeToolDisplayConfigV2(enabled).toolCalls, {
+		layout: "aggregate",
+		expandedTimeline: "turns",
+		showContextGrowth: true,
+	});
+
+	withTempDir("pi-tool-display-config-context-roundtrip-", (dir) => {
+		const configFile = join(dir, "config.json");
+		assert.equal(saveToolDisplayConfig(enabled, configFile).success, true);
+		const loaded = loadToolDisplayConfig(configFile);
+		assert.equal(loaded.error, undefined);
+		assert.equal(loaded.notice, undefined);
+		assert.deepEqual(loaded.config, enabled);
+
+		const disabled = { ...loaded.config, showContextGrowth: false };
+		assert.equal(saveToolDisplayConfig(disabled, configFile).success, true);
+		const persisted = JSON.parse(readFileSync(configFile, "utf8"));
+		assert.deepEqual(persisted.toolCalls, { layout: "aggregate", expandedTimeline: "turns" });
+		assert.deepEqual(loadToolDisplayConfig(configFile).config, disabled);
+	});
+});
+
+for (const invalid of ["true", "false", 1, 0, null, [], {}]) {
+	test(`v2 context growth drops non-boolean ${JSON.stringify(invalid)} without losing valid settings`, () => {
+		withTempDir("pi-tool-display-config-context-invalid-", (dir) => {
+			const configFile = join(dir, "config.json");
+			writeFileSync(configFile, JSON.stringify({
+				version: 2,
+				toolCalls: { layout: "aggregate", expandedTimeline: "turns", showContextGrowth: invalid },
+				results: { mode: "preview", previewRows: 16 },
+			}), "utf8");
+
+			const loaded = loadToolDisplayConfig(configFile);
+			assert.equal(loaded.error, undefined);
+			assert.match(loaded.notice ?? "", /toolCalls\.showContextGrowth: expected boolean/);
+			assert.deepEqual(loaded.config, normalizeToolDisplayConfig({
+				toolCallLayout: "aggregate",
+				expandedTimeline: "turns",
+				showContextGrowth: false,
+				resultMode: "preview",
+				previewRows: 16,
+			}));
+			const persisted = JSON.parse(readFileSync(configFile, "utf8"));
+			assert.deepEqual(persisted.toolCalls, { layout: "aggregate", expandedTimeline: "turns" });
+			assert.equal(loadToolDisplayConfig(configFile).notice, undefined);
+		});
+	});
+}
+
 test("default individual layout stays sparse and old v2 configs remain compatible", () => {
 	const serialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(serialized.toolCalls, undefined);
@@ -331,6 +403,7 @@ test("default individual layout stays sparse and old v2 configs remain compatibl
 		const loaded = loadToolDisplayConfig(configFile);
 		assert.equal(loaded.error, undefined);
 		assert.equal(loaded.config.toolCallLayout, "individual");
+		assert.equal(loaded.config.showContextGrowth, false);
 	});
 });
 

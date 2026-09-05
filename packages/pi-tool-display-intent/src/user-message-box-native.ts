@@ -14,11 +14,14 @@ import { unregisterUserMessageRenderPrototypePatch } from "./user-message-box-pa
 import { extractUserMessageMarkdownState } from "./user-message-box-markdown.js";
 import {
   getActiveAggregateProjection,
-  renderExpandedAggregateSteer,
+  renderExpandedAggregateSteerLayout,
+  renderExpandedAggregateSummary,
+  attachExpandedAggregateSummary,
   resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import type { ToolDisplayConfig } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
+import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
 
 const registeredNativeUserMessageApis = new WeakSet<ExtensionAPI>();
 const CONTAINER_STEER_SPACER_KEY = Symbol.for(
@@ -97,6 +100,7 @@ export function resolveAggregateSteerUserPresentation(
   instance: object,
   width: number,
 ): UserMessageSteerPresentation | undefined {
+  releaseAggregateClickRegions(instance);
   const projection = getActiveAggregateProjection();
   if (!projection) return undefined;
   const text = readUserMessageText(instance);
@@ -110,19 +114,32 @@ export function resolveAggregateSteerUserPresentation(
       // A stale transcript component may already be disposed.
     }
   });
-  if (!isUserMessageExpanded(instance)) {
+  recordAggregateClickRegions(instance, width, 0);
+  if (!projection.isItemExpanded(steer.id, isUserMessageExpanded(instance))) {
     projection.markFrameContentVisible(steer.id, false);
     return { hide: true };
   }
   projection.markFrameContentVisible(steer.id, true);
-  return {
-    lines: renderExpandedAggregateSteer(
-      steer.text,
-      width,
-      resolveAggregateRenderTheme(projection),
-      projection.getFrameEdge(steer.id) ?? "only",
-    ),
-  };
+  const theme = resolveAggregateRenderTheme(projection);
+  const layout = renderExpandedAggregateSteerLayout(steer.text, width, theme, projection.getFrameEdge(steer.id) ?? "only");
+  let lines = layout.lines;
+  let offset = 0;
+  const regions: AggregateClickRegion[] = [];
+  if (projection.shouldHostExpandedSummary(steer.id)) {
+    const view = projection.getViewForGroup(steer.id);
+    if (view) {
+      const header = renderExpandedAggregateSummary(view, width, theme);
+      lines = attachExpandedAggregateSummary(header, lines);
+      offset = 1 + header.length;
+      regions.push({ startRow: 1, endRow: offset, onClick: () => projection.toggleGroupExpansion(steer.id) });
+    }
+  }
+  if (layout.omissionRow !== undefined) {
+    regions.push({ startRow: offset + layout.omissionRow, endRow: offset + layout.omissionRow + 1,
+      onClick: () => projection.openDetail({ kind: "steer", text: steer.text }) });
+  }
+  recordAggregateClickRegions(instance, width, lines.length, regions);
+  return { lines };
 }
 
 function patchUserMessageRender(
@@ -138,9 +155,11 @@ function patchUserMessageRender(
     isCompact,
     (instance, width) => isCompact() ? resolveAggregateSteerUserPresentation(instance, width) : undefined,
   );
+  patchAggregateMouseHandling(getUserMessagePrototype());
 }
 
 function restoreUserMessageRender(): void {
+  restoreAggregateMouseHandling(getUserMessagePrototype());
   restoreSteerUserLeadingSpacer();
   unregisterUserMessageRenderPrototypePatch(getUserMessagePrototype());
 }

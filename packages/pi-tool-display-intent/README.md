@@ -21,6 +21,8 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 - Bash always asks the current model for a `displaySummary` intent. Other built-ins keep deterministic targets only.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one Tools ledger per user request. `Agent` keeps its own renderer by default.
+- Fullscreen mouse support: click a collapsed Tools block to expand that run, click its expanded summary to collapse it, and inspect individual call results without rerunning tools.
+- Optional context-growth receipts and per-turn badges to spot context-heavy steps.
 - Bounded multiline call targets, indented failure details, and safe top-level argument previews for generic custom tools.
 - Same compact / summary / preview result modes as upstream.
 - Cooperative API so other tools can still opt into the same intent field.
@@ -72,6 +74,29 @@ While a turn is running, the latest assistant note stays under the header as Mar
 
 User prompts always use the accent-gutter box.
 
+### Click to inspect
+
+In Pi **0.85+ fullscreen mode**, click anywhere in a **collapsed Tools block**, including the receipt and current-call previews, to expand only that run. When expanded, the whole title/summary area can collapse it again. Top/bottom padding and expanded narration text do not toggle the ledger; dragging still selects text. `Ctrl+O` still switches the whole transcript and overrides local choices. Passthrough tools keep their native interactions.
+
+Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result shows JSON with syntax colors, clear custom-tool Markdown as formatted content, and source/log output literally. Args uses key/value rows and multiline text blocks instead of escaped JSON strings. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` switches formatted pages to source text or JSON without bypassing credential masking or safety limits. Long lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Only actual masking or truncation adds a small notice. Credential masking protects Args and Metadata; original Result/steer text, including edited code, is not silently rewritten. Large content has explicit safety limits; output already truncated by the tool cannot be recovered.
+
+For a successful Edit with returned diff data, **Result is the diff**: single-column colored changes with line numbers and automatic wrapping, without a separate Diff tab. Continuation rows do not repeat line numbers. Raw retains the original return text and diff source; failures or missing diff data show the ordinary result. Historical changes are never reconstructed from the current file.
+
+Expanded steers wrap at the terminal width. Up to eight content rows stay visible; longer messages keep the first three and last two rows around `… N lines hidden · click to view`. Click that omission row to inspect the original message. Collapsed steers still occupy one line each.
+
+### Context growth
+
+In aggregate, open `/tools` and turn **Context growth** on (default: off). The run receipt shows net growth; choose **Expanded timeline → turns** to see which steps contributed:
+
+```text
+took 18s · ctx ≈+3.2k · tok ↑… ↓…
+↻ 1/2 · 2 calls · ctx +2.4k
+```
+
+A subsequent completed request supplies the input difference, displayed on the **preceding** turn. The last/unconfirmed turn uses a local estimate marked `≈`; any estimate also marks the run total. Text-only and passthrough-only turns use a lightweight footer rather than an empty Tools frame. `flat` shows only the run total. Switching this setting does not reload.
+
+`ctx` measures context growth, not cumulative token consumption (`tok`) or individual tool costs. Reported differences may also reflect prompt/provider transformations. Missing data or known context boundaries such as steering, compaction, or model changes make the run total `ctx n/a` instead of a misleading number.
+
 ## Settings
 
 Open `/tools` or edit the example at [`config/config.example.json`](./config/config.example.json).
@@ -80,6 +105,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 |---|---|
 | `toolCalls.layout` | `individual` or `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` per-call Ctrl+O rows, or `turns` grouped by agent turn (aggregate only; no reload) |
+| `toolCalls.showContextGrowth` | Show `ctx` run totals and turn badges; default `false` (aggregate only; no reload) |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
 | `diff.collapsedMode` | `body` preview, or `summary` stats only |

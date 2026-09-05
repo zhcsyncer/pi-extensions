@@ -1955,6 +1955,7 @@ export function registerToolDisplayOverrides(
           ((BUILT_IN_TOOL_OVERRIDE_NAMES as readonly string[]).includes(toolName) &&
             !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]),
         () => getConfig().expandedTimeline,
+        () => getConfig().showContextGrowth,
       )
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void =>

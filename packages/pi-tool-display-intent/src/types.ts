@@ -72,6 +72,7 @@ export interface ToolDisplayConfig {
 	toolIntent: ToolIntentConfig;
 	toolCallLayout: ToolCallLayout;
 	expandedTimeline: ExpandedTimeline;
+	showContextGrowth: boolean;
 	toolCallStyle: ToolCallStyle;
 	bashCommandPreviewRows: number;
 	resultMode: ResultDisplayMode;
@@ -111,6 +112,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	},
 	toolCallLayout: "individual",
 	expandedTimeline: "flat",
+	showContextGrowth: false,
 	toolCallStyle: "claude",
 	bashCommandPreviewRows: 1,
 	resultMode: "compact",
