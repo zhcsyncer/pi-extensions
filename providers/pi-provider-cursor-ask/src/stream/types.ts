@@ -138,6 +138,7 @@ export interface ParsedMessages {
 // ── Wire request payloads ──
 
 export interface CursorRequestPayload {
+  contextCheckpoint?: Uint8Array | null;
   requestBytes: Uint8Array;
   requestBody: Uint8Array;
   blobStore: Map<string, Uint8Array>;
@@ -168,6 +169,10 @@ export interface PendingExec {
  */
 export interface CheckpointRef {
   current: Uint8Array | null;
+  /** Last positive observation survives placeholder checkpoints and local tool pauses. */
+  contextTokens?: number;
+  /** One upstream Run's receipt survives Pi's local tool-response boundaries. */
+  usage?: CursorRunUsage;
 }
 
 /**
@@ -204,6 +209,8 @@ export interface StoredConversation {
   midPauseTurnCount?: number;
   midPauseHistoryFingerprint?: string;
   midPauseRecordedAtMs?: number;
+  /** In-memory receipts received after their Pi writer closed; claim on the next same-model reply. */
+  unreportedUsage?: CursorRunUsage[];
   /** Hash of the system prompt last published to Cursor for this conversation. */
   systemPromptHash?: string;
   sessionScoped: boolean;
@@ -220,6 +227,15 @@ export interface CursorBilledUsage {
   cacheWrite: number;
 }
 
+export interface CursorRunUsage {
+  modelId?: string;
+  rates?: Model<Api>["cost"];
+  billedUsage?: CursorBilledUsage;
+  missingFields?: Array<keyof CursorBilledUsage>;
+  reported?: boolean;
+  boundaryLogged?: boolean;
+}
+
 export interface StreamState {
   toolCallIndex: number;
   pendingExecs: PendingExec[];
@@ -229,6 +245,7 @@ export interface StreamState {
   /** Set once Cursor reported `turnEnded`; a connection close after it is a completed turn. */
   turnEnded: boolean;
   billedUsage?: CursorBilledUsage;
+  runUsage?: CursorRunUsage;
 }
 
 // ── Native streamSimple runtime ──
@@ -253,6 +270,9 @@ export interface NativeStreamWriter {
   output: AssistantMessage;
   closed: boolean;
   start(): void;
+  contextSnapshot?(tokens: number): void;
+  contextMode?(mode: "history" | "checkpoint" | "live", tokens?: number): void;
+  carryUsage?(usage: CursorRunUsage): void;
   text(delta: string): void;
   thinking(delta: string): void;
   toolCall(exec: PendingExec): void;
@@ -277,6 +297,7 @@ export interface StreamIdleRetryController {
 }
 
 export interface NativeStreamAttemptInput {
+  contextCheckpoint?: Uint8Array | null;
   accessToken: string;
   requestBytes: Uint8Array;
   blobStore: Map<string, Uint8Array>;

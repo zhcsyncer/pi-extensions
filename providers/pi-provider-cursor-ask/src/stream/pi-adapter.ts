@@ -19,6 +19,8 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import { redactSecrets } from "../utils/security.js";
+import { estimateMessageTokens, positiveContextTokens } from "./context-usage.js";
+import { takeRunReceipt, type CursorBillingInfo } from "./run-usage.js";
 import type { CursorNativeModelRouting } from "./model-routing.js";
 import type {
   ChatCompletionRequest,
@@ -103,10 +105,7 @@ function usageFromBilled(
     output: billed.output,
     cacheRead: billed.cacheRead,
     cacheWrite: billed.cacheWrite,
-    totalTokens:
-      contextTokens > 0
-        ? contextTokens
-        : uncachedInput + billed.output + billed.cacheRead + billed.cacheWrite,
+    totalTokens: contextTokens,
     cost: {
       input: costInput,
       output: costOutput,
@@ -121,29 +120,21 @@ export function applyCursorUsage(
   output: AssistantMessage,
   model: Model<Api>,
   state?: StreamState,
-): void {
-  if (!state) return;
-  if (state.billedUsage) {
-    output.usage = usageFromBilled(state.billedUsage, model, state.totalTokens);
-    return;
-  }
-  const usage = computeUsage(state);
-  const costInput = tokenCost(usage.prompt_tokens, model.cost?.input);
-  const costOutput = tokenCost(usage.completion_tokens, model.cost?.output);
-  output.usage = {
-    input: usage.prompt_tokens,
-    output: usage.completion_tokens,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: usage.total_tokens,
-    cost: {
-      input: costInput,
-      output: costOutput,
-      cacheRead: 0,
-      cacheWrite: 0,
-      total: costInput + costOutput,
-    },
-  };
+  contextTokens?: number,
+): CursorBillingInfo {
+  const contextEstimate =
+    positiveContextTokens(contextTokens) ??
+    positiveContextTokens(state?.totalTokens) ??
+    estimateMessageTokens(output);
+  const { billed, info } = takeRunReceipt(state);
+  output.usage = billed
+    ? usageFromBilled(
+        billed,
+        state?.runUsage?.rates ? { ...model, cost: state.runUsage.rates } : model,
+        contextEstimate,
+      )
+    : { ...emptyCursorUsage(), totalTokens: contextEstimate };
+  return info;
 }
 
 export function createCursorAssistantMessage(model: Model<Api>): AssistantMessage {
@@ -420,11 +411,4 @@ export function resolveToolsForToolChoice(
   )
     return { tools: [] };
   return { error: "Only tool_choice 'auto' and 'none' are supported by pi-cursor-provider." };
-}
-
-export function computeUsage(state: StreamState) {
-  const completion_tokens = state.outputTokens;
-  const total_tokens = state.totalTokens || completion_tokens;
-  const prompt_tokens = Math.max(0, total_tokens - completion_tokens);
-  return { prompt_tokens, completion_tokens, total_tokens };
 }

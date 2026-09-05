@@ -650,6 +650,7 @@ export function buildCursorRequestFromParts(
 
   const requestBytes = toBinary(AgentClientMessageSchema, clientMessage);
   const payload = {
+    contextCheckpoint: checkpoint ?? null,
     requestBytes,
     requestBody: requestBytes,
     blobStore,

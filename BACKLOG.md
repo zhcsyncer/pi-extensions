@@ -20,6 +20,12 @@ Repository-level follow-up work that should remain discoverable across sessions.
   - Ordinary single-line typing keeps the compact composer.
   - Stash mark, status line, and border chrome still fit after the grow.
 
+## `pi-provider-cursor-ask`
+
+- [ ] **Restore the standard usage total contract without compromising context safety**
+
+  Cursor reports cumulative billing across a server-side Run, while Pi also interprets `usage.totalTokens` as current context. The provider temporarily uses that field for a checkpoint/estimated context and preserves confirmed billing in the disjoint buckets/cost. Summing `totalTokens`, as pi-meter does, is therefore not authoritative consumption accounting. Prefer a generic optional context-observation channel in Pi, or verified per-inference billing from Cursor, rather than consumer-specific accounting patches. Missing receipts must remain distinguishable from confirmed zero-cost usage. See [usage and context semantics](docs/pi-provider-cursor-ask/upstream-protocol.md#usage-and-context-semantics).
+
 ## `@zhcsyncer/pi-meter`
 
 - [ ] **Guest quota adapters survive `/reload`**

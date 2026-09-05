@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import { createAssistantMessageEventStream, type Api, type Model } from "@earendil-works/pi-ai";
 import {
   AgentServerMessageSchema,
+  ConversationStateStructureSchema,
   InteractionUpdateSchema,
   TurnEndedUpdateSchema,
 } from "../src/proto/agent_pb.js";
@@ -77,6 +78,7 @@ describe("applyCursorUsage", () => {
       output,
       composerModel(),
       emptyState({
+        totalTokens: 9040,
         billedUsage: { input: 9000, output: 40, cacheRead: 8000, cacheWrite: 0 },
       }),
     );
@@ -131,6 +133,7 @@ describe("applyCursorUsage", () => {
       output,
       model,
       emptyState({
+        totalTokens: 1240,
         billedUsage: { input: 1200, output: 40, cacheRead: 0, cacheWrite: 1200 },
       }),
     );
@@ -156,6 +159,7 @@ describe("applyCursorUsage", () => {
       output,
       composerModel(),
       emptyState({
+        totalTokens: 1040,
         billedUsage: { input: 1000, output: 40, cacheRead: 0, cacheWrite: 0 },
       }),
     );
@@ -181,6 +185,7 @@ describe("applyCursorUsage", () => {
       output,
       composerModel(),
       emptyState({
+        totalTokens: 120,
         billedUsage: { input: 100, output: 20, cacheRead: 999, cacheWrite: 0 },
       }),
     );
@@ -189,31 +194,36 @@ describe("applyCursorUsage", () => {
       output: 20,
       cacheRead: 999,
       cacheWrite: 0,
-      totalTokens: 1019,
+      totalTokens: 120,
       cost: { input: 0 },
     });
   });
 
-  it("keeps cache at 0 when turnEnded had no billed split", () => {
+  it("preserves context without pricing tokenDelta when the bill is missing", () => {
     const output = createCursorAssistantMessage(composerModel());
-    applyCursorUsage(output, composerModel(), emptyState({ outputTokens: 40, totalTokens: 1040 }));
+    const billing = applyCursorUsage(
+      output,
+      composerModel(),
+      emptyState({ outputTokens: 1656, totalTokens: 1040, turnEnded: true }),
+    );
     expect(output.usage).toMatchObject({
-      input: 1000,
-      output: 40,
+      input: 0,
+      output: 0,
       cacheRead: 0,
       cacheWrite: 0,
       totalTokens: 1040,
+      cost: { total: 0 },
     });
-    expect(output.usage.cost.cacheRead).toBe(0);
-    expect(output.usage.cost.total).toBeCloseTo(0.0006);
+    expect(billing.status).toBe("unavailable");
   });
 });
 
 describe("createNativeStreamWriter usage", () => {
-  it("leaves intermediate toolUse usage empty until cumulative turnEnded billing arrives", async () => {
+  it("reports intermediate context without inventing a toolUse bill", async () => {
     const stream = createAssistantMessageEventStream();
     const writer = createNativeStreamWriter(stream, composerModel());
 
+    writer.contextSnapshot?.(11_648);
     writer.done("toolUse", emptyState({ outputTokens: 29, totalTokens: 11_648 }));
 
     await expect(stream.result()).resolves.toMatchObject({
@@ -223,10 +233,38 @@ describe("createNativeStreamWriter usage", () => {
         output: 0,
         cacheRead: 0,
         cacheWrite: 0,
-        totalTokens: 0,
+        totalTokens: 11_648,
         cost: { total: 0 },
       },
     });
+  });
+});
+
+describe("processServerMessage checkpoint", () => {
+  it("ignores placeholder zero snapshots but accepts a real decrease", () => {
+    const state = emptyState();
+    const observed: Array<number | undefined> = [];
+    for (const usedTokens of [120_000, 0, 80_000]) {
+      processServerMessage(
+        create(AgentServerMessageSchema, {
+          message: {
+            case: "conversationCheckpointUpdate",
+            value: create(ConversationStateStructureSchema, {
+              tokenDetails: { usedTokens, maxTokens: usedTokens ? 200_000 : 0 },
+            }),
+          },
+        }),
+        new Map(),
+        [],
+        () => {},
+        state,
+        () => {},
+        () => {},
+        (_bytes, contextTokens) => observed.push(contextTokens),
+      );
+      expect(state.totalTokens).toBe(usedTokens || 120_000);
+    }
+    expect(observed).toEqual([120_000, undefined, 80_000]);
   });
 });
 

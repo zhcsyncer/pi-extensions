@@ -17,6 +17,7 @@ import {
 import {
   AgentClientMessageSchema,
   AgentServerMessageSchema,
+  ConversationStateStructureSchema,
   ExecClientMessageSchema,
   McpResultSchema,
   McpSuccessSchema,
@@ -37,6 +38,8 @@ export type {
 } from "../client/cursor-wire.js";
 
 import { processServerMessage } from "./server-messages.js";
+import { reportRunUsageBoundary, retainRunReceipt, takePendingRunReceipts } from "./run-usage.js";
+import { positiveContextTokens } from "./context-usage.js";
 import { createThinkingTagFilter } from "./thinking-filter.js";
 import {
   contextToCursorChatCompletionRequest,
@@ -400,7 +403,7 @@ export function createCursorNativeStream(
 ) => AssistantMessageEventStream {
   return (model, context, options) => {
     const stream = createAssistantMessageEventStream();
-    const writer = createNativeStreamWriter(stream, model);
+    const writer = createNativeStreamWriter(stream, model, context, options);
     writer.start();
 
     (async () => {
@@ -517,6 +520,10 @@ async function handleCursorNativeRequest(
   const bridgeKey = deriveBridgeKey(body.messages, sessionId);
   const convKey = deriveConversationKey(body.messages, sessionId);
   const activeBridge = activeBridges.get(bridgeKey);
+  if (writer.carryUsage) {
+    for (const receipt of takePendingRunReceipts(conversationStates.get(convKey), model.id))
+      writer.carryUsage(receipt);
+  }
 
   debugLog("native.request", {
     requestId,
@@ -651,6 +658,7 @@ async function handleCursorNativeRequest(
         bridgeKey,
         convKey,
         completedTurns: turns,
+        contextCheckpoint: payload.contextCheckpoint,
         currentTurn: recoveredCurrentTurn,
         writer,
         options,
@@ -706,6 +714,7 @@ async function handleCursorNativeRequest(
         bridgeKey,
         convKey,
         completedTurns: rebuiltCompletedTurns,
+        contextCheckpoint: payload.contextCheckpoint,
         currentTurn: recoveredCurrentTurn,
         writer,
         options,
@@ -844,6 +853,7 @@ async function handleCursorNativeRequest(
     bridgeKey,
     convKey,
     completedTurns: turns,
+    contextCheckpoint: payload.contextCheckpoint,
     currentTurn,
     writer,
     options,
@@ -893,11 +903,19 @@ function writeNativeStream(
     modelId,
     attempt: idleRetry?.currentAttempt ?? 1,
   });
+  const runUsage = (checkpointRef.usage ??= {});
+  runUsage.modelId ??= _model.id;
+  runUsage.rates ??= _model.cost;
+  const onUsageBoundary = (reason: string) => {
+    retainRunReceipt(conversationStates.get(convKey), runUsage);
+    reportRunUsageBoundary(runUsage, reason);
+  };
   const state: StreamState = {
+    runUsage,
     toolCallIndex: 0,
     pendingExecs: [],
     outputTokens: 0,
-    totalTokens: 0,
+    totalTokens: checkpointRef.contextTokens ?? 0,
     turnEnded: false,
   };
   const tagFilter = createThinkingTagFilter();
@@ -1124,6 +1142,7 @@ function writeNativeStream(
   const finalizeSuccessfulStream = () => {
     if (cancelled || streamFinalized) return;
     streamFinalized = true;
+    queueMicrotask(() => onUsageBoundary("stream_end"));
     idleWatchdog.clear();
     clearInterval(heartbeatTimer);
     options?.signal?.removeEventListener("abort", abort);
@@ -1239,8 +1258,12 @@ function writeNativeStream(
               currentTurn,
             });
           },
-          (checkpointBytes) => {
+          (checkpointBytes, contextTokens) => {
             checkpointRef.current = checkpointBytes;
+            if (contextTokens !== undefined) {
+              checkpointRef.contextTokens = contextTokens;
+              writer.contextSnapshot?.(contextTokens);
+            }
             debugLog("native.stream.checkpoint_buffered", { requestId, convKey, checkpointBytes });
           },
           (execCase) => {
@@ -1341,6 +1364,8 @@ function writeNativeStream(
   });
 
   bridge.onClose((code) => {
+    // Let this callback finalize/claim any receipt first; then diagnose genuinely unsettled runs.
+    queueMicrotask(() => onUsageBoundary("transport_close"));
     debugLog("native.stream.bridge_close", {
       requestId,
       bridgeKey,
@@ -1573,6 +1598,7 @@ function handleNativeToolResultResume(
     historyFingerprint,
     clientTranscript: parkedTranscript,
   } = active;
+  writer.contextMode?.("live", checkpointRef.contextTokens);
   const resumeTranscript = parkedTranscript ?? liveTranscript(completedTurns);
   const recoveredClientTranscript = withSyntheticCurrentTurn(
     resumeTranscript,
@@ -1741,6 +1767,7 @@ function handleNativeToolResultResume(
           bridgeKey,
           convKey,
           completedTurns: rebuiltCompletedTurns,
+          contextCheckpoint: payload.contextCheckpoint,
           currentTurn: recoveredCurrentTurn,
           clientTranscript: recoveredClientTranscript,
           writer,
@@ -1817,6 +1844,7 @@ function handleNativeToolResultResume(
         bridgeKey,
         convKey,
         completedTurns,
+        contextCheckpoint: payload.contextCheckpoint,
         currentTurn: recoveredCurrentTurn,
         clientTranscript: recoveredClientTranscript,
         writer,
@@ -1923,11 +1951,23 @@ function formatStreamParkMessage(execCase: string, timeoutMs: number): string {
   );
 }
 
+function checkpointContextTokens(checkpoint?: Uint8Array | null): number | undefined {
+  if (!checkpoint) return undefined;
+  try {
+    return positiveContextTokens(
+      fromBinary(ConversationStateStructureSchema, checkpoint).tokenDetails?.usedTokens,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void {
   // Recovered/rebuilt streams enter this helper with ordinary retry semantics to avoid recursive recovery loops.
   let latestAccessToken = input.accessToken;
   // Mutable across generations so checkpoint continuation can replace the original request body.
   let requestBytes = input.requestBytes;
+  let contextCheckpoint = input.contextCheckpoint;
   let blobStore = input.blobStore;
   let completedTurns = input.completedTurns;
   let currentTurn = input.currentTurn;
@@ -1978,6 +2018,7 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
             mcpTools: input.mcpTools,
           });
           requestBytes = payload.requestBytes;
+          contextCheckpoint = payload.contextCheckpoint;
           blobStore = payload.blobStore;
           completedTurns = context.completedTurns;
           currentTurn = { userText: continueText, steps: [] };
@@ -2014,6 +2055,10 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
 
       const launch = (accessToken: string) => {
         latestAccessToken = accessToken;
+        input.writer.contextMode?.(
+          contextCheckpoint ? "checkpoint" : "history",
+          checkpointContextTokens(contextCheckpoint),
+        );
         const { bridge, heartbeatTimer } = startBridge(accessToken, requestBytes, {
           bridgeKey: input.bridgeKey,
         });
