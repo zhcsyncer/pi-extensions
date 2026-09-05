@@ -76,6 +76,15 @@ Cursor Ask is Node-only and manages streaming and unary RPCs directly with `node
 
 Silent retries (`PI_CURSOR_STREAM_IDLE_MAX_RETRIES`, default `5`) recover from silence and transport loss. Blind full-request restarts are blocked once text/thinking was streamed; checkpoint continuation is still allowed so partial output does not force a hard failure.
 
+## Usage and context semantics
+
+Cursor exposes two different token measurements during one agent turn:
+
+- `turnEnded` input/output/cache fields are cumulative billing totals across every internal model invocation, including invocations before and after tool calls.
+- `conversationCheckpointUpdate.tokenDetails.usedTokens` is the latest live conversation-context snapshot.
+
+Pi uses usage buckets for cost but `usage.totalTokens` for its context meter and compaction threshold. The adapter therefore preserves the disjoint cumulative billing buckets and their cost while setting `totalTokens` from the latest checkpoint when available. Intermediate `toolUse` messages report empty usage because the final `turnEnded` already includes those invocations; reporting partial output there would double-charge the turn and replace Pi's last trustworthy context snapshot with a near-zero value.
+
 ## Attributions
 
 Adapted from MIT community research and lineage docs:

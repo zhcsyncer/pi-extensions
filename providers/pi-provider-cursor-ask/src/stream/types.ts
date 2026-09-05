@@ -224,6 +224,7 @@ export interface StreamState {
   toolCallIndex: number;
   pendingExecs: PendingExec[];
   outputTokens: number;
+  /** Latest checkpoint `usedTokens`: a context snapshot, not turnEnded's cumulative bill. */
   totalTokens: number;
   /** Set once Cursor reported `turnEnded`; a connection close after it is a completed turn. */
   turnEnded: boolean;

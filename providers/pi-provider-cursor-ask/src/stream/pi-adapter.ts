@@ -81,8 +81,18 @@ export function billedUsageFromTurnEnded(ended: {
   };
 }
 
-/** Convert Cursor's cache-inclusive input count into Pi's disjoint usage buckets. */
-function usageFromBilled(billed: CursorBilledUsage, model: Model<Api>): AssistantMessage["usage"] {
+/**
+ * Convert Cursor's cache-inclusive billed totals into Pi's disjoint cost buckets.
+ *
+ * One Cursor agent turn may invoke the model repeatedly around tool calls, so the billed fields
+ * are cumulative while `contextTokens` is the latest checkpoint's actual context snapshot. Pi
+ * reads `totalTokens` for context/compaction while the buckets and cost retain billed usage.
+ */
+function usageFromBilled(
+  billed: CursorBilledUsage,
+  model: Model<Api>,
+  contextTokens: number,
+): AssistantMessage["usage"] {
   const uncachedInput = Math.max(0, billed.input - billed.cacheRead - billed.cacheWrite);
   const costInput = tokenCost(uncachedInput, model.cost?.input);
   const costOutput = tokenCost(billed.output, model.cost?.output);
@@ -93,7 +103,10 @@ function usageFromBilled(billed: CursorBilledUsage, model: Model<Api>): Assistan
     output: billed.output,
     cacheRead: billed.cacheRead,
     cacheWrite: billed.cacheWrite,
-    totalTokens: uncachedInput + billed.output + billed.cacheRead + billed.cacheWrite,
+    totalTokens:
+      contextTokens > 0
+        ? contextTokens
+        : uncachedInput + billed.output + billed.cacheRead + billed.cacheWrite,
     cost: {
       input: costInput,
       output: costOutput,
@@ -111,7 +124,7 @@ export function applyCursorUsage(
 ): void {
   if (!state) return;
   if (state.billedUsage) {
-    output.usage = usageFromBilled(state.billedUsage, model);
+    output.usage = usageFromBilled(state.billedUsage, model, state.totalTokens);
     return;
   }
   const usage = computeUsage(state);

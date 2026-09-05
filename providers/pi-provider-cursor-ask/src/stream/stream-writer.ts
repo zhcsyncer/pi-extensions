@@ -119,7 +119,10 @@ export function createNativeStreamWriter(
       if (closed) return;
       ensureStarted();
       endActiveBlock();
-      applyCursorUsage(output, model, state);
+      // Cursor's turnEnded usage is cumulative across every internal model invocation around
+      // tool calls. Charging an intermediate toolUse message here would both double-count that
+      // turn and replace Pi's last trustworthy context snapshot with a near-zero partial value.
+      if (reason !== "toolUse") applyCursorUsage(output, model, state);
       output.stopReason = reason;
       stream.push({ type: "done", reason, message: output });
       closed = true;
