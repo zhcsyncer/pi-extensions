@@ -76,6 +76,7 @@ import {
 } from "./tuning.js";
 import { markBlobMiss, trimBlobStore } from "./session-state.js";
 import { billedUsageFromTurnEnded } from "./pi-adapter.js";
+import { recordRunReceipt } from "./run-usage.js";
 import type { PendingExec, StreamState } from "./types.js";
 import { setLastStreamEvent } from "../diagnostics/diagnostics.js";
 
@@ -99,7 +100,7 @@ export function processServerMessage(
   state: StreamState,
   onText: (text: string, isThinking?: boolean) => void,
   onMcpExec: (exec: PendingExec) => void,
-  onCheckpoint?: (checkpointBytes: Uint8Array) => void,
+  onCheckpoint?: (checkpointBytes: Uint8Array, contextTokens?: number) => void,
   onExecUnanswerable?: (execCase: string | undefined) => void,
 ): StreamProgress {
   const msgCase = msg.message.case;
@@ -166,7 +167,7 @@ export function processServerMessage(
             cacheWrite: billed.cacheWrite,
           });
         }
-        state.billedUsage = billed;
+        recordRunReceipt(state, billed, update.message.value ?? {});
       }
       return "work";
     }
@@ -244,11 +245,16 @@ export function processServerMessage(
   }
   if (msgCase === "conversationCheckpointUpdate") {
     const stateStructure = msg.message.value as ConversationStateStructure;
-    if ((stateStructure as any).tokenDetails) {
-      state.totalTokens = (stateStructure as any).tokenDetails.usedTokens;
-    }
+    const usedTokens = stateStructure.tokenDetails?.usedTokens;
+    const contextTokens =
+      typeof usedTokens === "number" && Number.isFinite(usedTokens) && usedTokens > 0
+        ? usedTokens
+        : undefined;
+    // Pending tool checkpoints can carry 0/0 placeholders. Preserve the last positive observation,
+    // but accept genuine smaller positive values after an upstream context reduction.
+    if (contextTokens !== undefined) state.totalTokens = contextTokens;
     if (onCheckpoint) {
-      onCheckpoint(toBinary(ConversationStateStructureSchema, stateStructure));
+      onCheckpoint(toBinary(ConversationStateStructureSchema, stateStructure), contextTokens);
       return "work";
     }
     return "none";

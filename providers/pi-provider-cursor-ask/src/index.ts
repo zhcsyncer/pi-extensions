@@ -35,6 +35,7 @@ import { getStartupCursorAccessToken, isTokenNearExpiry } from "./extension/auth
 import { createProviderManager, loadStartupCatalog } from "./extension/provider.js";
 import { registerCursorCommands } from "./extension/commands.js";
 import { registerCursorQuotaAdapters } from "./extension/quota-adapter.js";
+import { registerCursorCompactionGuard } from "./extension/compaction-guard.js";
 
 // ── Re-exports for public API, tests, and external scripts ──
 
@@ -149,6 +150,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   };
 
   registerSessionLifecycleCleanup(pi);
+  registerCursorCompactionGuard(pi);
   registerCursorNotifySink(pi);
   registerExtensionDebugHooks(pi);
   debugExtensionLog("extension.start", {
