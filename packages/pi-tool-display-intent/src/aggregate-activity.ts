@@ -11,6 +11,8 @@ import { ContextGrowthLedger, formatContextGrowth, type ContextGrowth } from "./
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
 import { layoutSteerPreview } from "./steer-preview.js";
 import { patchAggregateGlobalExpansion, restoreAggregateGlobalExpansion } from "./aggregate-expansion.js";
+import { patchAggregateViewport, restoreAggregateViewport, resetAggregateViewportOwner, toggleAggregateViewportRun, type AggregateViewportRun } from "./aggregate-viewport.js";
+import { createAggregateCollapseWidget } from "./aggregate-collapse-widget.js";
 import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
@@ -875,6 +877,7 @@ export class AggregateProjection {
 	private timelineExpanded = false;
 	private timelineExpansionObserved = false;
 	private readonly expandedGroups = new Map<string, boolean>();
+	private readonly viewportRuns = new Map<string, AggregateViewportRun>();
 	private detailOpener?: (request: DetailRequest) => Promise<void>;
 	private detailOpen = false;
 
@@ -928,6 +931,36 @@ export class AggregateProjection {
 
 	isMessageExpanded(message: unknown, fallback = false): boolean {
 		return this.isItemExpanded(this.contextTurnId(message) ?? aggregateAssistantFrameId(message) ?? "", fallback);
+	}
+
+	getViewportRun(itemId: string): AggregateViewportRun | undefined {
+		const group = this.groupForItem(itemId);
+		if (!group) return undefined;
+		const cached = this.viewportRuns.get(group.groupId);
+		if (cached) return cached;
+		const id = group.groupId;
+		const run: AggregateViewportRun = {
+			owner: this, id,
+			isValid: () => this.viewportRuns.get(id) === run && this.groupsById.has(id),
+			isExpanded: () => this.isItemExpanded(id),
+			toggle: () => { if (run.isValid()) this.toggleGroupExpansion(id); },
+			label: () => {
+				const count = this.groupsById.get(id)?.members.filter((member) => member.visible).length ?? 0;
+				return `Tools (${count} ${pluralize(count, "call")})`;
+			},
+		};
+		this.viewportRuns.set(id, run);
+		return run;
+	}
+
+	clearViewportState(): void {
+		this.viewportRuns.clear();
+		resetAggregateViewportOwner(this);
+	}
+
+	toggleGroupExpansionFromComponent(itemId: string, component: object): void {
+		const run = this.getViewportRun(itemId);
+		if (run) toggleAggregateViewportRun(component, run);
 	}
 
 	toggleGroupExpansion(itemId: string): void {
@@ -1521,6 +1554,7 @@ export class AggregateProjection {
 	}
 
 	rebuild(branchEntries: unknown[], visibleMessages?: unknown[]): void {
+		this.clearViewportState();
 		const visibleIds = collectVisibleToolCallIds(visibleMessages);
 		this.groups.length = 0;
 		this.groupsById.clear();
@@ -2198,6 +2232,7 @@ function installExecutionClockHooks(
 
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
 	claimHostProjection(undefined, projection);
+	patchAggregateViewport();
 	const prototype = getToolExecutionPrototype();
 	patchAggregateMouseHandling(prototype);
 	patchAggregateGlobalExpansion((expanded) => getActiveAggregateProjection()?.noteTimelineExpansion(expanded));
@@ -2245,7 +2280,8 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		if (!member) return [];
 		const view = activeProjection.getView(toolCallId);
 		const regions: AggregateClickRegion[] = [];
-		const toggle = () => activeProjection.toggleGroupExpansion(toolCallId);
+		const run = activeProjection.getViewportRun(toolCallId);
+		const toggle = () => activeProjection.toggleGroupExpansionFromComponent(toolCallId, this);
 		if (activeProjection.isItemExpanded(toolCallId, this.expanded === true)) {
 			const detail = activeProjection.renderExpandedToolRowLayout(toolCallId, width);
 			let lines = detail.lines;
@@ -2263,12 +2299,12 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 				kind: "tool", toolName, target: formatAggregateTarget(member), args: this.args, result: this.result,
 				status: member.state, timing: formatMemberTiming(member, PLAIN_THEME),
 			}) });
-			recordAggregateClickRegions(this, width, lines.length, regions);
+			recordAggregateClickRegions(this, width, lines.length, regions, run ? { run, ...(offset > 0 ? { titleRow: 1 } : {}) } : undefined);
 			return lines;
 		}
 		if (!view) return [];
 		const lines = padAggregateBlock(renderAggregateActivity(view, width, activeProjection.getRenderTheme()));
-		recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: lines.length - 1, onClick: toggle }]);
+		recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: lines.length - 1, onClick: toggle }], run ? { run, titleRow: 1 } : undefined);
 		return lines;
 	};
 	Object.defineProperty(prototype, AGGREGATE_TOOL_EXECUTION_PATCH_KEY, {
@@ -2280,6 +2316,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 }
 
 export function restoreAggregateToolExecutions(): void {
+	restoreAggregateViewport();
 	hostAggregateProjection = undefined;
 	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
@@ -2326,6 +2363,7 @@ export function registerAggregateProjectionEvents(
 		? Math.max(0, Math.floor(requestedDelay))
 		: AGGREGATE_DONE_SETTLE_DELAY_MS;
 	let settleTimer: ReturnType<typeof setTimeout> | undefined;
+	const collapseWidget = createAggregateCollapseWidget(projection);
 	const clearSettleTimer = () => {
 		if (settleTimer !== undefined) clearTimeout(settleTimer);
 		settleTimer = undefined;
@@ -2333,6 +2371,7 @@ export function registerAggregateProjectionEvents(
 	const rebuild = (ctx: SessionContextLike) => {
 		clearSettleTimer();
 		const uiContext = ctx as ExtensionContext;
+		collapseWidget.bind(uiContext);
 		projection.setDetailOpener(uiContext?.hasUI !== false && typeof uiContext?.ui?.custom === "function"
 			? async (request) => {
 				const { openDetailViewer } = await import("./detail-viewer.js");
@@ -2359,6 +2398,10 @@ export function registerAggregateProjectionEvents(
 	if (registeredApis.has(pi)) return;
 	registeredApis.add(pi);
 
+	pi.on("session_shutdown", async () => {
+		collapseWidget.dispose();
+		projection.clearViewportState();
+	});
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx?.hasUI !== false) adoptHostIfNeeded();
 		rebuild(ctx);

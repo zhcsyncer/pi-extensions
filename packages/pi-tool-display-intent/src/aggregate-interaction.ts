@@ -1,4 +1,5 @@
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { recordAggregateViewportRegion, releaseAggregateViewportRegion, type AggregateViewportRun } from "./aggregate-viewport.js";
 
 export interface AggregateClickRegion {
 	startRow: number;
@@ -33,12 +34,16 @@ export function recordAggregateClickRegions(
 	width: number,
 	height: number,
 	regions: readonly AggregateClickRegion[] = [],
+	viewport?: { run: AggregateViewportRun; titleRow?: number },
 ): void {
 	hitMaps.set(instance, { width, height, regions });
+	if (viewport) recordAggregateViewportRegion(instance, { ...viewport, width, height });
+	else releaseAggregateViewportRegion(instance);
 }
 
 export function releaseAggregateClickRegions(instance: object): void {
 	hitMaps.delete(instance);
+	releaseAggregateViewportRegion(instance);
 }
 
 function dispatch(instance: object, event: TuiMouseEvent): TuiMouseEventResult | undefined {

@@ -78,6 +78,8 @@ pi install npm:@zhcsyncer/pi-extensions
 
 在 Pi **0.85+ fullscreen 模式**下，点击**收起的 Tools 内容区**任意位置（包括统计收据、当前调用预览）即可只展开这一本 run 账本。展开后，整个标题／统计摘要区都可点击收起。上下空白间距和展开后的旁白正文不触发开合，拖动仍用于选择文本。`Ctrl+O` 仍切换整个会话，并覆盖局部选择。透传工具保留自己的原生交互。
 
+展开时会保留聚合标题在视口中的位置，不再追随新增内容跳到末尾。向下阅读较长的展开账本、标题滚出视口上方后，输入框上方会出现固定的 **`↑ Tools (…) · Collapse`** 收起条。点击只收起当前账本，并回到它的聚合标题；不会抢输入焦点或覆盖正文。这些视口功能需要兼容的 Pi 0.85+ fullscreen 渲染器，普通终端滚动模式不提供账本鼠标交互。
+
 点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 会排版 JSON、从 `.md` / `.markdown` / `.mdx` 路径读取的 Markdown 文件，以及明确的自定义工具 Markdown；其他源码和日志保持原文。Args 使用键值行和多行文本块，Bash command 会做 Shell 语法高亮。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 查看文本或 JSON 原文。弹窗不再对凭据脱敏，但仍过滤终端控制字符并保留明确的体积限制，分享前请核查内容。长文本自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。工具本身已截断的输出无法恢复。
 
 成功的 Edit 调用若返回了 diff，**Result 就是 diff**，不另设标签。成功的 Write 也使用同一视图，把写入内容标为新增，并明确说明这不是覆盖前后的净差异。两者都跟随全局 **Diff layout** / **Diff indicators**，aggregate 的 `/tools` 中也能配置；高级项 `diff.wordWrap` / `diff.splitMinWidth` 同样生效。Raw 保留原始返回及源内容；失败或缺少必要数据时显示普通结果，不根据当前文件猜测历史改动。

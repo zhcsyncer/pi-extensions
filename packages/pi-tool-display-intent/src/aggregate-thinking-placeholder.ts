@@ -311,16 +311,17 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		const inner = projection?.framedItemFollowsTool(frameId) === true ? ["", ...marked] : marked;
 		const edge = projection?.getFrameEdge(frameId) ?? "only";
 		const framed = applyAggregateGroupFrame(inner, width, theme, edge);
+		const run = projection?.getViewportRun(frameId);
 		if (projection?.shouldHostExpandedSummary(frameId)) {
 			const headerView = projection.getViewForGroup(frameId);
 			if (headerView) {
 				const header = renderExpandedAggregateSummary(headerView, width, theme);
 				const lines = attachExpandedAggregateSummary(header, framed);
-				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansion(frameId) }]);
+				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansionFromComponent(frameId, this) }], run ? { run, titleRow: 1 } : undefined);
 				return lines;
 			}
 		}
-		recordAggregateClickRegions(this, width, framed.length);
+		recordAggregateClickRegions(this, width, framed.length, [], run ? { run } : undefined);
 		return framed;
 	};
 	Object.defineProperty(prototype, AGGREGATE_THINKING_PATCH_KEY, {

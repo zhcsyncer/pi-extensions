@@ -131,14 +131,15 @@ export function resolveAggregateSteerUserPresentation(
       const header = renderExpandedAggregateSummary(view, width, theme);
       lines = attachExpandedAggregateSummary(header, lines);
       offset = 1 + header.length;
-      regions.push({ startRow: 1, endRow: offset, onClick: () => projection.toggleGroupExpansion(steer.id) });
+      regions.push({ startRow: 1, endRow: offset, onClick: () => projection.toggleGroupExpansionFromComponent(steer.id, instance) });
     }
   }
   if (layout.omissionRow !== undefined) {
     regions.push({ startRow: offset + layout.omissionRow, endRow: offset + layout.omissionRow + 1,
       onClick: () => projection.openDetail({ kind: "steer", text: steer.text }) });
   }
-  recordAggregateClickRegions(instance, width, lines.length, regions);
+  const run = projection.getViewportRun(steer.id);
+  recordAggregateClickRegions(instance, width, lines.length, regions, run ? { run, ...(offset > 0 ? { titleRow: 1 } : {}) } : undefined);
   return { lines };
 }
 
