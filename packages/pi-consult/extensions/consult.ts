@@ -5,7 +5,7 @@ import { registerConsultCommand } from "../src/command.ts";
 import { loadConsultConfig, loadConsultConfigSync, resolveGuidance } from "../src/config.ts";
 import { executeConsult } from "../src/execute.ts";
 import { appendConsultAdoption, parseConsultLog } from "../src/events.ts";
-import { LOOP_STEER_TEXT, CONSULT_TOOL_NAME, TOOL_LABEL, msgConsultEnabled } from "../src/messages.ts";
+import { CONSULT_TOOL_NAME, TOOL_LABEL, WATCHDOG_STEER_TEXT, msgConsultEnabled } from "../src/messages.ts";
 import { isConsultBlocked, reconcileConsultTool } from "../src/reconcile.ts";
 import { renderConsultCall, renderConsultResult } from "../src/tool-display.ts";
 import { ConsultTracker } from "../src/tracker.ts";
@@ -19,7 +19,7 @@ const ConsultParams = Type.Object({
 });
 
 const CONSULT_DESCRIPTION =
-	"Ask a configured advisor model for a plan, correction, or stop. " +
+	"Ask a configured advisor model for a recommendation, confirmation, revision, or stop. " +
 	"Required `why` is 1-2 sentences explaining why you need a second opinion now. " +
 	"The advisor sees the conversation and your tool inventory, has no tools, and does not talk to the user.";
 
@@ -124,11 +124,11 @@ export default function consultExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_end", async (event, ctx) => {
 		tracker.onToolEnd(event.toolCallId, event.toolName, event.isError, event.result);
 		if (event.toolName === CONSULT_TOOL_NAME) return;
-		const decision = tracker.evaluateLoop(loaded.config.gates.loop, loaded.config.budget);
+		const decision = tracker.evaluateWatchdog(loaded.config.gates.watchdog, loaded.config.budget);
 		if (!decision.fire) return;
 		if (isConsultBlocked(loaded.config, currentModelKey(ctx))) return;
-		tracker.markLoopFired();
-		pi.sendUserMessage(LOOP_STEER_TEXT, { deliverAs: "steer" });
+		tracker.markWatchdogFired();
+		pi.sendUserMessage(WATCHDOG_STEER_TEXT, { deliverAs: "steer" });
 	});
 
 	pi.on("message_end", async (event, ctx) => {

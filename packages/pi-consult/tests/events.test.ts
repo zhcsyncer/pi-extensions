@@ -29,10 +29,10 @@ function event(overrides: Partial<ConsultEvent> = {}): ConsultEvent {
 	const merged = {
 		ts: "2026-09-01T00:00:00.000Z",
 		session: "sess-1",
-		trigger: "pull" as const,
+		trigger: "onDemand" as const,
 		why: "need a second opinion on the approach",
 		models: ["anthropic/claude-fable-5"],
-		verdict: "correction" as const,
+		verdict: "revise" as const,
 		adopted: null,
 		tokensIn: 100,
 		tokensOut: 20,
@@ -62,6 +62,11 @@ describe("consult events jsonl", () => {
 		const events = await readRecentEvents(10, directory);
 		expect(events.find((item) => item.ts === "1")?.adopted).toBe(true);
 		expect(events.find((item) => item.session === "other")?.adopted).toBeNull();
+	});
+
+	it("rejects removed trigger and verdict values", () => {
+		expect(parseConsultEvent({ ...event(), trigger: "pull" })).toBeUndefined();
+		expect(parseConsultEvent({ ...event(), verdict: "plan" })).toBeUndefined();
 	});
 
 	it("serializes concurrent appends without losing events", async () => {
@@ -100,18 +105,18 @@ describe("consult events jsonl", () => {
 		expect(events.find((item) => item.ts === "second")?.adopted).toBe(false);
 	});
 
-	it("keeps reading legacy consult lines with inline adoption and no cache fields", async () => {
+	it("defaults absent cache fields while preserving inline adoption", async () => {
 		const directory = await agentDir();
-		const current = event({ ts: "legacy", adopted: false });
+		const current = event({ ts: "without-cache", adopted: false });
 		const { cacheRead: _cacheRead, cacheWrite: _cacheWrite, ...legacy } = current;
 		const parsed = parseConsultEvent(legacy);
 		expect(parsed).toMatchObject({ adopted: false, cacheRead: 0, cacheWrite: 0 });
-		if (!parsed) throw new Error("legacy event did not parse");
+		if (!parsed) throw new Error("event did not parse");
 		await appendConsultEvent(parsed, directory);
 		expect((await readRecentEvents(10, directory))[0]?.adopted).toBe(false);
 	});
 
-	it("parses CONSULT-LOG adopt, reject, reasons, and the legacy shape", () => {
+	it("parses CONSULT-LOG adopt, reject, reasons, and the extended shape", () => {
 		expect(parseConsultLog("hello\nCONSULT-LOG: adopt | tests failed\n")).toEqual({
 			adopted: true,
 			reason: "tests failed",

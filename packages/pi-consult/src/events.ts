@@ -44,13 +44,14 @@ export function parseConsultLog(text: string): ConsultAdoption | undefined {
 export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 	if (!isRecord(value)) return undefined;
 	if (typeof value.ts !== "string" || typeof value.session !== "string") return undefined;
-	if (value.trigger !== "pull" && value.trigger !== "loop") return undefined;
+	if (value.trigger !== "onDemand" && value.trigger !== "watchdog") return undefined;
 	if (typeof value.why !== "string") return undefined;
 	if (!Array.isArray(value.models) || !value.models.every((model) => typeof model === "string")) return undefined;
 	const verdict = value.verdict;
 	if (
-		verdict !== "plan" &&
-		verdict !== "correction" &&
+		verdict !== "recommend" &&
+		verdict !== "confirm" &&
+		verdict !== "revise" &&
 		verdict !== "stop" &&
 		verdict !== "split" &&
 		verdict !== "error"

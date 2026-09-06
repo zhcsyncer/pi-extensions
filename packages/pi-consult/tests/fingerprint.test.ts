@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	emptyFingerprintState,
-	loopGateReason,
+	watchdogReason,
 	recordToolEvent,
 	toolFingerprint,
 } from "../src/fingerprint.ts";
@@ -20,21 +20,21 @@ describe("tool fingerprint", () => {
 		expect(state.recent.map((event) => event.name)).toEqual(["read"]);
 	});
 
-	it("fires the same-call loop after N identical fingerprints", () => {
+	it("fires the watchdog after N identical fingerprints", () => {
 		let state = emptyFingerprintState();
 		for (let i = 0; i < 3; i++) {
 			state = recordToolEvent(state, { name: "bash", input: { command: "ls" }, isError: false });
 		}
-		expect(loopGateReason(state, 3)).toBe("same");
-		expect(loopGateReason(state, 4)).toBeUndefined();
+		expect(watchdogReason(state, 3)).toBe("same");
+		expect(watchdogReason(state, 4)).toBeUndefined();
 	});
 
-	it("fires the error loop after N consecutive errors even with different tools", () => {
+	it("fires the watchdog after N consecutive errors even with different tools", () => {
 		let state = emptyFingerprintState();
 		state = recordToolEvent(state, { name: "read", input: { path: "a" }, isError: true });
 		state = recordToolEvent(state, { name: "bash", input: { command: "x" }, isError: true });
 		state = recordToolEvent(state, { name: "edit", input: { path: "b" }, isError: true });
-		expect(loopGateReason(state, 3)).toBe("error");
+		expect(watchdogReason(state, 3)).toBe("error");
 	});
 
 	it("resets both streaks on a different successful call", () => {
@@ -42,7 +42,7 @@ describe("tool fingerprint", () => {
 		state = recordToolEvent(state, { name: "bash", input: { command: "ls" }, isError: true });
 		state = recordToolEvent(state, { name: "bash", input: { command: "ls" }, isError: true });
 		state = recordToolEvent(state, { name: "read", input: { path: "ok" }, isError: false });
-		expect(loopGateReason(state, 2)).toBeUndefined();
+		expect(watchdogReason(state, 2)).toBeUndefined();
 	});
 
 });

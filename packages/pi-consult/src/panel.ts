@@ -10,7 +10,7 @@ export interface ResolvedPanelMember {
 
 export function selectPanel(panel: PanelMember[], opts: { fanout: boolean; trigger: ConsultTrigger }): PanelMember[] {
 	if (panel.length === 0) return [];
-	if (opts.trigger !== "pull" || !opts.fanout) return [panel[0]];
+	if (opts.trigger !== "onDemand" || !opts.fanout) return [panel[0]];
 	return panel;
 }
 

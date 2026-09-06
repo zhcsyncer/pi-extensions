@@ -114,9 +114,15 @@ async function callAdvisorMember(opts: {
 		? { signal: opts.signal, reasoning: opts.member.effort }
 		: { apiKey: opts.apiKey, headers: opts.headers, signal: opts.signal, reasoning: opts.member.effort };
 
+	const startedAt = Date.now();
 	let accumulatedUsage: ReturnType<typeof usageSnapshotFrom>;
 	let accumulatedApprox = 0;
 	let attempt = 0;
+	const metadata = () => ({
+		...(opts.member.effort ? { effort: opts.member.effort } : {}),
+		durationMs: Date.now() - startedAt,
+		attempts: attempt,
+	});
 	const call = async (): Promise<AssistantMessage> => {
 		attempt += 1;
 		let phase: ConsultLivePhase = "connecting";
@@ -201,7 +207,7 @@ async function callAdvisorMember(opts: {
 	try {
 		let response = await call();
 		if (response.stopReason === "aborted") {
-			return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage };
+			return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage, ...metadata() };
 		}
 		if (response.stopReason === "error") {
 			return {
@@ -209,13 +215,14 @@ async function callAdvisorMember(opts: {
 				label: opts.member.label,
 				error: errCallFailed(response.errorMessage),
 				usage: accumulatedUsage,
+				...metadata(),
 			};
 		}
 		let responseText = advisorTextFromResponse(response);
 		if (!responseText) {
 			response = await call();
 			if (response.stopReason === "aborted") {
-				return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage };
+				return { ok: false, label: opts.member.label, error: ERR_CALL_ABORTED, usage: accumulatedUsage, ...metadata() };
 			}
 			if (response.stopReason === "error") {
 				return {
@@ -223,14 +230,15 @@ async function callAdvisorMember(opts: {
 					label: opts.member.label,
 					error: errCallFailed(response.errorMessage),
 					usage: accumulatedUsage,
+					...metadata(),
 				};
 			}
 			responseText = advisorTextFromResponse(response);
 			if (!responseText) {
-				return { ok: false, label: opts.member.label, error: ERR_EMPTY_RESPONSE, usage: accumulatedUsage };
+				return { ok: false, label: opts.member.label, error: ERR_EMPTY_RESPONSE, usage: accumulatedUsage, ...metadata() };
 			}
 		}
-		return { ok: true, label: opts.member.label, text: responseText, usage: accumulatedUsage };
+		return { ok: true, label: opts.member.label, text: responseText, usage: accumulatedUsage, ...metadata() };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
@@ -238,6 +246,7 @@ async function callAdvisorMember(opts: {
 			label: opts.member.label,
 			error: errCallThrew(message),
 			...(accumulatedUsage ? { usage: accumulatedUsage } : {}),
+			...metadata(),
 		};
 	}
 }
@@ -264,6 +273,9 @@ export async function runConsultPanel(opts: {
 					ok: false,
 					label: member.label,
 					error: errMisconfigured(member.label, auth.error ?? ERR_NO_MODEL_DETAIL),
+					...(member.effort ? { effort: member.effort } : {}),
+					durationMs: 0,
+					attempts: 0,
 				};
 			}
 			if (!auth.apiKey && !opts.useRuntimeFacade) {
@@ -271,6 +283,9 @@ export async function runConsultPanel(opts: {
 					ok: false,
 					label: member.label,
 					error: errNoApiKey(member.label),
+					...(member.effort ? { effort: member.effort } : {}),
+					durationMs: 0,
+					attempts: 0,
 				};
 			}
 			return callAdvisorMember({
@@ -331,7 +346,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 			outcome,
 		});
 
-	if (!why) return fail(opts.tracker.pendingTrigger ?? "pull", ERR_EMPTY_WHY);
+	if (!why) return fail(opts.tracker.pendingTrigger ?? "onDemand", ERR_EMPTY_WHY);
 	const trigger: ConsultTrigger = opts.tracker.consumeTrigger();
 
 	const budgetError = budgetBlockReason(opts.config.budget, opts.tracker.runCount, opts.tracker.sessionCount);
@@ -386,18 +401,25 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 	opts.tracker.recordConsult();
 
 	const models = members.map((member) => member.label);
-	const effort = members[0]?.effort;
 	const live = new Map<string, ConsultLiveMember>(
-		models.map((model) => [model, { model, phase: "connecting", approxOutputTokens: 0, attempt: 1 }]),
+		members.map((member) => [
+			member.label,
+			{
+				model: member.label,
+				...(member.effort ? { effort: member.effort } : {}),
+				phase: "connecting",
+				approxOutputTokens: 0,
+				attempt: 1,
+			},
+		]),
 	);
 	const publishProgress = (): void => {
 		try {
 			opts.onUpdate?.({
-				content: [{ type: "text", text: msgConsulting(models.join(" + "), effort) }],
+				content: [{ type: "text", text: msgConsulting(models.join(" + "), undefined) }],
 				details: {
 					trigger,
 					models,
-					...(effort ? { effort } : {}),
 					live: models.flatMap((model) => {
 						const progress = live.get(model);
 						return progress ? [progress] : [];
@@ -425,7 +447,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 			) {
 				return;
 			}
-			live.set(model, { model, ...progress });
+			live.set(model, { model, ...(previous?.effort ? { effort: previous.effort } : {}), ...progress });
 			publishProgress();
 		},
 		authFor: async (member) =>
@@ -462,5 +484,5 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		// Logging must not smash the session; the tool result still returns.
 	}
 
-	return buildConsultToolResult({ envelope, trigger, models, outcome, effort: members[0]?.effort, usage });
+	return buildConsultToolResult({ envelope, trigger, models, outcome, usage });
 }

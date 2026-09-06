@@ -106,9 +106,12 @@ export function applyConsultSetting(config: ConsultConfig, id: string, value: st
 		}
 		case "fanout":
 			return { ...config, fanout: value === "on" };
-		case "loop": {
-			const loop = value === "off" ? 0 : Number(value);
-			return { ...config, gates: { ...config.gates, loop: Number.isFinite(loop) ? loop : config.gates.loop } };
+		case "watchdog": {
+			const watchdog = value === "off" ? 0 : Number(value);
+			return {
+				...config,
+				gates: { ...config.gates, watchdog: Number.isFinite(watchdog) ? watchdog : config.gates.watchdog },
+			};
 		}
 		default:
 			return config;
@@ -170,10 +173,10 @@ export function consultSettingItems(
 			values: ["off", "on"],
 		},
 		{
-			id: "loop",
-			label: "Loop gate",
+			id: "watchdog",
+			label: "Watchdog",
 			description: "Steer to consult after N identical tool calls or N consecutive errors. off disables it.",
-			currentValue: config.gates.loop > 0 ? String(config.gates.loop) : "off",
+			currentValue: config.gates.watchdog > 0 ? String(config.gates.watchdog) : "off",
 			values: ["off", "2", "3", "4", "5", "6", "8"],
 		},
 	];
@@ -197,7 +200,7 @@ export async function openConsultStatusDashboard(
 			{
 				panel: config.panel,
 				fanout: config.fanout,
-				loopGate: config.gates.loop,
+				watchdog: config.gates.watchdog,
 				budgetRemaining: formatBudgetRemaining(config.budget, tracker.runCount, tracker.sessionCount),
 				recent,
 				...(recentError ? { recentError } : {}),
@@ -268,7 +271,10 @@ export function registerConsultCommand(pi: ExtensionAPI, state: ConsultCommandSt
 							settingsList.updateValue("panel1", next.panel[1]?.model ?? "none");
 							settingsList.updateValue("effort1", next.panel[1] ? (next.panel[1].effort ?? "default") : "—");
 							settingsList.updateValue("fanout", next.fanout ? "on" : "off");
-							settingsList.updateValue("loop", next.gates.loop > 0 ? String(next.gates.loop) : "off");
+							settingsList.updateValue(
+								"watchdog",
+								next.gates.watchdog > 0 ? String(next.gates.watchdog) : "off",
+							);
 						})();
 					},
 					() => done(undefined),

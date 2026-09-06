@@ -14,10 +14,10 @@ const theme = {
 
 const markdownResult = {
 	details: {
-		trigger: "pull" as const,
+		trigger: "onDemand" as const,
 		models: ["cursor/fable-5.1"],
 		envelope: {
-			verdict: "plan" as const,
+			verdict: "recommend" as const,
 			summary: "**先运行** `pnpm test`：\n\n- 检查失败原因\n- 保留必要改动",
 			raw: [],
 		},
@@ -41,7 +41,7 @@ describe("consult expanded Markdown", () => {
 
 		const collapsed = renderConsultResult(markdownResult, { expanded: false, isPartial: false }, theme, {});
 		const collapsedOutput = stripSgr(collapsed.render(160).join("\n"));
-		expect(collapsedOutput).toContain("plan · 先运行 pnpm test： 检查失败原因 保留必要改动");
+		expect(collapsedOutput).toContain("recommend · 先运行 pnpm test： 检查失败原因 保留必要改动");
 		expect(collapsedOutput).not.toContain("**");
 		expect(collapsedOutput).not.toContain("`");
 
@@ -52,7 +52,7 @@ describe("consult expanded Markdown", () => {
 			{ isPartial: true },
 		);
 		const partialOutput = stripSgr(partial.render(80).join("\n"));
-		expect(partialOutput).toContain("consulting cursor/fable-5.1");
+		expect(partialOutput).toContain("consulting · on-demand · cursor/fable-5.1");
 		expect(partialOutput).not.toContain("先运行");
 	});
 
@@ -60,13 +60,14 @@ describe("consult expanded Markdown", () => {
 		const result = renderConsultResult(
 			{
 				details: {
-					trigger: "pull",
+					trigger: "onDemand",
 					models: ["cursor/fable-5.1"],
 					envelope: {
-						verdict: "plan",
+						verdict: "confirm",
 						summary: "继续验证。",
 						raw: [{
 							model: "cursor/fable-5.1",
+							effort: "xhigh",
 							text: "result",
 							usage: {
 								input: 11,
@@ -76,6 +77,8 @@ describe("consult expanded Markdown", () => {
 								totalTokens: 134,
 								cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, total: 4 },
 							},
+							durationMs: 28_000,
+							attempts: 1,
 						}],
 					},
 				},
@@ -85,7 +88,7 @@ describe("consult expanded Markdown", () => {
 			{},
 		);
 		const output = stripSgr(result.render(100).join("\n"));
-		expect(output).toContain("cursor/fable-5.1");
+		expect(output).toContain("on-demand · cursor/fable-5.1:xhigh");
 		expect(output).toContain("in 131 · out 3 · total 134");
 		expect(output).not.toContain("cache");
 		expect(output).not.toContain("$");
@@ -106,7 +109,7 @@ describe("consult expanded Markdown", () => {
 						models: ["cursor/fable-5.1"],
 						outcome: "failed" as const,
 						envelope: {
-							verdict: "plan" as const,
+							verdict: "recommend" as const,
 							summary: "",
 							error: "Provider returned a long failure message",
 							raw: [],

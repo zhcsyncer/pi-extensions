@@ -1,9 +1,9 @@
 import { canSpendBudget } from "./budget.ts";
-import { emptyFingerprintState, loopGateReason, recordToolEvent, type FingerprintState } from "./fingerprint.ts";
+import { emptyFingerprintState, recordToolEvent, type FingerprintState, watchdogReason } from "./fingerprint.ts";
 import { CONSULT_TOOL_NAME } from "./messages.ts";
 import type { ConsultBudget, ConsultTrigger } from "./types.ts";
 
-export interface LoopGateDecision {
+export interface WatchdogDecision {
 	fire: boolean;
 	reason?: "same" | "error";
 }
@@ -51,7 +51,7 @@ export class ConsultTracker {
 	}
 
 	consumeTrigger(): ConsultTrigger {
-		const trigger = this.pendingTrigger ?? "pull";
+		const trigger = this.pendingTrigger ?? "onDemand";
 		this.pendingTrigger = undefined;
 		return trigger;
 	}
@@ -61,16 +61,16 @@ export class ConsultTracker {
 		this.sessionCount += 1;
 	}
 
-	evaluateLoop(n: number, budget: ConsultBudget): LoopGateDecision {
+	evaluateWatchdog(n: number, budget: ConsultBudget): WatchdogDecision {
 		if (this.lock) return { fire: false };
 		if (!canSpendBudget(budget, this.runCount, this.sessionCount)) return { fire: false };
-		const reason = loopGateReason(this.fingerprint, n);
+		const reason = watchdogReason(this.fingerprint, n);
 		if (!reason) return { fire: false };
 		return { fire: true, reason };
 	}
 
-	markLoopFired(): void {
+	markWatchdogFired(): void {
 		this.lock = true;
-		this.pendingTrigger = "loop";
+		this.pendingTrigger = "watchdog";
 	}
 }

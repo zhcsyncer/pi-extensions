@@ -31,7 +31,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
   ![Fast Mode 底栏状态](./packages/pi-fast-mode/assets/demo-fast-mode-status.png)
 
-- [`@zhcsyncer/pi-consult`](./packages/pi-consult) — 第二意见 `consult({ why })`，带 loop gate、可选双路 panel 和本地行为日志。未配置时自行卸载。
+- [`@zhcsyncer/pi-consult`](./packages/pi-consult) — 第二意见 `consult({ why })`，带 watchdog、可选双路 panel 和本地行为日志。未配置时自行卸载。
 - [`@zhcsyncer/pi-meter`](./packages/pi-meter) — 一条 `/usage` 同时看本地花费和 Claude / Codex / SuperGrok / Ollama Cloud 剩余。合了 `pi-tracker` 与 `@pi-plugins/usage`；不要同时加载后者，两者都会注册 `/usage`。
 
   ![Meter 底栏](./packages/pi-meter/assets/demo-meter-status.png)

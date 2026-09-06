@@ -11,8 +11,8 @@ import type {
 } from "./types.ts";
 import { isRecord } from "./types.ts";
 
-const VERDICTS = new Set<ConsultVerdict>(["plan", "correction", "stop", "split"]);
-const ADVISOR_VERDICTS = new Set<Exclude<ConsultVerdict, "split">>(["plan", "correction", "stop"]);
+const VERDICTS = new Set<ConsultVerdict>(["recommend", "confirm", "revise", "stop", "split"]);
+const ADVISOR_VERDICTS = new Set<Exclude<ConsultVerdict, "split">>(["recommend", "confirm", "revise", "stop"]);
 
 interface UsageLike {
 	input?: number;
@@ -119,25 +119,29 @@ export function parseAdvisorText(text: string): { verdict: Exclude<ConsultVerdic
 			return { verdict: parsed.verdict as Exclude<ConsultVerdict, "split">, summary: parsed.summary.trim() };
 		}
 	}
-	const tagged = text.match(/\bverdict\s*[:=]\s*"?(plan|correction|stop)"?/i);
+	const tagged = text.match(/\bverdict\s*[:=]\s*"?(recommend|confirm|revise|stop)"?/i);
 	if (tagged) {
 		return { verdict: tagged[1].toLowerCase() as Exclude<ConsultVerdict, "split">, summary: text.trim() };
 	}
-	return { verdict: "plan", summary: text.trim() };
+	return { verdict: "recommend", summary: text.trim() };
 }
 
-export interface AdvisorSuccess {
+interface AdvisorMetadata {
+	label: string;
+	effort?: ConsultRaw["effort"];
+	usage?: UsageSnapshot;
+	durationMs: number;
+	attempts: number;
+}
+
+export interface AdvisorSuccess extends AdvisorMetadata {
 	ok: true;
-	label: string;
 	text: string;
-	usage?: UsageSnapshot;
 }
 
-export interface AdvisorFailure {
+export interface AdvisorFailure extends AdvisorMetadata {
 	ok: false;
-	label: string;
 	error: string;
-	usage?: UsageSnapshot;
 }
 
 export type AdvisorOutcome = AdvisorSuccess | AdvisorFailure;
@@ -145,8 +149,11 @@ export type AdvisorOutcome = AdvisorSuccess | AdvisorFailure;
 function toRaw(outcome: AdvisorOutcome): ConsultRaw {
 	return {
 		model: outcome.label,
+		...(outcome.effort ? { effort: outcome.effort } : {}),
 		text: outcome.ok ? outcome.text : outcome.error,
 		...(outcome.usage ? { usage: outcome.usage } : {}),
+		durationMs: outcome.durationMs,
+		attempts: outcome.attempts,
 	};
 }
 
@@ -158,7 +165,7 @@ export function buildConsultEnvelope(opts: {
 	error?: string;
 }): ConsultEnvelope {
 	const envelope: ConsultEnvelope = {
-		verdict: VERDICTS.has(opts.verdict) ? opts.verdict : "plan",
+		verdict: VERDICTS.has(opts.verdict) ? opts.verdict : "recommend",
 		summary: opts.summary,
 		raw: opts.raw ?? [],
 	};
@@ -168,7 +175,7 @@ export function buildConsultEnvelope(opts: {
 }
 
 export function errorEnvelope(summary: string, error = summary, raw: ConsultRaw[] = []): ConsultEnvelope {
-	return buildConsultEnvelope({ verdict: "plan", summary, error, raw });
+	return buildConsultEnvelope({ verdict: "recommend", summary, error, raw });
 }
 
 export function mergeAdvisorOutcomes(outcomes: AdvisorOutcome[]): ConsultEnvelope {
@@ -182,9 +189,16 @@ export function mergeAdvisorOutcomes(outcomes: AdvisorOutcome[]): ConsultEnvelop
 	const parsed = successes.map((success) => ({ ...success, parsed: parseAdvisorText(success.text) }));
 	const verdicts = new Set(parsed.map((item) => item.parsed.verdict));
 	const raw = outcomes.map(toRaw);
+	const allConstructive = parsed.every(
+		(item) => item.parsed.verdict === "recommend" || item.parsed.verdict === "confirm",
+	);
 
-	if (verdicts.size === 1) {
-		const verdict = parsed[0].parsed.verdict;
+	if (verdicts.size === 1 || allConstructive) {
+		const verdict = allConstructive
+			? parsed.every((item) => item.parsed.verdict === "confirm")
+				? "confirm"
+				: "recommend"
+			: parsed[0].parsed.verdict;
 		const summaries = [...new Set(parsed.map((item) => item.parsed.summary))];
 		return buildConsultEnvelope({
 			verdict,
@@ -224,7 +238,6 @@ export function buildConsultToolResult(opts: {
 	trigger: ConsultTrigger;
 	models: string[];
 	outcome?: ConsultOutcome;
-	effort?: string;
 	usage?: UsageSnapshot;
 }): AgentToolResult<ConsultDetails> {
 	const outcome = opts.outcome ?? (opts.envelope.error ? "failed" : "completed");
@@ -233,7 +246,6 @@ export function buildConsultToolResult(opts: {
 		models: opts.models,
 		envelope: opts.envelope,
 		outcome,
-		...(opts.effort ? { effort: opts.effort } : {}),
 		...(opts.envelope.error ? { errorMessage: opts.envelope.error } : {}),
 	};
 	return {

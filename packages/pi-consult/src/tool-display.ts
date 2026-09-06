@@ -7,6 +7,7 @@ import {
 	type ConsultLiveMember,
 	type ConsultOutcome,
 	type ConsultRaw,
+	type ConsultTrigger,
 	type ConsultVerdict,
 } from "./types.ts";
 
@@ -14,6 +15,7 @@ const TOOL_LABEL = "Consult";
 const RESULT_FIRST_PREFIX = "  ⎿ ";
 const RESULT_CONT_PREFIX = "    ";
 const ELAPSED_STATE_KEY = "__piConsultElapsed";
+const VERDICTS = new Set<ConsultVerdict>(["recommend", "confirm", "revise", "stop", "split"]);
 
 export interface ConsultRenderContext {
 	isError?: boolean;
@@ -73,7 +75,13 @@ function envelopeFromResult(result: ConsultRenderResult): ConsultEnvelope | unde
 	const details = detailsRecord(result);
 	if (!details || !isRecord(details.envelope)) return undefined;
 	const envelope = details.envelope;
-	if (typeof envelope.verdict !== "string" || typeof envelope.summary !== "string") return undefined;
+	if (
+		typeof envelope.verdict !== "string" ||
+		!VERDICTS.has(envelope.verdict as ConsultVerdict) ||
+		typeof envelope.summary !== "string"
+	) {
+		return undefined;
+	}
 	return envelope as unknown as ConsultEnvelope;
 }
 
@@ -83,9 +91,17 @@ function modelsFromResult(result: ConsultRenderResult): string[] {
 	return details.models.filter((model): model is string => typeof model === "string");
 }
 
-function effortFromResult(result: ConsultRenderResult): string | undefined {
-	const details = detailsRecord(result);
-	return typeof details?.effort === "string" && details.effort.trim() ? details.effort.trim() : undefined;
+function triggerFromResult(result: ConsultRenderResult): ConsultTrigger | undefined {
+	const trigger = detailsRecord(result)?.trigger;
+	return trigger === "onDemand" || trigger === "watchdog" ? trigger : undefined;
+}
+
+function triggerLabel(trigger: ConsultTrigger): string {
+	return trigger === "onDemand" ? "on-demand" : "watchdog";
+}
+
+function modelWithEffort(model: string, effort?: string): string {
+	return effort ? `${model}:${effort}` : model;
 }
 
 function liveFromResult(result: ConsultRenderResult): ConsultLiveMember[] {
@@ -111,6 +127,25 @@ function exactTokenLine(raw: ConsultRaw): string | undefined {
 	const input = raw.usage.input + raw.usage.cacheRead + raw.usage.cacheWrite;
 	const total = input + raw.usage.output;
 	return `in ${compactTokens(input)} · out ${compactTokens(raw.usage.output)} · total ${compactTokens(total)}`;
+}
+
+function executionMetadataLine(raw: ConsultRaw, trigger: ConsultTrigger | undefined): string {
+	const parts = [modelWithEffort(raw.model, raw.effort)];
+	if (trigger) parts.unshift(triggerLabel(trigger));
+	const tokens = exactTokenLine(raw);
+	if (tokens) parts.push(tokens);
+	if (raw.attempts > 1) parts.push(`retry ${raw.attempts}`);
+	parts.push(formatElapsed(raw.durationMs));
+	return parts.join(" · ");
+}
+
+function executionMetadataLines(
+	result: ConsultRenderResult,
+	envelope: ConsultEnvelope | undefined,
+): string[] {
+	const trigger = triggerFromResult(result);
+	if (envelope?.raw.length) return envelope.raw.map((raw) => executionMetadataLine(raw, trigger));
+	return modelsFromResult(result).map((model) => (trigger ? `${triggerLabel(trigger)} · ${model}` : model));
 }
 
 function claudeMarker(theme: Theme, context?: ConsultRenderContext): string {
@@ -185,18 +220,20 @@ function outcomeFromResult(
 
 function statusColor(theme: Theme, status: ConsultDisplayStatus): string {
 	if (status === "stop" || status === "failed") return theme.fg("error", status);
-	if (status === "correction" || status === "split" || status === "blocked") return theme.fg("warning", status);
+	if (status === "revise" || status === "split" || status === "blocked") return theme.fg("warning", status);
 	if (status === "cancelled") return theme.fg("muted", status);
+	if (status === "recommend") return theme.fg("accent", status);
 	return theme.fg("success", status);
 }
 
 function consultingLine(result: ConsultRenderResult, theme: Theme, elapsedMs: number): string {
 	const models = modelsFromResult(result);
-	const effort = effortFromResult(result);
 	const live = liveFromResult(result);
+	const identities = live.length > 0 ? live.map((item) => modelWithEffort(item.model, item.effort)) : models;
+	const trigger = triggerFromResult(result);
 	let text = "consulting";
-	if (models.length > 0) text += ` ${models.join(" + ")}`;
-	if (effort) text += ` · ${effort}`;
+	if (trigger) text += ` · ${triggerLabel(trigger)}`;
+	if (identities.length > 0) text += ` · ${identities.join(" + ")}`;
 	if (live.length === 1 && live[0]) {
 		if ((live[0].attempt ?? 1) > 1) text += ` · retry ${live[0].attempt}`;
 		text += ` · ${live[0].phase}`;
@@ -228,12 +265,13 @@ export function consultResultLines(
 	const envelope = envelopeFromResult(result);
 	const outcome = outcomeFromResult(result, context, envelope);
 	const completed = outcome === "completed";
-	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "plan") : outcome;
+	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "recommend") : outcome;
 	const summary = markdownPreview(envelope?.error || envelope?.summary || "");
 
 	const adoption = completed ? context?.adoption : undefined;
 	if (!options.expanded) {
 		const lines = [summary ? `${statusColor(theme, status)} · ${theme.fg("text", summary)}` : statusColor(theme, status)];
+		for (const metadata of executionMetadataLines(result, envelope)) lines.push(theme.fg("muted", metadata));
 		if (adoption) lines.push(adoptionLine(adoption, theme));
 		return lines;
 	}
@@ -245,8 +283,7 @@ export function consultResultLines(
 		for (const conflict of envelope.conflicts) lines.push(theme.fg("warning", conflict));
 	}
 	if (adoption) lines.push(adoptionLine(adoption, theme));
-	const models = modelsFromResult(result);
-	if (models.length) lines.push(theme.fg("muted", models.join(" + ")));
+	for (const metadata of executionMetadataLines(result, envelope)) lines.push(theme.fg("muted", metadata));
 	return lines;
 }
 
@@ -276,7 +313,7 @@ function expandedResultRows(
 	const envelope = envelopeFromResult(result);
 	const outcome = outcomeFromResult(result, context, envelope);
 	const completed = outcome === "completed";
-	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "plan") : outcome;
+	const status: ConsultDisplayStatus = completed ? (envelope?.verdict ?? "recommend") : outcome;
 	const rows: string[] = [];
 	const appendPlain = (text: string, first = false): void => {
 		const prefix = first ? RESULT_FIRST_PREFIX : RESULT_CONT_PREFIX;
@@ -298,16 +335,7 @@ function expandedResultRows(
 		for (const conflict of envelope.conflicts) appendPlain(theme.fg("warning", conflict));
 	}
 	if (completed && context.adoption) appendPlain(adoptionLine(context.adoption, theme));
-	if (envelope?.raw.length) {
-		for (const raw of envelope.raw) {
-			appendPlain(theme.fg("muted", raw.model));
-			const tokens = exactTokenLine(raw);
-			if (tokens) appendPlain(theme.fg("muted", tokens));
-		}
-	} else {
-		const models = modelsFromResult(result);
-		if (models.length > 0) appendPlain(theme.fg("muted", models.join(" + ")));
-	}
+	for (const metadata of executionMetadataLines(result, envelope)) appendPlain(theme.fg("muted", metadata));
 	return rows;
 }
 

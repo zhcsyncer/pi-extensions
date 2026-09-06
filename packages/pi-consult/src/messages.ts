@@ -29,7 +29,7 @@ export const ERR_UNKNOWN = "unknown error";
 export const ERR_BUDGET_RUN = "Consult run budget exhausted; do not retry until the next user message.";
 export const ERR_BUDGET_SESSION = "Consult session budget exhausted.";
 
-export const LOOP_STEER_TEXT =
+export const WATCHDOG_STEER_TEXT =
 	"先 consult 再继续\nStop repeating the same tool call or the same error. Call consult({ why }) with a 1-2 sentence reason before continuing.";
 
 export const errMisconfigured = (label: string, err: string) => `Consult (${label}) is misconfigured: ${err}`;

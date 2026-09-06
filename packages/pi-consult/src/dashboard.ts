@@ -4,7 +4,7 @@ import type { ConsultEvent, PanelMember } from "./types.ts";
 export interface ConsultStatusData {
 	panel: PanelMember[];
 	fanout: boolean;
-	loopGate: number;
+	watchdog: number;
 	budgetRemaining: string;
 	recent: ConsultEvent[];
 	recentError?: string;
@@ -28,10 +28,14 @@ function eventTime(ts: string): string {
 }
 
 function verdictColor(verdict: ConsultEvent["verdict"]): string {
-	if (verdict === "plan") return "success";
-	if (verdict === "correction") return "warning";
+	if (verdict === "confirm") return "success";
+	if (verdict === "revise" || verdict === "split") return "warning";
 	if (verdict === "stop" || verdict === "error") return "error";
 	return "accent";
+}
+
+function triggerLabel(trigger: ConsultEvent["trigger"]): string {
+	return trigger === "onDemand" ? "on-demand" : "watchdog";
 }
 
 function adoptionLabel(event: ConsultEvent): { text: string; color: string } {
@@ -77,7 +81,12 @@ export class ConsultStatusDashboard {
 				push(`  ${t.fg("accent", String(index + 1))}  ${member.model}${effort}`);
 			}
 		}
-		push(t.fg("muted", `  fanout ${this.data.fanout ? "on" : "off"}  •  loop gate ${this.data.loopGate > 0 ? this.data.loopGate : "off"}`));
+		push(
+			t.fg(
+				"muted",
+				`  fanout ${this.data.fanout ? "on" : "off"}  •  watchdog ${this.data.watchdog > 0 ? this.data.watchdog : "off"}`,
+			),
+		);
 
 		push("");
 		push(t.fg("accent", t.bold("Budget remaining")));
@@ -95,7 +104,7 @@ export class ConsultStatusDashboard {
 				const input = event.tokensIn + event.cacheRead + event.cacheWrite;
 				const total = input + event.tokensOut;
 				const metrics = [
-					event.trigger,
+					triggerLabel(event.trigger),
 					`in ${compactTokens(input)}`,
 					`out ${compactTokens(event.tokensOut)}`,
 					`total ${compactTokens(total)}`,

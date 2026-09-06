@@ -22,7 +22,7 @@ function consultResult(toolCallId: string, overrides: Record<string, unknown> = 
 		toolName: "consult",
 		content: [{ type: "text", text: "CONSULT-LOG: adopt|reject | <reason>" }],
 		isError: false,
-		details: { envelope: { verdict: "plan", summary: "continue", raw: [] } },
+		details: { envelope: { verdict: "confirm", summary: "continue", raw: [] } },
 		...overrides,
 	});
 }
@@ -76,7 +76,7 @@ describe("consult adoption history", () => {
 	it("skips failed and error-envelope consult results", () => {
 		const failed = consultResult("consult-failed", { isError: true });
 		const errorEnvelope = consultResult("consult-error", {
-			details: { envelope: { verdict: "plan", summary: "failed", error: "no model", raw: [] } },
+			details: { envelope: { verdict: "recommend", summary: "failed", error: "no model", raw: [] } },
 		});
 		const resolved = resolveConsultAdoptions([
 			failed,

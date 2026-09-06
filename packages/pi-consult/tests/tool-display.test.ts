@@ -16,12 +16,31 @@ const theme = {
 	bold: (text: string) => text,
 } as Theme;
 
-const correctionResult = {
+const reviseResult = {
 	details: {
-		trigger: "pull" as const,
+		trigger: "onDemand" as const,
 		models: ["cursor/fable-5.1"],
-		effort: "xhigh",
-		envelope: { verdict: "correction" as const, summary: "Stop editing parser.ts", raw: [] },
+		envelope: {
+			verdict: "revise" as const,
+			summary: "Stop editing parser.ts",
+			raw: [
+				{
+					model: "cursor/fable-5.1",
+					effort: "xhigh" as const,
+					text: "result",
+					usage: {
+						input: 320_000,
+						output: 1_100,
+						cacheRead: 2_000,
+						cacheWrite: 0,
+						totalTokens: 323_100,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					durationMs: 28_000,
+					attempts: 1,
+				},
+			],
+		},
 	},
 };
 
@@ -37,10 +56,37 @@ describe("consult Claude-style rows", () => {
 		expect(formatConsultCallLine({ why: "x" }, theme, { isError: true })).toBe("● Consult(x)");
 	});
 
-	it("collapses the result to verdict · summary without repeating why", () => {
-		expect(consultResultLines(correctionResult, { expanded: false }, theme)).toEqual([
-			"correction · Stop editing parser.ts",
+	it("collapses to summary plus one execution metadata line", () => {
+		expect(consultResultLines(reviseResult, { expanded: false }, theme)).toEqual([
+			"revise · Stop editing parser.ts",
+			"on-demand · cursor/fable-5.1:xhigh · in 322k · out 1.1k · total 323k · 28s",
 		]);
+	});
+
+	it("keeps each fanout advisor on one self-contained metadata line", () => {
+		const raw = reviseResult.details.envelope.raw[0];
+		const lines = consultResultLines(
+			{
+				details: {
+					...reviseResult.details,
+					envelope: {
+						verdict: "confirm",
+						summary: "Both advisors agree.",
+						raw: [
+							{ ...raw, model: "cursor/fable-5.1", effort: "high" as const, durationMs: 10_000 },
+							{ ...raw, model: "cursor/opus-5", effort: "xhigh" as const, durationMs: 20_000 },
+						],
+					},
+				},
+			},
+			{ expanded: false },
+			theme,
+		);
+		expect(lines).toHaveLength(3);
+		expect(lines[1]).toContain("on-demand · cursor/fable-5.1:high");
+		expect(lines[1]).toMatch(/ · 10s$/);
+		expect(lines[2]).toContain("on-demand · cursor/opus-5:xhigh");
+		expect(lines[2]).toMatch(/ · 20s$/);
 	});
 
 	it("removes Markdown chrome without damaging protected technical syntax", () => {
@@ -51,23 +97,26 @@ describe("consult Claude-style rows", () => {
 		);
 		expect(
 			consultResultLines(
-				{ details: { ...correctionResult.details, envelope: { verdict: "correction", summary, raw: [] } } },
+				{ details: { ...reviseResult.details, envelope: { verdict: "revise", summary, raw: [] } } },
 				{ expanded: false },
 				theme,
 			),
-		).toEqual(["correction · 先停止编辑 __dirname__。 #define RETRY_FLAG 1 运行 相关测试 删除旧分支"]);
+		).toEqual([
+			"revise · 先停止编辑 __dirname__。 #define RETRY_FLAG 1 运行 相关测试 删除旧分支",
+			"on-demand · cursor/fable-5.1",
+		]);
 	});
 
 	it("expands summary and models, not why", () => {
 		const lines = consultResultLines(
 			{
 				details: {
-					trigger: "loop",
+					trigger: "watchdog",
 					models: ["cursor/fable-5.1"],
 					envelope: {
 						verdict: "split",
 						summary: "Advisors disagree",
-						conflicts: ["a: plan — keep going"],
+						conflicts: ["a: confirm — keep going"],
 						raw: [],
 					},
 				},
@@ -78,8 +127,8 @@ describe("consult Claude-style rows", () => {
 		);
 		expect(lines[0]).toBe("split");
 		expect(lines).toContain("Advisors disagree");
-		expect(lines).toContain("a: plan — keep going");
-		expect(lines).toContain("cursor/fable-5.1");
+		expect(lines).toContain("a: confirm — keep going");
+		expect(lines).toContain("watchdog · cursor/fable-5.1");
 		expect(lines).not.toContain("same bash failed twice");
 	});
 
@@ -88,10 +137,9 @@ describe("consult Claude-style rows", () => {
 			consultResultLines(
 				{
 					details: {
-						trigger: "pull",
+						trigger: "onDemand",
 						models: ["cursor/fable-5.1"],
-						effort: "xhigh",
-						live: [{ model: "cursor/fable-5.1", phase: "thinking", approxOutputTokens: 1_234 }],
+						live: [{ model: "cursor/fable-5.1", effort: "xhigh", phase: "thinking", approxOutputTokens: 1_234 }],
 					},
 				},
 				{ expanded: false, isPartial: true },
@@ -99,14 +147,14 @@ describe("consult Claude-style rows", () => {
 				{ isPartial: true },
 				12_000,
 			),
-		).toEqual(["consulting cursor/fable-5.1 · xhigh · thinking · ~1.2k out  12s"]);
+		).toEqual(["consulting · on-demand · cursor/fable-5.1:xhigh · thinking · ~1.2k out  12s"]);
 	});
 
 	it("renders a budget refusal as blocked rather than failed", () => {
 		const component = renderConsultResult(
 			{
 				details: {
-					trigger: "pull",
+					trigger: "onDemand",
 					models: [],
 					outcome: "blocked",
 					envelope: errorEnvelope("Consult run budget exhausted; resets on next user message."),
@@ -133,10 +181,10 @@ describe("consult Claude-style rows", () => {
 		const result = renderConsultResult(
 			{
 				details: {
-					trigger: "pull",
+					trigger: "onDemand",
 					models: ["cursor/fable-5.1"],
 					envelope: {
-						verdict: "plan",
+						verdict: "recommend",
 						summary:
 							"推荐：infra-edge 用一个容器化 Alloy，不用 node_exporter+vmagent 第二套工具链，不用纯健康脚本。",
 						raw: [],
@@ -156,30 +204,31 @@ describe("consult Claude-style rows", () => {
 
 	it("mirrors adoption under the collapsed Consult result", () => {
 		const component = renderConsultResult(
-			correctionResult,
+			reviseResult,
 			{ expanded: false, isPartial: false },
 			theme,
 			{ adoption: { adopted: true, reason: "matches the primary evidence" } },
 		);
 		const rows = component.render(80);
-		expect(rows).toHaveLength(2);
-		expect(rows[0]).toContain("correction · Stop editing parser.ts");
-		expect(rows[1]).toContain("adopt · matches the primary evidence");
-		expect(rows[1]).toMatch(/Ctrl\+O to expand\)$/);
+		expect(rows).toHaveLength(3);
+		expect(rows[0]).toContain("revise · Stop editing parser.ts");
+		expect(rows[1]).toContain("on-demand · cursor/fable-5.1:xhigh");
+		expect(rows[2]).toContain("adopt · matches the primary evidence");
+		expect(rows[2]).toMatch(/Ctrl\+O to expand\)$/);
 	});
 
 	it("wraps the full adoption reason before the model when expanded", () => {
-		const lines = consultResultLines(correctionResult, { expanded: true }, theme, {
+		const lines = consultResultLines(reviseResult, { expanded: true }, theme, {
 			adoption: {
 				adopted: false,
 				reason: "the primary-source evidence points in the opposite direction",
 			},
 		});
 		expect(lines).toEqual([
-			"correction",
+			"revise",
 			"Stop editing parser.ts",
 			"reject · the primary-source evidence points in the opposite direction",
-			"cursor/fable-5.1",
+			"on-demand · cursor/fable-5.1:xhigh · in 322k · out 1.1k · total 323k · 28s",
 		]);
 	});
 

@@ -36,7 +36,7 @@ export function recordToolEvent(
 	};
 }
 
-export function loopGateReason(state: FingerprintState, n: number): "same" | "error" | undefined {
+export function watchdogReason(state: FingerprintState, n: number): "same" | "error" | undefined {
 	if (n <= 0 || state.recent.length < n) return undefined;
 	const last = state.recent.slice(-n);
 	if (last.every((event) => event.fingerprint === last[0]?.fingerprint)) return "same";

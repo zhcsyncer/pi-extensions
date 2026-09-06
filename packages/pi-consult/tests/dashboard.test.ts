@@ -12,10 +12,10 @@ function event(overrides: Partial<ConsultEvent> = {}): ConsultEvent {
 	return {
 		ts: "2026-09-01T12:34:56.000Z",
 		session: "sess-1",
-		trigger: "pull",
+		trigger: "onDemand",
 		why: "check the approach",
 		models: ["cursor/fable-5.1"],
-		verdict: "correction",
+		verdict: "revise",
 		adopted: true,
 		tokensIn: 100,
 		tokensOut: 20,
@@ -33,7 +33,7 @@ function data(overrides: Partial<ConsultStatusData> = {}): ConsultStatusData {
 			{ model: "cursor/opus-5", effort: "xhigh" },
 		],
 		fanout: true,
-		loopGate: 3,
+		watchdog: 3,
 		budgetRemaining: "2/3 run, 7/8 session",
 		recent: [event()],
 		...overrides,
@@ -47,9 +47,9 @@ describe("consult status dashboard", () => {
 		const output = lines.join("\n");
 		expect(output).toContain("pi-consult — status");
 		expect(output).toContain("cursor/fable-5.1");
-		expect(output).toContain("fanout on  •  loop gate 3");
+		expect(output).toContain("fanout on  •  watchdog 3");
 		expect(output).toContain("2/3 run, 7/8 session");
-		expect(output).toContain("correction  adopted");
+		expect(output).toContain("revise  adopted");
 		expect(output).toContain("in 400  •  out 20  •  total 420");
 		expect(output).not.toContain("cache");
 		expect(output).not.toContain("$");
@@ -61,7 +61,7 @@ describe("consult status dashboard", () => {
 			data({
 				recent: [
 					event({ ts: "2026-09-01T12:34:56.000Z" }),
-					event({ ts: "2026-09-02T12:34:56.000Z", verdict: "plan" }),
+					event({ ts: "2026-09-02T12:34:56.000Z", verdict: "recommend" }),
 				],
 			}),
 			theme,

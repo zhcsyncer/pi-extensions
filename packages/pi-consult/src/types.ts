@@ -4,9 +4,9 @@ export type GradedEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "ma
 
 export const EFFORT_ORDINAL: readonly GradedEffort[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
-export type ConsultTrigger = "pull" | "loop";
+export type ConsultTrigger = "onDemand" | "watchdog";
 
-export type ConsultVerdict = "plan" | "correction" | "stop" | "split";
+export type ConsultVerdict = "recommend" | "confirm" | "revise" | "stop" | "split";
 export type ConsultOutcome = "completed" | "blocked" | "failed" | "cancelled";
 
 export interface PanelMember {
@@ -15,7 +15,7 @@ export interface PanelMember {
 }
 
 export interface ConsultGates {
-	loop: number;
+	watchdog: number;
 }
 
 export interface ConsultBudget {
@@ -41,8 +41,11 @@ export type UsageSnapshot = Usage;
 
 export interface ConsultRaw {
 	model: string;
+	effort?: GradedEffort;
 	text: string;
 	usage?: UsageSnapshot;
+	durationMs: number;
+	attempts: number;
 }
 
 export interface ConsultEnvelope {
@@ -72,6 +75,7 @@ export type ConsultLivePhase = "connecting" | "thinking" | "writing";
 
 export interface ConsultLiveMember {
 	model: string;
+	effort?: GradedEffort;
 	phase: ConsultLivePhase;
 	approxOutputTokens: number;
 	attempt?: number;
@@ -82,7 +86,6 @@ export interface ConsultDetails {
 	models: string[];
 	envelope?: ConsultEnvelope;
 	outcome?: ConsultOutcome;
-	effort?: string;
 	live?: ConsultLiveMember[];
 	errorMessage?: string;
 }

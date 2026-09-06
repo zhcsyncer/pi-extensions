@@ -17,7 +17,7 @@ import {
 export const DEFAULT_CONSULT_CONFIG: ConsultConfig = {
 	panel: [],
 	fanout: false,
-	gates: { loop: 5 },
+	gates: { watchdog: 5 },
 	budget: { perRun: 3, perSession: 8 },
 	disabledForModels: [],
 };
@@ -69,11 +69,11 @@ function parsePanel(value: unknown): PanelMember[] {
 
 function parseGates(value: unknown): ConsultGates {
 	const record = isRecord(value) ? value : {};
-	let loop = DEFAULT_CONSULT_CONFIG.gates.loop;
-	if (record.loop === false) loop = 0;
-	else if (record.loop === true) loop = DEFAULT_CONSULT_CONFIG.gates.loop;
-	else loop = asNonNegativeInt(record.loop, DEFAULT_CONSULT_CONFIG.gates.loop);
-	return { loop };
+	let watchdog = DEFAULT_CONSULT_CONFIG.gates.watchdog;
+	if (record.watchdog === false) watchdog = 0;
+	else if (record.watchdog === true) watchdog = DEFAULT_CONSULT_CONFIG.gates.watchdog;
+	else watchdog = asNonNegativeInt(record.watchdog, DEFAULT_CONSULT_CONFIG.gates.watchdog);
+	return { watchdog };
 }
 
 function parseBudget(value: unknown): ConsultBudget {

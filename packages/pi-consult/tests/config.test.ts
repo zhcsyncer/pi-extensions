@@ -28,7 +28,7 @@ describe("consult config", () => {
 	it("defaults to an empty panel so off costs nothing", () => {
 		expect(parseConsultConfig({})).toEqual(DEFAULT_CONSULT_CONFIG);
 		expect(DEFAULT_CONSULT_CONFIG.panel).toEqual([]);
-		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ loop: 5 });
+		expect(DEFAULT_CONSULT_CONFIG.gates).toEqual({ watchdog: 5 });
 		expect(DEFAULT_CONSULT_CONFIG.budget).toEqual({ perRun: 3, perSession: 8 });
 	});
 
@@ -37,7 +37,7 @@ describe("consult config", () => {
 			parseConsultConfig({
 				panel: [{ model: "anthropic/claude-fable-5", effort: "high" }, { model: "openai-codex/gpt-5.6-sol" }],
 				fanout: true,
-				gates: { loop: 4 },
+				gates: { watchdog: 4 },
 				budget: { perRun: 2, perSession: 10 },
 				disabledForModels: ["anthropic/claude-fable-5"],
 			}),
@@ -47,7 +47,7 @@ describe("consult config", () => {
 				{ model: "openai-codex/gpt-5.6-sol" },
 			],
 			fanout: true,
-			gates: { loop: 4 },
+			gates: { watchdog: 4 },
 			budget: { perRun: 2, perSession: 10 },
 			disabledForModels: ["anthropic/claude-fable-5"],
 		});
@@ -62,13 +62,17 @@ describe("consult config", () => {
 		});
 	});
 
-	it("drops invalid panel entries and treats loop false as off", () => {
+	it("drops invalid panel entries and treats watchdog false as off", () => {
 		const parsed = parseConsultConfig({
 			panel: [{ model: "" }, { effort: "high" }, { model: "ok", effort: "nope" }, { model: "keep/me", effort: "low" }],
-			gates: { loop: false },
+			gates: { watchdog: false },
 		});
 		expect(parsed.panel).toEqual([{ model: "keep/me", effort: "low" }]);
-		expect(parsed.gates.loop).toBe(0);
+		expect(parsed.gates.watchdog).toBe(0);
+	});
+
+	it("does not accept the removed loop gate key", () => {
+		expect(parseConsultConfig({ gates: { loop: 2 } }).gates).toEqual({ watchdog: 5 });
 	});
 
 	it("loads defaults when the file is missing", async () => {
@@ -84,10 +88,10 @@ describe("consult config", () => {
 		const directory = await agentDir();
 		const configPath = getConsultPaths(directory).configFile;
 		await mkdir(path.dirname(configPath), { recursive: true });
-		await writeFile(configPath, `${JSON.stringify({ panel: [], note: "hand-edited", gates: { loop: 2 } })}\n`);
+		await writeFile(configPath, `${JSON.stringify({ panel: [], note: "hand-edited", gates: { watchdog: 2 } })}\n`);
 
 		const loaded = await loadConsultConfig(directory);
-		expect(loaded.config.gates.loop).toBe(2);
+		expect(loaded.config.gates.watchdog).toBe(2);
 		expect(loaded.raw.note).toBe("hand-edited");
 
 		const next = { ...loaded.config, fanout: true };
@@ -95,7 +99,7 @@ describe("consult config", () => {
 		expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
 			fanout: true,
 			note: "hand-edited",
-			gates: { loop: 2 },
+			gates: { watchdog: 2 },
 		});
 	});
 

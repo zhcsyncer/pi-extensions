@@ -89,7 +89,7 @@ describe("executeConsult budget reservation", () => {
 			const config: ConsultConfig = {
 				panel: [{ model: "anthropic/one", effort: "high" }],
 				fanout: false,
-				gates: { loop: 3 },
+				gates: { watchdog: 3 },
 				budget: { perRun: 1, perSession: 8 },
 				disabledForModels: [],
 			};
@@ -112,7 +112,7 @@ describe("executeConsult budget reservation", () => {
 			let paidCalls = 0;
 			const streamSimple: StreamSimpleFn = () => {
 				paidCalls += 1;
-				return responseStream(response('{"verdict":"plan","summary":"continue"}'));
+				return responseStream(response('{"verdict":"confirm","summary":"continue"}'));
 			};
 			const call = () => executeConsult({
 				why: "two approaches change the structure",
@@ -147,7 +147,7 @@ describe("executeConsult budget reservation", () => {
 describe("runConsultPanel", () => {
 	it("streams connecting, thinking, and writing progress with an output estimate", async () => {
 		const progress: Array<{ phase: string; approxOutputTokens: number }> = [];
-		const finalText = '{"verdict":"plan","summary":"继续验证"}';
+		const finalText = '{"verdict":"confirm","summary":"继续验证"}';
 		const [outcome] = await runConsultPanel({
 			members: [member("one")],
 			messages: [],
@@ -166,7 +166,7 @@ describe("runConsultPanel", () => {
 		const progress: Array<{ phase: string; approxOutputTokens: number; attempt: number }> = [];
 		const streamSimple: StreamSimpleFn = () => {
 			calls += 1;
-			return responseStream(calls === 1 ? response("") : response('{"verdict":"plan","summary":"next"}'));
+			return responseStream(calls === 1 ? response("") : response('{"verdict":"recommend","summary":"next"}'));
 		};
 		const [outcome] = await runConsultPanel({
 			members: [member("one")],
@@ -179,7 +179,10 @@ describe("runConsultPanel", () => {
 		expect(progress).toContainEqual({ phase: "connecting", approxOutputTokens: 3, attempt: 2 });
 		expect(outcome).toMatchObject({
 			ok: true,
-			text: '{"verdict":"plan","summary":"next"}',
+			text: '{"verdict":"recommend","summary":"next"}',
+			effort: "high",
+			attempts: 2,
+			durationMs: expect.any(Number),
 			usage: {
 				input: 22,
 				output: 6,
@@ -211,7 +214,7 @@ describe("runConsultPanel", () => {
 		const seen: string[] = [];
 		const streamSimple: StreamSimpleFn = (model) => {
 			seen.push(model.id);
-			return responseStream(response(`{"verdict":"plan","summary":"${model.id}"}`));
+			return responseStream(response(`{"verdict":"recommend","summary":"${model.id}"}`));
 		};
 		const outcomes = await runConsultPanel({
 			members: [member("one"), member("two")],

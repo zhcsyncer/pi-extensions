@@ -12,10 +12,10 @@ describe("consult panel", () => {
 		{ model: "openai-codex/gpt-5.6-sol", effort: "medium" as const },
 	];
 
-	it("uses only the first member unless pull+fanout", () => {
-		expect(selectPanel(panel, { fanout: false, trigger: "pull" })).toEqual([panel[0]]);
-		expect(selectPanel(panel, { fanout: true, trigger: "loop" })).toEqual([panel[0]]);
-		expect(selectPanel(panel, { fanout: true, trigger: "pull" })).toEqual(panel);
+	it("uses only the first member unless on-demand fanout is enabled", () => {
+		expect(selectPanel(panel, { fanout: false, trigger: "onDemand" })).toEqual([panel[0]]);
+		expect(selectPanel(panel, { fanout: true, trigger: "watchdog" })).toEqual([panel[0]]);
+		expect(selectPanel(panel, { fanout: true, trigger: "onDemand" })).toEqual(panel);
 	});
 
 	it("skips missing registry models", () => {
