@@ -5,6 +5,7 @@ import { createAssistantMessageEventStream, type AssistantMessage } from "@earen
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { estimateOutputTokens, executeConsult, runConsultPanel, type StreamSimpleFn } from "../src/execute.ts";
+import { readRecentEvents } from "../src/events.ts";
 import { ERR_BUDGET_RUN } from "../src/messages.ts";
 import type { ResolvedPanelMember } from "../src/panel.ts";
 import { ConsultTracker } from "../src/tracker.ts";
@@ -114,8 +115,10 @@ describe("executeConsult budget reservation", () => {
 				paidCalls += 1;
 				return responseStream(response('{"verdict":"confirm","summary":"continue"}'));
 			};
+			let toolCallSequence = 0;
 			const call = () => executeConsult({
 				why: "two approaches change the structure",
+				toolCallId: `consult-${++toolCallSequence}`,
 				ctx,
 				pi,
 				config,
@@ -138,6 +141,10 @@ describe("executeConsult budget reservation", () => {
 			expect(blocked?.details?.outcome).toBe("blocked");
 			expect(blocked?.usage).toBeUndefined();
 			expect(blocked?.content[0]?.type === "text" && blocked.content[0].text).not.toContain("CONSULT-LOG:");
+			const events = await readRecentEvents(10, directory);
+			expect(events).toHaveLength(2);
+			expect(events.map((event) => event.toolCallId).sort()).toEqual(["consult-1", "consult-2"]);
+			expect(events.map((event) => event.outcome).sort()).toEqual(["blocked", "completed"]);
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

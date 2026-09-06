@@ -12,11 +12,14 @@ function event(overrides: Partial<ConsultEvent> = {}): ConsultEvent {
 	return {
 		ts: "2026-09-01T12:34:56.000Z",
 		session: "sess-1",
+		toolCallId: "consult-1",
 		trigger: "onDemand",
 		why: "check the approach",
 		models: ["cursor/fable-5.1"],
+		outcome: "completed",
 		verdict: "revise",
 		adopted: true,
+		adoptionEffect: "changed",
 		tokensIn: 100,
 		tokensOut: 20,
 		cacheRead: 300,
@@ -49,7 +52,7 @@ describe("consult status dashboard", () => {
 		expect(output).toContain("cursor/fable-5.1");
 		expect(output).toContain("fanout on  •  watchdog 3");
 		expect(output).toContain("2/3 run, 7/8 session");
-		expect(output).toContain("revise  adopted");
+		expect(output).toContain("revise  changed");
 		expect(output).toContain("in 400  •  out 20  •  total 420");
 		expect(output).not.toContain("cache");
 		expect(output).not.toContain("$");

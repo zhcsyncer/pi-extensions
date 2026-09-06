@@ -39,8 +39,10 @@ function triggerLabel(trigger: ConsultEvent["trigger"]): string {
 }
 
 function adoptionLabel(event: ConsultEvent): { text: string; color: string } {
+	if (event.adoptionEffect === "changed") return { text: "changed", color: "success" };
+	if (event.adoptionEffect === "confirmed") return { text: "confirmed", color: "accent" };
+	if (event.adoptionEffect === "rejected" || event.adopted === false) return { text: "rejected", color: "muted" };
 	if (event.adopted === true) return { text: "adopted", color: "success" };
-	if (event.adopted === false) return { text: "rejected", color: "muted" };
 	return { text: "pending", color: "dim" };
 }
 

@@ -53,7 +53,9 @@ pi -e npm:@zhcsyncer/pi-consult
 每次 `consult` 返回后，下一条可见回复应附一行：
 
 ```text
-CONSULT-LOG: adopt|reject | <reason>
+CONSULT-LOG: adopt | changed: <reason>
+CONSULT-LOG: adopt | confirmed: <reason>
+CONSULT-LOG: reject | <reason>
 ```
 
 该行仍按普通 assistant 输出展示，其决定也会镜像到对应的 Consult 行下。TUI 会区分流式 `connecting` / `thinking` / `writing`、顾问反馈类型、策略 `blocked`、请求 `failed` 与用户 `cancelled` 状态。
@@ -72,7 +74,7 @@ CONSULT-LOG: adopt|reject | <reason>
 }
 ```
 
-空 `panel` 保持工具卸载。`fanout: true` 时 on-demand `consult()` 会并行问整组 panel；watchdog 始终只用第一路。`perRun` 从一次真实用户输入开始，覆盖其后的所有模型/工具轮次，并在下一次用户输入时重置。预算按已开始的顾问请求计数，包括之后失败或取消的尝试；旧 `perTurn` 仍作为兼容别名。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。
+空 `panel` 保持工具卸载。`fanout: true` 时 on-demand `consult()` 会并行问整组 panel；watchdog 始终只用第一路。`perRun` 从一次真实用户输入开始，覆盖其后的所有模型/工具轮次，并在下一次用户输入时重置。预算按已开始的顾问请求计数，包括之后失败或取消的尝试；旧 `perTurn` 仍作为兼容别名。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。每次调用记录 `session + toolCallId`、outcome、trigger、verdict、usage，以及后续 changed / confirmed / rejected 效果，用于关联 transcript 做事后整体评估。
 
 ## 许可证
 

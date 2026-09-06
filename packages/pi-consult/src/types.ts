@@ -8,6 +8,7 @@ export type ConsultTrigger = "onDemand" | "watchdog";
 
 export type ConsultVerdict = "recommend" | "confirm" | "revise" | "stop" | "split";
 export type ConsultOutcome = "completed" | "blocked" | "failed" | "cancelled";
+export type ConsultAdoptionEffect = "changed" | "confirmed" | "rejected";
 
 export interface PanelMember {
 	model: string;
@@ -59,11 +60,14 @@ export interface ConsultEnvelope {
 export interface ConsultEvent {
 	ts: string;
 	session: string;
+	toolCallId: string;
 	trigger: ConsultTrigger;
 	why: string;
 	models: string[];
+	outcome: ConsultOutcome;
 	verdict: ConsultVerdict | "error";
 	adopted: boolean | null;
+	adoptionEffect: ConsultAdoptionEffect | null;
 	tokensIn: number;
 	tokensOut: number;
 	cacheRead: number;

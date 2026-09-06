@@ -140,11 +140,17 @@ export default function consultExtension(pi: ExtensionAPI): void {
 			.join("\n");
 		const parsed = parseConsultLog(text);
 		if (!parsed) return;
-		adoptionStore.recordLatest(parsed);
+		const toolCallId = adoptionStore.recordLatest(parsed);
+		if (!toolCallId) return;
 		const sessionFile = ctx.sessionManager.getSessionFile?.();
 		const session = sessionFile ? sessionFile.split(/[/\\]/).pop()?.replace(/\.jsonl?$/, "") || "ephemeral" : "ephemeral";
 		try {
-			await appendConsultAdoption(session, parsed.adopted, agentDir);
+			await appendConsultAdoption(
+				session,
+				toolCallId,
+				{ adopted: parsed.adopted, effect: parsed.effect },
+				agentDir,
+			);
 		} catch {
 			// Adoption is best-effort self-report.
 		}

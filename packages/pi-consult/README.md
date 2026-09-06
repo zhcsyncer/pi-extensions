@@ -53,7 +53,9 @@ Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Unt
 After each `consult` result, the next visible reply should add:
 
 ```text
-CONSULT-LOG: adopt|reject | <reason>
+CONSULT-LOG: adopt | changed: <reason>
+CONSULT-LOG: adopt | confirmed: <reason>
+CONSULT-LOG: reject | <reason>
 ```
 
 The line remains normal assistant output and its decision is also mirrored under the matching Consult row. The TUI distinguishes streamed `connecting` / `thinking` / `writing`, advisor verdicts, policy `blocked`, request `failed`, and user `cancelled` states.
@@ -72,7 +74,7 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
 }
 ```
 
-Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an on-demand `consult()`; the watchdog always uses the first advisor only. `perRun` spans one real user input through all following model/tool rounds; the next user input resets it. Budgets count started advisor requests, including attempts that later fail or are cancelled. Legacy `perTurn` is accepted as an alias. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`.
+Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an on-demand `consult()`; the watchdog always uses the first advisor only. `perRun` spans one real user input through all following model/tool rounds; the next user input resets it. Budgets count started advisor requests, including attempts that later fail or are cancelled. Legacy `perTurn` is accepted as an alias. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`. Each call records `session + toolCallId`, outcome, trigger, verdict, usage, and the later changed / confirmed / rejected effect for transcript-linked retrospective analysis.
 
 ## License
 

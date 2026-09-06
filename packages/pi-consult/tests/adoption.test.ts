@@ -20,7 +20,7 @@ function consultResult(toolCallId: string, overrides: Record<string, unknown> = 
 		role: "toolResult",
 		toolCallId,
 		toolName: "consult",
-		content: [{ type: "text", text: "CONSULT-LOG: adopt|reject | <reason>" }],
+		content: [{ type: "text", text: "CONSULT-LOG: adopt | changed: <reason>" }],
 		isError: false,
 		details: { envelope: { verdict: "confirm", summary: "continue", raw: [] } },
 		...overrides,
@@ -39,9 +39,13 @@ describe("consult adoption history", () => {
 	it("binds an assistant CONSULT-LOG to the preceding consult result", () => {
 		const resolved = resolveConsultAdoptions([
 			consultResult("consult-1"),
-			assistant("CONSULT-LOG: adopt | matches the evidence\n\nContinuing."),
+			assistant("CONSULT-LOG: adopt | changed: matches the evidence\n\nContinuing."),
 		]);
-		expect(resolved.adoptions.get("consult-1")).toEqual({ adopted: true, reason: "matches the evidence" });
+		expect(resolved.adoptions.get("consult-1")).toEqual({
+			adopted: true,
+			effect: "changed",
+			reason: "matches the evidence",
+		});
 		expect(resolved.pendingToolCallId).toBeUndefined();
 	});
 
@@ -60,6 +64,7 @@ describe("consult adoption history", () => {
 		expect(resolved.adoptions.has("consult-1")).toBe(false);
 		expect(resolved.adoptions.get("consult-2")).toEqual({
 			adopted: false,
+			effect: "rejected",
 			reason: "primary evidence disagrees",
 		});
 	});
@@ -68,7 +73,7 @@ describe("consult adoption history", () => {
 		const resolved = resolveConsultAdoptions([
 			consultResult("consult-1"),
 			user(),
-			assistant("CONSULT-LOG: adopt | unrelated later declaration"),
+			assistant("CONSULT-LOG: adopt | confirmed: unrelated later declaration"),
 		]);
 		expect(resolved.adoptions.size).toBe(0);
 	});
@@ -80,7 +85,7 @@ describe("consult adoption history", () => {
 		});
 		const resolved = resolveConsultAdoptions([
 			failed,
-			assistant("CONSULT-LOG: adopt | should not bind"),
+			assistant("CONSULT-LOG: adopt | confirmed: should not bind"),
 			errorEnvelope,
 			assistant("CONSULT-LOG: reject | should not bind either"),
 		]);
@@ -92,15 +97,19 @@ describe("consult adoption history", () => {
 		const store = new ConsultAdoptionStore();
 		store.restore([
 			consultResult("consult-restored"),
-			assistant("CONSULT-LOG: adopt | restored reason"),
+			assistant("CONSULT-LOG: adopt | confirmed: restored reason"),
 		]);
-		expect(store.get("consult-restored")).toEqual({ adopted: true, reason: "restored reason" });
+		expect(store.get("consult-restored")).toEqual({
+			adopted: true,
+			effect: "confirmed",
+			reason: "restored reason",
+		});
 
 		const invalidate = vi.fn();
 		store.watch("consult-live", invalidate);
 		store.markConsult("consult-live");
-		expect(store.recordLatest({ adopted: false, reason: "live reason" })).toBe("consult-live");
-		expect(store.get("consult-live")).toEqual({ adopted: false, reason: "live reason" });
+		expect(store.recordLatest({ adopted: false, effect: "rejected", reason: "live reason" })).toBe("consult-live");
+		expect(store.get("consult-live")).toEqual({ adopted: false, effect: "rejected", reason: "live reason" });
 		expect(invalidate).toHaveBeenCalledOnce();
 	});
 });

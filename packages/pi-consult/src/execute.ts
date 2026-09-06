@@ -60,10 +60,12 @@ import type { ConsultTracker } from "./tracker.ts";
 import type {
 	ConsultConfig,
 	ConsultDetails,
+	ConsultEvent,
 	ConsultLiveMember,
 	ConsultLivePhase,
 	ConsultOutcome,
 	ConsultTrigger,
+	UsageSnapshot,
 } from "./types.ts";
 
 export type StreamSimpleFn = (
@@ -319,7 +321,7 @@ export async function runConsultPanel(opts: {
 
 export interface ExecuteConsultOptions {
 	why: string;
-	toolCallId?: string;
+	toolCallId: string;
 	ctx: ExtensionContext;
 	pi: ExtensionAPI;
 	config: ConsultConfig;
@@ -332,19 +334,50 @@ export interface ExecuteConsultOptions {
 
 export async function executeConsult(opts: ExecuteConsultOptions): Promise<AgentToolResult<ConsultDetails>> {
 	const why = opts.why.trim();
-	const fail = (
+	const session = sessionIdFrom(opts.ctx.sessionManager.getSessionFile?.());
+	const recordEvent = async (
+		trigger: ConsultTrigger,
+		models: string[],
+		outcome: ConsultOutcome,
+		verdict: ConsultEvent["verdict"],
+		usage?: UsageSnapshot,
+	): Promise<void> => {
+		try {
+			await appendConsultEvent(
+				{
+					ts: new Date().toISOString(),
+					session,
+					toolCallId: opts.toolCallId,
+					trigger,
+					why,
+					models,
+					outcome,
+					verdict,
+					adopted: null,
+					adoptionEffect: null,
+					tokensIn: usage?.input ?? 0,
+					tokensOut: usage?.output ?? 0,
+					cacheRead: usage?.cacheRead ?? 0,
+					cacheWrite: usage?.cacheWrite ?? 0,
+					costUsd: usage?.cost.total ?? 0,
+				},
+				opts.agentDir,
+			);
+		} catch {
+			// Logging must not smash the session; the tool result still returns.
+		}
+	};
+	const fail = async (
 		activeTrigger: ConsultTrigger,
 		summary: string,
 		error = summary,
 		models: string[] = [],
 		outcome: Exclude<ConsultOutcome, "completed"> = "blocked",
-	) =>
-		buildConsultToolResult({
-			envelope: errorEnvelope(summary, error),
-			trigger: activeTrigger,
-			models,
-			outcome,
-		});
+	): Promise<AgentToolResult<ConsultDetails>> => {
+		const envelope = errorEnvelope(summary, error);
+		await recordEvent(activeTrigger, models, outcome, "error");
+		return buildConsultToolResult({ envelope, trigger: activeTrigger, models, outcome });
+	};
 
 	if (!why) return fail(opts.tracker.pendingTrigger ?? "onDemand", ERR_EMPTY_WHY);
 	const trigger: ConsultTrigger = opts.tracker.consumeTrigger();
@@ -462,27 +495,7 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 			: "failed";
 
 	const usage = sumUsage(envelope.raw);
-	try {
-		await appendConsultEvent(
-			{
-				ts: new Date().toISOString(),
-				session: sessionIdFrom(opts.ctx.sessionManager.getSessionFile?.()),
-				trigger,
-				why,
-				models,
-				verdict: envelope.error ? "error" : envelope.verdict,
-				adopted: null,
-				tokensIn: usage?.input ?? 0,
-				tokensOut: usage?.output ?? 0,
-				cacheRead: usage?.cacheRead ?? 0,
-				cacheWrite: usage?.cacheWrite ?? 0,
-				costUsd: usage?.cost.total ?? 0,
-			},
-			opts.agentDir,
-		);
-	} catch {
-		// Logging must not smash the session; the tool result still returns.
-	}
+	await recordEvent(trigger, models, outcome, envelope.error ? "error" : envelope.verdict, usage);
 
 	return buildConsultToolResult({ envelope, trigger, models, outcome, usage });
 }

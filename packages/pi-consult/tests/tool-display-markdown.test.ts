@@ -97,10 +97,10 @@ describe("consult expanded Markdown", () => {
 	it("keeps every result branch within extremely narrow widths", () => {
 		const components = [
 			renderConsultResult(markdownResult, { expanded: true, isPartial: false }, theme, {
-				adoption: { adopted: true, reason: "matches current evidence" },
+				adoption: { adopted: true, effect: "confirmed", reason: "matches current evidence" },
 			}),
 			renderConsultResult(markdownResult, { expanded: false, isPartial: false }, theme, {
-				adoption: { adopted: false, reason: "evidence changed" },
+				adoption: { adopted: false, effect: "rejected", reason: "evidence changed" },
 			}),
 			renderConsultResult(markdownResult, { expanded: true, isPartial: true }, theme, { isPartial: true }),
 			renderConsultResult(

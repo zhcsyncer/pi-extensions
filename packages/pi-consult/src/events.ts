@@ -1,13 +1,14 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { getConsultPaths } from "./paths.ts";
-import type { ConsultEvent } from "./types.ts";
+import type { ConsultAdoptionEffect, ConsultEvent, ConsultOutcome } from "./types.ts";
 import { isRecord } from "./types.ts";
 
-const ADOPT_FALSE = /^(?:不采纳|拒绝|reject|ignore)$/i;
-const ADOPT_TRUE = /^(?:采纳|adopt)$/i;
+const OUTCOMES = new Set<ConsultOutcome>(["completed", "blocked", "failed", "cancelled"]);
+const ADOPTION_EFFECTS = new Set<ConsultAdoptionEffect>(["changed", "confirmed", "rejected"]);
 
 export interface ConsultAdoption {
 	adopted: boolean;
+	effect: ConsultAdoptionEffect;
 	reason: string;
 }
 
@@ -15,35 +16,35 @@ interface ConsultAdoptionEvent {
 	kind: "adoption";
 	ts: string;
 	session: string;
+	toolCallId: string;
 	adopted: boolean;
-}
-
-function adoptionValue(value: string | undefined): boolean | undefined {
-	if (!value) return undefined;
-	if (ADOPT_FALSE.test(value)) return false;
-	if (ADOPT_TRUE.test(value)) return true;
-	return undefined;
+	effect: ConsultAdoptionEffect | null;
 }
 
 export function parseConsultLog(text: string): ConsultAdoption | undefined {
 	const match = text.match(/CONSULT-LOG:\s*(.+)$/im);
 	if (!match) return undefined;
-	if (/\badopt\|reject\b/i.test(match[1])) return undefined;
-	const parts = match[1].split("|").map((part) => part.trim());
-	const firstDecision = adoptionValue(parts[0]);
-	if (firstDecision !== undefined) {
-		return { adopted: firstDecision, reason: parts.slice(1).join(" | ").trim() };
+	if (/\badopt\|reject\b|<reason>/i.test(match[1])) return undefined;
+	const [decision, ...rest] = match[1].split("|").map((part) => part.trim());
+	const payload = rest.join(" | ").trim();
+	if (decision === "reject") {
+		return payload ? { adopted: false, effect: "rejected", reason: payload } : undefined;
 	}
-	const legacyDecision = adoptionValue(parts[2]);
-	if (legacyDecision !== undefined) {
-		return { adopted: legacyDecision, reason: parts.slice(3).join(" | ").trim() };
-	}
-	return undefined;
+	if (decision !== "adopt") return undefined;
+	const effect = payload.match(/^(changed|confirmed)\s*:\s*(.+)$/i);
+	if (!effect?.[1] || !effect[2]) return undefined;
+	return {
+		adopted: true,
+		effect: effect[1].toLowerCase() as Extract<ConsultAdoptionEffect, "changed" | "confirmed">,
+		reason: effect[2].trim(),
+	};
 }
 
 export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 	if (!isRecord(value)) return undefined;
-	if (typeof value.ts !== "string" || typeof value.session !== "string") return undefined;
+	if (typeof value.ts !== "string" || typeof value.session !== "string" || typeof value.toolCallId !== "string") {
+		return undefined;
+	}
 	if (value.trigger !== "onDemand" && value.trigger !== "watchdog") return undefined;
 	if (typeof value.why !== "string") return undefined;
 	if (!Array.isArray(value.models) || !value.models.every((model) => typeof model === "string")) return undefined;
@@ -58,18 +59,22 @@ export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 	) {
 		return undefined;
 	}
-	if (value.adopted !== null && typeof value.adopted !== "boolean") return undefined;
+	if (typeof value.outcome !== "string" || !OUTCOMES.has(value.outcome as ConsultOutcome)) return undefined;
+	if (value.adopted !== null || value.adoptionEffect !== null) return undefined;
 	if (typeof value.tokensIn !== "number" || typeof value.tokensOut !== "number" || typeof value.costUsd !== "number") {
 		return undefined;
 	}
 	return {
 		ts: value.ts,
 		session: value.session,
+		toolCallId: value.toolCallId,
 		trigger: value.trigger,
 		why: value.why,
 		models: value.models,
+		outcome: value.outcome as ConsultOutcome,
 		verdict,
-		adopted: value.adopted,
+		adopted: null,
+		adoptionEffect: null,
 		tokensIn: value.tokensIn,
 		tokensOut: value.tokensOut,
 		cacheRead: typeof value.cacheRead === "number" ? value.cacheRead : 0,
@@ -80,10 +85,25 @@ export function parseConsultEvent(value: unknown): ConsultEvent | undefined {
 
 function parseAdoptionEvent(value: unknown): ConsultAdoptionEvent | undefined {
 	if (!isRecord(value) || value.kind !== "adoption") return undefined;
-	if (typeof value.ts !== "string" || typeof value.session !== "string" || typeof value.adopted !== "boolean") {
+	if (
+		typeof value.ts !== "string" ||
+		typeof value.session !== "string" ||
+		typeof value.toolCallId !== "string" ||
+		typeof value.adopted !== "boolean" ||
+		(value.effect !== null &&
+			(typeof value.effect !== "string" || !ADOPTION_EFFECTS.has(value.effect as ConsultAdoptionEffect)))
+	) {
 		return undefined;
 	}
-	return { kind: "adoption", ts: value.ts, session: value.session, adopted: value.adopted };
+	if (value.effect !== null && value.adopted !== (value.effect !== "rejected")) return undefined;
+	return {
+		kind: "adoption",
+		ts: value.ts,
+		session: value.session,
+		toolCallId: value.toolCallId,
+		adopted: value.adopted,
+		effect: value.effect as ConsultAdoptionEffect | null,
+	};
 }
 
 async function readEventLines(file: string): Promise<string[]> {
@@ -106,8 +126,13 @@ export async function appendConsultEvent(event: ConsultEvent, agentDir?: string)
 	await appendEventLine(event, agentDir);
 }
 
-export async function appendConsultAdoption(session: string, adopted: boolean, agentDir?: string): Promise<void> {
-	await appendEventLine({ kind: "adoption", ts: new Date().toISOString(), session, adopted }, agentDir);
+export async function appendConsultAdoption(
+	session: string,
+	toolCallId: string,
+	adoption: Pick<ConsultAdoption, "adopted" | "effect">,
+	agentDir?: string,
+): Promise<void> {
+	await appendEventLine({ kind: "adoption", ts: new Date().toISOString(), session, toolCallId, ...adoption }, agentDir);
 }
 
 export async function readRecentEvents(limit: number, agentDir?: string): Promise<ConsultEvent[]> {
@@ -131,8 +156,16 @@ export async function readRecentEvents(limit: number, agentDir?: string): Promis
 		if (!adoption) continue;
 		for (let index = events.length - 1; index >= 0; index--) {
 			const candidate = events[index];
-			if (!candidate || candidate.session !== adoption.session || candidate.adopted !== null) continue;
-			events[index] = { ...candidate, adopted: adoption.adopted };
+			if (
+				!candidate ||
+				candidate.session !== adoption.session ||
+				candidate.toolCallId !== adoption.toolCallId ||
+				candidate.adopted !== null ||
+				candidate.adoptionEffect !== null
+			) {
+				continue;
+			}
+			events[index] = { ...candidate, adopted: adoption.adopted, adoptionEffect: adoption.effect };
 			break;
 		}
 	}

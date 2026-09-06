@@ -27,6 +27,8 @@ describe("main-model Consult guidance", () => {
 	it("treats advice as a challenge and makes rejection plus confirmation explicit", () => {
 		expect(guidance).toContain("challenge, not authority");
 		expect(guidance).toContain("rejecting it with evidence is a valid outcome");
-		expect(guidance).toContain("adoption changed the plan or merely confirmed it");
+		expect(guidance).toContain("CONSULT-LOG: adopt | changed: <reason>");
+		expect(guidance).toContain("CONSULT-LOG: adopt | confirmed: <reason>");
+		expect(guidance).toContain("CONSULT-LOG: reject | <reason>");
 	});
 });

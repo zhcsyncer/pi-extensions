@@ -207,7 +207,7 @@ describe("consult Claude-style rows", () => {
 			reviseResult,
 			{ expanded: false, isPartial: false },
 			theme,
-			{ adoption: { adopted: true, reason: "matches the primary evidence" } },
+			{ adoption: { adopted: true, effect: "changed", reason: "matches the primary evidence" } },
 		);
 		const rows = component.render(80);
 		expect(rows).toHaveLength(3);
@@ -221,6 +221,7 @@ describe("consult Claude-style rows", () => {
 		const lines = consultResultLines(reviseResult, { expanded: true }, theme, {
 			adoption: {
 				adopted: false,
+				effect: "rejected",
 				reason: "the primary-source evidence points in the opposite direction",
 			},
 		});
@@ -237,7 +238,7 @@ describe("consult Claude-style rows", () => {
 			{ details: { models: [], outcome: "failed", envelope: errorEnvelope("Provider failed") } },
 			{ expanded: true },
 			theme,
-			{ adoption: { adopted: true, reason: "irrelevant" } },
+			{ adoption: { adopted: true, effect: "confirmed", reason: "irrelevant" } },
 		);
 		expect(failed).toEqual(["failed", "Provider failed"]);
 

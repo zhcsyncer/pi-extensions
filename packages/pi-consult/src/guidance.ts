@@ -7,5 +7,5 @@ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
 	"Do not call `consult` merely because multiple options can be named. Answer or act directly when the user has already decided, is asking for your own assessment rather than an advisor, the choice is reversible (including routine UI, default, or calibration choices), or tool output already dictates the next mechanical step.",
 	"Treat advisor output as a challenge, not authority. Adopt it only when it improves or validates the decision; rejecting it with evidence is a valid outcome.",
 	"If evidence points one way and consult points another, reject the advice with a reason. Ask again or ask the user only when the conflict remains material and unresolved; never quietly change course.",
-	"After each completed `consult` result, the next visible reply must declare adopt or reject with a reason as a `CONSULT-LOG:` line. State whether adoption changed the plan or merely confirmed it. If the run budget blocks consult, do not retry until the next user message.",
+	"After each completed `consult` result, the next visible reply must use exactly one form: `CONSULT-LOG: adopt | changed: <reason>`, `CONSULT-LOG: adopt | confirmed: <reason>`, or `CONSULT-LOG: reject | <reason>`. If the run budget blocks consult, do not retry until the next user message.",
 ];
