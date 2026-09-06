@@ -6,18 +6,18 @@
 
 最终定义：
 
-> `aggregate` 是按 user turn 汇总所有已注册工具的有界 `Tools` 视图。它只改变交互渲染，不改写工具执行、Session call/result 或模型历史上下文；不推断文件变更，不在账本时间线展示逐工具 output/diff/image body；用户点击工具行时可在只读弹窗检查文本结果。`Agent` 默认保留原 renderer。
+> `aggregate` 是按 user turn 汇总所有已注册工具的有界 `Run` 视图。它只改变交互渲染，不改写工具执行、Session call/result 或模型历史上下文；不推断文件变更，不在账本时间线展示逐工具 output/diff/image body；用户点击工具行时可在只读弹窗检查文本结果。Agent 与 consult 默认同样聚合。
 
 `individual` 完整保留原有逐工具行为。layout 切换在 `/reload` 后按当前 branch 重绘全部历史，而不是只影响未来调用。
 
 ## 目标
 
 - 一次用户请求中的 built-in、custom、MCP 和延迟加载工具统一计数。
-- Tools 首行直接展示每类工具的总调用次数和失败总数。
-- 当前工具显示确定性 target；custom tool 优先用 `getCallPresentation`，否则在 120 字符预算内平铺顶层参数。标量显示值，数组/对象只显示形状，敏感字段和值脱敏。
+- Run 首行直接展示每类工具的总调用次数和失败总数。
+- 当前工具显示确定性 target；custom tool 优先用 `getCallPresentation`，否则只选一两个有辨识度的值，不展示键名。大载荷、控制参数、对象形状与敏感值不进入预览，完整键值留在详情。
 - 成功行用 `✓` 表示，由下一调用替换；最终成功行在 agent settled 后延迟收起。
 - 收起时错误只显示总数；夹在工具之间的中途旁白默认隐藏，最终结论仍可见。
-- `Ctrl+O` 后离开 Tools 账本，中途文字按原时间线插回，每条调用显示有界目标/状态概要。
+- `Ctrl+O` 后离开 Run 账本，中途文字按原时间线插回，每条调用显示有界目标/状态概要。
 - thinking 不是旁白，也不进入展开边框；aggregate 剥掉收起的 `Thinking...` 占位和 thinking 正文，但不隐藏错误。显式展开且没有最终 text 时，reasoning 仍可单独查看。
 - 原始 tool call/result 保持可恢复；切回 individual 后原 renderer 重新展示历史详情。
 
@@ -35,10 +35,10 @@
 ```text
 用户消息             目标：为什么做
 assistant 普通文字   进展：发现了什么
-Tools                审计：调用了哪些工具、当前在做什么、是否失败
+Run                审计：调用了哪些工具、当前在做什么、是否失败
 ```
 
-Tools 是整轮总览，不是一段必须连续的时间线。passthrough 工具可以保留独立行，同时仍计入总览。
+Run 是整轮总览，不是一段必须连续的时间线。passthrough 工具可以保留独立行，同时仍计入总览。
 
 ## 分组边界
 
@@ -80,27 +80,27 @@ pending / running / success / failed / needsAttention
 
 ### 聚合渲染成员
 
-默认所有工具的 transcript renderer 都被 Tools 投影接管。`tools.passthrough` 中的工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行。
+默认所有工具的 transcript renderer 都被 Run 投影接管。`tools.passthrough` 中的工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行。
 
-`Agent` 是默认 passthrough，因为其前台进度、步骤和结果 renderer 具有独立价值。若本轮只有 passthrough 工具，没有可承载 Tools 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
+默认没有 passthrough，Agent 与 consult 都收进统一调用行；实时子任务 UI 继续由 subagents 自己提供，不在账本复制进度，也不修改该扩展。若用户显式配置后，本轮只有 passthrough 工具，没有可承载 Run 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
 
 ## 展示行为
 
 ### 首行
 
 ```text
-◐ Tools (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+◐ Run (16 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
 ```
 
 失败时：
 
 ```text
-! Tools (31 calls · 4 turns) · 2 failed · read ×12 · web_search ×3 · bash ×16
+! Run (31 calls · 4 turns) · 2 failed · read ×12 · web_search ×3 · bash ×16
 ```
 
 规则：
 
-- 标题固定为 `Tools`；
+- 标题固定为 `Run`；
 - 不显示 `N running`，当前行已经提供更具体的信息；
 - failed 放在工具计数之前，避免窄窗口先截掉异常状态；
 - 工具类型按首次出现顺序稳定排列；
@@ -109,7 +109,7 @@ pending / running / success / failed / needsAttention
 ### 当前与 done 槽位
 
 ```text
-◐ Tools (16 calls · 3 turns) · read ×12 · bash ×16
+◐ Run (16 calls · 3 turns) · read ×12 · bash ×16
   › 先对照两边入口
   ◐ Bash(pnpm test)
 ```
@@ -117,7 +117,7 @@ pending / running / success / failed / needsAttention
 整轮结束后：
 
 ```text
-✓ Tools (17 calls · 3 turns) · read ×12 · bash ×17
+✓ Run (17 calls · 3 turns) · read ×12 · bash ×17
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```
 
@@ -132,7 +132,7 @@ pending / running / success / failed / needsAttention
 - 每条调用收起最多 2 行；过长 target 在耗时左侧换行，首行继续把耗时靠右；
 - 进行中与展开行右侧显示这条的耗时；结束后再加时分秒。整轮收据仍是 `took … · at …`；
 - Bash 的完整括号目标必须能放进一个实际标签行（扣除缩进、状态和耗时）；超宽或多行就整体隐藏命令，保留 Bash、intent 和体积，不截断或换行拼半个括号。完整脚本走详情查看器；
-- 没有 Tools 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
+- 没有 Run 账本时，最终回答保留与 user 之间的空行；只有账本已经留下底空时才去掉，避免叠两行。
 
 ### 错误
 
@@ -140,10 +140,10 @@ pending / running / success / failed / needsAttention
 
 ### 展开
 
-`Ctrl+O` 离开 Tools 账本，并按原时间线恢复中途旁白和逐条调用概要：
+`Ctrl+O` 离开 Run 账本，并按原时间线恢复中途旁白和逐条调用概要：
 
 ```text
-✓ Tools (3 calls · 2 turns) · read ×1 · bash ×1
+✓ Run (3 calls · 2 turns) · read ×1 · bash ×1
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
   │ › 先定位两边的设计与实现入口，再对照分组、渲染和边界。
   │ ✓ Read(src/index.ts)                         0.3s  14:32:01
@@ -153,10 +153,10 @@ pending / running / success / failed / needsAttention
   └ ✓ Bash — 把策略固化成 zone · 54 lines · 2.3KB  8.4s  14:33:11
 ```
 
-`toolCalls.expandedTimeline` 默认 `flat`，即上面这张逐条时间线。设为 `turns` 后，同一拍的调用收进拍头，时间挂在拍上，调用行缩进；旁白仍插在原位置。收起 Tools 不变，切换不用 reload：
+`toolCalls.expandedTimeline` 默认 `flat`，即上面这张逐条时间线。设为 `turns` 后，同一拍的调用收进拍头，时间挂在拍上，调用行缩进；旁白仍插在原位置。收起 Run 不变，切换不用 reload：
 
 ```text
-✓ Tools (8 calls · 3 turns) · read ×3 · edit ×2 · bash ×1
+✓ Run (8 calls · 3 turns) · read ×3 · edit ×2 · bash ×1
   took 2m14s · tok ↑62k ↓8.4k · at 2026-04-08 14:32:14
   │ › 先定位入口
   │
@@ -177,7 +177,7 @@ pending / running / success / failed / needsAttention
 拍时间是这一条 assistant 消息发出工具到这批结果写完的墙钟，不是每条 execute 的耗时。
 
 - 汇总条留在框外，没有边线；
-- 中途 assistant 文字回到原来的位置，不重排到 Tools 前后；
+- 中途 assistant 文字回到原来的位置，不重排到 Run 前后；
 - 展开内容共用一条贯通边线：中间行 `│`，同一 group 只有一条 `└`；
 - 展开只框工具调用和中途 text；thinking 不标 `›`、不进框；最终结论区留在框外；
 - 旁白行用 `›` 与工具概要区分；进行中收起账本把最新旁白钉在汇总头下方、工具行上方，整轮结束后再全部收起；
@@ -194,13 +194,13 @@ Fullscreen 中点击展开后的工具行可检查参数和返回文本；需要
 
 ## 局部开合与详情查看
 
-收起的 Tools 内容区是同一点击目标，包括统计收据和当前调用预览；展开后整个标题／统计摘要区可点击收起。上下留白、展开后的旁白正文不变成开关，工具行保留详情入口，避免开合与检查内容冲突。局部点击只改变这一 run，工具、旁白、steer 共用其开合状态；Ctrl+O 是全局命令，覆盖局部选择。新工具应继承所属 run 的局部选择，而不是用原生组件初始化的全局值把它冲掉。同一 branch 的重建保持局部选择；reload 不保存新的 Session 状态。
+收起的 Run 内容区是同一点击目标，包括统计收据和当前调用预览；展开后整个标题／统计摘要区可点击收起。上下留白、展开后的旁白正文不变成开关，工具行保留详情入口，避免开合与检查内容冲突。局部点击只改变这一 run，工具、旁白、steer 共用其开合状态；Ctrl+O 是全局命令，覆盖局部选择。新工具应继承所属 run 的局部选择，而不是用原生组件初始化的全局值把它冲掉。同一 branch 的重建保持局部选择；reload 不保存新的 Session 状态。
 
 Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在自绘账本上：default/self shell 的行偏移和高度都可能失配，而且原生点击只切单个组件。聚合层只使用本次实际渲染的行范围处理点击；展开后标题宿主可以从工具移到旁白或 steer，入口必须随之移动。只消费普通左键 click，不接管 press/drag，也不把点击投给已经失配的原生子树；未接管的 passthrough 仍走原逻辑。
 
 局部开合按账本身份保留标题锚点，不按承载组件或标题文字定位：展开后标题可能从工具组件迁移到更早的旁白组件，不同账本也可能有相同标题。锚定只在原生布局已有完整测量结果之后调整滚动，并退出跟随末尾；不为找位置再次渲染正文。兼容层拿不到可靠几何信息时，保留已有局部开合，不猜位置。
 
-当展开账本的标题已滚出视口上方，而正文仍在阅读区域时，编辑器上方显示固定的当前账本收起条。它是普通 widget，不进入 overlay 栈：Pi 的非抢焦点 overlay 仍会影响滚动条、选择和模式切换，不能只靠 `nonCapturing` 避免这些副作用。收起条不覆盖正文、不抢焦点、不切换全局展开状态；会话／分支更换、弹窗或退出 fullscreen 时撤销失效入口。
+当展开账本的标题已滚出视口上方，而正文仍在阅读区域时，编辑器上方显示固定的当前账本收起条。它是普通 widget，不进入 overlay 栈：Pi 的非抢焦点 overlay 仍会影响滚动条、选择和模式切换，不能只靠 `nonCapturing` 避免这些副作用。收起条不覆盖正文、不抢焦点、不切换全局展开状态；会话／分支更换、弹窗或退出 fullscreen 时撤销失效入口。显隐会改变输入区高度，因此选择状态不能再由这次布局调整反向决定，否则在 follow-end 时形成显示／隐藏反馈循环。仅用户实际导航、终端尺寸或文档／账本范围变化重新评估；纯计时或同高度文字更新不触发重判，不用定时器或永久空白槽掩盖抖动。
 
 展开工具行打开统一只读快照查看器，而不是把完整原生 renderer 搬进时间线：任意扩展 renderer 可能依赖执行期状态、图片协议或交互生命周期，强行复刻会扩大兼容面。参数／元数据保留结构和原值，不做凭据脱敏；结果保留文本或 JSON；非文本附件只显示信息。窗口自身有滚动、自动换行和明确的安全截断，不调用工具、不添加消息、不影响模型上下文。
 
@@ -212,7 +212,7 @@ Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在
 
 ## 上下文增长的口径
 
-`ctx` 的目标是定位让上下文膨胀的步骤，不是展示又一份当前水位或计费账。默认关闭，用一个开关控制收据总计和 `turns` 拍头；不在工具行分摊，因为父请求没有逐工具结果的真实 token 计数。启用时，展开拍头只编号有工具调用的拍；没有 toolCall 的普通回复不承载 ctx，即使它是工具 run 的最终回答。最终模型用量仍计入 run 总计。仅透传工具的拍可用轻量尾注；没有工具 leader 时不制造空 Tools 框。
+`ctx` 的目标是定位让上下文膨胀的步骤，不是展示又一份当前水位或计费账。默认关闭，用一个开关控制收据总计和 `turns` 拍头；不在工具行分摊，因为父请求没有逐工具结果的真实 token 计数。启用时，展开拍头只编号有工具调用的拍；没有 toolCall 的普通回复不承载 ctx，即使它是工具 run 的最终回答。最终模型用量仍计入 run 总计。仅透传工具的拍可用轻量尾注；没有工具 leader 时不制造空 Run 框。
 
 **测量点晚于归属点**：A 的工具结果只有进入 B 的请求后，才能从 B 的实际输入计数观察到。相邻完整、同模型的请求输入差值回填 A；缓存命中仍占上下文。未确认末拍用输出用量加自己的工具结果估算，始终标 `≈`；run 总计只加每拍贡献一次，有估算就保留 `≈`。输出包含 reasoning，但下次请求可能不原样回放，因此不能把报告的 output 当成精确上下文增长。
 
@@ -222,20 +222,22 @@ Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在
 
 ## Custom 与交互工具
 
-Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `execute()`。没有 `getCallPresentation` 时，调用行按原顺序平铺顶层参数，总预算 120 字符：string/number/boolean/null 显示有界值，数组显示 `[N]`，对象显示 `{…}`，`displaySummary` 与敏感字段/值不展示。
+Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `execute()`。没有 `getCallPresentation` 时，调用行按目的／目标优先挑选最多两个值，不把参数键名变成视觉噪音，也不机械拼接所有标量。用于控制执行和携带大正文的参数留到详情；inline 安全预览与不脱敏的详情窗口保持分离。
+
+Agent 属于委派型调用：类型／任务描述形成短标题；成功返回的后台回执标为 dispatched，前台完成可以标成功，错误优先。只解释当前调用回执，不追踪或覆盖后台任务的后续状态；计时也是调用的执行区间，不冒充后台任务寿命。已有结构化回执比请求里的模式开关可靠，未知回执只标 returned。缺少稳定的专属 viewer 打开接口时保留通用详情，不侵入 subagents 私有状态。
 
 - `ctx.ui.custom()`、dialog、overlay、widget、外部 pane 等执行期 UI 继续工作；
 - 例如 `ask_user_question` 的问卷仍会临时替换 editor；完成后的答案 renderer 在 aggregate 中收起；
 - 原始答案仍在 tool result 中，切 individual + reload 后重新可见；
 - custom tool 的 schema、prepareArguments、execute 和原 renderer definition 均不被改写。
 
-需要持续查看原 renderer 的工具加入 `tools.passthrough`。passthrough 工具仍计入 Tools；只是不被零行隐藏。
+需要持续查看原 renderer 的工具加入 `tools.passthrough`。passthrough 工具仍计入 Run；只是不被零行隐藏。
 
 ## 图片当普通 output
 
 交互贴图会写成 `/tmp/pi-clipboard-*.png`，user message 只有路径文本；模型用 `read` 读文件，tool result 才带 image block。像素是工具结果，不是 user 附件。
 
-因此 image block 视为普通 read output：收进 Tools 账本，显示 `Read(/tmp/pi-clipboard-….png)`，成功走 done 槽。不恢复 Kitty/iTerm 原图。要看图切回 individual。
+因此 image block 视为普通 read output：收进 Run 账本，显示 `Read(/tmp/pi-clipboard-….png)`，成功走 done 槽。不恢复 Kitty/iTerm 原图。要看图切回 individual。
 
 ## Session 与上下文
 
@@ -253,14 +255,14 @@ Aggregate 默认收起 custom tool 的 transcript call/result，但不修改 `ex
 
 投影只存在于当前扩展运行时，并从所属 Session branch 重建。Custom tool 原 result 因此可在 individual 恢复。
 
-本扩展持有的 built-in 在 aggregate 下只有 bash 注册 `displaySummary`；read/edit 等仍不生成 intent。这改变未来 bash schema，不改变已有历史消息。Interactive Tools 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。
+本扩展持有的 built-in 在 aggregate 下只有 bash 注册 `displaySummary`；read/edit 等仍不生成 intent。这改变未来 bash schema，不改变已有历史消息。Interactive Run 补丁不参与 HTML export，HTML 使用当前注册工具的原 renderer。
 
 ## 渲染机制
 
 Pi 的 `getAllTools()` 只提供 ToolInfo，不能安全取得并重注册其他扩展的 execute/schema/renderers。为了覆盖 early、late、custom 和 MCP tool，aggregate 使用 Pi 导出的 `ToolExecutionComponent` 做 reload-safe render prototype patch：
 
 ```text
-latest eligible component -> Tools lines
+latest eligible component -> Run lines
 other aggregated members  -> []
 passthrough               -> original render()
 ```
@@ -279,10 +281,10 @@ passthrough               -> original render()
 ```text
 toolCalls.layout:
   individual  原有逐工具布局，默认
-  aggregate   全工具有界 Tools 总览
+  aggregate   全工具有界 Run 总览
 ```
 
-`tools.passthrough` 接受任意非空、无首尾空白的工具名。默认有效列表包含 `Agent`，稀疏序列化时省略。内置 passthrough 名称同时关闭本扩展在 individual 中对该 built-in 的 renderer override。
+`tools.passthrough` 接受任意非空、无首尾空白的工具名。默认有效列表为空，稀疏序列化时省略；旧配置中显式写出的例外仍保留。内置 passthrough 名称同时关闭本扩展在 individual 中对该 built-in 的 renderer override。
 
 Aggregate 下 individual-only 配置保留但不生效，设置 TUI 隐藏这些项；切回 individual 后恢复原值。
 
@@ -302,14 +304,14 @@ ctx.sessionManager.buildSessionContext()?.messages
 1. 未声明 layout 时 individual 行为完全不变。
 2. Aggregate 统计所有 built-in/custom/MCP/late tool，重复 streaming update 不重复计数。
 3. `×N` 是总调用次数，failed 单独计数；收起不显示逐条错误。
-4. Tools 最多显示 3 个 active/recent-done，done 替换和 settled 延迟无回弹。
-5. `Ctrl+O` 离开 Tools 账本，按原时间线恢复中途旁白和逐条调用概要，不泄露 raw output/diff/file summary。
+4. Run 最多显示 3 个 active/recent-done，done 替换和 settled 延迟无回弹。
+5. `Ctrl+O` 离开 Run 账本，按原时间线恢复中途旁白和逐条调用概要，不泄露 raw output/diff/file summary。
 6. 不生成、保存或恢复任何 aggregate 文件变更统计。
-7. `Agent` 默认保留原 renderer但仍计数；任意配置 passthrough 同样处理。
+7. Agent 与 consult 默认进入统一账本；显式配置 passthrough 的工具保留原 renderer，但仍计数。
 8. `ask_user_question` 交互正常，aggregate 隐藏完成结果；individual + reload 恢复答案。
 9. 图片结果收进账本，不 fail-open；unknown/custom 普通文本工具默认聚合，并显示确定性 target。
 10. 非 leader 成员真实零高度，无 Spacer、空 Box 或背景行。
 11. reload/resume/tree/compaction 后 counts、leader、failed 正确，瞬态 done 不恢复。
-12. 聚合不改写 Session call/result，不向模型上下文注入 Tools 数据。
+12. 聚合不改写 Session call/result，不向模型上下文注入 Run 数据。
 13. 收起的 `Thinking...` 占位、thinking 正文和中途旁白被隐藏；最终结论、错误保留。thinking 不当旁白，不进展开边框。
 14. HTML export 与 individual 历史 renderer 保持可用。

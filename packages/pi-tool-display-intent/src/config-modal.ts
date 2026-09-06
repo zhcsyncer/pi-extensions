@@ -44,7 +44,7 @@ export function getToolDisplayArgumentCompletions(argumentPrefix: string): Array
 		{
 			value: "aggregate",
 			label: "aggregate",
-			description: "One bounded Tools ledger per user turn",
+			description: "One bounded Run ledger per user turn",
 		},
 		{
 			value: "individual",
@@ -102,14 +102,14 @@ export function buildInspectorSettings(
 			inspectorTitle: "Tool Call Layout",
 			inspectorSummary: config.toolCallLayout === "aggregate"
 				? [
-					"Aggregate uses one bounded Tools summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
+					"Aggregate uses one bounded Run summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
 					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
-					"Ctrl+O leaves the Tools ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
+					"Ctrl+O leaves the Run ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
 					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
-					"Aggregate summarizes every registered tool in one bounded Tools view per user turn.",
+					"Aggregate summarizes every registered tool in one bounded Run view per user turn.",
 				],
 			inspectorOptions: [
 				"individual — preserve the complete existing per-tool display (default)",
@@ -151,7 +151,7 @@ export function buildInspectorSettings(
 			values: EXPANDED_TIMELINES,
 			inspectorTitle: "Expanded Timeline",
 			inspectorSummary: [
-				"Controls only the Ctrl+O aggregate timeline. Collapsed Tools stays the same bounded ledger.",
+				"Controls only the Ctrl+O aggregate timeline. Collapsed Run stays the same bounded ledger.",
 				"flat keeps one target/status row per call. turns groups those rows by agent turn with ↻ 1/N headers and indented calls.",
 				"Turn time is the span of that agent turn, not per-call execute duration. Switching this does not reload the session.",
 			],
@@ -160,7 +160,7 @@ export function buildInspectorSettings(
 				"turns — group Ctrl+O by agent turn with ↻ 1/N headers and indented calls",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"This setting is render-only. It does not change tool schemas, Session messages, or collapsed Tools.",
+				"This setting is render-only. It does not change tool schemas, Session messages, or collapsed Run.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["timeline", "turn", "expand", "ctrl+o", "group", "flat", "aggregate"],

@@ -665,7 +665,7 @@ test("aggregate respects passthrough and external ownership boundaries", () => {
 	restoreAggregateToolExecutions();
 });
 
-test("aggregate decorateTool keeps call presentation for the Tools ledger", () => {
+test("aggregate decorateTool keeps call presentation for the Run ledger", () => {
 	const config = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallLayout: "aggregate" as const,

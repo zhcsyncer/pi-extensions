@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import * as Tui from "@earendil-works/pi-tui";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAggregateCollapseWidget } from "../src/aggregate-collapse-widget.ts";
 import {
 	patchAggregateViewport, releaseAggregateViewportRegion, resetAggregateViewportOwner,
 	restoreAggregateViewport, subscribeAggregateViewportControl, toggleAggregateViewportRun,
@@ -20,6 +22,36 @@ function controlFor(owner: object) {
 	const changes: (string | undefined)[] = [];
 	subscriptions.push(subscribeAggregateViewportControl(owner, (next) => { control = next; changes.push(next?.run.id); }));
 	return { get current() { return control; }, changes };
+}
+function mountWidget(f: ReturnType<typeof fullscreen>, owner: object, gap = 1) {
+	const widget = createAggregateCollapseWidget(owner);
+	const changes: boolean[] = [];
+	const theme = { fg: (_: string, text: string) => text };
+	widget.bind({ hasUI: true, ui: {
+		theme,
+		setWidget(_key: string, factory: ((tui: typeof f.renderer, theme: any) => Tui.Component) | undefined) {
+			changes.push(!!factory);
+			f.widgets.clear();
+			if (factory) { f.widgets.addChild(new Tui.Spacer(gap)); f.widgets.addChild(factory(f.renderer, theme)); }
+			f.renderer.requestRender();
+		},
+	} } as unknown as ExtensionContext);
+	subscriptions.push(() => widget.dispose());
+	return changes;
+}
+function bottomWidget(gap = 1) {
+	const f = fixture();
+	const owner = {};
+	const first = new Run(owner, "simulation"); first.expanded = true;
+	const second = new Run(owner, "consult"); second.expanded = true;
+	const hosts = [host(first, 20), host(second, 20)];
+	for (const component of hosts) f.document.addChild(component);
+	// The last body row is visible without the dock; mounting it moves top past bodyEnd.
+	const final = new Rows(f.terminal.rows - 2 - 2 - 1, "final answer");
+	f.document.addChild(final);
+	const selected = controlFor(owner);
+	const changes = mountWidget(f, owner, gap);
+	return { f, owner, first, second, hosts, final, selected, changes };
 }
 function scrollTo(f: ReturnType<typeof fullscreen>, row: number) { f.scroll.scrollTo(row, { disableFollow: true }); f.paint(); }
 function transcriptLine(f: ReturnType<typeof fullscreen>, row: number) { return f.lines()[row].slice(0, -1).trim(); }
@@ -151,6 +183,129 @@ test("duplicate labels select by run identity, never the next run or a final ans
 	scrollTo(f, 41);
 	assert.equal(selected.current, undefined, "last final answer is not part of the expanded body");
 	assert.equal(first.toggles + second.toggles, 0);
+});
+
+for (const gap of [0, 1, 3]) {
+	test(`follow-end widget relayout keeps its selection without oscillation (${gap} spacer rows)`, () => {
+		const { f, first, second, hosts, selected, changes } = bottomWidget(gap);
+		const editor = new Tui.Input(); f.renderer.setFocus(editor);
+		f.start();
+		assert.equal(selected.current?.run, second);
+		const before = hosts.map((component) => component.renders);
+		const frames = Array.from({ length: 8 }, () => {
+			f.paint();
+			return { top: f.scroll.scrollTop, height: f.scroll.viewportHeight, run: selected.current?.run.id,
+				visible: f.lines().some((line) => line.includes("Collapse")) };
+		});
+		assert.deepEqual(frames, Array(8).fill(frames[0]), JSON.stringify(frames));
+		assert.equal(frames[0].run, second.id);
+		assert.equal(frames[0].visible, true);
+		assert.deepEqual(changes, [true], "the widget must mount only once");
+		assert.deepEqual(hosts.map((component) => component.renders), before.map((count) => count + 8), "no extra child renders for geometry");
+		assert.equal(f.scroll.isFollowingEnd, true);
+		assert.equal(f.renderer.hasOverlay(), false);
+		f.terminal.onInput!("typed");
+		assert.equal(editor.getValue(), "typed");
+		f.terminal.click(2, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint();
+		assert.equal(first.expanded, true);
+		assert.equal(second.expanded, false, "the retained control still collapses its selected run");
+		assert.equal(selected.current, undefined);
+	});
+}
+
+test("native wheel, scrollbar drag and end navigation replace a dock-stabilized target", () => {
+	const { f, first, second, selected } = bottomWidget();
+	f.start(); f.paint();
+	assert.equal(selected.current?.run, second);
+	// One wheel step leaves top outside the body, so removing the dock must preserve absence.
+	f.terminal.mouse(64, 10, 4); f.paint();
+	assert.equal(selected.current, undefined);
+	for (let i = 0; i < 4; i++) { f.paint(); assert.equal(selected.current, undefined); }
+	f.terminal.mouse(64, 10, 4); f.paint(); f.paint();
+	assert.equal(selected.current?.run, second);
+	// Drag the native thumb to the beginning; no interception by the fixed control.
+	f.terminal.mouse(0, 43, 6);
+	f.terminal.mouse(32, 43, 2);
+	f.terminal.mouse(0, 43, 2, true); f.paint(); f.paint();
+	assert.equal(f.scroll.scrollTop, 0);
+	assert.equal(selected.current, undefined);
+	f.terminal.mouse(65, 10, 4); f.paint(); f.paint();
+	assert.equal(selected.current?.run, first);
+	f.scroll.scrollToEnd(); f.paint();
+	assert.equal(selected.current, undefined, "end navigation reaches final text, not the previously selected run");
+	for (let i = 0; i < 4; i++) { f.paint(); assert.equal(selected.current, undefined); }
+});
+
+test("same-height text updates do not restart dock visibility feedback", () => {
+	const { f, second, final, selected, changes } = bottomWidget();
+	f.start(); f.paint();
+	for (let i = 0; i < 8; i++) {
+		final.text = `streaming text or elapsed time ${i}`;
+		f.paint();
+		assert.equal(selected.current?.run, second);
+	}
+	assert.deepEqual(changes, [true]);
+});
+
+for (const change of ["follow", "final growth", "collapse", "remove", "invalidate", "branch", "resize"] as const) {
+	test(`${change} clears a dock-stabilized target without remounting on the resulting layout`, () => {
+		const { f, second, hosts, final, selected } = bottomWidget();
+		f.start(); f.paint();
+		const retained = selected.current!;
+		assert.equal(retained.run, second);
+		switch (change) {
+			case "follow": f.scroll.scrollTo(f.scroll.scrollTop, { disableFollow: true }); break;
+			case "final growth": final.count++; break;
+			case "collapse": second.expanded = false; break;
+			case "remove": f.document.removeChild(hosts[1]); break;
+			case "invalidate": second.valid = false; break;
+			case "branch": f.document.clear(); f.document.addChild(new Rows(49, "new branch")); break;
+			case "resize": f.terminal.resize(40, 11); break;
+		}
+		if (change === "follow") {
+			retained.collapse();
+			assert.equal(second.toggles, 0, "a follow-state change invalidates the old control even before paint");
+		}
+		f.paint();
+		assert.equal(selected.current, undefined);
+		for (let i = 0; i < 4; i++) {
+			f.paint();
+			assert.equal(selected.current, undefined);
+			assert.equal(f.widgets.children.length, 0, "no permanent blank dock slot");
+		}
+		retained.collapse();
+		assert.equal(second.toggles, 0);
+	});
+}
+
+test("owner reset clears the old dock control immediately and freshly recorded runs can be selected again", () => {
+	const { f, owner, second, selected } = bottomWidget();
+	f.start(); f.paint();
+	const retained = selected.current!;
+	resetAggregateViewportOwner(owner);
+	assert.equal(selected.current, undefined);
+	assert.equal(f.widgets.children.length, 0);
+	retained.collapse();
+	assert.equal(second.toggles, 0);
+	f.paint(); f.paint();
+	assert.equal(selected.current?.run, second, "native rendering records a new generation");
+	assert.notEqual(selected.current, retained);
+	const top = f.scroll.scrollTop;
+	for (let i = 0; i < 4; i++) { f.paint(); assert.equal(f.scroll.scrollTop, top); assert.equal(selected.current?.run, second); }
+});
+
+test("overlay dismissal rediscovers a dock-stabilized target after hiding it", () => {
+	const { f, second, selected } = bottomWidget();
+	f.start(); f.paint();
+	const retained = selected.current!;
+	const overlay = f.renderer.showOverlay(new Rows(1, "details"), { width: 20 });
+	retained.collapse();
+	assert.equal(second.toggles, 0);
+	for (let i = 0; i < 4; i++) { f.paint(); assert.equal(selected.current, undefined); }
+	overlay.hide(); f.paint(); f.paint();
+	assert.equal(selected.current?.run, second);
+	const top = f.scroll.scrollTop;
+	for (let i = 0; i < 4; i++) { f.paint(); assert.equal(f.scroll.scrollTop, top); assert.equal(selected.current?.run, second); }
 });
 
 test("real nonzero viewport origin, scrollbar width and resize use current cached widths", () => {

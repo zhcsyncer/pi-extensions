@@ -220,7 +220,7 @@ test("a newly created final answer inherits an already expanded transcript", () 
 	}
 });
 
-test("only passthrough tool turns may show context without manufacturing a Tools frame", () => {
+test("only passthrough tool turns may show context without manufacturing a Run frame", () => {
 	const p = projection();
 	const a = assistant("a", 1000, 20, "Agent");
 	const b = assistant("b", 1600, 30);

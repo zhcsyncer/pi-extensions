@@ -2,12 +2,90 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AssistantMessageComponent, ToolExecutionComponent, initTheme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Input, ScrollView, Spacer, Text, TuiAltScreen, VStack, type Component } from "@earendil-works/pi-tui";
-import { AggregateTerminal } from "./helpers/aggregate-terminal.ts";
+import { AggregateTerminal, fullscreen } from "./helpers/aggregate-terminal.ts";
 import { AggregateProjection, patchAggregateToolExecutions, restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
 import { patchAggregateThinkingPlaceholders, restoreAggregateThinkingPlaceholders } from "../src/aggregate-thinking-placeholder.ts";
 import { createAggregateCollapseWidget } from "../src/aggregate-collapse-widget.ts";
 
 const clean = (line: string) => line.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-9;]*m/g, "");
+
+test("expanded simulation and consult ledgers remain steady at end with a real above-editor dock", () => {
+	initTheme("dark", false);
+	const f = fullscreen();
+	const p = new AggregateProjection((name) => name === "Agent");
+	const branch: unknown[] = [];
+	const tools: ToolExecutionComponent[] = [];
+	f.document.addChild(new Spacer(40));
+	for (const [id, name] of [["simulation", "bash"], ["consultation", "consult"]]) {
+		const args = name === "bash" ? { command: "simulation" } : { why: "Review the simulation" };
+		const message = { role: "assistant", id: `message-${id}`, stopReason: "toolUse", content: [
+			{ type: "toolCall", id, name, arguments: args },
+		] };
+		const result = { role: "toolResult", toolCallId: id, toolName: name,
+			content: [{ type: "text", text: Array.from({ length: 30 }, (_, row) => `${id} output ${row}`).join("\n") }] };
+		branch.push({ type: "message", id: `user-${id}`, message: { role: "user", content: id } },
+			{ type: "message", id: `entry-${id}`, message }, { type: "message", id: `result-${id}`, message: result },
+			{ type: "message", id: `final-${id}`, message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] } });
+		f.document.addChild(new Text(id, 0, 0));
+		f.document.addChild(new AssistantMessageComponent(message as never, true));
+		const tool = new ToolExecutionComponent(name, id, args, {}, {
+			name, label: name, description: name, parameters: { type: "object", properties: {} },
+			execute() { throw new Error("inspection must not execute tools"); },
+			renderCall: () => new Text("native", 0, 0), renderResult: () => new Text("native result", 0, 0),
+		} as never, f.renderer, process.cwd());
+		tool.updateResult(result as never);
+		tools.push(tool); f.document.addChild(tool);
+	}
+	const final = new Text("final answer", 0, 0); f.document.addChild(final);
+	p.rebuild(branch);
+	patchAggregateToolExecutions(p);
+	patchAggregateThinkingPlaceholders(() => true);
+	const widget = createAggregateCollapseWidget(p);
+	const mounts: boolean[] = [];
+	const theme = { fg: (_: string, text: string) => text };
+	widget.bind({ hasUI: true, ui: {
+		theme,
+		setWidget(_key: string, factory: ((tui: typeof f.renderer, theme: any) => Component) | undefined) {
+			mounts.push(!!factory);
+			f.widgets.clear();
+			if (factory) { f.widgets.addChild(new Spacer(1)); f.widgets.addChild(factory(f.renderer, theme)); }
+			f.renderer.requestRender();
+		},
+	} } as unknown as ExtensionContext);
+	try {
+		f.start();
+		f.scroll.scrollToStart(); f.paint(); f.paint();
+		// Exercise the projection's actual expand path, not hand-recorded viewport regions.
+		p.toggleGroupExpansionFromComponent("simulation", tools[0]); f.paint();
+		p.toggleGroupExpansionFromComponent("consultation", tools[1]); f.paint();
+		f.scroll.scrollToStart(); f.paint(); f.paint();
+		assert.equal(p.isItemExpanded("simulation"), true);
+		assert.equal(p.isItemExpanded("consultation"), true);
+		assert.equal(f.widgets.children.length, 0);
+		// Without a dock the last tool body overlaps the viewport by one row.
+		final.setText(Array(f.scroll.viewportHeight - 1).fill("final answer").join("\n")); f.paint();
+		mounts.length = 0;
+		f.scroll.scrollToEnd(); f.paint();
+		const undockedTop = f.scroll.scrollTop;
+		const undockedHeight = f.scroll.viewportHeight;
+		const frames = Array.from({ length: 8 }, () => {
+			f.paint();
+			return { top: f.scroll.scrollTop, height: f.scroll.viewportHeight, screen: f.lines() };
+		});
+		assert.deepEqual(frames, Array(8).fill(frames[0]), frames.map(({ top, height }) => `${top}/${height}`).join(", "));
+		assert.equal(frames[0].top, undockedTop + 2);
+		assert.equal(frames[0].height, undockedHeight - 2);
+		assert.ok(frames[0].screen.some((line) => line.includes("Collapse")));
+		assert.deepEqual(mounts, [true]);
+		assert.equal(f.scroll.isFollowingEnd, true);
+		f.terminal.click(2, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint(); f.paint();
+		assert.equal(p.isItemExpanded("simulation"), true);
+		assert.equal(p.isItemExpanded("consultation"), false);
+	} finally {
+		widget.dispose(); f.stop();
+		restoreAggregateThinkingPlaceholders(); restoreAggregateToolExecutions();
+	}
+});
 
 test("real fullscreen ledger anchors migrating titles and collapses through the editor widget without stealing focus", () => {
 	initTheme("dark", false);
@@ -78,13 +156,14 @@ test("real fullscreen ledger anchors migrating titles and collapses through the 
 	};
 	try {
 		tui.start(); paint();
-		const initialTitle = screen().findIndex((line) => line.includes("Tools (12 calls"));
+		const titleLabel = p.getViewportRun("a-0")!.label().replace(/\)$/, "");
+		const initialTitle = screen().findIndex((line) => line.includes(titleLabel));
 		assert.ok(initialTitle >= 0, "collapsed title should be visible while following end");
 		assert.equal(scroll.isFollowingEnd, true);
 		click(initialTitle);
 		assert.equal(p.isItemExpanded("a-0"), true);
 		assert.equal(p.isItemExpanded("b-0"), false);
-		assert.equal(screen().findIndex((line) => line.includes("Tools (12 calls")), initialTitle);
+		assert.equal(screen().findIndex((line) => line.includes(titleLabel)), initialTitle);
 		assert.equal(scroll.isFollowingEnd, false);
 		assert.ok(screen().some((line) => line.includes("Narration row")), "title moved to the newly visible narration host");
 		scroll.scrollBy(25); paint();
@@ -99,7 +178,7 @@ test("real fullscreen ledger anchors migrating titles and collapses through the 
 		click(screen().findIndex((line) => line.includes("Collapse")));
 		assert.equal(p.isItemExpanded("a-0"), false);
 		assert.equal(p.isItemExpanded("b-0"), false);
-		assert.ok(screen().some((line) => line.includes("Tools (12 calls")));
+		assert.ok(screen().some((line) => line.includes(titleLabel)));
 		assert.ok(screen().every((line) => !line.includes("Collapse")));
 		input("z");
 		assert.equal(editor.getValue(), "kz");

@@ -6,7 +6,8 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatFlatArgumentPreview } from "./arg-preview.js";
+import { formatAggregateArgumentPreview } from "./aggregate-argument-preview.js";
+import { agentReceiptChrome, formatAggregateAgentTarget, readAgentCallReceipt, type AgentCallReceipt } from "./aggregate-agent-call.js";
 import { ContextGrowthLedger, formatContextGrowth, type ContextGrowth } from "./context-growth.js";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
 import { layoutSteerPreview } from "./steer-preview.js";
@@ -42,6 +43,8 @@ export interface AggregateMember {
 	startedAtMs?: number;
 	endedAtMs?: number;
 	agentTurnId?: string;
+	/** Immutable interpretation of the Agent tool receipt, not live task progress. */
+	agentReceipt?: AgentCallReceipt;
 }
 
 export interface AggregateUsageTotals {
@@ -172,7 +175,7 @@ const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const NARRATION_CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
 export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
-export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH = ["Agent"] as const;
+export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH: readonly string[] = [];
 
 const AGGREGATE_TOOL_EXECUTION_PATCH_KEY = Symbol.for(
 	"pi-tool-display-intent.aggregate-tool-execution.v1",
@@ -290,9 +293,10 @@ function formatCustomAggregateTarget(toolName: string, args: unknown): string {
 		const inner = suffix ? `${presentation.target} · ${suffix}` : presentation.target;
 		return `${toolName}(${inner})`;
 	}
-	const record = toRecord(stripDisplaySummary(args));
-	if (toolName === "mcp") return `mcp(${formatMcpAggregateTarget(record)})`;
-	return `${toolName}(${formatFlatArgumentPreview(record)})`;
+	if (toolName === "Agent") return formatAggregateAgentTarget(args);
+	if (toolName === "mcp") return `mcp(${formatMcpAggregateTarget(toRecord(stripDisplaySummary(args)))})`;
+	const preview = formatAggregateArgumentPreview(args);
+	return preview ? `${toolName}(${preview})` : toolName;
 }
 
 function bashCommandSource(args: Record<string, unknown>): string {
@@ -946,7 +950,7 @@ export class AggregateProjection {
 			toggle: () => { if (run.isValid()) this.toggleGroupExpansion(id); },
 			label: () => {
 				const count = this.groupsById.get(id)?.members.filter((member) => member.visible).length ?? 0;
-				return `Tools (${count} ${pluralize(count, "call")})`;
+				return `Run (${count} ${pluralize(count, "call")})`;
 			},
 		};
 		this.viewportRuns.set(id, run);
@@ -1455,6 +1459,7 @@ export class AggregateProjection {
 		if (!member || member.state === "needsAttention") return;
 		member.startedAtMs = Date.now();
 		member.state = "running";
+		delete member.agentReceipt;
 		member.retainedDone = false;
 		member.completionOrder = undefined;
 		member.endedAtMs = undefined;
@@ -1484,6 +1489,13 @@ export class AggregateProjection {
 			return;
 		}
 
+		if (member.toolName === "Agent") {
+			member.agentReceipt = readAgentCallReceipt(member.args, result);
+			if (member.agentReceipt === "failed" || member.agentReceipt === "stopped") {
+				this.markFailed(toolCallId, firstMeaningfulLine(result, `Agent ${member.agentReceipt}.`), options);
+				return;
+			}
+		}
 		const firstSuccess = member.state !== "success";
 		member.state = "success";
 		member.errorSummary = undefined;
@@ -1515,6 +1527,7 @@ export class AggregateProjection {
 		const member = this.membersById.get(toolCallId);
 		if (!member || member.state === "needsAttention") return;
 		member.state = "failed";
+		delete member.agentReceipt;
 		member.errorSummary = normalizeDisplaySummary(summary, FAILED_SUMMARY_MAX_LENGTH) ?? "Tool failed.";
 		member.retainedDone = false;
 		member.completionOrder = undefined;
@@ -1943,14 +1956,18 @@ export class AggregateProjection {
 }
 
 function memberStatusChrome(
-	member: Pick<AggregateMember, "state" | "errorSummary">,
+	member: Pick<AggregateMember, "state" | "errorSummary" | "agentReceipt">,
 	theme: AggregateRenderTheme,
-): { marker: string; detail?: string } {
+): { marker: string; detail?: string; receiptLabel?: string } {
 	if (member.state === "failed") {
 		return {
 			marker: theme.fg("error", "!"),
 			detail: member.errorSummary ?? "Tool failed.",
 		};
+	}
+	if (member.state === "success" && member.agentReceipt) {
+		const chrome = agentReceiptChrome(member.agentReceipt);
+		return { marker: theme.fg(chrome.color, chrome.marker), receiptLabel: chrome.label };
 	}
 	if (member.state === "success") return { marker: theme.fg("success", "✓") };
 	return { marker: theme.fg("warning", "◐") };
@@ -1962,7 +1979,7 @@ function appendTruncationMark(row: string, width: number): string {
 }
 
 function renderBoundedCallRows(
-	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary">,
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "agentReceipt">,
 	contentWidth: number,
 	theme: AggregateRenderTheme,
 	options: {
@@ -1975,7 +1992,7 @@ function renderBoundedCallRows(
 	const safeWidth = Math.max(1, Math.floor(contentWidth));
 	const rowLimit = Math.max(1, Math.floor(options.maxRows));
 	const indent = options.indent ?? "";
-	const { marker, detail } = memberStatusChrome(member, theme);
+	const { marker, detail, receiptLabel } = memberStatusChrome(member, theme);
 	const callPrefix = `${indent}${marker} `;
 	const continuation = " ".repeat(visibleWidth(callPrefix));
 	const requestedTiming = options.timing ?? "";
@@ -1993,7 +2010,7 @@ function renderBoundedCallRows(
 	const availableLabelRows = labelRowLimit - (moveLabelBelowTiming ? 1 : 0);
 	const label = member.toolName === "bash"
 		? renderBashLedgerLabel(member.args, theme, labelWidth, availableLabelRows)
-		: formatColoredTarget(member, theme);
+		: `${formatColoredTarget(member, theme)}${receiptLabel ? theme.fg("muted", ` · ${receiptLabel}`) : ""}`;
 	const labelLayout = layoutPreviewRows([label], availableLabelRows, labelWidth);
 	const labelRows = labelLayout.rows.length > 0 ? [...labelLayout.rows] : [""];
 	if (labelLayout.longLineTruncated || labelLayout.rowLimitReached) {
@@ -2063,7 +2080,7 @@ export function attachExpandedAggregateSummary(
 }
 
 export function renderAggregateMemberRow(
-	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs">,
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs" | "agentReceipt">,
 	width: number,
 	theme: AggregateRenderTheme,
 	edge: AggregateFrameEdge = "only",
@@ -2084,7 +2101,7 @@ export function renderAggregateMemberRow(
 }
 
 export function renderExpandedAggregateMember(
-	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs">,
+	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "startedAtMs" | "endedAtMs" | "agentReceipt">,
 	width: number,
 	theme: AggregateRenderTheme,
 	edge: AggregateFrameEdge = "only",
@@ -2122,7 +2139,7 @@ export function renderAggregateActivity(
 		"muted",
 		` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"})`,
 	);
-	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Tools") ?? "Tools")}${totals}`;
+	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Run") ?? "Run")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
 	for (const summary of view.toolSummaries) {
 		header += theme.fg("muted", " · ");

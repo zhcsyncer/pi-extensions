@@ -131,7 +131,7 @@ function createComponent(
 	);
 }
 
-test("rebuild counts every built-in and custom call in one user-turn Tools summary", () => {
+test("rebuild counts every built-in and custom call in one user-turn Run summary", () => {
 	const projection = createProjection();
 	const branch = [
 		userEntry("user-1"),
@@ -162,8 +162,8 @@ test("rebuild counts every built-in and custom call in one user-turn Tools summa
 	assert.equal("diffStats" in (view ?? {}), false);
 });
 
-test("call counts include running, failed, successful, and passthrough tools", () => {
-	const projection = createProjection();
+test("call counts include running, failed, successful, and explicitly passthrough tools", () => {
+	const projection = new AggregateProjection((name) => name === "Agent");
 	projection.startUserGroup("user-counts");
 	projection.markStarted("read-1", "read", { path: "a.ts" });
 	projection.markComplete("read-1", { content: [{ type: "text", text: "ok" }] }, false);
@@ -181,7 +181,7 @@ test("call counts include running, failed, successful, and passthrough tools", (
 	assert.equal(view?.hasRunning, true);
 });
 
-test("a passthrough-only turn has no Tools ledger to pin narration on", () => {
+test("a passthrough-only turn has no Run ledger to pin narration on", () => {
 	const projection = new AggregateProjection((toolName) =>
 		toolName === "Agent" || toolName === "consult");
 	projection.startUserGroup("user-passthrough-only");
@@ -202,7 +202,7 @@ test("a passthrough-only turn has no Tools ledger to pin narration on", () => {
 	assert.equal(projection.shouldFrameAssistantNarration(message), false);
 });
 
-test("aggregate tools still pin pre-tool narration on the Tools ledger", () => {
+test("aggregate tools still pin pre-tool narration on the Run ledger", () => {
 	const projection = new AggregateProjection((toolName) =>
 		toolName === "Agent" || toolName === "consult");
 	projection.startUserGroup("user-mixed-ledger");
@@ -224,7 +224,7 @@ test("aggregate tools still pin pre-tool narration on the Tools ledger", () => {
 	assert.equal(projection.getView("read-1")?.latestNarration, "Locate both entries first");
 });
 
-test("a later passthrough-only assistant message is not framed just because the user turn already has a Tools ledger", () => {
+test("a later passthrough-only assistant message is not framed just because the user turn already has a Run ledger", () => {
 	const projection = new AggregateProjection((toolName) =>
 		toolName === "Agent" || toolName === "consult");
 	projection.startUserGroup("user-later-consult");
@@ -290,7 +290,7 @@ test("assistantFollowsAggregateLedger is true only after the first aggregate too
 	assert.equal(projection.assistantFollowsAggregateLedger(later), true);
 });
 
-test("a turn id that is not in any group does not inherit another group's Tools ledger", () => {
+test("a turn id that is not in any group does not inherit another group's Run ledger", () => {
 	const projection = new AggregateProjection((toolName) => toolName === "consult");
 	projection.startUserGroup("user-previous");
 	projection.markStarted("read-1", "read", { path: "a.ts" });
@@ -307,8 +307,8 @@ test("a turn id that is not in any group does not inherit another group's Tools 
 	assert.equal(projection.shouldFrameAssistantNarration(later), false);
 });
 
-test("Agent stays renderer-passthrough but remains in counts and never steals the leader", () => {
-	const projection = createProjection();
+test("explicit Agent passthrough remains in counts and never steals the leader", () => {
+	const projection = new AggregateProjection((name) => name === "Agent");
 	projection.startUserGroup("user-agent");
 	projection.markStarted("read-1", "read", { path: "a.ts" });
 	projection.markComplete("read-1", { content: [{ type: "text", text: "ok" }] }, false);
@@ -348,7 +348,7 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
-test("in-progress Tools ledger pins the latest narration above the tool rows", () => {
+test("in-progress Run ledger pins the latest narration above the tool rows", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-narration-budget");
 	projection.ingestAssistantMessage({
@@ -367,7 +367,7 @@ test("in-progress Tools ledger pins the latest narration above the tool rows", (
 	assert.equal(view?.settled, false);
 	assert.deepEqual(view?.displayRows.map((member) => member.toolCallId), ["tool-1", "tool-2", "tool-3"]);
 	const rendered = renderAggregateActivity(view!, 120, plainTheme());
-	assert.match(rendered.join("\n"), /Tools \(4 calls · 1 turn\)/);
+	assert.match(rendered.join("\n"), /Run \(4 calls · 1 turn\)/);
 	assert.match(rendered.join("\n"), /custom_1/);
 	assert.match(rendered.join("\n"), /› 先定位两边的设计与实现入口/);
 	assert.ok(
@@ -422,7 +422,7 @@ test("normalizeAssistantNarration keeps markdown structure and drops control noi
 	assert.equal(normalizeAssistantNarration("   \n\n  "), undefined);
 });
 
-test("settled Tools ledger shows duration, tokens, cache, and completion time under the header", () => {
+test("settled Run ledger shows duration, tokens, cache, and completion time under the header", () => {
 	const startedAt = Date.parse("2026-04-08T14:30:00");
 	const endedAt = Date.parse("2026-04-08T14:32:14");
 	const projection = createProjection();
@@ -470,12 +470,12 @@ test("settled Tools ledger shows duration, tokens, cache, and completion time un
 		cacheWrite: 4_100,
 	});
 	const rendered = renderAggregateActivity(view!, 120, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.match(rendered[0] ?? "", /Run \(1 call · 1 turn\)/);
 	assert.equal(rendered[1], `  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at ${formatAggregateClock(endedAt)}`);
 	assert.doesNotMatch(rendered.join("\n"), /›/);
 });
 
-test("a steered user message stays on the same Tools ledger", () => {
+test("a steered user message stays on the same Run ledger", () => {
 	const startedAt = Date.parse("2026-04-08T14:30:00");
 	const steeredAt = Date.parse("2026-04-08T14:31:20");
 	const projection = createProjection();
@@ -510,7 +510,7 @@ test("a steered user message stays on the same Tools ledger", () => {
 	assert.equal(same?.groupId, live?.groupId);
 	assert.equal(same?.hasRunning, true);
 	const rendered = renderAggregateActivity(same!, 160, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.match(rendered[0] ?? "", /Run \(1 call · 1 turn\)/);
 	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	assert.match(rendered.join("\n"), /↳ 先确定方案/);
 	assert.match(rendered.join("\n"), /› 合并已完成/);
@@ -551,7 +551,7 @@ test("multiple steers pin first lines in arrival order", () => {
 		"不要改 grok，用 xai",
 	]);
 	const rendered = renderAggregateActivity(view!, 80, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.match(rendered[0] ?? "", /Run \(1 call · 1 turn\)/);
 	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	const pinLines = rendered.filter((line) => line.includes("↳"));
 	assert.equal(pinLines.length, 2);
@@ -595,7 +595,7 @@ test("settling replaces first-line pins with one steer reminder", () => {
 	assert.deepEqual(view?.pinnedSteers, []);
 	assert.equal(view?.durationMs, endedAt - startedAt);
 	const rendered = renderAggregateActivity(view!, 160, plainTheme());
-	assert.match(rendered[0] ?? "", /Tools \(1 call · 1 turn\)/);
+	assert.match(rendered[0] ?? "", /Run \(1 call · 1 turn\)/);
 	assert.doesNotMatch(rendered[0] ?? "", /steer/);
 	assert.equal(rendered[1], "  ↳ 2 steers");
 	assert.doesNotMatch(rendered.join("\n"), /先确定方案|不要改 grok/);
@@ -618,7 +618,7 @@ test("expanded steer rows highlight the first line and keep framed gaps", () => 
 	assert.match(rendered[3] ?? "", /[│└]\s*$/);
 });
 
-test("a follow-up after a final assistant starts a new Tools group", () => {
+test("a follow-up after a final assistant starts a new Run group", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-original");
 	projection.ingestAssistantMessage({
@@ -676,7 +676,7 @@ test("rebuild treats a user after toolResult as a steer on the same group", () =
 	assert.equal(projection.getGroups().length, 1);
 	assert.equal(projection.getSteer("steer:user-1:0")?.firstLine, "先确定方案");
 	const rebuilt = renderAggregateActivity(view!, 120, plainTheme());
-	assert.match(rebuilt[0] ?? "", /Tools \(2 calls · 2 turns\)/);
+	assert.match(rebuilt[0] ?? "", /Run \(2 calls · 2 turns\)/);
 	assert.doesNotMatch(rebuilt[0] ?? "", /steer/);
 	assert.match(rebuilt.join("\n"), /↳ 1 steer/);
 });
@@ -797,7 +797,7 @@ test("event registration never appends file or diff statistics to the Session", 
 	}
 });
 
-test("rendered Tools header keeps failed first and treats every tool uniformly", () => {
+test("rendered Run header keeps failed first and treats every tool uniformly", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-render-summary");
 	projection.markStarted("read-1", "read", { path: "a.ts" });
@@ -809,20 +809,20 @@ test("rendered Tools header keeps failed first and treats every tool uniformly",
 	const view = projection.getView("custom-1");
 	assert.ok(view);
 	const rendered = renderAggregateActivity(view, 500, plainTheme()).join("\n");
-	assert.match(rendered, /^! Tools \(3 calls · 1 turn\) · 1 failed · read ×1 · edit ×1 · custom_probe ×1/m);
+	assert.match(rendered, /^! Run \(3 calls · 1 turn\) · 1 failed · read ×1 · edit ×1 · custom_probe ×1/m);
 	assert.doesNotMatch(rendered, /network exploded/);
 	const failed = projection.getMember("custom-1");
 	assert.ok(failed);
 	const expandedFailure = visibleText(renderAggregateMemberRow(failed, 500, plainTheme()).join("\n"));
 	assert.match(expandedFailure, /network exploded/);
 	const failureLines = expandedFailure.split("\n");
-	assert.match(failureLines[0] ?? "", /! custom_probe\(no args\)/);
+	assert.match(failureLines[0] ?? "", /! custom_probe\b/);
 	assert.doesNotMatch(failureLines[0] ?? "", /network exploded/);
 	assert.match(failureLines[1] ?? "", /^  └   network exploded$/);
 	assert.doesNotMatch(rendered, /files|Changes|\+\d|−\d/);
 });
 
-test("expanded tool rows leave the Tools ledger and show one summary per call", () => {
+test("expanded tool rows leave the Run ledger and show one summary per call", () => {
 	initTheme("dark", false);
 	const projection = createProjection();
 	patchAggregateToolExecutions(projection);
@@ -841,19 +841,19 @@ test("expanded tool rows leave the Tools ledger and show one summary per call", 
 		const collapsedLeader = bash.render(120);
 		assert.equal(collapsedLeader[0], "");
 		assert.equal(collapsedLeader[collapsedLeader.length - 1], "");
-		assert.match(collapsedLeader.join("\n"), /Tools.*read ×1.*bash ×1/);
+		assert.match(collapsedLeader.join("\n"), /Run.*read ×1.*bash ×1/);
 		assert.deepEqual(read.render(120), []);
 
 		read.setExpanded(true);
 		bash.setExpanded(true);
 		const expandedRead = read.render(120);
 		const expandedBash = bash.render(120);
-		assert.match(expandedRead.join("\n"), /Tools.*read ×1.*bash ×1/);
-		assert.doesNotMatch(expandedRead.join("\n"), /Tools[^\n]*\n\n.*[│└]/);
+		assert.match(expandedRead.join("\n"), /Run.*read ×1.*bash ×1/);
+		assert.doesNotMatch(expandedRead.join("\n"), /Run[^\n]*\n\n.*[│└]/);
 		assert.doesNotMatch(expandedRead.join("\n"), /[│└][^\n]*\n\n/);
 		assert.notEqual(expandedRead[expandedRead.length - 1], "");
-		assert.doesNotMatch(expandedRead.join("\n"), /│.*Tools/);
-		assert.doesNotMatch(expandedBash.join("\n"), /Tools.*read ×1.*bash ×1/);
+		assert.doesNotMatch(expandedRead.join("\n"), /│.*Run/);
+		assert.doesNotMatch(expandedBash.join("\n"), /Run.*read ×1.*bash ×1/);
 		assert.match(expandedRead.join("\n"), /│.*Read\(src\/a\.ts\)/);
 		assert.match(expandedBash.join("\n"), /└.*Bash\(pnpm test\)/);
 		assert.doesNotMatch(expandedRead.join("\n"), /RAW SECRET|files|\+\d|−\d/);
@@ -920,11 +920,12 @@ test("expanded turns keep long call targets readable within the eight-row bound"
 	projection.rebuild(branch, messages(branch));
 	const lines = visibleText(projection.renderExpandedToolRow("todo-1", 40).join("\n")).split("\n");
 	assert.match(lines[0] ?? "", /↻ 1\/1/);
-	assert.match(lines[1] ?? "", /✓ todo\(action=batch/);
-	assert.ok(lines.some((line) => /subject=/.test(line)));
+	assert.match(lines[1] ?? "", /✓ todo\(Keep useful/);
+	assert.match(lines.join("\n"), /Restore bounded/);
+	assert.doesNotMatch(lines.join("\n"), /(?:action|subject|description|owner)=/);
 	assert.ok(lines.length > 2 && lines.length <= 9, "one turn header plus at most eight call rows");
 	assert.ok(lines.every((line) => line.length <= 40));
-	assert.match(lines.at(-1) ?? "", /…\)$/);
+	assert.match(lines.at(-1) ?? "", /\)$/);
 });
 
 test("flat expanded timeline keeps one timed row per call", () => {
@@ -950,7 +951,7 @@ test("flat expanded timeline keeps one timed row per call", () => {
 	assert.match(first, /1m52s/);
 });
 
-test("expanded Tools summary stays on the first visible framed row after empty thinking", () => {
+test("expanded Run summary stays on the first visible framed row after empty thinking", () => {
 	initTheme("dark", false);
 	const projection = createProjection();
 	patchAggregateToolExecutions(projection);
@@ -966,7 +967,7 @@ test("expanded Tools summary stays on the first visible framed row after empty t
 		const read = createComponent("read", "read-1", { path: "src/a.ts" });
 		read.setExpanded(true);
 		const expanded = read.render(120).join("\n");
-		assert.match(expanded, /Tools.*read ×1/);
+		assert.match(expanded, /Run.*read ×1/);
 		assert.match(expanded, /[│└].*Read\(src\/a\.ts\)/);
 	} finally {
 		restoreAggregateToolExecutions();
@@ -986,7 +987,7 @@ test("prototype patch aggregates an arbitrary custom tool without changing its d
 		});
 		const component = createComponent("custom_probe", "custom-1", { query: "alpha" }, customTool);
 		const running = component.render(120).join("\n");
-		assert.match(running, /Tools.*custom_probe ×1/);
+		assert.match(running, /Run.*custom_probe ×1/);
 		assert.match(running, /\x1b\[/, "custom-only summaries still use the active public theme");
 		assert.doesNotMatch(running, /ORIGINAL CUSTOM/);
 
@@ -1023,16 +1024,16 @@ test("a stale patch is reinstalled after an earlier external wrapper restores fi
 		second.startUserGroup("user-repatch");
 		second.markStarted("custom-repatch", "custom_probe", {});
 		const component = createComponent("custom_probe", "custom-repatch", {});
-		assert.match(component.render(120).join("\n"), /Tools.*custom_probe ×1/);
+		assert.match(component.render(120).join("\n"), /Run.*custom_probe ×1/);
 	} finally {
 		restoreAggregateToolExecutions();
 		prototype.render = baseRender;
 	}
 });
 
-test("Agent passthrough preserves its original renderer while another leader counts it", () => {
+test("explicit Agent passthrough preserves its original renderer while another leader counts it", () => {
 	initTheme("dark", false);
-	const projection = createProjection();
+	const projection = new AggregateProjection((name) => name === "Agent");
 	patchAggregateToolExecutions(projection);
 	try {
 		projection.startUserGroup("user-agent-ui");
@@ -1041,10 +1042,33 @@ test("Agent passthrough preserves its original renderer while another leader cou
 		projection.markStarted("agent-1", "Agent", { prompt: "review" });
 		const agentComponent = createComponent("Agent", "agent-1", { prompt: "review" }, createTool("Agent", "AGENT PROGRESS"));
 		assert.match(agentComponent.render(120).join("\n"), /AGENT PROGRESS/);
-		assert.match(readComponent.render(120).join("\n"), /Tools.*read ×1.*Agent ×1/);
+		assert.match(readComponent.render(120).join("\n"), /Run.*read ×1.*Agent ×1/);
 	} finally {
 		restoreAggregateToolExecutions();
 	}
+});
+
+test("default aggregation puts Agent and consult in one Run without native output blocks", () => {
+	initTheme("dark", false);
+	assert.deepEqual(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH, []);
+	const projection = createProjection();
+	patchAggregateToolExecutions(projection);
+	try {
+		projection.startUserGroup("all-tools");
+		const args = { subagent_type: "Explore", description: "Inspect the renderer", prompt: "FULL PROMPT IN ARGS" };
+		projection.markStarted("agent", "Agent", args);
+		projection.markComplete("agent", { details: { status: "background" } }, false);
+		projection.markStarted("consult", "consult", { why: "Review the approach" });
+		const agent = createComponent("Agent", "agent", args, createTool("Agent", "NATIVE AGENT BLOCK"));
+		const consult = createComponent("consult", "consult", { why: "Review the approach" }, createTool("consult", "NATIVE CONSULT BLOCK"));
+		assert.deepEqual(agent.render(100), []);
+		assert.match(visibleText(consult.render(100).join("\n")), /Run.*Agent ×1.*consult ×1/);
+		projection.toggleGroupExpansion("agent");
+		const shown = visibleText([...agent.render(100), ...consult.render(100)].join("\n"));
+		assert.match(shown, /↗ Agent\(Explore · Inspect the renderer\).*dispatched/);
+		assert.match(shown, /consult\(Review the approach\)/);
+		assert.doesNotMatch(shown, /NATIVE|FULL PROMPT|why=|description=/);
+	} finally { restoreAggregateToolExecutions(); }
 });
 
 test("ask_user_question result is hidden in aggregate and restored by individual renderer", () => {
@@ -1062,7 +1086,7 @@ test("ask_user_question result is hidden in aggregate and restored by individual
 		projection.markStarted("ask-1", "ask_user_question", { questions: [] });
 		projection.markComplete("ask-1", { content: [{ type: "text", text: "Aggregate" }] }, false);
 		component.updateResult({ content: [{ type: "text", text: "Aggregate" }], isError: false });
-		assert.match(component.render(120).join("\n"), /Tools.*ask_user_question ×1/);
+		assert.match(component.render(120).join("\n"), /Run.*ask_user_question ×1/);
 		assert.doesNotMatch(component.render(120).join("\n"), /answer received|Aggregate$/m);
 	} finally {
 		restoreAggregateToolExecutions();
@@ -1097,7 +1121,7 @@ test("reload shutdown restores original custom history renderers", async () => {
 	assert.match(component.render(120).join("\n"), /restored answer/);
 });
 
-test("image results stay in the Tools ledger like ordinary output", () => {
+test("image results stay in the Run ledger like ordinary output", () => {
 	initTheme("dark", false);
 	const projection = createProjection();
 	patchAggregateToolExecutions(projection);
@@ -1115,7 +1139,7 @@ test("image results stay in the Tools ledger like ordinary output", () => {
 		image.updateResult(result);
 		assert.equal(projection.getMember("image-1")?.state, "success");
 		assert.equal(projection.getGroups()[0]?.leaderToolCallId, "read-1");
-		assert.match(read.render(120).join("\n"), /Tools.*custom_image ×1.*read ×1/);
+		assert.match(read.render(120).join("\n"), /Run.*custom_image ×1.*read ×1/);
 		assert.match(read.render(120).join("\n"), /Read\(\/tmp\/pi-clipboard-abc\.png\)/);
 		assert.deepEqual(image.render(120), []);
 		assert.doesNotMatch(read.render(120).join("\n"), /ORIGINAL IMAGE TOOL/);
@@ -1145,27 +1169,27 @@ test("branch rebuild invalidates and releases tool rows removed by tree or compa
 	assert.equal(projection.getGroups()[0]?.leaderToolCallId, "new-1");
 });
 
-test("custom targets flatten bounded arguments without inventing intent", () => {
+test("custom targets keep identifying values without keys or invented intent", () => {
 	assert.equal(formatAggregateTarget({ toolName: "read", args: { path: "/tmp/a.ts" } }), "Read(/tmp/a.ts)");
 	assert.equal(formatAggregateTarget({ toolName: "grep", args: { pattern: "x", path: "src" } }), "Search(/x/ in src)");
 	assert.equal(
 		formatAggregateTarget({ toolName: "custom_probe", args: { displaySummary: "Secret intent" } }),
-		"custom_probe(no args)",
+		"custom_probe",
 	);
 	assert.equal(
 		formatAggregateTarget({
 			toolName: "web_search",
 			args: { query: "prod metrics", displaySummary: "Secret intent" },
 		}),
-		"web_search(query=\"prod metrics\")",
+		"web_search(prod metrics)",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "web_read", args: { url: "https://example.com/a/b" } }),
-		"web_read(url=example.com/a/b)",
+		"web_read(example.com/a/b)",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "custom_probe", args: { alpha: 1, beta: 2, displaySummary: "Secret intent" } }),
-		"custom_probe(alpha=1 · beta=2)",
+		"custom_probe",
 	);
 	assert.equal(
 		formatAggregateTarget({ toolName: "mcp", args: { server: "github", tool: "search" } }),
@@ -1202,7 +1226,7 @@ test("long collapsed call targets wrap to a bounded second row while timing stay
 	const rendered = visibleText(renderAggregateActivity(view, 36, plainTheme(), startedAt + 1_500).join("\n"));
 	const callLines = rendered.split("\n").slice(1);
 	assert.equal(callLines.length, 2);
-	assert.match(callLines[0] ?? "", /web_search\(query=/);
+	assert.match(callLines[0] ?? "", /web_search\(metrics/);
 	assert.match(callLines[0] ?? "", /1\.5s\s*$/);
 	assert.match(callLines[1] ?? "", /abcdefghij/);
 	assert.doesNotMatch(callLines[1] ?? "", /1\.5s/);
@@ -1271,7 +1295,7 @@ test("streaming assistant updates keep one turn identity after the first tool ca
 	assert.deepEqual(view?.usage, { input: 12, output: 4, cacheRead: 0, cacheWrite: 0 });
 });
 
-test("a later child projection cannot steal the host Tools ledger", () => {
+test("a later child projection cannot steal the host Run ledger", () => {
 	initTheme("dark", false);
 	const host = createProjection();
 	const child = createProjection();
@@ -1280,13 +1304,13 @@ test("a later child projection cannot steal the host Tools ledger", () => {
 		host.startUserGroup("host-user");
 		host.markStarted("host-read", "read", { path: "src/a.ts" });
 		const hostRow = createComponent("read", "host-read", { path: "src/a.ts" });
-		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+		assert.match(hostRow.render(120).join("\n"), /Run.*read ×1/);
 
 		patchAggregateToolExecutions(child);
 		child.rebuild([]);
 		assert.equal(getActiveAggregateProjection(), host);
 		assert.equal(host.getMember("host-read")?.toolName, "read");
-		assert.match(hostRow.render(120).join("\n"), /Tools.*read ×1/);
+		assert.match(hostRow.render(120).join("\n"), /Run.*read ×1/);
 		assert.notDeepEqual(hostRow.render(120), []);
 	} finally {
 		restoreAggregateToolExecutions();

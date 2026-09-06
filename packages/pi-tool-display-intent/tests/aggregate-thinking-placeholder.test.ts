@@ -134,7 +134,7 @@ test("passthrough-only turns keep pre-tool narration as ordinary assistant text"
 	}
 });
 
-test("passthrough-only narration stays visible even after the same user turn already painted a Tools ledger", () => {
+test("passthrough-only narration stays visible even after the same user turn already painted a Run ledger", () => {
 	initTheme("dark", false);
 	const projection = passthroughProjection("Agent", "consult");
 	patchAggregateToolExecutions(projection);
@@ -161,7 +161,7 @@ test("passthrough-only narration stays visible even after the same user turn alr
 	}
 });
 
-test("a turn with aggregate tools still folds narration into the Tools frame", () => {
+test("a turn with aggregate tools still folds narration into the Run frame", () => {
 	initTheme("dark", false);
 	const projection = passthroughProjection("Agent", "consult");
 	patchAggregateToolExecutions(projection);
@@ -186,7 +186,7 @@ test("a turn with aggregate tools still folds narration into the Tools frame", (
 		expandable.setExpanded(true);
 		const expanded = component.render(100);
 		assert.match(expanded.join("\n"), /│.*›.*Locate both design and implementation entries first/);
-		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Run/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
@@ -215,7 +215,7 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 		expandable.setExpanded(true);
 		const expanded = component.render(100);
 		assert.match(expanded.join("\n"), /│.*›.*先定位两边的设计与实现入口/);
-		assert.doesNotMatch(expanded.join("\n"), /│.*Tools/);
+		assert.doesNotMatch(expanded.join("\n"), /│.*Run/);
 		assert.doesNotMatch(expanded.join("\n"), /Thinking\.\.\./);
 
 		expandable.setExpanded(false);
@@ -226,7 +226,7 @@ test("aggregate hides interim narration until Ctrl+O restores it in place", () =
 	}
 });
 
-test("early unframed narration keeps a blank under the user after later Tools appear", () => {
+test("early unframed narration keeps a blank under the user after later Run appear", () => {
 	initTheme("dark", false);
 	const projection = passthroughProjection("Agent", "consult");
 	patchAggregateToolExecutions(projection);
@@ -377,19 +377,19 @@ test("a direct final answer keeps a blank row under the user prompt", () => {
 	try {
 		projection.startUserGroup("user-direct-final");
 		const message = assistant([
-			{ type: "text", text: "就是：换地方画 Tools，上面照样空一行。" },
+			{ type: "text", text: "就是：换地方画 Run，上面照样空一行。" },
 		], { id: "assistant-direct-final", stopReason: "stop" });
 		projection.ingestAssistantMessage(message);
 		const rendered = createComponent(message, true).render(100);
 		assert.equal(rendered[0], "");
-		assert.match(rendered.join("\n"), /换地方画 Tools/);
+		assert.match(rendered.join("\n"), /换地方画 Run/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();
 	}
 });
 
-test("a final answer after Tools does not stack a second blank on the ledger", () => {
+test("a final answer after Run does not stack a second blank on the ledger", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
 		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));
@@ -467,7 +467,7 @@ test("aggregate thinking patch preserves a later outer renderer wrapper", () => 
 	}
 });
 
-test("a stop message keeps only the final text outside the Tools frame", () => {
+test("a stop message keeps only the final text outside the Run frame", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>
 		(DEFAULT_AGGREGATE_RENDER_PASSTHROUGH as readonly string[]).includes(toolName));

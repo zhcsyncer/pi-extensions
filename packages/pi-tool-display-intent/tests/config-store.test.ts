@@ -166,7 +166,7 @@ test("legacy config migrates to simple v2 and reports discarded bash rows throug
 		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
 		assert.equal(persisted.transcript, undefined);
 		assert.deepEqual(persisted.tools, {
-			passthrough: ["Agent", "grep"],
+			passthrough: ["grep"],
 			custom: {
 				web_search: { renderer: "generic", mode: "summary" },
 			},
@@ -279,7 +279,7 @@ test("v2 serialization is sparse and round-trips the effective config", () => {
 	});
 });
 
-test("default Agent passthrough stays sparse while arbitrary escape tools round-trip", () => {
+test("default full aggregation stays sparse while explicit passthrough exceptions round-trip", () => {
 	const defaults = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(defaults.tools, undefined);
 	const config = normalizeToolDisplayConfig({
@@ -298,7 +298,8 @@ test("default Agent passthrough stays sparse while arbitrary escape tools round-
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		passthroughToolNames: [],
 	});
-	assert.deepEqual(serializeToolDisplayConfigV2(aggregateEverything).tools, { passthrough: [] });
+	assert.deepEqual(DEFAULT_TOOL_DISPLAY_CONFIG.passthroughToolNames, []);
+	assert.equal(serializeToolDisplayConfigV2(aggregateEverything).tools, undefined);
 });
 
 test("v2 expandedTimeline serializes sparsely and round-trips", () => {

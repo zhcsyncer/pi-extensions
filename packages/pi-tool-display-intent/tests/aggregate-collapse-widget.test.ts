@@ -32,7 +32,7 @@ test("fixed collapse control dispatches locally without requesting keyboard focu
 	root.addChild(new Spacer(2));
 	root.addChild(button);
 	const rows = root.render(80);
-	assert.match(rows[2], /Tools \(1 call\).*Collapse/);
+	assert.match(rows[2], /Run \(1 call\).*Collapse/);
 	const result = root.handleMouse(click({ y: 2, screenY: 2, height: rows.length }));
 	assert.equal(result?.handled, true);
 	assert.notEqual(result?.focus, true);

@@ -136,14 +136,14 @@ test("expanded tool call rows open readonly details; blanks, turn headers and dr
 	} finally { restore(); }
 });
 
-test("a Tools title hosted by expanded narration can close its entire run", () => {
+test("a Run title hosted by expanded narration can close its entire run", () => {
 	const { p, root, note } = setup("default", true);
 	try {
 		let lines = root.render(100);
 		root.handleMouse(click(95, 1, lines.length));
 		lines = root.render(100);
-		assert.match(clean(note.render(100).join("\n")), /Tools.*\n[\s\S]*First narration/);
-		const header = lines.findIndex((line) => clean(line).includes("Tools"));
+		assert.match(clean(note.render(100).join("\n")), /Run.*\n[\s\S]*First narration/);
+		const header = lines.findIndex((line) => clean(line).includes("Run"));
 		assert.equal(root.handleMouse(click(95, header, lines.length))?.handled, true);
 		assert.equal(p.isItemExpanded("a"), false);
 		assert.deepEqual(note.render(100), []);

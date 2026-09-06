@@ -209,7 +209,7 @@ test("listed generic custom tool override replaces existing extension renderers 
 	assert.equal(renderToolResult(unlistedTool, "ignored"), "RAW UNLISTED RESULT");
 });
 
-test("aggregate layout preserves configured custom definitions beneath the global Tools patch", async () => {
+test("aggregate layout preserves configured custom definitions beneath the global Run patch", async () => {
 	const customTool: RuntimeTool = {
 		name: "custom_probe",
 		description: "A configured custom tool whose definition remains intact under aggregate rendering.",
@@ -228,7 +228,7 @@ test("aggregate layout preserves configured custom definitions beneath the globa
 	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(customTool);
 
 	assert.equal(renderToText(customTool.renderCall?.({ query: "alpha" }, createTheme())), "RAW CUSTOM CALL");
-	assert.doesNotMatch(renderToText(customTool.renderCall?.({}, createTheme())), /Tools/);
+	assert.doesNotMatch(renderToText(customTool.renderCall?.({}, createTheme())), /Run/);
 	assert.equal(renderToolResult(customTool, "alpha\nbeta\n"), "RAW CUSTOM RESULT");
 	restoreAggregateToolExecutions();
 });

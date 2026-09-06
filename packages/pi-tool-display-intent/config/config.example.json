@@ -23,7 +23,7 @@
     "wordWrap": true
   },
   "tools": {
-    "passthrough": ["Agent"],
+    "passthrough": [],
     "custom": {
       "web_search": {
         "renderer": "generic",

@@ -258,7 +258,7 @@ test("aggregate modal exposes global diff settings and hides individual-only set
 	assert.equal(englishIntent.toolIntent.maxLength, 64);
 	assert.equal(applySetting(retained, "expandedTimeline", "turns").expandedTimeline, "turns");
 	const layoutSummary = aggregateSettings[0]?.inspectorSummary.join(" ") ?? "";
-	assert.match(layoutSummary, /bounded Tools summary for every registered tool/);
+	assert.match(layoutSummary, /bounded Run summary for every registered tool/);
 	assert.match(layoutSummary, /successful rows stay done until replacement/);
 	assert.match(layoutSummary, /Collapsed errors stay as a failed count/);
 	assert.match(layoutSummary, /restores mid-turn narration in place/);

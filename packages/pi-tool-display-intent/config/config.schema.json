@@ -117,8 +117,8 @@
         "passthrough": {
           "type": "array",
           "uniqueItems": true,
-          "default": ["Agent"],
-          "description": "Tool names whose original transcript renderer remains active in aggregate layout. Agent is always included by default. Built-in names also opt out of this extension's individual renderer override.",
+          "default": [],
+          "description": "Explicit exceptions whose original transcript renderer remains active in aggregate layout. Empty by default: Agent and consult are aggregated too. Built-in names also opt out of this extension's individual renderer override.",
           "items": {
             "type": "string",
             "minLength": 1,

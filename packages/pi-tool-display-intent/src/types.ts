@@ -104,7 +104,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 		edit: true,
 		write: true,
 	},
-	passthroughToolNames: ["Agent"],
+	passthroughToolNames: [],
 	customToolOverrides: {},
 	toolIntent: {
 		language: "auto",

@@ -24,6 +24,7 @@ type CachedComponent = {
 type Scroll = CachedComponent & {
 	scrollTop: number;
 	viewportHeight: number;
+	isFollowingEnd?: boolean;
 	getContentWidth(width: number): number;
 	updateLayout(contentHeight: number, viewportHeight: number, requestRender: () => void): void;
 	scrollTo(row: number, options: { disableFollow: boolean }): void;
@@ -50,6 +51,7 @@ type RunGeometry = {
 	title?: number;
 	end: number;
 	components: Set<object>;
+	expanded: boolean;
 };
 type Ledger = Map<object, Map<string, RunGeometry>>;
 type Viewport = {
@@ -58,6 +60,8 @@ type Viewport = {
 	document: LayoutBox;
 	scroll: Scroll;
 	scrollTop: number;
+	followingEnd?: boolean;
+	overlay: boolean;
 	ledger: Ledger;
 };
 type RendererState = {
@@ -115,7 +119,9 @@ function addRegion(ledger: Ledger, component: object, region: RecordedRegion, ro
 	let runs = ledger.get(region.run.owner);
 	if (!runs) ledger.set(region.run.owner, runs = new Map());
 	let geometry = runs.get(region.run.id);
-	if (!geometry) runs.set(region.run.id, geometry = { run: region.run, end: 0, components: new Set() });
+	if (!geometry) runs.set(region.run.id, geometry = {
+		run: region.run, end: 0, components: new Set(), expanded: region.run.isExpanded(),
+	});
 	geometry.components.add(component);
 	geometry.end = Math.max(geometry.end, Math.min(end, row + region.height));
 	if (region.titleRow !== undefined) {
@@ -187,6 +193,7 @@ function current(state: RendererState, viewport: Viewport): boolean {
 		&& viewport.frame.primaryScrollView === viewport.scroll
 		&& viewport.scroll.children?.[0] === viewport.document.component
 		&& viewport.scroll.scrollTop === viewport.scrollTop
+		&& viewport.scroll.isFollowingEnd === viewport.followingEnd
 		&& (!renderer.terminal || (renderer.terminal.columns === viewport.frame.width && renderer.terminal.rows === viewport.frame.height));
 }
 
@@ -228,14 +235,40 @@ function candidate(viewport: Viewport, owner: object): RunGeometry | undefined {
 	}
 	return best;
 }
-function publish(state: RendererState): void {
+/** Compare document/run geometry without re-rendering children. Text-only updates (including
+ * clocks/streaming) must not restart the dock feedback loop when no reading bounds changed.
+ * Dock height and the resulting native scrollTop are deliberately not selection inputs. */
+function sameDocumentLayout(before: Viewport, after: Viewport): boolean {
+	if (before.scroll !== after.scroll || before.frame.root.component !== after.frame.root.component
+		|| before.frame.width !== after.frame.width || before.frame.height !== after.frame.height
+		|| before.overlay !== after.overlay || before.document.component !== after.document.component
+		|| before.document.rect.width !== after.document.rect.width || before.document.rect.height !== after.document.rect.height
+		|| before.box.rect.x !== after.box.rect.x || before.box.rect.y !== after.box.rect.y
+		|| before.box.rect.width !== after.box.rect.width || before.box.clip.x !== after.box.clip.x
+		|| before.box.clip.y !== after.box.clip.y || before.box.clip.width !== after.box.clip.width) return false;
+	if (before.ledger.size !== after.ledger.size) return false;
+	for (const [owner, runs] of after.ledger) {
+		const oldRuns = before.ledger.get(owner);
+		if (oldRuns?.size !== runs.size) return false;
+		for (const [id, geometry] of runs) {
+			const old = oldRuns.get(id);
+			if (!old || old.run !== geometry.run || old.title !== geometry.title || old.end !== geometry.end
+				|| old.expanded !== geometry.expanded || old.components.size !== geometry.components.size) return false;
+			for (const component of geometry.components) if (!old.components.has(component)) return false;
+		}
+	}
+	return true;
+}
+function publish(state: RendererState, preserve: boolean): void {
 	const viewport = state.viewport;
 	if (!viewport || !current(state, viewport) || state.renderer.hasOverlay()) { hide(state); return; }
 	const owners = new Set(viewport.ledger.keys());
 	for (const [owner, selection] of selected) if (selection.state === state) owners.add(owner);
 	for (const owner of owners) {
-		const geometry = candidate(viewport, owner);
-		if (!geometry) {
+		const previous = selected.get(owner);
+		const retained = previous?.state === state ? viewport.ledger.get(owner)?.get(previous.control.run.id) : undefined;
+		const geometry = preserve ? retained : candidate(viewport, owner);
+		if (!geometry || geometry.title === undefined || !geometry.run.isValid() || !geometry.run.isExpanded()) {
 			if (selected.get(owner)?.state === state) notify(owner);
 			continue;
 		}
@@ -244,7 +277,8 @@ function publish(state: RendererState): void {
 			collapse: () => {
 				const active = selected.get(owner);
 				if (active?.control !== control || !state.viewport || !current(state, state.viewport)
-					|| state.renderer.hasOverlay() || candidate(state.viewport, owner)?.run.id !== control.run.id) return;
+					|| state.renderer.hasOverlay() || !control.run.isValid() || !control.run.isExpanded()
+					|| !state.viewport.ledger.get(owner)?.has(control.run.id)) return;
 				performToggle(state, control.run, 0);
 			},
 		};
@@ -285,7 +319,7 @@ function installLayoutHook(state: RendererState, scroll: Scroll): void {
 	};
 }
 
-function capture(state: RendererState): void {
+function capture(state: RendererState, unmoved: boolean): void {
 	const frame = state.renderer.currentLayout;
 	const scroll = frame?.primaryScrollView;
 	const box = frame && scroll ? scrollBox(frame.root, scroll) : undefined;
@@ -310,8 +344,12 @@ function capture(state: RendererState): void {
 		state.components.add(component);
 		receivers.set(component, state);
 	}
-	state.viewport = { frame, scroll, box, document, scrollTop: scroll.scrollTop, ledger };
-	publish(state);
+	const previous = state.viewport;
+	state.viewport = {
+		frame, scroll, box, document, scrollTop: scroll.scrollTop,
+		followingEnd: scroll.isFollowingEnd, overlay: state.renderer.hasOverlay(), ledger,
+	};
+	publish(state, unmoved && !!previous && sameDocumentLayout(previous, state.viewport));
 }
 
 function performToggle(state: RendererState | undefined, run: AggregateViewportRun, desiredOffset?: number): void {
@@ -380,12 +418,15 @@ export function patchAggregateViewport(): void {
 		}
 		let state = renderers.get(this);
 		if (!state) renderers.set(this, state = { renderer: this, components: new Set(), inRender: false });
+		// Native follow-end/clamping may move scrollTop during paint solely because the widget
+		// mounted or unmounted. Only movement before native render is a new navigation decision.
+		const unmoved = !!state.viewport && current(state, state.viewport);
 		state.inRender = true;
 		try {
 			const result = originalRender.apply(this, args);
 			state.inRender = false;
 			if (token.active && renderers.get(this) === state) {
-				try { capture(state); }
+				try { capture(state, unmoved); }
 				catch { cleanup(state); } // Unsupported native internals must not break an already painted frame.
 			}
 			return result;
