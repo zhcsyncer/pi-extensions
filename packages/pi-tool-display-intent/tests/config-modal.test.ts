@@ -221,7 +221,7 @@ test("dropped slash subcommands show usage without mutating config", async () =>
 	}
 });
 
-test("aggregate modal hides individual-only settings without deleting retained values", () => {
+test("aggregate modal exposes global diff settings and hides individual-only settings without deleting retained values", () => {
 	const retained = {
 		...DEFAULT_TOOL_DISPLAY_CONFIG,
 		toolCallLayout: "aggregate" as const,
@@ -229,17 +229,26 @@ test("aggregate modal hides individual-only settings without deleting retained v
 		resultMode: "preview" as const,
 		previewRows: 40,
 		bashCommandPreviewRows: 4,
+		diffViewMode: "split" as const,
+		diffIndicatorMode: "classic" as const,
 		diffCollapsedMode: "summary" as const,
+		diffCollapsedRows: 12,
+		diffSplitMinWidth: 144,
+		diffWordWrap: false,
 		toolIntent: { language: "zh-CN" as const, maxLength: 64 },
 	};
+	const original = structuredClone(retained);
 	const aggregateSettings = buildInspectorSettings(retained, {
 		hasMcpTooling: false,
 		hasRtkOptimizer: false,
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth"],
+		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth", "diffViewMode", "diffIndicatorMode"],
 	);
+	assert.deepEqual(retained, original);
+	assert.equal(aggregateSettings.find((setting) => setting.id === "diffViewMode")?.currentValue, "split");
+	assert.equal(aggregateSettings.find((setting) => setting.id === "diffIndicatorMode")?.currentValue, "classic");
 	const intentLanguageSetting = aggregateSettings.find((setting) => setting.id === "toolIntentLanguage");
 	assert.equal(intentLanguageSetting?.currentValue, "zh-CN");
 	assert.deepEqual(intentLanguageSetting?.values, ["auto", "zh-CN", "en"]);
@@ -258,18 +267,52 @@ test("aggregate modal hides individual-only settings without deleting retained v
 	assert.match(layoutSummary, /retained but inactive/);
 
 	const individual = applySetting(retained, "toolCallLayout", "individual");
-	assert.equal(individual.resultMode, "preview");
-	assert.equal(individual.previewRows, 40);
-	assert.equal(individual.toolIntent.language, "zh-CN");
-	assert.equal(individual.showContextGrowth, true);
+	assert.deepEqual(individual, { ...original, toolCallLayout: "individual" });
 	const individualSettings = buildInspectorSettings(individual, {
 		hasMcpTooling: false,
 		hasRtkOptimizer: false,
 	});
-	assert.ok(individualSettings.some((setting) => setting.id === "diffCollapsedMode"));
+	assert.equal(individualSettings.find((setting) => setting.id === "diffViewMode")?.currentValue, "split");
+	assert.equal(individualSettings.find((setting) => setting.id === "diffIndicatorMode")?.currentValue, "classic");
+	assert.equal(individualSettings.find((setting) => setting.id === "diffCollapsedMode")?.currentValue, "summary");
 	assert.ok(individualSettings.some((setting) => setting.id === "toolIntentLanguage"));
 	assert.equal(individualSettings.some((setting) => setting.id === "expandedTimeline"), false);
 	assert.equal(individualSettings.some((setting) => setting.id === "showContextGrowth"), false);
+});
+
+test("diff preferences selected in aggregate stay global across layout switches without resetting advanced or hidden settings", () => {
+	const config: ToolDisplayConfig = {
+		...DEFAULT_TOOL_DISPLAY_CONFIG,
+		toolCallLayout: "aggregate",
+		resultMode: "preview",
+		previewRows: 40,
+		bashCommandPreviewRows: 4,
+		diffCollapsedMode: "summary",
+		diffCollapsedRows: 12,
+		diffSplitMinWidth: 144,
+		diffWordWrap: false,
+	};
+	const original = structuredClone(config);
+	const capabilities = { hasMcpTooling: false, hasRtkOptimizer: false };
+	const aggregateSettings = buildInspectorSettings(config, capabilities);
+	assert.deepEqual(aggregateSettings.find((setting) => setting.id === "diffViewMode")?.values, ["auto", "split", "unified"]);
+	assert.deepEqual(aggregateSettings.find((setting) => setting.id === "diffIndicatorMode")?.values, ["bars", "classic", "none"]);
+
+	const updated = applySetting(applySetting(config, "diffViewMode", "unified"), "diffIndicatorMode", "none");
+	const individual = applySetting(updated, "toolCallLayout", "individual");
+	const returned = applySetting(individual, "toolCallLayout", "aggregate");
+	for (const candidate of [updated, individual, returned]) {
+		const settings = buildInspectorSettings(candidate, capabilities);
+		assert.equal(settings.find((setting) => setting.id === "diffViewMode")?.currentValue, "unified");
+		assert.equal(settings.find((setting) => setting.id === "diffIndicatorMode")?.currentValue, "none");
+		assert.deepEqual(candidate, {
+			...original,
+			toolCallLayout: candidate.toolCallLayout,
+			diffViewMode: "unified",
+			diffIndicatorMode: "none",
+		});
+	}
+	assert.deepEqual(config, original);
 });
 
 for (const expandedTimeline of ["flat", "turns"] as const) {

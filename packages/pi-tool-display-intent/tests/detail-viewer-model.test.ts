@@ -8,7 +8,7 @@ import {
 type ToolRequest = Extract<DetailRequest, { kind: "tool" }>;
 const tool = (result: unknown, args: unknown = {}, toolName = "custom_tool"): ToolRequest => ({ kind: "tool", toolName, result, args });
 const native = (text: string, toolName = "custom_tool") => tool({ content: [{ type: "text", text }] }, {}, toolName);
-const argsPage = (args: unknown) => buildDetailModel(tool(undefined, args)).tabs[1];
+const argsPage = (args: unknown, toolName = "custom_tool") => buildDetailModel(tool(undefined, args, toolName)).tabs[1];
 const diff = "  1 first\n- 2 old\n+ 2 new";
 
 test("successful Edit puts the diff in Result and preserves return text plus diff in Raw", () => {
@@ -19,7 +19,7 @@ test("successful Edit puts the diff in Result and preserves return text plus dif
 	assert.deepEqual(model.tabs.map((tab) => tab.id), ["result", "args", "details"]);
 	assert.equal(model.tabs[0].label, "Result");
 	assert.equal(model.tabs[0].text, diff);
-	assert.deepEqual(model.tabs[0].diff, { filePath: "src/example.ts" });
+	assert.deepEqual(model.tabs[0].diff, { filePath: "src/example.ts", source: "edit" });
 	assert.equal(model.tabs[0].rawText, `${returned}\n\n${diff}`);
 	assert.equal(model.tabs[0].presentation, "text");
 	assert.equal(model.tabs[0].masked, false);
@@ -57,6 +57,90 @@ test("Edit Raw reserves space for both original return text and diff under chara
 	}
 });
 
+test("successful Write shows only written content as additions and keeps the native return plus content in Raw", () => {
+	const returned = "Successfully wrote file.\nWarning: review the generated section.";
+	const content = "token=synthetic-visible\n- existing literal minus\n+ existing literal plus\n";
+	const page = buildDetailModel({ ...tool({ content: [returned] }, { file_path: "/not-read-from-disk/config.env", content }, "write"), status: "success" }).tabs[0];
+	assert.deepEqual(page.diff, { filePath: "/not-read-from-disk/config.env", source: "write" });
+	assert.equal(page.text, "--- /dev/null\n+++ written-content\n@@ -0,0 +1,3 @@\n+1|token=synthetic-visible\n+2|- existing literal minus\n+3|+ existing literal plus");
+	assert.equal(page.rawText, `${returned}\n\n${content}`);
+	assert.equal(page.presentation, "text");
+	assert.equal(page.masked, false);
+	assert.equal(page.truncated, false);
+});
+
+test("Write supports empty content, blank lines and missing final newline without inventing added lines", () => {
+	for (const [content, expected] of [
+		["", "@@ -0,0 +0,0 @@"],
+		["\n", "@@ -0,0 +1,1 @@\n+1|"],
+		["first\n\n", "@@ -0,0 +1,2 @@\n+1|first\n+2|"],
+		["first", "@@ -0,0 +1,1 @@\n+1|first\n\\ No newline at end of file"],
+	]) {
+		const page = buildDetailModel(tool({ content: ["written"] }, { path: "output.txt", content }, "write")).tabs[0];
+		assert.deepEqual(page.diff, { filePath: "output.txt", source: "write" });
+		assert.equal(page.text, `--- /dev/null\n+++ written-content\n${expected}`);
+		assert.equal(page.rawText, `written\n\n${content}`);
+		assert.equal(page.truncated, false);
+	}
+});
+
+test("failed, incomplete or content-less Write never invents a successful additions view", () => {
+	const args = { path: "output.txt", content: "not written" };
+	const returned = { content: ["native return"] };
+	for (const request of [
+		tool({ ...returned, isError: true }, args, "write"),
+		{ ...tool(returned, args, "write"), status: "failed" },
+		{ ...tool(returned, args, "write"), status: "running" },
+		{ ...tool(returned, args, "write"), status: "pending" },
+		tool({ ...returned, isPartial: true }, args, "write"),
+		tool(undefined, args, "write"), tool(null, args, "write"),
+		...[{ path: "output.txt" }, { content: null }, { content: 42 }, { content: { text: "not written" } }].map((args) => tool(returned, args, "write")),
+		tool(returned, args, "custom_write"),
+	]) {
+		const page = buildDetailModel(request).tabs[0];
+		assert.equal(page.diff, undefined);
+		assert.doesNotMatch(page.text, /written-content|\+not written/);
+		if (request.result != null) assert.equal(page.rawText, "native return");
+	}
+});
+
+test("Write bounds its additions and shares Raw budgets fairly between return text and actual content", () => {
+	for (const [returned, content] of [
+		["warning\n".repeat(DETAIL_LIMITS.lines), "token=synthetic-visible\n"],
+		["warning\n", "token=synthetic-visible\n".repeat(DETAIL_LIMITS.lines + 50)],
+		["warning\n".repeat(DETAIL_LIMITS.lines), `${"x".repeat(500)}\n`.repeat(1000)],
+		["warning\n", "x".repeat(DETAIL_LIMITS.characters * 2)],
+	]) {
+		const page = buildDetailModel(tool({ content: [returned] }, { content }, "write")).tabs[0];
+		assert.equal(page.diff?.source, "write");
+		assert.equal(page.truncated, true);
+		assert.match(page.rawText, /^warning/);
+		assert.ok(page.rawText.includes(content.slice(0, 100)));
+		assert.ok(page.rawText.includes(DETAIL_TRUNCATION));
+		assert.doesNotMatch(page.rawText, /\+\+\+ written-content|@@ -0,0/);
+		for (const text of [page.text, page.rawText]) {
+			assert.ok(text.length < DETAIL_LIMITS.characters + 200);
+			assert.ok(text.split("\n").length <= DETAIL_LIMITS.lines + 1);
+		}
+	}
+});
+
+test("Write strips terminal controls from content and path without evaluating accessors", () => {
+	const page = buildDetailModel(tool({ content: ["written"] }, {
+		path: "file.txt\x1b]52;c;hidden\x07", content: "\x1b[31mBearer synthetic-visible\x1b[0m\r\n\x1b[2J",
+	}, "write")).tabs[0];
+	assert.equal(page.diff?.filePath, "file.txt");
+	assert.equal(page.rawText, "written\n\nBearer synthetic-visible\n");
+	assert.equal(page.text, "--- /dev/null\n+++ written-content\n@@ -0,0 +1,1 @@\n+1|Bearer synthetic-visible");
+	let calls = 0;
+	const forbidden = () => { calls++; throw new Error("must not execute"); };
+	const args = Object.defineProperties({}, {
+		content: { enumerable: true, get: forbidden }, path: { enumerable: true, get: forbidden },
+	});
+	assert.equal(buildDetailModel(tool({ content: ["native return"] }, args, "write")).tabs[0].diff, undefined);
+	assert.equal(calls, 0);
+});
+
 test("Args exposes typed scalars, decoded multiline strings and structured nested values", () => {
 	const input = { command: "first\n  second\nthird", count: 3, enabled: true, absent: null, nested: { names: ["one", "two"] }, list: [1, false] };
 	const page = argsPage(input);
@@ -76,35 +160,61 @@ test("Args exposes typed scalars, decoded multiline strings and structured neste
 	assert.equal(page.truncated, false);
 });
 
-test("credential masking protects both typed fields and Raw without mutating the original Args", () => {
+test("only a string Bash command carries a language hint from the same sanitized Args snapshot", () => {
+	const command = "TOKEN=synthetic-visible\x1b]52;c;hidden\x07 printf '%s' \"$(whoami)\"\n# shell source";
+	const page = argsPage({ command, description: "ordinary string", nested: { command: "not a shell field" } }, "bash");
+	const snapshot = JSON.parse(page.rawText);
+	assert.deepEqual(page.fields?.[0], { key: "command", kind: "string", value: snapshot.command, language: "bash" });
+	assert.equal(snapshot.command, sanitizeDetailText(command, false));
+	assert.ok(page.fields?.slice(1).every((field) => field.language === undefined));
+	assert.equal(page.masked, false);
+	for (const toolName of ["custom_tool", "read", "write"]) {
+		assert.ok(argsPage({ command }, toolName).fields?.every((field) => field.language === undefined));
+	}
+	for (const command of [null, false, 123, { value: "echo test" }, ["echo"]]) {
+		assert.equal(argsPage({ command }, "bash").fields?.[0].language, undefined);
+	}
+});
+
+test("a large multiline Bash command remains typed source instead of a clipped JSON string", () => {
+	const command = Array.from({ length: 400 }, (_, index) => `echo "line ${index}" # shell command`).join("\n");
+	assert.ok(command.length > DETAIL_LIMITS.lineCharacters);
+	const page = argsPage({ command, timeout: 60 }, "bash");
+	assert.equal(page.presentation, "fields");
+	assert.equal(page.fields?.find((field) => field.key === "command")?.value, command);
+	assert.equal(page.fields?.find((field) => field.key === "command")?.language, "bash");
+	assert.equal(JSON.parse(page.rawText).command, command);
+	assert.equal(page.truncated, false);
+});
+
+test("credentials and token-like strings survive typed fields and Raw without mutating Args", () => {
 	const input = {
 		api_key: "synthetic-key-value", nested: { PASSWORD: "synthetic-password-value", normal: 2 },
 		note: "Bearer synthetic-bearer-value", url: "https://name:synthetic-pass@example.test/?access_token=synthetic-query",
-		pat: "ghp_synthetic12345", readable: "ordinary readable content",
+		pat: "ghp_synthetic12345", readable: "ordinary readable content", auth: "Basic synthetic-basic-value",
+		private_key: "-----BEGIN PRIVATE KEY-----\nsynthetic-private-key\n-----END PRIVATE KEY-----",
+		long: "abcdefghijklmnopqrstuvwxyz1234567890", jwt: "eyJsynthetic.payload.signature", key: "sk-synthetic12345",
 	};
 	const before = JSON.stringify(input);
 	const page = argsPage(input);
-	assert.equal(page.masked, true);
+	assert.equal(page.masked, false);
 	assert.equal(page.truncated, false);
 	assert.equal(page.presentation, "fields");
-	for (const text of [page.text, page.rawText, JSON.stringify(page.fields)]) {
-		assert.doesNotMatch(text, /synthetic-key-value|synthetic-password-value|synthetic-bearer-value|synthetic-pass|synthetic-query|ghp_synthetic/);
-		assert.match(text, /\[REDACTED\]/);
-		assert.match(text, /ordinary readable content/);
+	assert.deepEqual(JSON.parse(page.rawText), input);
+	assert.equal(page.text, page.rawText);
+	for (const item of page.fields!) {
+		assert.deepEqual(item.kind === "json" ? JSON.parse(item.value) : item.value, input[item.key as keyof typeof input]);
 	}
-	assert.equal(JSON.parse(page.rawText).nested.PASSWORD, "[REDACTED]");
 	assert.equal(JSON.stringify(input), before);
 });
 
-test("masking and truncation badges describe transformations, not enabled policy or literal marker strings", () => {
-	for (const args of [{ query: "clean", max: 10 }, { api_key: "[REDACTED]" }, { note: DETAIL_TRUNCATION }]) {
+test("masked stays false and literal safety markers do not imply truncation", () => {
+	for (const args of [{ query: "clean", max: 10 }, { api_key: "[REDACTED]" }, { note: DETAIL_TRUNCATION }, { note: "token=synthetic-visible-value" }]) {
 		const page = argsPage(args);
 		assert.equal(page.masked, false);
 		assert.equal(page.truncated, false);
+		assert.deepEqual(JSON.parse(page.rawText), args);
 	}
-	const page = argsPage({ note: "token=synthetic-hidden-value" });
-	assert.equal(page.masked, true);
-	assert.doesNotMatch(page.rawText, /synthetic-hidden-value/);
 });
 
 test("truncated Args never becomes a partial field list, and non-object Args stays JSON", () => {
@@ -126,7 +236,7 @@ test("truncated Args never becomes a partial field list, and non-object Args sta
 	}
 });
 
-test("Metadata is optional and advanced, with the same masked JSON in normal and Raw views", () => {
+test("Metadata is optional and advanced, preserving the same credentials in normal and Raw views", () => {
 	for (const details of [undefined, null, {}, [], ""]) {
 		assert.deepEqual(buildDetailModel(tool({ content: ["done"], details })).tabs.map((tab) => tab.id), ["result", "args"]);
 	}
@@ -139,8 +249,8 @@ test("Metadata is optional and advanced, with the same masked JSON in normal and
 		assert.ok(model.tabs.slice(0, 2).every((tab) => !tab.advanced));
 		assert.equal(page.presentation, "json");
 		assert.equal(page.text, page.rawText);
-		assert.doesNotMatch(page.rawText, /synthetic-hidden/);
-		assert.equal(page.masked, typeof details === "object" && "token" in details);
+		assert.deepEqual(JSON.parse(page.rawText), details);
+		assert.equal(page.masked, false);
 	}
 });
 
@@ -148,10 +258,10 @@ test("details-only and empty results use concise structured fallback without a p
 	const details = { exitCode: 2, explanation: "Not allowed", token: "synthetic-hidden" };
 	const page = buildDetailModel(tool({ content: [{ type: "text", text: "" }], details })).tabs[0];
 	assert.equal(page.presentation, "json");
-	assert.deepEqual(JSON.parse(page.rawText), { ...details, token: "[REDACTED]" });
+	assert.deepEqual(JSON.parse(page.rawText), details);
 	assert.equal(page.text, page.rawText);
-	assert.equal(page.masked, true);
-	assert.doesNotMatch(page.text, /Read-only|Structured details|synthetic-hidden/);
+	assert.equal(page.masked, false);
+	assert.doesNotMatch(page.text, /Read-only|Structured details/);
 	const empty = buildDetailModel(tool(undefined)).tabs[0];
 	assert.equal(empty.presentation, "json");
 	assert.match(JSON.parse(empty.rawText).message, /No result content/);
@@ -184,15 +294,41 @@ test("built-in source and logs remain literal even with clear Markdown syntax", 
 	}
 });
 
-test("custom results select Markdown only for clear markers and preserve original Raw", () => {
-	for (const text of ["# Report\nSome text", "```js\nconst value = 1;\n```", "[Documentation](https://example.test)"]) {
+test("Read selects Markdown only for known case-insensitive Markdown paths and keeps fences intact", () => {
+	const text = "# Report\n\n```bash\nprintf 'token=synthetic-visible'\n```";
+	for (const path of ["README.md", "guide.MARKDOWN", "components.Example.MdX"]) {
+		for (const key of ["path", "file_path"]) {
+			const page = buildDetailModel(tool({ content: [text] }, { [key]: path }, "read")).tabs[0];
+			assert.equal(page.presentation, "markdown");
+			assert.equal(page.text, text);
+			assert.equal(page.rawText, text);
+		}
+	}
+	for (const path of ["script.py", "src/markdown.ts", "README.md.bak", "notes.txt", "README"]) {
+		assert.equal(buildDetailModel(tool({ content: [text] }, { path }, "read")).tabs[0].presentation, "text");
+	}
+	for (const text of ["plain Markdown paragraph", "{\"example\":true}"]) {
+		const page = buildDetailModel(tool({ content: [text] }, { path: "guide.md" }, "read")).tabs[0];
+		assert.equal(page.presentation, "markdown");
+		assert.equal(page.rawText, text);
+	}
+});
+
+test("custom results select Markdown for unambiguous common syntax and preserve original fences and Raw", () => {
+	for (const text of [
+		"# Report\nSome text", "```js\nconst value = 1;\n```", "~~~bash\nprintf 'hello'\n~~~",
+		"[Documentation](https://example.test)", "- first\n- second", "* first\n* second", "+ first\n+ second",
+		"1. First step\n2. Second step", "1) First step\n2) Second step", "> A quoted result", "**Important**", "__Important__",
+		"A **bold** statement.", "| Name | Count |\n| :--- | ---: |\n| sample | 2 |",
+		"Name | Count\n--- | ---\nsample | 2",
+	]) {
 		const page = buildDetailModel(native(text)).tabs[0];
 		assert.equal(page.presentation, "markdown");
 		assert.equal(page.text, text);
 		assert.equal(page.rawText, text);
 	}
-	for (const text of ["Normal result", "a * b", "log # not a heading", "[not a link]", "prefix {\"id\":1}"]) {
-		assert.equal(buildDetailModel(native(text)).tabs[0].presentation, "text");
+	for (const text of ["Normal result", "a * b", "log # not a heading", "[not a link]", "prefix {\"id\":1}", "2 * 3", "-1 remaining", "x > y", "a**b**c", "| no separator |", "--- | ---"]) {
+		assert.equal(buildDetailModel(native(text)).tabs[0].presentation, "text", text);
 	}
 });
 
@@ -221,8 +357,9 @@ test("attachment-only fallback keeps details before attachments without dropping
 	})).tabs[0];
 	assert.ok(page.rawText.indexOf("meaningful fallback") < page.rawText.indexOf("first.png"));
 	assert.ok(page.rawText.indexOf("first.png") < page.rawText.indexOf("second.pdf"));
-	assert.doesNotMatch(page.rawText, /Read-only|synthetic-hidden/);
-	assert.equal(page.masked, true);
+	assert.doesNotMatch(page.rawText, /Read-only/);
+	assert.match(page.rawText, /synthetic-hidden/);
+	assert.equal(page.masked, false);
 });
 
 test("unknown typed blocks and genuinely structured output retain meaningful safe JSON", () => {
@@ -238,9 +375,10 @@ test("unknown typed blocks and genuinely structured output retain meaningful saf
 			assert.equal(page.masked, false);
 		}
 	}
-	const page = buildDetailModel(tool({ type: "resource", password: "synthetic-hidden" })).tabs[0];
-	assert.equal(page.masked, true);
-	assert.doesNotMatch(page.rawText, /synthetic-hidden/);
+	const value = { type: "resource", password: "synthetic-visible" };
+	const page = buildDetailModel(tool(value)).tabs[0];
+	assert.equal(page.masked, false);
+	assert.deepEqual(JSON.parse(page.rawText), value);
 });
 
 test("titles contain only the safe bounded target, with separate status and timing", () => {
@@ -335,6 +473,12 @@ test("oversized source, long lines, many blocks and control-heavy inputs report 
 	assert.equal(page.truncated, true);
 	assert.equal(page.fields, undefined);
 	assert.doesNotMatch(page.rawText, /123456789/);
+});
+
+test("exported JSON formatter boolean only controls string sanitization, never credentials", () => {
+	const input = { token: "ghp_synthetic12345", value: "Bearer synthetic-visible\x1b[31mred\x1b[0m\r\nnext" };
+	assert.deepEqual(JSON.parse(formatDetailJson(input)), { ...input, value: "Bearer synthetic-visiblered\nnext" });
+	assert.deepEqual(JSON.parse(formatDetailJson(input, false)), input);
 });
 
 test("exported JSON formatter retains its string API and bounds bigint conversion", () => {

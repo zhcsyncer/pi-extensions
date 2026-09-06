@@ -57,8 +57,6 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"resultMode",
 	"previewRows",
 	"bashCommandPreviewRows",
-	"diffViewMode",
-	"diffIndicatorMode",
 	"diffCollapsedMode",
 ]);
 const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline", "showContextGrowth"]);
@@ -119,7 +117,7 @@ export function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing the layout confirms a session reload, then rebuilds tool schemas and renderer shells for the whole current branch.",
-				"Aggregate only asks bash for displaySummary. Other tools keep deterministic targets and never reveal grouped output/diff bodies.",
+				"Aggregate only asks bash for displaySummary. Other tools keep deterministic targets; grouped rows do not inline output/diff bodies.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["layout", "individual", "aggregate", "tools", "summary", "reload"],
@@ -253,13 +251,14 @@ export function buildInspectorSettings(
 		},
 		{
 			id: "diffViewMode",
-			label: "Edit diff layout",
+			label: "Diff layout",
 			currentValue: config.diffViewMode,
 			values: ["auto", "split", "unified"],
-			inspectorTitle: "Edit Diff Layout",
+			inspectorTitle: "Diff Layout",
 			inspectorSummary: [
-				"Controls how edit and write diffs are arranged.",
-				"Auto uses side-by-side diffs in wide panes and unified diffs in narrow panes.",
+				"Global layout for Edit and Write diffs in normal tool views and the aggregate inspector popup.",
+				"Auto uses side-by-side diffs when the available content width is wide enough, otherwise unified diffs. In the popup, it follows the popup content width, not the full terminal width.",
+				"This setting is render-only. Switching it does not reload the session.",
 			],
 			inspectorOptions: [
 				"auto — adaptive layout based on available width",
@@ -267,7 +266,7 @@ export function buildInspectorSettings(
 				"unified — force a single-column diff",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
-				"Manual JSON tuning exposes diff.splitMinWidth, diff.collapsedRows, diff.indicators, and diff.wordWrap.",
+				"Both normal tool views and the aggregate inspector honor diff.wordWrap and diff.splitMinWidth from manual JSON tuning.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "edit", "write", "split", "unified", "auto"],
@@ -280,6 +279,8 @@ export function buildInspectorSettings(
 			inspectorTitle: "Diff Indicators",
 			inspectorSummary: [
 				"Controls whether changed diff lines use vertical bars, classic +/- markers, or no indicators.",
+				"Edit and Write share this preference across normal tool views and the aggregate inspector popup.",
+				"This setting is render-only. Switching it does not reload the session.",
 			],
 			inspectorOptions: [
 				"bars — persistent vertical indicators for changed rows",
@@ -288,7 +289,7 @@ export function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, []),
 			inspectorPath: configPath,
-			searchTerms: ["diff", "indicator", "bars", "classic", "none"],
+			searchTerms: ["diff", "edit", "write", "indicator", "bars", "classic", "none"],
 		},
 		{
 			id: "diffCollapsedMode",
@@ -306,6 +307,7 @@ export function buildInspectorSettings(
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"When set to summary, diff.collapsedRows is ignored until expansion.",
+				"This setting only applies to individual tool views; aggregate inspector popups already show expanded diffs.",
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["diff", "collapsed", "summary", "body", "fold", "compact", "ctrl+o"],

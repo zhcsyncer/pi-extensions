@@ -1,4 +1,4 @@
-import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, highlightCode } from "@earendil-works/pi-coding-agent";
 import { Markdown, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { DetailDiffTheme } from "./detail-diff.js";
 import type { DetailField } from "./detail-viewer-model.js";
@@ -9,6 +9,11 @@ export function colorDetailJson(text: string, theme?: DetailDiffTheme): string {
 		if (string !== undefined) return (theme?.fg(keySuffix ? "syntaxVariable" : "syntaxString", string) ?? string) + (keySuffix ?? "");
 		return theme?.fg(/^(?:true|false|null)$/.test(token) ? "syntaxKeyword" : "syntaxNumber", token) ?? token;
 	});
+}
+
+export function colorDetailCode(text: string, language: string): string {
+	try { return highlightCode(text, language).join("\n"); }
+	catch { return text; }
 }
 
 /** ANSI-aware wrap with an explicit placeholder for an unrenderable wide grapheme. */
@@ -32,7 +37,7 @@ export function layoutDetailFields(fields: readonly DetailField[], width: number
 		firstRowByField.push(start);
 		const key = field.key.replace(/\s+/g, " ");
 		const value = field.kind === "string" && field.value === "" ? '""' : field.value;
-		const scalar = field.kind !== "json" && !value.includes("\n")
+		const scalar = !field.language && field.kind !== "json" && !value.includes("\n")
 			&& visibleWidth(key) <= keyWidth && keyWidth + 2 + visibleWidth(value) <= width;
 		if (rows.length > 0 && (!scalar || previousBlock)) rows.push("");
 		if (scalar) {
@@ -42,7 +47,7 @@ export function layoutDetailFields(fields: readonly DetailField[], width: number
 		} else {
 			rows.push(...wrapDetailLine(theme?.fg("muted", key) ?? key, width));
 			const indent = width >= 4 ? "  " : "";
-			const content = field.kind === "json" ? colorDetailJson(value, theme) : value;
+			const content = field.language ? colorDetailCode(value, field.language) : field.kind === "json" ? colorDetailJson(value, theme) : value;
 			for (const line of wrapTextWithAnsi(content.replace(/\t/g, "    "), Number.MAX_SAFE_INTEGER)) {
 				rows.push(...wrapDetailLine(line, width - indent.length).map((row) => indent + row));
 			}

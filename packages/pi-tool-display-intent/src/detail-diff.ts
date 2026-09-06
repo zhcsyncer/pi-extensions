@@ -1,20 +1,23 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import { wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { renderEditDiffResult } from "./diff-renderer.js";
-import { DEFAULT_TOOL_DISPLAY_CONFIG } from "./types.js";
+import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "./types.js";
 
 export type DetailDiffTheme = Pick<Theme, "fg" | "bold"> & Partial<Pick<Theme, "bg" | "getBgAnsi" | "getFgAnsi">>;
 
 /** Reuse our pure diff renderer, never a tool's arbitrary renderResult callback. */
-export function createDetailDiffRenderer(text: string, filePath: string | undefined, theme?: DetailDiffTheme): Component {
-	return renderEditDiffResult(
+export function createDetailDiffRenderer(
+	text: string,
+	filePath: string | undefined,
+	theme?: DetailDiffTheme,
+	config: ToolDisplayConfig = DEFAULT_TOOL_DISPLAY_CONFIG,
+	source?: "edit" | "write",
+): Component {
+	const renderer = renderEditDiffResult(
 		{ diff: text },
 		{ expanded: true, filePath },
 		{
-			...DEFAULT_TOOL_DISPLAY_CONFIG,
-			diffViewMode: "unified",
-			diffIndicatorMode: "classic",
-			diffWordWrap: true,
+			...config,
 			// The snapshot model already bounds input. The popup scrolls rendered
 			// rows itself; a second Ctrl+O truncation hint would be misleading here.
 			expandedPreviewMaxRows: 0,
@@ -28,4 +31,13 @@ export function createDetailDiffRenderer(text: string, filePath: string | undefi
 		},
 		text,
 	);
+	if (source !== "write") return renderer;
+	return {
+		render(width) {
+			if (!Number.isFinite(width) || width <= 0) return [];
+			const caption = "Written content · all additions (not an overwrite diff)";
+			return [...wrapTextWithAnsi(theme?.fg("muted", caption) ?? caption, width), ...renderer.render(width)];
+		},
+		invalidate: () => renderer.invalidate(),
+	};
 }

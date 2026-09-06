@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { buildDetailModel, sanitizeDetailText, DETAIL_LIMITS, DETAIL_TRUNCATION, type DetailRequest } from "../src/detail-viewer-model.ts";
-import { DetailViewer } from "../src/detail-viewer.ts";
+import { DetailViewer, openDetailViewer } from "../src/detail-viewer.ts";
+import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 import { createDetailDiffRenderer } from "../src/detail-diff.ts";
 
 const diff = "--- a/config.ts\n+++ b/config.ts\n@@ -41,3 +41,3 @@\n const options = {\n-  wrap: false,\n+  wrap: true,\n };";
@@ -83,7 +84,7 @@ test("Diff snapshots keep the same explicit safety limits as other viewer pages"
 
 test("the popup uses single-column wrapping without repeating line numbers on continuation rows", () => {
 	const payload = "@@ -17 +17 @@\n-" + "old ".repeat(25) + "OLD_END\n+" + "new ".repeat(25) + "NEW_END";
-	const renderer = createDetailDiffRenderer(payload, undefined);
+	const renderer = createDetailDiffRenderer(payload, undefined, undefined, { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "unified", diffIndicatorMode: "classic", diffWordWrap: true });
 	const lines = renderer.render(42);
 	const shown = plain(lines);
 	assert.match(shown, /OLD_END/);
@@ -96,6 +97,73 @@ test("the popup uses single-column wrapping without repeating line numbers on co
 	assert.match(wide, /OLD_END/);
 	assert.match(wide, /NEW_END/);
 	assert.equal(wide.split("\n").filter((line) => /^\s*17\s+│/.test(line)).length, 2);
+});
+
+test("diff layout, indicator and wrap choices come from the shared configuration", () => {
+	const split = createDetailDiffRenderer(diff, undefined, undefined, { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "split" });
+	assert.match(plain(split.render(180)), /split/);
+	const unified = createDetailDiffRenderer(diff, undefined, undefined, { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "unified" });
+	assert.match(plain(unified.render(180)), /unified/);
+	assert.doesNotMatch(plain(unified.render(180)), /split/);
+	const automatic = createDetailDiffRenderer(diff, undefined, undefined, { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "auto", diffSplitMinWidth: 150 });
+	assert.match(plain(automatic.render(180)), /split/);
+	assert.match(plain(automatic.render(100)), /unified/);
+	const long = `@@ -1 +1 @@\n-${"old ".repeat(40)}\n+${"new ".repeat(40)}`;
+	const config = { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "unified" as const, diffIndicatorMode: "classic" as const };
+	const wrapped = createDetailDiffRenderer(long, undefined, undefined, { ...config, diffWordWrap: true });
+	const unwrapped = createDetailDiffRenderer(long, undefined, undefined, { ...config, diffWordWrap: false });
+	assert.ok(wrapped.render(50).length > unwrapped.render(50).length);
+});
+
+test("opening the inspector applies the supplied global diff mode instead of its own default", async () => {
+	let rendered = "";
+	const ctx = { hasUI: true, mode: "tui", ui: {
+		custom: async (factory: Function) => {
+			const component = factory({ terminal: { rows: 30 }, requestRender() {} }, undefined, undefined, () => {});
+			rendered = plain(component.render(180));
+		},
+	} };
+	await openDetailViewer(ctx as never, request(), { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "unified" });
+	assert.match(rendered, /unified/);
+	assert.doesNotMatch(rendered, /split/);
+});
+
+test("Write Result displays supplied content as additions without claiming an overwrite delta", () => {
+	const input: DetailRequest = {
+		kind: "tool", toolName: "write", args: { path: "/not-read-from-disk/output.ts", content: "const answer = 42;\nexport { answer };\n" },
+		result: { content: [{ type: "text", text: "Successfully wrote output.ts" }] },
+	};
+	const model = buildDetailModel(input);
+	assert.equal(model.tabs[0].id, "result");
+	assert.equal(model.tabs[0].diff?.source, "write");
+	const component = new DetailViewer(model, { getHeight: () => 25, onClose() {}, onRender() {}, diffConfig: { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "split" } });
+	const displayed = plain(component.render(180));
+	assert.match(displayed, /Written content.*all additions.*not an overwrite diff/);
+	assert.match(displayed, /split/);
+	assert.match(displayed, /const answer = 42/);
+	assert.match(displayed, /\+2\b.*-0\b/);
+	assert.match(model.tabs[0].rawText, /Successfully wrote output.ts/);
+	assert.match(model.tabs[0].rawText, /const answer = 42/);
+	const failed = buildDetailModel({ ...input, result: { isError: true, content: [{ type: "text", text: "Permission denied" }] } });
+	assert.equal(failed.tabs[0].diff, undefined);
+	assert.match(failed.tabs[0].text, /Permission denied/);
+});
+
+test("Write preserves numeric prefixes and diff-like source text without inventing files or dropping additions", () => {
+	const content = "123 hello\n456|world\n++i;\n++ literal\nnormal\n";
+	const model = buildDetailModel({ kind: "tool", toolName: "write", args: { path: "example.txt", content }, result: { content: [{ type: "text", text: "written" }] } });
+	for (const diffViewMode of ["unified", "split"] as const) {
+		const component = new DetailViewer(model, { getHeight: () => 25, onClose() {}, onRender() {}, diffConfig: { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode } });
+		const shown = plain(component.render(180));
+		assert.match(shown, /123 hello/);
+		assert.match(shown, /456\|world/);
+		assert.match(shown, /\+\+i;/);
+		assert.match(shown, /\+\+ literal/);
+		assert.match(shown, /\+5\b.*-0\b/);
+		if (diffViewMode === "unified") assert.match(shown, /1 file\b/);
+		assert.doesNotMatch(shown, /2 files/);
+	}
+	assert.ok(model.tabs[0].rawText.endsWith(content));
 });
 
 test("Diff pages scroll, reflow on resize and remain bounded by the popup viewport", () => {

@@ -78,9 +78,11 @@ pi install npm:@zhcsyncer/pi-extensions
 
 在 Pi **0.85+ fullscreen 模式**下，点击**收起的 Tools 内容区**任意位置（包括统计收据、当前调用预览）即可只展开这一本 run 账本。展开后，整个标题／统计摘要区都可点击收起。上下空白间距和展开后的旁白正文不触发开合，拖动仍用于选择文本。`Ctrl+O` 仍切换整个会话，并覆盖局部选择。透传工具保留自己的原生交互。
 
-点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 为 JSON 加语法颜色，对明确的自定义工具 Markdown 做排版，源码和日志则保持原文。Args 用键值行和多行文本块展示，不再满屏转义 JSON。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 可把格式化页面切回文本或 JSON 原文，但不绕过凭据脱敏和安全限制。长行自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。只有实际脱敏或截断才显示小提示。凭据脱敏针对 Args 和 Metadata；Result/steer 原文（包括 diff 代码）不擅自改写，分享前应核查内容。工具本身已截断的输出无法恢复。
+点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 会排版 JSON、从 `.md` / `.markdown` / `.mdx` 路径读取的 Markdown 文件，以及明确的自定义工具 Markdown；其他源码和日志保持原文。Args 使用键值行和多行文本块，Bash command 会做 Shell 语法高亮。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 查看文本或 JSON 原文。弹窗不再对凭据脱敏，但仍过滤终端控制字符并保留明确的体积限制，分享前请核查内容。长文本自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。工具本身已截断的输出无法恢复。
 
-成功的 Edit 调用若返回了 diff，**Result 就是 diff**：单栏增删配色、行号和自动换行，不另设 Diff 标签，续行不重复行号。Raw 保留原始返回文字和 diff 原文；失败或没有 diff 时显示普通结果，不根据当前文件猜测历史改动。
+成功的 Edit 调用若返回了 diff，**Result 就是 diff**，不另设标签。成功的 Write 也使用同一视图，把写入内容标为新增，并明确说明这不是覆盖前后的净差异。两者都跟随全局 **Diff layout** / **Diff indicators**，aggregate 的 `/tools` 中也能配置；高级项 `diff.wordWrap` / `diff.splitMinWidth` 同样生效。Raw 保留原始返回及源内容；失败或缺少必要数据时显示普通结果，不根据当前文件猜测历史改动。
+
+账本只有在完整目标能放进一行时才显示 `Bash(command)`。超长或多行命令只显示 Bash、intent 和体积；点击展开后的调用查看完整参数。
 
 展开的 steer 按终端宽度换行：不超过 8 行内容时完整显示，超过后保留头 3 行、尾 2 行，中间显示 `… N lines hidden · click to view`。点击省略行查看原始消息。收起态仍每条一行。
 
@@ -93,7 +95,7 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 ↻ 1/2 · 2 calls · ctx +2.4k
 ```
 
-下一次请求完成后，输入差值回填到**上一拍**。末拍或尚未确认的拍使用本地估算，标记 `≈`；总计含估算时也保留 `≈`。纯文本和仅透传工具的拍用轻量尾注承载，不制造空 Tools 框。`flat` 只显示 run 总计。开关修改不用 reload。
+下一次请求完成后，输入差值回填到**上一拍**。末拍或尚未确认的拍使用本地估算，标记 `≈`；总计含估算时也保留 `≈`。没有工具调用的普通回复不追加 ctx 尾注；最终模型用量仍计入 Tools 的 run 总计。有工具调用的透传拍可以使用轻量尾注。`flat` 只显示 run 总计。开关修改不用 reload。
 
 `ctx` 表示上下文增长，不是累计 token 消耗（`tok`），也不代表逐工具的独立成本。报告差值也可能包含提示词或供应商转换带来的变化。缺少数据，或遇到 steer、压缩、换模型等已知上下文边界时，run 总计显示 `ctx n/a`，不拼出误导性数字。
 
@@ -108,7 +110,8 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 | `toolCalls.showContextGrowth` | 显示 `ctx` run 总计与逐拍标记；默认 `false`（仅 aggregate，不用 reload） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | bash intent 语言：尽量跟随请求、固定简体中文或固定英文（经 `/reload` 生效） |
-| `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计 |
+| `diff.layout` / `diff.indicators` | Edit/Write 共用的 diff 布局与标记，包含 aggregate 详情弹窗 |
+| `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计（individual 工具行） |
 | `tools.passthrough` | aggregate 里仍用原 renderer 的工具 |
 
 旧的 `toolCalls.style` 和 `transcript.userMessageStyle` 会被丢掉。

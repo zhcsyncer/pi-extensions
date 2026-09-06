@@ -2508,6 +2508,6 @@ export function registerToolDisplayOverrides(
   });
 
   if (aggregateProjection) {
-    registerAggregateProjectionEvents(pi, aggregateProjection);
+    registerAggregateProjectionEvents(pi, aggregateProjection, { getConfig });
   }
 }

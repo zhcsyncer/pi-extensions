@@ -4,14 +4,13 @@ export type DetailRequest =
 
 export const DETAIL_LIMITS = { characters: 128 * 1024, lines: 4000, lineCharacters: 8192, nodes: 6000, depth: 24 } as const;
 export const DETAIL_TRUNCATION = "[Truncated: viewer safety limit reached; remaining content omitted.]";
-export const DETAIL_MASKING = "Read-only; credential keys and token-like values masked as [REDACTED]";
-const REDACTED = "[REDACTED]";
 const SGR = /^(?:[0-9;:]*)$/;
 
 export interface DetailField {
 	key: string;
 	value: string;
 	kind: "string" | "number" | "boolean" | "null" | "json";
+	language?: string;
 }
 export interface DetailTab {
 	id: "result" | "args" | "details";
@@ -22,7 +21,7 @@ export interface DetailTab {
 	presentation: "text" | "json" | "markdown" | "fields";
 	masked: boolean;
 	truncated: boolean;
-	diff?: { filePath?: string };
+	diff?: { filePath?: string; source?: "edit" | "write" };
 	fields?: DetailField[];
 }
 export interface DetailModel {
@@ -76,21 +75,6 @@ export function sanitizeDetailText(text: string, keepSgr = true): string {
 	return out.join("");
 }
 
-function credentialKey(key: string): boolean {
-	const normalized = key.replace(/[^a-z0-9]/gi, "");
-	return /password|passwd|passphrase|secret|credential|authorization|authentication|cookie|apikey|accesskey|privatekey|token|sessionid/i.test(normalized) || /^(?:pwd|auth)$/i.test(normalized);
-}
-
-function maskTokens(text: string): string {
-	return text
-		.replace(/\b(?:Bearer|Basic)\s+[^\s"'<>]+/gi, REDACTED)
-		.replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*/g, REDACTED)
-		.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, `$1${REDACTED}@`)
-		.replace(/\b((?:[a-z_]*?(?:token|secret|password|passwd|api[_-]?key|credential)|authorization)\s*[=:]\s*)[^\s&;,"']+/gi, `$1${REDACTED}`)
-		.replace(/\b(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|github_pat_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|eyJ[a-z0-9_-]*\.[a-z0-9_-]+\.[a-z0-9_-]+)\b/gi, REDACTED)
-		.replace(/[a-z0-9_+/=-]{32,}/gi, (value) => /[a-z]/i.test(value) && /[0-9]/.test(value) ? REDACTED : value);
-}
-
 // Never invoke tool-owned getters or toJSON methods while inspecting a snapshot.
 function field(value: unknown, key: string): unknown {
 	if (value === null || typeof value !== "object") return undefined;
@@ -136,7 +120,7 @@ function binaryBytes(value: object): number | undefined {
 	return undefined;
 }
 
-function formatJsonReport(value: unknown, mask = true, maxCharacters: number = DETAIL_LIMITS.characters): FormattingReport {
+function formatJsonReport(value: unknown, sanitizeStringControls = true, maxCharacters: number = DETAIL_LIMITS.characters): FormattingReport {
 	const chunks: string[] = [];
 	const ancestors = new Set<object>();
 	let remaining = characterBudget(maxCharacters);
@@ -144,7 +128,6 @@ function formatJsonReport(value: unknown, mask = true, maxCharacters: number = D
 	let nodes = 0;
 	let entries = 0;
 	let truncated = false;
-	let masked = false;
 	const append = (text: string) => {
 		if (text.length > remaining) { chunks.push(text.slice(0, remaining)); remaining = 0; truncated = true; }
 		else { chunks.push(text); remaining -= text.length; }
@@ -153,13 +136,9 @@ function formatJsonReport(value: unknown, mask = true, maxCharacters: number = D
 		const bounded = text.slice(0, Math.min(remaining, inputRemaining));
 		inputRemaining -= bounded.length;
 		if (bounded.length < text.length) truncated = true;
-		return mask ? sanitizeDetailText(bounded, false) : bounded;
+		return sanitizeStringControls ? sanitizeDetailText(bounded, false) : bounded;
 	};
-	const quoteClean = (text: string) => {
-		const clean = mask ? maskTokens(text) : text;
-		if (clean !== text) masked = true;
-		append(JSON.stringify(clean));
-	};
+	const quoteClean = (text: string) => append(JSON.stringify(text));
 	const quote = (text: string) => quoteClean(boundedString(text));
 	const visit = (item: unknown, depth: number): void => {
 		if (remaining <= 0) { truncated = true; return; }
@@ -184,20 +163,16 @@ function formatJsonReport(value: unknown, mask = true, maxCharacters: number = D
 		let count = 0;
 		const entry = (key: string) => {
 			append(`${count++ ? "," : ""}\n${"  ".repeat(depth + 1)}`);
-			let cleanKey = key;
 			if (!array) {
 				const keyFits = key.length <= Math.min(remaining, inputRemaining);
-				cleanKey = boundedString(key); quoteClean(cleanKey); append(": ");
-				// A cropped key cannot reliably identify a credential. Never expose its value.
+				quoteClean(boundedString(key)); append(": ");
+				// A cropped key exhausts the input budget even if its controls disappear.
 				if (!keyFits) { quoteClean("[Truncated: key limit]"); return; }
 			}
 			if (remaining <= 0) { truncated = true; return; }
 			const descriptor = Object.getOwnPropertyDescriptor(item, key);
 			if (descriptor && !("value" in descriptor)) quote("[Accessor omitted]");
-			else if (mask && credentialKey(cleanKey)) {
-				if (descriptor?.value !== REDACTED) masked = true;
-				quoteClean(REDACTED);
-			} else visit(descriptor?.value, depth + 1);
+			else visit(descriptor?.value, depth + 1);
 		};
 		const exhausted = () => {
 			if (remaining <= 0 || nodes >= DETAIL_LIMITS.nodes || ++entries > DETAIL_LIMITS.nodes) { truncated = true; return true; }
@@ -222,23 +197,25 @@ function formatJsonReport(value: unknown, mask = true, maxCharacters: number = D
 		ancestors.delete(item);
 	};
 	visit(value, 0);
-	return { text: chunks.join("") + (truncated ? `\n${DETAIL_TRUNCATION}` : ""), masked, truncated };
+	return { text: chunks.join("") + (truncated ? `\n${DETAIL_TRUNCATION}` : ""), masked: false, truncated };
 }
 
-/** Bounded pretty JSON, preserving structure rather than flattening to an inline preview. */
-export function formatDetailJson(value: unknown, mask = true, maxCharacters: number = DETAIL_LIMITS.characters): string {
-	return formatJsonReport(value, mask, maxCharacters).text;
+/** Bounded pretty JSON; the boolean controls string-control sanitization, never credential filtering.
+ * Disable it for parsed Result JSON so escaped controls remain data after JSON re-encoding.
+ */
+export function formatDetailJson(value: unknown, sanitizeStringControls = true, maxCharacters: number = DETAIL_LIMITS.characters): string {
+	return formatJsonReport(value, sanitizeStringControls, maxCharacters).text;
 }
 
-function boundedText(text: string, keepSgr = true, maxCharacters: number = DETAIL_LIMITS.characters, maxLines: number = DETAIL_LIMITS.lines): FormattingReport {
+function boundedText(text: string, keepSgr = true, maxCharacters: number = DETAIL_LIMITS.characters, maxLines: number = DETAIL_LIMITS.lines, maxLineCharacters: number = DETAIL_LIMITS.lineCharacters): FormattingReport {
 	const limit = characterBudget(maxCharacters);
 	let truncated = text.length > limit;
 	const clean = sanitizeDetailText(text.slice(0, limit), keepSgr);
 	const lines = clean.split("\n", maxLines + 1);
 	if (lines.length > maxLines) { lines.length = maxLines; truncated = true; }
 	for (let i = 0; i < lines.length; i++) {
-		if (lines[i].length > DETAIL_LIMITS.lineCharacters) {
-			lines[i] = `${sanitizeDetailText(lines[i].slice(0, DETAIL_LIMITS.lineCharacters), keepSgr)}${keepSgr ? "\x1b[0m" : ""} [Truncated: long line]`;
+		if (lines[i].length > maxLineCharacters) {
+			lines[i] = `${sanitizeDetailText(lines[i].slice(0, maxLineCharacters), keepSgr)}${keepSgr ? "\x1b[0m" : ""} [Truncated: long line]`;
 			truncated = true;
 		}
 	}
@@ -250,8 +227,8 @@ function boundReport(report: FormattingReport, maxCharacters: number = DETAIL_LI
 	return { ...bounded, masked: report.masked, truncated: report.truncated || bounded.truncated };
 }
 
-function jsonReport(value: unknown, mask = true): FormattingReport {
-	return boundReport(formatJsonReport(value, mask));
+function jsonReport(value: unknown, sanitizeStringControls = true): FormattingReport {
+	return boundReport(formatJsonReport(value, sanitizeStringControls));
 }
 
 function attachment(block: unknown): FormattingReport {
@@ -271,16 +248,58 @@ function attachment(block: unknown): FormattingReport {
 	return { ...report, text: `[Attachment; non-text payload not displayed]\n${report.text}` };
 }
 
-function editDiff(request: Extract<DetailRequest, { kind: "tool" }>, details: unknown): (FormattingReport & { diff: NonNullable<DetailTab["diff"]> }) | undefined {
+interface DiffReport {
+	display: FormattingReport & { diff: NonNullable<DetailTab["diff"]> };
+	raw: FormattingReport;
+}
+
+function diffPath(args: unknown): string | undefined {
+	const path = field(args, "path") ?? field(args, "file_path");
+	return typeof path === "string" ? sanitizeDetailText(path.slice(0, 4096), false) : undefined;
+}
+
+function editDiff(request: Extract<DetailRequest, { kind: "tool" }>, details: unknown): DiffReport | undefined {
 	if (request.toolName !== "edit") return undefined;
 	const payload = field(details, "diff");
 	if (typeof payload !== "string") return undefined;
 	if (!sanitizeDetailText(payload.slice(0, DETAIL_LIMITS.characters), false).trim()) return undefined;
 	const report = boundedText(payload, false);
-	const path = field(request.args, "path") ?? field(request.args, "file_path");
+	return { display: { ...report, diff: { filePath: diffPath(request.args), source: "edit" } }, raw: report };
+}
+
+function writeDiff(request: Extract<DetailRequest, { kind: "tool" }>, status: string | undefined): DiffReport | undefined {
+	if (request.toolName !== "write" || request.result == null || field(request.result, "isPartial") === true) return undefined;
+	if (status !== undefined && !/^(?:success|completed|done)$/i.test(status)) return undefined;
+	const content = field(request.args, "content");
+	if (typeof content !== "string") return undefined;
+
+	// This is the supplied written content, never an inferred overwrite delta or a filesystem read.
+	const raw = boundedText(content, false);
+	const clean = sanitizeDetailText(content.slice(0, DETAIL_LIMITS.characters), false);
+	const lines = clean === "" ? [] : clean.split("\n", DETAIL_LIMITS.lines + 1);
+	if (clean.endsWith("\n") && lines[lines.length - 1] === "") lines.pop();
+	const header = "--- /dev/null\n+++ written-content";
+	const noNewline = "\\ No newline at end of file";
+	// Reserve headers, the newline diagnostic and the safety marker before accepting additions.
+	let remaining = DETAIL_LIMITS.characters - `${header}\n@@ -0,0 +1,${DETAIL_LIMITS.lines} @@\n${noNewline}\n${DETAIL_TRUNCATION}`.length;
+	let truncated = content.length > DETAIL_LIMITS.characters;
+	const additions: string[] = [];
+	for (const line of lines) {
+		// Explicit canonical line numbers prevent source such as `123 text` or
+		// `++i` from being guessed as diff metadata by the multi-format parser.
+		const prefix = `+${additions.length + 1}|`;
+		if (additions.length >= DETAIL_LIMITS.lines - 5 || remaining < prefix.length + 1) { truncated = true; break; }
+		const kept = line.slice(0, Math.min(DETAIL_LIMITS.lineCharacters - prefix.length, remaining - prefix.length - 1));
+		if (kept.length < line.length) truncated = true;
+		additions.push(prefix + kept);
+		remaining -= prefix.length + kept.length + 1;
+	}
+	const text = [header, `@@ -0,0 +${additions.length ? `1,${additions.length}` : "0,0"} @@`, ...additions];
+	if (!truncated && additions.length && !clean.endsWith("\n")) text.push(noNewline);
+	if (truncated) text.push(DETAIL_TRUNCATION);
 	return {
-		...report,
-		diff: { filePath: typeof path === "string" ? sanitizeDetailText(path.slice(0, 4096), false) : undefined },
+		display: { text: text.join("\n"), masked: false, truncated, diff: { filePath: diffPath(request.args), source: "write" } },
+		raw,
 	};
 }
 
@@ -362,23 +381,34 @@ function resultReport(request: Extract<DetailRequest, { kind: "tool" }>, hasDeta
 	});
 }
 
-function resultTab(report: FormattingReport, toolName: string): DetailTab {
+function looksLikeMarkdown(text: string): boolean {
+	return /(?:^|\n) {0,3}(?:#{1,6}[ \t]+\S|`{3,}|~{3,}|(?:[-+*]|\d+[.)])[ \t]+\S|>[ \t]+\S)|\[[^\]\n]+\]\([^\s)]+\)/.test(text) ||
+		/(?:^|[\s([{])(?:\*\*\S(?:[^\n]*?\S)?\*\*|__\S(?:[^\n]*?\S)?__)(?=$|[\s\])}.,!?;:])/.test(text) ||
+		/(?:^|\n)[^\n]*\|[^\n]*\n {0,3}\|?[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)+\|?[ \t]*(?=\n|$)/.test(text);
+}
+
+function resultTab(report: FormattingReport, request: Extract<DetailRequest, { kind: "tool" }>): DetailTab {
 	const tab: DetailTab = { id: "result", label: "Result", ...report, rawText: report.text, presentation: "text" };
+	const markdownFile = request.toolName === "read" && /\.(?:md|markdown|mdx)$/i.test(diffPath(request.args) ?? "");
+	if (markdownFile) return { ...tab, presentation: "markdown" };
 	if (!report.truncated) {
 		try {
 			const pretty = jsonReport(JSON.parse(report.text), false);
 			return { ...tab, text: pretty.text, presentation: "json", truncated: pretty.truncated };
 		} catch { /* Native text stays native. */ }
 	}
-	// Files and command/search output are literal even when their content resembles Markdown.
-	if (!["read", "bash", "grep", "find", "ls", "edit", "write"].includes(toolName) &&
-		/(?:^|\n) {0,3}(?:#{1,6}[ \t]+\S|`{3,}|~{3,})|\[[^\]\n]+\]\([^\s)]+\)/.test(report.text)) tab.presentation = "markdown";
+	// Non-Markdown files and command/search output remain literal, regardless of apparent markers.
+	if (!["read", "bash", "grep", "find", "ls", "edit", "write"].includes(request.toolName) && looksLikeMarkdown(report.text)) tab.presentation = "markdown";
 	return tab;
 }
 
-function argsTab(args: unknown): DetailTab {
+function argsTab(args: unknown, toolName: string): DetailTab {
+	// JSON encodes a multiline command into one long string line. Bound the
+	// whole snapshot, not that encoding artifact, before decoding typed fields.
+	const encoded = formatJsonReport(args);
+	const bounded = boundedText(encoded.text, true, DETAIL_LIMITS.characters, DETAIL_LIMITS.lines, DETAIL_LIMITS.characters);
+	const report = { ...bounded, truncated: encoded.truncated || bounded.truncated };
 	// All field values come from this safe snapshot, never a second walk of tool-owned args.
-	const report = jsonReport(args);
 	const tab: DetailTab = { id: "args", label: "Args", ...report, rawText: report.text, presentation: "json" };
 	if (report.truncated) return tab;
 	try {
@@ -386,7 +416,10 @@ function argsTab(args: unknown): DetailTab {
 		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Object.prototype) return tab;
 		const fields: DetailField[] = Object.entries(parsed).map(([key, value]) => {
 			const kind: DetailField["kind"] = value === null ? "null" : typeof value === "object" ? "json" : typeof value as "string" | "number" | "boolean";
-			return { key, kind, value: kind === "json" ? JSON.stringify(value, null, 2) : String(value) };
+			return {
+				key, kind, value: kind === "json" ? JSON.stringify(value, null, 2) : String(value),
+				...(toolName === "bash" && key === "command" && kind === "string" ? { language: "bash" } : {}),
+			};
 		});
 		if (fields.some((item) => boundedText(item.value, false).truncated)) return tab;
 		return { ...tab, presentation: "fields", fields };
@@ -410,22 +443,22 @@ export function buildDetailModel(request: DetailRequest): DetailModel {
 	const metadata = metadataReport(request.result, details, hasDetails);
 	const status = request.status === undefined ? undefined : chrome(request.status);
 	const failed = field(request.result, "isError") === true || /\b(?:error|failed|failure)\b/i.test(status ?? "");
-	const diff = !failed ? editDiff(request, details) : undefined;
+	const diff = !failed ? editDiff(request, details) ?? writeDiff(request, status) : undefined;
 	const result = resultReport(request, hasDetails, !!diff, metadata);
-	let primary = resultTab(result, request.toolName);
+	let primary = resultTab(result, request);
 	if (diff) {
-		// Reserve room for both sources: a long success/warning message must not crowd out the diff.
-		const needsSplit = result.text.length + diff.text.length + 2 > DETAIL_LIMITS.characters ||
-			result.text.split("\n").length + diff.text.split("\n").length + 1 > DETAIL_LIMITS.lines;
+		// Reserve room for both sources; Write Raw keeps content without synthetic addition prefixes.
+		const needsSplit = result.text.length + diff.raw.text.length + 2 > DETAIL_LIMITS.characters ||
+			result.text.split("\n").length + diff.raw.text.split("\n").length + 1 > DETAIL_LIMITS.lines;
 		const original = needsSplit ? boundReport(result, DETAIL_LIMITS.characters / 2 - 100, DETAIL_LIMITS.lines / 2 - 2) : result;
-		const rawDiff = needsSplit ? boundReport(diff, DETAIL_LIMITS.characters / 2 - 100, DETAIL_LIMITS.lines / 2 - 2) : diff;
+		const rawDiff = needsSplit ? boundReport(diff.raw, DETAIL_LIMITS.characters / 2 - 100, DETAIL_LIMITS.lines / 2 - 2) : diff.raw;
 		const raw = boundReport({
 			text: original.text ? `${original.text}\n\n${rawDiff.text}` : rawDiff.text,
 			masked: original.masked, truncated: original.truncated || rawDiff.truncated,
 		});
-		primary = { id: "result", label: "Result", ...diff, rawText: raw.text, presentation: "text", masked: raw.masked, truncated: diff.truncated || raw.truncated };
+		primary = { id: "result", label: "Result", ...diff.display, rawText: raw.text, presentation: "text", masked: false, truncated: diff.display.truncated || raw.truncated };
 	}
-	const tabs = [primary, argsTab(request.args)];
+	const tabs = [primary, argsTab(request.args, request.toolName)];
 	if (metadata) tabs.push({ id: "details", label: "Metadata", advanced: true, ...metadata, rawText: metadata.text, presentation: "json" });
 	return {
 		title: chrome(request.target ?? request.toolName), status: status ?? (failed ? "failed" : undefined),

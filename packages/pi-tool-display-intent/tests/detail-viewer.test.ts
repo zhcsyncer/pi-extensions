@@ -92,7 +92,7 @@ test("unknown typed resource and JSON blocks retain their structured content", (
 	}
 });
 
-test("Args and Details recursively mask credential keys and token-like strings without mutating snapshots", () => {
+test("Args and Metadata preserve credentials and token-like values without mutating snapshots", () => {
 	const args = {
 		api_key: "synthetic-api-secret", nested: [{ PASSWORD: "synthetic-password", clientSecret: { secret: "nested" } }],
 		note: "Bearer synthetic-bearer", url: "https://name:synthetic-pass@example.test/?access_token=synthetic-query",
@@ -102,16 +102,13 @@ test("Args and Details recursively mask credential keys and token-like strings w
 	const before = JSON.stringify(args);
 	const model = buildDetailModel(tool({ content: [], details: args }, args));
 	for (const tab of model.tabs) {
-		assert.equal(tab.masked, true);
-		assert.doesNotMatch(tab.text, /synthetic-api-secret|synthetic-password|synthetic-bearer|synthetic-pass|synthetic-query|ghp_synthetic|eyJhbGci|abCDef0123/);
-		assert.match(tab.text, /\[REDACTED\]/);
+		assert.deepEqual(JSON.parse(tab.rawText), args);
+		assert.match(tab.text, /synthetic-api-secret/);
 		assert.match(tab.text, /Readable explanation Readable explanation/);
 		assert.match(tab.text, /"enabled": true/);
 	}
 	assert.equal(JSON.stringify(args), before);
-	const masked = JSON.parse(model.tabs[1].text);
-	assert.equal(masked.nested[0].PASSWORD, "[REDACTED]");
-	assert.equal(masked.text, args.text);
+	assert.equal(JSON.parse(model.tabs[1].text).nested[0].PASSWORD, "synthetic-password");
 });
 
 test("native result and steer text are not credential-masked or reformatted as parameter previews", () => {
@@ -123,7 +120,7 @@ test("native result and steer text are not credential-masked or reformatted as p
 	assert.equal(steer.tabs.length, 1);
 });
 
-test("Details is optional; details-only output defaults to meaningful masked structured content", () => {
+test("Metadata is optional; details-only output preserves meaningful structured content", () => {
 	for (const details of [undefined, null, {}, [], ""]) {
 		assert.deepEqual(buildDetailModel(tool({ content: [], details })).tabs.map((tab) => tab.id), ["result", "args"]);
 	}
@@ -170,7 +167,7 @@ test("attachment-only results put their structured fallback first without reorde
 	assert.doesNotMatch(text, /Read-only/);
 	assert.ok(text.indexOf("meaningful fallback") < text.indexOf("first.png"));
 	assert.ok(text.indexOf("first.png") < text.indexOf("second.pdf"));
-	assert.doesNotMatch(text, /synthetic-hidden/);
+	assert.match(text, /synthetic-hidden/);
 });
 
 test("failure titles are explicit and untrusted title metadata is terminal-safe", () => {

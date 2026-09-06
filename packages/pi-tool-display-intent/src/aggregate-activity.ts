@@ -14,7 +14,7 @@ import { patchAggregateGlobalExpansion, restoreAggregateGlobalExpansion } from "
 import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
-import type { ExpandedTimeline } from "./types.js";
+import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
@@ -344,7 +344,7 @@ function bashSizeText(command: string): string | undefined {
 	if (!command.trim()) return undefined;
 	const lineCount = command.split("\n").length;
 	const size = formatSize(Buffer.byteLength(command, "utf8"));
-	return lineCount > 1 ? `${lineCount} lines · ${size}` : undefined;
+	return lineCount > 1 ? `${lineCount} lines · ${size}` : size;
 }
 
 function bashIntentText(args: Record<string, unknown>): string | undefined {
@@ -354,28 +354,30 @@ function bashIntentText(args: Record<string, unknown>): string | undefined {
 function renderBashLedgerLabel(
 	args: Record<string, unknown>,
 	theme: AggregateRenderTheme,
+	labelWidth: number,
+	maxRows: number,
 ): string {
 	const command = bashCommandSource(args);
 	const intent = bashIntentText(args);
 	const intentPart = intent
 		? `${theme.fg("muted", " — ")}${theme.fg("accent", intent)}`
 		: "";
-	if (!command.includes("\n")) {
-		const inner = command.trim() ? normalizeTargetText(command, "command") : "command";
-		return `${theme.fg(toolColor("bash"), `Bash(${inner})`)}${intentPart}`;
+	// The audit target is bounded independently of the viewport. Never use its
+	// potentially clipped command in the visible ledger, even on wide screens.
+	const target = `Bash(${command.trim() || "command"})`;
+	// Avoid measuring enormous single-line commands (or zero-width sequences)
+	// grapheme by grapheme on every paint; their source belongs in the inspector.
+	if (target.length <= labelWidth * 8 && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(command) && visibleWidth(target) <= labelWidth) {
+		// A one-row budget may clip intent, but must not sacrifice the closing
+		// parenthesis to a truncation mark when the target fits exactly.
+		const suffix = maxRows === 1
+			? truncateToWidth(intentPart, Math.max(0, labelWidth - visibleWidth(target)), "…")
+			: intentPart;
+		return `${theme.fg(toolColor("bash"), target)}${suffix}`;
 	}
 	const size = bashSizeText(command);
 	const sizePart = size ? `${theme.fg("muted", " · ")}${theme.fg("muted", size)}` : "";
 	return `${theme.fg(toolColor("bash"), "Bash")}${intentPart}${sizePart}`;
-}
-
-function renderCallLabel(
-	member: Pick<AggregateMember, "toolName" | "args">,
-	theme: AggregateRenderTheme,
-): string {
-	return member.toolName === "bash"
-		? renderBashLedgerLabel(member.args, theme)
-		: formatColoredTarget(member, theme);
 }
 
 export function formatAggregateClockHms(ms: number): string {
@@ -1021,12 +1023,12 @@ export class AggregateProjection {
 		};
 	}
 
-	private toolTurnIds(group: AggregateGroup): string[] {
+	private toolTurnIds(group: AggregateGroup, includePassthrough = false): string[] {
 		return group.agentTurnIds.filter((turnId) =>
 			group.members.some((member) => (
 				member.visible &&
 				member.agentTurnId === turnId &&
-				!this.isPassthrough(member.toolName)
+				(includePassthrough || !this.isPassthrough(member.toolName))
 			)),
 		);
 	}
@@ -1048,7 +1050,7 @@ export class AggregateProjection {
 	): ExpandedTurnPresentation {
 		const group = this.groupsById.get(member.groupId);
 		if (!group || !member.agentTurnId) return { indent: false };
-		const turnIds = this.showContextGrowth() ? group.agentTurnIds : this.toolTurnIds(group);
+		const turnIds = this.toolTurnIds(group, this.showContextGrowth());
 		const index = turnIds.indexOf(member.agentTurnId);
 		if (index < 0) return { indent: false };
 		const peers = this.turnPeers(group, member.agentTurnId);
@@ -1653,24 +1655,28 @@ export class AggregateProjection {
 	}
 
 	getAssistantContextLines(message: unknown, expanded: boolean): string[] {
-		if (!this.showContextGrowth()) return [];
+		// Plain replies retain their original spacing and never host ledger chrome.
+		// Their finalized usage still participates in the run's measurements.
+		if (!this.showContextGrowth() || toolCallsFromMessage(message).length === 0) return [];
 		const id = this.contextTurnId(message);
 		const group = id ? this.groups.find((entry) => entry.agentTurnIds.includes(id)) : undefined;
 		if (!id || !group) return [];
 		const lines: string[] = [];
 		const growth = this.contextGrowth.getTurn(id);
-		if (expanded && this.getExpandedTimeline() === "turns" && growth && this.turnPeers(group, id).length === 0) {
-			const peers = group.members.filter((member) => member.agentTurnId === id);
+		const turnIds = this.toolTurnIds(group, true);
+		const index = turnIds.indexOf(id);
+		if (expanded && this.getExpandedTimeline() === "turns" && growth && index >= 0 && this.turnPeers(group, id).length === 0) {
+			const peers = group.members.filter((member) => member.visible && member.agentTurnId === id);
 			lines.push(formatExpandedTurnHeader({
-				index: group.agentTurnIds.indexOf(id) + 1,
-				total: group.agentTurnIds.length,
+				index: index + 1,
+				total: turnIds.length,
 				callCount: peers.length,
 				failedCount: peers.filter((member) => member.state === "failed").length,
 				running: false,
 				contextGrowth: growth,
 			}, this.getRenderTheme()));
 		}
-		// No dummy Tools ledger for text-only or passthrough-only runs.
+		// Passthrough-only runs need no dummy Tools ledger.
 		if (!group.leaderToolCallId && group.settled && group.agentTurnIds.at(-1) === id
 			&& !(lines.length > 0 && group.agentTurnIds.length === 1)) {
 			const summary = formatContextGrowth(this.contextGrowth.getRun(group.groupId, group.agentTurnIds));
@@ -1950,11 +1956,11 @@ function renderBoundedCallRows(
 	const labelWidth = moveLabelBelowTiming
 		? Math.max(1, safeWidth - visibleWidth(continuation))
 		: firstLabelWidth;
-	const labelLayout = layoutPreviewRows(
-		[renderCallLabel(member, theme)],
-		labelRowLimit - (moveLabelBelowTiming ? 1 : 0),
-		labelWidth,
-	);
+	const availableLabelRows = labelRowLimit - (moveLabelBelowTiming ? 1 : 0);
+	const label = member.toolName === "bash"
+		? renderBashLedgerLabel(member.args, theme, labelWidth, availableLabelRows)
+		: formatColoredTarget(member, theme);
+	const labelLayout = layoutPreviewRows([label], availableLabelRows, labelWidth);
 	const labelRows = labelLayout.rows.length > 0 ? [...labelLayout.rows] : [""];
 	if (labelLayout.longLineTruncated || labelLayout.rowLimitReached) {
 		const last = labelRows.length - 1;
@@ -2313,7 +2319,7 @@ function rebuildProjectionFromContext(projection: AggregateProjection, ctx: Sess
 export function registerAggregateProjectionEvents(
 	pi: ExtensionAPI,
 	projection: AggregateProjection,
-	options: { doneSettleDelayMs?: number } = {},
+	options: { doneSettleDelayMs?: number; getConfig?: () => ToolDisplayConfig } = {},
 ): void {
 	const requestedDelay = options.doneSettleDelayMs ?? AGGREGATE_DONE_SETTLE_DELAY_MS;
 	const doneSettleDelayMs = Number.isFinite(requestedDelay)
@@ -2330,7 +2336,7 @@ export function registerAggregateProjectionEvents(
 		projection.setDetailOpener(uiContext?.hasUI !== false && typeof uiContext?.ui?.custom === "function"
 			? async (request) => {
 				const { openDetailViewer } = await import("./detail-viewer.js");
-				await openDetailViewer(uiContext, request);
+				await openDetailViewer(uiContext, request, options.getConfig?.());
 			}
 			: undefined);
 		rebuildProjectionFromContext(projection, ctx);

@@ -6,6 +6,7 @@ import {
 import { buildDetailModel, type DetailModel, type DetailRequest, type DetailTab, type DetailField } from "./detail-viewer-model.ts";
 import { createDetailDiffRenderer, type DetailDiffTheme } from "./detail-diff.js";
 import { colorDetailJson, createDetailMarkdown, layoutDetailFields, wrapDetailLine } from "./detail-content.js";
+import type { ToolDisplayConfig } from "./types.js";
 
 export type { DetailRequest } from "./detail-viewer-model.ts";
 export { buildDetailModel } from "./detail-viewer-model.ts";
@@ -28,6 +29,7 @@ export interface DetailViewerOptions {
 	onClose: () => void;
 	onRender: () => void;
 	theme?: DetailDiffTheme;
+	diffConfig?: ToolDisplayConfig;
 }
 
 /** Keep the right-hand status/position visible before shortening low-priority help. */
@@ -68,7 +70,7 @@ export class DetailViewer implements Component {
 		if (!page) {
 			let renderer: Pick<Component, "render"> | undefined;
 			if (!raw) {
-				if (tab.diff) renderer = createDetailDiffRenderer(tab.text, tab.diff.filePath, this.options.theme);
+				if (tab.diff) renderer = createDetailDiffRenderer(tab.text, tab.diff.filePath, this.options.theme, this.options.diffConfig, tab.diff.source);
 				else if (tab.presentation === "markdown") renderer = createDetailMarkdown(tab.text);
 			}
 			const text = raw ? tab.rawText : tab.presentation === "json" ? colorDetailJson(tab.text, this.options.theme) : tab.text;
@@ -240,7 +242,7 @@ export class DetailViewer implements Component {
 			left.push(this.fg(this.selected === index ? "accent" : "muted", label));
 			cursor += visibleWidth(label) + 2;
 		}
-		const notices = [this.tab().masked ? "masked" : "", this.tab().truncated ? "truncated" : ""].filter(Boolean);
+		const notices = this.tab().truncated ? ["truncated"] : [];
 		const leftText = left.join("  ") + (notices.length ? this.fg("dim", ` · ${notices.join(" · ")}`) : "");
 		cursor = width - rightWidth;
 		for (const button of right) {
@@ -297,11 +299,11 @@ export class DetailViewer implements Component {
 	}
 }
 
-export async function openDetailViewer(ctx: ExtensionContext, request: DetailRequest): Promise<void> {
+export async function openDetailViewer(ctx: ExtensionContext, request: DetailRequest, config?: ToolDisplayConfig): Promise<void> {
 	if (!ctx.hasUI || ctx.mode !== "tui") return;
 	const model = buildDetailModel(request);
 	await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new DetailViewer(model, {
 		getHeight: () => Math.max(1, Math.min(48, Math.floor(tui.terminal.rows * 0.9))),
-		theme, onClose: () => done(undefined), onRender: () => tui.requestRender(),
+		theme, diffConfig: config, onClose: () => done(undefined), onRender: () => tui.requestRender(),
 	}), { overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "100%" } });
 }

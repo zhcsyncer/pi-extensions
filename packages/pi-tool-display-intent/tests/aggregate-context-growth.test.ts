@@ -47,12 +47,13 @@ test("reported request growth belongs to the preceding turn and final text contr
 	const original = structuredClone(branch);
 	p.rebuild(branch);
 	const turn = p.renderExpandedToolRow("call-a", 120).join("\n");
-	assert.match(turn, /↻ 1\/2 · 1 call · ctx \+600/);
+	assert.match(turn, /↻ 1\/1 · 1 call · ctx \+600/);
 	assert.equal((turn.match(/ctx/g) ?? []).length, 1);
 	const view = p.getView("call-a")!;
 	assert.deepEqual(view.contextGrowth, { tokens: 630, estimated: true });
 	assert.match(renderAggregateActivity(view, 240, theme).join("\n"), /ctx ≈\+630 · tok/);
-	assert.match(p.getAssistantContextLines(b, true).join("\n"), /↻ 2\/2 · ctx ≈\+30/);
+	assert.deepEqual(p.getAssistantContextLines(b, true), []);
+	assert.deepEqual(p.getAssistantContextLines(b, false), []);
 	assert.deepEqual(branch, original, "measuring must not change the Session");
 	p.rebuild(branch);
 	assert.deepEqual(p.getView("call-a")!.contextGrowth, view.contextGrowth);
@@ -81,6 +82,10 @@ test("a live turn measures final branch messages, never provisional streaming us
 		await handlers.get("turn_end")!({ message: b, toolResults: [] }, ctx);
 		assert.match(p.renderExpandedToolRow("call-a", 120).join("\n"), /ctx \+600/);
 		const live = p.getView("call-a")!.contextGrowth;
+		assert.deepEqual(live, { tokens: 630, estimated: true });
+		assert.deepEqual(p.getAssistantContextLines(b, true), []);
+		await handlers.get("turn_end")!({ message: b, toolResults: [] }, ctx);
+		assert.deepEqual(p.getView("call-a")!.contextGrowth, live, "final usage is counted only once");
 		p.rebuild(branch);
 		assert.deepEqual(p.getView("call-a")!.contextGrowth, live);
 	} finally {
@@ -123,7 +128,7 @@ test("a finalized timestamp replacement reconciles the streamed turn and its exi
 	const live = p.getView("call-a")!;
 	assert.equal(live.agentTurnCount, 2);
 	assert.deepEqual(live.contextGrowth, { tokens: 630, estimated: true });
-	assert.match(p.renderExpandedToolRow("call-a", 120).join("\n"), /↻ 1\/2 · 1 call · ctx \+600/);
+	assert.match(p.renderExpandedToolRow("call-a", 120).join("\n"), /↻ 1\/1 · 1 call · ctx \+600/);
 	p.rebuild(branch);
 	assert.deepEqual(p.getView("call-a")!.contextGrowth, live.contextGrowth);
 	assert.equal(p.getView("call-a")!.agentTurnCount, live.agentTurnCount);
@@ -158,29 +163,38 @@ test("toggle and flat layout only change presentation, not accumulated measureme
 	assert.deepEqual(p.getView("call-a")!.contextGrowth, { tokens: 630, estimated: true });
 });
 
-test("final text receives a bounded expanded turn footer without changing its answer", () => {
-	initTheme("dark", false);
-	let enabled = true;
-	const p = projection(() => enabled);
-	const { b, branch } = fixture();
-	p.rebuild(branch);
-	patchAggregateToolExecutions(p);
-	patchAggregateThinkingPlaceholders(() => true);
-	try {
-		const component = new AssistantMessageComponent(b as never, true);
-		assert.doesNotMatch(component.render(100).join("\n"), /ctx/);
-		(component as unknown as { setExpanded(value: boolean): void }).setExpanded(true);
-		const lines = component.render(100);
-		assert.match(clean(lines.join("\n")), /Final answer\n  ↻ 2\/2 · ctx ≈\+30/);
-		assert.equal((clean(lines.join("\n")).match(/ctx/g) ?? []).length, 1);
-		assert.ok(component.render(20).every((line) => visibleWidth(line) <= 20));
-		enabled = false;
-		assert.doesNotMatch(component.render(100).join("\n"), /ctx/);
-	} finally {
-		restoreAggregateThinkingPlaceholders();
-		restoreAggregateToolExecutions();
-	}
-});
+for (const withTools of [true, false]) {
+	test(`${withTools ? "final text after tools" : "a text-only run"} never receives ctx chrome or changes spacing`, () => {
+		initTheme("dark", false);
+		let enabled = false;
+		const p = projection(() => enabled);
+		const { b, branch } = fixture();
+		b.content = [text("Final answer\n\nSecond paragraph\n\n- detail")];
+		p.rebuild(withTools ? branch : [user, entry("b", b)]);
+		patchAggregateToolExecutions(p);
+		patchAggregateThinkingPlaceholders(() => true);
+		try {
+			const component = new AssistantMessageComponent(b as never, true);
+			for (const expanded of [false, true]) {
+				(component as unknown as { setExpanded(value: boolean): void }).setExpanded(expanded);
+				for (const width of [20, 100]) {
+					enabled = false;
+					const baseline = component.render(width);
+					enabled = true;
+					const lines = component.render(width);
+					assert.deepEqual(lines, baseline, "including all original paragraph and edge spacing");
+					assert.match(clean(lines.join("\n")), /Final answer/);
+					assert.doesNotMatch(lines.join("\n"), /ctx|↻/);
+					assert.ok(lines.every((line) => visibleWidth(line) <= width));
+				}
+			}
+			if (withTools) assert.deepEqual(p.getView("call-a")!.contextGrowth, { tokens: 630, estimated: true });
+		} finally {
+			restoreAggregateThinkingPlaceholders();
+			restoreAggregateToolExecutions();
+		}
+	});
+}
 
 test("a newly created final answer inherits an already expanded transcript", () => {
 	initTheme("dark", false);
@@ -194,7 +208,10 @@ test("a newly created final answer inherits an already expanded transcript", () 
 		(existing as unknown as { setExpanded(value: boolean): void }).setExpanded(true);
 		// Pi creates streaming assistant components without calling setExpanded.
 		const created = new AssistantMessageComponent(b as never, true);
-		assert.match(clean(created.render(100).join("\n")), /↻ 2\/2 · ctx ≈\+30/);
+		assert.equal(p.isMessageExpanded(b), true);
+		assert.match(clean(created.render(100).join("\n")), /Final answer/);
+		assert.doesNotMatch(created.render(100).join("\n"), /ctx|↻/);
+		assert.deepEqual(p.getView("call-a")!.contextGrowth, { tokens: 630, estimated: true });
 		(existing as unknown as { setExpanded(value: boolean): void }).setExpanded(false);
 		assert.doesNotMatch(created.render(100).join("\n"), /ctx/);
 	} finally {
@@ -203,15 +220,48 @@ test("a newly created final answer inherits an already expanded transcript", () 
 	}
 });
 
-test("passthrough-only and text-only turns can show context without manufacturing a Tools frame", () => {
+test("only passthrough tool turns may show context without manufacturing a Tools frame", () => {
 	const p = projection();
 	const a = assistant("a", 1000, 20, "Agent");
 	const b = assistant("b", 1600, 30);
 	p.rebuild([user, entry("a", a), entry("result", { ...result, toolName: "Agent" }), entry("b", b)]);
 	assert.equal(p.getView("call-a"), undefined);
-	assert.match(p.getAssistantContextLines(a, true).join("\n"), /↻ 1\/2 · 1 call · ctx \+600/);
-	assert.match(p.getAssistantContextLines(b, false).join("\n"), /^ctx ≈\+630$/);
+	assert.match(p.getAssistantContextLines(a, true).join("\n"), /↻ 1\/1 · 1 call · ctx \+600/);
+	assert.deepEqual(p.getAssistantContextLines(b, false), []);
+	assert.deepEqual(p.getAssistantContextLines(b, true), []);
 	p.rebuild([user, entry("b", b)]);
-	assert.deepEqual(p.getAssistantContextLines(b, false), ["ctx ≈+30"]);
-	assert.deepEqual(p.getAssistantContextLines(b, true), ["↻ 1/1 · ctx ≈+30"]);
+	assert.deepEqual(p.getAssistantContextLines(b, false), []);
+	assert.deepEqual(p.getAssistantContextLines(b, true), []);
 });
+
+test("expanded context headers number only visible tool-bearing turns including passthrough", () => {
+	const p = projection();
+	const a = assistant("a", 1000, 20, "Agent");
+	const plain = { ...assistant("plain", 1600, 10), stopReason: "pending", timestamp: 4 };
+	const b = {
+		...assistant("b", 1700, 30, "read"), timestamp: 5,
+		content: [{ type: "toolCall", id: "call-b", name: "read", arguments: { path: "b.ts" } }],
+	};
+	const final = { ...assistant("final", 2200, 40), timestamp: 7 };
+	p.rebuild([
+		user, entry("a", a), entry("result-a", { ...result, toolName: "Agent" }),
+		entry("plain", plain), entry("b", b), entry("result-b", { ...result, toolCallId: "call-b", timestamp: 6 }),
+		entry("final", final),
+	]);
+	assert.match(p.getAssistantContextLines(a, true).join("\n"), /↻ 1\/2 · 1 call · ctx/);
+	assert.match(p.renderExpandedToolRow("call-b", 120).join("\n"), /↻ 2\/2 · 1 call · ctx/);
+	assert.deepEqual(p.getAssistantContextLines(plain, true), []);
+	assert.deepEqual(p.getAssistantContextLines(final, true), []);
+	assert.equal(p.getView("call-b")!.agentTurnCount, 4, "presentation filtering must not remove measured turns");
+});
+
+for (const stopReason of ["stop", "length", "error", "aborted", "pending", "toolUse"]) {
+	test(`a reply without toolCall blocks has no ctx footer even with stopReason=${stopReason}`, () => {
+		const p = projection();
+		const { b, branch } = fixture();
+		b.stopReason = stopReason;
+		p.rebuild(branch);
+		assert.deepEqual(p.getAssistantContextLines(b, false), []);
+		assert.deepEqual(p.getAssistantContextLines(b, true), []);
+	});
+}

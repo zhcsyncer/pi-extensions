@@ -78,9 +78,11 @@ User prompts always use the accent-gutter box.
 
 In Pi **0.85+ fullscreen mode**, click anywhere in a **collapsed Tools block**, including the receipt and current-call previews, to expand only that run. When expanded, the whole title/summary area can collapse it again. Top/bottom padding and expanded narration text do not toggle the ledger; dragging still selects text. `Ctrl+O` still switches the whole transcript and overrides local choices. Passthrough tools keep their native interactions.
 
-Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result shows JSON with syntax colors, clear custom-tool Markdown as formatted content, and source/log output literally. Args uses key/value rows and multiline text blocks instead of escaped JSON strings. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` switches formatted pages to source text or JSON without bypassing credential masking or safety limits. Long lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Only actual masking or truncation adds a small notice. Credential masking protects Args and Metadata; original Result/steer text, including edited code, is not silently rewritten. Large content has explicit safety limits; output already truncated by the tool cannot be recovered.
+Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result formats JSON, Markdown files read from `.md` / `.markdown` / `.mdx` paths, and clear custom-tool Markdown; other source and logs remain literal. Args uses key/value rows and multiline blocks, with shell syntax colors for Bash commands. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` shows source text or JSON. The popup does not redact credentials; terminal-control filtering and explicit size limits still apply, so check content before sharing it. Long text lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Output already truncated by the tool cannot be recovered.
 
-For a successful Edit with returned diff data, **Result is the diff**: single-column colored changes with line numbers and automatic wrapping, without a separate Diff tab. Continuation rows do not repeat line numbers. Raw retains the original return text and diff source; failures or missing diff data show the ordinary result. Historical changes are never reconstructed from the current file.
+For successful Edit calls with returned diff data, **Result is the diff**, without a separate tab. Successful Write calls use the same view to show supplied content as additions, explicitly labeled as written content rather than an overwrite delta. Both follow the global **Diff layout** and **Diff indicators** settings, now also available in aggregate `/tools`; advanced `diff.wordWrap` and `diff.splitMinWidth` apply too. Raw retains the original return and source content; failures or missing required data show the ordinary result. Historical changes are never reconstructed from the current file.
+
+In the ledger, `Bash(command)` is shown only when the complete target fits one display row. Longer or multiline commands show Bash, intent and size instead; click the expanded call to inspect the complete arguments.
 
 Expanded steers wrap at the terminal width. Up to eight content rows stay visible; longer messages keep the first three and last two rows around `… N lines hidden · click to view`. Click that omission row to inspect the original message. Collapsed steers still occupy one line each.
 
@@ -93,7 +95,7 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 ↻ 1/2 · 2 calls · ctx +2.4k
 ```
 
-A subsequent completed request supplies the input difference, displayed on the **preceding** turn. The last/unconfirmed turn uses a local estimate marked `≈`; any estimate also marks the run total. Text-only and passthrough-only turns use a lightweight footer rather than an empty Tools frame. `flat` shows only the run total. Switching this setting does not reload.
+A subsequent completed request supplies the input difference, displayed on the **preceding** turn. The last/unconfirmed turn uses a local estimate marked `≈`; any estimate also marks the run total. Ordinary replies without tool calls never get a context footer; their final usage still contributes to the Tools run total. Tool-bearing passthrough turns may use a lightweight footer. `flat` shows only the run total. Switching this setting does not reload.
 
 `ctx` measures context growth, not cumulative token consumption (`tok`) or individual tool costs. Reported differences may also reflect prompt/provider transformations. Missing data or known context boundaries such as steering, compaction, or model changes make the run total `ctx n/a` instead of a misleading number.
 
@@ -108,7 +110,8 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | `toolCalls.showContextGrowth` | Show `ctx` run totals and turn badges; default `false` (aggregate only; no reload) |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
-| `diff.collapsedMode` | `body` preview, or `summary` stats only |
+| `diff.layout` / `diff.indicators` | Shared Edit/Write diff layout and markers, including aggregate inspectors |
+| `diff.collapsedMode` | `body` preview, or `summary` stats only (individual tool rows) |
 | `tools.passthrough` | Tools that keep their original renderer in aggregate |
 
 Older `toolCalls.style` and `transcript.userMessageStyle` settings are ignored.

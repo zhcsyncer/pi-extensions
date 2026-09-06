@@ -4,7 +4,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { buildDetailModel, sanitizeDetailText, type DetailRequest } from "../src/detail-viewer-model.ts";
 import { DetailViewer } from "../src/detail-viewer.ts";
-import { colorDetailJson, renderDetailFields } from "../src/detail-content.ts";
+import { colorDetailCode, colorDetailJson, renderDetailFields } from "../src/detail-content.ts";
 
 const clean = (line: string) => sanitizeDetailText(line, false);
 const text = (value: string) => ({ type: "text", text: value });
@@ -19,7 +19,7 @@ function click(x: number, y: number): TuiMouseEvent {
 	return { type: "click", button: "left", x, y, screenX: x, screenY: y, width: 90, height: 20, shift: false, alt: false, ctrl: false };
 }
 
-test("Args shows multiline text blocks and Raw keeps masked JSON available", () => {
+test("Args and Raw retain credentials while showing multiline commands readably", () => {
 	const request = tool({ command: "pnpm test\npnpm typecheck", timeout: 60, api_key: "synthetic-secret" });
 	const before = structuredClone(request);
 	const component = viewer(request);
@@ -29,8 +29,9 @@ test("Args shows multiline text blocks and Raw keeps masked JSON available", () 
 	assert.match(lines.join("\n"), /\[Args\]/);
 	assert.match(lines.join("\n"), /pnpm test/);
 	assert.match(lines.join("\n"), /pnpm typecheck/);
-	assert.doesNotMatch(lines.join("\n"), /"command":|pnpm test\\n|synthetic-secret|Read-only/);
-	assert.match(lines[2], /masked/);
+	assert.doesNotMatch(lines.join("\n"), /"command":|pnpm test\\n|Read-only/);
+	assert.match(lines.join("\n"), /synthetic-secret/);
+	assert.doesNotMatch(lines[2], /masked/);
 	const rawColumn = lines[2].indexOf("Raw");
 	assert.ok(rawColumn >= 0);
 	assert.equal(component.handleMouse(click(rawColumn, 2))?.handled, true);
@@ -38,7 +39,7 @@ test("Args shows multiline text blocks and Raw keeps masked JSON available", () 
 	assert.match(lines[2], /\[Raw\]/);
 	assert.match(lines.join("\n"), /"command":/);
 	assert.match(lines.join("\n"), /pnpm test\\npnpm typecheck/);
-	assert.doesNotMatch(lines.join("\n"), /synthetic-secret/);
+	assert.match(lines.join("\n"), /synthetic-secret/);
 	component.handleInput("r");
 	assert.doesNotMatch(component.render(90).map(clean).join("\n"), /"command":/);
 	assert.deepEqual(request, before);
@@ -85,6 +86,30 @@ test("clear custom Markdown is rendered, and Raw reveals its unchanged source", 
 	component.handleInput("r");
 	assert.match(component.render(90).map(clean).join("\n"), /## Heading/);
 	assert.match(component.render(90).map(clean).join("\n"), /\*\*Important\*\*/);
+});
+
+test("Markdown files render as Markdown while Raw still shows their source", () => {
+	initTheme("dark", false);
+	const source = "# Readme\n\n**Important**\n\n- first\n- second";
+	const component = viewer({ kind: "tool", toolName: "read", args: { path: "README.md" }, result: { content: [text(source)] } });
+	const rendered = component.render(90).map(clean).join("\n");
+	assert.match(rendered, /Readme/);
+	assert.doesNotMatch(rendered, /# Readme|\*\*Important\*\*/);
+	component.handleInput("r");
+	assert.match(component.render(90).map(clean).join("\n"), /# Readme/);
+});
+
+test("Bash command fields use shell syntax highlighting without changing their content", () => {
+	initTheme("dark", false);
+	const command = 'for file in *.ts; do\n  echo "$file"\ndone';
+	const model = buildDetailModel(tool({ command }));
+	assert.equal(model.tabs[1].fields?.find((field) => field.key === "command")?.language, "bash");
+	const highlighted = colorDetailCode(command, "bash");
+	assert.equal(clean(highlighted), command);
+	assert.match(highlighted, /\x1b\[/);
+	const body = renderDetailFields(model.tabs[1].fields ?? [], 70);
+	assert.match(body.join("\n"), /\x1b\[/);
+	assert.match(body.map(clean).join("\n"), /for file in \*\.ts; do/);
 });
 
 test("field layouts preserve multiline and nested values within narrow terminal bounds", () => {

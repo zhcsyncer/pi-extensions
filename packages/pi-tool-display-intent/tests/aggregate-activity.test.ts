@@ -5,7 +5,7 @@ import {
 	ToolExecutionComponent,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	composeLedgerCallLine,
@@ -1363,6 +1363,76 @@ test("short bash keeps Bash(command) and puts model intent on the same row", () 
 	assert.match(rendered.join("\n"), /Bash\(pnpm test\) — 跑扩展测试/);
 	assert.match(rendered.join("\n"), new RegExp(`3\\.1s\\s+${formatAggregateClockHms(startedAt + 3_100)}`));
 	assert.doesNotMatch(rendered.join("\n"), /lines ·/);
+});
+
+for (const layout of ["collapsed", "flat", "turns"] as const) {
+	test(`${layout} Bash parentheses require the complete target to fit after all row chrome`, () => {
+		const projection = createProjection(layout === "turns" ? "turns" : "flat");
+		projection.setRenderTheme({ fg: (_color, text) => `\x1b[36m${text}\x1b[0m` });
+		const command = "printf '核验完成'";
+		const target = `Bash(${command})`;
+		projection.startUserGroup(`user-bash-width-${layout}`);
+		projection.ingestAssistantMessage({
+			role: "assistant", id: "bash-turn", stopReason: "toolUse",
+			content: [{ type: "toolCall", ...call("bash-width", "bash", { command, displaySummary: "核验" }) }],
+		});
+		const member = projection.getMember("bash-width")!;
+		member.startedAtMs = Date.parse("2026-04-08T14:32:01");
+		projection.markComplete("bash-width", {}, false, { endedAtMs: member.startedAtMs + 1_200 });
+		const render = (width: number) => (layout === "collapsed"
+			? renderAggregateActivity(projection.getView("bash-width")!, width, projection.getRenderTheme())
+			: projection.renderExpandedToolRow("bash-width", width)).map(visibleText);
+		// Collapsed: indent + marker + timing. Flat: frame + marker + timing.
+		// Turns: frame + turn indent + marker; its clock belongs to the header.
+		const reserved = layout === "collapsed" ? 22 : layout === "flat" ? 24 : 8;
+		const exactWidth = visibleWidth(target) + reserved;
+		const exact = render(exactWidth);
+		assert.ok(exact.some((line) => line.includes(target)), "the entire target fits on one actual row");
+		assert.ok(exact.every((line) => visibleWidth(line) <= exactWidth));
+		const narrower = render(exactWidth - 1);
+		assert.match(narrower.join("\n"), /Bash — 核验 · \d+B/);
+		assert.doesNotMatch(narrower.join("\n"), /Bash\(|printf|核验完成/);
+		assert.ok(narrower.every((line) => visibleWidth(line) <= exactWidth - 1));
+		if (layout !== "turns") {
+			assert.match(narrower.find((line) => line.includes("Bash")) ?? "", /1\.2s {2}14:32:02$/);
+		}
+		assert.ok(render(exactWidth).some((line) => line.includes(target)), "resizing restores the command");
+		assert.equal(member.args.command, command, "inspector arguments remain complete");
+	});
+
+	test(`${layout} Bash never uses a clipped audit target as its visible command`, () => {
+		const projection = createProjection(layout === "turns" ? "turns" : "flat");
+		projection.setRenderTheme(plainTheme());
+		const command = `echo ${"x".repeat(300)} command-tail`;
+		projection.startUserGroup(`user-long-bash-${layout}`);
+		projection.ingestAssistantMessage({
+			role: "assistant", id: "bash-long-turn", stopReason: "toolUse",
+			content: [{ type: "toolCall", ...call("bash-long", "bash", { command }) }],
+		});
+		const render = (width: number) => (layout === "collapsed"
+			? renderAggregateActivity(projection.getView("bash-long")!, width, plainTheme())
+			: projection.renderExpandedToolRow("bash-long", width)).join("\n");
+		for (const width of [40, 290]) {
+			assert.match(render(width), /Bash · \d+B/);
+			assert.doesNotMatch(render(width), /Bash\(|echo|xxx|command-tail| — /);
+		}
+		assert.ok(render(450).includes(`Bash(${command})`), "wide labels show the full, unbounded command");
+		assert.equal(projection.getMember("bash-long")!.args.command, command);
+	});
+}
+
+test("Bash moved below a narrow timing row never loses its closing parenthesis to intent truncation", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-bash-below-timing");
+	const command = `echo ${"a".repeat(9)}`;
+	projection.markStarted("bash-narrow", "bash", { command, displaySummary: "核验" });
+	const member = projection.getMember("bash-narrow")!;
+	member.startedAtMs = Date.parse("2026-04-08T14:32:01");
+	projection.markComplete("bash-narrow", {}, false, { endedAtMs: member.startedAtMs + 1_200 });
+	const lines = renderAggregateActivity(projection.getView("bash-narrow")!, 24, plainTheme());
+	assert.match(lines[1] ?? "", /1\.2s {2}14:32:02$/);
+	assert.equal(lines[2], `    Bash(${command})`);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 24));
 });
 
 test("multiline bash without intent keeps only the size on the Bash row", () => {

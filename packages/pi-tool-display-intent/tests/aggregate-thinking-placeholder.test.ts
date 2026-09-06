@@ -6,7 +6,7 @@ import {
 	UserMessageComponent,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
@@ -244,6 +244,98 @@ test("early unframed narration keeps a blank under the user after later Tools ap
 		const rendered = createComponent(early, true).render(100);
 		assert.equal(rendered[0], "");
 		assert.match(rendered.join("\n"), /Prod has no Metrics on purpose/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("expanded narration wraps inside its frame without clipping text or marking padded rows as truncated", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-width");
+		const text = "先检查账本中的模型回复是否完整显示，然后验证换行不会丢掉末尾文字。\nNext line stays next to the previous line, without an artificial gap.";
+		const message = assistant([
+			{ type: "text", text },
+			{ type: "toolCall", id: "narration-width-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-width-message" });
+		projection.ingestAssistantMessage(message);
+		for (const outputPad of [0, 1]) {
+			const component = new AssistantMessageComponent(message as never, true, undefined, "Thinking...", outputPad, []);
+			(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+			for (const width of [36, 80]) {
+				const rows = component.render(width);
+				assert.ok(rows.every((row) => visibleWidth(row) <= width));
+				const body = rows.map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""))
+					.filter((row) => /^  [│└] /.test(row))
+					.map((row) => row.replace(/^  [│└] (?:› )?/, "").trim());
+				assert.ok(body.length > 1);
+				assert.doesNotMatch(body.join("\n"), /…/);
+				assert.ok(body.every((row) => row.length > 0), "soft wrapping must not insert blank rows");
+				assert.equal(body.join("").replace(/\s/g, ""), text.replace(/\s/g, ""));
+			}
+		}
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("narration keeps its original first-line inset and aligns adjacent continuation lines without right padding", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-inset");
+		const message = assistant([
+			{ type: "text", text: "First line\nSecond line\nThird line" },
+			{ type: "toolCall", id: "narration-inset-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-inset-message" });
+		projection.ingestAssistantMessage(message);
+		for (const outputPad of [0, 1, 3]) {
+			const component = new AssistantMessageComponent(message as never, true, undefined, "Thinking...", outputPad, []);
+			(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+			const rows = component.render(80).map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""));
+			const first = rows.findIndex((row) => row.includes("First line"));
+			const second = rows.findIndex((row) => row.includes("Second line"));
+			const third = rows.findIndex((row) => row.includes("Third line"));
+			assert.equal(rows[first].indexOf("First"), 6 + outputPad, "keep the established first-line inset");
+			assert.equal(second, first + 1);
+			assert.equal(third, second + 1);
+			assert.equal(rows[second].indexOf("Second"), rows[first].indexOf("First"));
+			assert.equal(rows[third].indexOf("Third"), rows[first].indexOf("First"));
+			for (const row of rows.slice(first, third + 1)) assert.ok(row.endsWith("line"), "do not fill a short row to the terminal edge");
+		}
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
+test("framed narration retains paragraph gaps and intentional blank code lines", () => {
+	initTheme("dark", false);
+	const projection = passthroughProjection("Agent");
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		projection.startUserGroup("narration-code-spacing");
+		const message = assistant([
+			{ type: "text", text: "Intro\n\n```text\nfirst\n\n\nlast\n```\n\nOutro" },
+			{ type: "toolCall", id: "narration-code-tool", name: "read", arguments: { path: "a.ts" } },
+		], { id: "narration-code-message" });
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		(component as AssistantMessageComponent & { setExpanded(value: boolean): void }).setExpanded(true);
+		const body = component.render(80).map((row) => row.replace(/\x1b\[[0-9;]*m/g, ""))
+			.filter((row) => /^  [│└] /.test(row))
+			.map((row) => row.replace(/^  [│└] (?:› | {2})?/, "").trimEnd()).join("\n");
+		assert.match(body, /Intro\n\n```text/);
+		assert.match(body, /first\n\n\n  last/);
+		assert.match(body, /```\n\nOutro$/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 		restoreAggregateToolExecutions();

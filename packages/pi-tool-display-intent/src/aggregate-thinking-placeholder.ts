@@ -7,12 +7,13 @@ import {
 	aggregateAssistantFrameId,
 	applyAggregateGroupFrame,
 	attachExpandedAggregateSummary,
+	framePrefixForEdge,
 	renderExpandedAggregateSummary,
 	resolveAggregateProjection,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import { onReloadShutdown } from "./extension-lifecycle.js";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
@@ -206,7 +207,11 @@ function decorateAssistantLines(
 	} catch {
 		// Public markdown fallbacks and unbound Pi theme helpers must not crash render.
 	}
-	return lines.map((line, index) => index === firstVisible ? `${mark} ${line}` : line);
+	const continuation = " ".repeat(visibleWidth(`${AGGREGATE_ASSISTANT_MARK} `));
+	// Keep native left padding, and reserve the marker column on every row.
+	// Only discard right-side fill: carrying Markdown's padded width into the
+	// frame pins even a short first row to the terminal edge.
+	return lines.map((line, index) => `${index === firstVisible ? `${mark} ` : continuation}${line.trimEnd()}`);
 }
 
 function getPrototype(): PatchableAssistantPrototype {
@@ -252,9 +257,15 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		// Thinking is never narration. Drop thinking blocks before render so
 		// overlapping final text cannot be mistaken for reasoning.
 		const stripThinkingBody = hideThinking || interim || (stopReason === "stop" && hasNarrationText);
+		// Native Markdown pads every row to the width it receives. Reserve the
+		// frame and narration marker before layout, not by clipping padded rows
+		// afterwards (which also turns blank lines into full-width ellipses).
+		const narrationWidth = interim
+			? Math.max(1, width - visibleWidth(`${framePrefixForEdge("start")}${AGGREGATE_ASSISTANT_MARK} `))
+			: width;
 		const lines = stripThinkingBody
-			? renderWithoutThinkingBlocks(this, state.originalRender, width)
-			: state.originalRender.call(this, width);
+			? renderWithoutThinkingBlocks(this, state.originalRender, narrationWidth)
+			: state.originalRender.call(this, narrationWidth);
 		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
