@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-consult",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Side-call advisor primitive for Pi: consult() plus a watchdog, optional dual-path panel, and local behavior logs.",
   "keywords": [
     "pi-package",

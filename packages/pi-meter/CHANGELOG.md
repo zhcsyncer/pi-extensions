@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-meter
 
+## 0.4.1
+
+### Patch Changes
+
+- 7b6a072: Account advisor retries, fanout, cache tokens, and cost through Consult tool-result usage so Pi totals include it and pi-meter attributes it to the advisor models.
+- 7b6a072: Make `/usage import` report scanned files, parsed records, additions, known duplicates, skipped messages, and whether a repeated import changed the ledger.
+
 ## 0.4.0
 
 ### Minor Changes
