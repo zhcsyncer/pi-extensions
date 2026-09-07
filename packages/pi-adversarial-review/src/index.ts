@@ -260,7 +260,9 @@ export default function adversarialReviewExtension(
           return;
         }
         if (controller.signal.aborted) return;
-        ctx.ui.notify(targetPreflight.summary, "info");
+        if (ctx.mode !== "tui") {
+          ctx.ui.notify(targetPreflight.summary, "info");
+        }
         let capabilities: ReviewRuntimeCapabilities | undefined;
         const ensureRuntime = async () => {
           if (resolvedRuntime) return resolvedRuntime;
@@ -382,7 +384,9 @@ export default function adversarialReviewExtension(
             return;
           }
           targetPreflight = refreshed;
-          ctx.ui.notify(targetPreflight.summary, "info");
+          if (ctx.mode !== "tui") {
+            ctx.ui.notify(targetPreflight.summary, "info");
+          }
         }
 
         // Shutdown can race with picker confirmation or explicit preflight. Do

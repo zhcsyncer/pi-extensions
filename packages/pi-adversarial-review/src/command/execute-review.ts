@@ -331,10 +331,12 @@ export async function executeReviewRun(options: ExecuteReviewRunOptions): Promis
       process.exitCode = 1;
     }
   }
-  ctx.ui.notify(
-    completionMessage,
-    published.deliveryWarning
-      ? "warning"
-      : report.overall === "candidate-approve" ? "info" : "warning",
-  );
+  if (ctx.mode !== "tui" || published.deliveryWarning) {
+    ctx.ui.notify(
+      completionMessage,
+      published.deliveryWarning
+        ? "warning"
+        : report.overall === "candidate-approve" ? "info" : "warning",
+    );
+  }
 }

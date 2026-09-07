@@ -64,6 +64,7 @@ describe("review dispatch transcript", () => {
     expect(entry).toMatchObject({
       status: "dispatched",
       runId: "run-123",
+      target: { headSha: "a".repeat(40), baseSha: "b".repeat(40) },
       input: { bytes: 61_440, lines: 824, files: 2 },
       requestedRoutes: [{ key: "provider-0/model-0@high" }, { key: "provider-1/model-1@high" }],
       refuterRoute: { key: "provider-2/model-2@high" },
@@ -88,13 +89,15 @@ describe("review dispatch transcript", () => {
     const expanded = renderReviewDispatchEntry(entry, { expanded: true }, theme)
       .render(140).join("\n");
 
-    expect(collapsed).toContain("Adversarial review dispatched · 2 reviewers · strict");
-    expect(collapsed).toContain("Target · base origin/main ... HEAD plus local changes");
-    expect(collapsed).toContain("Ctrl+O details");
-    expect(expanded).toContain("Input · 60.0 KiB · 824 lines · 2 files");
-    expect(expanded).toContain("Runtime · embedded · max concurrent 2 · route sessions memory-only");
+    expect(collapsed).toContain("Adversarial review dispatched · 2 reviewers · HEAD aaaaaaa");
+    expect(collapsed).not.toContain("strict");
+    expect(collapsed).not.toContain("Target ·");
+    expect(collapsed).not.toContain("Ctrl+O");
+    expect(collapsed.split("\n")).toHaveLength(1);
     expect(expanded).toContain("provider-0/model-0@high");
-    expect(expanded).toContain("Refute · disabled");
+    expect(expanded).toContain("run run-123");
+    expect(expanded).not.toContain("Input ·");
+    expect(expanded).not.toContain("Runtime ·");
   });
 
   it("appends one non-model-context dispatch entry and reports persistence failures", () => {

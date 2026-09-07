@@ -225,11 +225,15 @@ describe("merged report output", () => {
       { expanded: false, outputPad: 0 },
       { fg: (_color: string, text: string) => text } as any,
     );
-    expect(component.render(120).join("\n")).toContain(
+    const collapsed = component.render(120).join("\n");
+    expect(collapsed).toContain(
       "Adversarial review · candidate-approve · 1/1 valid",
     );
-    expect(component.render(120).join("\n")).toContain("Refute off");
-    expect(component.render(120).join("\n")).not.toContain("Adjudication discipline");
+    expect(collapsed).not.toContain("HEAD head");
+    expect(collapsed).toContain("local changes · 1 file");
+    expect(collapsed).not.toContain("Refute off");
+    expect(collapsed).not.toContain("0 blocking");
+    expect(collapsed).not.toContain("Adjudication discipline");
   });
 
   it("makes armed-but-skipped and completed Refute outcomes visible when collapsed", () => {
@@ -246,7 +250,7 @@ describe("merged report output", () => {
       serializeMergedReviewReport(skipped),
       { expanded: false, outputPad: 0 },
       theme,
-    ).render(120).join("\n")).toContain("Refute skipped · 0 blocking");
+    ).render(120).join("\n")).toContain("Refute skipped");
 
     const refuter = route();
     const finding = mergedFinding();
@@ -272,11 +276,79 @@ describe("merged report output", () => {
       }],
     });
     expect(buildMergedReportText(completed)).toContain("Refute: 1/1 valid · 0 contested");
-    expect(renderMergedReviewMessage(
+    const completedCollapsed = renderMergedReviewMessage(
       serializeMergedReviewReport(completed),
       { expanded: false, outputPad: 0 },
       theme,
-    ).render(120).join("\n")).toContain("Refute 1/1 · 0 contested");
+    ).render(120).join("\n");
+    expect(completedCollapsed).toContain("src/example.ts:10");
+    expect(completedCollapsed).toContain("Success is returned before persistence");
+    expect(completedCollapsed).not.toContain("Refute 1/1");
+    expect(completedCollapsed).not.toContain("0 contested");
+    expect(completedCollapsed).not.toContain("incomplete");
+
+    const second = {
+      ...mergedFinding("Retry drops the original write"),
+      file: "src/other.ts",
+      lineStart: 20,
+      lineEnd: 24,
+    };
+    const timedOutRefuter = { ...refuter, key: "provider/model-b@high", modelId: "model-b", ordinal: 1 };
+    const mixedCollapsed = renderMergedReviewMessage(
+      serializeMergedReviewReport(report({
+        overall: "needs-adjudication",
+        blocking: [finding, second],
+        contested: [{
+          findingIndex: 0,
+          finding,
+          refuterRoute: refuter,
+          reason: "finding holds",
+          evidence: [],
+        }],
+        refuteRequested: true,
+        refuterRoute: refuter,
+        refuteResults: [
+          {
+            findingIndex: 0,
+            route: refuter,
+            status: "completed",
+            report: { refuted: false, reason: "finding holds", evidence: [] },
+          },
+          {
+            findingIndex: 1,
+            route: timedOutRefuter,
+            status: "timed-out",
+            error: "Refuter exceeded route timeout",
+          },
+        ],
+      })),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n");
+    expect(mixedCollapsed).toContain("Refute 1/2 incomplete");
+    expect(mixedCollapsed).toContain("[high, contested] src/example.ts:10");
+    expect(mixedCollapsed).toContain("src/other.ts:20");
+    expect(mixedCollapsed).not.toContain("Refute failed");
+    expect(mixedCollapsed).not.toContain("Refute 1/1");
+
+    const allFailedCollapsed = renderMergedReviewMessage(
+      serializeMergedReviewReport(report({
+        overall: "needs-adjudication",
+        blocking: [finding],
+        refuteRequested: true,
+        refuterRoute: refuter,
+        refuteResults: [{
+          findingIndex: 0,
+          route: refuter,
+          status: "timed-out",
+          error: "Refuter exceeded route timeout",
+        }],
+      })),
+      { expanded: false, outputPad: 0 },
+      theme,
+    ).render(120).join("\n");
+    expect(allFailedCollapsed).toContain("Refute failed");
+    expect(allFailedCollapsed).not.toContain("incomplete");
   });
 
   it("restores collapsed and expanded renderers from durable JSON details", () => {
@@ -297,10 +369,13 @@ describe("merged report output", () => {
     ).render(120).join("\n");
     expect(collapsed).toContain("Adversarial review · inconclusive · 1/1 valid · 1 failed");
     expect(collapsed).toContain("provider unavailable");
+    expect(collapsed).toContain("Too few reviewers completed");
     expect(collapsed).toContain("Ctrl+O details");
-    expect(expanded).toContain("runtime: external-v3");
-    expect(expanded).toContain("Reviewer routes (1)");
+    expect(expanded).not.toContain("runtime: external-v3");
+    expect(expanded).not.toContain("waves");
+    expect(expanded).toContain("Routes (1)");
     expect(expanded).toContain("provider unavailable");
+    expect(expanded).toContain("run run · external-v3");
   });
 
   it("keeps route failures visible and expands complete advisory details", () => {
@@ -325,6 +400,7 @@ describe("merged report output", () => {
             summary: "one advisory",
             findings: [],
           },
+          sessionFile: "/sessions/reviewer.jsonl",
         },
         {
           route: routes[1]!,
@@ -349,12 +425,86 @@ describe("merged report output", () => {
     expect(collapsed).toContain("1/3 valid · 2 failed");
     expect(collapsed).toContain("Reviewer terminated with status aborted");
     expect(collapsed).toContain("output token limit");
+    expect(collapsed).toContain("Too few reviewers completed");
     expect(collapsed).toContain("Ctrl+O details");
-    expect(expanded).toContain("Advisory findings (1)");
+    expect(expanded).toContain("Advisory (1):");
     expect(expanded).toContain("Fallback intent is hidden for live tool rows");
-    expect(expanded).toContain("Reviewer routes (3)");
-    expect(expanded).toContain("valid · needs-attention · 0 findings · 51s · 12.5k tokens");
-    expect(expanded).toContain("errored · 3m46s — Reviewer terminated with status aborted");
+    expect(expanded).toContain("Routes (3)");
+    expect(expanded).toContain("✓ provider/model@high · needs-attention · 0 findings · 51s");
+    expect(expanded).toContain("session: /sessions/reviewer.jsonl");
+    expect(expanded).not.toContain("12.5k tokens");
+    expect(expanded).toContain("× provider-b/model-b@high · errored · 3m46s — Reviewer terminated with status aborted");
+  });
+
+  it("keeps a contested two-finding report collapsed within eight lines", () => {
+    const theme = { fg: (_color: string, text: string) => text } as any;
+    const first = mergedFinding("stripInflightConsultCall only removes consult toolCalls");
+    const second = {
+      ...mergedFinding("appendConsultEvent read-modify-write can drop a line"),
+      file: "packages/pi-consult/src/events.ts",
+      lineStart: 83,
+      lineEnd: 124,
+      severity: "medium" as const,
+      votes: 2,
+      confidence: 0.87,
+    };
+    first.file = "packages/pi-consult/src/context.ts";
+    first.lineStart = 14;
+    first.lineEnd = 22;
+    first.votes = 2;
+    first.confidence = 0.92;
+    const refuter = route();
+    const snapshot = serializeMergedReviewReport(report({
+      overall: "needs-adjudication",
+      successfulReviewerCount: 3,
+      requestedRoutes: [route(), { ...route(), key: "b/m@medium", ordinal: 1 }, { ...route(), key: "c/m@medium", ordinal: 2 }],
+      blocking: [first, second],
+      advisory: [
+        mergedFinding("appendWhyToLastUser drops non-text parts"),
+        mergedFinding("parallel consult executions share turnCount 0"),
+        mergedFinding("recordConsult runs after advisor failure"),
+      ],
+      contested: [{
+        findingIndex: 0,
+        finding: first,
+        refuterRoute: refuter,
+        reason: "sibling tool results can already be the tail",
+        evidence: [],
+      }],
+      refuteRequested: true,
+      refuterRoute: refuter,
+      refuteResults: [{
+        findingIndex: 0,
+        route: refuter,
+        status: "completed",
+        report: { refuted: true, reason: "sibling tool results can already be the tail", evidence: [] },
+      }],
+      target: {
+        mode: "base",
+        description:
+          "base origin/main (d310689b581902e09bc19de64a846797f3e72452) ... HEAD " +
+          "(69c213623379feb25dea474cff6ecaeb8989d02d) plus local changes",
+        root: "/repo",
+        headSha: "69c213623379feb25dea474cff6ecaeb8989d02d",
+        baseSha: "d310689b581902e09bc19de64a846797f3e72452",
+        statusSha256: "status",
+        targetSha256: "target",
+        changedFiles: Array.from({ length: 58 }, (_, index) => `src/f${index}.ts`),
+      },
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:08:44.000Z",
+    }));
+    const collapsed = renderMergedReviewEntry(snapshot, { expanded: false }, theme)
+      .render(180).join("\n");
+    const collapsedLines = collapsed.split("\n").filter((line) => line.trim().length > 0);
+    expect(collapsedLines.length).toBeLessThanOrEqual(8);
+    expect(collapsed).toContain("needs-adjudication · 3/3 valid · 8m44s · HEAD 69c2136");
+    expect(collapsed).toContain("base origin/main (d310689) ... HEAD (69c2136) plus local changes · 58 files");
+    expect(collapsed).toContain("2 blocking · 3 advisory · 1 contested");
+    expect(collapsed).toContain("[high, contested] packages/pi-consult/src/context.ts:14");
+    expect(collapsed).toContain("[medium] packages/pi-consult/src/events.ts:83");
+    expect(collapsed).not.toContain("waves");
+    expect(collapsed).not.toContain("memory-only");
   });
 
   it("encodes hostile report text behind one untrusted boundary", () => {

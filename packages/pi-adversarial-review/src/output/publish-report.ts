@@ -1,5 +1,4 @@
 import {
-  keyHint,
   type EntryRenderOptions,
   type ExtensionAPI,
   type MessageRenderOptions,
@@ -16,35 +15,20 @@ import {
   DEFAULT_REFUTER_ROUTE_TIMEOUT_MS,
 } from "../runtime/refute-orchestrator.ts";
 import { persistStandaloneAudit } from "./audit-store.ts";
+import {
+  compactLine,
+  compactTarget,
+  expandHint,
+  formatDurationMs,
+  formatUsageTotal,
+  headMarker,
+} from "./format.ts";
 
 export const ADVERSARIAL_REVIEW_MESSAGE_TYPE = "adversarial-review-report";
 export const ADVERSARIAL_REVIEW_RESULT_TYPE = "adversarial-review-result";
 
 function safeDisplayText(value: string): string {
   return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/gu, "�");
-}
-
-function formatDurationMs(durationMs: number | undefined): string | undefined {
-  if (durationMs === undefined || !Number.isFinite(durationMs)) return undefined;
-  const seconds = Math.max(0, Math.round(durationMs / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return minutes > 0 ? `${minutes}m${String(remainder).padStart(2, "0")}s` : `${seconds}s`;
-}
-
-function formatUsageTotal(total: number | undefined): string | undefined {
-  if (total === undefined || !Number.isFinite(total)) return undefined;
-  if (total < 1000) return `${Math.max(0, Math.round(total))} tokens`;
-  return `${(Math.max(0, total) / 1000).toFixed(1)}k tokens`;
-}
-
-function expandHint(): string {
-  try {
-    const hint = keyHint("app.tools.expand", "details");
-    return hint.trim() || "Ctrl+O details";
-  } catch {
-    return "Ctrl+O details";
-  }
 }
 
 function routeIdentity(route: ReviewerRoute) {
@@ -373,9 +357,214 @@ function isSerializedReport(value: unknown): value is ReturnType<typeof serializ
     Array.isArray(candidate.contested);
 }
 
-function compactLine(value: string, maxLength = 180): string {
-  const safe = safeDisplayText(value).replace(/\s+/gu, " ").trim();
-  return safe.length <= maxLength ? safe : `${safe.slice(0, maxLength - 1)}…`;
+type SerializedMergedReport = ReturnType<typeof serializeMergedReviewReport>;
+
+const COLLAPSED_FINDING_CAP = 3;
+const COLLAPSED_FAILED_ROUTE_CAP = 3;
+
+function reportDurationMs(details: SerializedMergedReport): number | undefined {
+  const started = Date.parse(details.startedAt);
+  const completed = Date.parse(details.completedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(completed)) return undefined;
+  return Math.max(0, completed - started);
+}
+
+function attentionWarning(details: SerializedMergedReport): string | undefined {
+  if (details.stale) {
+    return "Target changed during review; rerun before treating findings as current.";
+  }
+  if (details.overall === "cancelled") {
+    return "This review was cancelled; rerun before adjudication.";
+  }
+  if (details.overall === "inconclusive") {
+    return "Too few reviewers completed; this run cannot support approval.";
+  }
+  if (details.overall === "failed") {
+    return "No reviewer returned a valid report.";
+  }
+  return undefined;
+}
+
+function collapsedRefuteNote(details: SerializedMergedReport): string | undefined {
+  if (!details.refuteRequested) return undefined;
+  const results = details.refuteResults;
+  if (results.length === 0) return "Refute skipped";
+  const failed = results.filter((result) => result.status !== "completed").length;
+  if (failed === 0) return undefined;
+  if (failed === results.length) return "Refute failed";
+  return `Refute ${failed}/${results.length} incomplete`;
+}
+
+function countsLine(details: SerializedMergedReport): string | undefined {
+  const parts: string[] = [];
+  if (details.blocking.length > 0) parts.push(`${details.blocking.length} blocking`);
+  if (details.advisory.length > 0) parts.push(`${details.advisory.length} advisory`);
+  if (details.contested.length > 0) parts.push(`${details.contested.length} contested`);
+  const refuteNote = collapsedRefuteNote(details);
+  if (refuteNote) parts.push(refuteNote);
+  if (details.gating === "strict") parts.push("strict");
+  return parts.length > 0 ? `  ${parts.join(" · ")}` : undefined;
+}
+
+function contestedEntry(
+  details: SerializedMergedReport,
+  findingIndex: number,
+) {
+  return details.contested.find((item) => item.findingIndex === findingIndex);
+}
+
+function appendCollapsedFindings(lines: string[], details: SerializedMergedReport): void {
+  const visible = details.blocking.slice(0, COLLAPSED_FINDING_CAP);
+  for (const [index, finding] of visible.entries()) {
+    const contested = contestedEntry(details, index) !== undefined;
+    lines.push(
+      `  ${index + 1}. [${finding.severity}${contested ? ", contested" : ""}] ` +
+        `${safeDisplayText(finding.file)}:${finding.lineStart} ` +
+        `${compactLine(finding.issue, 110)}`,
+    );
+  }
+  if (details.blocking.length > visible.length) {
+    lines.push(`  … ${details.blocking.length - visible.length} more`);
+  }
+}
+
+function appendCollapsedFailures(
+  lines: string[],
+  failedRoutes: SerializedMergedReport["routeResults"],
+  theme: Theme,
+): void {
+  const visible = failedRoutes.slice(0, COLLAPSED_FAILED_ROUTE_CAP);
+  for (const result of visible) {
+    lines.push(
+      `  ${theme.fg("error", "×")} ${compactLine(result.route.key, 60)} · ${result.status}` +
+        `${result.error ? ` — ${compactLine(result.error, 120)}` : ""}`,
+    );
+  }
+  if (failedRoutes.length > visible.length) {
+    lines.push(`  ${theme.fg("dim", `… ${failedRoutes.length - visible.length} more failed routes`)}`);
+  }
+}
+
+function appendExpandedFindings(lines: string[], details: SerializedMergedReport): void {
+  if (details.blocking.length > 0) {
+    lines.push("", `Blocking (${details.blocking.length}):`);
+    for (const [index, finding] of details.blocking.entries()) {
+      const reason = contestedEntry(details, index)?.reason;
+      lines.push(
+        `${index + 1}. [${finding.severity}${reason ? ", contested" : ""}] ` +
+          `${safeDisplayText(finding.file)}:${finding.lineStart}-${finding.lineEnd}`,
+        `   ${safeDisplayText(finding.issue)}`,
+        `   votes ${finding.votes} · confidence ${finding.confidence.toFixed(2)}`,
+      );
+      if (reason) lines.push(`   contested: ${compactLine(reason)}`);
+    }
+  }
+  if (details.advisory.length > 0) {
+    lines.push("", `Advisory (${details.advisory.length}):`);
+    for (const finding of details.advisory) {
+      lines.push(
+        `- [${finding.severity}] ${safeDisplayText(finding.file)}:` +
+          `${finding.lineStart} ${compactLine(finding.issue, 110)}`,
+      );
+    }
+  }
+}
+
+function appendExpandedRoutes(
+  lines: string[],
+  details: SerializedMergedReport,
+): void {
+  lines.push("", `Routes (${details.routeResults.length}):`);
+  for (const result of details.routeResults) {
+    const duration = formatDurationMs(result.durationMs);
+    if (result.status === "completed" && result.report) {
+      const findings = result.report.findings.length;
+      lines.push(
+        `- ✓ ${safeDisplayText(result.route.key)} · ${result.report.verdict} · ` +
+          `${findings} finding${findings === 1 ? "" : "s"}` +
+          `${duration ? ` · ${duration}` : ""}` +
+          `${result.formatRepair?.attempted ? " · format repaired" : ""}`,
+      );
+      if (result.formatRepair?.attempted) {
+        if (result.formatRepair.original.sessionFile) {
+          lines.push(`  original session: ${safeDisplayText(result.formatRepair.original.sessionFile)}`);
+        }
+        if (result.formatRepair.retry.sessionFile) {
+          lines.push(`  repair session: ${safeDisplayText(result.formatRepair.retry.sessionFile)}`);
+        }
+      } else if (result.sessionFile) {
+        lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
+      }
+      continue;
+    }
+    lines.push(
+      `- × ${safeDisplayText(result.route.key)} · ${result.status}` +
+        `${duration ? ` · ${duration}` : ""}` +
+        `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
+    );
+    if (result.formatRepair?.attempted) {
+      if (result.formatRepair.original.sessionFile) {
+        lines.push(`  original session: ${safeDisplayText(result.formatRepair.original.sessionFile)}`);
+      }
+      if (result.formatRepair.retry.sessionFile) {
+        lines.push(`  repair session: ${safeDisplayText(result.formatRepair.retry.sessionFile)}`);
+      }
+    } else if (result.sessionFile) {
+      lines.push(`  session: ${safeDisplayText(result.sessionFile)}`);
+    }
+  }
+  const failedRefuters = details.refuteResults.filter((result) => result.status !== "completed");
+  if (failedRefuters.length > 0) {
+    lines.push("", "Refute failures:");
+    for (const result of failedRefuters) {
+      lines.push(
+        `- finding #${result.findingIndex + 1}: ${result.status}` +
+          `${result.error ? ` — ${safeDisplayText(result.error)}` : ""}`,
+      );
+    }
+  }
+}
+
+function buildTuiReportLines(
+  details: SerializedMergedReport,
+  expanded: boolean,
+  theme: Theme,
+): string[] {
+  const failedRoutes = details.routeResults.filter((result) => result.status !== "completed");
+  const successful = details.overall === "candidate-approve";
+  const icon = successful ? "✓" : details.overall === "failed" ? "×" : "!";
+  const color = successful ? "success" : details.overall === "failed" ? "error" : "warning";
+  const duration = formatDurationMs(reportDurationMs(details));
+  const header =
+    `${icon} Adversarial review · ${details.overall} · ` +
+    `${details.successfulReviewerCount}/${details.requestedRoutes.length} valid` +
+    `${failedRoutes.length > 0 ? ` · ${failedRoutes.length} failed` : ""}` +
+    `${duration ? ` · ${duration}` : ""}` +
+    headMarker(details.target.headSha);
+  const files = details.target.changedFiles.length;
+  const lines = [
+    theme.fg(color, header),
+    `  ${compactTarget(details.target.description)} · ${files} file${files === 1 ? "" : "s"}`,
+  ];
+  const counts = countsLine(details);
+  if (counts) lines.push(counts);
+
+  if (!expanded) {
+    appendCollapsedFindings(lines, details);
+    appendCollapsedFailures(lines, failedRoutes, theme);
+    const warning = attentionWarning(details);
+    if (warning) lines.push(`  ${theme.fg("warning", warning)}`);
+    lines.push(`  ${theme.fg("dim", expandHint())}`);
+    return lines;
+  }
+
+  appendExpandedFindings(lines, details);
+  appendExpandedRoutes(lines, details);
+  const warning = attentionWarning(details);
+  if (warning) lines.push("", theme.fg("warning", warning));
+  const backend = details.runtime.backend ?? "external-v3";
+  lines.push("", theme.fg("dim", `run ${safeDisplayText(details.runId)} · ${backend}`));
+  return lines;
 }
 
 function renderMergedReviewReport(
@@ -387,43 +576,7 @@ function renderMergedReviewReport(
   if (!isSerializedReport(details)) {
     return new Text(theme.fg("warning", "Adversarial review report (invalid details)"), padding, 0);
   }
-  const started = Date.parse(details.startedAt);
-  const completed = Date.parse(details.completedAt);
-  const durationSeconds = Number.isFinite(started) && Number.isFinite(completed)
-    ? Math.max(0, Math.round((completed - started) / 1000))
-    : 0;
-  const failedRoutes = details.routeResults.filter((result) => result.status !== "completed");
-  const successful = details.overall === "candidate-approve";
-  const icon = successful ? "✓" : details.overall === "failed" ? "×" : "!";
-  const color = successful ? "success" : details.overall === "failed" ? "error" : "warning";
-  const lines = [
-    theme.fg(
-      color,
-      `${icon} Adversarial review · ${details.overall} · ` +
-        `${details.successfulReviewerCount}/${details.requestedRoutes.length} valid · ` +
-        `${failedRoutes.length} failed · ${durationSeconds}s`,
-    ),
-    `  ${details.blocking.length} blocking · ${details.advisory.length} advisory · ` +
-      `${summarizeRefuteStatus(details).compact} · ${details.gating}`,
-  ];
-  if (!expanded && failedRoutes.length > 0) {
-    const visible = failedRoutes.slice(0, 3);
-    for (const result of visible) {
-      lines.push(
-        `  ${theme.fg("error", "×")} ${compactLine(result.route.key, 60)} · ${result.status}` +
-          `${result.error ? ` — ${compactLine(result.error, 120)}` : ""}`,
-      );
-    }
-    if (failedRoutes.length > visible.length) {
-      lines.push(`  ${theme.fg("dim", `… ${failedRoutes.length - visible.length} more failed routes`)}`);
-    }
-  }
-  if (expanded) {
-    lines.push("", buildMergedReportText(details as unknown as MergedReviewReport));
-  } else {
-    lines.push(`  ${theme.fg("dim", expandHint())}`);
-  }
-  return new Text(lines.join("\n"), padding, 0);
+  return new Text(buildTuiReportLines(details, expanded, theme).join("\n"), padding, 0);
 }
 
 /** Legacy/custom-message renderer retained for restored sessions. */

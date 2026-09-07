@@ -237,6 +237,74 @@ describe("resolveReviewPreflight", () => {
     );
   });
 
+  it("marks range-picker commits covered by a completed session review", async () => {
+    const headSha = "a".repeat(40);
+    const latestSha = "1".repeat(40);
+    const secondSha = "2".repeat(40);
+    const parentSha = "b".repeat(40);
+    const ctx = context("tui", async (_title, options) => {
+      expect(options.find((option) => option.startsWith(`Start ${latestSha.slice(0, 7)}`)))
+        .toBe(`Start ${latestSha.slice(0, 7)} · reviews 1 commit · ${COMMIT_TIME_LABEL} · finalize release`);
+      expect(options.find((option) => option.startsWith(`Start ${secondSha.slice(0, 7)}`)))
+        .toBe(`Start ${secondSha.slice(0, 7)} · reviews 2 commits · ${COMMIT_TIME_LABEL} · add worker handoff · reviewed`);
+      return options[0];
+    });
+    ctx.sessionManager = {
+      getBranch: () => [
+        {
+          type: "custom",
+          customType: "adversarial-review-result",
+          data: {
+            overall: "cancelled",
+            target: { mode: "base", headSha: latestSha, baseSha: parentSha },
+          },
+        },
+        {
+          type: "custom",
+          customType: "adversarial-review-result",
+          data: {
+            overall: "needs-adjudication",
+            target: { mode: "base", headSha: secondSha, baseSha: parentSha },
+          },
+        },
+      ],
+    };
+
+    await resolveReviewPreflight({
+      ctx,
+      target: { mode: "local" },
+      targetExplicit: true,
+      interactiveRange: true,
+      inspect: vi.fn(async () => state({ headSha })),
+      fetch: vi.fn(async () => ({
+        status: "succeeded" as const,
+        remote: "origin",
+        timedOut: false,
+      })),
+      listRangeStarts: vi.fn(async () => ({
+        truncated: false,
+        mergeBaseSha: parentSha,
+        starts: [
+          {
+            commitSha: latestSha,
+            parentSha: secondSha,
+            committedAt: COMMITTED_AT,
+            subject: "finalize release",
+            commitCount: 1,
+          },
+          {
+            commitSha: secondSha,
+            parentSha,
+            committedAt: COMMITTED_AT,
+            subject: "add worker handoff",
+            commitCount: 2,
+          },
+        ],
+      })),
+      fingerprintTarget: fingerprintWithSize(4_096, 80),
+    });
+  });
+
   it.each([3, 6])("selects any continuous latest-%i-commit range from the commit line", async (commitCount) => {
     const headSha = "a".repeat(40);
     const starts = Array.from({ length: 6 }, (_, index) => ({

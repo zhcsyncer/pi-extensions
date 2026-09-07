@@ -57,7 +57,7 @@ Reviewer picker 前先运行 preflight。未给出显式 target 时，它会：
 
 Fetch 失败时，TUI 可选择 Retry、使用现有 local remote-tracking ref 或 Cancel。Preflight/fetch 进行中按 Escape 会立即取消。Headless 模式直接 fail-loud。Preflight 永不 merge、rebase、reset、checkout 或 prune。
 
-无值 `--range` 会直接打开同一条仅 TUI commit 线。B 固定为捕获时的完整 `HEAD` SHA；每个可见 first-parent commit 都按从新到旧显示为 `Start <short-sha> · reviews N commits · <committer-time> · <subject>`。时间取 Git 的严格 ISO-8601 committer time，并保留记录时的 UTC offset。任意一行都可作为最早包含的 commit，因此无需预设就能选择 3 个、6 个或其他任意可见的连续数量。内部 A 使用所选 commit 的完整 first-parent SHA，因此显示的起点 commit 本身会被包含，用户无需理解 Git `A..B` 左端点排除语义。所选“起点到 HEAD”始终是一份 review target 和一份报告，绝不会被悄悄替换成自动批次。功能分支会先刷新 preferred remote，并把候选限制在 HEAD/默认分支 merge-base 之后。无法证明该边界或仓库为 shallow 时，TUI 会明确说明只展示本地可见 first-parent 历史。最多展示 128 项。Detached HEAD、进行中的 Git operation、unmerged files 和只有 root commit 的历史会在模型选择前拒绝。Staged/unstaged/untracked 内容不属于该范围；显示 commit 线前，TUI 会要求明确选择“只继续评审 committed history”或取消后先提交这些内容。TUI 之外，无值 `--range` 会失败，必须使用精确 `--range A..B`。
+无值 `--range` 会直接打开同一条仅 TUI commit 线。B 固定为捕获时的完整 `HEAD` SHA；每个可见 first-parent commit 都按从新到旧显示为 `Start <short-sha> · reviews N commits · <committer-time> · <subject>`。当前 session 分支上已被完整评审覆盖的 commit（`candidate-approve` 或 `needs-adjudication`）会追加 ` · reviewed`。取消、失败和 inconclusive 不打标。中间 commit 只有在记录的左端点出现在当前 first-parent 列表上时才打标；否则只标那次评审的 HEAD。该标记从持久 result entry 回放，并跟随 `/tree`，不是单独存储。时间取 Git 的严格 ISO-8601 committer time，并保留记录时的 UTC offset。任意一行都可作为最早包含的 commit，因此无需预设就能选择 3 个、6 个或其他任意可见的连续数量。内部 A 使用所选 commit 的完整 first-parent SHA，因此显示的起点 commit 本身会被包含，用户无需理解 Git `A..B` 左端点排除语义。所选“起点到 HEAD”始终是一份 review target 和一份报告，绝不会被悄悄替换成自动批次。功能分支会先刷新 preferred remote，并把候选限制在 HEAD/默认分支 merge-base 之后。无法证明该边界或仓库为 shallow 时，TUI 会明确说明只展示本地可见 first-parent 历史。最多展示 128 项。Detached HEAD、进行中的 Git operation、unmerged files 和只有 root commit 的历史会在模型选择前拒绝。Staged/unstaged/untracked 内容不属于该范围；显示 commit 线前，TUI 会要求明确选择“只继续评审 committed history”或取消后先提交这些内容。TUI 之外，无值 `--range` 会失败，必须使用精确 `--range A..B`。
 
 所选 target、branch、ahead/behind、fetch 状态与测得的输入规模会在执行前显示，并进入报告。模型选择后以及第一次 spawn 紧邻之前，还会复核 HEAD、branch、精确 status、所选 ref SHA、target hash 与 frozen input hash。Picker 打开期间 Git 变化时，TUI 会重跑 preflight；更晚的 mismatch 会在任何 reviewer 启动前失败。
 
@@ -191,8 +191,8 @@ Review 使用四个显示面，各自职责不同：
 
 1. **暂停输入区：**统一承担紧凑 phase、completed/running/queued 计数、耗时、一行离散的 `Snapshot → Review → Gate → Finish` 节点条、target、frozen input 大小、确定性的 gate/Refute 结果、cleanup state，以及 `input paused · Esc to cancel`。只有 Refute 真正启动后才插入该节点；Finish 覆盖报告发布与真实 cleanup barrier。它只表达阶段，不表示百分比或剩余时间。Review 不再占用 Pi 的 footer status 区域，也不再注册独立的 editor 上方 widget。
 2. **Subagents Agents/FleetView：**external backend 下，逐 agent 的模型、执行、对话、token 和 tool step 明细只归这里，Review 卡不重复 agent 行。Embedded fallback 没有 FleetView，因此同一张输入区状态卡会保留有界的逐 agent 状态。
-3. **派发 transcript entry：**第一次 reviewer spawn 紧邻之前，持久的 `adversarial-review-dispatch` entry 会记录 run ID、精确 frozen target、input size、请求的 routes、backend、gate 和 Refute 选择。它可读、可展开，但不进入模型 context。
-4. **终态 transcript entry：**持久的 `adversarial-review-result`、cancellation 或 error entry 关闭可见生命周期。非成功报告的折叠视图直接显示 route failure；展开后包含每路终态、duration/usage、完整 blocking/advisory finding、Refute 和 target 详情。Adjudication handoff 使用另一条隐藏 custom message，因此不会重复显示最终报告。
+3. **派发 transcript entry：**第一次 reviewer spawn 紧邻之前，持久的 `adversarial-review-dispatch` entry 只表示已经开跑。折叠态一行（reviewer 路数，若启用则带 Refute，以及短 HEAD），不重复底部进度卡，同一 session 里多次运行也能区分。展开列出请求的 routes、refuter（如有）和 run id。完整 frozen target、input size、backend 和 gate 留在 audit payload，不进默认 TUI。它不进入模型 context。
+4. **终态 transcript entry：**持久的 `adversarial-review-result`、cancellation 或 error entry 关闭可见生命周期。折叠报告即可开始裁决：结论、短 HEAD、短 target、非零计数、最多三条 blocking 标题、有界的 route failure、不完整或失败的 Refute，以及 stale/cancelled/inconclusive/failed 警告。展开补全 finding、contested 理由和每路终态，不含运行时账本（waves、timeout、并发、token、print 模式注释）；有持久化 child-session 路径时会显示。Adjudication handoff 使用另一条隐藏 custom message，因此不会重复显示最终报告。TUI 成功路径不再 toast preflight target 或完成摘要。
 
 输入区状态卡最多十行内容，外加暂停/取消提示；embedded overflow 会指向最终报告。控制字符会被清理；完整 Git identity 留在 audit/report，临时状态卡只使用短 identity 提示；长行按 terminal width 截断。中间 card 状态是临时 UI，不会写入模型 context；派发与终态 entry 会持久化，但同样不进入模型 context。
 
@@ -223,7 +223,7 @@ Merged report 会记录：
 
 ## 持久 audit 与 adjudication handoff
 
-TUI 的派发、结果、取消和运行故障边界都会作为不进入模型 context 的 session entry 保留，并通过 custom entry renderer 显示。Report 与 dispatch 节点带展开提示；非成功报告在展开前就会显示有界的 route error。每个非 TUI 完整报告或错误还会以私有权限原子写入：
+TUI 的派发、结果、取消和运行故障边界都会作为不进入模型 context 的 session entry 保留，并通过 custom entry renderer 显示。Result 节点带展开提示；dispatch 默认保持一行，除非全局展开。非成功报告在展开前就会显示有界的 route error 和 blocking 标题。每个非 TUI 完整报告或错误还会以私有权限原子写入：
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-adversarial-review/audit/

@@ -15,6 +15,11 @@ import {
   type ReviewTargetFingerprint,
 } from "../input/freeze-input.ts";
 import { safeReviewDiagnosticText } from "../output/headless-output.ts";
+import {
+  completedReviewSpansFromSessionEntries,
+  reviewedCommitShas,
+  sessionBranchEntries,
+} from "../output/reviewed-commits.ts";
 import type {
   FrozenReviewInput,
   ReviewTarget,
@@ -1113,11 +1118,16 @@ async function createInteractiveRangePicker(options: {
         pickOptions.maxCommitCount === undefined ||
         start.commitCount <= pickOptions.maxCommitCount
       ));
+      const reviewed = reviewedCommitShas(
+        starts,
+        completedReviewSpansFromSessionEntries(sessionBranchEntries(options.ctx.sessionManager)),
+      );
       const choices = stableSelectOptions<Choice>([
         ...starts.map((start) => ({
           label: `Start ${start.commitSha.slice(0, 7)} · reviews ${start.commitCount} ` +
             `${start.commitCount === 1 ? "commit" : "commits"} · ${formatCommitTime(start.committedAt)} · ` +
-            oneLine(start.subject),
+            oneLine(start.subject) +
+            (reviewed.has(start.commitSha) ? " · reviewed" : ""),
           value: {
             kind: "range" as const,
             parentSha: start.parentSha,

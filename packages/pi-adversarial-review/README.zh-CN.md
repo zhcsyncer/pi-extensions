@@ -38,7 +38,7 @@ TUI 模式下打开 setup picker：
 /adversarial-review --range
 ```
 
-终点固定为捕获时的 `HEAD`。每个可见 first-parent commit 都能作为起点；每行直接写 `Start <sha> · reviews N commits · <commit-time> · <subject>`，因此可以在看到各起点提交时间的同时，选择 3 个、6 个或任意可见的连续数量。所选起点 commit 会被包含，起点到 HEAD 的完整范围在同一轮中整体评审。功能分支默认止于刚刷新过的远端默认分支 merge-base。超过建议阈值时，TUI 可确认整体评审所选范围，或回到同一 commit 线选择更近起点；超过硬上限时必须选择更近起点。
+终点固定为捕获时的 `HEAD`。每个可见 first-parent commit 都能作为起点；每行直接写 `Start <sha> · reviews N commits · <commit-time> · <subject>`，本 session 里已被完整评审覆盖的 commit 会追加 ` · reviewed`。因此可以在看到各起点提交时间的同时，选择 3 个、6 个或任意可见的连续数量。所选起点 commit 会被包含，起点到 HEAD 的完整范围在同一轮中整体评审。功能分支默认止于刚刷新过的远端默认分支 merge-base。超过建议阈值时，TUI 可确认整体评审所选范围，或回到同一 commit 线选择更近起点；超过硬上限时必须选择更近起点。
 
 需要可复现或 headless 运行时，显式给出 target 和至少两条精确 reviewer route：
 
@@ -92,8 +92,8 @@ Severity 衡量影响，confidence 衡量证据强度，votes 衡量独立印证
 - 扩展不再占用 Pi 的 footer status 区域，也不再注册独立的 editor 上方 widget；
 - 使用兼容的 external Subagents runtime 时，逐 agent 的模型、执行、对话与 tool call 明细只由其 Agents/FleetView 展示，Review 状态卡不再重复这些行；
 - embedded fallback 没有 FleetView，因此同一张输入区状态卡会保留有界的逐 agent 状态；
-- reviewer 即将派发前，会用不进入模型上下文的持久 transcript 节点记录精确 frozen target 和请求的 routes；
-- 最终报告是另一条独立的持久 transcript 节点：失败时折叠视图直接显示 route error，展开后包含每路终态以及完整 blocking/advisory finding 详情。
+- reviewer 即将派发前，会用不进入模型上下文的持久 transcript 节点记下「已派发」（几路 reviewer、是否启用 Refute、短 HEAD），不重复底部进度卡；
+- 最终报告是另一条独立的持久 transcript 节点。折叠态即可开始裁决：结论、短 HEAD、短 target、blocking 标题、失败 route、不完整的 Refute；展开才补全 finding、每路终态，以及已持久化的 session 路径。TUI 成功路径不再另外 toast target 或完成摘要。
 
 Reviewer/refuter session 不继承主会话。它们的 inline agent config 会关闭 extension 和 skill，只暴露 `read`、`grep`、`find`、`ls`。格式修复 session 只接收原始 raw output 与 parser error，没有 tool、extension、skill、frozen-input 路径或评审任务，并限制为 3 turns + 2 个收尾 turns。它只能移除 framing；若源文本不含恰好一个完整有效 ReviewReport，Host 根本不会启动修复；retry 只要改变任何语义值，该 route 仍保持无效。这些低层调用与修复细节不会在 Review 状态卡中重复刷屏。
 

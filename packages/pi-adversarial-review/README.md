@@ -38,7 +38,7 @@ To open that commit line directly without writing refs or hashes, use:
 /adversarial-review --range
 ```
 
-The endpoint is fixed at the captured `HEAD`. Every visible first-parent commit is a possible start: each row says `Start <sha> · reviews N commits · <commit-time> · <subject>`, so you can choose 3, 6, or any other available continuous count while seeing when each possible start was committed. The selected start commit is included and the complete start-to-HEAD range is reviewed together in one run. On a feature branch, choices normally stop at its freshly fetched default-branch merge-base. Above the recommendation, TUI can review the whole selected range after confirmation or return to the same commit line for a closer start; above the hard limit it must choose a closer start.
+The endpoint is fixed at the captured `HEAD`. Every visible first-parent commit is a possible start: each row says `Start <sha> · reviews N commits · <commit-time> · <subject>`, and commits already covered by a completed review in this session append ` · reviewed`. You can choose 3, 6, or any other available continuous count while seeing when each possible start was committed. The selected start commit is included and the complete start-to-HEAD range is reviewed together in one run. On a feature branch, choices normally stop at its freshly fetched default-branch merge-base. Above the recommendation, TUI can review the whole selected range after confirmation or return to the same commit line for a closer start; above the hard limit it must choose a closer start.
 
 For a reproducible or headless run, provide the target and at least two exact reviewer routes:
 
@@ -92,8 +92,8 @@ During a run:
 - the extension does not occupy Pi's footer status area or register a separate above-editor widget;
 - with a compatible external Subagents runtime, its Agents/FleetView surface exclusively owns per-agent model, execution, conversation, and tool-call detail; the Review card does not repeat those rows;
 - the embedded fallback has no FleetView, so the same editor card retains bounded per-agent status there;
-- a durable, non-model-context transcript node records the exact frozen target and requested routes immediately before reviewer dispatch;
-- the final report is a separate durable transcript node. Its compact failure view exposes route errors immediately, and its expanded view includes every route outcome and complete blocking/advisory finding details.
+- a durable, non-model-context transcript node records that the run dispatched (how many reviewers, whether Refute is armed, and short HEAD) without repeating the live card;
+- the final report is a separate durable transcript node. Collapsed, it shows the verdict, short HEAD, short target, blocking titles, failed routes, and incomplete Refute so you can start adjudicating; expansion adds full findings, per-route outcomes, and persisted session paths when present. Successful TUI runs do not also toast the target or completion summary.
 
 Reviewer and refuter sessions do not inherit the parent conversation. Their inline agent configuration disables extensions and skills and exposes only `read`, `grep`, `find`, and `ls`. A format-repair session receives only the original raw output and parser error, has no tools, extensions, skills, frozen-input path, or review assignment, and is capped at 3 turns plus 2 wrap-up turns. It may remove framing only; if the source lacks exactly one complete valid ReviewReport, the host never starts repair, and any semantic change in a retry leaves the route invalid. Those low-level calls and repair details are intentionally not duplicated in the Review status card.
 
