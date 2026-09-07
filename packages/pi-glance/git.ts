@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { GitConfig, GitSnapshot, GitStatus, GitWorktreeSnapshot } from "./types.js";
@@ -42,7 +42,17 @@ interface GitCommandResult {
 	stdout: string;
 }
 
-type GitExec = (cwd: string, args: readonly string[], timeout: number, input?: string) => Promise<GitCommandResult>;
+interface GitExecOptions {
+	network?: boolean;
+}
+
+type GitExec = (
+	cwd: string,
+	args: readonly string[],
+	timeout: number,
+	input?: string,
+	options?: GitExecOptions,
+) => Promise<GitCommandResult>;
 
 export type GitBaseRefFetchReason = "session" | "focus" | "stale";
 
@@ -256,7 +266,77 @@ export function parseGitNumstat(output: string): GitNumstat {
 	return records === 0 ? { additions: 0, deletions: 0 } : { additions, deletions };
 }
 
-function execGit(cwd: string, args: readonly string[], timeout: number, input?: string): Promise<GitCommandResult> {
+function terminateGitProcess(child: ChildProcess): void {
+	if (process.platform !== "win32" && child.pid !== undefined) {
+		try {
+			process.kill(-child.pid, "SIGKILL");
+			return;
+		} catch {
+			// The child may have exited between the timeout and this signal.
+		}
+	}
+	try {
+		child.kill("SIGKILL");
+	} catch {
+		// Best effort: command completion still resolves through close/error/timeout.
+	}
+}
+
+function execNetworkGit(cwd: string, args: readonly string[], timeout: number): Promise<GitCommandResult> {
+	return new Promise((resolve) => {
+		let stdout = "";
+		let stdoutBytes = 0;
+		let settled = false;
+		let failed = false;
+		const child = spawn("git", [...args], {
+			cwd,
+			detached: process.platform !== "win32",
+			env: {
+				...process.env,
+				GIT_TERMINAL_PROMPT: "0",
+				GCM_INTERACTIVE: "Never",
+				SSH_ASKPASS_REQUIRE: "never",
+			},
+			stdio: ["ignore", "pipe", "ignore"],
+			windowsHide: true,
+		});
+		const finish = (ok: boolean): void => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve({ ok, stdout });
+		};
+		const failAndTerminate = (): void => {
+			failed = true;
+			terminateGitProcess(child);
+		};
+		child.stdout?.setEncoding("utf8");
+		child.stdout?.on("data", (chunk: string) => {
+			const bytes = Buffer.byteLength(chunk);
+			if (stdoutBytes + bytes > GIT_MAX_BUFFER) {
+				failAndTerminate();
+				return;
+			}
+			stdout += chunk;
+			stdoutBytes += bytes;
+		});
+		child.on("error", () => finish(false));
+		child.on("close", (code) => finish(!failed && code === 0));
+		const timer = setTimeout(() => {
+			failAndTerminate();
+			finish(false);
+		}, Math.max(1, timeout));
+	});
+}
+
+function execGit(
+	cwd: string,
+	args: readonly string[],
+	timeout: number,
+	input?: string,
+	options?: GitExecOptions,
+): Promise<GitCommandResult> {
+	if (options?.network) return execNetworkGit(cwd, args, timeout);
 	return new Promise((resolve) => {
 		const child = execFile(
 			"git",
@@ -400,7 +480,9 @@ export async function maybeFetchGitBaseRef(
 			const result = await exec(
 				cwd,
 				["--no-optional-locks", "fetch", "--no-tags", "--quiet", GIT_BASE_FETCH_REMOTE, GIT_BASE_FETCH_BRANCH],
-				GIT_BASE_FETCH_TIMEOUT_MS,
+				timeoutMs,
+				undefined,
+				{ network: true },
 			);
 			if (!result.ok) return;
 			state.lastFetchedAt = nowMs();
