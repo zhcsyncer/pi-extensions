@@ -143,22 +143,33 @@ export function makeHeartbeatBytes(): Uint8Array {
   return frameConnectMessage(toBinary(AgentClientMessageSchema, heartbeat));
 }
 
+// Cursor's MCP family carries Pi tool calls; native filesystem/shell/subagent tools stay hidden.
+const PI_MCP_TOOL_TYPES = [
+  "mcp_tool_call",
+  "get_mcp_tools_tool_call",
+  "list_mcp_resources_tool_call",
+  "read_mcp_resource_tool_call",
+  "mcp_auth_tool_call",
+] as const;
+
 export function startBridge(
   accessToken: string,
   requestBytes: Uint8Array,
-  options?: { bridgeKey?: string },
+  options: { bridgeKey?: string; hasMcpTools: boolean },
 ) {
-  const reused = options?.bridgeKey ? takeIdleBridge(options.bridgeKey) : undefined;
+  const allowedTools = options.hasMcpTools ? PI_MCP_TOOL_TYPES : [];
+  const reused = options.bridgeKey ? takeIdleBridge(options.bridgeKey) : undefined;
   let bridge;
   if (reused) {
     debugLog("bridge.reuse_idle", { bridgeKey: options?.bridgeKey });
-    reused.openStream!(accessToken);
+    reused.openStream!(accessToken, allowedTools);
     reused.write(frameConnectMessage(requestBytes));
     bridge = reused;
   } else {
     bridge = bridgeFactory({
       accessToken,
       rpcPath: "/agent.v1.AgentService/Run",
+      allowedTools,
       url: getCursorAgentUrl(),
       connectTimeoutMs: resolveH2ConnectTimeoutMs(process.env.PI_CURSOR_H2_CONNECT_TIMEOUT_MS),
       idleTimeoutMs: resolveH2IdleTimeoutMs(process.env.PI_CURSOR_H2_IDLE_TIMEOUT_MS),

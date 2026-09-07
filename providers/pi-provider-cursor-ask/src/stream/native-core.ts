@@ -2061,6 +2061,7 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
         );
         const { bridge, heartbeatTimer } = startBridge(accessToken, requestBytes, {
           bridgeKey: input.bridgeKey,
+          hasMcpTools: input.mcpTools.length > 0,
         });
         writeNativeStream(
           bridge,

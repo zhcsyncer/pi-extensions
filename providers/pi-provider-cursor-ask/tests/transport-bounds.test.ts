@@ -12,6 +12,12 @@ import {
   type BridgeHandle,
 } from "../src/client/bridge.js";
 import { decodeBase64Image } from "../src/stream/images.js";
+import {
+  destroyAllIdleBridges,
+  parkIdleBridge,
+  setBridgeFactoryForTests,
+  startBridge,
+} from "../src/stream/bridge-session.js";
 
 const servers = new Set<http2.Http2Server>();
 const sessions = new Set<http2.ServerHttp2Session>();
@@ -61,6 +67,8 @@ async function flushEvents(): Promise<void> {
 }
 
 afterEach(async () => {
+  destroyAllIdleBridges();
+  setBridgeFactoryForTests();
   for (const session of sessions) session.destroy();
   sessions.clear();
   for (const socket of sockets) socket.destroy();
@@ -132,6 +140,59 @@ describe("in-process HTTP/2 streaming transport", () => {
     const closed = waitForClose(bridge);
     bridge.end();
     await expect(closed).resolves.toBe(0);
+  });
+
+  it("updates Pi tool policy on every Run, including reused HTTP/2 sessions", async () => {
+    const seen: Array<string | string[] | undefined> = [];
+    const url = await startServer((stream, headers) => {
+      seen.push(headers["x-cursor-agent-allowed-tools"]);
+      stream.respond({ ":status": 200 });
+      stream.end();
+    });
+    setBridgeFactoryForTests((options) => createBridge({ ...options, url, pingIntervalMs: 0 }));
+    const timers: ReturnType<typeof setInterval>[] = [];
+    try {
+      for (const hasMcpTools of [false, true, false]) {
+        const { bridge, heartbeatTimer } = startBridge("test-token", new Uint8Array(), {
+          bridgeKey: "tool-policy-test",
+          hasMcpTools,
+        });
+        timers.push(heartbeatTimer);
+        await waitForStreamDone(bridge);
+        clearInterval(heartbeatTimer);
+        parkIdleBridge("tool-policy-test", bridge);
+      }
+      expect(seen).toEqual([
+        "",
+        "mcp_tool_call,get_mcp_tools_tool_call,list_mcp_resources_tool_call,read_mcp_resource_tool_call,mcp_auth_tool_call",
+        "",
+      ]);
+      expect(sessions.size).toBe(1);
+    } finally {
+      for (const timer of timers) clearInterval(timer);
+      destroyAllIdleBridges();
+    }
+  });
+
+  it("does not add a tool policy to unrelated unary requests", async () => {
+    let allowed: string | string[] | undefined;
+    const url = await startServer((stream, headers) => {
+      allowed = headers["x-cursor-agent-allowed-tools"];
+      stream.respond({ ":status": 200 });
+      stream.end();
+    });
+    const bridge = createBridge({
+      accessToken: "test-token",
+      rpcPath: "/models",
+      url,
+      pingIntervalMs: 0,
+    });
+    try {
+      await waitForStreamDone(bridge);
+      expect(allowed).toBeUndefined();
+    } finally {
+      bridge.end();
+    }
   });
 
   it("isolates late events from a superseded stream", async () => {

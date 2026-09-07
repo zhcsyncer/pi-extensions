@@ -16,6 +16,8 @@ export interface CreateBridgeOptions {
   accessToken: string;
   rpcPath: string;
   url?: string;
+  /** Cursor tool types allowed for this Run. Undefined omits the header; [] disables tools. */
+  allowedTools?: readonly string[];
   /** Initial HTTP/2 connection timeout (ms). Default 30s. */
   connectTimeoutMs?: number;
   /** Activity idle timeout after connection (ms). Default disabled. */
@@ -40,7 +42,7 @@ export interface BridgeHandle {
   onData(cb: (chunk: Buffer) => void): void;
   onClose(cb: (code: number) => void): void;
   /** Open another Connect stream on the same HTTP/2 session. */
-  openStream(accessToken: string): void;
+  openStream(accessToken: string, allowedTools?: readonly string[]): void;
   /** Fires when the current stream receives a normal 2xx response end. */
   onStreamDone(cb: () => void): void;
 }
@@ -383,7 +385,10 @@ export function createBridge(
     pingTimer.unref?.();
   }
 
-  const requestHeaders = (accessToken: string): http2.OutgoingHttpHeaders => ({
+  const requestHeaders = (
+    accessToken: string,
+    allowedTools?: readonly string[],
+  ): http2.OutgoingHttpHeaders => ({
     ":method": "POST",
     ":path": options.rpcPath || DEFAULT_RPC_PATH,
     "content-type": "application/connect+proto",
@@ -394,9 +399,16 @@ export function createBridge(
     "x-cursor-client-version": getCursorClientVersion(),
     "x-cursor-client-type": "cli",
     "x-request-id": randomUUID(),
+    ...(allowedTools !== undefined
+      ? { "x-cursor-agent-allowed-tools": allowedTools.join(",") }
+      : {}),
   });
 
-  const openStream = (accessToken: string, resetCallbacks: boolean): void => {
+  const openStream = (
+    accessToken: string,
+    resetCallbacks: boolean,
+    allowedTools = options.allowedTools,
+  ): void => {
     if (!alive) return;
     if (!reusable || session.destroyed || session.closed) {
       fail("bridge.open_stream_error", new Error("Cursor HTTP/2 session is not reusable"), 2);
@@ -421,7 +433,7 @@ export function createBridge(
 
     let stream: http2.ClientHttp2Stream;
     try {
-      stream = session.request(requestHeaders(accessToken || options.accessToken));
+      stream = session.request(requestHeaders(accessToken || options.accessToken, allowedTools));
     } catch (error) {
       fail("bridge.open_stream_error", error);
       return;
@@ -543,8 +555,8 @@ export function createBridge(
         fail("bridge.write_error", error);
       }
     },
-    openStream(accessToken: string) {
-      openStream(accessToken, true);
+    openStream(accessToken: string, allowedTools?: readonly string[]) {
+      openStream(accessToken, true, allowedTools);
     },
     end() {
       finalize(0, false);

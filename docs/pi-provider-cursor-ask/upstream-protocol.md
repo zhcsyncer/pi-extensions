@@ -65,6 +65,10 @@ Cursor Ask is Node-only and manages streaming and unary RPCs directly with `node
 - **Session liveness:** HTTP/2 PING runs every 20s. Completed streams leave the session reusable; idle sessions are unreferenced and active streams are referenced when the runtime supports it.
 - **Idle safety net:** Connect timeout defaults to 30s (handshake only). **Activity idle is disabled by default** so long agent turns are not killed. Parent heartbeats every 15s reset the activity timer when it is enabled via `PI_CURSOR_H2_IDLE_TIMEOUT_MS`.
 
+## Pi-owned tool boundary
+
+Each Run sends `x-cursor-agent-allowed-tools`: the MCP family when Pi supplied effective tools, or an explicit empty value for tool-free requests. The policy follows the request, including idle HTTP/2 session reuse, rather than the connection's first Run. This avoids offering Cursor-native tools that this adapter cannot execute and reduces their unrelated prompt overhead. Existing client-side native-exec rejection remains a separate safety boundary; the header does not delegate tool execution to Cursor. Unary discovery requests do not receive this policy.
+
 ## Stream idle watchdog
 
 `writeNativeStream` arms a silence idle watchdog via `PI_CURSOR_STREAM_IDLE_TIMEOUT_MS`. **Default is `180000` (3 min)**. Set to `0` to disable. The watchdog resets on:

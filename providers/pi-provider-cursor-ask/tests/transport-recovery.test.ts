@@ -549,7 +549,10 @@ describe("idle HTTP/2 bridge reuse", () => {
     });
 
     parkIdleBridge("bk-reuse", handle);
-    const started = startBridge("tok-2", new Uint8Array([1, 2, 3]), { bridgeKey: "bk-reuse" });
+    const started = startBridge("tok-2", new Uint8Array([1, 2, 3]), {
+      bridgeKey: "bk-reuse",
+      hasMcpTools: false,
+    });
     clearInterval(started.heartbeatTimer);
 
     expect(created).toEqual([]);
