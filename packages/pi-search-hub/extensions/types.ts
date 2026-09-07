@@ -95,6 +95,6 @@ export interface BackendRunner {
 	search: (
 		query: string,
 		numResults: number,
-		deps: { key?: string; instanceUrl?: string; signal?: AbortSignal; backendConfig?: BackendConfig },
+		deps: { key?: string; instanceUrl?: string; signal?: AbortSignal; backendConfig?: BackendConfig; onNotice?: (message: string) => void },
 	) => Promise<{ results: SearchResult[] }>;
 }

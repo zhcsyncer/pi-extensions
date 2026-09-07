@@ -2,6 +2,7 @@
  * Backend registry and dispatcher for pi-search-hub extension.
  */
 
+import type { NoticeSink } from "../diagnostics.js";
 import type { BackendRunner, BackendConfig, SearchResult } from "../types.js";
 import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKey } from "../credentials.js";
@@ -104,8 +105,8 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 		needsInstanceUrl: false,
 		label: "Exa",
 		setupLabel: "Exa (AI-native, 1000 free/mo)",
-		search: async (query, numResults, { key, signal }) => {
-			const result = await searchExa(query, numResults, key!, signal);
+		search: async (query, numResults, { key, signal, onNotice }) => {
+			const result = await searchExa(query, numResults, key!, signal, onNotice);
 			return { results: result.results, warning: result.warning };
 		},
 	},
@@ -276,6 +277,7 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 // ---------------------------------------------------------------------------
 
 export interface BackendRuntime {
+	onNotice?: NoticeSink;
 	getProviderApiKey(provider: string): Promise<string | undefined>;
 }
 
@@ -301,14 +303,14 @@ export async function runBackend(
 		const bc = (config.backends as Record<string, BackendConfig> | undefined)?.[backend];
 		key = bc?.apiKey;
 	} else if (def.needsKey) {
-		key = resolveBackendKey(backend, config);
+		key = resolveBackendKey(backend, config, runtime?.onNotice);
 		if (!key) {
 			const label = def.label;
 			throw new Error(`${label} backend not configured. ${MISSING_KEY_HELP}`);
 		}
 	} else if (def.optionalKey) {
 		// Optionally resolve key — don't throw if missing
-		key = resolveBackendKey(backend, config);
+		key = resolveBackendKey(backend, config, runtime?.onNotice);
 	}
 
 	let instanceUrl: string | undefined;
@@ -323,7 +325,7 @@ export async function runBackend(
 	const bc = (config.backends as Record<string, BackendConfig> | undefined)?.[backend];
 	const startTime = Date.now();
 	try {
-		const result = await def.search(query, numResults, { key, instanceUrl, signal, backendConfig: bc });
+		const result = await def.search(query, numResults, { key, instanceUrl, signal, backendConfig: bc, onNotice: runtime?.onNotice });
 		const latencyMs = Date.now() - startTime;
 		recordBackendSuccess(backend, latencyMs, result.results.length, numResults);
 		return result.results;

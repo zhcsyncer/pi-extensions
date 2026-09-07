@@ -45,7 +45,6 @@ const BACKEND_FIELDS = new Set([
 ]);
 const READERS = new Set<ReaderName>(["jina", "sofya", "firecrawl", "exa", "exa_mcp"]);
 const SELECTION_STRATEGIES = new Set(["sequential", "random", "round-robin", "best-latency"]);
-const emittedNotices = new Set<string>();
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 1_000;
 const LOCK_RETRY_MS = 20;
@@ -56,9 +55,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function emitNotice(sink: MigrationNoticeSink | undefined, message: string): void {
-	if (emittedNotices.has(message)) return;
-	emittedNotices.add(message);
-	(sink ?? ((text) => console.warn(text)))(message);
+	sink?.(message);
 }
 
 function droppedSummary(paths: readonly string[]): string {
@@ -281,8 +278,4 @@ export function loadMigratedSearchConfig(options: {
 			return {};
 		}
 	}
-}
-
-export function resetSearchConfigMigrationNoticesForTests(): void {
-	emittedNotices.clear();
 }

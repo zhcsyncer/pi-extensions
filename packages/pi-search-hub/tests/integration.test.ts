@@ -105,7 +105,7 @@ describe("tool display integration", () => {
 				};
 				expect(schema.properties?.displaySummary).toBeUndefined();
 				expect(schema.required?.includes("displaySummary") ?? false).toBe(false);
-				expect(tool.promptGuidelines?.some((line) => line.includes("displaySummary")) ?? false).toBe(false);
+				expect(tool.promptGuidelines?.some((line: string) => line.includes("displaySummary")) ?? false).toBe(false);
 			}
 		} finally {
 			if (previousApi === undefined) {
@@ -495,12 +495,17 @@ describe("resolveConfigValue", () => {
 		}
 	});
 
-	it("warns for ALL_CAPS that is unset", () => {
+	it("reports an unset credential without writing to the terminal or echoing the reference", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const result = resolveConfigValue("DEFINITELY_NOT_SET_XYZ");
-		expect(result).toBeUndefined();
-		expect(warnSpy).toHaveBeenCalled();
-		warnSpy.mockRestore();
+		const notices: string[] = [];
+		try {
+			const result = resolveConfigValue("DEFINITELY_NOT_SET_XYZ", (message) => notices.push(message));
+			expect(result).toBeUndefined();
+			expect(notices).toHaveLength(1);
+			expect(notices[0]).toContain("unset");
+			expect(notices[0]).not.toContain("DEFINITELY_NOT_SET_XYZ");
+			expect(warnSpy).not.toHaveBeenCalled();
+		} finally { warnSpy.mockRestore(); }
 	});
 });
 

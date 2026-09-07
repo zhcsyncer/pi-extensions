@@ -99,6 +99,8 @@ describe("Search Hub setup and reader configuration", () => {
 		mkdirSync(cwd, { recursive: true });
 		previousHome = process.env.HOME;
 		process.env.HOME = home;
+		vi.stubEnv("PI_CODING_AGENT_DIR", join(home, ".pi", "agent"));
+		vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected network request in setup test"); }));
 		for (const name of new Set([...Object.values(FALLBACK_ENV_MAP), "JINA_API_KEY", "SERPER_API_KEY"])) {
 			previousEnv.set(name, process.env[name]);
 			delete process.env[name];
@@ -113,6 +115,8 @@ describe("Search Hub setup and reader configuration", () => {
 			else process.env[name] = value;
 		}
 		previousEnv.clear();
+		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
 		rmSync(home, { recursive: true, force: true });
 	});
 

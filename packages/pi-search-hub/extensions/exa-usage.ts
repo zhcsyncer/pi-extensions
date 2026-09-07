@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { NoticeSink } from "./diagnostics.js";
 import { getExaUsagePath, getLegacyExaUsagePath } from "./paths.js";
 
 const EXA_MONTHLY_LIMIT = 1000;
@@ -8,7 +9,6 @@ const EXA_WARNING_THRESHOLD = 800;
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 2_000;
 const LOCK_RETRY_MS = 25;
-const emittedNotices = new Set<string>();
 
 interface ExaUsageRecord {
 	count: number;
@@ -42,12 +42,6 @@ function parseUsage(text: string): { record: ExaUsageRecord; dropped: string[] }
 		record: { count: Math.floor(value.count), resetAt: value.resetAt },
 		dropped: Object.keys(value).filter((key) => key !== "count" && key !== "resetAt"),
 	};
-}
-
-function emitOnce(message: string): void {
-	if (emittedNotices.has(message)) return;
-	emittedNotices.add(message);
-	console.warn(message);
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -144,25 +138,27 @@ function quotaWarning(usage: ExaUsageRecord): string | null {
 	return `⚠️ Exa quota low (${remaining} remaining of ${EXA_MONTHLY_LIMIT}/month)`;
 }
 
-export async function checkExaUsage(): Promise<string | null> {
+export async function checkExaUsage(onNotice?: NoticeSink): Promise<string | null> {
 	try {
 		return await withUsageLock(async () => {
 			const loaded = await readUsageLocked();
-			for (const notice of loaded.notices) emitOnce(notice);
-			return loaded.notices[0] ?? (loaded.record ? quotaWarning(loaded.record) : null);
+			for (const notice of loaded.notices) onNotice?.(notice);
+			const warning = loaded.notices[0] ?? (loaded.record ? quotaWarning(loaded.record) : null);
+			if (!loaded.notices.length && warning) onNotice?.(warning);
+			return warning;
 		});
 	} catch (error) {
 		const warning = `Search Hub failed to check Exa usage: ${error instanceof Error ? error.message : String(error)}.`;
-		emitOnce(warning);
+		onNotice?.(warning);
 		return warning;
 	}
 }
 
-export async function incrementExaUsage(): Promise<string | null> {
+export async function incrementExaUsage(onNotice?: NoticeSink): Promise<string | null> {
 	try {
 		return await withUsageLock(async () => {
 			const loaded = await readUsageLocked();
-			for (const notice of loaded.notices) emitOnce(notice);
+			for (const notice of loaded.notices) onNotice?.(notice);
 			if (!loaded.record) return loaded.notices[0] ?? "Search Hub could not update Exa usage state.";
 			const usage = loaded.record;
 			const month = currentMonthStart();
@@ -173,19 +169,15 @@ export async function incrementExaUsage(): Promise<string | null> {
 			usage.count++;
 			await atomicWriteUsage(getExaUsagePath(), usage);
 			if (loaded.notices.length > 0) return loaded.notices[0];
-			if (usage.count === EXA_WARNING_THRESHOLD) {
-				return `⚠️ Exa quota at ${EXA_WARNING_THRESHOLD}/${EXA_MONTHLY_LIMIT}. ${EXA_MONTHLY_LIMIT - usage.count} requests remaining this month.`;
-			}
-			if (usage.count > EXA_WARNING_THRESHOLD) return quotaWarning(usage);
-			return null;
+			const warning = usage.count === EXA_WARNING_THRESHOLD
+				? `⚠️ Exa quota at ${EXA_WARNING_THRESHOLD}/${EXA_MONTHLY_LIMIT}. ${EXA_MONTHLY_LIMIT - usage.count} requests remaining this month.`
+				: quotaWarning(usage);
+			if (warning) onNotice?.(warning);
+			return warning;
 		});
 	} catch (error) {
 		const warning = `Search Hub failed to update Exa usage: ${error instanceof Error ? error.message : String(error)}.`;
-		emitOnce(warning);
+		onNotice?.(warning);
 		return warning;
 	}
-}
-
-export function resetExaUsageNoticesForTests(): void {
-	emittedNotices.clear();
 }

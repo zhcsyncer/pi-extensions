@@ -44,6 +44,7 @@ import {
 	decorateToolForDisplay,
 } from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
+import { createDiagnosticReporter } from "./diagnostics.js";
 import type { BackendConfig, ReaderName, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
 import { timeoutSignal, sanitizeError, clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
 import { resolveBackendKey, getKeySource, FALLBACK_ENV_MAP } from "./credentials.js";
@@ -98,6 +99,7 @@ function configuredReaderOrder(searchConfig: SearchConfig): ReaderName[] {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+	const diagnostics = createDiagnosticReporter();
 	const withSearchHubDisplay = <T extends object>(
 		tool: T,
 		presentation: {
@@ -175,7 +177,9 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const warnings: string[] = [];
+			const onNotice = diagnostics.sink(ctx, warnings);
+			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
 			const config = getConfig();
 			const numResults = Math.max(1, Math.min(params.numResults ?? 10, 20));
 			const requestedBackend = params.backend || "auto";
@@ -185,7 +189,7 @@ export default function (pi: ExtensionAPI) {
 				const raw = config.combineMode;
 				if (raw === "all" || raw === "targeted") return raw;
 				if (raw !== undefined) {
-					console.warn(`search-hub: unrecognized combineMode "${raw}", falling back to "all"`);
+					onNotice('Search Hub: unrecognized combine mode; using "all".');
 				}
 				return "all";
 			})();
@@ -206,6 +210,7 @@ export default function (pi: ExtensionAPI) {
 				backendSignal?: AbortSignal,
 			) => runBackend(backend, query, limit, backendSignal, {
 				getProviderApiKey: (provider) => ctx.modelRegistry.getApiKeyForProvider(provider),
+				onNotice,
 			});
 
 			if (requestedBackend !== "auto") {
@@ -217,7 +222,7 @@ export default function (pi: ExtensionAPI) {
 					updateActivity(`🔍 ${backendLabel}: ${results.length} results`);
 					return {
 						content: [{ type: "text", text: compact ? formatResultsCompact(results) : formatResults(params.query, requestedBackend, results) }],
-						details: { backend: requestedBackend, resultCount: results.length },
+						details: { backend: requestedBackend, resultCount: results.length, ...(warnings.length ? { warnings } : {}) },
 					};
 				} catch (err) {
 					updateActivity(`❌ ${backendLabel}: failed`);
@@ -272,6 +277,7 @@ export default function (pi: ExtensionAPI) {
 						],
 						details: {
 							backend: "combined-targeted",
+							...(warnings.length ? { warnings } : {}),
 							resultCount: combined.length,
 							usableBackendCount,
 							backendStats: Object.fromEntries(backendStats),
@@ -344,6 +350,7 @@ export default function (pi: ExtensionAPI) {
 					],
 					details: {
 						backend: "combined",
+						...(warnings.length ? { warnings } : {}),
 						resultCount: combined.length,
 						backendStats: Object.fromEntries(backendStats),
 					},
@@ -374,6 +381,7 @@ export default function (pi: ExtensionAPI) {
 							],
 							details: {
 								backend: errors.length > 0 ? `${backend} (fallback)` : backend,
+								...(warnings.length ? { warnings } : {}),
 								resultCount: results.length,
 								errors: errors.length > 0 ? errors : undefined,
 							},
@@ -448,7 +456,9 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, notifyMigration(ctx));
+			const warnings: string[] = [];
+			const onNotice = diagnostics.sink(ctx, warnings);
+			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
 			const config = getConfig();
 
 			const updateActivity = (status: string, reader: ReaderName) => {
@@ -473,23 +483,22 @@ export default function (pi: ExtensionAPI) {
 
 			const fetchWithReader = async (reader: ReaderName): Promise<string> => {
 				if (reader === "sofya") {
-					const sofyaKey = resolveBackendKey("sofya", config);
+					const sofyaKey = resolveBackendKey("sofya", config, onNotice);
 					if (!sofyaKey) {
 						throw new Error(`Sofya reader selected but no API key configured. ${MISSING_KEY_HELP}`);
 					}
 					return (await fetchSofya(url, sofyaKey, signal)).content;
 				}
 				if (reader === "firecrawl") {
-					const firecrawlKey = resolveBackendKey("firecrawl", config);
+					const firecrawlKey = resolveBackendKey("firecrawl", config, onNotice);
 					return (await fetchFirecrawl(url, firecrawlKey, signal)).content;
 				}
 				if (reader === "exa") {
-					const exaKey = resolveBackendKey("exa", config);
+					const exaKey = resolveBackendKey("exa", config, onNotice);
 					if (!exaKey) {
 						throw new Error(`Exa reader selected but no API key configured. ${MISSING_KEY_HELP}`);
 					}
-					const result = await fetchExaContents(url, exaKey, signal);
-					if (result.warning) ctx.ui.notify(result.warning, "warning");
+					const result = await fetchExaContents(url, exaKey, signal, onNotice);
 					return result.content;
 				}
 				if (reader === "exa_mcp") {
@@ -498,7 +507,7 @@ export default function (pi: ExtensionAPI) {
 
 				const readerUrl = new URL("https://r.jina.ai/" + url);
 				const headers: Record<string, string> = { "Accept": "text/plain" };
-				const jinaKey = resolveBackendKey("jina", config);
+				const jinaKey = resolveBackendKey("jina", config, onNotice);
 				if (jinaKey) headers["Authorization"] = `Bearer ${jinaKey}`;
 				if (params.fresh) headers["x-no-cache"] = "true";
 				if (params.keywords && params.keywords.length > 0) {
@@ -555,6 +564,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: truncated }],
 				details: {
+					...(warnings.length ? { warnings } : {}),
 					url,
 					reader,
 					length: content.length,
@@ -572,10 +582,7 @@ export default function (pi: ExtensionAPI) {
 	// Commands
 	// -----------------------------------------------------------------------
 
-	const notifyMigration = (ctx: ExtensionContext) => (message: string): void => {
-		if (ctx.hasUI === false) console.warn(message);
-		else ctx.ui.notify(message, "warning");
-	};
+	const notifyMigration = (ctx: ExtensionContext) => diagnostics.sink(ctx);
 
 	function readGlobalConfig(ctx: ExtensionContext): SearchConfig {
 		return loadMigratedSearchConfig({
@@ -1169,6 +1176,7 @@ export default function (pi: ExtensionAPI) {
 	// -----------------------------------------------------------------------
 
 	pi.on("session_start", async (_event, ctx) => {
+		diagnostics.reset();
 		clearCooldowns();
 		refreshRuntimeConfig(ctx);
 	});

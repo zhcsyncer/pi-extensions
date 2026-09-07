@@ -5,6 +5,7 @@
 
 import { timeoutSignal, sanitizeError, checkExaUsage, incrementExaUsage } from "../utils.js";
 import { parseExa } from "../../backends/parsers.js";
+import type { NoticeSink } from "../diagnostics.js";
 import type { SearchResult } from "../types.js";
 
 /**
@@ -16,9 +17,10 @@ export async function fetchExaContents(
 	url: string,
 	apiKey: string,
 	signal?: AbortSignal,
+	onNotice?: NoticeSink,
 ): Promise<{ title: string; url: string; content: string; warning?: string }> {
 	// Check quota before making request
-	const preWarning = await checkExaUsage();
+	const preWarning = await checkExaUsage(onNotice);
 
 	const response = await fetch("https://api.exa.ai/contents", {
 		method: "POST",
@@ -42,7 +44,7 @@ export async function fetchExaContents(
 	}
 
 	// Increment usage after successful request
-	const warning = await incrementExaUsage();
+	const warning = await incrementExaUsage(onNotice);
 
 	const data = (await response.json()) as Record<string, unknown>;
 	const results = Array.isArray(data.results)
@@ -65,7 +67,7 @@ export async function fetchExaContents(
 		title: (first.title as string) || "",
 		url: (first.url as string) || url,
 		content: (first.text as string) || "",
-		warning: warning || undefined,
+		warning: warning || preWarning || undefined,
 	};
 }
 
@@ -74,6 +76,7 @@ export async function searchExa(
 	numResults: number,
 	apiKey: string,
 	signal?: AbortSignal,
+	onNotice?: NoticeSink,
 ): Promise<{ results: SearchResult[]; warning?: string }> {
 	const body = {
 		query,
@@ -102,7 +105,7 @@ export async function searchExa(
 	}
 
 	// Increment usage after successful request
-	const warning = await incrementExaUsage();
+	const warning = await incrementExaUsage(onNotice);
 
 	const data = (await response.json()) as Record<string, unknown>;
 	return {

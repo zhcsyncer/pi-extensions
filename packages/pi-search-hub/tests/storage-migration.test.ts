@@ -4,8 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig, loadConfig, refreshConfig } from "../extensions/config.js";
 import { resolveBackendKey } from "../extensions/credentials.js";
-import { resetSearchConfigMigrationNoticesForTests } from "../extensions/config-storage.js";
-import { incrementExaUsage, resetExaUsageNoticesForTests } from "../extensions/exa-usage.js";
+import { incrementExaUsage } from "../extensions/exa-usage.js";
 import {
 	getExaUsagePath,
 	getGlobalConfigPath,
@@ -29,8 +28,6 @@ describe("Search Hub storage migration", () => {
 		cwd = join(root, "project");
 		mkdirSync(cwd, { recursive: true });
 		vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
-		resetSearchConfigMigrationNoticesForTests();
-		resetExaUsageNoticesForTests();
 	});
 
 	afterEach(() => {

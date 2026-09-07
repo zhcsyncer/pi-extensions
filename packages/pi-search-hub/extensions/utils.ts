@@ -2,6 +2,8 @@
  * Shared utilities for pi-search-hub extension.
  */
 
+import { sanitizeDiagnosticText } from "./diagnostics.js";
+
 export { checkExaUsage, incrementExaUsage } from "./exa-usage.js";
 
 // ---------------------------------------------------------------------------
@@ -171,15 +173,6 @@ export function assertSafeUrl(url: string): void {
 
 /** Sanitize API error text — truncate and strip potential secrets. */
 export function sanitizeError(status: number, text: string): string {
-	const safe = text
-		// Redact "Bearer <token>" and "Token <value>" patterns
-		.replace(/(bearer|token)\s+[\w.\/-]{8,}/gi, "$1 [redacted]")
-		// Redact key=value or "key": "value" pairs for known secret keys
-		.replace(/(api[-_]?key|bearer|token|authorization|secret|password)["']?\s*[:=]\s*["']?[\w.\/-]{8,}/gi, "[redacted]")
-		// Redact JSON key-value pairs where the value looks like a key
-		.replace(/"(?:api[-_]?key|apiKey|token|secret|password|bearer)"\s*:\s*"[^"']{8,}"/gi, '"[redacted]"')
-		// Redact x-api-key / Authorization header values in raw text
-		.replace(/(x-api-key|authorization)\s*:\s*[\w.\/-]{8,}/gi, "$1: [redacted]")
-		.slice(0, 300);
+	const safe = sanitizeDiagnosticText(text);
 	return `API error (${status}): ${safe}`;
 }

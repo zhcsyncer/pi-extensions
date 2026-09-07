@@ -9,6 +9,7 @@
 
 import { execSync } from "node:child_process";
 import { COMMAND_TIMEOUT_MS } from "./utils.js";
+import type { NoticeSink } from "./diagnostics.js";
 import type { BackendConfig, SearchConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +33,7 @@ export function clearCredentialCache(): void {
  *   • "ALL_CAPS"   → read process.env[ALL_CAPS]
  *   • otherwise     → return as literal string (actual key)
  */
-export function resolveConfigValue(reference: string | undefined): string | undefined {
+export function resolveConfigValue(reference: string | undefined, onNotice?: NoticeSink): string | undefined {
 	if (!reference || reference.trim().length === 0) return undefined;
 	const normalizedReference = reference.trim();
 
@@ -53,10 +54,11 @@ export function resolveConfigValue(reference: string | undefined): string | unde
 			const value = output.length > 0 ? output : undefined;
 			commandValueCache.set(normalizedReference, { value });
 			return value;
-		} catch (error) {
-			const errorMessage = (error as Error).message;
+		} catch {
+			// Node's shell error includes the command and stderr, which can contain credentials.
+			const errorMessage = "Search Hub credential command failed. Check the configured credential command and its permissions.";
 			commandValueCache.set(normalizedReference, { errorMessage });
-			throw error;
+			throw new Error(errorMessage);
 		}
 	}
 
@@ -69,9 +71,8 @@ export function resolveConfigValue(reference: string | undefined): string | unde
 	if (/^[A-Z][A-Z0-9_]*$/.test(normalizedReference)) {
 		// Warn: value looks like an env var reference but the env var is unset.
 		// If this was intended as a literal key, rename it or set the env var.
-		console.warn(`[pi-search] Credential reference "${normalizedReference}" matches ALL_CAPS env-var pattern ` +
-			`but process.env.${normalizedReference} is not set. If this is a literal key, ` +
-			`use a different name to avoid confusion.`);
+		onNotice?.("Configured credential environment reference is unset. Check the backend API key configuration; " +
+			"all-uppercase values are treated as environment references, not literal keys.");
 		return undefined;
 	}
 
@@ -107,10 +108,10 @@ export const FALLBACK_ENV_MAP: Record<string, string> = {
 };
 
 /** Lazy resolution: config.apiKey → resolveConfigValue() → FALLBACK_ENV_MAP fallback. */
-export function resolveBackendKey(backend: string, config: SearchConfig): string | undefined {
+export function resolveBackendKey(backend: string, config: SearchConfig, onNotice?: NoticeSink): string | undefined {
 	const bc = config.backends?.[backend as keyof typeof config.backends];
 	if (bc?.apiKey) {
-		const resolved = resolveConfigValue(bc.apiKey);
+		const resolved = resolveConfigValue(bc.apiKey, onNotice ? (message) => onNotice(`Search Hub ${backend}: ${message}`) : undefined);
 		if (resolved) return resolved;
 	}
 	const fallbackEnv = FALLBACK_ENV_MAP[backend];
