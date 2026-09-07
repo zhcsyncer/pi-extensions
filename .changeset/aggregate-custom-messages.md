@@ -1,4 +1,5 @@
 ---
+"@zhcsyncer/pi-extensions": minor
 "@zhcsyncer/pi-tool-display-intent": minor
 ---
 
