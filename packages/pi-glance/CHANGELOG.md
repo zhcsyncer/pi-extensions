@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-glance
 
+## 0.8.1
+
+### Patch Changes
+
+- 7b516df: Prevent Glance's background `origin/main` fetch from opening interactive Git, SSH host-key, or credential prompts that can corrupt fullscreen terminal input.
+
 ## 0.8.0
 
 ### Minor Changes

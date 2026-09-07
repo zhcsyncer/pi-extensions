@@ -1,5 +1,21 @@
 # @zhcsyncer/pi-extensions
 
+## 0.30.0
+
+### Minor Changes
+
+- 7b516df: Fold visible custom messages, including background task completion notices, into Run in their original transcript order. Preserve the original renderer and native interactions when expanded, keep hidden messages hidden, and show message-only segments without inventing tool calls. Notifications after a final answer start a new segment rather than being moved back to their dispatching run. Restore aggregation for history already rendered before extension reload completes.
+
+### Patch Changes
+
+- 7b516df: In aggregate layout, long bash rows show intent and size instead of the script body, and each call row right-aligns its duration (plus end time after it finishes).
+- 7b516df: Keep the aggregate Tools ledger a bounded audit: custom tools show a deterministic target, image reads stay in the ledger, and long bash/tool-call rows wrap with a preview instead of dumping scripts or failing open.
+- 7b516df: In aggregate layout, keep pre-tool narration as ordinary assistant text when the turn only has passthrough tools and no Tools ledger.
+- 7b516df: In aggregate layout, keep pre-tool narration visible when that assistant message only has passthrough tools such as Consult, instead of hiding it until expand.
+- 7b516df: Prevent Glance's background `origin/main` fetch from opening interactive Git, SSH host-key, or credential prompts that can corrupt fullscreen terminal input.
+- 7b516df: Route Search Hub credential, configuration and Exa usage warnings through deduplicated Pi notifications instead of raw terminal output. Retain diagnostics in successful tool-result details, including headless runs, without changing provider fallback behavior. Strip terminal controls and redact common credential formats before displaying diagnostics, and avoid exposing failed credential shell commands.
+- 7b516df: Always use Claude-style tool chrome. Rename `/tool-display-intent` to `/tools`; empty args still open settings, and layout changes confirm then reload the session.
+
 ## 0.29.0
 
 ### Minor Changes

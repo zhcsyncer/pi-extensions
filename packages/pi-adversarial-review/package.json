@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-adversarial-review",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic multi-model adversarial code review orchestration for Pi.",
   "keywords": [
     "pi-package",

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- 7b516df: Support clicking an entire Tools title row to expand or collapse one run in Pi 0.85+ fullscreen mode, while Ctrl+O continues to control the whole transcript. Expanded tool rows open a read-only Result/Args viewer with advanced Metadata, scrolling and structured parameter/metadata inspection. Long steers use bounded head/tail previews with a clickable omission row. Viewing never reruns a tool or changes Session messages.
+- 7b516df: Add an opt-in Context growth setting to `/tools`. Aggregate receipts show `ctx` growth separately from token consumption, and expanded turn headers attribute reported input changes to the preceding turn. Unconfirmed turns and totals containing local estimates use `≈`; known context boundaries or missing data show an unavailable run total instead of a misleading sum. Only tool-bearing turns may show context footers; ordinary replies remain free of ledger chrome. Tool execution and Session messages are unchanged.
+- 7b516df: Fold visible custom messages, including background task completion notices, into Run in their original transcript order. Preserve the original renderer and native interactions when expanded, keep hidden messages hidden, and show message-only segments without inventing tool calls. Notifications after a final answer start a new segment rather than being moved back to their dispatching run. Restore aggregation for history already rendered before extension reload completes.
+- 7b516df: Keep the aggregate title in view when locally expanding a Tools run in compatible Pi fullscreen mode. When an expanded run's title scrolls out of view, show a fixed collapse control above the editor that closes only that run and returns to its title, without taking keyboard focus or using an overlay.
+- 7b516df: Refine the read-only viewer with typed Args rows, multiline text blocks, JSON colors and conservative Markdown presentation. Keep only Result and Args as primary tabs, move Metadata behind the advanced entry, and provide a Raw switch while retaining terminal-control filtering and safety limits. Edit diffs appear directly in Result instead of a separate tab. Compact titles, right-aligned status and scroll positions, and notices only for actual transformations reduce visual clutter.
+- 7b516df: Expand the clickable area to the whole collapsed Tools block and the expanded title/summary area, while preserving per-call detail inspection. Successful Edit calls with returned diff data show an automatically wrapped, single-column diff directly in Result using the existing line-numbered diff renderer. Raw return text and arguments remain accessible; failed edits and missing diff data show the ordinary result.
+- 7b516df: Rename the aggregate Tools header to Run and aggregate Agent/consult by default, retaining explicitly configured passthrough exceptions. Generic call previews now show a couple identifying values without keys or payloads; Agent calls use compact task titles and distinguish background dispatch receipts from completed foreground work without modifying subagents. Fix collapse-widget layout feedback at the transcript bottom, including same-height streaming or timing updates, while preserving normal scrolling and focus.
+
+### Patch Changes
+
+- 7b516df: In aggregate layout, long bash rows show intent and size instead of the script body, and each call row right-aligns its duration (plus end time after it finishes).
+- 7b516df: Keep the aggregate Tools ledger a bounded audit: custom tools show a deterministic target, image reads stay in the ledger, and long bash/tool-call rows wrap with a preview instead of dumping scripts or failing open.
+- 7b516df: Aggregate Ctrl+O can group the timeline by agent turn. The default stays the flat per-call view; turn `/tools` Expanded timeline to `turns` without reloading.
+- 7b516df: Keep expanded assistant narration at its established first-line inset, align continuation lines with the same marker-column spacing, and remove right-side padding that pushes short rows to the terminal edge. Reserve frame width before Markdown layout to preserve wrapped text without spurious truncation markers, while retaining intentional paragraph and code-block blank lines.
+- 7b516df: Align explicit passthrough tools with the Run ledger's content inset while preserving their native renderer, expansion and interactions. Reserve the inset before layout and translate mouse coordinates so clicks, focus and drag capture still reach the original components.
+- 7b516df: Aggregate keeps a blank line after the user prompt and passthrough tools; only the final reply under Tools omits it. Ctrl+O also leaves a framed gap before mid-turn narration. `/tools` now Tab-completes `aggregate` and `individual`.
+- 7b516df: Only bash asks the model for intent. The intent.enabled switch is gone; language and maxLength stay. Search Hub no longer requires displaySummary.
+- 7b516df: Show safe, bounded top-level argument previews for generic custom tools instead of only an argument count, while redacting credential-like fields and values.
+- 7b516df: Automatically wrap long lines in the read-only detail viewer so tool results, parameters, metadata and steer messages can be read by vertical scrolling. Reflow on resize preserves the source text and keeps the reading position near the same content.
+- 7b516df: Preserve credential values in the read-only inspector, render Markdown files as Markdown, and highlight Bash command arguments. Edit/Write inspectors now follow shared diff settings exposed in aggregate mode; Write explicitly shows written content as additions rather than an inferred overwrite delta. Long Bash commands stay out of ledger parentheses unless the entire target fits one row, and ordinary replies no longer receive context-growth footers. Terminal-control filtering and bounded viewing remain in place.
+- 7b516df: In aggregate layout, keep pre-tool narration as ordinary assistant text when the turn only has passthrough tools and no Tools ledger.
+- 7b516df: In aggregate layout, keep pre-tool narration visible when that assistant message only has passthrough tools such as Consult, instead of hiding it until expand.
+- 7b516df: Restore bounded multiline tool-call targets in aggregate ledgers after timing support made them single-line, and show failed-call details on indented continuation rows.
+- 7b516df: Right-align the fixed Run collapse control and keep it first among above-editor widgets, without changing other widgets' relative order. Match the mouse hit area to the visible control so the empty left side remains non-interactive.
+- 7b516df: Restore Run title anchoring and the fixed collapse control after reload when child sessions have used the extension. Bind shared renderer hooks to the UI host, release projections on all shutdown reasons, and hand off stale module dispatch without losing outer renderer wrappers or letting delayed cleanup disable the new session.
+- 7b516df: Always use Claude-style tool chrome. Rename `/tool-display-intent` to `/tools`; empty args still open settings, and layout changes confirm then reload the session.
+- 7b516df: Add Bash intent language to the `/tools` settings panel in both layouts, with explicit guidance that auto is best-effort and changes apply after `/reload`.
+- 7b516df: Always show Write content in a single-column additions view, even when the global diff layout is split or automatic. Keep the configured indicators and wrapping, while Edit continues to follow the global diff layout.
+
 ## 0.9.0
 
 ### Minor Changes

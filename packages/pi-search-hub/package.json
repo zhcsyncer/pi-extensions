@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-search-hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Internal fork of pi-search-hub for the @zhcsyncer/pi-extensions bundle.",
   "keywords": [

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- 7b516df: TUI review output no longer repeats the live progress card. Collapsed reports show blocking finding titles so you can start adjudicating without expanding, and flag incomplete or failed Refute; expansion adds full findings, route outcomes, and persisted session paths when present, not the runtime ledger. Successful TUI runs no longer toast the target or completion summary.
+- 7b516df: Long sessions can tell completed reviews apart by short HEAD on dispatch and result entries. The `--range` commit line marks commits already covered by a completed review in the current session. Intermediate commits are marked only when the recorded left bound is visible on the current first-parent list.
+
 ## 0.1.0
 
 ### Minor Changes
