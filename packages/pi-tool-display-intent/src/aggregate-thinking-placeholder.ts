@@ -12,7 +12,6 @@ import {
 	resolveAggregateProjection,
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
-import { onReloadShutdown } from "./extension-lifecycle.js";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
@@ -32,9 +31,14 @@ interface PatchableAssistantPrototype {
 	render(width: number): string[];
 	setExpanded?(expanded: boolean): void;
 	[AGGREGATE_THINKING_PATCH_KEY]?: AggregateThinkingPatchState;
+	[LEGACY_THINKING_PATCH_KEY]?: AggregateThinkingPatchState;
 }
 
 interface AggregateThinkingPatchState {
+	owner: typeof THINKING_MODULE;
+	releaseOwner(): void;
+	renderImpl: (this: PatchableAssistantMessage, width: number) => string[];
+	onExpanded?: (this: PatchableAssistantMessage, expanded: boolean) => void;
 	originalRender: (this: PatchableAssistantMessage, width: number) => string[];
 	patchedRender: (this: PatchableAssistantMessage, width: number) => string[];
 	originalSetExpanded?: (this: PatchableAssistantMessage, expanded: boolean) => void;
@@ -43,8 +47,10 @@ interface AggregateThinkingPatchState {
 }
 
 const AGGREGATE_THINKING_PATCH_KEY = Symbol.for(
-	"pi-tool-display-intent.aggregate-thinking-placeholder.v1",
+	"pi-tool-display-intent.aggregate-thinking-placeholder.v2",
 );
+const LEGACY_THINKING_PATCH_KEY = Symbol.for("pi-tool-display-intent.aggregate-thinking-placeholder.v1");
+const THINKING_MODULE = { retired: false };
 const AGGREGATE_ASSISTANT_EXPANDED_KEY = Symbol.for(
 	"pi-tool-display-intent.aggregate-assistant-expanded.v1",
 );
@@ -55,7 +61,7 @@ const DEFAULT_HIDDEN_THINKING_LABEL = "Thinking...";
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const registeredApis = new WeakSet<ExtensionAPI>();
-let thinkingPatchOwnerCount = 0;
+let thinkingOwner: ExtensionAPI | undefined;
 
 function toRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -219,34 +225,37 @@ function getPrototype(): PatchableAssistantPrototype {
 }
 
 export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boolean): void {
+	if (THINKING_MODULE.retired) return;
 	const prototype = getPrototype();
-	patchAggregateMouseHandling(prototype);
-	const existing = prototype[AGGREGATE_THINKING_PATCH_KEY];
-	if (existing) {
-		existing.isAggregateEnabled = isAggregateEnabled;
-		// Another extension may deliberately wrap our renderer. Keep that outer
-		// wrapper in place instead of reapplying and creating a recursive chain.
-		return;
+	const legacy = prototype[LEGACY_THINKING_PATCH_KEY];
+	if (legacy) {
+		legacy.isAggregateEnabled = () => false;
+		if (prototype.render === legacy.patchedRender) prototype.render = legacy.originalRender;
+		if (prototype.setExpanded === legacy.patchedSetExpanded) prototype.setExpanded = legacy.originalSetExpanded;
 	}
-
-	const state = {} as AggregateThinkingPatchState;
-	state.originalRender = prototype.render as AggregateThinkingPatchState["originalRender"];
-	state.originalSetExpanded = typeof prototype.setExpanded === "function"
-		? prototype.setExpanded
-		: undefined;
+	const existing = prototype[AGGREGATE_THINKING_PATCH_KEY];
+	if (existing && existing.owner !== THINKING_MODULE) existing.releaseOwner();
+	patchAggregateMouseHandling(prototype);
+	const state = existing ?? {} as AggregateThinkingPatchState;
+	if (!existing) {
+		state.originalRender = prototype.render as AggregateThinkingPatchState["originalRender"];
+		state.originalSetExpanded = prototype.setExpanded;
+		state.patchedRender = function(width) { return state.renderImpl.call(this, width); };
+		state.patchedSetExpanded = function(expanded) {
+			state.onExpanded?.call(this, expanded);
+			state.originalSetExpanded?.call(this, expanded);
+			try { this.invalidate?.(); } catch { /* Disposed transcript component. */ }
+		};
+	}
+	state.owner = THINKING_MODULE;
+	state.releaseOwner = () => { THINKING_MODULE.retired = true; thinkingOwner = undefined; };
 	state.isAggregateEnabled = isAggregateEnabled;
-	state.patchedSetExpanded = function setAggregateAssistantExpanded(expanded: boolean): void {
+	state.onExpanded = function(expanded) {
 		this[AGGREGATE_ASSISTANT_EXPANDED_KEY] = expanded === true;
 		resolveAggregateProjection(undefined, aggregateAssistantFrameId(this.lastMessage), firstToolCallId(this.lastMessage))
 			?.noteTimelineExpansion(expanded === true);
-		state.originalSetExpanded?.call(this, expanded);
-		try {
-			this.invalidate?.();
-		} catch {
-			// A stale transcript component may already be disposed.
-		}
 	};
-	state.patchedRender = function renderAggregateAssistantMessage(width: number): string[] {
+	state.renderImpl = function renderAggregateAssistantMessage(width: number): string[] {
 		releaseAggregateClickRegions(this);
 		if (!state.isAggregateEnabled()) return state.originalRender.call(this, width);
 
@@ -328,15 +337,20 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		configurable: true,
 		value: state,
 	});
-	prototype.render = state.patchedRender;
-	prototype.setExpanded = state.patchedSetExpanded;
+	if (!existing) {
+		prototype.render = state.patchedRender;
+		prototype.setExpanded = state.patchedSetExpanded;
+	}
 }
 
 export function restoreAggregateThinkingPlaceholders(): void {
 	const prototype = getPrototype();
-	restoreAggregateMouseHandling(prototype);
 	const state = prototype[AGGREGATE_THINKING_PATCH_KEY];
+	if (state && state.owner !== THINKING_MODULE) return;
+	restoreAggregateMouseHandling(prototype);
 	if (!state) return;
+	state.renderImpl = state.originalRender;
+	state.onExpanded = undefined;
 	if (prototype.render === state.patchedRender) {
 		prototype.render = state.originalRender;
 		if (prototype.setExpanded === state.patchedSetExpanded) {
@@ -355,19 +369,19 @@ export function registerAggregateThinkingPlaceholderSuppression(
 	pi: ExtensionAPI,
 	isAggregateEnabled: () => boolean,
 ): void {
-	if (!registeredApis.has(pi)) {
-		registeredApis.add(pi);
-		thinkingPatchOwnerCount += 1;
-	}
-	patchAggregateThinkingPlaceholders(isAggregateEnabled);
-
-	onReloadShutdown(pi, () => {
-		if (registeredApis.has(pi)) {
-			registeredApis.delete(pi);
-			thinkingPatchOwnerCount = Math.max(0, thinkingPatchOwnerCount - 1);
-		}
-		if (thinkingPatchOwnerCount === 0) restoreAggregateThinkingPlaceholders();
+	if (registeredApis.has(pi) || THINKING_MODULE.retired) return;
+	registeredApis.add(pi);
+	const bind = (hasUI: boolean | undefined) => {
+		if (hasUI === false || THINKING_MODULE.retired || (thinkingOwner && thinkingOwner !== pi)) return;
+		thinkingOwner = pi;
+		patchAggregateThinkingPlaceholders(isAggregateEnabled);
+	};
+	pi.on("session_shutdown", async () => {
+		registeredApis.delete(pi);
+		if (thinkingOwner !== pi) return;
+		thinkingOwner = undefined;
+		restoreAggregateThinkingPlaceholders();
 	});
-	pi.on("session_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));
-	pi.on("before_agent_start", async () => patchAggregateThinkingPlaceholders(isAggregateEnabled));
+	pi.on("session_start", async (_event, ctx) => bind(ctx?.hasUI));
+	pi.on("before_agent_start", async (_event, ctx) => bind(ctx?.hasUI));
 }

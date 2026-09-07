@@ -90,6 +90,7 @@ const listeners = new Map<object, Set<(control: AggregateViewportControl | undef
 const selected = new Map<object, Selection>();
 let pending: Transaction | undefined;
 let unpatch: (() => void) | undefined;
+let retired = false;
 
 function generation(owner: object): number { return generations.get(owner) ?? 0; }
 function size(value: number): boolean { return Number.isInteger(value) && value >= 0; }
@@ -400,15 +401,25 @@ export function resetAggregateViewportOwner(owner: object): void {
 }
 
 export function patchAggregateViewport(): void {
-	if (unpatch) return;
+	if (unpatch || retired) return;
 	// Fullscreen is optional in the supported peer range; named imports would break older Pi versions.
 	const native = (Tui as unknown as { TuiAltScreen?: { prototype: Record<PropertyKey, any> } }).TuiAltScreen?.prototype;
-	if (!native || typeof native.doRender !== "function" || typeof native.stop !== "function" || native[HOOK]) return;
+	if (!native || typeof native.doRender !== "function" || typeof native.stop !== "function") return;
+	// A reload creates fresh module-local regions/listeners while the host class survives.
+	// Retire the old dispatcher, rather than leaving new records behind an old hook.
+	const previous = native[HOOK];
+	if (previous) {
+		if (typeof previous.retire === "function") previous.retire();
+		else previous.active = false; // Legacy wrappers already support inert delegation.
+	}
 	const originalRender = native.doRender;
 	const originalStop = native.stop;
 	const renderDescriptor = Object.getOwnPropertyDescriptor(native, "doRender");
 	const stopDescriptor = Object.getOwnPropertyDescriptor(native, "stop");
-	const token = { active: true };
+	const token = { active: true, retire() {
+		retired = true;
+		restoreAggregateViewport();
+	} };
 	const render = function(this: Renderer, ...args: unknown[]) {
 		if (!token.active) return originalRender.apply(this, args);
 		if (!usable(this)) {

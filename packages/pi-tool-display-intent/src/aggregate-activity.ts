@@ -18,7 +18,6 @@ import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
-import { onReloadShutdown } from "./extension-lifecycle.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
 
@@ -146,9 +145,16 @@ interface PatchableToolExecutionPrototype {
 	setExpanded?(expanded: boolean): void;
 	updateResult?(result: { isError?: boolean } & Record<string, unknown>, isPartial?: boolean): void;
 	[AGGREGATE_TOOL_EXECUTION_PATCH_KEY]?: AggregateToolExecutionPatchState;
+	[LEGACY_TOOL_EXECUTION_PATCH_KEY]?: AggregateToolExecutionPatchState;
 }
 
 interface AggregateToolExecutionPatchState {
+	owner: typeof TOOL_MODULE;
+	releaseOwner(): void;
+	renderImpl: (this: PatchableToolExecution, width: number) => string[];
+	onExpanded?: (this: PatchableToolExecution, expanded: boolean) => void;
+	onStarted?: (this: PatchableToolExecution) => void;
+	onEnded?: (this: PatchableToolExecution, result: { isError?: boolean } & Record<string, unknown>) => void;
 	originalRender: (this: PatchableToolExecution, width: number) => string[];
 	patchedRender: (this: PatchableToolExecution, width: number) => string[];
 	originalSetExpanded?: (this: PatchableToolExecution, expanded: boolean) => void;
@@ -178,8 +184,10 @@ export const AGGREGATE_DONE_SETTLE_DELAY_MS = 1_500;
 export const DEFAULT_AGGREGATE_RENDER_PASSTHROUGH: readonly string[] = [];
 
 const AGGREGATE_TOOL_EXECUTION_PATCH_KEY = Symbol.for(
-	"pi-tool-display-intent.aggregate-tool-execution.v1",
+	"pi-tool-display-intent.aggregate-tool-execution.v2",
 );
+const LEGACY_TOOL_EXECUTION_PATCH_KEY = Symbol.for("pi-tool-display-intent.aggregate-tool-execution.v1");
+const TOOL_MODULE = { retired: false };
 const registeredApis = new WeakSet<ExtensionAPI>();
 const TOOL_COLOR_PALETTE = [
 	"mdLink",
@@ -2218,21 +2226,25 @@ function installExecutionClockHooks(
 	prototype: PatchableToolExecutionPrototype,
 	state: AggregateToolExecutionPatchState,
 ): void {
+	// These delegates are rebound on module takeover; outer wrappers keep their identity.
+	state.onExpanded = function(expanded) {
+		const projection = resolveAggregateProjection(undefined, this.toolCallId) ?? state.projection;
+		if (projection && typeof this.toolName === "string" && !projection.isPassthrough(this.toolName)) projection.noteTimelineExpansion(expanded);
+	};
+	state.onStarted = function() { stampLiveExecutionStart(this, state.projection); };
+	state.onEnded = function(result) { stampLiveExecutionEnd(this, result, state.projection); };
 	if (!state.patchedSetExpanded && typeof prototype.setExpanded === "function") {
 		state.originalSetExpanded = prototype.setExpanded;
 		state.patchedSetExpanded = function noteGlobalToolExpansion(expanded): void {
 			state.originalSetExpanded?.call(this, expanded);
-			const projection = resolveAggregateProjection(undefined, this.toolCallId) ?? state.projection;
-			if (projection && typeof this.toolName === "string" && !projection.isPassthrough(this.toolName)) {
-				projection.noteTimelineExpansion(expanded);
-			}
+			state.onExpanded?.call(this, expanded);
 		};
 		prototype.setExpanded = state.patchedSetExpanded;
 	}
 	if (!state.patchedMarkExecutionStarted && typeof prototype.markExecutionStarted === "function") {
 		state.originalMarkExecutionStarted = prototype.markExecutionStarted;
 		state.patchedMarkExecutionStarted = function markAggregateExecutionStarted(): void {
-			stampLiveExecutionStart(this, state.projection);
+			state.onStarted?.call(this);
 			state.originalMarkExecutionStarted?.call(this);
 		};
 		prototype.markExecutionStarted = state.patchedMarkExecutionStarted;
@@ -2241,35 +2253,47 @@ function installExecutionClockHooks(
 		state.originalUpdateResult = prototype.updateResult;
 		state.patchedUpdateResult = function markAggregateExecutionEnded(result, isPartial = false): void {
 			state.originalUpdateResult?.call(this, result, isPartial);
-			if (isPartial !== true) stampLiveExecutionEnd(this, result, state.projection);
+			if (isPartial !== true) state.onEnded?.call(this, result);
 		};
 		prototype.updateResult = state.patchedUpdateResult;
 	}
 }
 
 export function patchAggregateToolExecutions(projection: AggregateProjection): void {
+	if (TOOL_MODULE.retired) return;
 	claimHostProjection(undefined, projection);
-	patchAggregateViewport();
 	const prototype = getToolExecutionPrototype();
+	const legacy = prototype[LEGACY_TOOL_EXECUTION_PATCH_KEY];
+	if (legacy) {
+		legacy.projection = undefined;
+		if (prototype.render === legacy.patchedRender) prototype.render = legacy.originalRender;
+		if (prototype.setExpanded === legacy.patchedSetExpanded) prototype.setExpanded = legacy.originalSetExpanded;
+		if (prototype.markExecutionStarted === legacy.patchedMarkExecutionStarted) prototype.markExecutionStarted = legacy.originalMarkExecutionStarted;
+		if (prototype.updateResult === legacy.patchedUpdateResult) prototype.updateResult = legacy.originalUpdateResult;
+	}
+	let existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
+	if (existing?.owner === TOOL_MODULE && !existing.projection && prototype.render !== existing.patchedRender) {
+		// An earlier wrapper may have restored the native method before our cleanup.
+		delete prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
+		existing = undefined;
+	}
+	if (existing && existing.owner !== TOOL_MODULE) existing.releaseOwner();
+	patchAggregateViewport();
 	patchAggregateMouseHandling(prototype);
 	patchAggregateGlobalExpansion((expanded) => getActiveAggregateProjection()?.noteTimelineExpansion(expanded));
-	const existing = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
-	if (existing) {
-		if (prototype.render === existing.patchedRender || existing.projection !== undefined) {
-			installExecutionClockHooks(prototype, existing);
-			return;
-		}
-		// A wrapper installed before us may restore its own original render after
-		// our cleanup, leaving only stale Symbol state. Start a fresh layer over
-		// the actual current renderer; the disabled old closure remains harmless
-		// if a surviving outer wrapper still references it.
-		delete prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
+	const state = existing ?? {} as AggregateToolExecutionPatchState;
+	if (!existing) {
+		state.originalRender = prototype.render as AggregateToolExecutionPatchState["originalRender"];
+		state.patchedRender = function(width) { return state.renderImpl.call(this, width); };
 	}
-
-	const state = {} as AggregateToolExecutionPatchState;
-	state.originalRender = prototype.render as AggregateToolExecutionPatchState["originalRender"];
-	state.projection = projection;
-	state.patchedRender = function renderAggregateToolExecution(width: number): string[] {
+	state.owner = TOOL_MODULE;
+	state.releaseOwner = () => {
+		TOOL_MODULE.retired = true;
+		hostAggregateProjection = undefined;
+		liveProjections.clear();
+	};
+	state.projection = hostAggregateProjection ?? projection;
+	state.renderImpl = function renderAggregateToolExecution(width: number): string[] {
 		releaseAggregateClickRegions(this);
 		const toolName = normalizeToolName(this.toolName);
 		const toolCallId = typeof this.toolCallId === "string" ? this.toolCallId : undefined;
@@ -2328,7 +2352,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 		configurable: true,
 		value: state,
 	});
-	prototype.render = state.patchedRender;
+	if (!existing) prototype.render = state.patchedRender;
 	installExecutionClockHooks(prototype, state);
 }
 
@@ -2337,10 +2361,16 @@ export function restoreAggregateToolExecutions(): void {
 	hostAggregateProjection = undefined;
 	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
+	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
+	if (state && state.owner !== TOOL_MODULE) return;
 	restoreAggregateMouseHandling(prototype);
 	restoreAggregateGlobalExpansion();
-	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (!state) return;
+	state.renderImpl = state.originalRender;
+	state.onExpanded = undefined;
+	state.onStarted = undefined;
+	state.onEnded = undefined;
+	state.projection = undefined;
 	if (prototype.render === state.patchedRender) {
 		prototype.render = state.originalRender;
 		if (state.patchedSetExpanded && prototype.setExpanded === state.patchedSetExpanded) {
@@ -2375,6 +2405,8 @@ export function registerAggregateProjectionEvents(
 	projection: AggregateProjection,
 	options: { doneSettleDelayMs?: number; getConfig?: () => ToolDisplayConfig } = {},
 ): void {
+	if (registeredApis.has(pi) || TOOL_MODULE.retired) return;
+	registeredApis.add(pi);
 	const requestedDelay = options.doneSettleDelayMs ?? AGGREGATE_DONE_SETTLE_DELAY_MS;
 	const doneSettleDelayMs = Number.isFinite(requestedDelay)
 		? Math.max(0, Math.floor(requestedDelay))
@@ -2400,33 +2432,28 @@ export function registerAggregateProjectionEvents(
 	const adoptHostIfNeeded = () => {
 		// A later session may keep its own ledger, but must not steal the host
 		// prototype pointer or rebuild the already-painting host projection.
-		if (claimHostProjection(pi, projection)) patchAggregateToolExecutions(projection);
+		if (!TOOL_MODULE.retired && claimHostProjection(pi, projection)) patchAggregateToolExecutions(projection);
 	};
 
-	adoptHostIfNeeded();
-	onReloadShutdown(pi, () => {
-		clearSettleTimer();
-		projection.setDetailOpener(undefined);
-		forgetProjection(pi, projection);
-		// Only the last live ledger may drop the shared renderer patch.
-		if (liveProjections.size === 0) restoreAggregateToolExecutions();
-		registeredApis.delete(pi);
-	});
-	if (registeredApis.has(pi)) return;
-	registeredApis.add(pi);
-
 	pi.on("session_shutdown", async () => {
+		clearSettleTimer();
 		collapseWidget.dispose();
 		projection.clearViewportState();
+		projection.setDetailOpener(undefined);
+		const wasHost = hostAggregateProjection === projection;
+		forgetProjection(pi, projection);
+		// The UI host owns shared rendering, not the last lingering child session.
+		if (wasHost) restoreAggregateToolExecutions();
+		registeredApis.delete(pi);
 	});
-	pi.on("session_start", async (_event, ctx) => {
-		if (ctx?.hasUI !== false) adoptHostIfNeeded();
+	const bindSession = (ctx: SessionContextLike) => {
+		if (TOOL_MODULE.retired) return;
+		if (ctx?.hasUI === false) forgetProjection(pi, projection);
+		else adoptHostIfNeeded();
 		rebuild(ctx);
-	});
-	pi.on("before_agent_start", async (_event, ctx) => {
-		if (ctx?.hasUI !== false) adoptHostIfNeeded();
-		rebuild(ctx);
-	});
+	};
+	pi.on("session_start", async (_event, ctx) => bindSession(ctx));
+	pi.on("before_agent_start", async (_event, ctx) => bindSession(ctx));
 	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));
 	pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
 	let pendingStreamingBehavior: "steer" | "followUp" | undefined;

@@ -78,7 +78,7 @@ test("expanded simulation and consult ledgers remain steady at end with a real a
 		assert.ok(frames[0].screen.some((line) => line.includes("Collapse")));
 		assert.deepEqual(mounts, [true]);
 		assert.equal(f.scroll.isFollowingEnd, true);
-		f.terminal.click(2, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint(); f.paint();
+		f.terminal.click(f.terminal.columns - 3, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint(); f.paint();
 		assert.equal(p.isItemExpanded("simulation"), true);
 		assert.equal(p.isItemExpanded("consultation"), false);
 	} finally {
@@ -175,7 +175,7 @@ test("real fullscreen ledger anchors migrating titles and collapses through the 
 		paint();
 		assert.ok(screen().every((line) => !line.includes("Collapse")));
 		modal.hide(); paint();
-		click(screen().findIndex((line) => line.includes("Collapse")));
+		click(screen().findIndex((line) => line.includes("Collapse")), terminal.columns - 3);
 		assert.equal(p.isItemExpanded("a-0"), false);
 		assert.equal(p.isItemExpanded("b-0"), false);
 		assert.ok(screen().some((line) => line.includes(titleLabel)));

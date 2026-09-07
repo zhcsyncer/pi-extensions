@@ -86,13 +86,15 @@ Both are aggregated by default. Agent rows show the agent type and task descript
 
 `dispatched` confirms a background invocation was accepted, **not that the child task finished**; its timing is the invocation time. Confirmed completed foreground calls use `✓`, and queued/scheduled receipts remain distinct. Existing subagent widgets and `/agents` still provide live task views and history. Clicking a ledger row opens the ordinary Result / Args viewer; it does not open the subagent-specific viewer.
 
+This folds the Agent **tool call**, not every message emitted by subagents. Separate background-completion notifications still use the subagents message renderer, including after history reload; `tools.passthrough` does not control those notifications.
+
 Explicit passthrough lists are preserved. Set `tools.passthrough` to `[]` and `/reload` if an existing configuration still keeps Agent or consult outside the ledger.
 
 ### Click to inspect
 
 In Pi **0.85+ fullscreen mode**, click anywhere in a **collapsed Run block**, including the receipt and current-call previews, to expand only that run. When expanded, the whole title/summary area can collapse it again. Top/bottom padding and expanded narration text do not toggle the ledger; dragging still selects text. `Ctrl+O` still switches the whole transcript and overrides local choices. Passthrough tools keep their native interactions.
 
-Expanding a run keeps its aggregate title in view instead of following the newly expanded content to the bottom. When you scroll into a long expanded run and its title moves above the viewport, an **`↑ Run (…) · Collapse`** control appears above the editor. Click it to collapse only that run and return to its aggregate title. The control does not take keyboard focus or cover the transcript. These viewport controls require a compatible Pi 0.85+ fullscreen renderer; ordinary terminal-scrollback mode does not provide ledger mouse interaction.
+Expanding a run keeps its aggregate title in view instead of following the newly expanded content to the bottom. When you scroll into a long expanded run and its title moves above the viewport, a right-aligned **`↑ Run (…) · Collapse`** control appears at the top of the above-editor widget group. Click it to collapse only that run and return to its aggregate title. The control does not take keyboard focus or cover the transcript. These viewport controls require a compatible Pi 0.85+ fullscreen renderer; ordinary terminal-scrollback mode does not provide ledger mouse interaction.
 
 Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result formats JSON, Markdown files read from `.md` / `.markdown` / `.mdx` paths, and clear custom-tool Markdown; other source and logs remain literal. Args uses key/value rows and multiline blocks, with shell syntax colors for Bash commands. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` shows source text or JSON. The popup does not redact credentials; terminal-control filtering and explicit size limits still apply, so check content before sharing it. Long text lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Output already truncated by the tool cannot be recovered.
 

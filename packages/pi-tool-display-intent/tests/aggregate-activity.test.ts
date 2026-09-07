@@ -1105,6 +1105,7 @@ test("reload shutdown restores original custom history renderers", async () => {
 		},
 	} as unknown as ExtensionAPI;
 	registerAggregateProjectionEvents(api, projection);
+	await handlers.get("session_start")?.[0]?.({}, { hasUI: true });
 	const askTool = {
 		...createTool("ask_user_question"),
 		renderCall: () => new Container(),

@@ -206,7 +206,7 @@ for (const gap of [0, 1, 3]) {
 		assert.equal(f.renderer.hasOverlay(), false);
 		f.terminal.onInput!("typed");
 		assert.equal(editor.getValue(), "typed");
-		f.terminal.click(2, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint();
+		f.terminal.click(f.terminal.columns - 3, f.lines().findIndex((line) => line.includes("Collapse"))); f.paint();
 		assert.equal(first.expanded, true);
 		assert.equal(second.expanded, false, "the retained control still collapses its selected run");
 		assert.equal(selected.current, undefined);

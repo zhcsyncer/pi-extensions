@@ -14,9 +14,12 @@ interface HitMap {
 }
 
 const hitMaps = new WeakMap<object, HitMap>();
-const MOUSE_PATCH = Symbol.for("pi-tool-display-intent.aggregate-mouse.v1");
+const MOUSE_PATCH = Symbol.for("pi-tool-display-intent.aggregate-mouse.v2");
+const LEGACY_MOUSE_PATCH = Symbol.for("pi-tool-display-intent.aggregate-mouse.v1");
+const MODULE_OWNER = { retired: false };
 type MouseHandler = (this: object, event: TuiMouseEvent) => TuiMouseEventResult | undefined;
 interface MousePatch {
+	owner: typeof MODULE_OWNER;
 	original?: MouseHandler;
 	patched: MouseHandler;
 	dispatch: (instance: object, event: TuiMouseEvent) => TuiMouseEventResult | undefined;
@@ -57,15 +60,21 @@ function dispatch(instance: object, event: TuiMouseEvent): TuiMouseEventResult |
 }
 
 export function patchAggregateMouseHandling(prototypeValue: object): void {
+	if (MODULE_OWNER.retired) return;
 	const prototype = prototypeValue as MousePrototype;
+	const legacy = (prototypeValue as Record<symbol, { enabled: boolean } | undefined>)[LEGACY_MOUSE_PATCH];
+	if (legacy) legacy.enabled = false;
 	const existing = prototype[MOUSE_PATCH];
 	if (existing) {
+		if (existing.owner !== MODULE_OWNER) existing.owner.retired = true;
+		existing.owner = MODULE_OWNER;
 		existing.dispatch = dispatch;
 		existing.owns = (instance) => hitMaps.has(instance);
 		existing.enabled = true;
 		return;
 	}
 	const state: MousePatch = {
+		owner: MODULE_OWNER,
 		original: prototype.handleMouse,
 		patched(event) {
 			if (state.enabled && state.owns(this)) return state.dispatch(this, event);
@@ -82,7 +91,7 @@ export function patchAggregateMouseHandling(prototypeValue: object): void {
 export function restoreAggregateMouseHandling(prototypeValue: object): void {
 	const prototype = prototypeValue as MousePrototype;
 	const state = prototype[MOUSE_PATCH];
-	if (!state) return;
+	if (!state || state.owner !== MODULE_OWNER) return;
 	if (prototype.handleMouse === state.patched) {
 		if (state.original) prototype.handleMouse = state.original;
 		else delete prototype.handleMouse;
