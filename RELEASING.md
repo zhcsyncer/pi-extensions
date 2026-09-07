@@ -15,6 +15,7 @@ This repository publishes these public npm packages:
 - `@zhcsyncer/pi-adversarial-review`
 - `@zhcsyncer/pi-fast-mode`
 - `@zhcsyncer/pi-meter`
+- `@zhcsyncer/pi-consult`
 - `pi-provider-volcengine-agent-plan`
 
 Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The standalone `@zhcsyncer/pi-adversarial-review` and `pi-provider-volcengine-agent-plan` packages are excluded from the aggregate tarball and may release without the root. Unchanged siblings remain unreleased.
