@@ -38,7 +38,7 @@ assistant 普通文字   进展：发现了什么
 Run                审计：调用了哪些工具、当前在做什么、是否失败
 ```
 
-Run 是整轮总览，不是一段必须连续的时间线。passthrough 工具可以保留独立行，同时仍计入总览。
+Run 是调用与可见扩展消息的展示投影，不是新的 Session 消息。passthrough 工具可以保留独立行，同时仍计入总览；原生内容按账本缩进排版。custom message 则留在原消息位置参与开合，不追溯后台任务身份、不重排到派发调用旁。
 
 ## 分组边界
 
@@ -55,6 +55,8 @@ user
 ```
 
 assistant 普通文字、thinking、custom tool 和 passthrough tool 都不切断 group。steer 也不切断。调用按 assistant source order 记录；同一 tool call id 的 streaming message update 不重复计数。
+
+`display: true` 的 custom message 在当前位置进入 group，独立计为 messages，不伪造工具调用、成功状态或模型 turn。最终回答仍在账本外；其后的通知另起可折叠段，避免把先前摘要移到回答下方或让框线跨过回答。连续闲时通知可共用一段，即使没有工具也有摘要入口。`display: false`、普通 custom entry、widget、临时通知不进入这条展示链路。消息内容与模型上下文是否可见不受折叠影响。
 
 Steer 的展示契约见 [`aggregate-steer.md`](./aggregate-steer.md)：进行中钉首行、结束后标题下留一行 `↳ N steers`、展开后 `↳` 留在时间线中间并整行高亮，不把正文拼进第一条 user，标题括号里不再重复计数。
 
@@ -74,7 +76,7 @@ pending / running / success / failed / needsAttention
 - 首次出现的稳定展示顺序；
 - 全局 failed 数；
 - 每类工具的 last deterministic target；
-- reload/tree/compaction 后从当前 branch 重建。
+- reload/tree/compaction 后从宿主实际选中的、已考虑压缩的上下文条目重建。
 
 计数包含 pending、running、success、failed 和 needsAttention，不把 `×N` 伪装成“成功次数”。
 
@@ -82,7 +84,7 @@ pending / running / success / failed / needsAttention
 
 默认所有工具的 transcript renderer 都被 Run 投影接管。`tools.passthrough` 中的工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行。
 
-默认没有 passthrough，Agent 与 consult 都收进统一调用行；实时子任务 UI 继续由 subagents 自己提供，不在账本复制进度，也不修改该扩展。若用户显式配置后，本轮只有 passthrough 工具，没有可承载 Run 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
+默认没有 passthrough，Agent 与 consult 都收进统一调用行；实时子任务 UI 继续由 subagents 自己提供，不在账本复制进度，也不修改该扩展。若用户显式配置后，本轮只有 passthrough 工具、也没有可见 custom message，没有可承载 Run 的 leader，则不额外制造空 summary 行；工具前的旁白按普通 assistant 文字渲染，不收成 user 下方的 `›` 框。有 leader 时，夹在工具之间的中途旁白才折进账本。
 
 ## 展示行为
 
@@ -196,7 +198,7 @@ Fullscreen 中点击展开后的工具行可检查参数和返回文本；需要
 
 收起的 Run 内容区是同一点击目标，包括统计收据和当前调用预览；展开后整个标题／统计摘要区可点击收起。上下留白、展开后的旁白正文不变成开关，工具行保留详情入口，避免开合与检查内容冲突。局部点击只改变这一 run，工具、旁白、steer 共用其开合状态；Ctrl+O 是全局命令，覆盖局部选择。新工具应继承所属 run 的局部选择，而不是用原生组件初始化的全局值把它冲掉。同一 branch 的重建保持局部选择；reload 不保存新的 Session 状态。
 
-Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在自绘账本上：default/self shell 的行偏移和高度都可能失配，而且原生点击只切单个组件。聚合层只使用本次实际渲染的行范围处理点击；展开后标题宿主可以从工具移到旁白或 steer，入口必须随之移动。只消费普通左键 click，不接管 press/drag，也不把点击投给已经失配的原生子树；未接管的 passthrough 仍走原逻辑。
+Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在自绘账本上：default/self shell 的行偏移和高度都可能失配，而且原生点击只切单个组件。聚合层只使用本次实际渲染的行范围处理点击；展开后标题宿主可以从工具移到旁白或 steer，入口必须随之移动。只消费普通左键 click，不接管 press/drag，也不把点击投给已经失配的原生子树；passthrough 保留原生交互，但以账本内容缩进后的宽度进行原生排版；仅将实际正文区域的坐标换算后交回原生子树，绝对屏幕坐标保持不变，使点击、焦点和拖动捕获继续命中原组件。左侧留白不接收点击，过窄窗口不保留旧命中区。
 
 局部开合按账本身份保留标题锚点，不按承载组件或标题文字定位：展开后标题可能从工具组件迁移到更早的旁白组件，不同账本也可能有相同标题。锚定只在原生布局已有完整测量结果之后调整滚动，并退出跟随末尾；不为找位置再次渲染正文。兼容层拿不到可靠几何信息时，保留已有局部开合，不猜位置。
 
@@ -206,7 +208,7 @@ Pi 0.85 的工具鼠标区域属于原生子组件布局，不能直接复用在
 
 展开工具行打开统一只读快照查看器，而不是把完整原生 renderer 搬进时间线：任意扩展 renderer 可能依赖执行期状态、图片协议或交互生命周期，强行复刻会扩大兼容面。参数／元数据保留结构和原值，不做凭据脱敏；结果保留文本或 JSON；非文本附件只显示信息。窗口自身有滚动、自动换行和明确的安全截断，不调用工具、不添加消息、不影响模型上下文。
 
-成功 Edit 的 Result 就是 diff，不另设 Diff 页；它复用本扩展已有的纯 diff 排版，而非调用工具自己的 renderer。弹窗跟随全局 diff 布局、标记和换行配置，aggregate 的设置面板也暴露布局／标记；行号与续行由 diff 排版负责，不再经过普通文本二次换行。Edit 只接受实际返回的 diff。Write 展示已成功写入的内容，以全新增表示且明确不是覆盖差异；使用带行号的规范化记录避免源代码中的数字／`++` 被误认成 diff 元数据。失败优先原始错误，不读取当前文件伪造历史改动。
+成功 Edit 的 Result 就是 diff，不另设 Diff 页；它复用本扩展已有的纯 diff 排版，而非调用工具自己的 renderer。弹窗跟随全局 diff 布局、标记和换行配置，aggregate 的设置面板也暴露布局／标记；行号与续行由 diff 排版负责，不再经过普通文本二次换行。Edit 只接受实际返回的 diff。Write 展示已成功写入的内容，以全新增表示且明确不是覆盖差异；它没有可供比较的旧正文，因此固定单栏，不跟随全局分栏选择，仍保留全局标记与换行配置；使用带行号的规范化记录避免源代码中的数字／`++` 被误认成 diff 元数据。失败优先原始错误，不读取当前文件伪造历史改动。
 
 查看器只把 Result／Args 放在主标签中；工具额外返回的 Metadata 属于诊断层，收在 `⋯` 后，避免和主要结果抢位。Args 的键值/文本块来自同一份有界 JSON 快照，不再次访问工具对象；Raw 只是显示形式切换，所有视图均保留凭据原值，但终端控制过滤与工作量限制不取消。多行 command 不因 JSON 转义后变成一条长字符串就丢掉高亮视图；Shell 高亮只作用于 Bash 的 command 字段。明确的自定义 Markdown 及从 Markdown 文件路径读取的内容进入真正的 Markdown 排版，其他源码与日志不根据标点擅自解释。状态与耗时靠右，滚动位置固定在底栏右侧；只提示真实截断，不重复说明只读。
 
@@ -249,9 +251,10 @@ Agent 属于委派型调用：类型／任务描述形成短标题；成功返�
 - tool call arguments；
 - tool results；
 - reasoning；
+- custom message 的 content、details 和 display；
 - 文件变更统计 custom entry。
 
-投影按 session / ExtensionAPI 隔离，不存在一份可被后来者覆盖的进程级绘制账本。同进程后加载的 Explore、另一个 pane 或 `/btw` 可以有自己的账本，但不得抢走宿主 TUI 正在使用的投影指针，也不得用自己的 branch 重建宿主账本。没有独立 TUI 的子会话不接管全局 renderer patch。`session_shutdown` 只清自己的账本，未到最后一个存活实例时不得卸掉宿主补丁。
+投影按 session / ExtensionAPI 隔离，不存在一份可被后来者覆盖的进程级绘制账本。同进程后加载的 Explore、另一个 pane 或 `/btw` 可以有自己的账本，但不得抢走宿主 TUI 正在使用的投影指针，也不得用自己的 branch 重建宿主账本。没有独立 TUI 的子会话不接管全局 renderer patch。`session_shutdown` 清理所属账本；共享补丁的寿命由 UI 宿主决定，不等待滞留的 headless 子会话。旧模块晚到的清理不得卸载新宿主补丁。
 
 本扩展不再给 thinking 正文加 `Thinking:` 展示前缀，也不再为此改写 session 或在 `context` 事件里回剥标签。旧配置里的 `transcript.thinkingLabel` 按未知字段丢掉。
 
@@ -266,7 +269,7 @@ Pi 的 `getAllTools()` 只提供 ToolInfo，不能安全取得并重注册其他
 ```text
 latest eligible component -> Run lines
 other aggregated members  -> []
-passthrough               -> original render()
+passthrough               -> inset native render() + translated native mouse region
 ```
 
 工具 definition 保持原样，因此：
@@ -276,7 +279,11 @@ passthrough               -> original render()
 - late tool 无需发现或二次包装；
 - HTML exporter 不受 interactive component patch 影响。
 
-补丁使用全局 Symbol 保存原 render，reload 时恢复；若后加载扩展包裹该 renderer，则停用本层而不制造递归包装。
+补丁使用全局 Symbol 保存可移交的分发器，reload 时恢复所属层；若后加载扩展包裹该 renderer，则停用本层而不破坏外层包装。
+
+Custom message 保留原组件子树，只改变外层布局与命中坐标。Run 开合不调用原生 invalidate 或改写 renderer 的 expanded 选项，避免重建有状态按钮。原生控件返回的焦点与拖动捕获目标保持不变；独立 viewer 中的同消息副本不被接管。
+
+Pi 的 idle custom message 会直接通知 UI，绕过扩展 message events，因此入口观察实际 `addMessageToChat`，历史按原生 replay 的出现次序绑定，不用文本或时间戳猜测。Pi 的 reload 又会先重建历史、再触发 session_start：UI 宿主激活时还要绑定已存在的消息组件。绑定借用同步、零内容的 widget factory 获取 TUI 引用，随即移除，不留下 widget 或抢焦点。旧树数量不匹配、宿主树不兼容或 replay 失败时撤销 custom 投影、保留原生展示，避免不存在的摘要宿主吞掉工具内容；后续原生 replay 再重新建立绑定。
 
 ## 配置
 
@@ -295,11 +302,11 @@ Aggregate 下 individual-only 配置保留但不生效，设置 TUI 隐藏这些
 `session_start`、`before_agent_start`、`session_tree`、`session_compact` 都从：
 
 ```text
-ctx.sessionManager.getBranch()
-ctx.sessionManager.buildSessionContext()?.messages
+ctx.sessionManager.buildContextEntries()
+# 旧宿主缺少该能力时才回退 getBranch()
 ```
 
-重建当前 branch 的 group、counts、failures 和 leader。原 branch 中的 tool calls/results 是真源；不存在第二份聚合 Session 结构。
+重建当前可见上下文的 group、counts、failures 和摘要宿主。压缩保留尾部的展开跟随宿主 sessionEntryToContextMessages，兼容显式保留条目的旧格式；不把已压缩移除的消息重新挂回 UI。原始条目仍是真源，不存在第二份聚合 Session 结构。custom 出现序号只用于当前展示上下文中的绑定，不持久化，也不合并相同内容；切分支或压缩后不把旧消息的局部展开状态套到新消息上。
 
 ## 验收标准
 

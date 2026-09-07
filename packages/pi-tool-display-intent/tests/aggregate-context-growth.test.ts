@@ -108,7 +108,7 @@ for (const [name, boundary] of [
 		const { a, b } = fixture();
 		p.rebuild([user, entry("a", a), entry("result", result), boundary, entry("b", b)]);
 		assert.match(p.renderExpandedToolRow("call-a", 120).join("\n"), /ctx ≈\+120/);
-		assert.match(renderAggregateActivity(p.getView("call-a")!, 240, theme).join("\n"), /ctx n\/a/);
+		assert.match(renderAggregateActivity(p.getViewForGroup("call-a")!, 240, theme).join("\n"), /ctx n\/a/);
 	});
 }
 

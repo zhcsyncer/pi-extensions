@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AssistantMessageComponent, InteractiveMode, ToolExecutionComponent, UserMessageComponent, initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Container, Text, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AggregateProjection, patchAggregateToolExecutions, restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
 import { patchAggregateThinkingPlaceholders, restoreAggregateThinkingPlaceholders } from "../src/aggregate-thinking-placeholder.ts";
 import registerNativeUserMessageBox from "../src/user-message-box-native.ts";
@@ -200,11 +200,51 @@ test("passthrough tools keep native click behavior without changing aggregate ru
 	const { p } = setup();
 	try {
 		const passthrough = tool("Agent", "passthrough", "self");
-		passthrough.render(100);
-		assert.equal(passthrough.handleMouse(click(3, 1, 10))?.handled, true);
+		const rows = passthrough.render(100);
+		assert.ok(rows.every((line) => clean(line).startsWith("    ")));
+		assert.equal(passthrough.handleMouse(click(3, 1, rows.length)), undefined, "the new margin is not a native hit target");
+		assert.equal(passthrough.handleMouse(click(7, 1, rows.length))?.handled, true);
 		assert.equal(p.isItemExpanded("a"), false);
 		assert.match(clean(passthrough.render(100).join("\n")), /NATIVE RESULT/);
 	} finally { restore(); }
+});
+
+for (const shell of ["self", "default"] as const) test(`passthrough ${shell}: native button coordinates, focus and capture survive indentation and resize`, () => {
+	initTheme("dark", false);
+	const events: TuiMouseEvent[] = [];
+	const nativeButton = {
+		render: (width: number) => [".".repeat(Math.max(0, width - 1)) + "X"],
+		invalidate() {},
+		handleMouse(event: TuiMouseEvent) {
+			if (event.x !== event.width - 1) return undefined;
+			events.push(event);
+			return { handled: true, capture: true, focus: true };
+		},
+	};
+	const p = new AggregateProjection(() => true);
+	patchAggregateToolExecutions(p);
+	try {
+		const native = new ToolExecutionComponent("Agent", "native", {}, {}, {
+			name: "Agent", renderShell: shell, renderCall: () => nativeButton,
+		} as never, { requestRender() {} } as never, process.cwd());
+		const root = new Container(); root.addChild(native);
+		for (const width of [80, 30]) {
+			const rows = root.render(width);
+			assert.ok(rows.every((line) => visibleWidth(line) <= width));
+			const y = rows.findIndex((line) => clean(line).includes("X"));
+			const x = visibleWidth(rows[y].slice(0, rows[y].indexOf("X")));
+			assert.equal(root.handleMouse(click(3, y, rows.length, { width })), undefined);
+			const response = root.handleMouse(click(x, y, rows.length, { width, screenX: x, screenY: y }));
+			assert.equal(response?.target.component, nativeButton);
+			assert.equal(response?.capture, true);
+			assert.equal(response?.focus, true);
+			assert.equal(response?.target.originX, x - events.at(-1)!.x);
+			assert.equal(events.at(-1)?.screenX, x);
+		}
+		assert.equal(events.length, 2);
+		assert.deepEqual(native.render(4), []);
+		assert.equal(native.handleMouse(click(7, 1, 3)), undefined, "a hidden narrow body has no stale targets");
+	} finally { restoreAggregateToolExecutions(); }
 });
 
 for (const lineCount of [30, 3000]) test(`${lineCount}-line steer follows its run and only its omission row opens the original message`, async () => {

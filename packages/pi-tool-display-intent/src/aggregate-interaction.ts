@@ -11,6 +11,7 @@ interface HitMap {
 	width: number;
 	height: number;
 	regions: readonly AggregateClickRegion[];
+	native?: { left: number; top: number; width: number; height: number };
 }
 
 const hitMaps = new WeakMap<object, HitMap>();
@@ -22,7 +23,7 @@ interface MousePatch {
 	owner: typeof MODULE_OWNER;
 	original?: MouseHandler;
 	patched: MouseHandler;
-	dispatch: (instance: object, event: TuiMouseEvent) => TuiMouseEventResult | undefined;
+	dispatch: (instance: object, event: TuiMouseEvent, original?: MouseHandler) => TuiMouseEventResult | undefined;
 	owns: (instance: object) => boolean;
 	enabled: boolean;
 }
@@ -49,14 +50,37 @@ export function releaseAggregateClickRegions(instance: object): void {
 	releaseAggregateViewportRegion(instance);
 }
 
-function dispatch(instance: object, event: TuiMouseEvent): TuiMouseEventResult | undefined {
+/** Preserve native child dispatch only inside the body actually painted at this offset. */
+export function recordAggregateNativeRegion(
+	instance: object,
+	width: number,
+	height: number,
+	native: NonNullable<HitMap["native"]>,
+	regions: readonly AggregateClickRegion[] = [],
+	viewport?: { run: AggregateViewportRun; titleRow?: number },
+): void {
+	recordAggregateClickRegions(instance, width, height, regions, viewport);
+	hitMaps.get(instance)!.native = native;
+}
+
+function dispatch(instance: object, event: TuiMouseEvent, original?: MouseHandler): TuiMouseEventResult | undefined {
 	const map = hitMaps.get(instance);
-	if (!map || event.type !== "click" || event.button !== "left" || event.shift || event.alt || event.ctrl) return undefined;
-	if (event.x < 0 || event.x >= map.width || event.y < 0 || event.y >= map.height) return undefined;
-	const region = map.regions.find((candidate) => event.y >= candidate.startRow && event.y < candidate.endRow);
-	if (!region) return undefined;
-	region.onClick();
-	return { handled: true };
+	if (!map || event.x < 0 || event.x >= map.width || event.y < 0 || event.y >= map.height) return undefined;
+	if (event.type === "click" && event.button === "left" && !event.shift && !event.alt && !event.ctrl) {
+		const region = map.regions.find((candidate) => event.y >= candidate.startRow && event.y < candidate.endRow);
+		if (region) {
+			region.onClick();
+			return { handled: true };
+		}
+	}
+	const body = map.native;
+	if (!body || event.width !== map.width || event.x < body.left || event.x >= body.left + body.width
+		|| event.y < body.top || event.y >= body.top + body.height) return undefined;
+	// Absolute screen coordinates stay unchanged: native Container dispatch then
+	// derives the correct capture/focus target, including nested child offsets.
+	return original?.call(instance, {
+		...event, x: event.x - body.left, y: event.y - body.top, width: body.width, height: body.height,
+	});
 }
 
 export function patchAggregateMouseHandling(prototypeValue: object): void {
@@ -77,7 +101,7 @@ export function patchAggregateMouseHandling(prototypeValue: object): void {
 		owner: MODULE_OWNER,
 		original: prototype.handleMouse,
 		patched(event) {
-			if (state.enabled && state.owns(this)) return state.dispatch(this, event);
+			if (state.enabled && state.owns(this)) return state.dispatch(this, event, state.original);
 			return state.original?.call(this, event);
 		},
 		dispatch,

@@ -86,9 +86,9 @@ pi install npm:@zhcsyncer/pi-extensions
 
 `dispatched` 只表示后台调用已派发，**不代表子任务完成**，旁边的计时也是本次调用耗时。确认完成的前台调用使用 `✓`，排队和预约回执另作标记。原有 subagent widget 和 `/agents` 仍用于查看实时任务与历史。点击账本行打开通用 Result / Args，不会直接打开 subagent 专用 viewer。
 
-这里收纳的是 Agent **工具调用**，不是 subagents 发出的所有消息。独立的后台完成通知仍使用 subagents 的消息 renderer，历史 reload 后也会恢复；`tools.passthrough` 不控制这些通知。
+可见的 custom message（包括子任务完成通知）现在按原有 transcript 顺序一起收进 Run；展开后保留原 renderer 和原生按钮。最终回答之后到达的通知另起一段，不搬回之前派发任务的 Run。纯消息段显示 `Run (N messages)`，消息不计为工具调用。隐藏消息仍然隐藏，widget 和仅供 UI 使用的 custom entry 仍独立展示。`tools.passthrough` 控制工具调用，不控制这些消息。
 
-已有显式 passthrough 名单不会被自动删除。如果原配置仍将 Agent 或 consult 留在账本外，将 `tools.passthrough` 设为 `[]` 后 `/reload` 即可。
+已有显式 passthrough 名单不会被自动删除。这些工具保留原生内容、展开方式和交互，但统一对齐账本的内容缩进，不再贴着终端左边缘。如果原配置仍将 Agent 或 consult 留在账本外，将 `tools.passthrough` 设为 `[]` 后 `/reload` 即可。
 
 ### 点击查看详情
 
@@ -98,7 +98,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 会排版 JSON、从 `.md` / `.markdown` / `.mdx` 路径读取的 Markdown 文件，以及明确的自定义工具 Markdown；其他源码和日志保持原文。Args 使用键值行和多行文本块，Bash command 会做 Shell 语法高亮。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 查看文本或 JSON 原文。弹窗不再对凭据脱敏，但仍过滤终端控制字符并保留明确的体积限制，分享前请核查内容。长文本自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。工具本身已截断的输出无法恢复。
 
-成功的 Edit 调用若返回了 diff，**Result 就是 diff**，不另设标签。成功的 Write 也使用同一视图，把写入内容标为新增，并明确说明这不是覆盖前后的净差异。两者都跟随全局 **Diff layout** / **Diff indicators**，aggregate 的 `/tools` 中也能配置；高级项 `diff.wordWrap` / `diff.splitMinWidth` 同样生效。Raw 保留原始返回及源内容；失败或缺少必要数据时显示普通结果，不根据当前文件猜测历史改动。
+成功的 Edit 调用若返回了 diff，**Result 就是 diff**，不另设标签。成功的 Write 也使用同一视图，把写入内容标为新增，并明确说明这不是覆盖前后的净差异。Write 固定单栏；Edit 跟随全局 **Diff layout** 和 `diff.splitMinWidth`。两者仍共用 **Diff indicators** 和 `diff.wordWrap` 配置；aggregate 的 `/tools` 中也能配置布局与标记。Raw 保留原始返回及源内容；失败或缺少必要数据时显示普通结果，不根据当前文件猜测历史改动。
 
 账本只有在完整目标能放进一行时才显示 `Bash(command)`。超长或多行命令只显示 Bash、intent 和体积；点击展开后的调用查看完整参数。
 
@@ -128,7 +128,7 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 | `toolCalls.showContextGrowth` | 显示 `ctx` run 总计与逐拍标记；默认 `false`（仅 aggregate，不用 reload） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | bash intent 语言：尽量跟随请求、固定简体中文或固定英文（经 `/reload` 生效） |
-| `diff.layout` / `diff.indicators` | Edit/Write 共用的 diff 布局与标记，包含 aggregate 详情弹窗 |
+| `diff.layout` / `diff.indicators` | Edit 的 diff 布局及 Edit/Write 共用的标记；Write 固定单栏 |
 | `diff.collapsedMode` | `body` 预览，或只要 `summary` 统计（individual 工具行） |
 | `tools.passthrough` | 显式保留原 renderer 的工具，默认 `[]` |
 

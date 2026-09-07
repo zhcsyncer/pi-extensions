@@ -18,6 +18,9 @@ export function createDetailDiffRenderer(
 		{ expanded: true, filePath },
 		{
 			...config,
+			// Write shows supplied content, not a before/after comparison. A split
+			// layout would reserve an empty old-content pane even on wide screens.
+			diffViewMode: source === "write" ? "unified" : config.diffViewMode,
 			// The snapshot model already bounds input. The popup scrolls rendered
 			// rows itself; a second Ctrl+O truncation hint would be misleading here.
 			expandedPreviewMaxRows: 0,

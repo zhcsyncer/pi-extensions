@@ -86,9 +86,9 @@ Both are aggregated by default. Agent rows show the agent type and task descript
 
 `dispatched` confirms a background invocation was accepted, **not that the child task finished**; its timing is the invocation time. Confirmed completed foreground calls use `✓`, and queued/scheduled receipts remain distinct. Existing subagent widgets and `/agents` still provide live task views and history. Clicking a ledger row opens the ordinary Result / Args viewer; it does not open the subagent-specific viewer.
 
-This folds the Agent **tool call**, not every message emitted by subagents. Separate background-completion notifications still use the subagents message renderer, including after history reload; `tools.passthrough` does not control those notifications.
+Visible custom messages, including subagent completion notifications, now fold into Run in their original transcript order. Expanding preserves their original renderer and native buttons. Notifications arriving after a final answer start a new segment rather than moving back to the dispatching run. Message-only segments show `Run (N messages)`; messages do not count as tool calls. Hidden messages remain hidden, and widgets and UI-only custom entries stay separate. `tools.passthrough` controls tool calls, not these messages.
 
-Explicit passthrough lists are preserved. Set `tools.passthrough` to `[]` and `/reload` if an existing configuration still keeps Agent or consult outside the ledger.
+Explicit passthrough lists are preserved. These tools keep their native content, expansion and interactions, aligned with the ledger's content inset rather than the terminal's left edge. Set `tools.passthrough` to `[]` and `/reload` if an existing configuration still keeps Agent or consult outside the ledger.
 
 ### Click to inspect
 
@@ -98,7 +98,7 @@ Expanding a run keeps its aggregate title in view instead of following the newly
 
 Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result formats JSON, Markdown files read from `.md` / `.markdown` / `.mdx` paths, and clear custom-tool Markdown; other source and logs remain literal. Args uses key/value rows and multiline blocks, with shell syntax colors for Bash commands. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` shows source text or JSON. The popup does not redact credentials; terminal-control filtering and explicit size limits still apply, so check content before sharing it. Long text lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Output already truncated by the tool cannot be recovered.
 
-For successful Edit calls with returned diff data, **Result is the diff**, without a separate tab. Successful Write calls use the same view to show supplied content as additions, explicitly labeled as written content rather than an overwrite delta. Both follow the global **Diff layout** and **Diff indicators** settings, now also available in aggregate `/tools`; advanced `diff.wordWrap` and `diff.splitMinWidth` apply too. Raw retains the original return and source content; failures or missing required data show the ordinary result. Historical changes are never reconstructed from the current file.
+For successful Edit calls with returned diff data, **Result is the diff**, without a separate tab. Successful Write calls use the same view to show supplied content as additions, explicitly labeled as written content rather than an overwrite delta. Write always uses a single-column layout; Edit follows the global **Diff layout** and `diff.splitMinWidth`. Both retain the global **Diff indicators** and `diff.wordWrap` settings. Layout and indicator settings are also available in aggregate `/tools`. Raw retains the original return and source content; failures or missing required data show the ordinary result. Historical changes are never reconstructed from the current file.
 
 In the ledger, `Bash(command)` is shown only when the complete target fits one display row. Longer or multiline commands show Bash, intent and size instead; click the expanded call to inspect the complete arguments.
 
@@ -128,7 +128,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | `toolCalls.showContextGrowth` | Show `ctx` run totals and turn badges; default `false` (aggregate only; no reload) |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
-| `diff.layout` / `diff.indicators` | Shared Edit/Write diff layout and markers, including aggregate inspectors |
+| `diff.layout` / `diff.indicators` | Edit diff layout and shared Edit/Write markers; Write is always single-column |
 | `diff.collapsedMode` | `body` preview, or `summary` stats only (individual tool rows) |
 | `tools.passthrough` | Explicit tools that keep their original renderer; default `[]` |
 

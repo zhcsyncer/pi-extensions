@@ -139,7 +139,8 @@ test("Write Result displays supplied content as additions without claiming an ov
 	const component = new DetailViewer(model, { getHeight: () => 25, onClose() {}, onRender() {}, diffConfig: { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode: "split" } });
 	const displayed = plain(component.render(180));
 	assert.match(displayed, /Written content.*all additions.*not an overwrite diff/);
-	assert.match(displayed, /split/);
+	assert.match(displayed, /unified/);
+	assert.doesNotMatch(displayed, /split/);
 	assert.match(displayed, /const answer = 42/);
 	assert.match(displayed, /\+2\b.*-0\b/);
 	assert.match(model.tabs[0].rawText, /Successfully wrote output.ts/);
@@ -152,7 +153,7 @@ test("Write Result displays supplied content as additions without claiming an ov
 test("Write preserves numeric prefixes and diff-like source text without inventing files or dropping additions", () => {
 	const content = "123 hello\n456|world\n++i;\n++ literal\nnormal\n";
 	const model = buildDetailModel({ kind: "tool", toolName: "write", args: { path: "example.txt", content }, result: { content: [{ type: "text", text: "written" }] } });
-	for (const diffViewMode of ["unified", "split"] as const) {
+	for (const diffViewMode of ["unified", "split", "auto"] as const) {
 		const component = new DetailViewer(model, { getHeight: () => 25, onClose() {}, onRender() {}, diffConfig: { ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode } });
 		const shown = plain(component.render(180));
 		assert.match(shown, /123 hello/);
@@ -160,10 +161,31 @@ test("Write preserves numeric prefixes and diff-like source text without inventi
 		assert.match(shown, /\+\+i;/);
 		assert.match(shown, /\+\+ literal/);
 		assert.match(shown, /\+5\b.*-0\b/);
-		if (diffViewMode === "unified") assert.match(shown, /1 file\b/);
+		assert.match(shown, /1 file\b/);
+		assert.match(shown, /unified/);
+		assert.doesNotMatch(shown, /split/);
 		assert.doesNotMatch(shown, /2 files/);
 	}
 	assert.ok(model.tabs[0].rawText.endsWith(content));
+});
+
+test("Write stays single-column across widths while retaining global markers and wrapping", () => {
+	const text = `+1|${"written content ".repeat(25)}END`;
+	for (const diffViewMode of ["split", "auto"] as const) {
+		const config = Object.freeze({ ...DEFAULT_TOOL_DISPLAY_CONFIG, diffViewMode, diffSplitMinWidth: 40,
+			diffIndicatorMode: "classic" as const, diffWordWrap: true });
+		const renderer = createDetailDiffRenderer(text, "output.txt", undefined, config, "write");
+		for (const width of [40, 180]) {
+			const lines = renderer.render(width);
+			const shown = plain(lines);
+			if (width >= 100) assert.match(shown, /unified/);
+			assert.doesNotMatch(shown, /split/);
+			assert.match(shown, /│\+/);
+			assert.match(shown, /END/);
+			assert.ok(lines.every((line) => visibleWidth(line) <= width));
+		}
+		assert.equal(config.diffViewMode, diffViewMode, "do not change the global Edit layout preference");
+	}
 });
 
 test("Diff pages scroll, reflow on resize and remain bounded by the popup viewport", () => {

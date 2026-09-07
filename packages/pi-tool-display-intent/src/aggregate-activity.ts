@@ -1,6 +1,7 @@
 import {
 	formatSize,
 	getMarkdownTheme,
+	sessionEntryToContextMessages,
 	ToolExecutionComponent,
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -9,10 +10,11 @@ import { Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@eare
 import { formatAggregateArgumentPreview } from "./aggregate-argument-preview.js";
 import { agentReceiptChrome, formatAggregateAgentTarget, readAgentCallReceipt, type AgentCallReceipt } from "./aggregate-agent-call.js";
 import { ContextGrowthLedger, formatContextGrowth, type ContextGrowth } from "./context-growth.js";
-import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
+import { patchAggregateMouseHandling, recordAggregateClickRegions, recordAggregateNativeRegion, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
 import { layoutSteerPreview } from "./steer-preview.js";
 import { patchAggregateGlobalExpansion, restoreAggregateGlobalExpansion } from "./aggregate-expansion.js";
 import { patchAggregateViewport, restoreAggregateViewport, resetAggregateViewportOwner, toggleAggregateViewportRun, type AggregateViewportRun } from "./aggregate-viewport.js";
+import { patchAggregateCustomMessages, restoreAggregateCustomMessages, bindExistingAggregateCustomMessages } from "./aggregate-custom-message.js";
 import { createAggregateCollapseWidget } from "./aggregate-collapse-widget.js";
 import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
@@ -64,6 +66,8 @@ export interface AggregateGroup {
 	leaderToolCallId?: string;
 	members: AggregateMember[];
 	framedItemIds: string[];
+	customItemIds: string[];
+	expansionKey?: string;
 	narrationById: Map<string, string>;
 	agentTurnIds: string[];
 	usageByKey: Map<string, AggregateUsageTotals>;
@@ -94,6 +98,7 @@ export interface AggregateActivityView {
 	hasRunning: boolean;
 	latestNarration?: string;
 	callCount: number;
+	customMessageCount?: number;
 	agentTurnCount: number;
 	settled: boolean;
 	durationMs?: number;
@@ -125,6 +130,7 @@ interface SessionContextLike {
 	hasUI?: boolean;
 	sessionManager?: {
 		getBranch(): unknown[];
+		buildContextEntries?(): unknown[];
 		buildSessionContext?(): { messages?: unknown[] };
 	};
 }
@@ -666,7 +672,24 @@ function collectVisibleToolCallIds(messages: unknown[] | undefined): Set<string>
 
 function entryMessage(entry: unknown): unknown | undefined {
 	const record = toRecord(entry);
+	if (record.type === "custom_message") return {
+		role: "custom", customType: record.customType, content: record.content,
+		display: record.display, details: record.details,
+		timestamp: parseTimestampMs(record.timestamp),
+	};
 	return record.type === "message" ? record.message : undefined;
+}
+
+/** Mirror Pi's materialized compaction tail without mutating its persisted entries. */
+function materializeAggregateEntries(entries: unknown[]): unknown[] {
+	return entries.flatMap((entry) => {
+		const source = toRecord(entry);
+		if (source.type !== "compaction" || !Array.isArray(source.retainedTail)) return [entry];
+		const tail = sessionEntryToContextMessages(source as never).filter((message) => message.role !== "compactionSummary");
+		return [entry, ...tail.map((message, index) => ({
+			type: "message", id: `retained:${source.id ?? "compaction"}:${index}`, message,
+		}))];
+	});
 }
 
 function entryId(entry: unknown, fallback: string): string {
@@ -899,8 +922,92 @@ export class AggregateProjection {
 		private readonly showContextGrowth: () => boolean = () => false,
 	) {}
 
+	private customSequence = 0;
+	private replayEntryIds: string[] = [];
+	private customBoundary = false;
+	private readonly customMessages = new Map<string, unknown>();
+	private readonly customAfterTurn = new Map<string, string>();
+	private readonly customIdsByMessage = new WeakMap<object, string>();
+	private readonly emptyCustomFrames = new Set<string>();
+
 	isInitialized(): boolean {
 		return this.initialized;
+	}
+
+	/** IDs describe occurrences in the current transcript, never task identity or text. */
+	ingestCustomMessage(message: unknown, restoredId?: string): string | undefined {
+		if (messageRole(message) !== "custom" || toRecord(message).display !== true) return undefined;
+		if (!restoredId) {
+			const existing = this.getCustomMessageItemId(message);
+			if (existing) return existing;
+		}
+		const id = restoredId ?? `custom:${++this.customSequence}`;
+		if (this.customBoundary) {
+			this.activeGroupId = `custom-segment:${id}`;
+			this.customBoundary = false;
+		}
+		const group = this.ensureActiveGroup();
+		this.customMessages.set(id, message);
+		const afterTurn = group.agentTurnIds.at(-1);
+		if (afterTurn) this.customAfterTurn.set(id, afterTurn);
+		this.bindCustomMessage(message, id);
+		if (!group.customItemIds.includes(id)) group.customItemIds.push(id);
+		if (!group.members.length) group.expansionKey ??= id;
+		this.trackFramedItem(id, group.groupId);
+		if (!group.members.length && !group.agentTurnIds.length) group.settled = true;
+		this.initialized = true;
+		this.invalidateIds(...group.framedItemIds);
+		return id;
+	}
+
+	bindCustomMessage(message: unknown, itemId: string): void {
+		if (message && typeof message === "object" && this.customMessages.has(itemId)) {
+			this.customIdsByMessage.set(message, itemId);
+		}
+	}
+
+	getCustomMessageItemId(message: unknown): string | undefined {
+		const id = message && typeof message === "object" ? this.customIdsByMessage.get(message) : undefined;
+		return id && this.customMessages.has(id) ? id : undefined;
+	}
+
+	getCustomOccurrenceIds(): string[] {
+		return [...this.customMessages.keys()];
+	}
+
+	prepareCustomReplay(entries: unknown[]): Array<string | undefined> {
+		this.rebuild(entries);
+		let index = 0;
+		return materializeAggregateEntries(entries).flatMap((entry) => {
+			const message = entryMessage(entry);
+			if (messageRole(message) !== "custom") return [];
+			return [toRecord(message).display === true ? `custom:${++index}` : undefined];
+		});
+	}
+
+	/** A failed/unsupported native replay must not leave an invisible summary host. */
+	discardCustomReplay(): void {
+		for (const group of this.groups) {
+			for (const id of group.customItemIds) {
+				this.untrackFramedItem(id);
+				this.expandedGroups.delete(id);
+			}
+			group.customItemIds = [];
+			group.expansionKey = undefined;
+			this.invalidateGroup(group.groupId);
+		}
+		this.customMessages.clear();
+		this.customAfterTurn.clear();
+		this.emptyCustomFrames.clear();
+		this.clearViewportState();
+	}
+
+	private collapsedHost(group: AggregateGroup): string | undefined {
+		return [...group.framedItemIds].reverse().find((id) => {
+			if (this.customMessages.has(id)) return !this.emptyCustomFrames.has(id);
+			const member = this.membersById.get(id);
+			return member?.visible && member.state !== "needsAttention" && !this.isPassthrough(member.toolName);
+		});
 	}
 
 	isPassthrough(toolName: string): boolean {
@@ -937,7 +1044,7 @@ export class AggregateProjection {
 
 	isItemExpanded(itemId: string, fallback = false): boolean {
 		const group = this.groupForItem(itemId);
-		return (group && this.expandedGroups.get(group.members[0]?.toolCallId ?? group.groupId))
+		return (group && this.expandedGroups.get(group.expansionKey ?? group.members[0]?.toolCallId ?? group.groupId))
 			?? (this.timelineExpansionObserved ? this.timelineExpanded : fallback);
 	}
 
@@ -958,7 +1065,10 @@ export class AggregateProjection {
 			toggle: () => { if (run.isValid()) this.toggleGroupExpansion(id); },
 			label: () => {
 				const count = this.groupsById.get(id)?.members.filter((member) => member.visible).length ?? 0;
-				return `Run (${count} ${pluralize(count, "call")})`;
+				const messages = this.groupsById.get(id)?.customItemIds.filter((item) => !this.emptyCustomFrames.has(item)).length ?? 0;
+				const parts = count > 0 || messages === 0 ? [`${count} ${pluralize(count, "call")}`] : [];
+				if (messages) parts.push(`${messages} ${pluralize(messages, "message")}`);
+				return `Run (${parts.join(" · ")})`;
 			},
 		};
 		this.viewportRuns.set(id, run);
@@ -980,7 +1090,7 @@ export class AggregateProjection {
 		if (!group) return;
 		const expanded = !this.isItemExpanded(itemId);
 		this.timelineExpansionObserved = true;
-		this.expandedGroups.set(group.members[0]?.toolCallId ?? group.groupId, expanded);
+		this.expandedGroups.set(group.expansionKey ?? group.members[0]?.toolCallId ?? group.groupId, expanded);
 		this.invalidateIds(...group.members.map((member) => member.toolCallId), ...group.framedItemIds);
 		for (const id of group.agentTurnIds) this.contextInvalidators.get(id)?.();
 	}
@@ -1029,7 +1139,7 @@ export class AggregateProjection {
 		const index = items.indexOf(itemId);
 		if (index <= 0) return false;
 		const previous = items[index - 1] ?? "";
-		return !previous.startsWith("assistant") && !previous.startsWith("steer:");
+		return this.membersById.has(previous);
 	}
 
 	shouldFrameAssistantNarration(message?: unknown): boolean {
@@ -1132,7 +1242,7 @@ export class AggregateProjection {
 
 	getFramedItemIds(itemId: string): string[] {
 		const groupId = this.framedGroupById.get(itemId);
-		return groupId ? [...(this.groupsById.get(groupId)?.framedItemIds ?? [])] : [];
+		return groupId ? (this.groupsById.get(groupId)?.framedItemIds ?? []).filter((id) => !this.emptyCustomFrames.has(id)) : [];
 	}
 
 	isFrameStart(itemId: string): boolean {
@@ -1160,6 +1270,13 @@ export class AggregateProjection {
 	markFrameContentVisible(itemId: string, visible: boolean): void {
 		if (!itemId) return;
 		const previousHost = this.getFramedItemIds(itemId).find((id) => this.hasVisibleFrameContent(id));
+		const group = this.groupForItem(itemId);
+		if (this.customMessages.has(itemId)) {
+			const wasEmpty = this.emptyCustomFrames.has(itemId);
+			if (visible) this.emptyCustomFrames.delete(itemId);
+			else this.emptyCustomFrames.add(itemId);
+			if (wasEmpty === visible && group) this.invalidateIds(...group.framedItemIds);
+		}
 		if (visible) this.visibleFrameContent.add(itemId);
 		else this.visibleFrameContent.delete(itemId);
 		const nextHost = this.getFramedItemIds(itemId).find((id) => this.hasVisibleFrameContent(id));
@@ -1167,11 +1284,9 @@ export class AggregateProjection {
 	}
 
 	getViewForGroup(itemId: string): AggregateActivityView | undefined {
-		const groupId = this.framedGroupById.get(itemId) ?? this.membersById.get(itemId)?.groupId;
-		if (!groupId) return undefined;
-		const group = this.groupsById.get(groupId);
-		if (!group?.leaderToolCallId) return undefined;
-		return this.getView(group.leaderToolCallId);
+		const group = this.groupForItem(itemId);
+		const host = group && this.collapsedHost(group);
+		return group && host ? this.buildGroupView(group, host) : undefined;
 	}
 
 	private groupIdForFrameItem(itemId: string, beforeId?: string): string | undefined {
@@ -1238,6 +1353,9 @@ export class AggregateProjection {
 		if (previousId && previousId !== id && group.agentTurnIds.includes(previousId)) {
 			group.agentTurnIds = [...new Set(group.agentTurnIds.map((value) => value === previousId ? id : value))];
 			group.usageByKey.delete(previousId);
+			for (const item of group.customItemIds) {
+				if (this.customAfterTurn.get(item) === previousId) this.customAfterTurn.set(item, id);
+			}
 			for (const member of group.members) {
 				if (member.agentTurnId === previousId) member.agentTurnId = id;
 			}
@@ -1309,6 +1427,7 @@ export class AggregateProjection {
 		const resolvedId = groupId || `live-user-${++this.liveGroupSequence}`;
 		const group = this.ensureGroup(resolvedId);
 		this.activeGroupId = resolvedId;
+		this.customBoundary = false;
 		this.initialized = true;
 		const fromId = resolvedId.startsWith("live-user-")
 			? parseTimestampMs(resolvedId.slice("live-user-".length))
@@ -1413,6 +1532,15 @@ export class AggregateProjection {
 
 	ingestAssistantMessage(message: unknown): void {
 		if (messageRole(message) !== "assistant") return;
+		const savedGroup = this.activeGroupId;
+		const savedBoundary = this.customBoundary;
+		const turnId = this.contextTurnId(message);
+		const known = turnId ? this.groups.find((group) => group.agentTurnIds.includes(turnId)) : undefined;
+		if (known) this.activeGroupId = known.groupId;
+		else {
+			this.ensureActiveGroup().settled = false;
+			this.customBoundary = false;
+		}
 		this.rememberAgentTurn(message);
 		const calls = toolCallsFromMessage(message);
 		if (calls.length > 0) this.markGroupSawToolBatch();
@@ -1423,7 +1551,12 @@ export class AggregateProjection {
 			const frameId = aggregateAssistantFrameId(message);
 			const narration = firstVisibleAssistantText(message);
 			if (frameId && narration) {
-				this.trackFramedItem(frameId, this.activeGroupId, calls[0]?.id);
+				// A native assistant component already exists when a custom notice
+				// arrives during its text stream. Later tool-call discovery must not
+				// put the Run title below that earlier narration.
+				const turn = this.contextTurnId(message);
+				const beforeNotice = this.ensureActiveGroup().customItemIds.find((id) => this.customAfterTurn.get(id) === turn);
+				this.trackFramedItem(frameId, this.activeGroupId, beforeNotice ?? calls[0]?.id);
 				this.rememberNarration(frameId, narration);
 			}
 		}
@@ -1437,6 +1570,10 @@ export class AggregateProjection {
 			}
 		}
 		this.maybeSettleFromTerminalAssistant(message);
+		if (known && known.groupId !== savedGroup) {
+			this.activeGroupId = savedGroup;
+			this.customBoundary = savedBoundary;
+		}
 	}
 
 	ingestToolResult(
@@ -1577,6 +1714,19 @@ export class AggregateProjection {
 	rebuild(branchEntries: unknown[], visibleMessages?: unknown[]): void {
 		this.clearViewportState();
 		const visibleIds = collectVisibleToolCallIds(visibleMessages);
+		const projectedEntries = materializeAggregateEntries(Array.isArray(branchEntries) ? branchEntries : []);
+		const nextEntryIds = projectedEntries.map((entry, index) => entryId(entry, `position:${index}`));
+		// Occurrence IDs are scoped to the current transcript. A different branch
+		// or compaction must not inherit another notification's local expansion.
+		if (!this.replayEntryIds.every((id, index) => nextEntryIds[index] === id)) {
+			for (const id of this.customMessages.keys()) this.expandedGroups.delete(id);
+		}
+		this.replayEntryIds = nextEntryIds;
+		this.customSequence = 0;
+		this.customBoundary = false;
+		this.customMessages.clear();
+		this.customAfterTurn.clear();
+		this.emptyCustomFrames.clear();
 		this.groups.length = 0;
 		this.groupsById.clear();
 		this.membersById.clear();
@@ -1589,10 +1739,14 @@ export class AggregateProjection {
 		this.activeGroupId = undefined;
 
 		let fallbackGroupIndex = 0;
-		for (const entry of Array.isArray(branchEntries) ? branchEntries : []) {
+		for (const entry of projectedEntries) {
 			const message = entryMessage(entry);
 			if (!message) continue;
 			const role = messageRole(message);
+			if (role === "custom") {
+				if (toRecord(message).display === true) this.ingestCustomMessage(message, `custom:${++this.customSequence}`);
+				continue;
+			}
 			if (role === "user") {
 				const restoredId = entryId(entry, `restored-user-${++fallbackGroupIndex}`);
 				this.ingestUserMessage(message, {
@@ -1645,11 +1799,11 @@ export class AggregateProjection {
 				// A removed row may already belong to a disposed transcript.
 			}
 		}
-		const expansionKeys = new Set(this.groups.map((group) => group.members[0]?.toolCallId ?? group.groupId));
+		const expansionKeys = new Set(this.groups.map((group) => group.expansionKey ?? group.members[0]?.toolCallId ?? group.groupId));
 		for (const key of this.expandedGroups.keys()) {
 			if (!expansionKeys.has(key)) this.expandedGroups.delete(key);
 		}
-		this.rebuildContextGrowth(branchEntries);
+		this.rebuildContextGrowth(projectedEntries);
 	}
 
 	private contextTurnId(message: unknown): string | undefined {
@@ -1697,7 +1851,7 @@ export class AggregateProjection {
 			return;
 		}
 		const id = this.contextTurnId(message);
-		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
+		const group = id ? this.groups.find((candidate) => candidate.agentTurnIds.includes(id)) : undefined;
 		if (!id || !group) return;
 		this.contextGrowth.recordAssistant(group.groupId, id, message);
 		for (const result of toolResults) this.contextGrowth.recordToolResult(result);
@@ -1740,12 +1894,13 @@ export class AggregateProjection {
 		return lines;
 	}
 
-	getView(toolCallId: string): AggregateActivityView | undefined {
-		const member = this.membersById.get(toolCallId);
-		if (!member || member.state === "needsAttention" || this.isPassthrough(member.toolName)) return undefined;
-		const group = this.groupsById.get(member.groupId);
-		if (!group || group.leaderToolCallId !== toolCallId) return undefined;
+	getView(itemId: string): AggregateActivityView | undefined {
+		const group = this.groupForItem(itemId);
+		if (!group || this.collapsedHost(group) !== itemId) return undefined;
+		return this.buildGroupView(group, itemId);
+	}
 
+	private buildGroupView(group: AggregateGroup, hostId: string): AggregateActivityView {
 		const grouped = group.members;
 		const aggregateMembers = grouped.filter(
 			(entry) => entry.state !== "needsAttention" && !this.isPassthrough(entry.toolName),
@@ -1781,18 +1936,19 @@ export class AggregateProjection {
 
 		return {
 			groupId: group.groupId,
-			leaderToolCallId: toolCallId,
+			leaderToolCallId: group.leaderToolCallId ?? hostId,
 			hasRunning: grouped.some((entry) => entry.state === "pending" || entry.state === "running"),
-			latestNarration: this.latestNarrationFor(toolCallId),
+			latestNarration: this.latestNarrationFor(hostId),
 			callCount: grouped.length,
-			agentTurnCount: Math.max(1, group.agentTurnIds.length),
+			customMessageCount: group.customItemIds.filter((id) => !this.emptyCustomFrames.has(id)).length,
+			agentTurnCount: grouped.length ? Math.max(1, group.agentTurnIds.length) : group.agentTurnIds.length,
 			settled: group.settled,
 			durationMs: group.startedAtMs !== undefined && group.endedAtMs !== undefined
 				? Math.max(0, group.endedAtMs - group.startedAtMs)
 				: undefined,
 			completedAtMs: group.endedAtMs,
 			usage: sumUsage(group.usageByKey),
-			contextGrowth: this.showContextGrowth() ? this.contextGrowth.getRun(group.groupId, group.agentTurnIds) : undefined,
+			contextGrowth: this.showContextGrowth() && group.agentTurnIds.length > 0 ? this.contextGrowth.getRun(group.groupId, group.agentTurnIds) : undefined,
 			active,
 			displayRows,
 			activeOverflow: Math.max(0, activeAll.length - ACTIVE_ROW_LIMIT),
@@ -1814,6 +1970,7 @@ export class AggregateProjection {
 
 	private maybeSettleFromTerminalAssistant(message: unknown): void {
 		if (!isAssistantTerminal(message)) return;
+		this.customBoundary = true;
 		const group = this.activeGroupId ? this.groupsById.get(this.activeGroupId) : undefined;
 		if (!group) return;
 		if (group.members.some((member) => member.state === "pending" || member.state === "running")) {
@@ -1829,6 +1986,7 @@ export class AggregateProjection {
 				groupId,
 				members: [],
 				framedItemIds: [],
+				customItemIds: [],
 				narrationById: new Map(),
 				agentTurnIds: [],
 				usageByKey: new Map(),
@@ -1925,7 +2083,7 @@ export class AggregateProjection {
 
 	private invalidateGroup(groupId: string, changedId?: string): void {
 		const group = this.groupsById.get(groupId);
-		this.invalidateIds(group?.leaderToolCallId, changedId);
+		this.invalidateIds(group?.leaderToolCallId, group && this.collapsedHost(group), changedId);
 	}
 
 	private invalidateIds(...ids: Array<string | undefined>): void {
@@ -2141,12 +2299,14 @@ export function renderAggregateActivity(
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 	if (safeWidth === 0) return [];
 	const hasFailure = view.failedCount > 0;
-	const marker = hasFailure ? "!" : view.hasRunning ? "◐" : "✓";
-	const markerColor = hasFailure ? "error" : view.hasRunning ? "warning" : "success";
-	const totals = theme.fg(
-		"muted",
-		` (${view.callCount} call${view.callCount === 1 ? "" : "s"} · ${view.agentTurnCount} turn${view.agentTurnCount === 1 ? "" : "s"})`,
-	);
+	const marker = hasFailure ? "!" : view.hasRunning ? "◐" : view.callCount ? "✓" : "•";
+	const markerColor = hasFailure ? "error" : view.hasRunning ? "warning" : view.callCount ? "success" : "muted";
+	const parts: string[] = [];
+	if (view.callCount || !view.customMessageCount) {
+		parts.push(`${view.callCount} ${pluralize(view.callCount, "call")}`, `${view.agentTurnCount} ${pluralize(view.agentTurnCount, "turn")}`);
+	}
+	if (view.customMessageCount) parts.push(`${view.customMessageCount} ${pluralize(view.customMessageCount, "message")}`);
+	const totals = theme.fg("muted", ` (${parts.join(" · ")})`);
 	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Run") ?? "Run")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
 	for (const summary of view.toolSummaries) {
@@ -2279,6 +2439,7 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 	}
 	if (existing && existing.owner !== TOOL_MODULE) existing.releaseOwner();
 	patchAggregateViewport();
+	patchAggregateCustomMessages();
 	patchAggregateMouseHandling(prototype);
 	patchAggregateGlobalExpansion((expanded) => getActiveAggregateProjection()?.noteTimelineExpansion(expanded));
 	const state = existing ?? {} as AggregateToolExecutionPatchState;
@@ -2309,7 +2470,18 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 			createComponentInvalidator(this),
 		);
 		if (activeProjection.isPassthrough(toolName)) {
-			return state.originalRender.call(this, width);
+			const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+			const inset = visibleWidth(framePrefixForEdge("only"));
+			if (safeWidth <= inset) {
+				recordAggregateClickRegions(this, safeWidth, 0);
+				return [];
+			}
+			const bodyWidth = safeWidth - inset;
+			const native = state.originalRender.call(this, bodyWidth);
+			recordAggregateNativeRegion(this, safeWidth, native.length, {
+				left: inset, top: 0, width: bodyWidth, height: native.length,
+			});
+			return native.map((line) => " ".repeat(inset) + line);
 		}
 		recordAggregateClickRegions(this, width, 0);
 		if (!activeProjection.isInitialized()) return [];
@@ -2363,6 +2535,7 @@ export function restoreAggregateToolExecutions(): void {
 	const prototype = getToolExecutionPrototype();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (state && state.owner !== TOOL_MODULE) return;
+	restoreAggregateCustomMessages();
 	restoreAggregateMouseHandling(prototype);
 	restoreAggregateGlobalExpansion();
 	if (!state) return;
@@ -2397,7 +2570,7 @@ function rebuildProjectionFromContext(projection: AggregateProjection, ctx: Sess
 	} catch {
 		visibleMessages = undefined;
 	}
-	projection.rebuild(sessionManager.getBranch(), visibleMessages);
+	projection.rebuild(sessionManager.buildContextEntries?.() ?? sessionManager.getBranch(), visibleMessages);
 }
 
 export function registerAggregateProjectionEvents(
@@ -2428,6 +2601,7 @@ export function registerAggregateProjectionEvents(
 			}
 			: undefined);
 		rebuildProjectionFromContext(projection, ctx);
+		bindExistingAggregateCustomMessages(uiContext, projection);
 	};
 	const adoptHostIfNeeded = () => {
 		// A later session may keep its own ledger, but must not steal the host
@@ -2461,6 +2635,7 @@ export function registerAggregateProjectionEvents(
 		pendingStreamingBehavior = event.streamingBehavior;
 	});
 	pi.on("message_start", async (event) => {
+		if (messageRole(event.message) === "assistant") projection.ingestAssistantMessage(event.message);
 		if (messageRole(event.message) === "user") {
 			clearSettleTimer();
 			const behavior = pendingStreamingBehavior;
