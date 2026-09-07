@@ -2,6 +2,8 @@
 
 状态：已落地
 
+待验证方案：[Executor context](./executor-context-proposal.md)；暂不改变上下文构建，积累样本后通过 events 关联 transcript 复评。
+
 ## 为什么做
 
 主会话已经是强模型。顾问不是更贵的执行层，而是按需、无工具、无用户输出的第二意见：recommend / confirm / revise / stop。触发不能只靠自觉——卡住（相同调用 / 连续 error）可以观测，方案分叉不能，所以 v0 用 guidelines 的 `why` 承担高后果且证据未决的分叉，用 watchdog 承担卡住；仅仅能列出多个选项不构成触发理由。
