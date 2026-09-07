@@ -21,6 +21,19 @@ describe("estimateModelCost", () => {
     expect(estimateModelCost("fable-5")).toEqual(estimateModelCost("claude-fable-5"));
   });
 
+  it("prices Grok 4.6 from pi core's xai row, ahead of the generic grok fallback", () => {
+    expect(estimateModelCost("grok-4.6")).toEqual({
+      input: 2,
+      output: 6,
+      cacheRead: 0.5,
+      cacheWrite: 0,
+    });
+    expect(estimateModelCost("cursor-grok-4.6-medium grok-4.6")).toEqual(
+      estimateModelCost("grok-4.6"),
+    );
+    expect(estimateModelCost("grok-4.20").cacheRead).toBe(0.2);
+  });
+
   it("does not let Fable 5's 1M id steal Fable 5.1 pricing", () => {
     expect(estimateModelCost("claude-fable-5-1m-thinking").cacheRead).toBe(1);
     expect(estimateModelCost("claude-fable-5-1-1m-thinking").cacheRead).toBe(0.25);

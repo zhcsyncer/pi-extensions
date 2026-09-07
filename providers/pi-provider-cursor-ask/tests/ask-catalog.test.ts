@@ -4,6 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   ASK_MODEL_SPECS,
   COMPOSER_ASK_SPECS,
+  PASSTHROUGH_ASK_SPECS,
   buildAskCatalog,
   supportedAskThinkingLevels,
 } from "../src/models/ask-catalog.js";
@@ -12,7 +13,8 @@ import type {
   CursorModelRouting,
   ProcessedModel,
 } from "../src/models/processing.js";
-import { modelConfig } from "../src/models/processing.js";
+import { modelConfig, processModels } from "../src/models/processing.js";
+import type { CursorModel } from "../src/stream/model-discovery.js";
 import { resolveNativeReasoningEffort } from "../src/stream/pi-adapter.js";
 
 type Level = "low" | "medium" | "high" | "xhigh" | "max";
@@ -192,6 +194,56 @@ describe("Cursor Ask catalog contract", () => {
         /not supported/i,
       );
     }
+  });
+
+  it("registers passthrough families only when the account catalog has them", () => {
+    expect(PASSTHROUGH_ASK_SPECS.map((spec) => spec.id)).toEqual(["grok-4.6", "grok-4.6-fast"]);
+    const withoutGrok = buildAskCatalog([plainModel("gpt-5.5", "GPT-5.5")]);
+    expect(withoutGrok.some((model) => /grok/i.test(model.id))).toBe(false);
+
+    // Shape the input the way live discovery does: raw effort/fast variants,
+    // folded by processModels before the Ask catalog runs.
+    const raw: CursorModel[] = [
+      "cursor-grok-4.6-low",
+      "cursor-grok-4.6-medium",
+      "cursor-grok-4.6-high",
+      "cursor-grok-4.6-xhigh",
+      "cursor-grok-4.6-low-fast",
+      "cursor-grok-4.6-medium-fast",
+      "cursor-grok-4.6-high-fast",
+      "cursor-grok-4.6-xhigh-fast",
+    ].map((id) => ({
+      id,
+      name: id,
+      reasoning: false,
+      contextWindow: 200_000,
+      maxTokens: 64_000,
+    }));
+    const catalog = buildAskCatalog(processModels(raw));
+
+    const grok = catalog.find((model) => model.id === "grok-4.6");
+    const grokFast = catalog.find((model) => model.id === "grok-4.6-fast");
+    expect(grok?.name).toBe("Grok 4.6");
+    expect(grokFast?.name).toBe("Grok 4.6 Fast");
+    expect(catalog.some((model) => model.id.startsWith("cursor-grok"))).toBe(false);
+
+    // Upstream-derived effort routing is kept as-is (no Claude-style rebuild):
+    // four selectable levels, no off/minimal/max.
+    for (const model of [grok, grokFast]) {
+      expect(model?.supportsEffort).toBe(true);
+      expect(supportedAskThinkingLevels(model!)).toEqual(["low", "medium", "high", "xhigh"]);
+      expect(model?.effortMap).toMatchObject({
+        off: null,
+        minimal: null,
+        max: null,
+      });
+      expect(model?.rawRoutingByEffort?.high?.modelId).toMatch(/^cursor-grok-4\.6-high/);
+    }
+    expect(grok?.rawRoutingByEffort?.high?.modelId).toBe("cursor-grok-4.6-high");
+    expect(grokFast?.rawRoutingByEffort?.high?.modelId).toBe("cursor-grok-4.6-high-fast");
+
+    // Priced from pi core's xai/grok-4.6 row, not the generic grok-4.20 fallback.
+    expect(modelConfig(grok!).cost).toEqual({ input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 });
   });
 
   it("does not treat Fable 5's 1M row as Fable 5.1", () => {

@@ -231,6 +231,47 @@ export const COMPOSER_ASK_SPECS: readonly ComposerAskSpec[] = [
   },
 ];
 
+/**
+ * Non-Claude/Composer families registered as-is from upstream processing.
+ *
+ * Unlike the Claude specs these keep whatever effort routing `processModels`
+ * derived (no forced 1M/thinking parameter rebuild), and unlike every other
+ * spec they are only emitted when the account catalog actually contains the
+ * model — never advertised from defaults alone.
+ */
+export interface PassthroughAskSpec {
+  id: string;
+  name: string;
+  /** Processed ids in priority order; raw-mode fallbacks (effort-suffixed) may follow. */
+  candidates: readonly string[];
+}
+
+export const PASSTHROUGH_ASK_SPECS: readonly PassthroughAskSpec[] = [
+  {
+    id: "grok-4.6",
+    name: "Grok 4.6",
+    candidates: ["cursor-grok-4.6", "cursor-grok-4.6-medium"],
+  },
+  {
+    id: "grok-4.6-fast",
+    name: "Grok 4.6 Fast",
+    candidates: ["cursor-grok-4.6-fast", "cursor-grok-4.6-medium-fast"],
+  },
+];
+
+function buildPassthroughCatalog(processedModels: ProcessedModel[]): ProcessedModel[] {
+  const modelsById = new Map(processedModels.map((model) => [normalizedId(model.id), model]));
+  const rows: ProcessedModel[] = [];
+  for (const spec of PASSTHROUGH_ASK_SPECS) {
+    const source = spec.candidates
+      .map((candidate) => modelsById.get(normalizedId(candidate)))
+      .find((model) => model !== undefined);
+    if (!source) continue;
+    rows.push({ ...source, id: spec.id, name: spec.name });
+  }
+  return rows;
+}
+
 const COMPOSER_MAX_MODE_EFFORT_MAP: CursorEffortMap = {
   off: "none",
   minimal: null,
@@ -329,7 +370,11 @@ export function buildAskCatalog(processedModels: ProcessedModel[]): ProcessedMod
       rawRoutingByEffort: routes,
     } satisfies ProcessedModel;
   });
-  return [...claudeModels, ...buildComposerCatalog(processedModels)];
+  return [
+    ...claudeModels,
+    ...buildComposerCatalog(processedModels),
+    ...buildPassthroughCatalog(processedModels),
+  ];
 }
 
 export function supportedAskThinkingLevels(model: ProcessedModel): PiThinkingLevel[] {
