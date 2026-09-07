@@ -105,27 +105,49 @@ export function createCursorContextTracker(
     }
   }
   const anchoredInputTokens = inputTokens;
-  let snapshot: { tokens: number; generatedAtSnapshot: number } | undefined;
+  let snapshot:
+    | { tokens: number; generatedAtSnapshot: number; checkpoint?: Uint8Array; fresh: boolean }
+    | undefined;
   return {
-    begin(mode: "history" | "checkpoint" | "live", inheritedTokens?: number): void {
+    begin(
+      mode: "history" | "checkpoint" | "live",
+      inheritedTokens?: number,
+      checkpoint?: Uint8Array,
+    ): void {
+      const previous = snapshot;
       snapshot = undefined;
       // A server-side summary cannot calibrate a request that re-expanded the full Pi history.
       inputTokens = mode === "history" ? rawInputTokens : anchoredInputTokens;
       const inherited = positiveContextTokens(inheritedTokens);
-      if (
-        mode !== "history" &&
-        inherited !== undefined &&
-        (mode === "live" || anchorTokens !== undefined)
-      ) {
-        // This observation is newer than the message anchor, so it must also be allowed to shrink.
+      if (mode !== "history" && inherited !== undefined) {
+        // The request actually resumes this checkpoint, even before the first Pi reply exists.
+        // Its observation may also be smaller than an older message anchor.
         inputTokens = inherited + (anchorTokens !== undefined ? trailingTokens : 0);
       }
+      if (
+        mode !== "history" &&
+        previous &&
+        (inherited === undefined ||
+          (checkpoint !== undefined &&
+            checkpoint === previous.checkpoint &&
+            inherited === previous.tokens))
+      ) {
+        // Same-writer continuation must not lose its measured output boundary. Compare the
+        // actual checkpoint object, not token counts alone. A placeholder still retains the
+        // last observation as an estimate; neither case is a fresh post-recovery measurement.
+        snapshot = { ...previous, fresh: false };
+      }
     },
-    observe(tokens: number, output: AssistantMessage): void {
+    observe(tokens: number, output: AssistantMessage, checkpoint?: Uint8Array): void {
       const valid = positiveContextTokens(tokens);
       if (valid === undefined) return;
       // A genuine smaller positive snapshot (e.g. upstream summarization) must be accepted too.
-      snapshot = { tokens: valid, generatedAtSnapshot: estimateMessageTokens(output) };
+      snapshot = {
+        tokens: valid,
+        generatedAtSnapshot: estimateMessageTokens(output),
+        checkpoint,
+        fresh: true,
+      };
     },
     finish(output: CursorAssistantMessage): CursorUsageMetadata["context"] {
       const generated = estimateMessageTokens(output);
@@ -135,7 +157,7 @@ export function createCursorContextTracker(
       appendMessageHash(finalHistory, output);
       const result: CursorUsageMetadata["context"] = {
         tokens,
-        source: snapshot && suffix === 0 ? "checkpoint" : "estimate",
+        source: snapshot?.fresh && suffix === 0 ? "checkpoint" : "estimate",
         scope,
         history: finalHistory.digest("hex"),
       };

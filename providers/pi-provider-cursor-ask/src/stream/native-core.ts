@@ -1262,7 +1262,7 @@ function writeNativeStream(
             checkpointRef.current = checkpointBytes;
             if (contextTokens !== undefined) {
               checkpointRef.contextTokens = contextTokens;
-              writer.contextSnapshot?.(contextTokens);
+              writer.contextSnapshot?.(contextTokens, checkpointBytes);
             }
             debugLog("native.stream.checkpoint_buffered", { requestId, convKey, checkpointBytes });
           },
@@ -1598,7 +1598,7 @@ function handleNativeToolResultResume(
     historyFingerprint,
     clientTranscript: parkedTranscript,
   } = active;
-  writer.contextMode?.("live", checkpointRef.contextTokens);
+  writer.contextMode?.("live", checkpointRef.contextTokens, checkpointRef.current ?? undefined);
   const resumeTranscript = parkedTranscript ?? liveTranscript(completedTurns);
   const recoveredClientTranscript = withSyntheticCurrentTurn(
     resumeTranscript,
@@ -1995,10 +1995,9 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
         },
       );
 
-      // After the first attempt, prefer checkpoint continuation when available so we do not
-      // blind-replay a request that already produced partial assistant output.
+      // A checkpoint from the interrupted stream determines continuation, not the retry-budget
+      // counter: idle recovery can reuse attempt 1. Initial launch passes no latestCheckpoint.
       if (
-        nextAttempt > 1 &&
         context.latestCheckpoint &&
         typeof input.systemPrompt === "string" &&
         input.conversationId
@@ -2048,7 +2047,7 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
           // Fall back to the previous request bytes only when no user-visible content was emitted.
           if (context.emittedUserVisibleContent) return false;
         }
-      } else if (nextAttempt > 1 && context.emittedUserVisibleContent) {
+      } else if (context.emittedUserVisibleContent) {
         // No checkpoint and partial output: cannot safely restart.
         return false;
       }
@@ -2058,6 +2057,7 @@ function startNativeStreamWithIdleRetries(input: NativeStreamAttemptInput): void
         input.writer.contextMode?.(
           contextCheckpoint ? "checkpoint" : "history",
           checkpointContextTokens(contextCheckpoint),
+          contextCheckpoint ?? undefined,
         );
         const { bridge, heartbeatTimer } = startBridge(accessToken, requestBytes, {
           bridgeKey: input.bridgeKey,

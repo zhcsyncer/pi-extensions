@@ -81,6 +81,70 @@ describe("Cursor context independent of billing", () => {
     });
   });
 
+  it("accepts a recovery checkpoint before the first Pi assistant anchor exists", () => {
+    const output = createCursorAssistantMessage(model);
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.begin("checkpoint", 80_000);
+    expect(tracker.finish(output)).toMatchObject({
+      tokens: 80_000 + estimateMessageTokens(output),
+      source: "estimate",
+    });
+  });
+
+  it("preserves the output offset when retrying from the observed checkpoint", () => {
+    const checkpoint = new Uint8Array([1]);
+    const output = createCursorAssistantMessage(model);
+    output.content = [{ type: "text", text: "already included in checkpoint" }];
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.observe(80_000, output, checkpoint);
+    const included = estimateMessageTokens(output);
+    output.content.push({ type: "text", text: "generated after checkpoint" });
+    tracker.begin("checkpoint", 80_000, checkpoint);
+    expect(tracker.finish(output)).toMatchObject({
+      tokens: 80_000 + estimateMessageTokens(output) - included,
+      source: "estimate",
+    });
+  });
+
+  it("does not treat an inherited checkpoint as a fresh observation", () => {
+    const checkpoint = new Uint8Array([1]);
+    const output = createCursorAssistantMessage(model);
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.observe(80_000, output, checkpoint);
+    tracker.begin("checkpoint", 80_000, checkpoint);
+    expect(tracker.finish(output)).toMatchObject({ tokens: 80_000, source: "estimate" });
+    tracker.observe(20_000, output, new Uint8Array([2]));
+    expect(tracker.finish(output)).toMatchObject({ tokens: 20_000, source: "checkpoint" });
+  });
+
+  it("keeps the last observation when a continuation checkpoint has placeholder tokens", () => {
+    const output = createCursorAssistantMessage(model);
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.observe(80_000, output, new Uint8Array([1]));
+    tracker.begin("checkpoint", undefined, new Uint8Array([2]));
+    expect(tracker.finish(output)).toMatchObject({ tokens: 80_000, source: "estimate" });
+  });
+
+  it("does not identify checkpoints by equal token counts", () => {
+    const output = createCursorAssistantMessage(model);
+    output.content = [{ type: "text", text: "output with an unknown checkpoint boundary" }];
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.observe(80_000, output, new Uint8Array([1]));
+    tracker.begin("checkpoint", 80_000, new Uint8Array([2]));
+    expect(tracker.finish(output)).toMatchObject({
+      tokens: 80_000 + estimateMessageTokens(output),
+      source: "estimate",
+    });
+  });
+
+  it("discards a current observation when rebuilding full history", () => {
+    const output = createCursorAssistantMessage(model);
+    const tracker = createCursorContextTracker(model, context, options);
+    tracker.observe(80_000, output, new Uint8Array([1]));
+    tracker.begin("history");
+    expect(tracker.finish(output).tokens).toBeLessThan(1000);
+  });
+
   it("preserves a validated context anchor across tool-result continuation", () => {
     const previous = anchoredMessage();
     const tool = {

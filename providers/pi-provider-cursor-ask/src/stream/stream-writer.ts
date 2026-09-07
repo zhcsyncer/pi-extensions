@@ -123,11 +123,11 @@ export function createNativeStreamWriter(
 
   return {
     output,
-    contextSnapshot(tokens: number) {
-      if (!closed) contextTracker.observe(tokens, output);
+    contextSnapshot(tokens: number, checkpoint?: Uint8Array) {
+      if (!closed) contextTracker.observe(tokens, output, checkpoint);
     },
-    contextMode(mode, tokens) {
-      if (!closed) contextTracker.begin(mode, tokens);
+    contextMode(mode, tokens, checkpoint) {
+      if (!closed) contextTracker.begin(mode, tokens, checkpoint);
     },
     carryUsage(usage) {
       if (!closed && usage.modelId === model.id) carriedReceipts.add(usage);

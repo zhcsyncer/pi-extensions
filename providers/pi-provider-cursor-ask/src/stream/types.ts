@@ -270,8 +270,12 @@ export interface NativeStreamWriter {
   output: AssistantMessage;
   closed: boolean;
   start(): void;
-  contextSnapshot?(tokens: number): void;
-  contextMode?(mode: "history" | "checkpoint" | "live", tokens?: number): void;
+  contextSnapshot?(tokens: number, checkpoint?: Uint8Array): void;
+  contextMode?(
+    mode: "history" | "checkpoint" | "live",
+    tokens?: number,
+    checkpoint?: Uint8Array,
+  ): void;
   carryUsage?(usage: CursorRunUsage): void;
   text(delta: string): void;
   thinking(delta: string): void;
