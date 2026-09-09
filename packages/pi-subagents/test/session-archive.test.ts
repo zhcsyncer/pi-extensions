@@ -65,6 +65,14 @@ describe("subagent session archive", () => {
     expect(archives[0].result).toBe("second");
   });
 
+  it("does not restore an older completion when a newer execution was interrupted", () => {
+    const completed = { type: "custom", customType: "subagents:record", data: archiveAgentRecord(record()) };
+    const active = { type: "custom", customType: "subagents:active", data: { id: record().id, runGeneration: 2 } };
+    expect(listArchivedAgents({ getBranch: () => [completed, active] })).toEqual([]);
+    const stopped = { type: "custom", customType: "subagents:record", data: archiveAgentRecord(record({ status: "stopped", runGeneration: 2 })) };
+    expect(listArchivedAgents({ getBranch: () => [completed, active, stopped] })[0].status).toBe("stopped");
+  });
+
   it("opens a disk-only child session as a read-only ConversationViewer record", () => {
     tempDir = mkdtempSync(join(tmpdir(), "pi-subagent-archive-"));
     const child = SessionManager.create("/repo", tempDir, {

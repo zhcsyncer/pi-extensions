@@ -214,6 +214,87 @@ describe("extension runtime", () => {
 		});
 	});
 
+	it.each(["live-first", "import-first"])("counts child messages only across parent rollups and history (%s)", async (order) => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const messageTs = 1_700_000_000_000;
+		const usage = { input: 11, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 20, cost: { total: 0.01 } };
+		const childMessages = [0, 1].map((index) => ({
+			role: "assistant",
+			content: [{ type: "text", text: "Child work" }],
+			api: "openai-completions",
+			stopReason: "stop",
+			provider: "xai",
+			model: "grok-4",
+			timestamp: messageTs + index * 1000,
+			usage: structuredClone(usage),
+		}));
+		const parentMessages = [
+			{
+				role: "toolResult", toolName: "Agent", toolCallId: "launch",
+				content: [{ type: "text", text: "Child launched" }], isError: false,
+				timestamp: messageTs + 500, usage: structuredClone(usage),
+			},
+			{
+				role: "toolResult", toolName: "get_subagent_result", toolCallId: "result",
+				content: [{ type: "text", text: "Child complete" }], isError: false,
+				timestamp: messageTs + 1500, usage: structuredClone(usage),
+				details: { subagentUsageRollup: {
+					version: 1, agentId: "child",
+					cumulative: { input: 22, output: 4, cacheRead: 6, cacheWrite: 8, total: 40, cost: 0.02 },
+				} },
+			},
+		];
+		const originalParentMessages = structuredClone(parentMessages);
+		mkdirSync(join(agentDir, "sessions"), { recursive: true });
+		const makeSession = (sid: string, messages: unknown[]) => {
+			const sessionFile = join(agentDir, "sessions", `${sid}.jsonl`);
+			writeFileSync(sessionFile, [
+				JSON.stringify({ type: "session", cwd: "/work" }),
+				...messages.map((message) => JSON.stringify({
+					type: "message", timestamp: new Date(messageTs + 30_000).toISOString(), message,
+				})),
+			].join("\n"));
+			const session = harness({ hasUI: true, mode: "print", sessionFile });
+			piMeter(session.pi);
+			return session;
+		};
+		const parent = makeSession("parent", parentMessages);
+		const child = makeSession("child", childMessages);
+		const capture = async () => {
+			for (const [session, messages] of [[parent, parentMessages], [child, childMessages]] as const) {
+				for (const message of messages) {
+					const result = await session.handlers.get("message_end")![0]!({ type: "message_end", message }, session.ctx);
+					expect(result).toBeUndefined(); // No message replacement that could alter Pi's stats.
+				}
+			}
+			expect(parentMessages).toEqual(originalParentMessages);
+		};
+		const importHistory = () => parent.commands.get("usage").handler("import", parent.ctx);
+		const ledgerPath = getMeterPaths(agentDir).usageFile;
+		const assertChildOnly = () => {
+			const rows = readFileSync(ledgerPath, "utf8").trim().split("\n").map(parseUsageLine);
+			expect(rows).toEqual(childMessages.map((message) => ({
+				ts: message.timestamp, sid: "child", cwd: "/work", model: "xai/grok-4",
+				in: 11, out: 2, cR: 3, cW: 4, tot: 20, cost: 0.01, costKnown: true,
+				sourceId: `assistant:${message.timestamp}`,
+			})));
+		};
+		if (order === "live-first") await capture();
+		else await importHistory();
+		assertChildOnly();
+		const firstLedger = readFileSync(ledgerPath, "utf8");
+		await importHistory();
+		await capture();
+		await importHistory();
+		assertChildOnly();
+		expect(readFileSync(ledgerPath, "utf8")).toBe(firstLedger);
+		const summary = parent.notifications.filter((item) => item.message.startsWith("Import:")).at(-1);
+		expect(summary?.message).toContain("Import: 0 new records");
+		expect(summary?.message).toContain("2 session files scanned");
+		expect(summary?.message).toContain("2 usage records parsed");
+		expect(summary?.message).toContain("0 usage messages skipped without timestamp");
+	});
+
 	it("does not import a live-captured turn when the session entry timestamp is later", async () => {
 		const messageTs = 1_700_000_000_000;
 		const sid = "hist-sess";

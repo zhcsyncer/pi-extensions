@@ -73,8 +73,17 @@ function toolResultModel(message: Record<string, unknown>): string {
 	return `tool/${toolName}`;
 }
 
+/** Child sessions own per-message accounting; parent rollups remain available to Pi's native stats. */
+function isSubagentUsageRollup(message: Record<string, unknown>): boolean {
+	// Upstream Agent results may carry usage without our explicit rollup marker.
+	if (message.toolName === "Agent") return true;
+	if (message.toolName !== "get_subagent_result" || !isRecord(message.details)) return false;
+	const rollup = message.details.subagentUsageRollup;
+	return isRecord(rollup) && rollup.version === 1 && typeof rollup.agentId === "string";
+}
+
 export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): UsageRecord[] {
-	if (!isRecord(message) || message.role !== "toolResult") return [];
+	if (!isRecord(message) || message.role !== "toolResult" || isSubagentUsageRollup(message)) return [];
 	const ts = messageTimestamp(message);
 	if (ts === undefined) return [];
 	const toolCallId = typeof message.toolCallId === "string" && message.toolCallId ? message.toolCallId : undefined;
@@ -96,7 +105,7 @@ export function usageRecordsFromMessage(message: unknown, meta: RecordMeta): Usa
 export function usageMessageWithoutTimestamp(message: unknown): boolean {
 	if (!isRecord(message) || messageTimestamp(message) !== undefined) return false;
 	if (isAssistantUsage(message)) return true;
-	if (message.role !== "toolResult") return false;
+	if (message.role !== "toolResult" || isSubagentUsageRollup(message)) return false;
 	return isRecord(message.usage) || toolResultRawUsage(message).length > 0;
 }
 

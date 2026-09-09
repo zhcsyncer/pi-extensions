@@ -236,6 +236,15 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({}); // non-boolean dropped
   });
 
+  it("round-trips reportUsage and rejects non-boolean settings", () => {
+    saveSettings({ reportUsage: false }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ reportUsage: false });
+    saveSettings({ reportUsage: true }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ reportUsage: true });
+    writeProject({ reportUsage: "off" });
+    expect(loadSettings(projectDir)).toEqual({});
+  });
+
   it("round-trips rememberAgents and worktreeIsolation; drops non-booleans", () => {
     saveSettings({ rememberAgents: false, worktreeIsolation: true }, projectDir);
     expect(loadSettings(projectDir)).toEqual({ rememberAgents: false, worktreeIsolation: true });
@@ -531,6 +540,7 @@ describe("settings persistence", () => {
 
     beforeEach(() => {
       appliers = {
+        setReportUsage: vi.fn(),
         setMaxConcurrent: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
@@ -614,6 +624,11 @@ describe("settings persistence", () => {
       expect(appliers.setFleetView).toHaveBeenCalledWith(true);
       applySettings({}, appliers);
       expect(appliers.setFleetView).toHaveBeenCalledTimes(1); // absence is "use default"
+    });
+
+    it("applies reportUsage without treating explicit false as absent", () => {
+      applySettings({ reportUsage: false }, appliers);
+      expect(appliers.setReportUsage).toHaveBeenCalledWith(false);
     });
 
     it("applies scopeModels: false", () => {
@@ -704,6 +719,7 @@ describe("settings persistence", () => {
 
     beforeEach(() => {
       appliers = {
+        setReportUsage: vi.fn(),
         setMaxConcurrent: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),

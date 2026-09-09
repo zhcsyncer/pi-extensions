@@ -6,6 +6,7 @@ import {
   getSessionContextPercent,
   getSessionTokens,
   toLifetimeUsage,
+  toReportedUsage,
 } from "../src/usage.js";
 
 // Regression for issue #38 — token semantics + context indicator
@@ -79,7 +80,10 @@ describe("usage", () => {
       expect(toLifetimeUsage({
         input: 1,
         cost: { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4 },
-      })).toEqual({ input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1 });
+      })).toEqual({
+        input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1,
+        costBreakdown: { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4 },
+      });
       expect(toLifetimeUsage({ input: 1 })).toEqual({
         input: 1, output: 0, cacheRead: 0, cacheWrite: 0,
       });
@@ -101,6 +105,54 @@ describe("usage", () => {
         cacheWrite: 8,
         cost: 0.30000000000000004,
       });
+    });
+  });
+
+  describe("native usage", () => {
+    it("retains structured costs while trusting the provider total over their sum", () => {
+      const usage = createLifetimeUsage();
+      const costs = { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4 };
+      addUsage(usage, toLifetimeUsage({ input: 2, output: 3, cacheRead: 50, cacheWrite: 5, cost: { ...costs, total: 2 } }));
+      addUsage(usage, toLifetimeUsage({ input: 2, output: 3, cacheRead: 50, cacheWrite: 5, cost: { ...costs, total: 3 } }));
+      expect(toReportedUsage(usage)).toEqual({
+        input: 4, output: 6, cacheRead: 100, cacheWrite: 10, totalTokens: 120,
+        cost: { input: 0.2, output: 0.4, cacheRead: 0.6, cacheWrite: 0.8, total: 5 },
+      });
+      expect(getLifetimeTotal(usage)).toBe(20);
+    });
+
+    it("does not invent components for aggregate-only cost or prices for unknown cost", () => {
+      const usage = toLifetimeUsage({ input: 100, cost: { total: 2 } });
+      expect(usage).not.toHaveProperty("costBreakdown");
+      expect(toReportedUsage(usage).cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 2 });
+      expect(toReportedUsage(toLifetimeUsage({ input: 100 })).cost).toEqual({
+        input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0,
+      });
+    });
+
+    it("aggregates mixed legacy and structured costs without discarding known components", () => {
+      const usage = toLifetimeUsage({ cost: 2 });
+      addUsage(usage, toLifetimeUsage({ cost: { input: 0.5, total: 1 } }));
+      addUsage(usage, toLifetimeUsage({ cost: 3 }));
+      expect(toReportedUsage(usage).cost).toEqual({ input: 0.5, output: 0, cacheRead: 0, cacheWrite: 0, total: 6 });
+    });
+
+    it("sanitizes malformed counters and costs and keeps overflowing sums finite", () => {
+      expect(toLifetimeUsage({
+        input: -1, output: NaN, cacheRead: Infinity, cacheWrite: "5",
+        cost: { input: -1, output: Infinity, cacheRead: NaN, total: -1 },
+      })).toEqual(createLifetimeUsage());
+      for (const value of [null, undefined, [], "bad", 1]) {
+        expect(toLifetimeUsage(value)).toEqual(createLifetimeUsage());
+      }
+      const usage = createLifetimeUsage();
+      addUsage(usage, { input: -1, output: NaN, cacheRead: Infinity, cacheWrite: 0, cost: -3 });
+      expect(usage).toEqual(createLifetimeUsage());
+      addUsage(usage, toLifetimeUsage({ input: Number.MAX_VALUE, output: Number.MAX_VALUE, cost: Number.MAX_VALUE }));
+      addUsage(usage, usage);
+      const report = toReportedUsage(usage);
+      expect(report.totalTokens).toBe(Number.MAX_VALUE);
+      expect(report.cost.total).toBe(Number.MAX_VALUE);
     });
   });
 

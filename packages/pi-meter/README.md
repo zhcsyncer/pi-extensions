@@ -38,7 +38,7 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 
   ![Quota dashboard](./assets/demo-quota-dashboard.png)
 
-`--no-session` and ordinary sub-agents still record local usage. Isolated sub-agents do not.
+`--no-session` still records local usage. Sub-agent usage is counted from each child's messages, not parent `Agent` results or marked `get_subagent_result` rollups; Pi's native session totals are unchanged. For reliable real-time coverage, including isolated children, add `"pinnedExtensions": ["pi-meter"]` to the user-level `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`. Without pi-meter loaded in the child, use `/usage import` for saved child sessions.
 
 ## Install
 

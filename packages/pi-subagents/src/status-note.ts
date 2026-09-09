@@ -2,6 +2,12 @@
  * status-note.ts — Parenthetical status note appended to agent result text.
  */
 
+/** Previous output is history, never this failed continuation's result. */
+export function previousResultSuffix(record: { status: string; previousResult?: string }): string {
+  if (!["error", "aborted", "stopped"].includes(record.status) || !record.previousResult?.trim()) return "";
+  return `\n\n--- Previous report (before this continuation; NOT the current run's result) ---\n${record.previousResult}`;
+}
+
 /**
  * Explicit parenthetical note for a non-normal terminal outcome, so the parent
  * agent can't mistake partial output for a completed result. Empty string for a

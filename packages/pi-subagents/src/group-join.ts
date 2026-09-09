@@ -63,7 +63,13 @@ export class GroupJoinManager {
     const group = this.groups.get(groupId);
     if (!group || group.delivered) return 'pass';
 
-    group.completedRecords.set(record.id, record);
+    // A completed member can resume while this group waits for its siblings.
+    // Keep the completion's generation and report detached from the manager's
+    // live mutable record; delivery checks that generation against the manager.
+    group.completedRecords.set(record.id, {
+      ...record,
+      lifetimeUsage: { ...record.lifetimeUsage },
+    });
 
     // All done — deliver immediately
     if (group.completedRecords.size >= group.agentIds.size) {

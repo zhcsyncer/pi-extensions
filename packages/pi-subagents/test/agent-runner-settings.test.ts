@@ -4,6 +4,7 @@ import {
   getGraceTurns,
   getPinnedExtensions,
   normalizeMaxTurns,
+  normalizeGraceTurns,
   setDefaultMaxTurns,
   setGraceTurns,
   setPinnedExtensions,
@@ -61,6 +62,15 @@ describe("normalizeMaxTurns", () => {
 
   it("clamps negative values to 1", () => {
     expect(normalizeMaxTurns(-3)).toBe(1);
+  });
+
+  it("normalizes fractional and non-finite limits into persistable turn counts", () => {
+    expect(normalizeMaxTurns(2.9)).toBe(2);
+    expect(normalizeGraceTurns(2.9)).toBe(2);
+    for (const value of [NaN, Infinity, -Infinity]) {
+      expect(normalizeMaxTurns(value)).toBeUndefined();
+      expect(normalizeGraceTurns(value)).toBeUndefined();
+    }
   });
 });
 

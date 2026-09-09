@@ -6,6 +6,7 @@ import type { AgentRecord } from "../src/types.js";
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  restoreAgentSession: vi.fn(),
 }));
 
 vi.mock("../src/worktree.js", () => ({
@@ -937,13 +938,19 @@ describe("AgentManager — steer()", () => {
     expect(record.pendingSteers).toEqual(["first", "second"]);
   });
 
-  it("refuses to steer an agent that is no longer running", async () => {
+  it("accepts a completed agent follow-up and resumes it in the background", async () => {
     manager = new AgentManager();
     resolvedRun();
+    const { resumeAgent } = await import("../src/agent-runner.js");
+    vi.mocked(resumeAgent).mockResolvedValue({ text: "follow-up done" });
     const id = manager.spawn(mockPi, mockCtx, "X", "p", { description: "x", isBackground: false });
     await manager.getRecord(id)?.promise;
     expect(manager.getRecord(id)?.status).toBe("completed");
-    expect(manager.steer(id, "too late")).toBe(false);
+    expect(manager.steer(id, "follow up")).toBe(true);
+    await manager.waitForAll();
+    expect(manager.getRecord(id)).toMatchObject({
+      status: "completed", isBackground: true, result: "follow-up done", resultConsumed: false,
+    });
   });
 });
 

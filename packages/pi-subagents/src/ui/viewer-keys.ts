@@ -21,6 +21,8 @@ export interface ViewerKeybindings {
 }
 
 export interface ViewerKeys {
+  /** Ctrl+C closes the overlay even when its composer owns ordinary input. */
+  close(data: string, composing?: boolean): boolean;
   scrollUp(data: string): boolean;
   scrollDown(data: string): boolean;
   pageUp(data: string): boolean;
@@ -31,6 +33,8 @@ export function createViewerKeys(keybindings?: ViewerKeybindings): ViewerKeys {
   const matches = (data: string, id: ViewerScrollKeybinding, fallback: KeyId): boolean =>
     keybindings ? keybindings.matches(data, id) : matchesKey(data, fallback);
   return {
+    close: (data, composing = false) => matchesKey(data, "ctrl+c") ||
+      (!composing && (matchesKey(data, "escape") || matchesKey(data, "q"))),
     scrollUp: (data) => matches(data, "tui.select.up", "up") || matchesKey(data, "k"),
     scrollDown: (data) => matches(data, "tui.select.down", "down") || matchesKey(data, "j"),
     pageUp: (data) => matches(data, "tui.select.pageUp", "pageUp") || matchesKey(data, "shift+up"),

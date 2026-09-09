@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type EventBus, PROTOCOL_VERSION, type RpcDeps, registerRpcHandlers, type SpawnCapable } from "../src/cross-extension-rpc.js";
 
 /** Simple in-process event bus for testing. */
@@ -330,6 +333,70 @@ describe("cross-extension RPC", () => {
       // Give any potential async handler time to fire
       await new Promise((r) => setTimeout(r, 20));
       expect(reply).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("explicit RPC model scope", () => {
+    const allowed = { provider: "allowed", id: "sonnet", name: "Allowed Sonnet" };
+    const outside = { provider: "outside", id: "claude-sonnet", name: "Claude Sonnet" };
+    const models = [outside, allowed];
+    let cwd: string;
+    let scopeEnabled: boolean;
+
+    beforeEach(() => {
+      cwd = mkdtempSync(join(tmpdir(), "rpc-model-scope-"));
+      mkdirSync(join(cwd, ".pi"));
+      writeFileSync(join(cwd, ".pi", "settings.json"), JSON.stringify({ enabledModels: ["allowed/sonnet"] }));
+      ctx = {
+        cwd,
+        modelRegistry: {
+          find: (provider: string, id: string) => models.find((m) => m.provider === provider && m.id === id),
+          getAll: () => models,
+          getAvailable: () => models,
+        },
+      };
+      scopeEnabled = true;
+      deps.isScopeModelsEnabled = () => scopeEnabled;
+      registerRpcHandlers(deps);
+    });
+    afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+
+    async function spawn(model: unknown) {
+      const requestId = `scope-${Math.random()}`;
+      return new Promise<any>((resolve) => {
+        events.on(`subagents:rpc:spawn:reply:${requestId}`, resolve);
+        events.emit("subagents:rpc:spawn", { requestId, type: "Explore", prompt: "inspect", options: { model } });
+      });
+    }
+
+    it.each(["outside/claude-sonnet", "claude-sonnet", "missing/claude-sonnet", outside])(
+      "rejects the resolved out-of-scope route (%j), listing allowed models", async (model) => {
+        const reply = await spawn(model);
+        expect(reply.success).toBe(false);
+        expect(reply.error).toContain("Model not in scope:");
+        expect(reply.error).toContain("Allowed models (from enabledModels):\n  allowed/sonnet");
+        expect(reply.error).not.toContain("[object Object]");
+        expect(manager.spawn).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["allowed/sonnet", allowed])("allows an explicit in-scope route (%j)", async (model) => {
+      expect(await spawn(model)).toMatchObject({ success: true });
+      expect(vi.mocked(manager.spawn).mock.lastCall?.[4].model).toBe(allowed);
+    });
+
+    it("reads the current scope setting on each request", async () => {
+      scopeEnabled = false;
+      expect(await spawn(outside)).toMatchObject({ success: true });
+      scopeEnabled = true;
+      expect(await spawn(outside)).toMatchObject({ success: false });
+      expect(manager.spawn).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([undefined, null])("lets an unset override inherit without consulting a registry (%j)", async (model) => {
+      ctx = { cwd, model: outside };
+      expect(await spawn(model)).toMatchObject({ success: true });
+      expect(vi.mocked(manager.spawn).mock.lastCall?.[4].model).toBeUndefined();
     });
   });
 
