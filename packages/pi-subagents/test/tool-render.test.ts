@@ -5,6 +5,7 @@ import type { AgentDetails } from "../src/ui/agent-widget.js";
 import {
   firstLinePreview,
   renderAgentLikeResult,
+  renderCompletionNotification,
   resultBodyText,
   toolResultText,
 } from "../src/ui/tool-render.js";
@@ -70,6 +71,40 @@ describe("toolResultText / previews", () => {
     expect(resultBodyText(full)).toContain("## Findings");
     expect(resultBodyText(full)).not.toMatch(/^Agent:/);
     expect(firstLinePreview(resultBodyText(full))).toBe("## Findings");
+  });
+});
+
+describe("renderCompletionNotification", () => {
+  const report = ["# Report", "", "LINE_SHOULD_STAY_COLLAPSED", ...Array.from({ length: 40 }, (_, i) => `detail line ${i}`)].join("\n");
+  const notice = {
+    id: "abc",
+    description: "find auth files",
+    status: "completed",
+    toolUses: 3,
+    turnCount: 2,
+    totalTokens: 1200,
+    durationMs: 4200,
+    resultPreview: report,
+  };
+
+  it("matches Agent chrome: title + clerk, no custom-message box and no collapsed body", () => {
+    const component = renderCompletionNotification(notice, false, theme());
+    expect(component).toBeInstanceOf(Container);
+    const out = plain(component);
+    expect(out).toMatch(/^● find auth files/m);
+    expect(out).toMatch(/⎿\s+Done/);
+    expect(out).toContain("3 tool uses");
+    expect(out).not.toContain("LINE_SHOULD_STAY_COLLAPSED");
+    expect(out).not.toContain("[subagent-notification]");
+  });
+
+  it("expanded shows markdown report under the same clerks", () => {
+    const component = renderCompletionNotification(notice, true, theme());
+    const kids = containerChildren(component);
+    expect(kids.some((c) => c instanceof Markdown) || containerChildren(kids[1] ?? component).some((c) => c instanceof Markdown)).toBe(true);
+    const out = plain(component, 100);
+    expect(out).toContain("LINE_SHOULD_STAY_COLLAPSED");
+    expect(out).toContain("detail line 20");
   });
 });
 

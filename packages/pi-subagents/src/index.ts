@@ -88,10 +88,9 @@ import { showSchedulesMenu } from "./ui/schedule-menu.js";
 import {
   firstLinePreview,
   formatAgentCallMeta,
-  formatClerkLine,
-  formatOutcomeClerk,
   isFailureDetailsStatus,
   renderAgentLikeResult,
+  renderCompletionNotification,
   renderToolCallTitle,
   renderUndetailedResult,
   toolResultText,
@@ -364,7 +363,7 @@ function buildDetails(
 }
 
 /** Build notification details for the custom message renderer. */
-function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, activity?: AgentActivity): NotificationDetails {
+function buildNotificationDetails(record: AgentRecord, activity?: AgentActivity): NotificationDetails {
   const totalTokens = getLifetimeTotal(record.lifetimeUsage);
   const result = (record.result ?? "") + previousResultSuffix(record);
   const safeResult = result ? sanitizeDisplayText(result) : undefined;
@@ -380,11 +379,7 @@ function buildNotificationDetails(record: AgentRecord, resultMaxLen: number, act
     durationMs: record.completedAt ? record.completedAt - record.startedAt : 0,
     outputFile: record.outputFile ? sanitizeDisplayText(record.outputFile) : undefined,
     error: record.error ? sanitizeDisplayText(record.error) : undefined,
-    resultPreview: safeResult
-      ? safeResult.length > resultMaxLen
-        ? safeResult.slice(0, resultMaxLen) + "…"
-        : safeResult
-      : "No output.",
+    resultPreview: safeResult || "No output.",
   };
 }
 
@@ -412,42 +407,7 @@ export default function (pi: ExtensionAPI) {
     (message, { expanded }, theme) => {
       const d = message.details;
       if (!d) return undefined;
-
-      function renderOne(d: NotificationDetails): string {
-        const isError = d.status === "error" || d.status === "stopped" || d.status === "aborted";
-        const marker = isError ? theme.fg("error", "●") : theme.fg("success", "●");
-        const description = sanitizeDisplayText(d.description);
-        const resultPreview = sanitizeDisplayText(d.resultPreview);
-        const outputFile = d.outputFile ? sanitizeDisplayText(d.outputFile) : undefined;
-        const clerkDetails: AgentDetails = {
-          displayName: description,
-          description,
-          subagentType: "",
-          toolUses: d.toolUses,
-          tokens: d.totalTokens > 0 ? `lifetime ${formatTokens(d.totalTokens)}` : "",
-          durationMs: d.durationMs,
-          status: d.status as AgentDetails["status"],
-          turnCount: d.turnCount,
-          maxTurns: d.maxTurns,
-          error: d.error,
-          outputFile,
-        };
-        const outcome = formatOutcomeClerk(clerkDetails, resultPreview, theme);
-        const preview = resultPreview.split("\n")[0]?.slice(0, 80) ?? "";
-        let line = `${marker} ${theme.fg("toolTitle", theme.bold(description))}`;
-        line += "\n" + outcome;
-        if (expanded) {
-          const lines = resultPreview.split("\n").slice(0, 30);
-          for (const l of lines) line += "\n" + theme.fg("dim", `    ${l}`);
-          if (outputFile) line += "\n" + formatClerkLine(theme, `transcript: ${outputFile}`, "muted");
-        } else if (preview) {
-          line += "\n" + formatClerkLine(theme, preview);
-        }
-        return line;
-      }
-
-      const all = [d, ...(d.others ?? [])];
-      return new Text(all.map(renderOne).join("\n"), 0, 0);
+      return renderCompletionNotification(d, expanded, theme);
     }
   );
 
@@ -507,7 +467,7 @@ export default function (pi: ExtensionAPI) {
       customType: "subagent-notification",
       content: formatCompletionNotification([record]),
       display: true,
-      details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
+      details: buildNotificationDetails(record, agentActivity.get(record.id)),
     }, { deliverAs: record.completionDelivery, triggerTurn: true });
     deliveredExecutions.add(executionKey(record, generation));
   }
@@ -544,9 +504,9 @@ export default function (pi: ExtensionAPI) {
         if (unconsumed.length === 0) { widget.update(); return; }
 
         const [first, ...rest] = unconsumed;
-        const details = buildNotificationDetails(first, 300, agentActivity.get(first.id));
+        const details = buildNotificationDetails(first, agentActivity.get(first.id));
         if (rest.length > 0) {
-          details.others = rest.map(r => buildNotificationDetails(r, 300, agentActivity.get(r.id)));
+          details.others = rest.map(r => buildNotificationDetails(r, agentActivity.get(r.id)));
         }
 
         pi.sendMessage<NotificationDetails>({

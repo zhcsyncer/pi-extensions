@@ -11,7 +11,8 @@
 import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text, type Component } from "@earendil-works/pi-tui";
 import type { AgentDetails, Theme } from "./agent-widget.js";
-import { fgPreservingNestedStyles, formatMs, formatTurns, formatUsageCost, SPINNER, styleDuration } from "./agent-widget.js";
+import { fgPreservingNestedStyles, formatMs, formatTokens, formatTurns, formatUsageCost, SPINNER, styleDuration } from "./agent-widget.js";
+import type { NotificationDetails } from "../types.js";
 import { sanitizeDisplayText } from "./display-safety.js";
 
 /** Collapsed preview: first non-empty line, hard-capped. */
@@ -388,6 +389,44 @@ export function renderUndetailedResult(
  * The ● lives on renderCall. Collapsed never dumps the model-facing body;
  * expanded adds observability clerks + Markdown under the outcome clerk.
  */
+function detailsFromNotification(d: NotificationDetails): AgentDetails {
+  return {
+    displayName: d.description,
+    description: d.description,
+    subagentType: "",
+    toolUses: d.toolUses,
+    tokens: d.totalTokens > 0 ? `lifetime ${formatTokens(d.totalTokens)}` : "",
+    durationMs: d.durationMs,
+    status: d.status as AgentDetails["status"],
+    turnCount: d.turnCount,
+    maxTurns: d.maxTurns,
+    error: d.error,
+    outputFile: d.outputFile,
+    agentId: d.id,
+  };
+}
+
+/** Unboxed Claude Code chrome for background completion messages. Same shape as Agent. */
+export function renderCompletionNotification(
+  d: NotificationDetails,
+  expanded: boolean,
+  theme: Theme,
+): Component {
+  const container = new Container();
+  for (const item of [d, ...(d.others ?? [])]) {
+    const details = detailsFromNotification(item);
+    container.addChild(renderToolCallTitle(
+      details.displayName,
+      undefined,
+      theme,
+      undefined,
+      { isError: isErrorStatus(item.status) },
+    ));
+    container.addChild(renderAgentLikeResult(details, item.resultPreview, { expanded }, theme));
+  }
+  return container;
+}
+
 export function renderAgentLikeResult(
   details: AgentDetails,
   resultText: string,
