@@ -67,6 +67,7 @@ export {
 
 export {
   ASK_MODEL_SPECS,
+  PASSTHROUGH_ASK_SPECS,
   buildAskCatalog,
   supportedAskThinkingLevels,
 } from "./models/ask-catalog.js";

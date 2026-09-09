@@ -44,14 +44,13 @@ Search Hub ships only in the root bundle. Adversarial Review is published indepe
 
 ## Standalone providers
 
-These providers are not included in the root bundle. Cursor Ask is repository-only and is not published to npm; Agent Plan releases independently.
+These providers are not included in the root bundle and release independently.
 
-- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — a full `@rahularya01/pi-cursor` replacement that keeps the `cursor` provider/login identity and exposes five always-thinking 1M Fable/Opus/Sonnet rows plus Composer 2.5 / Fast.
+- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — a full `@rahularya01/pi-cursor` replacement that keeps the `cursor` provider/login identity and maps only a curated subset of models: five always-thinking 1M Fable/Opus/Sonnet rows, Composer 2.5 / Fast, and Grok 4.6 / Fast when the live catalog includes them.
 - [`pi-provider-volcengine-agent-plan`](./providers/pi-provider-volcengine-agent-plan) — an unofficial Volcengine Ark Agent Plan provider with tier-aware models and Pi login.
 
 ```bash
-# From a local checkout of this repository
-pi install ./providers/pi-provider-cursor-ask
+pi install npm:pi-provider-cursor-ask
 
 pi install npm:pi-provider-volcengine-agent-plan
 ```

@@ -1272,6 +1272,7 @@ function writeNativeStream(
             idleWatchdog.setTimeoutMs(parkTimeoutMs);
             idleWatchdog.reset();
           },
+          convKey,
         );
         if (progress === "work") {
           if (parkedExecCase !== undefined) {

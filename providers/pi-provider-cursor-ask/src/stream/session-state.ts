@@ -113,17 +113,16 @@ export function clearStoredCheckpoint(stored: StoredConversation, clearBlobStore
  * Drop the checkpoint and rotate the conversation id so the next turn rebuilds
  * from Pi's transcript instead of replaying holes.
  */
-export function markBlobMiss(blobStore: Map<string, Uint8Array>): void {
-  for (const [convKey, stored] of conversationStates) {
-    if (stored.blobStore !== blobStore) continue;
-    debugLog("conversation.blob_miss_invalidate", {
-      convKey,
-      hadCheckpoint: !!stored.checkpoint,
-    });
-    clearStoredCheckpoint(stored, false);
-    stored.conversationId = randomUUID();
-    persistJournal(convKey, stored);
-  }
+export function markBlobMiss(convKey: string): void {
+  const stored = conversationStates.get(convKey);
+  if (!stored) return;
+  debugLog("conversation.blob_miss_invalidate", {
+    convKey,
+    hadCheckpoint: !!stored.checkpoint,
+  });
+  clearStoredCheckpoint(stored, false);
+  stored.conversationId = randomUUID();
+  persistJournal(convKey, stored);
 }
 
 /**

@@ -19,6 +19,7 @@ const METER = "@zhcsyncer/pi-meter";
 const CONSULT = "@zhcsyncer/pi-consult";
 const ADVERSARIAL_REVIEW = "@zhcsyncer/pi-adversarial-review";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
+const CURSOR_ASK = "pi-provider-cursor-ask";
 
 function releases(...entries) {
 	return {
@@ -43,6 +44,12 @@ test("allows the root package to release independently", () => {
 
 test("allows the standalone Agent Plan provider to release without the root", () => {
 	assert.deepEqual(validateReleasePolicy(releases([AGENT_PLAN, "patch"])), []);
+});
+
+test("allows the standalone Cursor Ask provider to release without the root", () => {
+	assert.deepEqual(validateReleasePolicy(releases([CURSOR_ASK, "minor"])), []);
+	const script = readFileSync(new URL("./reconcile-release.sh", import.meta.url), "utf8");
+	assert.match(script, /pi-provider-cursor-ask/u);
 });
 
 test("allows standalone adversarial review to release without the root", () => {

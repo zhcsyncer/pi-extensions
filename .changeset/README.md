@@ -11,7 +11,7 @@ We have a quick list of common questions to get you started engaging with this p
 
 Packages use independent versions. The root `@zhcsyncer/pi-extensions` package embeds bundled child
 package sources, so a changeset that releases a bundled child package must also release the root
-package. Standalone packages such as `@zhcsyncer/pi-adversarial-review` do not require a root release
+package. Standalone packages such as `@zhcsyncer/pi-adversarial-review`, `pi-provider-volcengine-agent-plan`, and `pi-provider-cursor-ask` do not require a root release
 unless root package contents or documentation also change. Unchanged sibling packages must be omitted.
 
 The root release type must be at least as high as the highest child release type in the release plan:

@@ -17,6 +17,7 @@ PACKAGES=(
   "@zhcsyncer/pi-consult|packages/pi-consult/package.json|packages/pi-consult/CHANGELOG.md|pi-consult|child"
   "@zhcsyncer/pi-adversarial-review|packages/pi-adversarial-review/package.json|packages/pi-adversarial-review/CHANGELOG.md|pi-adversarial-review|child"
   "pi-provider-volcengine-agent-plan|providers/pi-provider-volcengine-agent-plan/package.json|providers/pi-provider-volcengine-agent-plan/CHANGELOG.md|pi-provider-volcengine-agent-plan|child"
+  "pi-provider-cursor-ask|providers/pi-provider-cursor-ask/package.json|providers/pi-provider-cursor-ask/CHANGELOG.md|pi-provider-cursor-ask|child"
 )
 
 wait_for_package() {

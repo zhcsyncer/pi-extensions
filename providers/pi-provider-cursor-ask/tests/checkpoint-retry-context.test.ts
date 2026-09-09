@@ -12,6 +12,11 @@ import {
   setBridgeFactoryForTests,
 } from "../src/stream/native-core.js";
 import { resetCacheDirForTests } from "../src/utils/cache-dir.js";
+import {
+  conversationStates,
+  deriveConversationKeyFromSessionId,
+  getOrHydrateConversation,
+} from "../src/stream/session-state.js";
 import { estimateMessageTokens, type CursorAssistantMessage } from "../src/stream/context-usage.js";
 
 const model: Model<Api> = {
@@ -50,14 +55,21 @@ function channel() {
   let closed = (_code: number) => {};
   let done = () => {};
   let requestTokens: number | undefined;
+  const sent: ReturnType<typeof create<typeof AgentClientMessageSchema>>[] = [];
+  let ready!: () => void;
+  const requestReady = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
   const bridge: BridgeHandle = {
     alive: true,
     reusable: false,
     lastStderr: () => "",
     write(bytes) {
       const message = fromBinary(AgentClientMessageSchema, bytes.subarray(5));
+      sent.push(message);
       if (message.message.case === "runRequest") {
         requestTokens = message.message.value.conversationState?.tokenDetails?.usedTokens;
+        ready();
       }
     },
     openStream() {},
@@ -83,6 +95,12 @@ function channel() {
   };
   return {
     bridge,
+    sent,
+    requestReady,
+    get request() {
+      const message = sent.find((message) => message.message.case === "runRequest")?.message;
+      return message?.case === "runRequest" ? message.value : undefined;
+    },
     get requestTokens() {
       return requestTokens;
     },
@@ -102,6 +120,107 @@ function channel() {
     },
   };
 }
+
+describe("blob miss recovery", () => {
+  it("fails without a blob reply, durably invalidates the checkpoint, and rebuilds next turn", async () => {
+    const peers = [channel(), channel(), channel()];
+    let attempts = 0;
+    setBridgeFactoryForTests(() => peers[attempts++]!.bridge);
+    const streamFn = createCursorNativeStream({ getAccessToken: async () => "test-only-token" });
+    const options = { sessionId: "blob-miss" };
+    const convKey = deriveConversationKeyFromSessionId(options.sessionId);
+    const missingId = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+    const context = {
+      systemPrompt: "Reply briefly",
+      messages: [
+        { role: "user" as const, content: "Remember the violet lighthouse", timestamp: 1 },
+      ],
+      tools: [],
+    };
+    const first = streamFn(model, context, options);
+    await peers[0]!.requestReady;
+    peers[0]!.send({
+      message: {
+        case: "conversationCheckpointUpdate",
+        value: { rootPromptMessagesJson: [missingId] },
+      },
+    });
+    peers[0]!.send({
+      message: {
+        case: "interactionUpdate",
+        value: { message: { case: "textDelta", value: { text: "Remembered" } } },
+      },
+    });
+    peers[0]!.finish();
+    const answer = await first.result();
+    expect(answer.stopReason).toBe("stop");
+    const oldConversationId = peers[0]!.request!.conversationId;
+    const continuedContext = {
+      ...context,
+      messages: [
+        ...context.messages,
+        answer,
+        { role: "user" as const, content: "Continue", timestamp: 2 },
+      ],
+    };
+
+    const failed = streamFn(model, continuedContext, options);
+    await peers[1]!.requestReady;
+    // Prove this is a live checkpoint replay, not a stale-checkpoint discard.
+    expect(peers[1]!.request!.conversationState!.rootPromptMessagesJson).toContainEqual(missingId);
+    peers[1]!.send({
+      message: {
+        case: "kvServerMessage",
+        value: { id: 7, message: { case: "getBlobArgs", value: { blobId: missingId } } },
+      },
+    });
+    // The old behavior replies empty and parks; check before waiting for the terminal result.
+    expect(peers[1]!.sent.filter((message) => message.message.case === "kvClientMessage")).toEqual(
+      [],
+    );
+    const failure = await failed.result();
+    expect(failure.stopReason).toBe("error");
+    expect(failure.errorMessage).toMatch(/not in the local store.*Refusing to answer empty/);
+    expect(peers[1]!.bridge.alive).toBe(false);
+    expect(attempts).toBe(2); // No blind retry inside the failed generation.
+    expect(conversationStates.get(convKey)!.checkpoint).toBeNull();
+    expect(conversationStates.get(convKey)!.conversationId).not.toBe(oldConversationId);
+
+    // A restart must not resurrect the broken checkpoint from disk.
+    conversationStates.clear();
+    const restored = getOrHydrateConversation(convKey)!;
+    expect(restored.checkpoint).toBeNull();
+    expect(restored.checkpointSource).toBeUndefined();
+    expect(restored.checkpointTurnCount).toBeUndefined();
+    expect(restored.checkpointHistoryFingerprint).toBeUndefined();
+    expect(restored.conversationId).not.toBe(oldConversationId);
+
+    const retry = streamFn(model, continuedContext, options);
+    await peers[2]!.requestReady;
+    const rebuilt = peers[2]!.request!;
+    expect(rebuilt.conversationId).toBe(restored.conversationId);
+    expect(rebuilt.conversationState!.rootPromptMessagesJson).not.toContainEqual(missingId);
+    for (const blobId of rebuilt.conversationState!.rootPromptMessagesJson) {
+      peers[2]!.send({
+        message: {
+          case: "kvServerMessage",
+          value: { id: 8, message: { case: "getBlobArgs", value: { blobId } } },
+        },
+      });
+    }
+    const prompt = peers[2]!.sent
+      .flatMap(({ message }) =>
+        message.case === "kvClientMessage" && message.value.message.case === "getBlobResult"
+          ? [new TextDecoder().decode(message.value.message.value.blobData)]
+          : [],
+      )
+      .join("\n");
+    expect(prompt).toContain("Remember the violet lighthouse");
+    expect(prompt).toContain("Remembered");
+    peers[2]!.finish();
+    expect((await retry.result()).stopReason).toBe("stop");
+  });
+});
 
 // Real provider retry orchestration, with transport replaced by an isolated test peer.
 describe("first-response checkpoint recovery", () => {
