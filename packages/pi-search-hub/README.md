@@ -71,7 +71,7 @@ Search Hub reads configuration from:
 
 Trusted project settings win. Backend maps are merged per backend, so a project can override one backend without repeating every global entry. Untrusted projects are never probed for Search Hub configuration. Configuration is refreshed during use; interactive edits are staged until `Save & apply`.
 
-Configuration, credential and Exa usage warnings appear as deduplicated Pi notifications instead of raw terminal output. Successful tool results also retain warnings in their details, including in headless runs. Ordinary provider failures continue through the existing tool-error and fallback paths.
+Configuration, credential and Exa usage warnings appear as deduplicated Pi notifications instead of raw terminal output. Repeated search or read failures for the same backend also raise a warning. Those local outcomes are not used as remaining quota. Successful tool results also retain warnings in their details, including in headless runs. Ordinary provider failures continue through the existing tool-error and fallback paths.
 
 On first use, Search Hub automatically migrates the previous global and trusted-project paths, upgrades recognized settings, drops unmappable fields with a warning, and removes the old file only after the new file passes a semantic round trip. Exa usage state similarly moves to `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json` with serialized atomic updates.
 
