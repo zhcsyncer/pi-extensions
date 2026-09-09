@@ -1,7 +1,6 @@
 {
   "name": "pi-provider-cursor-ask",
   "version": "0.0.0",
-  "private": true,
   "description": "Standalone Cursor provider for focused Pi advisor and review workflows.",
   "author": "zhcsyncer",
   "license": "MIT",
@@ -38,6 +37,9 @@
     "dist",
     "src"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup --silent",
     "prepare": "pnpm build",

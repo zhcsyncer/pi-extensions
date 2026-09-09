@@ -34,6 +34,42 @@ afterEach(() => {
 });
 
 describe("idle progress classification", () => {
+  it.each([new Uint8Array(), new Uint8Array([1, 2, 3])])(
+    "answers a stored blob even when it is genuinely empty (%j)",
+    (blobData) => {
+      const frames: Uint8Array[] = [];
+      const message = create(AgentServerMessageSchema, {
+        message: {
+          case: "kvServerMessage",
+          value: {
+            id: 7,
+            message: { case: "getBlobArgs", value: { blobId: new Uint8Array([0xab]) } },
+          },
+        },
+      });
+      expect(
+        processServerMessage(
+          message,
+          new Map([["ab", blobData]]),
+          [],
+          (frame) => frames.push(frame),
+          { toolCallIndex: 0, pendingExecs: [], outputTokens: 0, totalTokens: 0, turnEnded: false },
+          () => {},
+          () => {},
+        ),
+      ).toBe("work");
+      expect(frames).toHaveLength(1);
+      const response = fromBinary(AgentClientMessageSchema, frames[0]!.subarray(5));
+      expect(response.message).toMatchObject({
+        case: "kvClientMessage",
+        value: {
+          id: 7,
+          message: { case: "getBlobResult", value: { blobData: Buffer.from(blobData) } },
+        },
+      });
+    },
+  );
+
   it("rejects MCP executions for tools that were not advertised", () => {
     const message = create(AgentServerMessageSchema, {
       message: {

@@ -22,6 +22,7 @@ const packagePaths = [
 	"./packages/pi-consult",
 	"./packages/pi-adversarial-review",
 	"./providers/pi-provider-volcengine-agent-plan",
+	"./providers/pi-provider-cursor-ask",
 ];
 
 const requiredPackFiles = new Map([
@@ -284,6 +285,12 @@ const requiredPackFiles = new Map([
 		"README.zh-CN.md",
 		"LICENSE",
 	]],
+	["./providers/pi-provider-cursor-ask", [
+		"src/index.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"LICENSE",
+	]],
 ]);
 const maintainedReadmes = [
 	".changeset/README.md",
@@ -445,6 +452,10 @@ for (const packagePath of packagePaths) {
 		assert.ok(
 			![...files].some((file) => file.startsWith("packages/pi-adversarial-review/")),
 			"root npm pack must not include the standalone pi-adversarial-review package",
+		);
+		assert.ok(
+			![...files].some((file) => file.startsWith("providers/pi-provider-cursor-ask/")),
+			"root npm pack must not include the standalone pi-provider-cursor-ask package",
 		);
 	}
 	if (packagePath === "./packages/pi-adversarial-review") {

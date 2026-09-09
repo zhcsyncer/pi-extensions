@@ -14,14 +14,16 @@
 
 - 使用与上游相同的 `cursor` provider/登录身份和 `cursor-native` stream API 直接替换旧扩展。
 - 工具仍由 Pi 执行：有 Pi 工具的请求只开放 Cursor MCP 工具通道；无工具问答关闭 Cursor 工具。不提供 Cursor 原生文件、shell 和子代理工具。
-- 不展示完整 Cursor 目录，只提供 5 行始终开启 thinking 的 1M Claude 模型，以及 Composer 2.5 / Composer 2.5 Fast；过滤其他所有模型系列。
+- 只映射部分 Cursor 模型，不是完整目录：5 行始终开启 thinking 的 1M Claude、Composer 2.5 / Composer 2.5 Fast，以及账号实时目录里有的 Grok 4.6 / Grok 4.6 Fast。其余系列不注册。
 - Picker 不再拆默认上下文行：Cursor 对这些 Claude 模型按同一费率计到 1M。
-- 只映射明确提供的 Pi thinking 档位。Claude 映射 Cursor `effort`。Composer 2.5 没有 effort 参数，因此只用 `off`/`max` 显式开关 Max Mode，其余档位保持不可用。
-- 只保留在本仓库源码中，不发布到 npm，也不进入 `@zhcsyncer/pi-extensions` 根 bundle。
+- 只映射明确提供的 Pi thinking 档位。Claude 映射 Cursor `effort`。Composer 2.5 没有 effort 参数，因此只用 `off`/`max` 显式开关 Max Mode，其余档位保持不可用。Grok 沿用上游 `low`/`medium`/`high`/`xhigh`，不做 Claude 的 1M 重建。
+- 以 `pi-provider-cursor-ask` 独立发布到 npm，不进入 `@zhcsyncer/pi-extensions` 根 bundle。
 
 维护中的 fork 来源记录见 [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md)。
 
 ## 模型
+
+本包只映射下列模型，其余 Cursor 目录不会出现。
 
 - Fable 5.1
 - Fable 5
@@ -29,8 +31,9 @@
 - Opus 4.6
 - Sonnet 5
 - Composer 2.5 / Composer 2.5 Fast
+- Grok 4.6 / Grok 4.6 Fast（仅当账号目录包含时）
 
-5 行 Claude 模型的 Thinking 无法关闭。根据 Cursor 为各 Claude 模型返回的 metadata，Pi 可能提供 `low`、`medium`、`high`、`xhigh` 和 `max`；不可用的档位不会显示。Composer 2.5 只提供 `off`（标准）和 `max`（Max Mode）。
+5 行 Claude 模型的 Thinking 无法关闭。根据 Cursor 为各 Claude 模型返回的 metadata，Pi 可能提供 `low`、`medium`、`high`、`xhigh` 和 `max`；不可用的档位不会显示。Composer 2.5 只提供 `off`（标准）和 `max`（Max Mode）。Grok 提供 `low`、`medium`、`high` 和 `xhigh`。
 
 ## 要求
 
@@ -40,10 +43,8 @@
 
 ## 安装
 
-在本仓库的本地 checkout 中执行：
-
 ```bash
-pi install /absolute/path/to/pi-extensions/providers/pi-provider-cursor-ask
+pi install npm:pi-provider-cursor-ask
 ```
 
 重启 Pi 或执行 `/reload`，然后登录：
@@ -62,12 +63,14 @@ Provider 也可以复用受支持的 Cursor CLI 或桌面端凭证。自动化�
 pi --list-models cursor
 ```
 
-可选择 `cursor/fable-5.1`、`cursor/fable-5`、`cursor/opus-5`、`cursor/opus-4.6` 或 `cursor/sonnet-5`。
+可选择 `cursor/fable-5.1`、`cursor/fable-5`、`cursor/opus-5`、`cursor/opus-4.6`、`cursor/sonnet-5`；账号目录有时还可选 `cursor/grok-4.6` / `cursor/grok-4.6-fast`。
 
 可用命令：
 
 - `/cursor usage` — 打开 Cursor 套餐用量面板。
 - `/cursor doctor` — 打开脱敏后的 provider 诊断面板。
+
+若 Cursor 请求的历史在本地已缺失，本轮生成会以 `Refusing to answer empty` 明确失败，而不是发送残缺历史。重试即可从 Pi 对话历史重建。
 
 若同时加载了 `@zhcsyncer/pi-meter`，底栏会跟当前 Cursor 模型走：Composer 看 Auto 池，Claude 行看 API 池。
 

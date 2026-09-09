@@ -102,6 +102,7 @@ export function processServerMessage(
   onMcpExec: (exec: PendingExec) => void,
   onCheckpoint?: (checkpointBytes: Uint8Array, contextTokens?: number) => void,
   onExecUnanswerable?: (execCase: string | undefined) => void,
+  convKey?: string,
 ): StreamProgress {
   const msgCase = msg.message.case;
   debugLog("server_message", { msgCase, msg });
@@ -181,7 +182,7 @@ export function processServerMessage(
     return "none";
   }
   if (msgCase === "kvServerMessage") {
-    return handleKvMessage(msg.message.value as KvServerMessage, blobStore, sendFrame)
+    return handleKvMessage(msg.message.value as KvServerMessage, blobStore, sendFrame, convKey)
       ? "work"
       : "none";
   }
@@ -288,6 +289,7 @@ function handleKvMessage(
   kvMsg: KvServerMessage,
   blobStore: Map<string, Uint8Array>,
   sendFrame: (data: Uint8Array) => void,
+  convKey?: string,
 ): boolean {
   const kvCase = (kvMsg as any).message.case;
   if (kvCase === "getBlobArgs") {
@@ -295,22 +297,17 @@ function handleKvMessage(
     const blobIdKey = Buffer.from(blobId).toString("hex");
     const blobData = blobStore.get(blobIdKey);
     if (!blobData) {
-      // Cursor only asks for a blob it holds a reference to, so a miss means a
-      // piece of the replayed conversation is gone. The protocol has no way to
-      // say so — an empty result is indistinguishable from an empty blob — and
-      // the turn continues with that history silently blank. Record it so the
-      // amnesia is at least diagnosable from /cursor.doctor and the lifecycle log,
-      // and invalidate the checkpoint so the next turn rebuilds from Pi history.
+      // An empty result is valid history to Cursor, not a missing-blob error.
+      // Refuse the round-trip and fail this generation so the next turn rebuilds
+      // from Pi. Invalidate by conversation key: the live blob store is a clone.
       lifecycleLog("kv_blob_miss", { blobId: blobIdKey.slice(0, 16), storeSize: blobStore.size });
       setLastStreamEvent("kv_blob_miss");
-      markBlobMiss(blobStore);
+      if (convKey) markBlobMiss(convKey);
+      throw new Error(
+        `Cursor asked for blob ${blobIdKey.slice(0, 16)} that is not in the local store (${blobStore.size} entries). Refusing to answer empty. Retry to rebuild from Pi history.`,
+      );
     }
-    sendKvResponse(
-      kvMsg,
-      "getBlobResult",
-      create(GetBlobResultSchema, blobData ? { blobData } : {}),
-      sendFrame,
-    );
+    sendKvResponse(kvMsg, "getBlobResult", create(GetBlobResultSchema, { blobData }), sendFrame);
     return true;
   }
   if (kvCase === "setBlobArgs") {
