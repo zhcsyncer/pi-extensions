@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-cursor-ask",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Standalone Cursor provider for focused Pi advisor and review workflows.",
   "author": "zhcsyncer",
   "license": "MIT",
