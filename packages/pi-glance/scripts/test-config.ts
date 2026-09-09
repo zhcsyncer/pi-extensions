@@ -148,8 +148,15 @@ for (const progressWidth of CONTEXT_PROGRESS_WIDTH_VALUES) {
 for (const display of TOKENS_DISPLAY_MODE_VALUES) {
 	assert.equal(normalizeConfig({ tokens: { display } }).tokens.display, display, `${display} should normalize as a valid tokens display mode`);
 }
+assert.equal(defaults.tokens.cache, "auto", "tokens cache should keep the legacy auto default");
 for (const cache of TOKENS_CACHE_MODE_VALUES) {
 	assert.equal(normalizeConfig({ tokens: { cache } }).tokens.cache, cache, `${cache} should normalize as a valid tokens cache mode`);
+}
+const rateConfig = normalizeConfig({ tokens: { cache: "rate" } });
+assert.equal(rateConfig.tokens.cache, "rate", "rate should be accepted explicitly, independently of the option list");
+assert.equal(configFromText(configToText(rateConfig)).tokens.cache, "rate", "hit rate preference should survive saving and loading");
+for (const cache of [undefined, null, "unknown", 0, false]) {
+	assert.equal(normalizeConfig({ tokens: { cache } }).tokens.cache, "auto", `${String(cache)} cache mode should fall back to auto`);
 }
 for (const showThinking of MODEL_THINKING_MODE_VALUES) {
 	assert.equal(normalizeConfig({ model: { showThinking } }).model.showThinking, showThinking, `${showThinking} should normalize as a valid model thinking mode`);

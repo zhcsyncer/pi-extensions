@@ -24,8 +24,12 @@ function shouldShowTokenCache(ctx: SegmentRenderContext): boolean {
 }
 
 function tokenCacheParts(ctx: SegmentRenderContext): string[] {
-	if (!shouldShowTokenCache(ctx)) return [];
 	const usage = ctx.state.usage;
+	if (ctx.config.tokens.cache === "rate") {
+		const denominator = usage.input + usage.cacheRead + usage.cacheWrite;
+		return denominator > 0 ? [`${Math.round((usage.cacheRead / denominator) * 100)}%`] : [];
+	}
+	if (!shouldShowTokenCache(ctx)) return [];
 	const parts: string[] = [];
 	if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
 	if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
@@ -41,13 +45,15 @@ function tokenPrimary(ctx: SegmentRenderContext): string {
 function collectTokens(ctx: SegmentRenderContext): SegmentData | undefined {
 	const primary = tokenPrimary(ctx);
 	const cacheParts = tokenCacheParts(ctx);
+	const full = [primary, ...cacheParts].join(" ");
+	const compact = ctx.config.tokens.cache === "rate" && cacheParts.length > 0 ? cacheParts.join(" ") : full;
 	return {
 		primary,
 		secondary: cacheParts.join(" ") || undefined,
 		display: {
-			full: [primary, ...cacheParts].join(" "),
-			compact: [primary, ...cacheParts].join(" "),
-			minimal: [primary, ...cacheParts].join(" "),
+			full,
+			compact,
+			minimal: compact,
 		},
 	};
 }
@@ -70,9 +76,9 @@ export const tokensSegmentFeature = {
 		{
 			id: "tokens.cache",
 			label: "Cache",
-			hint: "Show or hide cache details.",
+			hint: "Choose cache counts, hit rate, or hide.",
 			kind: "cycle",
-			value: (config: GlanceConfig) => config.tokens.cache,
+			value: (config: GlanceConfig) => config.tokens.cache === "rate" ? "Hit rate" : config.tokens.cache,
 			mutate: (config: GlanceConfig) => {
 				config.tokens.cache = nextIn(config.tokens.cache, TOKENS_CACHE_MODE_VALUES);
 			},

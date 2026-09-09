@@ -27,6 +27,6 @@ export const CONTEXT_TEXT_MODE_VALUES: ReadonlyArray<ContextTextMode> = ["percen
 export const CONTEXT_PROGRESS_STYLE_VALUES: ReadonlyArray<ContextProgressStyle> = ["border", "track"];
 export const CONTEXT_PROGRESS_WIDTH_VALUES: ReadonlyArray<ContextProgressWidth> = ["third", "remaining"];
 export const TOKENS_DISPLAY_MODE_VALUES: ReadonlyArray<TokensDisplayMode> = ["input-output", "total"];
-export const TOKENS_CACHE_MODE_VALUES: ReadonlyArray<TokensCacheMode> = ["auto", "show", "hide"];
+export const TOKENS_CACHE_MODE_VALUES: ReadonlyArray<TokensCacheMode> = ["auto", "show", "hide", "rate"];
 export const MODEL_THINKING_MODE_VALUES: ReadonlyArray<ModelThinkingMode> = ["auto", "always", "never"];
 export const THROUGHPUT_PRECISION_VALUES: ReadonlyArray<ThroughputPrecision> = THROUGHPUT_PRECISION_DESCRIPTOR.values;
