@@ -30,3 +30,7 @@ export function getExaUsagePath(agentDir = getAgentDir()): string {
 export function getLegacyExaUsagePath(agentDir = getAgentDir()): string {
 	return join(agentDir, "exa-usage.json");
 }
+
+export function getEffectivenessPath(agentDir = getAgentDir()): string {
+	return join(getSearchHubDataDir(agentDir), "state", "effectiveness.json");
+}

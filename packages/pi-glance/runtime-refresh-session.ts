@@ -141,8 +141,36 @@ export class RuntimeRefreshSession {
 		if (plan.render) this.host.requestRender();
 	}
 
+	messageUpdate(eventType: string): void {
+		this.throughputTracker.messageUpdate(eventType, () => this.host.nowMs());
+	}
+
+	toolExecutionStart(toolCallId: string): void {
+		this.throughputTracker.toolExecutionStart(toolCallId, () => this.host.nowMs());
+	}
+
+	toolExecutionEnd(toolCallId: string): void {
+		this.throughputTracker.toolExecutionEnd(toolCallId);
+	}
+
+	uiPromptStart(): void {
+		this.throughputTracker.uiPromptStart(() => this.host.nowMs());
+	}
+
+	uiPromptEnd(): void {
+		this.throughputTracker.uiPromptEnd();
+	}
+
+	agentSettled(): void {
+		const intent = this.throughputTracker.settle(() => this.host.nowMs());
+		if (this.state && applyThroughputIntent(this.state, intent)) this.host.requestRender();
+	}
+
 	async messageEnd(message: RuntimeMessageEndInput, ctx: ExtensionContext): Promise<void> {
-		if (message.role === "assistant") this.clearContextUnknownAfterKnownAssistantUsage(message);
+		if (message.role === "assistant") {
+			this.throughputTracker.messageEnd(() => this.host.nowMs());
+			this.clearContextUnknownAfterKnownAssistantUsage(message);
+		}
 		await this.execute("message_end", ctx, {
 			facts: { messageRole: message.role },
 			beforeRender: () => {

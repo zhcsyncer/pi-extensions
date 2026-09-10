@@ -278,6 +278,7 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	const branchBaseline = ctx.getBranchReads();
 	harness.session.agentStart();
 	assert.equal(harness.getRenderCount(), 0, "agentStart with no visible throughput change should not render");
+	harness.session.messageUpdate("text_delta");
 	harness.setNowMs(1500);
 	harness.setOnRender(() => {
 		assert.ok(state.throughput.currentRun, "turnEnd should set current-run throughput before render");
@@ -301,6 +302,7 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	const entryBaseline = ctx.getEntryReads();
 	const branchBaseline = ctx.getBranchReads();
 	harness.session.agentStart();
+	harness.session.messageUpdate("thinking_delta");
 	harness.setNowMs(1400);
 	await harness.session.turnEnd({ turnIndex: 1, message: eventMessage("assistant", { usage: { output: 4, totalTokens: 4 } }) }, ctx.ctx);
 	assert.ok(state.throughput.currentRun, "setup turnEnd should set current-run throughput");
@@ -335,6 +337,33 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	harness.session.sessionShutdown();
 	await harness.session.agentEnd({ messages: [eventMessage("assistant", { usage: { output: 10, totalTokens: 10 } })] }, ctx.ctx);
 	assert.equal(state.throughput.lastTurn, null, "sessionShutdown should reset throughput tracker so a later agentEnd cannot create last-turn throughput");
+}
+
+{
+	const ctx = createContext();
+	const harness = createSessionHarness();
+	const state = harness.session.ensureState(ctx.ctx);
+	const entryBaseline = ctx.getEntryReads();
+	const branchBaseline = ctx.getBranchReads();
+	harness.session.agentStart(); // 1000
+	harness.setNowMs(5000);
+	harness.session.messageUpdate("thinking_delta");
+	harness.setNowMs(9000);
+	harness.session.messageUpdate("text_delta");
+	harness.setNowMs(10000);
+	await harness.session.messageEnd(eventMessage("assistant", { usage: { output: 50 } }), ctx.ctx);
+	harness.session.toolExecutionStart("slow");
+	harness.setNowMs(38000);
+	harness.session.toolExecutionEnd("slow");
+	await harness.session.turnEnd({ turnIndex: 0, message: eventMessage("assistant", { usage: { output: 50 } }) }, ctx.ctx);
+	assert.equal(state.throughput.currentRun?.elapsedMs, 5000, "refresh session includes thinking, not pre-delta waiting or 28s tools");
+	assert.equal(state.throughput.currentRun?.tokensPerSecond, 10);
+	harness.setNowMs(40000);
+	harness.session.agentSettled();
+	assert.equal(state.throughput.lastTurn?.tokensPerSecond, 10, "settled finalizes the same inference-only checkpoint");
+	assert.equal(state.throughput.currentRun, null);
+	assert.equal(ctx.getEntryReads(), entryBaseline, "stream/tool timing never rescans session entries");
+	assert.equal(ctx.getBranchReads(), branchBaseline, "stream/tool timing never rescans session branch");
 }
 
 console.log("✓ runtime refresh session checks passed");

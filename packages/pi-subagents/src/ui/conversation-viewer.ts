@@ -8,6 +8,7 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { type Component, Input, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentRecord } from "../types.js";
+import { previousResultSuffix } from "../status-note.js";
 import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent } from "../usage.js";
 import type { Theme } from "./agent-widget.js";
 import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatLifetimeUsageBreakdown, formatMs, formatSessionTokens, getDisplayName, getPromptModeLabel, styleDuration } from "./agent-widget.js";
@@ -65,17 +66,17 @@ export class ConversationViewer implements Component {
   }
 
   handleInput(data: string): void {
-    // While composing a steer message, the input owns all keys (Enter sends,
+    if (this.keys.close(data, !!this.composer)) {
+      this.closed = true;
+      this.done(undefined);
+      return;
+    }
+
+    // While composing a steer message, the input owns remaining keys (Enter sends,
     // Esc cancels — both wired in openComposer()). Editing keys flow through.
     if (this.composer) {
       this.composer.handleInput(data);
       this.tui.requestRender();
-      return;
-    }
-
-    if (matchesKey(data, "escape") || matchesKey(data, "q")) {
-      this.closed = true;
-      this.done(undefined);
       return;
     }
 
@@ -206,7 +207,7 @@ export class ConversationViewer implements Component {
     if (this.composer) {
       // Composer row: the Input renders its own `> ` prompt and cursor.
       lines.push(row(this.composer.render(innerW)[0] ?? ""));
-      const composeHint = th.fg("dim", "Enter send · Esc cancel");
+      const composeHint = th.fg("dim", "Enter send · Esc cancel · Ctrl+C close");
       const composeLeft = th.fg("accent", "✎ steer");
       const composeGap = Math.max(1, innerW - visibleWidth(composeLeft) - visibleWidth(composeHint));
       lines.push(row(composeLeft + " ".repeat(composeGap) + composeHint));
@@ -296,7 +297,10 @@ export class ConversationViewer implements Component {
 
   private invocationLine(): string | undefined {
     const { modelName, tags } = buildInvocationTags(this.record.invocation);
-    const parts = modelName ? [modelName, ...tags] : tags;
+    const model = this.record.invocation?.modelIdentity ?? this.record.effectiveModel;
+    const canonical = model ? `${model.provider}/${model.modelId}` : undefined;
+    const label = canonical ?? modelName;
+    const parts = label ? [label, ...tags] : tags;
     if (parts.length === 0) return undefined;
     return this.theme.fg("dim", `  ↳ ${parts.join(" · ")}`);
   }
@@ -308,12 +312,12 @@ export class ConversationViewer implements Component {
     const messages = this.session.messages as unknown as Parameters<typeof buildConversationBrief>[0];
     const lines: string[] = [];
 
-    if (!messages || messages.length === 0) {
+    if ((!messages || messages.length === 0) && !this.record.result && !this.record.previousResult && !this.record.error) {
       lines.push(th.fg("dim", "(waiting for first message...)"));
       return lines.map((l) => truncateToWidth(l, width));
     }
 
-    const brief = buildConversationBrief(messages);
+    const brief = buildConversationBrief(messages ?? []);
     // Terminal records must not keep spinner steps for unmatched toolCalls.
     settleDanglingBriefSteps(brief.steps, this.record.status);
     const section = (title: string) => {
@@ -392,11 +396,15 @@ export class ConversationViewer implements Component {
             ? "Aborted (max turns exceeded)"
             : "failed");
       lines.push(th.fg("error", errText));
-      if (brief.result?.trim()) {
+      const partial = this.record.result ?? (this.record.previousResult ? undefined : brief.result);
+      if (partial?.trim()) {
         lines.push(th.fg("dim", "── last assistant text before failure ──"));
-        for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
+        for (const line of wrapTextWithAnsi(partial.trim(), width)) {
           lines.push(th.fg("dim", line));
         }
+      }
+      for (const line of wrapTextWithAnsi(previousResultSuffix(this.record).trim(), width)) {
+        lines.push(th.fg("dim", line));
       }
     } else if (this.record.status === "steered") {
       // Turn-limit wrap-up is not a hard failure, but must not look like normal Done.
@@ -406,8 +414,8 @@ export class ConversationViewer implements Component {
           lines.push(line);
         }
       }
-    } else if (brief.result) {
-      for (const line of wrapTextWithAnsi(brief.result.trim(), width)) {
+    } else if (this.record.result || brief.result) {
+      for (const line of wrapTextWithAnsi((this.record.result || brief.result)!.trim(), width)) {
         lines.push(line);
       }
     } else if (this.record.status === "running" || this.record.status === "queued") {

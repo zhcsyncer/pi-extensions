@@ -431,7 +431,7 @@ const tokensRows = assertRows(config, "tokens", [
 		id: "tokens.cache",
 		label: "Cache",
 		value: "auto",
-		hint: "Show or hide cache details.",
+		hint: "Choose cache counts, hit rate, or hide.",
 		kind: "cycle",
 	},
 ]);
@@ -539,6 +539,12 @@ assertConfigUnchanged(infoBefore, config, "reading an info row should not dirty 
 assert.equal(rowById(tokensRows, "tokens.enabled").apply!(config).segments.find((segment) => segment.id === "tokens")?.enabled, true, "tokens enabled should toggle on");
 assert.equal(rowById(tokensRows, "tokens.display").apply!(config).tokens.display, "total", "tokens display should cycle input-output -> total");
 assert.equal(rowById(tokensRows, "tokens.cache").apply!(config).tokens.cache, "show", "tokens cache should cycle auto -> show");
+let cacheCycleConfig = config;
+for (const [expectedMode, expectedLabel] of [["show", "show"], ["hide", "hide"], ["rate", "Hit rate"], ["auto", "auto"]] as const) {
+	cacheCycleConfig = applyRow(cacheCycleConfig, rowById(getSettingsRows(cacheCycleConfig, "tokens"), "tokens.cache"));
+	assert.equal(cacheCycleConfig.tokens.cache, expectedMode, "cache cycle should append rate after the existing auto/show/hide order");
+	assert.equal(rowById(getSettingsRows(cacheCycleConfig, "tokens"), "tokens.cache").value, expectedLabel, "cache modes should expose their user-facing labels");
+}
 
 assert.equal(rowById(modelRows, "model.enabled").apply!(config).segments.find((segment) => segment.id === "model")?.enabled, false, "model enabled should toggle off");
 assert.equal(rowById(modelRows, "model.providerLabel").apply!(config).display.showProvider, "always", "provider label should cycle auto -> always");

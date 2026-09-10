@@ -9,6 +9,7 @@
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { SpawnOptions } from "./agent-manager.js";
+import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
 import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 import type { InlineAgentConfig } from "./types.js";
 
@@ -44,7 +45,7 @@ export type RpcSpawnOptions = Omit<
   | "completionDelivery"
 > & {
   description?: string;
-  model?: string | Model<any>;
+  model?: string | Model<any> | null;
 };
 
 export interface SpawnRpcRequest {
@@ -73,6 +74,8 @@ export interface RpcDeps {
   pi: unknown;                    // passed through to manager.spawn
   getCtx: () => unknown | undefined;  // returns current ExtensionContext
   manager: SpawnCapable;
+  /** Read the extension's current setting without owning a second settings store. */
+  isScopeModelsEnabled?: () => boolean;
   /** Optional UI hook. Errors here must not turn a successful spawn into an RPC failure. */
   onSpawned?: (event: RpcSpawnedEvent) => void;
 }
@@ -185,6 +188,8 @@ function normalizeSpawnOptions(type: string, raw: unknown): RpcSpawnOptions {
   // Completion delivery is an internal spawn policy. Detached RPC work keeps
   // AgentManager's followUp default even if an untyped caller sends the field.
   delete serialized.completionDelivery;
+  // JSON-forwarded null is an unset override, just like omission.
+  if (serialized.model === null) delete serialized.model;
   const options = serialized as RpcSpawnOptions;
   if (options.description !== undefined && typeof options.description !== "string") {
     throw new Error("description must be a string");
@@ -275,6 +280,25 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
         managerOptions = { ...normalizedOptions, model: resolved } as SpawnOptions;
       } else {
         managerOptions = normalizedOptions as SpawnOptions;
+      }
+
+      // Only an explicit RPC override is an orchestrator choice. Inherited and
+      // frontmatter routes retain their existing trust policy; schedules do not
+      // pass through this boundary. Check the resolved provider, not fuzzy input.
+      if (managerOptions.model && deps.isScopeModelsEnabled?.()) {
+        const { modelRegistry, cwd } = ctx as { modelRegistry?: ModelRegistry; cwd?: string };
+        const label = typeof normalizedOptions.model === "string"
+          ? normalizedOptions.model
+          : `${managerOptions.model.provider}/${managerOptions.model.id}`;
+        if (!modelRegistry) {
+          throw new Error(`Model override "${label}" provided but ctx.modelRegistry is unavailable`);
+        }
+        const configCwd = cwd ?? process.cwd();
+        const allowed = resolveEnabledModels(readEnabledModels(configCwd), modelRegistry, configCwd);
+        if (allowed && !isModelInScope(managerOptions.model, allowed)) {
+          const list = [...allowed].sort().map((model) => `  ${model}`).join("\n");
+          throw new Error(`Model not in scope: "${label}".\n\nAllowed models (from enabledModels):\n${list}`);
+        }
       }
 
       const id = manager.spawn(pi, ctx, type, prompt, managerOptions);

@@ -52,7 +52,8 @@
 │   ├── pi-search-hub/
 │   │   ├── config.json
 │   │   └── state/
-│   │       └── exa-usage.json
+│   │       ├── exa-usage.json
+│   │       └── effectiveness.json      # 各 backend/reader 调用效果，不是配额
 │   ├── pi-glance/
 │   │   ├── config.json
 │   │   └── state/
@@ -150,6 +151,7 @@ Recap/Search Hub 的项目迁移只在受信任项目中执行；Subagents 不�
 | Search Hub | `$PI_CODING_AGENT_DIR/extensions/search.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json` | 全局配置 |
 | Search Hub | `<project>/.pi/search.json` | `<project>/.pi/extension-data/pi-search-hub/config.json` | 受信任项目覆盖 |
 | Search Hub | `$PI_CODING_AGENT_DIR/exa-usage.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json` | 运行状态，不是配置 |
+| Search Hub | （无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/effectiveness.json` | 调用效果状态，不是配额 |
 | Pi Glance | `$PI_CODING_AGENT_DIR/pi-glance/config.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-glance/config.json` | 全局配置 |
 | Pi Glance | （无旧路径） | `$PI_CODING_AGENT_DIR/extension-data/pi-glance/state/input-stash.json` | 输入框单槽暂存；按 session 覆盖写，不进 session JSONL |
 | Tool Display Intent | `$PI_CODING_AGENT_DIR/extensions/pi-tool-display-intent/config.json` | `$PI_CODING_AGENT_DIR/extension-data/pi-tool-display-intent/config.json` | 全局配置 |
@@ -225,6 +227,7 @@ extension-data/<extension-id>/state/
 当前明确迁入该层的状态包括：
 
 - Search Hub 的 Exa 用量：`pi-search-hub/state/exa-usage.json`；
+- Search Hub 的调用效果：`pi-search-hub/state/effectiveness.json`，用于失败告警，不推算配额；
 - Tool Display Intent 的调试日志：`pi-tool-display-intent/state/debug.log`；
 - Glance 输入框单槽暂存：`pi-glance/state/input-stash.json`。按当前 session 覆盖写，不进 session JSONL。
 

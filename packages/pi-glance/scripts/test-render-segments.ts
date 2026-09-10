@@ -118,6 +118,45 @@ assert.equal(
 	"tokens cache hide removes cache details",
 );
 
+for (const width of [120, 80, 48]) {
+	for (const display of ["input-output", "total"] as const) {
+		assert.equal(
+			line("tokens", { usage: { input: 1, output: 99, cacheRead: 2, cacheWrite: 3, cost: 0 } }, (config) => {
+				config.tokens.cache = "rate";
+				config.tokens.display = display;
+			}, width),
+			width === 120 ? (display === "total" ? "tok total 100 33%" : "tok ↑1 ↓99 33%") : "tok 33%",
+			`hit rate includes cache writes, excludes output, and prioritizes percentage at width ${width} with ${display}`,
+		);
+	}
+	assert.equal(
+		line("tokens", { usage: { input: 0, output: 99, cacheRead: 0, cacheWrite: 0, cost: 0 } }, (config) => {
+			config.tokens.cache = "rate";
+		}, width),
+		"tok ↑0 ↓99",
+		`zero input denominator omits rate and retains primary tokens at width ${width}`,
+	);
+	for (const cache of ["auto", "show", "hide"] as const) {
+		assert.equal(
+			line("tokens", { usage: { input: 12_400, output: 3_100, cacheRead: 800, cacheWrite: 20, cost: 0 } }, (config) => {
+				config.tokens.cache = cache;
+			}, width),
+			`tok ↑12k ↓3.1k${cache === "show" || (cache === "auto" && width === 120) ? " R800 W20" : ""}`,
+			`legacy cache ${cache} retains its visibility rule at width ${width}`,
+		);
+	}
+}
+
+for (const [input, cacheRead, expected] of [[1, 2, "67%"], [7, 1, "13%"], [10, 0, "0%"], [0, 10, "100%"]] as const) {
+	assert.equal(
+		line("tokens", { usage: { input, output: 0, cacheRead, cacheWrite: 0, cost: 0 } }, (config) => {
+			config.tokens.cache = "rate";
+		}, 48),
+		`tok ${expected}`,
+		`hit rate rounds ${cacheRead}/${input + cacheRead} to ${expected}, including valid zero and complete hits`,
+	);
+}
+
 assert.equal(line("model"), "ai GPT 5.5", "model auto hides thinking when off");
 assert.equal(
 	line("model", { model: { id: "gpt-5.5", provider: "openai", displayName: "GPT 5.5", thinking: "high" } }),

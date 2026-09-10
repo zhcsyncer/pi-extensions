@@ -38,7 +38,7 @@
 
   ![套餐看板](./assets/demo-quota-dashboard.png)
 
-`--no-session` 和普通 sub-agent 仍会记本地账。隔离的子代理记不到。
+`--no-session` 仍会记本地账。子代理用量按子会话逐消息计入，忽略父会话的 `Agent` 结果及带汇总标记的 `get_subagent_result` 用量；Pi 原生会话统计不变。要可靠地实时覆盖子代理（包括隔离子代理），请在用户级 `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json` 中加入 `"pinnedExtensions": ["pi-meter"]`。子会话未加载 pi-meter 时，可用 `/usage import` 回填已保存的子会话。
 
 ## 安装
 

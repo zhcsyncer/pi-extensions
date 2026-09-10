@@ -45,6 +45,7 @@ import {
 } from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
 import { createDiagnosticReporter } from "./diagnostics.js";
+import { reportEffectiveness } from "./effectiveness.js";
 import type { BackendConfig, ReaderName, SearchConfig, SearchResult, SearchResultWithBackend } from "./types.js";
 import { timeoutSignal, sanitizeError, clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
 import { resolveBackendKey, getKeySource, FALLBACK_ENV_MAP } from "./credentials.js";
@@ -538,11 +539,31 @@ export default function (pi: ExtensionAPI) {
 			for (const [index, candidate] of readers.entries()) {
 				const label = READER_LABELS[candidate];
 				updateActivity(`📄 ${label}: fetching...`, candidate);
+				const started = Date.now();
 				try {
 					content = await fetchWithReader(candidate);
+					await reportEffectiveness({
+						backend: candidate,
+						label,
+						op: "read",
+						ok: true,
+						latencyMs: Date.now() - started,
+						resultCount: content.length,
+						onNotice,
+					});
 					reader = candidate;
 					break;
 				} catch (error) {
+					await reportEffectiveness({
+						backend: candidate,
+						label,
+						op: "read",
+						ok: false,
+						latencyMs: Date.now() - started,
+						error,
+						signal,
+						onNotice,
+					});
 					if (signal?.aborted || explicitReader) throw error;
 					errors.push(`${candidate}: ${(error as Error).message}`);
 					const next = readers[index + 1];

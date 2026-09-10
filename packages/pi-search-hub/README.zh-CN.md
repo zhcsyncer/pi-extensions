@@ -71,7 +71,7 @@ Search Hub 从以下位置读取配置：
 
 受信任项目的设置优先。backend map 会按单个 backend 合并，因此项目可以只覆盖一个 backend，无需重复全部全局条目。未受信任项目中的 Search Hub 配置不会被探测或读取。配置会在使用过程中刷新；交互式修改会暂存在草稿中，直到选择 `Save & apply`。
 
-配置、凭据和 Exa 用量告警通过 Pi 原生通知去重展示，不再直接写终端。成功的工具结果也会在详情中保留告警，无 UI 运行同样保留。普通 provider 失败仍走原有工具错误与 fallback 路径。
+配置、凭据和 Exa 用量告警通过 Pi 原生通知去重展示，不再直接写终端。同一 backend 的搜索或读取连续失败时也会告警。这些本地调用结果不用于推算剩余配额。成功的工具结果也会在详情中保留告警，无 UI 运行同样保留。普通 provider 失败仍走原有工具错误与 fallback 路径。
 
 首次使用时，Search Hub 会自动迁移旧的全局路径和受信任项目路径，升级可识别设置，丢弃无法映射的字段并发出 warning；只有新文件通过语义 round trip 后才删除旧文件。Exa 用量状态也会迁入 `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/state/exa-usage.json`，并使用串行化原子更新。
 

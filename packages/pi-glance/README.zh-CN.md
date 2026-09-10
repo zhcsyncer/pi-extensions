@@ -58,7 +58,8 @@ pi install npm:@zhcsyncer/pi-glance
 - **General** — 新安装 `Color source` 为 `Follow Pi`。选 `Glance palette` 使用 22 套内置配色。当前 Pi 主题不可用时，用 `Light palette` / `Dark palette`。`Icons` 默认 `plain`；`nerd` 需要 Nerd Font。图标变成方框就改回 `plain`。`Workspace label` 为 `name`、`smart` 或 `path`。
 - **Working indicator** — 一级菜单只有一个 `Enabled: on/off`。`off` 恢复 Pi 默认 working row。
 - **Git** — `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或 `border right`）、`Polling`。
-- **Reply speed** — 默认开启。按 output tokens / wall time 显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s` 最终。`Precision` 为 `auto`、1 位或 0 位。wall time 包含 tools、waiting、network 和 thinking，因此不是 benchmark。不发通知、不用 timer、不从文本估算 token。
+- **Reply speed** — 默认开启。按输出 token 数 / 服务端推理时间（thinking 思考 + 正文生成）显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s` 最终。排除本地工具执行和每段回复开始前的等待，慢工具不再拖低速度；同样的输出，思考越久，速度越低。在支持的 Pi 版本中，等待阻塞 UI 提示的时间也不计入。`Precision` 为 `auto`、1 位或 0 位。这是回复体验指标，不是性能基准（benchmark）。不发通知、不从文本估算 token。
+- **Tokens** — 可选的会话累计用量。`Display` 选择输入/输出或总数。`Cache` 可循环选择 `auto`（完整宽度才显示读写数量）、`show`（始终显示数量）、`hide` 和 `Hit rate`（命中率，配置值 `rate`）。命中率显示提示 token 中从缓存读取的比例，四舍五入为 `42%` 这样的百分比，不受输出 token 数影响。窄布局优先保留百分比；尚无提示 token 时不显示百分比。默认仍为 `auto`，已有设置不变。
 - **Context** — 百分比 / tokens 文本，可选右下角 `Progress bar`（`track` 或 `border`，`one third` 或 `remaining`）。未用部分细线 `─`，已用部分粗线 `━`。低于 70% 正常，70%（含）到 85%（不含）warning，85% 及以上 error。
 - **Bottom details** — 可隐藏自动压缩标记。Nerd Font 显示 `󰁄 auto`。
 

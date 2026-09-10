@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
-import type { AgentInvocation, AgentRecord } from "./types.js";
+import type { AgentInvocation, AgentRecord, AgentResumeSnapshot } from "./types.js";
 import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 const TERMINAL_STATUSES = new Set<AgentRecord["status"]>([
@@ -11,12 +12,15 @@ const TERMINAL_STATUSES = new Set<AgentRecord["status"]>([
 ]);
 
 /** Durable subset stored on the parent session for `/agents` history. */
-export interface ArchivedAgentRecord {
+export interface ArchivedAgentRecord extends Pick<AgentRecord,
+  "correlationId" | "requestedModel" | "requestedThinkingLevel" | "effectiveModel" | "effectiveThinkingLevel"
+> {
   id: string;
   type: string;
   description: string;
   status: AgentRecord["status"];
   result?: string;
+  previousResult?: string;
   error?: string;
   toolUses: number;
   startedAt: number;
@@ -28,6 +32,10 @@ export interface ArchivedAgentRecord {
   inlineDisplayName?: string;
   inlinePromptMode?: "replace" | "append";
   isBackground?: boolean;
+  resumeSnapshot?: AgentResumeSnapshot;
+  runGeneration?: number;
+  completionOwner?: AgentRecord["completionOwner"];
+  completionDelivery?: AgentRecord["completionDelivery"];
 }
 
 /** Serialize the fields needed to reopen a finished conversation later. */
@@ -39,6 +47,7 @@ export function archiveAgentRecord(record: AgentRecord): ArchivedAgentRecord | u
     description: record.description,
     status: record.status,
     result: record.result,
+    previousResult: record.previousResult,
     error: record.error,
     toolUses: record.toolUses,
     startedAt: record.startedAt,
@@ -50,6 +59,15 @@ export function archiveAgentRecord(record: AgentRecord): ArchivedAgentRecord | u
     inlineDisplayName: record.inlineDisplayName,
     inlinePromptMode: record.inlinePromptMode,
     isBackground: record.isBackground,
+    resumeSnapshot: record.resumeSnapshot,
+    runGeneration: record.runGeneration,
+    completionOwner: record.completionOwner,
+    completionDelivery: record.completionDelivery,
+    correlationId: record.correlationId,
+    requestedModel: record.requestedModel,
+    requestedThinkingLevel: record.requestedThinkingLevel,
+    effectiveModel: record.effectiveModel,
+    effectiveThinkingLevel: record.effectiveThinkingLevel,
   };
 }
 
@@ -74,6 +92,7 @@ function parseArchive(value: unknown): ArchivedAgentRecord | undefined {
     description: data.description,
     status: data.status as AgentRecord["status"],
     result: typeof data.result === "string" ? data.result : undefined,
+    previousResult: typeof data.previousResult === "string" ? data.previousResult : undefined,
     error: typeof data.error === "string" ? data.error : undefined,
     toolUses: typeof data.toolUses === "number" ? data.toolUses : 0,
     startedAt: typeof data.startedAt === "number" ? data.startedAt : 0,
@@ -89,6 +108,15 @@ function parseArchive(value: unknown): ArchivedAgentRecord | undefined {
       ? data.inlinePromptMode
       : undefined,
     isBackground: typeof data.isBackground === "boolean" ? data.isBackground : undefined,
+    resumeSnapshot: data.resumeSnapshot as AgentResumeSnapshot | undefined,
+    runGeneration: typeof data.runGeneration === "number" ? data.runGeneration : undefined,
+    completionOwner: data.completionOwner === "caller" ? "caller" : "runtime",
+    completionDelivery: data.completionDelivery === "steer" ? "steer" : "followUp",
+    correlationId: typeof data.correlationId === "string" ? data.correlationId : undefined,
+    requestedModel: data.requestedModel as AgentRecord["requestedModel"],
+    requestedThinkingLevel: data.requestedThinkingLevel as AgentRecord["requestedThinkingLevel"],
+    effectiveModel: data.effectiveModel as AgentRecord["effectiveModel"],
+    effectiveThinkingLevel: data.effectiveThinkingLevel as AgentRecord["effectiveThinkingLevel"],
   };
 }
 
@@ -103,7 +131,13 @@ export function listArchivedAgents(
   for (const value of sessionManager.getBranch()) {
     if (!value || typeof value !== "object") continue;
     const entry = value as { type?: unknown; customType?: unknown; data?: unknown };
-    if (entry.type !== "custom" || entry.customType !== "subagents:record") continue;
+    if (entry.type !== "custom") continue;
+    if (entry.customType === "subagents:active") {
+      const id = (entry.data as { id?: unknown } | undefined)?.id;
+      if (typeof id === "string") byId.delete(id);
+      continue;
+    }
+    if (entry.customType !== "subagents:record") continue;
     const archive = parseArchive(entry.data);
     if (archive) byId.set(archive.id, archive);
   }
@@ -113,14 +147,24 @@ export function listArchivedAgents(
 }
 
 /** Open a persisted child session as the read-only shape ConversationViewer uses. */
-export function openArchivedAgent(archive: ArchivedAgentRecord): AgentRecord {
-  const sessionManager = SessionManager.open(archive.sessionFile);
-  const context = sessionManager.buildSessionContext();
+export function openArchivedAgent(archive: ArchivedAgentRecord, reportOnly = false): AgentRecord {
+  let sessionManager: SessionManager | undefined;
+  if (!reportOnly) {
+    // SessionManager.open may create an empty session for missing/broken files.
+    // Viewing history must be read-only and report damage, not fabricate history.
+    const lines = readFileSync(archive.sessionFile, "utf8").trim().split("\n");
+    const entries = lines.map((line) => JSON.parse(line));
+    if (entries[0]?.type !== "session" || typeof entries[0]?.id !== "string") {
+      throw new Error(`Invalid archived session: ${archive.sessionFile}`);
+    }
+    sessionManager = SessionManager.open(archive.sessionFile);
+  }
 
   // ConversationViewer needs only messages, subscribe, and session stats. A
   // disk archive is immutable while open, so subscribe is intentionally inert.
   const session = {
-    messages: context.messages,
+    // Explicit report-only viewing never constructs a runnable/new Pi session.
+    messages: sessionManager?.buildSessionContext().messages ?? [],
     sessionManager,
     subscribe: () => () => {},
     getSessionStats: () => ({
@@ -135,19 +179,32 @@ export function openArchivedAgent(archive: ArchivedAgentRecord): AgentRecord {
     dispose: () => {},
   } as unknown as AgentSession;
 
+  return { ...recordFromArchive(archive), session };
+}
+
+/** Hydrate metadata only; a viewer facade must never enter the runnable manager. */
+export function recordFromArchive(archive: ArchivedAgentRecord): AgentRecord {
   return {
     id: archive.id,
     type: archive.type,
     description: archive.description,
     status: archive.status,
     result: archive.result,
+    previousResult: archive.previousResult,
     error: archive.error,
     toolUses: archive.toolUses,
     startedAt: archive.startedAt,
     completedAt: archive.completedAt,
-    session,
     sessionFile: archive.sessionFile,
-    completionDelivery: "followUp",
+    completionDelivery: archive.completionDelivery ?? "followUp",
+    completionOwner: archive.completionOwner,
+    runGeneration: archive.runGeneration,
+    resumeSnapshot: archive.resumeSnapshot,
+    correlationId: archive.correlationId,
+    requestedModel: archive.requestedModel,
+    requestedThinkingLevel: archive.requestedThinkingLevel,
+    effectiveModel: archive.effectiveModel,
+    effectiveThinkingLevel: archive.effectiveThinkingLevel,
     lifetimeUsage: { ...archive.lifetimeUsage },
     compactionCount: archive.compactionCount,
     invocation: archive.invocation,

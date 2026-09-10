@@ -2,188 +2,101 @@
 
 [English](./README.md)
 
-[`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 的维护向 fork（基线 `v0.14.3` / `@tintinweb/pi-subagents@0.14.3`）。
+[`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 的维护向 fork，基线为 `v0.14.3`。可单独安装，也嵌入在 `@zhcsyncer/pi-extensions` 中。
 
-本包可单独发布，也会嵌入聚合包 `@zhcsyncer/pi-extensions`。
-
-**完整上游说明**（功能、Agent 工具、调度、设置）：[`UPSTREAM_README.md`](./UPSTREAM_README.md)  
-**版本钉扎与许可证**：[`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md) · [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE)
-
----
-
-## 与上游的差异（先看这里）
-
-本 fork 保留上游日常 **Agent 运行时行为**，但会改变“手动启动的后台任务”如何投递完成结果，避免当前任务所需结果被主 agent 的长工具循环饿死。其余改动主要优化 TUI 中的进展与 tool 结果呈现；此外提供一条显式启用的进程内 spawn 契约，供编排型扩展调用。这里还选择性移植了上游 0.17 的 session 默认持久化与 `isolation: "off"`，但本 fork 的 worktree 默认**关闭**。
-
-| 区域 | 上游 `@tintinweb/pi-subagents` | 本 fork `@zhcsyncer/pi-subagents` |
-| --- | --- | --- |
-| **对话 overlay**（FleetView / 列表 → Enter） | 全文 dump：user / assistant / toolResult 墙（tool 体约 500 字截断仍很大） | **方案 A 摘要视图**：**Prompt** → **Usage** → **Steps**（一行一步）→ **Result**；tool 体默认折叠 |
-| 运行状态 / 指标 | 空闲进度 fallback 为 `thinking…`；长任务一直显示大秒数；紧凑 token 与 context 容易被看成同一指标 | 语义诚实的 `working…` fallback，并仅延迟展示稳定的粗粒度阶段；分钟/小时友好时长且只高亮时长片段；紧凑 **lifetime** 总量与 **current context** 明确分开，overlay 提供完整 usage breakdown |
-| Overlay 步骤详情 | 无（全摊开） | **`o`** 展开/折叠 tool 参数与结果 |
-| Overlay 在 agent **error / aborted / stopped / steered** | 仍以消息流为主 | **Result 优先 `record.error`**；`steered` 标明 turn-limit；头部图标对齐 chrome；终态收敛悬空 running step |
-| Overlay **bashExecution** | 命令 + 输出 dump | 一步一行；**`exitCode` / `cancelled`** → `✗`（不会误标 ✓） |
-| **主 transcript** `Agent` / `get_subagent_result` / `steer_subagent` | `Agent` 有 Claude Code 样式；**`get_subagent_result` 无自定义 `renderResult`** → 整段 dump | 三者统一 **Claude Code chrome**；queued 真话；**Ctrl+O** 展开 Markdown，默认不 dump |
-| Tool **model / effort** | 与父模型相同时常不显示；thinking 只在 tags | **结果 stats** 始终含有效模型（继承则 `haiku (inherit)`）与 `effort:`；resume 用存储的 invocation |
-| 校验失败 / 找不到 agent 等 | 纯文本 result（折叠改造后易误读成成功） | `error` details + `tool_result`→`isError`（错误外壳）；undetailed 成功路径不启发式染红 |
-| 后台完成投递 | 手动 Agent-tool、schedule 与 RPC 都使用 `followUp`；主 agent 长工具循环可能饿死当前任务结果 | 手动 Agent-tool 后台完成使用 `steer`；schedule / RPC 等脱离当前推理链的任务保留 `followUp`；继续使用 `triggerTurn: true` |
-| 子 agent Pi session | 钉扎的 0.14.3 基线默认内存运行，只有 `persist_session: true` 才落盘 | 普通子 agent 默认持久化，记录父 session，在 `/resume` 中挂到父会话下，并可从 `/agents` 的结束历史打开；`persist_session: false` 或 `rememberAgents: false` 可恢复内存运行 |
-| Worktree 隔离 | 上游 0.17 增加 `"off"` / `"worktree"` 与默认开启的仓库开关 | 同样使用 `"off"` / `"worktree"`（`off` 在前），但 `worktreeIsolation` 默认 **false**；关闭时 schema 与说明都消失，tool/frontmatter/schedule/RPC 的 worktree 请求全部降级到真实 checkout |
-| 编排合同 | foreground / background 的工作所有权容易混淆 | 后续步骤依赖结果时必须 foreground；background 只用于真正互不重叠的工作；主 agent 负责综合和定向验证，但不得重复已委派的证据收集 |
-| 跨扩展编排 | named-agent spawn RPC | protocol v3 增加可选 inline 角色、调用方收口、route 关联、实际 route 元数据与并发上限查询 |
-| **钉住观察者扩展** | 无对应能力 | `pinnedExtensions` 让点名的观察者扩展在每个子代理中加载（含 `isolated` / `extensions: false`），但不暴露其工具 |
-| 发包 | 独立 npm 包 | 独立包 `@zhcsyncer/pi-subagents`，**并**嵌入/注册进根包 `@zhcsyncer/pi-extensions` |
-
-### 未改动的部分
-
-- 工具名：`Agent`、`get_subagent_result`、`steer_subagent`；除条件化 `isolation` enum 以外的参数
-- 完成通知继续使用 `triggerTurn: true`；schedule / RPC 等 detached 任务仍使用 `followUp`
-- FleetView 导航、Enter steer、`x` `x` stop、Esc/q 关闭
-- 自定义 agent、调度与现有 Settings 菜单结构
-- 不传 protocol-v3 新字段时，原有跨扩展 spawn 行为不变
-
-日常 Agent 行为细节仍以上游文档为准：[`UPSTREAM_README.md`](./UPSTREAM_README.md)。
-
-### 跨扩展 spawn protocol v3
-
-这里的“RPC”只是 Pi 扩展之间通过 `pi.events` 做的进程内调用，不是网络服务。现有 `subagents:rpc:spawn` request 新增四个可选字段：
-
-- `inlineAgentConfig`：直接使用调用方给出的角色 prompt/tools，不查找 named agent，也不 fallback；
-- `completionOwner: "caller"`：保留 queue、stop、FleetView、lifecycle event 与 history，但不向主会话发送单 agent 完成通知；
-- `correlationId`：在 started/terminal event 中原样带回编排方的 route key；
-- `graceTurns`：可选，软上限 steer 之后的收尾轮数；省略时仍用全局默认 5 轮。
-
-调用方收口要求 `isBackground: true` 且 `correlationId` 非空。`subagents:rpc:ping` 返回 protocol version `3` 和 `maxConcurrent`；关联后的 terminal event 会给出请求与实际生效的 model/thinking；inline 角色开启 session 持久化时还会返回 `sessionFile`。不传任何新字段时，仍走原来的 named-agent 与完成通知路径。
-
-### Foreground / background 合同
-
-如果 subagent 结果是主 agent 下一次 read、edit 或 decision 的前置条件，应使用 foreground。只有主 agent 确实有互不重叠的并行工作时才使用 background。后台完成会自动投递；等待期间不要轮询、sleep，也不要重复 subagent 已承担的 grep / find / read 证据收集。
-
-主 agent 仍负责综合、决策、面向用户的报告与最终验证。报告到达后，只对高风险结论做定向抽查，不要重跑整轮调查。`steer` 完成通知能在主 agent 下一次模型调用前进入上下文，但无法撤回同一 assistant turn 已发出的 sibling tools。
-
-投递策略在 spawn 时固定：
-
-- 手动 Agent-tool background（包括 frontmatter 最终解析为 `run_in_background: true` 的自定义 agent）：`steer`
-- schedule 与跨扩展 RPC：`followUp`
-- foreground：结果 inline 返回，不发送后台完成 nudge
-
-需要复用同一执行语义、但不希望激活完整扩展的依赖包，可以导入 `@zhcsyncer/pi-subagents/runtime`。只导入该子路径不会注册 Agent 工具、命令、调度、widget 或 FleetView；构造和释放由调用方负责。
-
-### Session 持久化与仓库 worktree
-
-子 agent 现在默认使用 `SessionManager.create`。child header 会把当前主 session 文件记为 `parentSession`，所以普通同目录运行会在 Pi 的 `/resume` 中挂到发起它的父会话下，也能在那里打开完整对话。`/agents` 还会按名称和状态显示 **Finished agents in this session**：live record 仍用现有摘要 ConversationViewer；record 被回收后，同一个只读 overlay 会改为打开磁盘 session 文件。Caller-owned 运行复用同一 archive contract：external extension 路径与无副作用 embedded runtime 都会向父会话追加结束记录，terminal lifecycle 同时把 child session 路径交给编排方。
-
-若某个 agent 需要临时运行，在 agent 文件中设 `persist_session: false`；若项目整体要恢复默认内存行为，在 `/agents → Settings` 或项目配置中设 `rememberAgents: false`。显式 `persist_session: true` 仍可反向覆盖该设置。
-
-Worktree 创建现在是仓库能力开关，本 fork 默认**关闭**。`worktreeIsolation: false` 时，Agent 工具既没有 `isolation` 参数，也不会保留 worktree 说明；来自 agent 文件、scheduler 或跨扩展 RPC 的 `worktree` 请求会直接在真实 checkout 运行。通过 `/agents → Settings` 开启 **Worktree isolation** 后，下一次 Pi session 会重新暴露 `isolation: "off" | "worktree"`（`off` 在前）。开关开启后若 worktree 实际创建失败，仍会抛错，绝不静默 fallback。
-
----
+[上游快照](./UPSTREAM_README.md) · [来源与上游差异](./UPSTREAM_SOURCE.md) · [上游许可证](./UPSTREAM_LICENSE)
 
 ## 安装
 
-单独安装：
+二选一：
 
 ```bash
 pi install npm:@zhcsyncer/pi-subagents
-```
-
-或通过根 bundle（注册同一扩展）：
-
-```bash
+# 或安装聚合包：
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-若 `~/.pi/agent/settings.json` 已加载 `@tintinweb/pi-subagents`，请先去掉该条目——两边都会注册 `Agent` / FleetView，不能并存。
+加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
 
-## 本地试用（本 monorepo）
+## 核心功能与上游差异
 
-```bash
-# monorepo 根目录
-pnpm install
-pi --no-extensions -e ./packages/pi-subagents
-# 或加载整个根 bundle：
-pi -e .
-```
+- **委派工作：** `Agent`、`get_subagent_result`、`steer_subagent`；支持自定义角色、模型/thinking 选择、继承上下文、调度和并发限制。
+- **可直接使用的后台报告：** 完成通知携带最终报告，而不只是短预览。手动 Agent-tool 后台结果进入主 agent 的下一次推理；schedule/RPC 完成通知等待当前循环结束。
+- **沿同一 agent 继续：** 对已完成或软轮次上限收尾的 agent 发送 steering，会自动在后台续跑。显式 `Agent(resume=...)` 支持前台或后台续跑，也可恢复符合条件的保存历史。
+- **易读的进展：** 三个工具统一使用紧凑的 Claude Code 风格展示，明确区分排队/工作状态，显示友好时长、实际 model/effort、独立的累计用量与当前上下文，以及可展开的 Markdown 结果。
+- **查看结束任务：** 普通 session 默认持久化；同目录运行在 Pi `/resume` 中挂到父会话下，也可从 `/agents` 的结束历史打开。
+- **Worktree 显式启用：** 选择性移植上游 0.17 的 session/isolation 行为，但本 fork 的 `worktreeIsolation` 默认 `false`，与上游默认开启不同。
+- **跨扩展集成：** protocol-v3 进程内 spawn 支持 inline 角色、调用方收口、路由关联和并发上限查询；可单独导入运行时而不自动注册 UI/工具。
+- **保留可信观察者：** `pinnedExtensions` 即使在 isolated agent 中也加载观察者，但不会因此授予其工具。
 
-### 对话 overlay（方案 A）
+自定义 agent、调度等基线功能参见[上游快照](./UPSTREAM_README.md)。投递、续跑、持久化、配置位置和 worktree 默认值请以本 fork 文档为准。
 
-FleetView / agent 列表选中子 agent 后回车：
+## 委派与接收结果
 
-1. **Header** — 名称 / 状态 / 高亮时长 / tools / 紧凑 **lifetime** tokens 与 **current ctx** 百分比
-2. **Prompt** — 第一条有意义的 user（派发）消息
-3. **Usage** — lifetime `input` / `output` / `cache read` / `cache write`、可用时的 cost，以及单独列出的当前 context
-4. **Steps** — 每个 tool 一行摘要；结果默认折叠
-5. **Result** — 最终 assistant 文本、`working…` fallback，或终态 **error**
+结果若是下一次 read、edit 或 decision 的前置条件，使用 **foreground**（默认）。只有确实存在互不重叠的并行工作时，才用 `run_in_background: true`。运行期间不要轮询、sleep 或重复子 agent 的证据收集。主 agent 仍负责综合与最终验证；应定向抽查高风险结论，而不是重跑整轮调查。
 
-| 键 | 行为 |
+后台通知在**每条发出消息总计 16 KiB UTF-8** 的预算内携带完整最终报告；元数据和转义开销也计算在内。成组报告共享总预算，不是每个 agent 各有一份预算。超长报告会明确标注截断，并提示通过 `get_subagent_result(agent_id)` 获取完整结果。加上 `verbose: true` 可读取包含工具输出的对话。
+
+`get_subagent_result` 的 `wait: true` 会等待完成。取消等待**只取消等待方**，不会终止子 agent，也不会取消其后续完成通知。要停止子 agent，请使用 FleetView 的停止操作。
+
+手动 Agent-tool 后台完成（含自定义角色默认后台）使用 `steer`：主 agent 忙碌时，在当前已发出的工具结束后、下一次模型调用前进入上下文；空闲时，`triggerTurn: true` 启动推理。它无法撤回同一轮已发出的 sibling tools。Scheduler/RPC 完成使用 `followUp`：忙碌时等待循环结束，空闲时同样启动推理。调用方收口会抑制这条主会话通知。前台结果直接返回，不发送后台通知。
+
+## 会话用量与 Glance
+
+本 fork 的 `reportUsage` 默认**开启**（不同于上游 0.18）。Pi **0.81.0 及以上**会将已收集的子代理花费计入原生会话统计和 Glance：
+
+- 前台：盖在返回最终结果的 `Agent` 工具结果上。
+- 后台：启动回执不盖 usage；完成后的 `get_subagent_result` 结算一次。只收到通知、没有收集结果时，父会话统计暂不增加。
+- 重复查询和续跑只补尚未上报的 lifetime 增量，包含 cacheRead 和 provider 已报告的费用。
+
+保留 **pi-meter pin**，让子会话实时逐消息记账。Meter 忽略父会话汇总，不重复收费；子消息与历史导入仍按原 session/model 归属。可在 `/agents → Settings` 关闭 **Report usage**（或配置 `reportUsage: false`），只关闭父会话汇总，不影响 pin。
+
+## 引导、续跑与重试
+
+调用 `steer_subagent`，传入原 agent ID 和消息：
+
+| Agent 状态 | 行为 |
 | --- | --- |
-| `Esc` / `q` | 关闭 |
+| 运行中 | 向当前运行追加 steering |
+| 排队或初始化中 | 保存消息，等子 agent 就绪后投递 |
+| 已完成或 `steered`（软轮次上限） | 沿同一 ID 和上下文启动后台续跑，受并发上限约束 |
+| Error、aborted 或 stopped | 拒绝 steering；重试必须显式 resume |
+
+显式续跑时，调用 `Agent` 并传入 `resume: "<agent-id>"`、`prompt: "<后续要求>"`。Resume 默认 **foreground**，即使上次运行在后台。加上 `run_in_background: true` 后立即返回排队/运行状态，并使用与新后台任务相同的自动完成通知、等待和停止生命周期。后台续跑遵守并发上限；前台续跑与首次前台运行一样绕过后台队列。
+
+不传 `resume` 的新 Agent 调用会从头开始，不会继承旧 agent 对话。失败和停止状态绝不自动重试。续跑失败或被停止后，查询仍会显示上一份已完成报告，并明确标注它是历史报告，不是本次续跑的结果。同一 ID 续跑时，不会把上次尚未投递的完成通知当成新结果再次发送。
+
+### 保存的 agent 与仅内存 agent
+
+普通运行默认持久化。可在 agent 文件中设置 `persist_session: false` 改为仅内存运行，或在 `/agents → Settings` 中用 `rememberAgents: false` 修改默认值；显式 `persist_session: true` 可以覆盖该默认值。仅内存 agent 在记录仍保留时可以续跑，但回收或重启后不保证可用。
+
+恢复已保存的终态任务，需要当前父会话分支上符合条件的新格式历史，以及完整的子会话。旧历史仍可查看，但缺少恢复信息时不能通过这些工具续跑。已保存的失败/停止任务仍须显式 `Agent(resume=...)`。
+
+恢复文件缺失或损坏、原工作目录不可用（包括已清理的 worktree）、原模型不可用，都会明确报错，绝不悄悄新建 session 或替换模型。恢复会使用当前安装的扩展和当前凭证；它**不是进程/内存快照，也不是沙箱**。异常崩溃后不持久重放执行中的工作或排队的后续消息，也不保证跨崩溃恰好执行一次。
+
+## 查看进展与设置
+
+打开 `/agents` / FleetView，选择 agent 查看 **Prompt → Usage → Steps → Result**。工具正文默认折叠，失败和轮次上限收尾会明确显示。
+
+| 键 | 操作 |
+| --- | --- |
+| `Esc` / `q` / `Ctrl+C` | 关闭 |
 | `↑↓` / PgUp/PgDn | 滚动 |
-| `Enter` | Steer（运行中） |
-| `x` `x` | 二次确认停止 |
-| `o` | 展开/折叠步骤详情（**本 fork**） |
+| 对话视图中的 `Enter` | 引导运行中的 agent |
+| `x` `x` | 确认停止 |
+| `o` | 展开/折叠工具参数和结果 |
+| 主会话中的 `Ctrl+O` | 展开工具的 Markdown 结果 |
 
-### 主会话 tool TUI — Claude Code chrome
+紧凑 lifetime token 数表示 `input + output + cache write`；cache read 保留在完整 Usage 明细中（[上游 issue #38](https://github.com/tintinweb/pi-subagents/issues/38)）。Current context 是上下文窗口占用率，不是 lifetime 总量的百分比。`effort` 是 `thinking` 的展示名称。紧凑进展仅展示稳定的粗粒度阶段，不流式展示路径、命令或 assistant 正文。
 
-主会话 transcript 使用 Claude Code Task chrome（`renderShell: "self"`，无背景盒）：
+在 `/agents → Settings` 管理项目偏好：
 
-```text
-● Explore(Find auth files)  haiku · bg
-  ⎿  ⠹ exploring… · ↻3 · 3 tool uses · haiku
-  ⎿  Done · ↻8 · 5 tool uses · lifetime 33.8k token · 10 min 13s · haiku
-```
+- **Worktree isolation：** 默认关闭。关闭时 Agent 工具不提供 worktree 选项，agent 文件、schedule、RPC 的 worktree 请求会在真实 checkout 执行。开启后，下一次 Pi session 会提供 `isolation: "off" | "worktree"`。启用后的 worktree 创建失败会报错，不会降级到 checkout。
+- **Pinned observers：** 只有用户拥有的全局配置可以增加 `pi-meter` 等名称；项目只能继承或清空，不能增加观察者。钉住**不是沙箱**：handlers 仍会执行，因此只授权可信观察者。其工具仍受 agent 原有工具策略约束，包括 `isolated` / `extensions: false`。
+- **Agent 描述：** 可使用[示例模板](./examples/agent-tool-description.md)定制委派指导。
 
-| 状态 | 呈现 |
-| --- | --- |
-| **调用行** | `● Type(description)`（仅当 args 显式带 model/thinking/bg 时附加 dim 芯片） |
-| **运行中** | `⎿` spinner + 稳定的粗粒度阶段（`exploring…`、`editing…`、`running commands…` 或 `delegating…`）；否则显示 `working…` |
-| **完成** | `⎿ Done` · turns · tool uses · lifetime tokens · 时长 · 有效 model（Wrapped up / Stopped / Error 变体） |
-| **展开**（`Ctrl+O`） | 结果 clerk + effort/隔离/cost/transcript/worktree clerk + **Markdown** 正文 |
+[配置与集成参考](../../docs/pi-subagents/configuration-and-integrations.md) · [投递与恢复契约](../../docs/pi-subagents/delivery-and-resume.md)
 
-`effort` 对应 `thinking`。有效 **model**（含继承）留在折叠 clerk。spawn 配置（`effort`、`isolated`、`worktree`、`twin`）和次要信号（`cost`、低 context %、transcript 路径）放到展开态，避免折叠行堆叠。context ≥70% 与 compaction 次数仍留在折叠 clerk。
+## 许可证
 
-紧凑运行界面不会流式展示文件路径、命令或 assistant 正文。快速步骤与未知工作保持 `working…`；已知粗粒度阶段持续约 0.8 秒后才出现，并至少保持 1.5 秒以避免闪烁。逐 tool 的精确步骤仍可在 conversation overlay 中查看。
-
-紧凑 **lifetime** token 数刻意保留原有的 `input + output + cache write` 语义；`cache read` 会被保留并显示在 Usage breakdown 中，但不会悄悄加回这个总量（见[上游 issue #38](https://github.com/tintinweb/pi-subagents/issues/38)）。**Current ctx** 表示当前 context window 的占用率，不是 lifetime 总量的百分比。时长不足一分钟时仍显示秒数，之后切换为 `10 min 13s`、`1 hr 2 min 3s` 等易读的分钟/小时格式。
-
-## 配置存储
-
-运行设置现已使用 extension-data 布局：
-
-- 全局默认值：`$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`
-- 项目覆盖：`<cwd>/<CONFIG_DIR_NAME>/extension-data/pi-subagents/config.json`（通常是 `<cwd>/.pi/extension-data/pi-subagents/config.json`）
-
-项目字段覆盖全局字段，但 `pinnedExtensions` 例外：只有用户拥有的全局文件可以增加观察者名称，项目只能用 `[]` 退出。`/agents` → Settings 仍只写项目文件；全局文件继续手工编辑。可选的自定义 Agent 工具描述使用对应全局或项目 `config.json` 同目录下的 `agent-tool-description.md`，项目内容优先。Worktree 说明应使用 `{{isolationGuideline}}`，不要硬编码；这样仓库禁用该能力时，说明会与 schema 一起消失。相关默认值为 `rememberAgents: true` 与 `worktreeIsolation: false`；worktree schema/说明变更在下一次 Pi session 生效，而运行时降级会立即生效。
-
-原全局/项目 `subagents.json` 与 `agent-tool-description.md` 只作为一次性迁移输入。迁移通过同目录原子 rename 写入，并在删除旧文件前进行语义复读。canonical 文件始终优先；格式损坏、不可读或冲突的旧文件会保留，并只给出一次去重 warning。
-
-本次迁移只覆盖 pi-subagents 自身的运行设置和工具描述 override。自定义 agent、Pi/native skills 与 `settings.json`、memory、schedule、session 持久化、worktree 和 `.output` transcript 均保留原有 resource 或 runtime 位置。Provider credential 仍保存在 Pi 的 `auth.json`。
-
-### 钉住扩展
-
-写在 `pinnedExtensions` 里的观察者扩展会在**每一个**子代理会话中加载——包括 `isolated: true` 和 `extensions: false`。钉住不会把该扩展的工具暴露给子代理 LLM；工具可见性仍完全跟随该 agent 自己的 `extensions:` / `ext:` / `isolated` 配置。
-
-只有用户拥有的全局 `config.json` 可以增加名称：
-
-```json
-{
-  "pinnedExtensions": ["pi-meter"]
-}
-```
-
-项目文件可以用 `"pinnedExtensions": []` 清空全局 pin，但非空项目列表会被忽略并发出 warning。因此 `/agents` → Settings 只提供 **inherit** 或 **clear**；如需授权观察者，请手工编辑全局文件。名字大小写不敏感，同时匹配扩展目录/文件名和 pi 包的无 scope 短名（`@zhcsyncer/pi-meter` → `pi-meter`）。当前项目没安装全局 pin 指定的扩展时静默跳过。
-
-**钉住不是沙箱。** 被钉扩展的 handlers 仍会运行（`message_end`、`before_agent_start` 等），理论上仍能影响子会话。只钉你信任的、行为为纯观察的扩展，例如 pi-meter。
-
----
-
-## 脚本
-
-```bash
-pnpm --filter @zhcsyncer/pi-subagents check
-pnpm --filter @zhcsyncer/pi-subagents test
-pnpm --filter @zhcsyncer/pi-subagents typecheck
-```
-
-## License
-
-MIT — [LICENSE](./LICENSE) 与上游 [UPSTREAM_LICENSE](./UPSTREAM_LICENSE)。
+MIT — [LICENSE](./LICENSE) 与 [UPSTREAM_LICENSE](./UPSTREAM_LICENSE)。

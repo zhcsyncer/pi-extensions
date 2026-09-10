@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { consumeGlanceConfigNotices, loadConfig, loadConfigSync, saveConfig } from "./config.js";
 import { showGlancePane } from "./pane.js";
 import { createGlanceRuntime, INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./runtime.js";
@@ -40,6 +40,13 @@ export default function piGlance(pi: ExtensionAPI): void {
 	pi.on("thinking_level_select", runtime.events.thinkingLevelSelect);
 	pi.on("turn_start", runtime.events.turnStart);
 	pi.on("message_update", runtime.events.messageUpdate);
+	// Pi 0.85+ emits these coalesced blocking-UI spans. Older hosts accept
+	// subscriptions but never emit them; keep compatibility with the 0.84 types.
+	const promptEvents = pi as unknown as {
+		on(event: "ui_prompt_start" | "ui_prompt_end", handler: (event: unknown, ctx: ExtensionContext) => void): void;
+	};
+	promptEvents.on("ui_prompt_start", runtime.events.uiPromptStart);
+	promptEvents.on("ui_prompt_end", runtime.events.uiPromptEnd);
 	pi.on("tool_execution_start", runtime.events.toolExecutionStart);
 	pi.on("tool_execution_end", runtime.events.toolExecutionEnd);
 	pi.on("session_tree", runtime.events.sessionTree);

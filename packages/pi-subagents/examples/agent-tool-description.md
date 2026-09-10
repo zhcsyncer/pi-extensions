@@ -20,7 +20,9 @@ If the target is already known, use a direct tool — `read` for a known path, `
 - Background completion is delivered automatically — do NOT poll or sleep waiting for it. While it runs, do not repeat the agent's evidence collection or otherwise duplicate its work. A completion notice cannot retract sibling tools already issued in the same assistant turn.
 - You retain responsibility for synthesis, decisions, and final verification. After the report arrives, verify only high-risk claims with targeted checks; do not rerun the agent's full grep/find/read evidence collection.
 - Use resume with an agent ID to continue a previous agent's work. A new (non-resume) Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
-- Use steer_subagent to send mid-run messages to a running background agent.
+- Use steer_subagent for follow-ups: running agents accept steering, queued agents save messages, and successfully completed agents resume in background. Failed, aborted, or explicitly stopped agents require an explicit Agent call with resume.
+- Agent resume preserves the original context and supports run_in_background. Disk recovery requires a saved terminal record, recovery configuration, and readable child session; failure never starts a fresh session.
+- Completion notifications include the full final report within a shared 16 KiB UTF-8 message budget (including grouped results); longer reports are explicitly truncated with a get_subagent_result retrieval entrypoint. Notification content enters context, not just the UI. When idle it triggers reasoning; while busy it waits until already-issued tools finish.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
 - If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
 - Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").

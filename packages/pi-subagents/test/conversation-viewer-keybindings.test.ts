@@ -56,6 +56,16 @@ function scrollOffset(viewer: ConversationViewer): number {
 }
 
 describe("viewer-keys", () => {
+  it.each(["\x03", "\x1b[99;5u"])("always closes on Ctrl+C (%j), but leaves Esc/q to the composer", (data) => {
+    const keys = createViewerKeys();
+    expect(keys.close(data)).toBe(true);
+    expect(keys.close(data, true)).toBe(true);
+    for (const key of ["\x1b", "q"]) {
+      expect(keys.close(key)).toBe(true);
+      expect(keys.close(key, true)).toBe(false);
+    }
+  });
+
   it("honors user keybindings when a manager is provided", () => {
     const keys = createViewerKeys(createEmacsKeybindings());
     expect(keys.scrollUp(CTRL_P)).toBe(true);
@@ -104,6 +114,29 @@ describe("viewer-keys", () => {
 });
 
 describe("ConversationViewer custom keybindings", () => {
+  it.each([false, true])("Ctrl+C dismisses without stopping or steering (composer=%s)", (composing) => {
+    const done = vi.fn();
+    const stop = vi.fn();
+    const steer = vi.fn();
+    const unsubscribe = vi.fn();
+    const viewer = new ConversationViewer(
+      { terminal: { rows: 20 }, requestRender: vi.fn() } as any,
+      { messages: [], subscribe: () => unsubscribe } as any,
+      { id: "test", type: "general-purpose", status: "running" } as AgentRecord,
+      undefined, { fg: (_: string, s: string) => s, bold: (s: string) => s }, done, stop, undefined, steer,
+    );
+    if (composing) {
+      viewer.handleInput("\r");
+      viewer.handleInput("draft");
+    }
+    viewer.handleInput("\x03");
+    expect(done).toHaveBeenCalledOnce();
+    expect(steer).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    viewer.dispose();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("scrolls with ctrl+p/ctrl+n when bound to tui.select.up/down", () => {
     const viewer = createViewer(createEmacsKeybindings());
     const bottom = scrollOffset(viewer);

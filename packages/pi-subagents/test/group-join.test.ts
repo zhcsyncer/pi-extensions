@@ -66,6 +66,30 @@ describe("GroupJoinManager", () => {
     expect(mgr.isGrouped("b")).toBe(false);
   });
 
+  it.each(["last member", "timeout"])("retains the completed execution when a live record resumes before %s delivery", (trigger) => {
+    const deliver = vi.fn();
+    const mgr = new GroupJoinManager(deliver, 30_000);
+    mgr.registerGroup("g", ["a", "b"]);
+    const live = makeRecord("a", { runGeneration: 1, result: "original report", toolUses: 3 });
+    live.lifetimeUsage.output = 10;
+    mgr.onAgentComplete(live);
+
+    live.runGeneration = 2;
+    live.status = "running";
+    live.result = "new streaming report";
+    live.toolUses = 0;
+    live.lifetimeUsage.output = 20;
+    if (trigger === "last member") mgr.onAgentComplete(makeRecord("b"));
+    else vi.advanceTimersByTime(30_000);
+
+    const snapshot = deliver.mock.calls[0][0][0];
+    expect(snapshot).toMatchObject({
+      id: "a", runGeneration: 1, status: "completed", result: "original report", toolUses: 3,
+      lifetimeUsage: { output: 10 },
+    });
+    mgr.dispose();
+  });
+
   it("delivers partial=true on timeout and re-arms the group for stragglers", () => {
     const deliver = vi.fn();
     const mgr = new GroupJoinManager(deliver, 30_000);

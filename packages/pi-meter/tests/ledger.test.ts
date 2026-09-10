@@ -8,6 +8,7 @@ import {
 	parseSession,
 	usageFromAssistantMessage,
 	usageFromToolResultMessage,
+	usageMessageWithoutTimestamp,
 } from "../src/ledger/session-parser.ts";
 import { parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
 import { parseMeterConfig } from "../src/config.ts";
@@ -146,6 +147,35 @@ describe("usage capture", () => {
 		}, { sid: "sess", cwd: "/work" });
 		expect(records).toHaveLength(1);
 		expect(records[0]).toMatchObject({ model: "tool/summarize", tot: 10, cost: 0.02, sourceId: "summary-1" });
+	});
+
+	it.each([
+		["Agent", undefined, true],
+		["Agent", { subagentUsageRollup: { version: 1, agentId: "child" } }, true],
+		["get_subagent_result", { subagentUsageRollup: { version: 1, agentId: "child" } }, true],
+		["get_subagent_result", undefined, false],
+		["get_subagent_result", { subagentUsageRollup: null }, false],
+		["get_subagent_result", { subagentUsageRollup: { version: 2, agentId: "child" } }, false],
+		["get_subagent_result", { subagentUsageRollup: { version: "1", agentId: "child" } }, false],
+		["get_subagent_result", { subagentUsageRollup: { version: 1 } }, false],
+		["get_subagent_result", { subagentUsageRollup: { version: 1, agentId: 42 } }, false],
+		["consult", { subagentUsageRollup: { version: 1, agentId: "child" } }, false],
+		["summarize", { subagentUsageRollup: { version: 1, agentId: "child" } }, false],
+	])("filters only subagent rollups: %s / %j (ignored=%s)", (toolName, details, ignored) => {
+		const message = {
+			role: "toolResult",
+			toolName,
+			details,
+			usage: { input: 7, output: 3, totalTokens: 10 },
+		};
+		const records = usageFromToolResultMessage({ ...message, timestamp: 3500 }, { sid: "parent", cwd: "/work" });
+		expect(records).toHaveLength(ignored ? 0 : 1);
+		if (!ignored) expect(records[0]).toMatchObject({ model: `tool/${toolName}`, tot: 10 });
+		// Intentionally filtered entries are not malformed, even without a timestamp.
+		expect(usageMessageWithoutTimestamp(message)).toBe(!ignored);
+		const parsed = parseSession(JSON.stringify({ type: "message", message }), "parent");
+		expect(parsed.records).toEqual([]);
+		expect(parsed.skipped).toBe(ignored ? 0 : 1);
 	});
 
 	it("ignores tool results without normalized or raw usage", () => {

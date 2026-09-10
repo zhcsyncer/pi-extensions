@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +23,7 @@ describe("/agents finished-session wiring", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists a disk-only finished agent by name/status and opens its brief overlay", async () => {
+  it.each([false, true])("opens finished reports even when child history is corrupt=%s", async (corrupt) => {
     tempDir = mkdtempSync(join(tmpdir(), "pi-subagent-history-wiring-"));
     const sessionDir = join(tempDir, "sessions");
     const child = SessionManager.create(tempDir, sessionDir, {
@@ -52,8 +52,10 @@ describe("/agents finished-session wiring", () => {
       id: "abcdef12-archive",
       type: "Explore",
       description: "Inspect archived run",
-      status: "completed",
-      result: "Complete history",
+      status: corrupt ? "error" : "completed",
+      result: corrupt ? undefined : "Complete history",
+      previousResult: corrupt ? "Complete history" : undefined,
+      error: corrupt ? "Restore failed" : undefined,
       toolUses: 1,
       startedAt: 100,
       completedAt: 200,
@@ -63,6 +65,7 @@ describe("/agents finished-session wiring", () => {
       compactionCount: 0,
     };
     const archive = archiveAgentRecord(record)!;
+    if (corrupt) writeFileSync(child.getSessionFile()!, "broken JSONL");
 
     previousCwd = process.cwd();
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -113,7 +116,8 @@ describe("/agents finished-session wiring", () => {
     await commands.get("agents").handler("", ctx);
 
     expect(finishedRow).toContain("Explore#abcdef12");
-    expect(finishedRow).toContain("completed");
+    expect(finishedRow).toContain(corrupt ? "error" : "completed");
+    if (corrupt) expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Could not open archived agent session"), "warning");
     expect(custom).toHaveBeenCalledOnce();
 
     await lifecycle.get("session_shutdown")?.({}, ctx);

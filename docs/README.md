@@ -21,6 +21,8 @@
 | [pi-tool-display-intent/aggregate-steer.md](./pi-tool-display-intent/aggregate-steer.md) | 已落地 | steer 留在同一轮：钉顶首行、结束后留一行、展开后时间线高亮 |
 | [pi-todo/active-plan-lifecycle.md](./pi-todo/active-plan-lifecycle.md) | 已落地 | Todo 有界周期与 checkpoint 收缩 |
 | [pi-subagents/background-duplication.md](./pi-subagents/background-duplication.md) | 已落地 | 后台委派重复工作的根因与修复边界 |
+| [pi-subagents/delivery-and-resume.md](./pi-subagents/delivery-and-resume.md) | 契约 | 完整报告预算、投递时机、运行代次与终态恢复边界 |
+| [pi-subagents/configuration-and-integrations.md](./pi-subagents/configuration-and-integrations.md) | 已落地 | 配置位置与授权、进程内编排及运行时复用 |
 | [pi-subagents/pinned-extensions.md](./pi-subagents/pinned-extensions.md) | 已落地 | 子代理钉住观察者扩展：只保加载、不保工具 |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |

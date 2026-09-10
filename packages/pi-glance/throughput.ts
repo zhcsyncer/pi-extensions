@@ -3,6 +3,8 @@ import type { TurnThroughput, TurnThroughputUsage } from "./types.js";
 export interface CalculateTurnThroughputInput {
 	startedAtMs: number;
 	endedAtMs: number;
+	/** Observed inference time, excluding pre-stream waiting and local execution. */
+	inferenceMs: number;
 	messages: readonly unknown[];
 }
 
@@ -60,8 +62,10 @@ function emptyUsage(): TurnThroughputUsage {
 }
 
 export function calculateTurnThroughput(input: CalculateTurnThroughputInput): TurnThroughput | undefined {
-	const elapsedMs = input.endedAtMs - input.startedAtMs;
-	if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return undefined;
+	const elapsedMs = input.inferenceMs;
+	const wallMs = input.endedAtMs - input.startedAtMs;
+	if (!Number.isFinite(wallMs) || wallMs <= 0) return undefined;
+	if (!Number.isFinite(elapsedMs) || elapsedMs <= 0 || elapsedMs > wallMs) return undefined;
 
 	const usage = emptyUsage();
 	let lastAssistant: AssistantLikeMessage | undefined;

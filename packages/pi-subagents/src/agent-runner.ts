@@ -2,7 +2,7 @@
  * agent-runner.ts — Core execution engine: creates sessions, runs agents, collects results.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
@@ -24,7 +24,7 @@ import { detectEnv } from "./env.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
-import type { AgentConfig, InlineAgentConfig, SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentConfig, AgentResumeSnapshot, InlineAgentConfig, SubagentType, ThinkingLevel } from "./types.js";
 import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 /**
@@ -322,8 +322,8 @@ let defaultMaxTurns: number | undefined;
 
 /** Normalize max turns. undefined or 0 = unlimited, otherwise minimum 1. */
 export function normalizeMaxTurns(n: number | undefined): number | undefined {
-  if (n == null || n === 0) return undefined;
-  return Math.max(1, n);
+  if (n == null || n === 0 || !Number.isFinite(n)) return undefined;
+  return Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(n)));
 }
 
 /** Get the default max turns value. undefined = unlimited. */
@@ -349,12 +349,12 @@ let graceTurns = 5;
 /** Get the grace turns value. */
 export function getGraceTurns(): number { return graceTurns; }
 /** Set the grace turns value (minimum 1). */
-export function setGraceTurns(n: number): void { graceTurns = Math.max(1, n); }
+export function setGraceTurns(n: number): void { graceTurns = normalizeGraceTurns(n) ?? 5; }
 
 /** Normalize a per-run grace override. undefined keeps the global setting. */
 export function normalizeGraceTurns(n: number | undefined): number | undefined {
-  if (n == null) return undefined;
-  return Math.max(1, n);
+  if (n == null || !Number.isFinite(n)) return undefined;
+  return Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(n)));
 }
 
 /**
@@ -437,6 +437,8 @@ export interface RunOptions {
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
   onTextDelta?: (delta: string, fullText: string) => void;
+  /** Captures the resolved construction recipe before onSessionCreated and prompt. */
+  onResumeSnapshot?: (snapshot: AgentResumeSnapshot) => void;
   onSessionCreated?: (session: AgentSession) => void;
   /** Called at the end of each agentic turn with the cumulative count. */
   onTurnEnd?: (turnCount: number) => void;
@@ -478,6 +480,8 @@ export interface RunResult {
  */
 function collectResponseText(session: AgentSession) {
   let text = "";
+  const messages: AgentSession["messages"] = [];
+  let compacted = false;
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     // message_start also fires for user and toolResult messages — resetting on
     // those would wipe assistant text already collected. Reset only when a new
@@ -488,8 +492,12 @@ function collectResponseText(session: AgentSession) {
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
       text += event.assistantMessageEvent.delta;
     }
+    if (event.type === "message_end" && event.message.role === "assistant" && Array.isArray(event.message.content)) {
+      messages.push(event.message);
+    }
+    if (event.type === "compaction_end" && !event.aborted && event.result) compacted = true;
   });
-  return { getText: () => text, unsubscribe };
+  return { getText: () => text, messages, wasCompacted: () => compacted, unsubscribe };
 }
 
 /**
@@ -499,7 +507,7 @@ function collectResponseText(session: AgentSession) {
  * this returns "" instead of the prior turn's answer (#144). Defaults to 0 (a
  * fresh spawn, where the whole history belongs to this run).
  */
-function getLastAssistantText(session: AgentSession, startIndex = 0): string {
+function getLastAssistantText(session: Pick<AgentSession, "messages">, startIndex = 0): string {
   for (let i = session.messages.length - 1; i >= startIndex; i--) {
     const msg = session.messages[i];
     if (msg.role !== "assistant") continue;
@@ -523,7 +531,7 @@ function getLastAssistantText(session: AgentSession, startIndex = 0): string {
  * Bounded by `startIndex` (like the text fallback) so a resume that produced no
  * assistant message of its own never inherits a PRIOR turn's stop reason.
  */
-function finalTurnError(session: AgentSession, startIndex = 0): string | undefined {
+function finalTurnError(session: Pick<AgentSession, "messages">, startIndex = 0): string | undefined {
   for (let i = session.messages.length - 1; i >= startIndex; i--) {
     const msg = session.messages[i];
     if (msg.role !== "assistant") continue;
@@ -582,10 +590,10 @@ export async function runAgent(
     : getConfig(type);
 
   // Resolve working directory: worktree override > parent cwd
-  const effectiveCwd = options.cwd ?? ctx.cwd;
+  const effectiveCwd = resolve(options.cwd ?? ctx.cwd);
   // Filesystem work happens in effectiveCwd; config discovery in configCwd.
   // They differ only for SpawnOptions.cwd spawns (config stays with the parent).
-  const configCwd = options.configCwd ?? effectiveCwd;
+  const configCwd = resolve(options.configCwd ?? effectiveCwd);
 
   const env = await detectEnv(options.pi, effectiveCwd);
 
@@ -595,11 +603,6 @@ export async function runAgent(
   // Build prompt extras (memory, skill preloading)
   const extras: PromptExtras = {};
 
-  // Resolve extensions/skills: isolated overrides to false
-  const extensions = options.isolated ? false : config.extensions;
-  // Nulling excludes under isolated also suppresses the orphaned-exclude warning —
-  // isolation is an intentional override, not a misconfiguration.
-  const excludeExtensions = options.isolated ? undefined : config.excludeExtensions;
   const skills = options.isolated ? false : config.skills;
 
   // Skill preloading: when skills is string[], preload their content into prompt
@@ -647,9 +650,66 @@ export async function runAgent(
     systemPrompt = buildAgentPrompt({ ...fallback, name: type }, effectiveCwd, env, parentSystemPrompt, extras);
   }
 
-  // When skills is string[], we've already preloaded them into the prompt.
-  // Still pass noSkills: true since we don't need the skill loader to load them again.
-  const noSkills = skills === false || Array.isArray(skills);
+  const resolvedConfig = structuredClone(agentConfig ?? { ...DEFAULT_AGENTS.get("general-purpose")!, name: type });
+  resolvedConfig.builtinToolNames = [...toolNames];
+  resolvedConfig.extensions = config.extensions;
+  resolvedConfig.excludeExtensions = config.excludeExtensions;
+  resolvedConfig.skills = config.skills;
+  const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
+  const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
+  const session = await constructAgentSession(ctx, resolvedConfig, systemPrompt, {
+    ...options, cwd: effectiveCwd, configCwd,
+  });
+  sessionExecutionLimits.set(session, { maxTurns, graceTurns: effectiveGraceTurns });
+  try {
+    if (options.onResumeSnapshot) {
+      if (!session.model) throw new Error("Cannot snapshot a subagent without an effective model");
+      options.onResumeSnapshot({
+        version: 1,
+        config: structuredClone(resolvedConfig),
+        systemPrompt: session.systemPrompt,
+        cwd: effectiveCwd,
+        configCwd,
+        model: { provider: session.model.provider, modelId: session.model.id },
+        thinkingLevel: session.thinkingLevel,
+        isolated: options.isolated ?? false,
+        maxTurns,
+        graceTurns: effectiveGraceTurns,
+      });
+    }
+    options.onSessionCreated?.(session);
+  } catch (error) {
+    session.dispose();
+    throw error;
+  }
+  const parentContext = options.inheritContext ? buildParentContext(ctx) : "";
+  return executeAgentSession(session, parentContext ? parentContext + prompt : prompt, {
+    ...options, maxTurns, graceTurns: effectiveGraceTurns,
+  });
+}
+
+/** Resource discovery, SDK construction and tool binding shared by new and disk sessions. */
+async function constructAgentSession(
+  ctx: ExtensionContext,
+  agentConfig: AgentConfig,
+  systemPrompt: string,
+  options: RunOptions & { cwd: string; configCwd: string },
+  restoredManager?: SessionManager,
+): Promise<AgentSession> {
+  const type = agentConfig.name;
+  const effectiveCwd = options.cwd;
+  const configCwd = options.configCwd;
+  const toolNames = agentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES];
+  const extensions = options.isolated ? false : agentConfig.extensions;
+  const excludeExtensions = options.isolated ? undefined : agentConfig.excludeExtensions;
+  const skills = options.isolated ? false : agentConfig.skills;
+  // Restored prompts already contain the rendered skills catalogue. SDK always
+  // appends cwd to custom prompts, so remove exactly that final suffix once.
+  if (restoredManager) {
+    const suffix = `\nCurrent working directory: ${effectiveCwd.replace(/\\/g, "/")}`;
+    if (systemPrompt.endsWith(suffix)) systemPrompt = systemPrompt.slice(0, -suffix.length);
+  }
+  const noSkills = !!restoredManager || skills === false || Array.isArray(skills);
 
   const agentDir = getAgentDir();
 
@@ -728,6 +788,9 @@ export async function runAgent(
     appendSystemPromptOverride: () => [],
   });
   await loader.reload();
+  if (restoredManager && loader.getExtensions().errors.length) {
+    throw new Error(`Subagent restore resource loading failed: ${loader.getExtensions().errors.map((error) => error.path).join(", ")}`);
+  }
 
   // Plain entries in `tools:` are expected to be built-in names (extension tools
   // go through `ext:`), so an unknown name there is unambiguously a typo. Previously
@@ -872,11 +935,11 @@ export async function runAgent(
   const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd);
   const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
   const persistSession = agentConfig?.persistSession ?? rememberAgents;
-  const sessionManager = persistSession
+  const sessionManager = restoredManager ?? (persistSession
     ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir, {
         parentSession: ctx.sessionManager.getSessionFile(),
       })
-    : SessionManager.inMemory(effectiveCwd);
+    : SessionManager.inMemory(effectiveCwd));
 
   // Pi 0.80.8 replaced createAgentSession's modelRegistry option with
   // modelRuntime, but ExtensionContext still exposes only the registry facade.
@@ -904,65 +967,236 @@ export async function runAgent(
     sessionOpts.thinkingLevel = thinkingLevel;
   }
 
-  const { session } = await createAgentSession(sessionOpts);
+  const { session, modelFallbackMessage } = await createAgentSession(sessionOpts);
 
-  const baseSessionName = agentConfig?.name ?? type;
-  session.setSessionName(
-    options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
-  );
+  try {
+    if (modelFallbackMessage) throw new Error(`Subagent model restoration failed: ${modelFallbackMessage}`);
+    if (!restoredManager) {
+      const baseSessionName = agentConfig.name;
+      session.setSessionName(
+        options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
+      );
+    }
+    let bindingFailure: string | undefined;
 
-  // Bind extensions so that session_start fires and extensions can initialize
-  // (e.g. loading credentials, setting up state). Tool gating already happened
-  // at session construction via the `tools:` allowlist above — no separate
-  // post-bind filter is needed. All ExtensionBindings fields are optional.
-  await session.bindExtensions({
-    onError: (err) => {
-      options.onToolActivity?.({
-        type: "end",
-        toolName: `extension-error:${err.extensionPath}`,
-      });
-    },
-  });
+    // session_start initializes extension state and may register more tools.
+    await session.bindExtensions({
+      onError: (err) => {
+        bindingFailure = `Extension binding failed: ${err.extensionPath}`;
+        options.onToolActivity?.({
+          type: "end",
+          toolName: `extension-error:${err.extensionPath}`,
+        });
+      },
+    });
+    if (bindingFailure) throw new Error(bindingFailure);
 
-  // With `allowedToolNames` unset, the registry is scoped by `excludeTools` but
-  // the ACTIVE set still needs managing: pi activates only its four default
-  // built-ins at turn 1, and `ext:` narrowing has no registry-level expression
-  // (we can't deny the name of a tool that hasn't registered yet). Both are
-  // handled below by re-deriving scope from the loader's live extension maps —
-  // `registerTool` writes into those same maps, so late arrivals are judged too.
-  if (!noExtensions) {
-    // Extensions the config itself would not have kept — pin loaded them as
-    // observers. `loadAll` without an exclude covering the name is config keep.
-    const pinnedOnly = new Set<string>();
-    if (pinned.size > 0) {
-      for (const extension of loader.getExtensions().extensions) {
-        const canons = extensionCanonicalNames(extension.path);
-        if (!canons.some((n) => pinned.has(n))) continue;
-        const excluded = canons.some((n) => excludeNames.has(n));
-        const keptByConfig = !excluded && (loadAll || canons.some((n) => keepNames.has(n)));
-        if (!keptByConfig) {
-          for (const c of canons) pinnedOnly.add(c);
+    // The registry is scoped by excludeTools; the live active set still needs
+    // ext: narrowing, including tools registered during session_start and later.
+    if (!noExtensions) {
+      const pinnedOnly = new Set<string>();
+      if (pinned.size > 0) {
+        for (const extension of loader.getExtensions().extensions) {
+          const canons = extensionCanonicalNames(extension.path);
+          if (!canons.some((n) => pinned.has(n))) continue;
+          const excluded = canons.some((n) => excludeNames.has(n));
+          const keptByConfig = !excluded && (loadAll || canons.some((n) => keepNames.has(n)));
+          if (!keptByConfig) {
+            for (const c of canons) pinnedOnly.add(c);
+          }
         }
       }
+      installExtensionToolScope(session, {
+        loader,
+        toolNames,
+        disallowedSet,
+        extNames,
+        narrowing,
+        pinnedOnly,
+      });
     }
-    installExtensionToolScope(session, {
-      loader,
-      toolNames,
-      disallowedSet,
-      extNames,
-      narrowing,
-      pinnedOnly,
-    });
+
+    return session;
+  } catch (error) {
+    session.dispose();
+    throw error;
   }
+}
 
-  options.onSessionCreated?.(session);
+/** Restore only a known session file and its saved construction recipe; never create a replacement. */
+export async function restoreAgentSession(
+  ctx: ExtensionContext,
+  sessionFile: string,
+  snapshot: AgentResumeSnapshot,
+  options: { pi: ExtensionAPI },
+): Promise<AgentSession> {
+  validateResumeSnapshot(snapshot);
+  for (const cwd of [snapshot.cwd, snapshot.configCwd]) {
+    if (!statSync(cwd).isDirectory()) throw new Error(`Subagent resume directory is not a directory: ${cwd}`);
+  }
+  snapshot = structuredClone(snapshot);
+  const validated = validateSessionFile(sessionFile, snapshot.cwd);
+  const sessionManager = SessionManager.open(sessionFile);
+  if (sessionManager.getSessionId() !== validated.id || sessionManager.getEntries().length !== validated.entryCount) {
+    throw new Error("Subagent session changed while opening; refusing a replacement session");
+  }
+  const context = sessionManager.buildSessionContext();
+  if (!context.model?.provider || !context.model.modelId) {
+    throw new Error("Subagent session has no saved model; refusing model fallback");
+  }
+  const { provider, modelId } = context.model;
+  const model = ctx.modelRegistry.find(provider, modelId);
+  if (!model || model.provider !== provider || model.id !== modelId ||
+      !ctx.modelRegistry.getAvailable().some((m) => m.provider === provider && m.id === modelId)) {
+    throw new Error(`Subagent session model is unavailable: ${provider}/${modelId}`);
+  }
+  const thinkingLevel = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change")
+    ? context.thinkingLevel as ThinkingLevel : snapshot.thinkingLevel;
+  if (!isThinkingLevel(thinkingLevel)) throw new Error("Invalid saved thinking level");
+  const session = await constructAgentSession(ctx, snapshot.config, snapshot.systemPrompt, {
+    pi: options.pi,
+    cwd: snapshot.cwd,
+    configCwd: snapshot.configCwd,
+    isolated: snapshot.isolated,
+    model,
+    thinkingLevel,
+  }, sessionManager);
+  try {
+    if (session.model?.provider !== provider || session.model?.id !== modelId || session.thinkingLevel !== thinkingLevel) {
+      throw new Error("Subagent session route changed during restoration; refusing fallback");
+    }
+    if (session.systemPrompt !== snapshot.systemPrompt) {
+      throw new Error("Subagent system prompt changed during restoration");
+    }
+    sessionExecutionLimits.set(session, { maxTurns: snapshot.maxTurns, graceTurns: snapshot.graceTurns });
+    return session;
+  } catch (error) {
+    session.dispose();
+    throw error;
+  }
+}
 
-  // Track turns for graceful max_turns enforcement
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return typeof value === "string" && ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value);
+}
+
+function validateResumeSnapshot(snapshot: AgentResumeSnapshot): void {
+  const stringList = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === "string");
+  const selection = (value: unknown) => typeof value === "boolean" || stringList(value);
+  if (!snapshot || snapshot.version !== 1) throw new Error("Missing or unsupported subagent resume snapshot");
+  const config = snapshot.config;
+  if (!config || typeof config.name !== "string" || !config.name || typeof config.description !== "string" ||
+      typeof config.systemPrompt !== "string" || !["append", "replace"].includes(config.promptMode) ||
+      !selection(config.extensions) || !selection(config.skills) ||
+      !stringList(config.builtinToolNames) ||
+      (config.disallowedTools !== undefined && !stringList(config.disallowedTools)) ||
+      (config.extSelectors !== undefined && !stringList(config.extSelectors)) ||
+      (config.excludeExtensions !== undefined && !stringList(config.excludeExtensions)) ||
+      typeof snapshot.systemPrompt !== "string" || !snapshot.systemPrompt.trim() ||
+      typeof snapshot.cwd !== "string" || !isAbsolute(snapshot.cwd) ||
+      typeof snapshot.configCwd !== "string" || !isAbsolute(snapshot.configCwd) ||
+      typeof snapshot.model?.provider !== "string" || !snapshot.model.provider ||
+      typeof snapshot.model?.modelId !== "string" || !snapshot.model.modelId ||
+      !isThinkingLevel(snapshot.thinkingLevel) || typeof snapshot.isolated !== "boolean" ||
+      [snapshot.maxTurns, snapshot.graceTurns].some((n) => n !== undefined && (!Number.isSafeInteger(n) || n < 1))) {
+    throw new Error("Invalid subagent resume snapshot");
+  }
+}
+
+function isStoredMessage(message: any): boolean {
+  if (!message || typeof message !== "object") return false;
+  if (message.role === "bashExecution") return typeof message.command === "string" && typeof message.output === "string";
+  if (message.role === "branchSummary" || message.role === "compactionSummary") return typeof message.summary === "string";
+  if (!["user", "assistant", "toolResult", "custom", "hookMessage"].includes(message.role)) return false;
+  if (typeof message.content === "string") return ["user", "custom", "hookMessage"].includes(message.role);
+  return Array.isArray(message.content) && message.content.every((block: any) => {
+    if (!block || typeof block !== "object") return false;
+    if (block.type === "text") return typeof block.text === "string";
+    if (block.type === "thinking") return typeof block.thinking === "string";
+    if (block.type === "toolCall") return typeof block.name === "string" && typeof block.id === "string" &&
+      block.arguments !== null && typeof block.arguments === "object";
+    // Image representation differs across supported SDK versions.
+    return block.type === "image" && (typeof block.data === "string" || !!block.source);
+  });
+}
+
+/** SDK's parser skips malformed lines and open() can create a new session. Guard both before opening. */
+function validateSessionFile(sessionFile: string, cwd: string): { id: string; entryCount: number } {
+  if (!sessionFile || !statSync(sessionFile).isFile()) throw new Error("Subagent session file is not a readable file");
+  const text = readFileSync(sessionFile, "utf8").trim();
+  if (!text) throw new Error("Subagent session file is empty");
+  let entries: any[];
+  try {
+    entries = text.split(/\r?\n/).map((line) => JSON.parse(line));
+  } catch {
+    throw new Error("Subagent session file contains corrupt JSONL");
+  }
+  const [header] = entries;
+  if (!header || header.type !== "session" || ![1, 2, 3].includes(header.version ?? 1) ||
+      typeof header.id !== "string" || !header.id || typeof header.timestamp !== "string" ||
+      typeof header.cwd !== "string" || !isAbsolute(header.cwd) || resolve(header.cwd) !== resolve(cwd)) {
+    throw new Error("Invalid subagent session header or cwd mismatch");
+  }
+  const ids = new Set<string>();
+  const knownTypes = new Set(["message", "model_change", "thinking_level_change", "compaction", "branch_summary",
+    "custom", "custom_message", "label", "session_info"]);
+  for (const entry of entries.slice(1)) {
+    if (!entry || !knownTypes.has(entry.type) || typeof entry.timestamp !== "string" ||
+        ((header.version ?? 1) >= 2 && (typeof entry.id !== "string" || !entry.id || ids.has(entry.id) ||
+          (entry.parentId !== null && !ids.has(entry.parentId)))) ||
+        (entry.type === "message" && !isStoredMessage(entry.message)) ||
+        (["custom", "custom_message"].includes(entry.type) && typeof entry.customType !== "string") ||
+        (entry.type === "custom_message" && !isStoredMessage({ role: "custom", content: entry.content })) ||
+        (entry.type === "branch_summary" && (typeof entry.summary !== "string" || typeof entry.fromId !== "string")) ||
+        (entry.type === "model_change" && (typeof entry.provider !== "string" || !entry.provider || typeof entry.modelId !== "string" || !entry.modelId)) ||
+        (entry.type === "thinking_level_change" && !isThinkingLevel(entry.thinkingLevel)) ||
+        (entry.type === "compaction" && (typeof entry.summary !== "string" || !Number.isFinite(entry.tokensBefore) ||
+          (entry.retainedTail !== undefined
+            ? !Array.isArray(entry.retainedTail) || !entry.retainedTail.every(isStoredMessage)
+            : !ids.has(entry.firstKeptEntryId))))) {
+      throw new Error("Corrupt subagent session entry");
+    }
+    ids.add(entry.id);
+  }
+  return { id: header.id, entryCount: entries.length - 1 };
+}
+
+export type ResumeOptions = Pick<RunOptions,
+  "onToolActivity" | "onAssistantUsage" | "onCompaction" | "signal" |
+  "maxTurns" | "graceTurns" | "onTextDelta" | "onTurnEnd"
+>;
+
+const sessionExecutionLimits = new WeakMap<AgentSession, Pick<ResumeOptions, "maxTurns" | "graceTurns">>();
+
+/** One invocation boundary, regardless of whether the session is new, live or restored. */
+async function executeAgentSession(session: AgentSession, prompt: string, options: ResumeOptions): Promise<RunResult> {
   let turnCount = 0;
-  const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
+  const maxTurns = normalizeMaxTurns(options.maxTurns);
   const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
   let softLimitReached = false;
   let aborted = false;
+
+  // A turn_end notification is not a promise of another turn: queueing a steer
+  // here can leave an internal message stranded after a terminal response (or
+  // a terminating tool). Instead decorate the SDK's next-turn context only for
+  // this invocation. This neither forces another turn nor touches user queues.
+  const previousPrepare = session.agent.prepareNextTurnWithContext;
+  const previousLegacyPrepare = session.agent.prepareNextTurn;
+  const prepareNextTurn: NonNullable<typeof previousPrepare> = async (turn, signal) => {
+    const prior = previousPrepare
+      ? await previousPrepare(turn, signal)
+      : await previousLegacyPrepare?.(signal);
+    if (!softLimitReached) return prior;
+    const context = prior?.context ?? turn.context;
+    return {
+      ...prior,
+      context: {
+        ...context,
+        systemPrompt: `${context.systemPrompt ?? ""}\n\nYou have reached your turn limit. Wrap up immediately — provide your final answer now.`,
+      },
+    };
+  };
+  if (maxTurns != null) session.agent.prepareNextTurnWithContext = prepareNextTurn;
 
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
@@ -972,14 +1206,13 @@ export async function runAgent(
       if (maxTurns != null) {
         if (!softLimitReached && turnCount >= maxTurns) {
           softLimitReached = true;
-          session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
         } else if (softLimitReached && turnCount >= maxTurns + effectiveGraceTurns) {
           aborted = true;
-          session.abort();
+          void session.abort().catch(() => {});
         }
       }
     }
-    if (event.type === "message_start") {
+    if (event.type === "message_start" && event.message.role === "assistant") {
       currentMessageText = "";
     }
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
@@ -1013,18 +1246,9 @@ export async function runAgent(
   const collector = collectResponseText(session);
   const cleanupAbort = forwardAbortSignal(session, options.signal);
 
-  // Build the effective prompt: optionally prepend parent context
-  let effectivePrompt = prompt;
-  if (options.inheritContext) {
-    const parentContext = buildParentContext(ctx);
-    if (parentContext) {
-      effectivePrompt = parentContext + prompt;
-    }
-  }
-
-  // Boundary for the history fallback: only assistant text produced from here
-  // on counts as this run's output (a fresh session, so usually 0).
-  const startLen = session.messages.length;
+  // Events remain authoritative across compaction, which replaces the history
+  // array. The identity fallback supports sessions that don't stream events.
+  const priorMessages = new Set(session.messages);
   try {
     // Abort can arrive while the loader/session/extensions are still initializing,
     // before forwardAbortSignal is installed. Never start a model request after
@@ -1032,16 +1256,21 @@ export async function runAgent(
     if (options.signal?.aborted) {
       aborted = true;
     } else {
-      await session.prompt(effectivePrompt);
+      await session.prompt(prompt);
     }
   } finally {
     unsubTurns();
     collector.unsubscribe();
     cleanupAbort();
+    if (session.agent.prepareNextTurnWithContext === prepareNextTurn) {
+      session.agent.prepareNextTurnWithContext = previousPrepare;
+    }
   }
 
-  const responseText = collector.getText().trim() || getLastAssistantText(session, startLen);
-  return { responseText, session, aborted, steered: softLimitReached, failure: finalTurnError(session, startLen) };
+  const invocation = { messages: collector.messages.length || collector.wasCompacted()
+    ? collector.messages : session.messages.filter((message) => !priorMessages.has(message)) };
+  const responseText = collector.getText().trim() || getLastAssistantText(invocation);
+  return { responseText, session, aborted: aborted || !!options.signal?.aborted, steered: softLimitReached, failure: finalTurnError(invocation) };
 }
 
 /**
@@ -1050,59 +1279,15 @@ export async function runAgent(
 export async function resumeAgent(
   session: AgentSession,
   prompt: string,
-  options: {
-    onToolActivity?: (activity: ToolActivity) => void;
-    onAssistantUsage?: (usage: LifetimeUsage) => void;
-    onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
-    signal?: AbortSignal;
-  } = {},
-): Promise<{ text: string; failure?: string }> {
-  // Boundary for the history fallback: the session already holds prior turns,
-  // so only assistant text produced by THIS resume prompt counts as its output
-  // — a failed resume must not surface the previous turn's answer (#144).
-  const startLen = session.messages.length;
-  const collector = collectResponseText(session);
-  const cleanupAbort = forwardAbortSignal(session, options.signal);
-
-  const unsubEvents = (options.onToolActivity || options.onAssistantUsage || options.onCompaction)
-    ? session.subscribe((event: AgentSessionEvent) => {
-        if (event.type === "tool_execution_start") {
-          options.onToolActivity?.({
-            type: "start",
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-            args: event.args,
-          });
-        }
-        if (event.type === "tool_execution_end") {
-          options.onToolActivity?.({
-            type: "end",
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-          });
-        }
-        if (event.type === "message_end" && event.message.role === "assistant") {
-          const usage = event.message.usage;
-          if (usage) options.onAssistantUsage?.(toLifetimeUsage(usage));
-        }
-        if (event.type === "compaction_end" && !event.aborted && event.result) {
-          options.onCompaction?.({ reason: event.reason, tokensBefore: event.result.tokensBefore });
-        }
-      })
-    : () => {};
-
-  try {
-    await session.prompt(prompt);
-  } finally {
-    collector.unsubscribe();
-    unsubEvents();
-    cleanupAbort();
-  }
-
-  return {
-    text: collector.getText().trim() || getLastAssistantText(session, startLen),
-    failure: finalTurnError(session, startLen),
-  };
+  options: ResumeOptions = {},
+): Promise<{ text: string; failure?: string; aborted?: boolean; steered?: boolean }> {
+  const limits = sessionExecutionLimits.get(session);
+  const result = await executeAgentSession(session, prompt, {
+    ...options,
+    maxTurns: options.maxTurns ?? limits?.maxTurns,
+    graceTurns: options.graceTurns ?? limits?.graceTurns,
+  });
+  return { text: result.responseText, failure: result.failure, aborted: result.aborted, steered: result.steered };
 }
 
 /**
@@ -1133,14 +1318,16 @@ export function getAgentConversation(session: AgentSession): string {
       const toolCalls: string[] = [];
       for (const c of msg.content) {
         if (c.type === "text" && c.text) textParts.push(c.text);
-        else if (c.type === "toolCall") toolCalls.push(`  Tool: ${(c as any).name ?? (c as any).toolName ?? "unknown"}`);
+        else if (c.type === "toolCall") {
+          const name = c.name ?? (c as any).toolName ?? "unknown";
+          toolCalls.push(`  Tool: ${name}${c.arguments === undefined ? "" : `\n  Arguments: ${JSON.stringify(c.arguments)}`}`);
+        }
       }
       if (textParts.length > 0) parts.push(`[Assistant]: ${textParts.join("\n")}`);
       if (toolCalls.length > 0) parts.push(`[Tool Calls]:\n${toolCalls.join("\n")}`);
     } else if (msg.role === "toolResult") {
       const text = extractText(msg.content);
-      const truncated = text.length > 200 ? text.slice(0, 200) + "..." : text;
-      parts.push(`[Tool Result (${msg.toolName})]: ${truncated}`);
+      parts.push(`[Tool Result (${msg.toolName})]: ${text}`);
     }
   }
 

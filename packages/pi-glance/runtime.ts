@@ -85,6 +85,8 @@ export interface GlanceRuntime {
 		thinkingLevelSelect(event: unknown, ctx: ExtensionContext): Promise<void>;
 		turnStart(event: unknown, ctx: ExtensionContext): Promise<void>;
 		messageUpdate(event: WorkingMessageUpdateEvent, ctx: ExtensionContext): void;
+		uiPromptStart(event: unknown, ctx: ExtensionContext): void;
+		uiPromptEnd(event: unknown, ctx: ExtensionContext): void;
 		toolExecutionStart(event: ToolExecutionLikeEvent, ctx: ExtensionContext): void;
 		toolExecutionEnd(event: ToolExecutionLikeEvent, ctx: ExtensionContext): Promise<void>;
 		sessionTree(event: unknown, ctx: ExtensionContext): Promise<void>;
@@ -354,15 +356,22 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 				await refreshSession.execute("turn_start", ctx);
 			},
 			messageUpdate: (event, _ctx) => {
+				refreshSession.messageUpdate(event.assistantMessageEvent.type);
 				workingIndicator.messageUpdate(event);
 			},
+			uiPromptStart: (_event, _ctx) => refreshSession.uiPromptStart(),
+			uiPromptEnd: (_event, _ctx) => refreshSession.uiPromptEnd(),
 			toolExecutionStart: (event, _ctx) => {
+				if (typeof event.toolCallId === "string") refreshSession.toolExecutionStart(event.toolCallId);
 				if (typeof event.toolCallId === "string" && typeof event.toolName === "string") {
 					workingIndicator.toolExecutionStart({ toolCallId: event.toolCallId, toolName: event.toolName });
 				}
 			},
 			toolExecutionEnd: async (event, ctx) => {
-				if (typeof event.toolCallId === "string") workingIndicator.toolExecutionEnd({ toolCallId: event.toolCallId });
+				if (typeof event.toolCallId === "string") {
+					refreshSession.toolExecutionEnd(event.toolCallId);
+					workingIndicator.toolExecutionEnd({ toolCallId: event.toolCallId });
+				}
 				await refreshSession.execute("tool_execution_end", ctx, {
 					facts: { toolName: typeof event.toolName === "string" ? event.toolName : undefined },
 				});
@@ -389,6 +398,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			},
 			agentSettled: (_event, _ctx) => {
 				workingIndicator.agentSettled();
+				refreshSession.agentSettled();
 				scheduleGitRefresh(true);
 			},
 		},

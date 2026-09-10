@@ -24,17 +24,25 @@ pi-subagents 的子代理在同一进程内用独立的 `DefaultResourceLoader` 
    - 只在终态发一次：长时间后台代理运行期间预算/footer 全程盲区，进程崩溃则永久丢失；
    - 无法与回填去重：lump-sum 合成记录没有真实消息时间戳，与 `/usage import` 的逐消息记录（键为 `ts|sid|model`，见 pi-meter `src/ledger/session-parser.ts` 的 `recordKey`/`payloadKey`）不可比对。
 
-   目前该事件只喂 pi-subagents 自身 UI（fleet 列表、完成通知），不入任何账本——现状下不存在重复记账。
+   该事件只用于生命周期与编排，不入 meter 账本。父会话原生统计通过收集结果的 `toolResult.usage` 汇总，不通过该事件入账。
 
 2. **事后回填**：子会话默认持久化（`persistSession` 默认 true），`/usage import` 解析会话文件可全保真回填（逐消息、含模型与时间戳）。因此真正的缺口只有两块：**实时性**（预算/footer 的活数据）与 **`persist_session: false` 的会话**。
 
 ### 去重闭环（实施后成立的前提）
 
 - 子会话内的 pi-meter 逐消息记账，键为 `ts|sid|model`（真实消息时间戳 + 子会话自己的 session id）；
-- 父会话的 pi-meter 只见父会话的 `message_end`，sid 不同，两边天然不相交；
+- 父会话的 pi-meter 过滤 `Agent` 用量汇总，以及带 `subagentUsageRollup` 标记的 `get_subagent_result` 汇总；这些 `toolResult.usage` 仍保留给 Pi 原生统计 / Glance，但不作为第二份费用写入 ledger；
 - `/usage import` 对同一子会话文件产出的记录与活捕获记录键完全一致，`diffRecords` 去重后丢弃。
 
-**反需求**：不得给 pi-meter 增加"监听 `subagents:completed` 入账"的逻辑——lump-sum 无法去重，加了才会造成重复记账。pin 机制本身不需要改 pi-meter 任何代码。
+**反需求**：不得给 pi-meter 增加"监听 `subagents:completed` 入账"的逻辑——lump-sum 无法与逐消息记录去重。Pin 保留逐消息、按真实模型/时间归属的账本；`reportUsage` 仅为父会话提供 Pi 原生统计汇总。Meter 的 live capture 与历史 import 使用同一过滤规则，既不删除消息上的 usage，也不改变子会话 ledger 的身份键。
+
+### 父会话统计与账本各回答什么
+
+`reportUsage` 在本 fork 默认开启（上游 0.18 默认关闭）。前台的花费放在返回最终结果的 `Agent` 工具结果；后台启动回执不携带花费，完成后的 `get_subagent_result` 收集结果时结算。普通 steering 和完成通知不搬运用量，也不会把一个 agent 的费用借到另一个 agent 的工具结果上。
+
+同一 agent 保存累计已报告水位；查询或续跑只补尚未上报的 lifetime 增量。恢复依据是当前父分支已经存储的工具结果，而非只读 archive 中的完成预览。Pi Usage 的 `totalTokens` 包含 cacheRead，保留四项 token 和 provider 已报告 cost；子代理紧凑显示仍维持原来的非 cacheRead 总量。原生汇总需要 Pi >=0.81.0。
+
+所以 Glance/父会话看到的是“这个会话及其委派所花的费用”；meter ledger 看到的是“每条实际 child 消息的费用”。后台若只收到自动通知、从未收集结果，费用暂不进入父会话 toolResult 汇总；被 pin 的 meter 仍实时记录子会话。关闭 `reportUsage` 不关闭 pin，也不会抹掉已经写入父会话的统计。
 
 ## 需求
 

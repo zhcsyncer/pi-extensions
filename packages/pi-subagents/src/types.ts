@@ -118,6 +118,20 @@ export type CompletionDelivery = "steer" | "followUp";
  */
 export type WidgetMode = 'all' | 'background' | 'off';
 
+/** Versioned construction recipe; credentials and live objects are never persisted. */
+export interface AgentResumeSnapshot {
+  version: 1;
+  config: AgentConfig;
+  systemPrompt: string;
+  cwd: string;
+  configCwd: string;
+  model: AgentModelIdentity;
+  thinkingLevel: ThinkingLevel;
+  isolated: boolean;
+  maxTurns?: number;
+  graceTurns?: number;
+}
+
 export interface AgentRecord {
   id: string;
   type: SubagentType;
@@ -137,6 +151,12 @@ export interface AgentRecord {
   completionDelivery: CompletionDelivery;
   /** Set when result was already consumed via get_subagent_result — suppresses completion notification. */
   resultConsumed?: boolean;
+  /** Monotonic execution generation; fences held notifications on resume. */
+  runGeneration?: number;
+  /** Last completed report, kept separately so failed continuations cannot erase it. */
+  previousResult?: string;
+  /** Construction recipe required for fail-closed disk recovery. */
+  resumeSnapshot?: AgentResumeSnapshot;
   /** Steering messages queued before the session was ready. */
   pendingSteers?: string[];
   /** Worktree info if the agent is running in an isolated worktree. */
@@ -189,6 +209,8 @@ export interface AgentRecord {
 }
 
 export interface AgentInvocation {
+  /** Canonical effective route for detailed viewers and persisted recovery UI. */
+  modelIdentity?: AgentModelIdentity;
   /** Effective short model label when known (e.g. "haiku"), including parent-inherited. */
   modelName?: string;
   /** True when the effective model is the parent session model (for TUI "(inherit)" chips). */

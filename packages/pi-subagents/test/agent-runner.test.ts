@@ -10,6 +10,7 @@ const {
   getAgentDir,
   sessionManagerInMemory,
   sessionManagerCreate,
+  sessionManagerOpen,
   settingsManagerCreate,
   settingsManagerGetSessionDir,
 } = vi.hoisted(() => ({
@@ -25,6 +26,7 @@ const {
   getAgentDir: vi.fn(() => "/mock/agent-dir"),
   sessionManagerInMemory: vi.fn(() => ({ kind: "memory-session-manager" })),
   sessionManagerCreate: vi.fn(() => ({ kind: "persistent-session-manager" })),
+  sessionManagerOpen: vi.fn(),
   settingsManagerGetSessionDir: vi.fn(() => undefined as string | undefined),
   settingsManagerCreate: vi.fn(() => ({ kind: "settings-manager", getSessionDir: settingsManagerGetSessionDir })),
 }));
@@ -59,7 +61,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
     }
   },
   getAgentDir,
-  SessionManager: { inMemory: sessionManagerInMemory, create: sessionManagerCreate },
+  SessionManager: { inMemory: sessionManagerInMemory, create: sessionManagerCreate, open: sessionManagerOpen },
   SettingsManager: { create: settingsManagerCreate },
 }));
 
@@ -114,6 +116,7 @@ import {
   parseExtensionsSpec,
   parseExtSelectors,
   resumeAgent,
+  restoreAgentSession,
   runAgent,
   setPinnedExtensions,
   setRememberAgents,
@@ -142,7 +145,11 @@ function createSession(finalText: string) {
       });
     }),
     abort: vi.fn(async () => {}),
-    steer: vi.fn(),
+    steer: vi.fn(async () => {}),
+    dispose: vi.fn(),
+    model: { provider: "test", id: "test-model" },
+    thinkingLevel: "off",
+    systemPrompt: "system prompt\nCurrent working directory: /tmp",
     // Stateful, so the active set reflects what the scope installer actually did
     // and `renarrow`'s no-op guard behaves as it does against real pi.
     getActiveToolNames: vi.fn(() => activeToolNames),
@@ -186,6 +193,7 @@ beforeEach(() => {
   getAgentDir.mockClear();
   sessionManagerInMemory.mockClear();
   sessionManagerCreate.mockClear();
+  sessionManagerOpen.mockReset();
   settingsManagerGetSessionDir.mockReset();
   settingsManagerGetSessionDir.mockReturnValue(undefined);
   settingsManagerCreate.mockClear();
@@ -197,6 +205,185 @@ beforeEach(() => {
   setRememberAgents(true);
   lastSession = undefined;
   setPinnedExtensions([]);
+});
+
+describe("agent-runner construction and execution boundaries", () => {
+  it("publishes a detached resolved snapshot before session handoff and prompt", async () => {
+    const { session } = createSession("DONE");
+    createAgentSession.mockResolvedValue({ session });
+    const calls: string[] = [];
+    let snapshot: any;
+    await runAgent(ctx, "Explore", "go", {
+      pi, maxTurns: -1, graceTurns: 0,
+      onResumeSnapshot: (saved) => { snapshot = saved; calls.push("snapshot"); },
+      onSessionCreated: () => { calls.push("session"); expect(session.prompt).not.toHaveBeenCalled(); },
+    });
+    expect(calls).toEqual(["snapshot", "session"]);
+    expect(snapshot).toMatchObject({
+      version: 1, cwd: "/tmp", configCwd: "/tmp", isolated: false,
+      systemPrompt: session.systemPrompt, model: { provider: "test", modelId: "test-model" },
+      thinkingLevel: "off", maxTurns: 1, graceTurns: 1,
+      config: { name: "Explore", builtinToolNames: ["read"] },
+    });
+    snapshot.config.builtinToolNames.push("write");
+    expect(createAgentSession.mock.calls[0][0].tools).toEqual(["read"]);
+  });
+
+  it("disposes a partially bound session rather than handing it off", async () => {
+    const { session } = createSession("NEVER");
+    session.bindExtensions.mockRejectedValue(new Error("binding failed"));
+    createAgentSession.mockResolvedValue({ session });
+    const onSessionCreated = vi.fn();
+    await expect(runAgent(ctx, "Explore", "go", { pi, onSessionCreated })).rejects.toThrow("binding failed");
+    expect(session.dispose).toHaveBeenCalledOnce();
+    expect(onSessionCreated).not.toHaveBeenCalled();
+    expect(session.prompt).not.toHaveBeenCalled();
+  });
+
+  it("rejects SDK model fallback and disposes the returned partial session", async () => {
+    const { session } = createSession("NEVER");
+    createAgentSession.mockResolvedValue({ session, modelFallbackMessage: "Using another model" });
+    await expect(runAgent(ctx, "Explore", "go", { pi })).rejects.toThrow("Using another model");
+    expect(session.dispose).toHaveBeenCalledOnce();
+    expect(session.bindExtensions).not.toHaveBeenCalled();
+  });
+
+  it("does not prompt a pre-aborted live session or return its prior output", async () => {
+    const { session } = createSession("NEVER");
+    session.messages.push({ role: "assistant", content: [{ type: "text", text: "OLD" }] });
+    const result = await resumeAgent(session as any, "go", { signal: AbortSignal.abort() });
+    expect(result).toMatchObject({ text: "", aborted: true, steered: false });
+    expect(session.prompt).not.toHaveBeenCalled();
+  });
+
+  for (const kind of ["initial", "resumed"] as const) {
+    it(`${kind}: preserves invocation output and failure when compaction replaces history`, async () => {
+      const { session, listeners } = createSession("");
+      createAgentSession.mockResolvedValue({ session });
+      session.messages = Array.from({ length: 10 }, () => ({ role: "assistant", content: [{ type: "text", text: "OLD" }] }));
+      const emit = (event: any) => listeners.forEach((listener) => listener(event));
+      session.prompt.mockImplementation(async () => {
+        const progress = { role: "assistant", content: [{ type: "text", text: "NEW PROGRESS" }] };
+        emit({ type: "message_end", message: progress });
+        session.messages = [];
+        emit({ type: "compaction_end", reason: "threshold", aborted: false, result: { tokensBefore: 500 } });
+        const failure = { role: "assistant", content: [], stopReason: "error", errorMessage: "FAILED AFTER COMPACTION" };
+        emit({ type: "message_end", message: failure });
+        session.messages.push(failure);
+      });
+      const onCompaction = vi.fn();
+      const result = kind === "initial"
+        ? await runAgent(ctx, "Explore", "go", { pi, onCompaction })
+        : await resumeAgent(session as any, "go", { onCompaction });
+      expect("responseText" in result ? result.responseText : result.text).toBe("NEW PROGRESS");
+      expect(result.failure).toBe("FAILED AFTER COMPACTION");
+      expect(onCompaction).toHaveBeenCalledWith({ reason: "threshold", tokensBefore: 500 });
+    });
+
+    it(`${kind}: enforces the same turn/grace limits and streams the same callbacks`, async () => {
+      const { session, listeners } = createSession("");
+      createAgentSession.mockResolvedValue({ session });
+      const emit = (event: any) => listeners.forEach((listener) => listener(event));
+      session.prompt.mockImplementation(async () => {
+        emit({ type: "message_start", message: { role: "assistant" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "A" } });
+        emit({ type: "message_start", message: { role: "toolResult" } });
+        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "B" } });
+        for (let i = 0; i < 3; i++) emit({ type: "turn_end" });
+      });
+      const onTurnEnd = vi.fn();
+      const onTextDelta = vi.fn();
+      const options = { maxTurns: 1, graceTurns: 2, onTurnEnd, onTextDelta };
+      const result = kind === "initial"
+        ? await runAgent(ctx, "Explore", "go", { pi, ...options })
+        : await resumeAgent(session as any, "go", options);
+      expect(result).toMatchObject({ aborted: true, steered: true });
+      expect(session.steer).not.toHaveBeenCalled();
+      expect(session.abort).toHaveBeenCalledOnce();
+      expect(onTurnEnd.mock.calls).toEqual([[1], [2], [3]]);
+      expect(onTextDelta.mock.calls).toEqual([["A", "A"], ["B", "AB"]]);
+    });
+  }
+});
+
+describe("agent-runner restore failure cleanup", () => {
+  let dir: string;
+  let file: string;
+  let snapshot: any;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "runner-restore-"));
+    file = join(dir, "session.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: "original", timestamp: new Date().toISOString(), cwd: dir }));
+    snapshot = {
+      version: 1, config: makeAgentConfig({ extensions: false }), cwd: dir, configCwd: dir,
+      systemPrompt: `original prompt\nCurrent working directory: ${dir}`,
+      model: { provider: "test", modelId: "test-model" }, thinkingLevel: "off", isolated: false,
+    };
+    sessionManagerOpen.mockReturnValue({
+      getSessionId: () => "original",
+      getEntries: () => [],
+      buildSessionContext: () => ({ model: snapshot.model, thinkingLevel: "off", messages: [] }),
+      getBranch: () => [],
+    });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("requires a snapshot before touching the SDK", async () => {
+    await expect(restoreAgentSession(ctx, file, undefined as any, { pi })).rejects.toThrow(/snapshot/);
+    expect(sessionManagerOpen).not.toHaveBeenCalled();
+    expect(createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unsupported version", { version: 2 }],
+    ["missing cwd", { cwd: "/nonexistent/runner-resume-cwd" }],
+    ["missing resolved tool scope", { config: makeAgentConfig({ builtinToolNames: undefined }) }],
+    ["invalid model identity", { model: {} }],
+  ])("rejects %s before opening the SDK session", async (_name, patch) => {
+    await expect(restoreAgentSession(ctx, file, { ...snapshot, ...patch }, { pi })).rejects.toThrow();
+    expect(sessionManagerOpen).not.toHaveBeenCalled();
+    expect(createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a saved session without a model instead of using snapshot or parent fallback", async () => {
+    sessionManagerOpen.mockReturnValue({
+      getSessionId: () => "original", getEntries: () => [],
+      buildSessionContext: () => ({ model: null, messages: [] }),
+    });
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/no saved model/);
+    expect(createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects corrupt JSONL before the SDK can silently skip it", async () => {
+    writeFileSync(file, 'not json');
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/corrupt JSONL/);
+    expect(sessionManagerOpen).not.toHaveBeenCalled();
+  });
+
+  it("rejects valid JSON with a corrupt message before the SDK can drop its content", async () => {
+    writeFileSync(file, [
+      { type: "session", version: 3, id: "original", cwd: dir, timestamp: new Date().toISOString() },
+      { type: "message", id: "bad", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/Corrupt subagent session entry/);
+    expect(sessionManagerOpen).not.toHaveBeenCalled();
+  });
+
+  it("rejects unavailable history models without construction", async () => {
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/unavailable/);
+    expect(createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("disposes restored sessions when binding fails", async () => {
+    const { session } = createSession("");
+    const registry = { find: () => session.model, getAvailable: () => [session.model] };
+    createAgentSession.mockResolvedValue({ session });
+    session.bindExtensions.mockRejectedValue(new Error("restore binding failed"));
+    await expect(restoreAgentSession({ ...ctx, modelRegistry: registry }, file, snapshot, { pi })).rejects.toThrow("restore binding failed");
+    expect(session.dispose).toHaveBeenCalledOnce();
+    expect(sessionManagerCreate).not.toHaveBeenCalled();
+    expect(session.prompt).not.toHaveBeenCalled();
+  });
 });
 
 describe("agent-runner final output capture", () => {
@@ -635,6 +822,7 @@ describe("agent-runner usage callback wiring", () => {
 
     expect(seen).toEqual([{
       input: 10, output: 20, cacheRead: 300, cacheWrite: 5, cost: 0.1,
+      costBreakdown: { input: 0.01, output: 0.02, cacheRead: 0.03, cacheWrite: 0.04 },
     }]);
   });
 
@@ -717,7 +905,7 @@ describe("getAgentConversation", () => {
     expect(out).toContain("[Tool Calls]:\n  Tool: search\n  Tool: edit\n  Tool: unknown");
   });
 
-  it("truncates toolResult content beyond 200 chars and tags it with the tool name", () => {
+  it("preserves full toolResult text beyond 200 chars", () => {
     const longText = "x".repeat(300);
     const out = getAgentConversation(
       fakeSession([
@@ -728,10 +916,17 @@ describe("getAgentConversation", () => {
         },
       ]),
     );
-    expect(out.startsWith("[Tool Result (bash)]: ")).toBe(true);
-    expect(out.endsWith("...")).toBe(true);
-    // prefix + 200 chars + "..."
-    expect(out.length).toBe("[Tool Result (bash)]: ".length + 200 + 3);
+    expect(out).toBe(`[Tool Result (bash)]: ${longText}`);
+  });
+
+  it("includes full tool arguments and final answer without truncation", () => {
+    const full = "x".repeat(10_000);
+    const out = getAgentConversation(fakeSession([
+      { role: "assistant", content: [{ type: "toolCall", name: "write", arguments: { path: "out.txt", content: full } }] },
+      { role: "assistant", content: [{ type: "text", text: full }] },
+    ]));
+    expect(out).toContain(`Arguments: ${JSON.stringify({ path: "out.txt", content: full })}`);
+    expect(out).toContain(`[Assistant]: ${full}`);
   });
 
   it("emits [Tool Calls] but no [Assistant] when the assistant only made tool calls", () => {
@@ -1974,10 +2169,7 @@ describe("agent-runner per-spawn graceTurns", () => {
   it("steers at maxTurns and hard-aborts only after the per-spawn grace window", async () => {
     const result = await emitTurns(17, { pi, maxTurns: 2, graceTurns: 15 });
 
-    expect(lastSession?.steer).toHaveBeenCalledOnce();
-    expect(lastSession?.steer).toHaveBeenCalledWith(
-      "You have reached your turn limit. Wrap up immediately — provide your final answer now.",
-    );
+    expect(lastSession?.steer).not.toHaveBeenCalled();
     expect(lastSession?.abort).toHaveBeenCalledOnce();
     expect(result.steered).toBe(true);
     expect(result.aborted).toBe(true);
@@ -1986,7 +2178,7 @@ describe("agent-runner per-spawn graceTurns", () => {
   it("keeps the global five-turn grace when spawn omits the override", async () => {
     const result = await emitTurns(6, { pi, maxTurns: 2 });
 
-    expect(lastSession?.steer).toHaveBeenCalledOnce();
+    expect(lastSession?.steer).not.toHaveBeenCalled();
     expect(lastSession?.abort).not.toHaveBeenCalled();
     expect(result.steered).toBe(true);
     expect(result.aborted).toBe(false);

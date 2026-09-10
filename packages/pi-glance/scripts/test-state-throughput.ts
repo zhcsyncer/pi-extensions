@@ -60,7 +60,7 @@ assert.equal(typeof clearCurrentRunThroughput, "function", "state.ts should expo
 
 const finalSample: TurnThroughputFixture = {
 	startedAtMs: 1_000,
-	endedAtMs: 3_500,
+	endedAtMs: 35_000,
 	elapsedMs: 2_500,
 	tokensPerSecond: 20,
 	usage: {
@@ -92,7 +92,7 @@ const state = testState({ version: 7 }) as GlanceStateRecord;
 (state as unknown as { throughput: { lastTurn: unknown; currentRun: unknown } }).throughput = { lastTurn: null, currentRun: null };
 
 assert.equal(setLastTurnThroughput!(state, finalSample), true, "setting final throughput from null should report a state change");
-assert.deepEqual(throughput(state).lastTurn, finalSample, "setLastTurnThroughput should store the latest finalized turn throughput snapshot");
+assert.deepEqual(throughput(state).lastTurn, finalSample, "state preserves inference elapsedMs independently of wall-clock bounds");
 assert.deepEqual(throughput(state).currentRun, null, "setting final throughput should not implicitly mutate currentRun; runtime clears currentRun explicitly");
 assert.equal(state.version, 8, "setting a changed final throughput snapshot should increment state.version exactly once");
 

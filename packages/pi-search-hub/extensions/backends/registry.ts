@@ -8,6 +8,7 @@ import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKey } from "../credentials.js";
 import { getConfig } from "../config.js";
 import { recordBackendSuccess, recordBackendFailure } from "../scoring.js";
+import { reportEffectiveness } from "../effectiveness.js";
 
 import { searchDuckDuckGo } from "./duckduckgo.js";
 import { searchMarginalia } from "./marginalia.js";
@@ -328,9 +329,28 @@ export async function runBackend(
 		const result = await def.search(query, numResults, { key, instanceUrl, signal, backendConfig: bc, onNotice: runtime?.onNotice });
 		const latencyMs = Date.now() - startTime;
 		recordBackendSuccess(backend, latencyMs, result.results.length, numResults);
+		await reportEffectiveness({
+			backend,
+			label: def.label,
+			op: "search",
+			ok: true,
+			latencyMs,
+			resultCount: result.results.length,
+			onNotice: runtime?.onNotice,
+		});
 		return result.results;
 	} catch (err) {
 		recordBackendFailure(backend);
+		await reportEffectiveness({
+			backend,
+			label: def.label,
+			op: "search",
+			ok: false,
+			latencyMs: Date.now() - startTime,
+			error: err,
+			signal,
+			onNotice: runtime?.onNotice,
+		});
 		throw err;
 	} finally {
 		markCooldown(backend);
