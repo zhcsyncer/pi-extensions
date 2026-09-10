@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-search-hub
 
+## 0.1.2
+
+### Patch Changes
+
+- f3b8c32: Warn when a Search Hub backend or reader starts failing repeatedly. Local call outcomes are stored only for that check and are not used as remaining quota.
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @zhcsyncer/pi-extensions
 
+## 0.32.0
+
+### Minor Changes
+
+- f3b8c32: Add a Tokens cache hit-rate option that keeps the percentage visible in narrow layouts, while preserving existing cache settings and the auto default. Reply speed now measures output tokens over observed server inference time, including thinking and writing but excluding local tool execution, pre-response waiting, and blocking UI prompts when supported by Pi.
+
+### Patch Changes
+
+- f3b8c32: Warn when a Search Hub backend or reader starts failing repeatedly. Local call outcomes are stored only for that check and are not used as remaining quota.
+- f3b8c32: Improve subagent result delivery and continuation. Background notifications carry final reports within a shared 16 KiB UTF-8 message budget, explicitly marking truncation with a full-result retrieval path. Steering completed or soft-limit agents continues the same context in the background; explicit resume supports foreground and background execution with normal concurrency, waiting, and cancellation semantics. Eligible persisted terminal sessions can recover with their original execution configuration; missing recovery prerequisites fail explicitly instead of starting fresh. Failed or stopped continuations retain the previous completed report, clearly labeled as historical rather than the current result, even when the child conversation file cannot be opened. Failed or stopped agents still require explicit retry, and interrupted in-flight work is not replayed after a crash. Fence stale completions across resumed runs and clarify these contracts in streamlined bilingual documentation.
+- f3b8c32: Show collected subagent tokens and cost in Pi native session statistics and Glance by default. Foreground Agent results and completed background result retrievals report each agent's unreported lifetime spend once, including resumed sessions. Keep pinned pi-meter observers recording child messages, while excluding duplicate parent usage rollups from live capture and history imports. Native rollups require Pi 0.81.0 or newer and can be disabled with reportUsage.
+- f3b8c32: Apply scopeModels to explicit cross-extension RPC model selections, close the conversation viewer with Ctrl+C, and display the child session's actual model and thinking level rather than requested values. Keep foreground as the default; no workflow or handle-based delegation features are added.
+
 ## 0.31.0
 
 ### Minor Changes
