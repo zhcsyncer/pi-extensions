@@ -4,9 +4,11 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_CONFIG,
 	applyConfigSetting,
+	normalizeConfig,
 	recapModelValues,
 	resolveRecapModel,
 	settingItems,
+	shouldApplyTitleForPolicy,
 	type RecapConfig,
 	type RecapModelOption,
 } from "../extensions/recap.ts";
@@ -31,26 +33,14 @@ function itemIds(config: RecapConfig, available: RecapModelOption[] = []) {
 }
 
 const ALL_SETTING_IDS = [
-	"recap.enabled",
 	"recap.auto",
-	"recap.manualCommand",
 	"recap.idleAfterTurnMs",
-	"recap.minSessionTurns",
-	"recap.neverTwiceInARow",
 	"recap.model",
 	"recap.fallbackToCurrentModel",
-	"recap.maxRecentChars",
-	"recap.maxTokens",
 	"recap.language",
-	"title.generate",
 	"title.applyToSessionName",
-	"title.applyPolicy",
-	"title.maxLength",
-	"display.widgetPlacement",
 	"multiplexer.enabled",
 	"multiplexer.template",
-	"multiplexer.maxLength",
-	"multiplexer.restoreOnShutdown",
 ] as const;
 
 test("recap model values put current first and keep unavailable configured models", () => {
@@ -98,74 +88,126 @@ test("switching to current hides fallback without clearing the stored fallback f
 	assert.ok(!itemIds(next).includes("recap.fallbackToCurrentModel"));
 });
 
-test("setting items cover every RecapConfig field while generate=false only hides title extras", () => {
+test("setting items only expose the remaining recap knobs", () => {
 	const specific = structuredClone(DEFAULT_CONFIG) as RecapConfig;
 	specific.recap.model = "google/gemini-2.5-flash";
 	assert.deepEqual(itemIds(specific), [...ALL_SETTING_IDS]);
 
-	const withoutTitle = structuredClone(specific);
-	withoutTitle.title.generate = false;
-	withoutTitle.title.applyToSessionName = true;
-	withoutTitle.title.applyPolicy = "always";
-	withoutTitle.title.maxLength = 80;
-	const hidden = itemIds(withoutTitle);
-	assert.ok(!hidden.includes("title.applyToSessionName"));
-	assert.ok(!hidden.includes("title.applyPolicy"));
-	assert.ok(!hidden.includes("title.maxLength"));
-	assert.ok(hidden.includes("title.generate"));
-
-	const stillHidden = applyConfigSetting(withoutTitle, "recap.manualCommand", "off");
-	assert.equal(stillHidden.title.generate, false);
-	assert.equal(stillHidden.title.applyToSessionName, true);
-	assert.equal(stillHidden.title.applyPolicy, "always");
-	assert.equal(stillHidden.title.maxLength, 80);
+	const current = structuredClone(DEFAULT_CONFIG) as RecapConfig;
+	assert.deepEqual(
+		itemIds(current),
+		ALL_SETTING_IDS.filter((id) => id !== "recap.fallbackToCurrentModel"),
+	);
 });
 
-test("apply writes custom numbers, language, template, and remaining flags", () => {
+test("apply writes remaining fields including custom idle, language, and template", () => {
 	const next = applyConfigSetting(
 		applyConfigSetting(
 			applyConfigSetting(
-				applyConfigSetting(
-					applyConfigSetting(
-						applyConfigSetting(
-							applyConfigSetting(
-								applyConfigSetting(
-									applyConfigSetting(DEFAULT_CONFIG, "recap.idleAfterTurnMs", "60000"),
-									"recap.minSessionTurns",
-									"7",
-								),
-								"recap.maxRecentChars",
-								"12345",
-							),
-							"recap.maxTokens",
-							"777",
-						),
-						"title.maxLength",
-						"42",
-					),
-					"multiplexer.maxLength",
-					"55",
-				),
+				applyConfigSetting(DEFAULT_CONFIG, "recap.idleAfterTurnMs", "60000"),
 				"recap.language",
 				"ja",
 			),
 			"multiplexer.template",
 			"{project} · {session}",
 		),
-		"recap.neverTwiceInARow",
-		"off",
+		"title.applyToSessionName",
+		"on",
 	);
 
 	assert.equal(next.recap.idleAfterTurnMs, 60_000);
-	assert.equal(next.recap.minSessionTurns, 7);
-	assert.equal(next.recap.maxRecentChars, 12_345);
-	assert.equal(next.recap.maxTokens, 777);
-	assert.equal(next.title.maxLength, 42);
-	assert.equal(next.multiplexer.maxLength, 55);
 	assert.equal(next.recap.language, "ja");
 	assert.equal(next.multiplexer.template, "{project} · {session}");
-	assert.equal(next.recap.neverTwiceInARow, false);
-	assert.equal(next.recap.manualCommand, true);
+	assert.equal(next.title.applyToSessionName, true);
+});
+
+test("applyToSessionName on uses if-empty-or-auto and off does not rename", () => {
+	const off = applyConfigSetting(DEFAULT_CONFIG, "title.applyToSessionName", "off");
+	assert.equal(off.title.applyToSessionName, false);
+	assert.equal(
+		shouldApplyTitleForPolicy({
+			title: "New title",
+			applyToSessionName: off.title.applyToSessionName,
+			policy: "if-empty-or-auto",
+			currentSessionName: "Manual name",
+			lastAppliedSessionName: false,
+		}),
+		false,
+	);
+
+	const on = applyConfigSetting(DEFAULT_CONFIG, "title.applyToSessionName", "on");
+	assert.equal(on.title.applyToSessionName, true);
+	assert.equal(
+		shouldApplyTitleForPolicy({
+			title: "New title",
+			applyToSessionName: true,
+			policy: "if-empty-or-auto",
+			currentSessionName: "Manual name",
+			lastAppliedSessionName: false,
+		}),
+		false,
+	);
+	assert.equal(
+		shouldApplyTitleForPolicy({
+			title: "New title",
+			applyToSessionName: true,
+			policy: "if-empty-or-auto",
+			currentSessionName: undefined,
+			lastAppliedSessionName: false,
+		}),
+		true,
+	);
+	assert.equal(
+		shouldApplyTitleForPolicy({
+			title: "New title",
+			applyToSessionName: true,
+			policy: "if-empty-or-auto",
+			currentSessionName: "Previous recap",
+			lastAppliedSessionName: true,
+			lastAppliedTitle: "Previous recap",
+		}),
+		true,
+	);
+});
+
+test("enabled:false migrates to auto:false and dropped fields are omitted", () => {
+	const next = normalizeConfig({
+		recap: {
+			enabled: false,
+			auto: true,
+			idleAfterTurnMs: 180_000,
+			model: "current",
+			fallbackToCurrentModel: true,
+			language: "auto",
+			manualCommand: false,
+		},
+		title: {
+			applyToSessionName: true,
+			generate: false,
+			applyPolicy: "always",
+			maxLength: 80,
+		},
+		display: { widgetPlacement: "belowEditor" },
+		multiplexer: {
+			enabled: true,
+			template: "π {session} · {project}",
+			maxLength: 80,
+			restoreOnShutdown: false,
+		},
+	} as unknown as RecapConfig);
+
+	assert.equal(next.recap.auto, false);
+	assert.equal(next.title.applyToSessionName, true);
+	assert.equal(next.multiplexer.enabled, true);
+	assert.equal(next.multiplexer.template, "π {session} · {project}");
+	assert.equal("enabled" in next.recap, false);
+	assert.equal("manualCommand" in next.recap, false);
+	assert.equal("generate" in next.title, false);
+	assert.equal("applyPolicy" in next.title, false);
+	assert.equal("maxLength" in next.title, false);
+	assert.equal("display" in next, false);
+	assert.equal("maxLength" in next.multiplexer, false);
+	assert.equal("restoreOnShutdown" in next.multiplexer, false);
 });
 
 test("resolveRecapModel notifies only when a specific model misses and fallback is used", () => {

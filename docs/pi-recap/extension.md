@@ -8,7 +8,7 @@
 
 ## 意图
 
-一行 recap 是主产物。短 title 是副产物。是否改 Pi session name、是否同步最近一层终端复用器名称，是后面两级可选副作用。出环调用应能配齐，不必为日常选项去改 JSON。
+一行 recap 是主产物。短 title 是副产物。是否改 Pi session name、是否同步最近一层终端复用器名称，是后面两级可选副作用。给人看的旋钮很少：`/recap` 常驻，auto 才是后台开关；打开 apply 时不覆盖手动 session name。
 
 ## 心智模型
 

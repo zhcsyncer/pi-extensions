@@ -12,9 +12,9 @@ Features:
 - Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications.
 - Generate a short title as a recap side effect, with a deterministic recap-derived fallback and visible warning when the model omits a usable title.
 - Reject empty, truncated, failed, or malformed JSON-like model output without saving partial recap state.
-- Optionally apply the title to the Pi session name.
+- Optionally apply the title to the Pi session name. When this is on, recap only writes the name if it is empty or still the last recap title; a manual name is not overwritten.
 - Optionally sync Pi session name changes to the nearest terminal multiplexer: a Herdr pane label or tmux window name.
-- Configure every recap option with `/recap-config`, including the recap model from `current` plus currently enabled models.
+- `/recap` is always available. `/recap-config` only keeps auto recap, idle wait, model, language, whether to write the title into the session name, plus multiplexer enablement and template.
 - `/recap-config json` remains available as an escape hatch, but is not required for normal use.
 
 ### Installation
@@ -63,7 +63,7 @@ Generate a recent activity recap. It will:
 /recap-config
 ```
 
-Open the TUI config screen. It covers every recap setting and saves to:
+Open the TUI config screen. `/recap` is always available; auto recap is the background switch. It saves to:
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
@@ -75,7 +75,7 @@ The model list starts with `current` (the session model), then currently enabled
 /recap-config json
 ```
 
-Edit the full JSON config. This is optional; the TUI can set every field, including custom numbers and languages.
+Edit the JSON config. This is optional; the TUI covers the remaining settings, including a custom idle wait and language.
 
 ### TUI only
 
@@ -103,32 +103,18 @@ Default config:
 ```json
 {
   "recap": {
-    "enabled": true,
     "auto": true,
-    "manualCommand": true,
     "idleAfterTurnMs": 180000,
-    "minSessionTurns": 3,
-    "neverTwiceInARow": true,
     "model": "current",
     "fallbackToCurrentModel": true,
-    "maxRecentChars": 20000,
-    "maxTokens": 300,
     "language": "auto"
   },
-  "display": {
-    "widgetPlacement": "aboveEditor"
-  },
   "title": {
-    "generate": true,
-    "applyToSessionName": false,
-    "applyPolicy": "if-empty-or-auto",
-    "maxLength": 50
+    "applyToSessionName": false
   },
   "multiplexer": {
     "enabled": true,
-    "template": "π {session} · {project}",
-    "maxLength": 48,
-    "restoreOnShutdown": true
+    "template": "π {session} · {project}"
   }
 }
 ```
@@ -140,13 +126,12 @@ Apply generated titles to Pi session names:
 ```json
 {
   "title": {
-    "applyToSessionName": true,
-    "applyPolicy": "if-empty-or-auto"
+    "applyToSessionName": true
   }
 }
 ```
 
-When `title.generate` is enabled but the model omits a usable title, recap deterministically uses the cleaned one-line recap as the title, strictly capped by `title.maxLength`. The fallback still follows `title.applyToSessionName` and `title.applyPolicy`; `never`, `if-empty`, `if-empty-or-auto`, and `always` keep their existing meanings. The persisted recap records that the title came from the fallback, so the editor widget shows the warning after generation and after a session reload. Set `title.generate` to `false` to disable both model titles and this fallback.
+Titles are always generated. If the model omits a usable title, recap deterministically uses the cleaned one-line recap as the title. When apply is on, recap writes that title only if the session name is empty or still the last recap title; a manual name is not overwritten. The persisted recap records that the title came from the fallback, so the editor widget shows the warning after generation and after a session reload.
 
 Plain text and ordinary bullet recap responses remain valid. Empty recaps, malformed or truncated JSON-like responses, and completions stopped with `length` or `error` are treated as failed recaps: the widget shows the failure, no recap entry is appended, the session is not renamed, and the previous recap source position is preserved.
 
@@ -171,27 +156,16 @@ Use a specific recap model in `/recap-config`, or in JSON:
 }
 ```
 
-Choose widget placement:
+Recap display always uses an editor widget above the editor. Automatic recap progress is replaced by the result in that widget. Manual `/recap` uses a cancellable loader while generating, then shows the result in the widget. The widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
 
-```json
-{
-  "display": {
-    "widgetPlacement": "aboveEditor"
-  }
-}
-```
-
-Recap display always uses an editor widget; the display surface is not configurable. Automatic recap progress is replaced by the result in that widget. Manual `/recap` uses a cancellable loader while generating, then shows the result in the widget. The widget is cleared when the next message starts. If an automatic recap is still running, it is cancelled and cannot later store or redisplay a stale result.
-
-When an older config is loaded, obsolete `display.notify`, `display.mode`, `display.widget`, and `display.clearWidgetOnNextAgentStart` fields are removed and the source config file is updated. `display.widgetPlacement` is preserved. Legacy `tmux` settings are migrated to `multiplexer`; when both exist, explicitly configured `multiplexer` fields take precedence.
+When an older config is loaded, removed fields such as `enabled`, `manualCommand`, `title.generate`, `title.applyPolicy`, and `display` are dropped and the source config file is updated. A previous `enabled: false` becomes `auto: false`, so automatic recap stays off. Legacy `tmux` settings are migrated to `multiplexer`; when both exist, explicitly configured `multiplexer` fields take precedence.
 
 Customize the Herdr pane label or tmux window name:
 
 ```json
 {
   "multiplexer": {
-    "template": "π {project} · {session}",
-    "maxLength": 60
+    "template": "π {project} · {session}"
   }
 }
 ```
@@ -249,7 +223,7 @@ When `multiplexer.enabled` is true, recap automatically selects the directly hos
 
 In nested Herdr-inside-tmux sessions, recap only updates the Herdr pane. If Herdr is detected but its pane identity is incomplete or its CLI is unavailable, recap warns once and does not fall back to the inherited tmux layer.
 
-For tmux, recap keeps the original behavior of disabling `automatic-rename` while it owns the window name. The original pane/window name is restored only if the current name still equals recap's last successful write, so a later manual rename is preserved. Disabling sync or reloading the extension releases ownership immediately; reload always restores before the new extension instance reapplies the name. On ordinary Pi exit, `restoreOnShutdown` controls restoration. tmux's captured `automatic-rename` setting is restored whenever owned sync is restored or disabled.
+For tmux, recap keeps the original behavior of disabling `automatic-rename` while it owns the window name. The original pane/window name is restored only if the current name still equals recap's last successful write, so a later manual rename is preserved. Disabling sync or reloading the extension releases ownership immediately; reload always restores before the new extension instance reapplies the name. Ordinary Pi exit also restores the previous name. tmux's captured `automatic-rename` setting is restored whenever owned sync is restored or disabled.
 
 All of these trigger multiplexer sync:
 

@@ -228,7 +228,7 @@ function createRunHarness(spec: CompletionSpec, harnessOptions: HarnessOptions =
 	const appended: Array<{ customType: string; data: RecapEntryData }> = [];
 	const sessionNames: string[] = [];
 	const widgets: unknown[] = [];
-	let currentSessionName = "Existing session";
+	let currentSessionName = "";
 	const entries = [
 		{
 			id: "source-entry",
@@ -288,8 +288,6 @@ function createRunHarness(spec: CompletionSpec, harnessOptions: HarnessOptions =
 	} as unknown as ExtensionContext;
 	const config = structuredClone(DEFAULT_CONFIG) as RecapConfig;
 	config.title.applyToSessionName = true;
-	config.title.applyPolicy = "always";
-	config.title.maxLength = 18;
 	const state = createRecapState(config);
 	const completeModel: NonNullable<RunRecapOptions["completeModel"]> = async () =>
 		({
@@ -310,10 +308,10 @@ test("always applies and persists a recap-derived fallback title", async () => {
 		completeModel: harness.completeModel,
 	});
 
-	assert.equal(result?.title, "Implemented fallb…");
+	assert.equal(result?.title, "Implemented fallback title behavior");
 	assert.equal(result?.titleSource, "recap-fallback");
 	assert.equal(result?.appliedSessionName, true);
-	assert.deepEqual(harness.sessionNames, ["Implemented fallb…"]);
+	assert.deepEqual(harness.sessionNames, ["Implemented fallback title behavior"]);
 	assert.equal(harness.appended.length, 1);
 	assert.equal(harness.appended[0]?.data.titleSource, "recap-fallback");
 	assert.equal(harness.state.lastRecapSourceToEntryId, "source-entry");
