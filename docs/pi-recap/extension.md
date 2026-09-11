@@ -8,7 +8,7 @@
 
 ## 意图
 
-一行 recap 是主产物。短 title 是副产物。是否改 Pi session name、是否同步最近一层终端复用器名称，是后面两级可选副作用。给人看的旋钮很少：`/recap` 常驻，auto 才是后台开关；打开 apply 时不覆盖手动 session name。
+一行 recap 是主产物。短 title 是副产物。是否改 Pi session name、是否同步最近一层终端复用器名称，是后面两级可选副作用。给人看的旋钮很少：`/recap` 常驻，auto 才是后台开关；session name 策略一项四档，`off` 关闭同步。
 
 ## 心智模型
 

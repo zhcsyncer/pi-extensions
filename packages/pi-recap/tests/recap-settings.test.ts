@@ -38,7 +38,7 @@ const ALL_SETTING_IDS = [
 	"recap.model",
 	"recap.fallbackToCurrentModel",
 	"recap.language",
-	"title.applyToSessionName",
+	"title.applyPolicy",
 	"multiplexer.enabled",
 	"multiplexer.template",
 ] as const;
@@ -111,36 +111,33 @@ test("apply writes remaining fields including custom idle, language, and templat
 			"multiplexer.template",
 			"{project} · {session}",
 		),
-		"title.applyToSessionName",
-		"on",
+		"title.applyPolicy",
+		"if-empty-or-auto",
 	);
 
 	assert.equal(next.recap.idleAfterTurnMs, 60_000);
 	assert.equal(next.recap.language, "ja");
 	assert.equal(next.multiplexer.template, "{project} · {session}");
-	assert.equal(next.title.applyToSessionName, true);
+	assert.equal(next.title.applyPolicy, "if-empty-or-auto");
 });
 
-test("applyToSessionName on uses if-empty-or-auto and off does not rename", () => {
-	const off = applyConfigSetting(DEFAULT_CONFIG, "title.applyToSessionName", "off");
-	assert.equal(off.title.applyToSessionName, false);
+test("session name policy off leaves names alone and the other gears keep their old meaning", () => {
+	const off = applyConfigSetting(DEFAULT_CONFIG, "title.applyPolicy", "off");
+	assert.equal(off.title.applyPolicy, "off");
 	assert.equal(
 		shouldApplyTitleForPolicy({
 			title: "New title",
-			applyToSessionName: off.title.applyToSessionName,
-			policy: "if-empty-or-auto",
-			currentSessionName: "Manual name",
+			policy: off.title.applyPolicy,
+			currentSessionName: undefined,
 			lastAppliedSessionName: false,
 		}),
 		false,
 	);
 
-	const on = applyConfigSetting(DEFAULT_CONFIG, "title.applyToSessionName", "on");
-	assert.equal(on.title.applyToSessionName, true);
+	assert.equal(applyConfigSetting(DEFAULT_CONFIG, "title.applyPolicy", "always").title.applyPolicy, "always");
 	assert.equal(
 		shouldApplyTitleForPolicy({
 			title: "New title",
-			applyToSessionName: true,
 			policy: "if-empty-or-auto",
 			currentSessionName: "Manual name",
 			lastAppliedSessionName: false,
@@ -150,7 +147,6 @@ test("applyToSessionName on uses if-empty-or-auto and off does not rename", () =
 	assert.equal(
 		shouldApplyTitleForPolicy({
 			title: "New title",
-			applyToSessionName: true,
 			policy: "if-empty-or-auto",
 			currentSessionName: undefined,
 			lastAppliedSessionName: false,
@@ -160,13 +156,11 @@ test("applyToSessionName on uses if-empty-or-auto and off does not rename", () =
 	assert.equal(
 		shouldApplyTitleForPolicy({
 			title: "New title",
-			applyToSessionName: true,
-			policy: "if-empty-or-auto",
-			currentSessionName: "Previous recap",
-			lastAppliedSessionName: true,
-			lastAppliedTitle: "Previous recap",
+			policy: "if-empty",
+			currentSessionName: "Manual name",
+			lastAppliedSessionName: false,
 		}),
-		true,
+		false,
 	);
 });
 
@@ -182,7 +176,7 @@ test("enabled:false migrates to auto:false and dropped fields are omitted", () =
 			manualCommand: false,
 		},
 		title: {
-			applyToSessionName: true,
+			applyToSessionName: false,
 			generate: false,
 			applyPolicy: "always",
 			maxLength: 80,
@@ -197,17 +191,41 @@ test("enabled:false migrates to auto:false and dropped fields are omitted", () =
 	} as unknown as RecapConfig);
 
 	assert.equal(next.recap.auto, false);
-	assert.equal(next.title.applyToSessionName, true);
+	assert.equal(next.title.applyPolicy, "off");
 	assert.equal(next.multiplexer.enabled, true);
 	assert.equal(next.multiplexer.template, "π {session} · {project}");
 	assert.equal("enabled" in next.recap, false);
 	assert.equal("manualCommand" in next.recap, false);
 	assert.equal("generate" in next.title, false);
-	assert.equal("applyPolicy" in next.title, false);
+	assert.equal("applyToSessionName" in next.title, false);
 	assert.equal("maxLength" in next.title, false);
 	assert.equal("display" in next, false);
 	assert.equal("maxLength" in next.multiplexer, false);
 	assert.equal("restoreOnShutdown" in next.multiplexer, false);
+});
+
+test("never and applyToSessionName false become off; other policies stay", () => {
+	assert.equal(
+		normalizeConfig({
+			...DEFAULT_CONFIG,
+			title: { applyPolicy: "never" },
+		} as unknown as RecapConfig).title.applyPolicy,
+		"off",
+	);
+	assert.equal(
+		normalizeConfig({
+			...DEFAULT_CONFIG,
+			title: { applyToSessionName: true, applyPolicy: "always" },
+		} as unknown as RecapConfig).title.applyPolicy,
+		"always",
+	);
+	assert.equal(
+		normalizeConfig({
+			...DEFAULT_CONFIG,
+			title: { applyToSessionName: false, applyPolicy: "if-empty" },
+		} as unknown as RecapConfig).title.applyPolicy,
+		"off",
+	);
 });
 
 test("resolveRecapModel notifies only when a specific model misses and fallback is used", () => {

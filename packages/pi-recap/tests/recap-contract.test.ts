@@ -174,11 +174,11 @@ test("title policies keep their existing behavior for fallback titles", () => {
 	const fallbackTitle = "Fallback title";
 	const base = {
 		title: fallbackTitle,
-		applyToSessionName: true,
 		currentSessionName: "User title",
 		lastAppliedSessionName: false,
 	};
 
+	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "off" }), false);
 	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "never" }), false);
 	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "always" }), true);
 	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "if-empty" }), false);
@@ -195,7 +195,6 @@ test("title policies keep their existing behavior for fallback titles", () => {
 		true,
 	);
 	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "always", title: undefined }), false);
-	assert.equal(shouldApplyTitleForPolicy({ ...base, policy: "always", applyToSessionName: false }), false);
 });
 
 type CompletionSpec = {
@@ -287,7 +286,7 @@ function createRunHarness(spec: CompletionSpec, harnessOptions: HarnessOptions =
 		},
 	} as unknown as ExtensionContext;
 	const config = structuredClone(DEFAULT_CONFIG) as RecapConfig;
-	config.title.applyToSessionName = true;
+	config.title.applyPolicy = "always";
 	const state = createRecapState(config);
 	const completeModel: NonNullable<RunRecapOptions["completeModel"]> = async () =>
 		({

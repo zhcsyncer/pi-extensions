@@ -7,7 +7,7 @@
     "language": "auto"
   },
   "title": {
-    "applyToSessionName": false
+    "applyPolicy": "off"
   },
   "multiplexer": {
     "enabled": true,

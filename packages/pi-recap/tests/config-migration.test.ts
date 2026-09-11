@@ -41,6 +41,7 @@ test("Recap migrates global and trusted project configs while dropping unmappabl
 		await writeJson(getLegacyGlobalConfigPath(), {
 			recap: { enabled: false, removed: true },
 			display: { widgetPlacement: "belowEditor", notify: true },
+			title: { applyToSessionName: false, applyPolicy: "always" },
 		});
 		await writeJson(getLegacyProjectConfigPath(cwd), {
 			title: { maxLength: 72, obsolete: true },
@@ -48,7 +49,7 @@ test("Recap migrates global and trusted project configs while dropping unmappabl
 
 		const untrusted = await loadRecapConfig(context(cwd, false, notifications));
 		assert.equal(untrusted.recap.auto, false);
-		assert.equal(untrusted.title.applyToSessionName, false);
+		assert.equal(untrusted.title.applyPolicy, "off");
 		assert.equal(existsSync(getLegacyProjectConfigPath(cwd)), true);
 		assert.equal(existsSync(getProjectConfigPath(cwd)), false);
 
@@ -59,7 +60,8 @@ test("Recap migrates global and trusted project configs while dropping unmappabl
 		assert.equal(existsSync(getGlobalConfigPath()), true);
 		assert.equal(existsSync(getProjectConfigPath(cwd)), true);
 		const savedGlobal = await readFile(getGlobalConfigPath(), "utf8");
-		assert.doesNotMatch(savedGlobal, /removed|notify|"enabled"|manualCommand|maxLength|widgetPlacement|applyPolicy|restoreOnShutdown/);
+		assert.doesNotMatch(savedGlobal, /removed|notify|"enabled"|manualCommand|maxLength|widgetPlacement|applyToSessionName|restoreOnShutdown/);
+		assert.match(savedGlobal, /"applyPolicy": "off"/);
 		assert.match(savedGlobal, /"auto": false/);
 		assert.match(notifications.join("\n"), /recap\.removed/);
 		assert.match(notifications.join("\n"), /display/);

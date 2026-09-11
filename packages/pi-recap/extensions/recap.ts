@@ -48,7 +48,7 @@ const WIDGET_KEY = "recap";
 const LEGACY_STATUS_KEY = "recap";
 
 export type RecapReason = "manual" | "auto";
-export type TitleApplyPolicy = "never" | "if-empty" | "if-empty-or-auto" | "always";
+export type TitleApplyPolicy = "off" | "if-empty" | "if-empty-or-auto" | "always";
 
 const MIN_SESSION_TURNS = 3;
 const RECAP_MAX_RECENT_CHARS = 20_000;
@@ -66,7 +66,7 @@ export type RecapConfig = {
 		language: string;
 	};
 	title: {
-		applyToSessionName: boolean;
+		applyPolicy: TitleApplyPolicy;
 	};
 	multiplexer: {
 		enabled: boolean;
@@ -98,7 +98,7 @@ export const DEFAULT_CONFIG: RecapConfig = {
 		language: "auto",
 	},
 	title: {
-		applyToSessionName: false,
+		applyPolicy: "off",
 	},
 	multiplexer: {
 		enabled: true,
@@ -133,7 +133,7 @@ type ConfigMigration = {
 
 const CONFIG_FIELDS: Record<string, ReadonlySet<string>> = {
 	recap: new Set(["auto", "idleAfterTurnMs", "model", "fallbackToCurrentModel", "language"]),
-	title: new Set(["applyToSessionName"]),
+	title: new Set(["applyPolicy"]),
 	multiplexer: new Set(["enabled", "template"]),
 };
 const emittedMigrationNotices = new Set<string>();
@@ -164,18 +164,39 @@ function stripUnknownConfig(value: unknown): { value: unknown; dropped: string[]
 
 function migrateRemovedFields(value: unknown): { value: unknown; changed: boolean } {
 	if (!isRecord(value)) return { value, changed: false };
-	const recap = isRecord(value.recap) ? { ...value.recap } : undefined;
-	if (!recap) return { value, changed: false };
 	let changed = false;
-	if (recap.enabled === false) {
-		recap.auto = false;
-		changed = true;
+	const next: Record<string, unknown> = { ...value };
+
+	if (isRecord(value.recap)) {
+		const recap = { ...value.recap };
+		if (recap.enabled === false) {
+			recap.auto = false;
+			changed = true;
+		}
+		if ("enabled" in recap) {
+			delete recap.enabled;
+			changed = true;
+		}
+		next.recap = recap;
 	}
-	if ("enabled" in recap) {
-		delete recap.enabled;
-		changed = true;
+
+	if (isRecord(value.title)) {
+		const title = { ...value.title };
+		if (title.applyToSessionName === false) {
+			title.applyPolicy = "off";
+			changed = true;
+		} else if (title.applyPolicy === "never") {
+			title.applyPolicy = "off";
+			changed = true;
+		}
+		if ("applyToSessionName" in title) {
+			delete title.applyToSessionName;
+			changed = true;
+		}
+		next.title = title;
 	}
-	return { value: { ...value, recap }, changed };
+
+	return { value: next, changed };
 }
 
 function migrateLegacyConfig(value: unknown): ConfigMigration {
@@ -375,7 +396,7 @@ export function normalizeConfig(config: RecapConfig): RecapConfig {
 				: DEFAULT_CONFIG.recap.language,
 		},
 		title: {
-			applyToSessionName: Boolean(config.title?.applyToSessionName),
+			applyPolicy: normalizeTitleApplyPolicy(config.title),
 		},
 		multiplexer: {
 			enabled: config.multiplexer?.enabled !== false,
@@ -388,6 +409,21 @@ export function normalizeConfig(config: RecapConfig): RecapConfig {
 
 function positiveNumber(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeTitleApplyPolicy(title: { applyToSessionName?: boolean; applyPolicy?: string } | undefined): TitleApplyPolicy {
+	const incoming = title;
+	if (incoming?.applyToSessionName === false) return "off";
+	if (incoming?.applyPolicy === "never") return "off";
+	if (
+		incoming?.applyPolicy === "off" ||
+		incoming?.applyPolicy === "if-empty" ||
+		incoming?.applyPolicy === "if-empty-or-auto" ||
+		incoming?.applyPolicy === "always"
+	) {
+		return incoming.applyPolicy;
+	}
+	return DEFAULT_CONFIG.title.applyPolicy;
 }
 
 function currentSessionName(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
@@ -550,16 +586,15 @@ export function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 
 export type TitleApplicationInput = {
 	title?: string;
-	applyToSessionName: boolean;
-	policy: TitleApplyPolicy;
+	policy: TitleApplyPolicy | "never";
 	currentSessionName?: string;
 	lastAppliedSessionName: boolean;
 	lastAppliedTitle?: string;
 };
 
 export function shouldApplyTitleForPolicy(input: TitleApplicationInput): boolean {
-	if (!input.applyToSessionName || !input.title) return false;
-	if (input.policy === "never") return false;
+	if (!input.title) return false;
+	if (input.policy === "off" || input.policy === "never") return false;
 	if (input.policy === "always") return true;
 	if (!input.currentSessionName) return true;
 	if (input.policy === "if-empty") return false;
@@ -570,15 +605,10 @@ export function shouldApplyTitleForPolicy(input: TitleApplicationInput): boolean
 	);
 }
 
-function titleApplyPolicy(applyToSessionName: boolean): TitleApplyPolicy {
-	return applyToSessionName ? "if-empty-or-auto" : "never";
-}
-
 function shouldApplyTitle(title: string | undefined, pi: ExtensionAPI, ctx: ExtensionContext, config: RecapConfig, state: RecapState): boolean {
 	return shouldApplyTitleForPolicy({
 		title,
-		applyToSessionName: config.title.applyToSessionName,
-		policy: titleApplyPolicy(config.title.applyToSessionName),
+		policy: config.title.applyPolicy,
 		currentSessionName: currentSessionName(pi, ctx),
 		lastAppliedSessionName: state.lastAppliedSessionName,
 		lastAppliedTitle: state.lastAppliedTitle,
@@ -761,7 +791,7 @@ export async function runRecap(
 			},
 			generatedAt: Date.now(),
 			appliedSessionName,
-			sessionNamePolicy: titleApplyPolicy(config.title.applyToSessionName),
+			sessionNamePolicy: config.title.applyPolicy,
 		};
 
 		pi.appendEntry(CUSTOM_TYPE, data);
@@ -990,11 +1020,11 @@ export function settingItems(config: RecapConfig, options: RecapSettingsOptions)
 				}),
 		},
 		{
-			id: "title.applyToSessionName",
-			label: "Apply title to session name",
-			description: "When on, recap may set the session name if it is empty or still the last recap title. Manual names are not overwritten.",
-			currentValue: boolValue(config.title.applyToSessionName),
-			values: ["on", "off"],
+			id: "title.applyPolicy",
+			label: "Session name policy",
+			description: "off leaves the Pi session name alone. if-empty fills a blank name. if-empty-or-auto also updates a name recap last wrote. always overwrites.",
+			currentValue: config.title.applyPolicy,
+			values: ["off", "if-empty", "if-empty-or-auto", "always"],
 		},
 	);
 
@@ -1044,8 +1074,8 @@ export function applyConfigSetting(config: RecapConfig, id: string, value: strin
 		case "recap.language":
 			next.recap.language = value.trim() || next.recap.language;
 			break;
-		case "title.applyToSessionName":
-			next.title.applyToSessionName = on;
+		case "title.applyPolicy":
+			next.title.applyPolicy = normalizeTitleApplyPolicy({ applyPolicy: value });
 			break;
 		case "multiplexer.enabled":
 			next.multiplexer.enabled = on;
