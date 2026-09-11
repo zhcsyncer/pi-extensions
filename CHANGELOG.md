@@ -1,5 +1,14 @@
 # @zhcsyncer/pi-extensions
 
+## 0.32.1
+
+### Patch Changes
+
+- 65466be: `/recap-config` now covers every recap option, including choosing a model from the currently enabled list. Fallback stays hidden while the model is `current`, and recap warns if a chosen model is missing and it falls back.
+- 65466be: Recap no longer fails with 400 on OpenCode / OpenCode Go due to a missing `x-opencode-session` header. Out-of-band recap calls now go through Pi's model registry so they use the same authentication and custom endpoints as the main session.
+- 65466be: Session-name handling is one setting again. `off` turns sync off; `if-empty`, `if-empty-or-auto`, and `always` keep their previous meaning.
+- 65466be: Recap config is now thinner: `/recap` is always available, and `/recap-config` only keeps auto recap, idle wait, model, language, whether to write the title into the session name (on = do not overwrite a manual name), plus multiplexer enablement and template.
+
 ## 0.32.0
 
 ### Minor Changes
