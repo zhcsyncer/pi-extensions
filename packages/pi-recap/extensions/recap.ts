@@ -586,6 +586,48 @@ function formatModelName(model: NonNullable<ExtensionContext["model"]> | undefin
 	return model ? `${model.provider}/${model.id}` : undefined;
 }
 
+const OPENCODE_HOST = "opencode.ai";
+
+function matchesOpenCodeHost(baseUrl: string | undefined): boolean {
+	if (!baseUrl) return false;
+	try {
+		return new URL(baseUrl).hostname === OPENCODE_HOST;
+	} catch {
+		return false;
+	}
+}
+
+function isOpenCodeModel(model: { provider?: string; baseUrl?: string }): boolean {
+	return model.provider === "opencode" || model.provider === "opencode-go" || matchesOpenCodeHost(model.baseUrl);
+}
+
+function readSessionId(ctx: ExtensionContext): string | undefined {
+	const getSessionId = ctx.sessionManager.getSessionId;
+	if (typeof getSessionId !== "function") return undefined;
+	try {
+		const sessionId = getSessionId.call(ctx.sessionManager);
+		return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getOpenCodeSessionHeaders(
+	model: { provider?: string; baseUrl?: string },
+	sessionId: string | undefined,
+): Record<string, string> | undefined {
+	if (!sessionId || !isOpenCodeModel(model)) return undefined;
+	return { "x-opencode-session": sessionId, "x-opencode-client": "pi" };
+}
+
+function resolveCompleteModel(ctx: ExtensionContext, completeModel: typeof complete | undefined): typeof complete {
+	if (completeModel) return completeModel;
+	if (typeof ctx.modelRegistry.complete === "function") {
+		return (model, context, opts) => ctx.modelRegistry.complete(model, context, opts as never);
+	}
+	return complete;
+}
+
 export type RunRecapOptions = {
 	force?: boolean;
 	signal?: AbortSignal;
@@ -601,7 +643,8 @@ export async function runRecap(
 	reason: RecapReason,
 	options: RunRecapOptions = {},
 ): Promise<RecapEntryData | undefined> {
-	const { force = false, signal, showProgress = true, completeModel = complete } = options;
+	const { force = false, signal, showProgress = true } = options;
+	const completeModel = resolveCompleteModel(ctx, options.completeModel);
 	if (state.running) return undefined;
 	if (!config.recap.enabled) {
 		if (reason === "manual" && ctx.mode === "tui") displayRecapError(ctx, config, "Recap is disabled by config");
@@ -647,40 +690,35 @@ export async function runRecap(
 	if (showProgress) showRecapProgress(ctx, config);
 
 	try {
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (!isCurrentRecapRun(state, run)) return undefined;
-		if (!auth.ok) {
-			const message = "error" in auth ? auth.error : `Failed to resolve API key for ${model.provider}`;
-			displayRecapError(ctx, config, message);
+		const sessionId = readSessionId(ctx);
+		const headers = getOpenCodeSessionHeaders(model, sessionId);
+		let response;
+		try {
+			response = await completeModel(
+				model,
+				{
+					systemPrompt: buildSystemPrompt(config),
+					messages: [
+						{
+							role: "user" as const,
+							content: [{ type: "text" as const, text: source.conversation }],
+							timestamp: Date.now(),
+						},
+					],
+				},
+				{
+					maxTokens: config.recap.maxTokens,
+					signal: runSignal,
+					sessionId,
+					...(headers ? { headers } : {}),
+				},
+			);
+		} catch (error) {
+			if (runSignal?.aborted || state.activeRun !== run) return undefined;
+			displayRecapError(ctx, config, error instanceof Error ? error.message : String(error));
 			displayed = true;
 			return undefined;
 		}
-		if (!auth.apiKey) {
-			displayRecapError(ctx, config, `No API key for ${model.provider}`);
-			displayed = true;
-			return undefined;
-		}
-
-		const response = await completeModel(
-			model,
-			{
-				systemPrompt: buildSystemPrompt(config),
-				messages: [
-					{
-						role: "user" as const,
-						content: [{ type: "text" as const, text: source.conversation }],
-						timestamp: Date.now(),
-					},
-				],
-			},
-			{
-				apiKey: auth.apiKey,
-				headers: auth.headers,
-				env: auth.env,
-				maxTokens: config.recap.maxTokens,
-				signal: runSignal,
-			},
-		);
 
 		if (!isCurrentRecapRun(state, run) || response.stopReason === "aborted") return undefined;
 

@@ -216,7 +216,15 @@ function renderWidget(value: unknown): string {
 	return widget.render(200).join("\n");
 }
 
-function createRunHarness(spec: CompletionSpec) {
+type HarnessModel = { provider: string; id: string; baseUrl?: string };
+
+type HarnessOptions = {
+	model?: HarnessModel;
+	sessionId?: string;
+	omitGetSessionId?: boolean;
+};
+
+function createRunHarness(spec: CompletionSpec, harnessOptions: HarnessOptions = {}) {
 	const appended: Array<{ customType: string; data: RecapEntryData }> = [];
 	const sessionNames: string[] = [];
 	const widgets: unknown[] = [];
@@ -244,24 +252,32 @@ function createRunHarness(spec: CompletionSpec) {
 			sessionNames.push(title);
 		},
 	} as unknown as ExtensionAPI;
+	const sessionManager: {
+		getBranch(): SessionEntry[];
+		getSessionName(): string;
+		getSessionId?: () => string;
+	} = {
+		getBranch() {
+			return entries;
+		},
+		getSessionName() {
+			return currentSessionName;
+		},
+	};
+	if (!harnessOptions.omitGetSessionId) {
+		sessionManager.getSessionId = () => harnessOptions.sessionId ?? "session-id";
+	}
 	const ctx = {
 		mode: "tui",
 		hasUI: true,
 		signal: new AbortController().signal,
-		model: { provider: "test", id: "recap-model" },
+		model: harnessOptions.model ?? { provider: "test", id: "recap-model" },
 		modelRegistry: {
 			async getApiKeyAndHeaders() {
 				return { ok: true, apiKey: "test-key" };
 			},
 		},
-		sessionManager: {
-			getBranch() {
-				return entries;
-			},
-			getSessionName() {
-				return currentSessionName;
-			},
-		},
+		sessionManager,
 		ui: {
 			setStatus() {},
 			setWidget(_key: string, value: unknown) {
@@ -439,4 +455,80 @@ test("session_start restores a persisted fallback warning into the widget", asyn
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+type CapturedCompleteOptions = {
+	sessionId?: string;
+	headers?: Record<string, string | null>;
+};
+
+async function captureCompleteOptions(harnessOptions: HarnessOptions = {}): Promise<CapturedCompleteOptions | undefined> {
+	let captured: CapturedCompleteOptions | undefined;
+	const harness = createRunHarness(
+		{ text: '{"recap":"Fixed the parser.","title":"Parser fix"}', stopReason: "stop" },
+		harnessOptions,
+	);
+	await runRecap(harness.pi, harness.ctx, harness.config, harness.state, "manual", {
+		force: true,
+		showProgress: false,
+		completeModel: async (model, context, opts) => {
+			captured = { sessionId: opts?.sessionId, headers: opts?.headers };
+			return harness.completeModel(model, context, opts);
+		},
+	});
+	return captured;
+}
+
+function assertOpenCodeSessionHeaders(opts: CapturedCompleteOptions | undefined, sessionId: string) {
+	assert.equal(opts?.sessionId, sessionId);
+	assert.equal(opts?.headers?.["x-opencode-session"], sessionId);
+	assert.equal(opts?.headers?.["x-opencode-client"], "pi");
+}
+
+function assertNoOpenCodeSessionHeaders(opts: CapturedCompleteOptions | undefined) {
+	assert.equal(opts?.headers?.["x-opencode-session"], undefined);
+	assert.equal(opts?.headers?.["x-opencode-client"], undefined);
+}
+
+test("opencode-go recap complete options include session headers", async () => {
+	const opts = await captureCompleteOptions({
+		model: { provider: "opencode-go", id: "recap-model" },
+	});
+	assertOpenCodeSessionHeaders(opts, "session-id");
+});
+
+test("opencode recap complete options include session headers", async () => {
+	const opts = await captureCompleteOptions({
+		model: { provider: "opencode", id: "recap-model" },
+	});
+	assertOpenCodeSessionHeaders(opts, "session-id");
+});
+
+test("opencode.ai gateway recap complete options include session headers", async () => {
+	const opts = await captureCompleteOptions({
+		model: { provider: "custom-gateway", id: "recap-model", baseUrl: "https://opencode.ai/zen" },
+	});
+	assertOpenCodeSessionHeaders(opts, "session-id");
+});
+
+test("non-OpenCode recap complete options keep sessionId and omit OpenCode headers", async () => {
+	const opts = await captureCompleteOptions();
+	assert.equal(opts?.sessionId, "session-id");
+	assertNoOpenCodeSessionHeaders(opts);
+});
+
+test("missing or empty session id omits OpenCode headers without crashing", async () => {
+	const missing = await captureCompleteOptions({
+		model: { provider: "opencode", id: "recap-model" },
+		omitGetSessionId: true,
+	});
+	assert.equal(missing?.sessionId, undefined);
+	assertNoOpenCodeSessionHeaders(missing);
+
+	const empty = await captureCompleteOptions({
+		model: { provider: "opencode", id: "recap-model" },
+		sessionId: "",
+	});
+	assert.equal(empty?.sessionId, undefined);
+	assertNoOpenCodeSessionHeaders(empty);
 });
