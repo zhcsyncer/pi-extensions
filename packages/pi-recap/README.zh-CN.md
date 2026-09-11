@@ -14,8 +14,8 @@
 - 空输出、截断/失败响应或损坏的 JSON-like 输出不会保存半成品 recap 状态；
 - 是否用 title 更新 Pi session name 由配置控制；
 - session name 变化时可选同步最近一层终端复用器：Herdr pane label 或 tmux window name；
-- `/recap-config` 提供 TUI 常用配置；
-- `/recap-config json` 编辑完整 JSON 配置。
+- `/recap-config` 可配齐全部 recap 选项，模型列表为 `current` 加上当前启用的模型；
+- `/recap-config json` 仍可用，但日常不必靠它。
 
 ### 安装
 
@@ -63,17 +63,19 @@ pi -e ./packages/pi-recap
 /recap-config
 ```
 
-打开 TUI 配置界面，修改常用配置并保存到：
+打开 TUI 配置界面，可配齐全部 recap 选项，并保存到：
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
 ```
 
+模型列表第一项是 `current`（当前会话模型），其余来自当前启用的模型。已配置但不在列表里的值仍会显示，打开选择器不会改掉它。模型为 `current` 时隐藏 fallback，且不改 JSON 里的 fallback 值。指定模型找不到并允许回落时，会警告一次并改用当前会话模型。建议另配一个更便宜的 recap 模型。
+
 ```text
 /recap-config json
 ```
 
-编辑完整 JSON 配置。
+编辑完整 JSON 配置。这是逃生口，不是必经之路；TUI 已能设置全部字段，包括自定义数字和语言。
 
 ### TUI only
 
@@ -158,7 +160,7 @@ examples/recap.json
 }
 ```
 
-指定 recap 模型：
+在 `/recap-config` 里指定 recap 模型，或写 JSON：
 
 ```json
 {
@@ -265,6 +267,7 @@ pi --name "auth refresh"
 
 - recap 会额外调用模型。
 - 默认使用当前 Pi 模型：`recap.model = "current"`。
+- 如果不想把会话模型花在这次出环调用上，建议另配一个更便宜的 recap 模型。
 - 最近活动内容会发送给当前或配置的 provider。
 - 如果不希望自动额外调用模型，请设置：
 

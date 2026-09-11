@@ -22,8 +22,14 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 	type SessionEntry,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { CancellableLoader, Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import { CancellableLoader, Container, type SelectItem, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import {
+	editorSubmenu,
+	filterableSelect,
+	presetOrCustomPicker,
+} from "./recap-picker.ts";
 import {
 	recapOutputWarning,
 	resolveRecapOutput,
@@ -535,7 +541,7 @@ function buildSystemPrompt(config: RecapConfig): string {
 	].join("\n");
 }
 
-function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
+export function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 	if (config.recap.model === "current") return ctx.model;
 
 	const separator = config.recap.model.indexOf("/");
@@ -546,7 +552,12 @@ function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
 		if (model) return model;
 	}
 
-	return config.recap.fallbackToCurrentModel ? ctx.model : undefined;
+	if (!config.recap.fallbackToCurrentModel || !ctx.model) return undefined;
+	ctx.ui.notify(
+		`Recap model ${config.recap.model} is unavailable; falling back to the current model.`,
+		"warning",
+	);
+	return ctx.model;
 }
 
 export type TitleApplicationInput = {
@@ -849,8 +860,102 @@ function boolValue(value: boolean): string {
 	return value ? "on" : "off";
 }
 
-function settingItems(config: RecapConfig): SettingItem[] {
-	return [
+const IDLE_MS_PRESETS = [60_000, 180_000, 300_000, 600_000];
+const MIN_SESSION_TURN_PRESETS = [1, 2, 3, 5, 10];
+const MAX_RECENT_CHAR_PRESETS = [10_000, 20_000, 40_000, 80_000];
+const MAX_TOKEN_PRESETS = [150, 300, 500, 1000];
+const TITLE_MAX_LENGTH_PRESETS = [30, 50, 80];
+const MULTIPLEXER_MAX_LENGTH_PRESETS = [32, 48, 60, 80];
+const LANGUAGE_PRESETS = ["auto", "en", "zh-CN"];
+
+export function recapModelValues(
+	available: ReadonlyArray<{ provider?: string; id?: string }>,
+	configured: string,
+): string[] {
+	const values = ["current"];
+	const seen = new Set(values);
+	for (const model of available) {
+		if (!model.provider || !model.id) continue;
+		const key = `${model.provider}/${model.id}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		values.push(key);
+	}
+	if (configured && !seen.has(configured)) values.push(configured);
+	return values;
+}
+
+export function formatIdleAfterTurnMs(ms: number): string {
+	const minutes = ms / 60_000;
+	if (Number.isInteger(minutes)) return `${minutes} min`;
+	return `${Number(minutes.toFixed(2))} min`;
+}
+
+function uniqueSortedNumbers(presets: readonly number[], current: number): number[] {
+	return [...new Set([...presets, current])].sort((left, right) => left - right);
+}
+
+function numberSelectItems(presets: readonly number[], current: number): SelectItem[] {
+	return uniqueSortedNumbers(presets, current).map((value) => ({
+		value: String(value),
+		label: String(value),
+	}));
+}
+
+function idleSelectItems(currentMs: number): SelectItem[] {
+	return uniqueSortedNumbers(IDLE_MS_PRESETS, currentMs).map((ms) => ({
+		value: String(ms),
+		label: formatIdleAfterTurnMs(ms),
+	}));
+}
+
+function languageSelectItems(current: string): SelectItem[] {
+	const values = LANGUAGE_PRESETS.includes(current) ? [...LANGUAGE_PRESETS] : [...LANGUAGE_PRESETS, current];
+	return values.filter(Boolean).map((value) => ({ value, label: value }));
+}
+
+function parsePositiveNumberValue(raw: string): string | undefined {
+	const value = Number(raw.trim());
+	if (!Number.isFinite(value) || value <= 0) return undefined;
+	return String(Math.floor(value));
+}
+
+function parseIdleMinutesValue(raw: string): string | undefined {
+	const minutes = Number(raw.trim());
+	if (!Number.isFinite(minutes) || minutes <= 0) return undefined;
+	return String(Math.max(1, Math.round(minutes * 60_000)));
+}
+
+function parseLanguageValue(raw: string): string | undefined {
+	const value = raw.trim();
+	return value.length > 0 ? value : undefined;
+}
+
+export type RecapModelOption = { provider: string; id: string; name?: string };
+
+export type RecapSettingsOptions = {
+	availableModels?: ReadonlyArray<RecapModelOption>;
+	theme: Theme;
+	getConfig?: () => RecapConfig;
+	editor?: (title: string, prefill?: string) => Promise<string | undefined>;
+};
+
+function recapModelSelectItems(
+	available: ReadonlyArray<RecapModelOption>,
+	configured: string,
+): SelectItem[] {
+	return recapModelValues(available, configured).map((value) => {
+		if (value === "current") return { value, label: "current" };
+		const model = available.find((item) => `${item.provider}/${item.id}` === value);
+		if (model?.name) return { value, label: `${model.name}  (${value})` };
+		return { value, label: value };
+	});
+}
+
+export function settingItems(config: RecapConfig, options: RecapSettingsOptions): SettingItem[] {
+	const getConfig = options.getConfig ?? (() => config);
+	const availableModels = options.availableModels ?? [];
+	const items: SettingItem[] = [
 		{
 			id: "recap.enabled",
 			label: "Recap enabled",
@@ -866,19 +971,164 @@ function settingItems(config: RecapConfig): SettingItem[] {
 			values: ["on", "off"],
 		},
 		{
-			id: "title.applyToSessionName",
-			label: "Apply title to session name",
-			description: "Use generated title to rename the Pi session according to policy.",
-			currentValue: boolValue(config.title.applyToSessionName),
+			id: "recap.manualCommand",
+			label: "Manual /recap command",
+			description: "Allow generating a recap with /recap.",
+			currentValue: boolValue(config.recap.manualCommand),
 			values: ["on", "off"],
 		},
 		{
-			id: "title.applyPolicy",
-			label: "Session name policy",
-			description: "Controls when generated titles overwrite session name.",
-			currentValue: config.title.applyPolicy,
-			values: ["if-empty-or-auto", "if-empty", "always", "never"],
+			id: "recap.idleAfterTurnMs",
+			label: "Idle before auto recap",
+			description: "How long to wait after the agent finishes before auto recap.",
+			currentValue: formatIdleAfterTurnMs(config.recap.idleAfterTurnMs),
+			submenu: (_current, done) =>
+				presetOrCustomPicker(idleSelectItems(getConfig().recap.idleAfterTurnMs), options.theme, done, {
+					preferredValue: String(getConfig().recap.idleAfterTurnMs),
+					custom: {
+						title: "Idle minutes",
+						prefill: String(getConfig().recap.idleAfterTurnMs / 60_000),
+						parse: parseIdleMinutesValue,
+					},
+				}),
 		},
+		{
+			id: "recap.minSessionTurns",
+			label: "Minimum session turns",
+			description: "Skip auto recap until the session has at least this many user turns.",
+			currentValue: String(config.recap.minSessionTurns),
+			submenu: (_current, done) =>
+				presetOrCustomPicker(numberSelectItems(MIN_SESSION_TURN_PRESETS, getConfig().recap.minSessionTurns), options.theme, done, {
+					preferredValue: String(getConfig().recap.minSessionTurns),
+					custom: {
+						title: "Minimum session turns",
+						prefill: String(getConfig().recap.minSessionTurns),
+						parse: parsePositiveNumberValue,
+					},
+				}),
+		},
+		{
+			id: "recap.neverTwiceInARow",
+			label: "Never twice in a row",
+			description: "Skip auto recap when nothing new has happened since the last recap.",
+			currentValue: boolValue(config.recap.neverTwiceInARow),
+			values: ["on", "off"],
+		},
+		{
+			id: "recap.model",
+			label: "Recap model",
+			description: "Use the current session model, or pick from currently enabled models. A cheaper model is recommended.",
+			currentValue: config.recap.model,
+			submenu: (_current, done) =>
+				filterableSelect(
+					recapModelSelectItems(availableModels, getConfig().recap.model),
+					options.theme,
+					done,
+					{ preferredValue: getConfig().recap.model },
+				),
+		},
+	];
+
+	if (config.recap.model !== "current") {
+		items.push({
+			id: "recap.fallbackToCurrentModel",
+			label: "Fallback to current model",
+			description: "If the selected recap model is unavailable, use the current session model.",
+			currentValue: boolValue(config.recap.fallbackToCurrentModel),
+			values: ["on", "off"],
+		});
+	}
+
+	items.push(
+		{
+			id: "recap.maxRecentChars",
+			label: "Max recent characters",
+			description: "Cap the recent activity sent to the recap model.",
+			currentValue: String(config.recap.maxRecentChars),
+			submenu: (_current, done) =>
+				presetOrCustomPicker(numberSelectItems(MAX_RECENT_CHAR_PRESETS, getConfig().recap.maxRecentChars), options.theme, done, {
+					preferredValue: String(getConfig().recap.maxRecentChars),
+					custom: {
+						title: "Max recent characters",
+						prefill: String(getConfig().recap.maxRecentChars),
+						parse: parsePositiveNumberValue,
+					},
+				}),
+		},
+		{
+			id: "recap.maxTokens",
+			label: "Max tokens",
+			description: "Token cap for the recap model response.",
+			currentValue: String(config.recap.maxTokens),
+			submenu: (_current, done) =>
+				presetOrCustomPicker(numberSelectItems(MAX_TOKEN_PRESETS, getConfig().recap.maxTokens), options.theme, done, {
+					preferredValue: String(getConfig().recap.maxTokens),
+					custom: {
+						title: "Max tokens",
+						prefill: String(getConfig().recap.maxTokens),
+						parse: parsePositiveNumberValue,
+					},
+				}),
+		},
+		{
+			id: "recap.language",
+			label: "Language",
+			description: "auto follows recent activity. Custom values are sent as the recap language.",
+			currentValue: config.recap.language,
+			submenu: (_current, done) =>
+				presetOrCustomPicker(languageSelectItems(getConfig().recap.language), options.theme, done, {
+					preferredValue: getConfig().recap.language,
+					custom: {
+						title: "Recap language",
+						prefill: getConfig().recap.language,
+						parse: parseLanguageValue,
+					},
+				}),
+		},
+		{
+			id: "title.generate",
+			label: "Generate title",
+			description: "Also generate a short title as a recap side effect.",
+			currentValue: boolValue(config.title.generate),
+			values: ["on", "off"],
+		},
+	);
+
+	if (config.title.generate) {
+		items.push(
+			{
+				id: "title.applyToSessionName",
+				label: "Apply title to session name",
+				description: "Use generated title to rename the Pi session according to policy.",
+				currentValue: boolValue(config.title.applyToSessionName),
+				values: ["on", "off"],
+			},
+			{
+				id: "title.applyPolicy",
+				label: "Session name policy",
+				description: "Controls when generated titles overwrite session name.",
+				currentValue: config.title.applyPolicy,
+				values: ["if-empty-or-auto", "if-empty", "always", "never"],
+			},
+			{
+				id: "title.maxLength",
+				label: "Title max length",
+				description: "Maximum characters for the generated or fallback title.",
+				currentValue: String(config.title.maxLength),
+				submenu: (_current, done) =>
+					presetOrCustomPicker(numberSelectItems(TITLE_MAX_LENGTH_PRESETS, getConfig().title.maxLength), options.theme, done, {
+						preferredValue: String(getConfig().title.maxLength),
+						custom: {
+							title: "Title max length",
+							prefill: String(getConfig().title.maxLength),
+							parse: parsePositiveNumberValue,
+						},
+					}),
+			},
+		);
+	}
+
+	items.push(
 		{
 			id: "display.widgetPlacement",
 			label: "Widget placement",
@@ -894,16 +1144,51 @@ function settingItems(config: RecapConfig): SettingItem[] {
 			values: ["on", "off"],
 		},
 		{
+			id: "multiplexer.template",
+			label: "Multiplexer template",
+			description: "Name template. Variables: {session} {project} {cwd} {id}.",
+			currentValue: config.multiplexer.template,
+			submenu: (_current, done) =>
+				editorSubmenu(
+					options.editor,
+					"Multiplexer name template",
+					getConfig().multiplexer.template,
+					done,
+				),
+		},
+		{
+			id: "multiplexer.maxLength",
+			label: "Multiplexer name max length",
+			description: "Truncate the generated pane or window name to this length.",
+			currentValue: String(config.multiplexer.maxLength),
+			submenu: (_current, done) =>
+				presetOrCustomPicker(
+					numberSelectItems(MULTIPLEXER_MAX_LENGTH_PRESETS, getConfig().multiplexer.maxLength),
+					options.theme,
+					done,
+					{
+						preferredValue: String(getConfig().multiplexer.maxLength),
+						custom: {
+							title: "Multiplexer name max length",
+							prefill: String(getConfig().multiplexer.maxLength),
+							parse: parsePositiveNumberValue,
+						},
+					},
+				),
+		},
+		{
 			id: "multiplexer.restoreOnShutdown",
 			label: "Restore multiplexer on shutdown",
 			description: "Restore the previous pane or window name when Pi exits.",
 			currentValue: boolValue(config.multiplexer.restoreOnShutdown),
 			values: ["on", "off"],
 		},
-	];
+	);
+
+	return items;
 }
 
-function applyConfigSetting(config: RecapConfig, id: string, value: string): RecapConfig {
+export function applyConfigSetting(config: RecapConfig, id: string, value: string): RecapConfig {
 	const next = normalizeConfig(JSON.parse(JSON.stringify(config)) as RecapConfig);
 	const on = value === "on";
 
@@ -914,17 +1199,56 @@ function applyConfigSetting(config: RecapConfig, id: string, value: string): Rec
 		case "recap.auto":
 			next.recap.auto = on;
 			break;
+		case "recap.manualCommand":
+			next.recap.manualCommand = on;
+			break;
+		case "recap.neverTwiceInARow":
+			next.recap.neverTwiceInARow = on;
+			break;
+		case "recap.model":
+			next.recap.model = value.trim() || next.recap.model;
+			break;
+		case "recap.fallbackToCurrentModel":
+			next.recap.fallbackToCurrentModel = on;
+			break;
+		case "recap.idleAfterTurnMs":
+			next.recap.idleAfterTurnMs = positiveNumber(Number(value), next.recap.idleAfterTurnMs);
+			break;
+		case "recap.minSessionTurns":
+			next.recap.minSessionTurns = Math.max(0, Math.floor(positiveNumber(Number(value), next.recap.minSessionTurns)));
+			break;
+		case "recap.maxRecentChars":
+			next.recap.maxRecentChars = positiveNumber(Number(value), next.recap.maxRecentChars);
+			break;
+		case "recap.maxTokens":
+			next.recap.maxTokens = positiveNumber(Number(value), next.recap.maxTokens);
+			break;
+		case "recap.language":
+			next.recap.language = value.trim() || next.recap.language;
+			break;
+		case "title.generate":
+			next.title.generate = on;
+			break;
 		case "title.applyToSessionName":
 			next.title.applyToSessionName = on;
 			break;
 		case "title.applyPolicy":
 			next.title.applyPolicy = normalizeTitlePolicy(value);
 			break;
+		case "title.maxLength":
+			next.title.maxLength = positiveNumber(Number(value), next.title.maxLength);
+			break;
 		case "display.widgetPlacement":
 			next.display.widgetPlacement = value === "belowEditor" ? "belowEditor" : "aboveEditor";
 			break;
 		case "multiplexer.enabled":
 			next.multiplexer.enabled = on;
+			break;
+		case "multiplexer.template":
+			next.multiplexer.template = value;
+			break;
+		case "multiplexer.maxLength":
+			next.multiplexer.maxLength = positiveNumber(Number(value), next.multiplexer.maxLength);
 			break;
 		case "multiplexer.restoreOnShutdown":
 			next.multiplexer.restoreOnShutdown = on;
@@ -957,27 +1281,61 @@ async function editConfigJson(pi: ExtensionAPI, ctx: ExtensionContext, state: Re
 	}
 }
 
+type SettingsListInternals = {
+	items: SettingItem[];
+	filteredItems: SettingItem[];
+	selectedIndex: number;
+	searchInput?: { getValue(): string };
+	applyFilter?: (query: string) => void;
+};
+
+function replaceSettingsListItems(list: SettingsList, items: SettingItem[]) {
+	const mutable = list as unknown as SettingsListInternals;
+	const selectedId = mutable.items[mutable.selectedIndex]?.id;
+	mutable.items = items;
+	const query = mutable.searchInput?.getValue() ?? "";
+	if (query && typeof mutable.applyFilter === "function") {
+		mutable.applyFilter(query);
+	} else {
+		mutable.filteredItems = items;
+	}
+	const pool = query ? mutable.filteredItems : mutable.items;
+	const index = pool.findIndex((item) => item.id === selectedId);
+	if (index >= 0) mutable.selectedIndex = index;
+	else if (mutable.selectedIndex >= pool.length) mutable.selectedIndex = Math.max(0, pool.length - 1);
+}
+
 async function openConfigUi(pi: ExtensionAPI, ctx: ExtensionContext, state: RecapState) {
 	if (ctx.mode !== "tui") {
 		ctx.ui.notify("/recap-config requires TUI mode. Use /recap-config json to edit raw JSON in UI-capable modes.", "error");
 		return;
 	}
 
+	const availableModels = typeof ctx.modelRegistry.getAvailable === "function"
+		? ctx.modelRegistry.getAvailable()
+		: [];
+
 	await ctx.ui.custom((tui, theme, _kb, done) => {
+		const settingsOptions = (): RecapSettingsOptions => ({
+			availableModels,
+			theme,
+			getConfig: () => state.config,
+			editor: (title, prefill) => ctx.ui.editor(title, prefill),
+		});
 		const container = new Container();
 		container.addChild(new Text(theme.fg("accent", theme.bold("Recap Configuration")), 1, 0));
 		container.addChild(new Text(theme.fg("dim", `Saving to ${getGlobalConfigPath()}`), 1, 0));
-		container.addChild(new Text(theme.fg("dim", "Enter/Space cycles values · Esc closes · /recap-config json edits full JSON"), 1, 0));
+		container.addChild(new Text(theme.fg("dim", "Enter/Space to change · Esc closes · /recap-config json is optional"), 1, 0));
 
 		let settingsList: SettingsList;
 		settingsList = new SettingsList(
-			settingItems(state.config),
-			12,
+			settingItems(state.config, settingsOptions()),
+			14,
 			getSettingsListTheme(),
 			(id, newValue) => {
 				const next = applyConfigSetting(state.config, id, newValue);
 				state.config = next;
-				settingsList.updateValue(id, newValue);
+				replaceSettingsListItems(settingsList, settingItems(next, settingsOptions()));
 
 				if (!next.recap.enabled || !next.recap.auto) stopAutomaticRecap(ctx, state);
 				refreshRecapDisplay(ctx, state);

@@ -14,8 +14,8 @@ Features:
 - Reject empty, truncated, failed, or malformed JSON-like model output without saving partial recap state.
 - Optionally apply the title to the Pi session name.
 - Optionally sync Pi session name changes to the nearest terminal multiplexer: a Herdr pane label or tmux window name.
-- Configure common options with `/recap-config`.
-- Edit full JSON config with `/recap-config json`.
+- Configure every recap option with `/recap-config`, including the recap model from `current` plus currently enabled models.
+- `/recap-config json` remains available as an escape hatch, but is not required for normal use.
 
 ### Installation
 
@@ -63,17 +63,19 @@ Generate a recent activity recap. It will:
 /recap-config
 ```
 
-Open the TUI config screen and save common settings to:
+Open the TUI config screen. It covers every recap setting and saves to:
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
 ```
 
+The model list starts with `current` (the session model), then currently enabled models. A configured model that is not in that list still shows, and opening the picker does not change it. While the model is `current`, fallback is hidden and left unchanged. If you pick a specific model that later cannot be resolved and fallback is on, recap warns once and uses the session model. A cheaper dedicated recap model is recommended.
+
 ```text
 /recap-config json
 ```
 
-Edit the full JSON config.
+Edit the full JSON config. This is optional; the TUI can set every field, including custom numbers and languages.
 
 ### TUI only
 
@@ -158,7 +160,7 @@ Disable automatic recap and keep manual `/recap` only:
 }
 ```
 
-Use a specific recap model:
+Use a specific recap model in `/recap-config`, or in JSON:
 
 ```json
 {
@@ -265,6 +267,7 @@ and recap calling `pi.setSessionName(title)` when enabled by config. Recap does 
 
 - Recap makes an extra model call.
 - By default it uses the current Pi model: `recap.model = "current"`.
+- A cheaper dedicated recap model is recommended if you do not want to spend the session model on this side call.
 - Recent activity is sent to the current or configured provider.
 - Disable automatic recap if you do not want extra background model calls:
 

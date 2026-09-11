@@ -24,6 +24,7 @@
 | [pi-subagents/delivery-and-resume.md](./pi-subagents/delivery-and-resume.md) | 契约 | 完整报告预算、投递时机、运行代次与终态恢复边界 |
 | [pi-subagents/configuration-and-integrations.md](./pi-subagents/configuration-and-integrations.md) | 已落地 | 配置位置与授权、进程内编排及运行时复用 |
 | [pi-subagents/pinned-extensions.md](./pi-subagents/pinned-extensions.md) | 已落地 | 子代理钉住观察者扩展：只保加载、不保工具 |
+| [pi-recap/extension.md](./pi-recap/extension.md) | 已落地 | 一行最近活动 recap：不是 compact；title → name → multiplexer；出环 one-shot |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
 | [providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md](./providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md) | 未实现 | 火山套餐余量与 tier 自动刷新 |
