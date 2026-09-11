@@ -85,9 +85,9 @@ function createHerdrRunner(initialLabel: string | null = "shell") {
 	};
 }
 
-function createTmuxRunner() {
+function createTmuxRunner(initialAutomaticRename = "on") {
 	let currentName = "shell";
-	let automaticRename = "on";
+	let automaticRename = initialAutomaticRename;
 	const calls: Call[] = [];
 	const runner: CommandRunner = async (command, args) => {
 		calls.push({ command, args: [...args] });
@@ -102,7 +102,7 @@ function createTmuxRunner() {
 			return { stdout: `${automaticRename}\n` };
 		}
 		if (args[0] === "set-window-option") {
-			automaticRename = args.at(-1)!;
+			automaticRename = args.includes("-u") ? "" : args.at(-1)!;
 			return { stdout: "" };
 		}
 		if (args[0] === "rename-window") {
@@ -471,6 +471,27 @@ test("tmux sync preserves window behavior and restores automatic rename", async 
 	await manager.shutdown(CONFIG, "quit", ui.hooks);
 	assert.equal(tmux.currentName, "shell");
 	assert.equal(tmux.automaticRename, "on");
+});
+
+test("tmux sync tolerates automatic-rename unset at the window level", async () => {
+	const tmux = createTmuxRunner("");
+	const ui = createHooks();
+	const manager = new MultiplexerManager({
+		environment: { TMUX: "/tmp/tmux,1,0" },
+		runner: tmux.runner,
+	});
+
+	await manager.sync(CONFIG, CONTEXT, ui.hooks);
+	assert.deepEqual(ui.warnings, []);
+	assert.equal(tmux.currentName, "auth refresh");
+	assert.equal(tmux.automaticRename, "off");
+
+	await manager.shutdown(CONFIG, "quit", ui.hooks);
+	assert.equal(tmux.currentName, "shell");
+	assert.equal(tmux.automaticRename, "");
+	assert.ok(
+		tmux.calls.some((call) => call.args[0] === "set-window-option" && call.args.includes("-u")),
+	);
 });
 
 test("manual tmux rename is preserved while automatic rename is restored", async () => {
