@@ -41,27 +41,33 @@ test("Recap migrates global and trusted project configs while dropping unmappabl
 		await writeJson(getLegacyGlobalConfigPath(), {
 			recap: { enabled: false, removed: true },
 			display: { widgetPlacement: "belowEditor", notify: true },
+			title: { applyToSessionName: false, applyPolicy: "always" },
 		});
 		await writeJson(getLegacyProjectConfigPath(cwd), {
 			title: { maxLength: 72, obsolete: true },
 		});
 
 		const untrusted = await loadRecapConfig(context(cwd, false, notifications));
-		assert.equal(untrusted.recap.enabled, false);
-		assert.equal(untrusted.title.maxLength, 50);
+		assert.equal(untrusted.recap.auto, false);
+		assert.equal(untrusted.title.applyPolicy, "off");
 		assert.equal(existsSync(getLegacyProjectConfigPath(cwd)), true);
 		assert.equal(existsSync(getProjectConfigPath(cwd)), false);
 
 		const trusted = await loadRecapConfig(context(cwd, true, notifications));
-		assert.equal(trusted.title.maxLength, 72);
+		assert.equal(trusted.recap.auto, false);
 		assert.equal(existsSync(getLegacyGlobalConfigPath()), false);
 		assert.equal(existsSync(getLegacyProjectConfigPath(cwd)), false);
 		assert.equal(existsSync(getGlobalConfigPath()), true);
 		assert.equal(existsSync(getProjectConfigPath(cwd)), true);
-		assert.doesNotMatch(await readFile(getGlobalConfigPath(), "utf8"), /removed|notify/);
+		const savedGlobal = await readFile(getGlobalConfigPath(), "utf8");
+		assert.doesNotMatch(savedGlobal, /removed|notify|"enabled"|manualCommand|maxLength|widgetPlacement|applyToSessionName|restoreOnShutdown/);
+		assert.match(savedGlobal, /"applyPolicy": "off"/);
+		assert.match(savedGlobal, /"auto": false/);
 		assert.match(notifications.join("\n"), /recap\.removed/);
-		assert.match(notifications.join("\n"), /display\.notify/);
+		assert.match(notifications.join("\n"), /display/);
 		assert.match(notifications.join("\n"), /title\.obsolete/);
+		assert.match(notifications.join("\n"), /title\.maxLength/);
+
 	} finally {
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;

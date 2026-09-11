@@ -12,10 +12,10 @@
 - 使用 editor widget 展示自动 recap 的进度以及 recap 结果和错误，成功结果不会再重复显示为聊天区通知；
 - recap 时顺便生成短 title；模型未返回可用 title 时会确定性地从 recap 派生 fallback，并显示明确 warning；
 - 空输出、截断/失败响应或损坏的 JSON-like 输出不会保存半成品 recap 状态；
-- 是否用 title 更新 Pi session name 由配置控制；
+- 是否用 title 更新 Pi session name 由 `title.applyPolicy` 控制：`off` / `if-empty` / `if-empty-or-auto` / `always`。`off` 不改名；
 - session name 变化时可选同步最近一层终端复用器：Herdr pane label 或 tmux window name；
-- `/recap-config` 提供 TUI 常用配置；
-- `/recap-config json` 编辑完整 JSON 配置。
+- `/recap` 常驻。`/recap-config` 只保留自动 recap、idle、模型、语言、session name 策略，以及 multiplexer 开关和模板；
+- `/recap-config json` 仍可用，但日常不必靠它。
 
 ### 安装
 
@@ -63,17 +63,19 @@ pi -e ./packages/pi-recap
 /recap-config
 ```
 
-打开 TUI 配置界面，修改常用配置并保存到：
+打开 TUI 配置界面。`/recap` 常驻，auto 才是后台开关。保存到：
 
 ```text
 $PI_CODING_AGENT_DIR/extension-data/pi-recap/config.json
 ```
 
+模型列表第一项是 `current`（当前会话模型），其余来自当前启用的模型。已配置但不在列表里的值仍会显示，打开选择器不会改掉它。模型为 `current` 时隐藏 fallback，且不改 JSON 里的 fallback 值。指定模型找不到并允许回落时，会警告一次并改用当前会话模型。建议另配一个更便宜的 recap 模型。
+
 ```text
 /recap-config json
 ```
 
-编辑完整 JSON 配置。
+编辑 JSON 配置。这是逃生口，不是必经之路；TUI 已覆盖留下的选项，包括自定义 idle 和语言。
 
 ### TUI only
 
@@ -101,32 +103,18 @@ examples/recap.json
 ```json
 {
   "recap": {
-    "enabled": true,
     "auto": true,
-    "manualCommand": true,
     "idleAfterTurnMs": 180000,
-    "minSessionTurns": 3,
-    "neverTwiceInARow": true,
     "model": "current",
     "fallbackToCurrentModel": true,
-    "maxRecentChars": 20000,
-    "maxTokens": 300,
     "language": "auto"
   },
-  "display": {
-    "widgetPlacement": "aboveEditor"
-  },
   "title": {
-    "generate": true,
-    "applyToSessionName": false,
-    "applyPolicy": "if-empty-or-auto",
-    "maxLength": 50
+    "applyPolicy": "off"
   },
   "multiplexer": {
     "enabled": true,
-    "template": "π {session} · {project}",
-    "maxLength": 48,
-    "restoreOnShutdown": true
+    "template": "π {session} · {project}"
   }
 }
 ```
@@ -138,13 +126,12 @@ examples/recap.json
 ```json
 {
   "title": {
-    "applyToSessionName": true,
     "applyPolicy": "if-empty-or-auto"
   }
 }
 ```
 
-启用 `title.generate` 后，如果模型没有返回可用 title，recap 会确定性地使用清理成一行的 recap 作为 title，并严格限制在 `title.maxLength` 内。fallback 仍遵守 `title.applyToSessionName` 与 `title.applyPolicy`；`never`、`if-empty`、`if-empty-or-auto`、`always` 的原有语义不变。持久化 recap 会记录 title 来自 fallback，因此生成后以及 session reload 后，editor widget 都会显示 warning。将 `title.generate` 设为 `false` 会同时禁用模型 title 和该 fallback。
+title 总会生成。如果模型没有返回可用 title，recap 会确定性地使用清理成一行的 recap 作为 title。`off` 不改 Pi session name；`if-empty` 只在名为空时写入；`if-empty-or-auto` 还会更新上次 recap 写下的名字，不覆盖之后的手动名；`always` 每次覆盖。持久化 recap 会记录 title 来自 fallback，因此生成后以及 session reload 后，editor widget 都会显示 warning。
 
 纯文本与普通 bullet recap 响应仍然有效。空 recap、损坏或截断的 JSON-like 响应，以及以 `length` 或 `error` 结束的模型响应都会被视为 recap 失败：widget 会显示失败信息，不会 append recap entry、不会更新 session name，也不会推进上一次 recap 的 source 位置。
 
@@ -158,7 +145,7 @@ examples/recap.json
 }
 ```
 
-指定 recap 模型：
+在 `/recap-config` 里指定 recap 模型，或写 JSON：
 
 ```json
 {
@@ -169,27 +156,16 @@ examples/recap.json
 }
 ```
 
-选择 widget 位置：
+recap 始终使用 editor 上方的 widget。自动 recap 的生成进度会在同一个 widget 中被最终结果替换；手动 `/recap` 生成时使用可取消 Loader，完成后在 widget 中显示结果。下一条消息开始时会清除 widget；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
 
-```json
-{
-  "display": {
-    "widgetPlacement": "aboveEditor"
-  }
-}
-```
-
-recap 始终使用 editor widget，展示区域不再支持配置。自动 recap 的生成进度会在同一个 widget 中被最终结果替换；手动 `/recap` 生成时使用可取消 Loader，完成后在 widget 中显示结果。下一条消息开始时会清除 widget；如果自动 recap 仍在生成，该任务也会被取消，并且不会在稍后写入或重新展示过期结果。
-
-读取旧配置时，插件会移除已废弃的 `display.notify`、`display.mode`、`display.widget` 和 `display.clearWidgetOnNextAgentStart`，并更新原配置文件；`display.widgetPlacement` 会保留。旧的 `tmux` 配置会自动迁移到 `multiplexer`；两者同时存在时，显式设置的 `multiplexer` 字段优先。
+读取旧配置时，插件会丢弃已删除字段（如 `enabled`、`manualCommand`、`title.generate`、`title.applyToSessionName`、`display`）并写回清理后的文件。以前的 `enabled: false` 会变成 `auto: false`。`applyToSessionName: false` 或 `applyPolicy: "never"` 会变成 `applyPolicy: "off"`，其余 session name 策略原样保留。旧的 `tmux` 配置会自动迁移到 `multiplexer`；两者同时存在时，显式设置的 `multiplexer` 字段优先。
 
 自定义 Herdr pane label 或 tmux window 名称：
 
 ```json
 {
   "multiplexer": {
-    "template": "π {project} · {session}",
-    "maxLength": 60
+    "template": "π {project} · {session}"
   }
 }
 ```
@@ -247,7 +223,7 @@ recap 始终使用 editor widget，展示区域不再支持配置。自动 recap
 
 Herdr 嵌套在 tmux 中时，recap 只更新 Herdr pane。如果检测到了 Herdr，但 pane 身份不完整或 CLI 不可用，recap 只警告一次，不会回退修改继承的外层 tmux。
 
-对于 tmux，recap 延续原行为：持有 window name 期间关闭 `automatic-rename`。仅当当前名称仍等于 recap 最近一次成功写入的值时，才恢复原 pane/window 名称，因此后续手动改名不会被覆盖。运行时关闭同步或 reload 会立即释放持有状态；reload 会先恢复，再由新 extension 实例重新应用。普通 Pi 退出时是否恢复由 `restoreOnShutdown` 控制。同步被恢复或关闭时，tmux 捕获到的 `automatic-rename` 设置会一并恢复。
+对于 tmux，recap 延续原行为：持有 window name 期间关闭 `automatic-rename`。仅当当前名称仍等于 recap 最近一次成功写入的值时，才恢复原 pane/window 名称，因此后续手动改名不会被覆盖。运行时关闭同步或 reload 会立即释放持有状态；reload 会先恢复，再由新 extension 实例重新应用。普通 Pi 退出也会恢复原名。同步被恢复或关闭时，tmux 捕获到的 `automatic-rename` 设置会一并恢复。
 
 以下操作都会触发复用器同步：
 
@@ -265,6 +241,7 @@ pi --name "auth refresh"
 
 - recap 会额外调用模型。
 - 默认使用当前 Pi 模型：`recap.model = "current"`。
+- 如果不想把会话模型花在这次出环调用上，建议另配一个更便宜的 recap 模型。
 - 最近活动内容会发送给当前或配置的 provider。
 - 如果不希望自动额外调用模型，请设置：
 
