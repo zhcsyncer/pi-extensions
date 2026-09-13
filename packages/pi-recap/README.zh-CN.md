@@ -9,9 +9,9 @@
 - 手动 `/recap` 生成最近活动摘要；
 - agent 完成后空闲一段时间自动生成 recap；
 - 发送新消息时取消尚未完成的自动 recap，避免写入或展示过期结果；
-- 使用 editor widget 展示自动 recap 的进度以及 recap 结果和错误，成功结果不会再重复显示为聊天区通知；
+- 使用 editor widget 展示自动 recap 的进度以及 recap 结果和错误，成功结果不会再重复显示为聊天区通知；生成时间使用 24 小时本地时钟；
 - recap 时顺便生成短 title；模型未返回可用 title 时会确定性地从 recap 派生 fallback，并显示明确 warning；
-- 空输出、截断/失败响应或损坏的 JSON-like 输出不会保存半成品 recap 状态；
+- 空输出、截断/失败响应、损坏的 JSON-like 输出或过长的非结构化 dump 不会保存半成品 recap 状态；
 - 是否用 title 更新 Pi session name 由 `title.applyPolicy` 控制：`off` / `if-empty` / `if-empty-or-auto` / `always`。`off` 不改名；
 - session name 变化时可选同步最近一层终端复用器：Herdr pane label 或 tmux window name；
 - `/recap` 常驻。`/recap-config` 只保留自动 recap、idle、模型、语言、session name 策略，以及 multiplexer 开关和模板；
@@ -133,7 +133,7 @@ examples/recap.json
 
 title 总会生成。如果模型没有返回可用 title，recap 会确定性地使用清理成一行的 recap 作为 title。`off` 不改 Pi session name；`if-empty` 只在名为空时写入；`if-empty-or-auto` 还会更新上次 recap 写下的名字，不覆盖之后的手动名；`always` 每次覆盖。持久化 recap 会记录 title 来自 fallback，因此生成后以及 session reload 后，editor widget 都会显示 warning。
 
-纯文本与普通 bullet recap 响应仍然有效。空 recap、损坏或截断的 JSON-like 响应，以及以 `length` 或 `error` 结束的模型响应都会被视为 recap 失败：widget 会显示失败信息，不会 append recap entry、不会更新 session name，也不会推进上一次 recap 的 source 位置。
+短纯文本与普通 bullet recap 响应仍然有效。空 recap、损坏或截断的 JSON-like 响应、过长的非结构化 dump，以及以 `length` 或 `error` 结束的模型响应都会被视为 recap 失败：widget 会显示失败信息，不会 append recap entry、不会更新 session name，也不会推进上一次 recap 的 source 位置。
 
 关闭自动 recap，仅保留手动 `/recap`：
 

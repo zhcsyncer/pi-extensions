@@ -6,7 +6,9 @@ import test from "node:test";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import recapExtension, {
 	DEFAULT_CONFIG,
+	RECAP_MAX_LENGTH,
 	createRecapState,
+	formatGeneratedTime,
 	restoreRecapState,
 	runRecap,
 	shouldApplyTitleForPolicy,
@@ -25,6 +27,7 @@ const DEFAULT_OUTPUT_OPTIONS: ResolveRecapOutputOptions = {
 	stopReason: "stop",
 	generateTitle: true,
 	titleMaxLength: 50,
+	recapMaxLength: RECAP_MAX_LENGTH,
 };
 
 function resolve(raw: string, options: Partial<ResolveRecapOutputOptions> = {}) {
@@ -129,6 +132,22 @@ test("generate=false never derives or persists a title", () => {
 	assert.deepEqual(resolve("Plain recap", { generateTitle: false }), {
 		ok: true,
 		recap: "Plain recap",
+	});
+});
+
+test("oversized unstructured dumps fail while JSON recaps are truncated", () => {
+	const dump = `Assistant continued the previous answer. ${"x".repeat(300)}`;
+	assert.deepEqual(resolve(dump), {
+		ok: false,
+		error: "Recap model returned a recap that is too long",
+	});
+
+	const recap = "A".repeat(20);
+	assert.deepEqual(resolve(JSON.stringify({ recap, title: "Parser fix" }), { recapMaxLength: 10 }), {
+		ok: true,
+		recap: "AAAAAAAAA…",
+		title: "Parser fix",
+		titleSource: "model",
 	});
 });
 
@@ -339,6 +358,7 @@ test("malformed JSON and length/error completions cannot save, rename, or advanc
 		["prefaced truncated JSON fence", { text: 'Here is the JSON:\n```json\n{"recap":"truncated', stopReason: "stop" }],
 		["empty output", { text: "", stopReason: "stop" }],
 		["structured empty recap", { text: '{"recap":"   ","title":"Title"}', stopReason: "stop" }],
+		["oversized unstructured dump", { text: `Assistant continued. ${"x".repeat(300)}`, stopReason: "stop" }],
 		["length", { text: '{"recap":"partial', stopReason: "length" }],
 		["error", { text: '{"recap":"partial', stopReason: "error", errorMessage: "provider failed" }],
 	];
@@ -528,4 +548,42 @@ test("missing or empty session id omits OpenCode headers without crashing", asyn
 	});
 	assert.equal(empty?.sessionId, undefined);
 	assertNoOpenCodeSessionHeaders(empty);
+});
+
+test("recap keeps the JSON task in the system prompt and the activity in the user message", async () => {
+	let userText = "";
+	let systemPrompt = "";
+	const harness = createRunHarness({
+		text: '{"recap":"Fixed the parser.","title":"Parser fix"}',
+		stopReason: "stop",
+	});
+	await runRecap(harness.pi, harness.ctx, harness.config, harness.state, "manual", {
+		force: true,
+		showProgress: false,
+		completeModel: async (model, context, opts) => {
+			const recapContext = context as {
+				systemPrompt?: string;
+				messages?: Array<{ content?: Array<{ text?: string }> }>;
+			};
+			systemPrompt = recapContext.systemPrompt ?? "";
+			userText = recapContext.messages?.[0]?.content?.[0]?.text ?? "";
+			return harness.completeModel(model, context, opts);
+		},
+	});
+
+	assert.match(userText, /Fix the recap title behavior/);
+	assert.doesNotMatch(userText, /Return ONLY valid JSON/);
+	assert.doesNotMatch(userText, /Do not continue the conversation/);
+	assert.match(systemPrompt, /Do not continue the conversation or copy the activity verbatim/);
+	assert.match(systemPrompt, /Return ONLY valid JSON/);
+});
+
+test("generated time uses a 24-hour local clock", () => {
+	const afternoon = new Date(2024, 5, 1, 16, 39).getTime();
+	const morning = new Date(2024, 5, 1, 4, 5).getTime();
+	const midnight = new Date(2024, 5, 1, 0, 7).getTime();
+	assert.equal(formatGeneratedTime(afternoon, "en-US"), "16:39");
+	assert.equal(formatGeneratedTime(morning, "en-US"), "04:05");
+	assert.equal(formatGeneratedTime(midnight, "en-US"), "00:07");
+	assert.doesNotMatch(formatGeneratedTime(afternoon, "en-US"), /AM|PM/i);
 });

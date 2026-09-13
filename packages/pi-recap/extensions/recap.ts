@@ -53,6 +53,7 @@ export type TitleApplyPolicy = "off" | "if-empty" | "if-empty-or-auto" | "always
 const MIN_SESSION_TURNS = 3;
 const RECAP_MAX_RECENT_CHARS = 20_000;
 const RECAP_MAX_TOKENS = 300;
+export const RECAP_MAX_LENGTH = 240;
 const TITLE_MAX_LENGTH = 50;
 const MULTIPLEXER_MAX_LENGTH = 48;
 const WIDGET_PLACEMENT = "aboveEditor" as const;
@@ -554,6 +555,7 @@ function buildSystemPrompt(config: RecapConfig): string {
 		"You generate a recent-activity recap for a terminal coding-agent session.",
 		"This is NOT a compaction summary and must not pretend to replace conversation history.",
 		"Summarize only what happened in the provided recent activity.",
+		"Do not continue the conversation or copy the activity verbatim.",
 		"Be factual. Do not claim files were changed unless the activity shows that.",
 		config.recap.language === "auto"
 			? "Write the recap in the same primary language as the recent activity."
@@ -563,6 +565,14 @@ function buildSystemPrompt(config: RecapConfig): string {
 		"Return ONLY valid JSON with this shape:",
 		'{"recap":"one-line recent activity recap","title":"short title"}',
 	].join("\n");
+}
+
+export function formatGeneratedTime(generatedAt: number, locales?: Intl.LocalesArgument): string {
+	return new Intl.DateTimeFormat(locales, {
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	}).format(generatedAt);
 }
 
 export function resolveRecapModel(ctx: ExtensionContext, config: RecapConfig) {
@@ -761,6 +771,7 @@ export async function runRecap(
 			errorMessage: response.errorMessage,
 			generateTitle: true,
 			titleMaxLength: TITLE_MAX_LENGTH,
+			recapMaxLength: RECAP_MAX_LENGTH,
 		});
 		if (!resolved.ok) {
 			displayRecapError(ctx, config, resolved.error);
@@ -851,10 +862,7 @@ function displayRecapWidget(ctx: ExtensionContext, config: RecapConfig, data: Re
 		WIDGET_KEY,
 		(_tui, theme) => {
 			const title = data.title ?? "Recent activity";
-			const generatedTime = new Intl.DateTimeFormat(undefined, {
-				hour: "2-digit",
-				minute: "2-digit",
-			}).format(data.generatedAt);
+			const generatedTime = formatGeneratedTime(data.generatedAt);
 			const warning = recapOutputWarning(data.titleSource);
 			const text = [
 				theme.fg("muted", "RECAP  ") + theme.fg("accent", theme.bold(title)),
