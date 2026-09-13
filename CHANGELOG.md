@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-extensions
 
+## 0.32.2
+
+### Patch Changes
+
+- 100ce43: Recap no longer saves a long unstructured model dump as the recap: short plain-text replies still work, but oversized echoes fail instead of filling the widget and deriving a truncated title. The recap system prompt now says not to continue the conversation or copy it. Generated time in the widget uses a 24-hour local clock.
+- a765209: Fix tmux name sync failing when window-level automatic-rename is unset. Query the option with `show-window-options -v` because tmux 3.4 rejects `-q` on that command, treat empty output as unset, and restore by unsetting the window option with `-u` instead of writing an empty value.
+
 ## 0.32.1
 
 ### Patch Changes
