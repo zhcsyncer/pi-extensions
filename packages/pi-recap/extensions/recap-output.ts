@@ -17,6 +17,7 @@ export type ResolveRecapOutputOptions = {
 	errorMessage?: unknown;
 	generateTitle: boolean;
 	titleMaxLength: number;
+	recapMaxLength: number;
 };
 
 export const RECAP_FALLBACK_WARNING = "Model did not generate a usable title; using a recap-derived fallback.";
@@ -182,8 +183,15 @@ export function resolveRecapOutput(raw: string, options: ResolveRecapOutputOptio
 		recapValue = payload.value;
 	}
 
-	const recap = cleanOneLine(recapValue);
+	let recap = cleanOneLine(recapValue);
 	if (!recap) return { ok: false, error: "Recap model returned an empty recap" };
+	if (Array.from(recap).length > options.recapMaxLength) {
+		if (payload.kind !== "json") {
+			return { ok: false, error: "Recap model returned a recap that is too long" };
+		}
+		recap = cleanOneLine(recap, options.recapMaxLength);
+		if (!recap) return { ok: false, error: "Recap model returned an empty recap" };
+	}
 	if (!options.generateTitle) return { ok: true, recap };
 
 	const title = cleanOneLine(modelTitle ?? "", options.titleMaxLength);

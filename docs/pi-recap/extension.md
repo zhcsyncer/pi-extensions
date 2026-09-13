@@ -24,6 +24,6 @@ recap 读当前分支的最近活动，一次性要一行摘要。title 只沿�
 ## 红线
 
 - 不是 compact：不调用 compact，不注入 LLM 历史，不删不压消息。
-- recap 保持一行短句，不是整段会话总结。
+- recap 保持一行短句，不是整段会话总结。超长非结构化输出视为失败，不把原文当 recap 落盘。
 - 依赖单向：title → session name → multiplexer。不把命名同步做成独立主命令。
 - 出环 one-shot 不复制主循环归因头。

@@ -9,9 +9,9 @@ Features:
 - Generate a recent activity recap with `/recap`.
 - Automatically recap after the agent has been idle for a while.
 - Cancel an unfinished automatic recap when a new message arrives, preventing stale results from being stored or displayed.
-- Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications.
+- Display automatic recap progress plus recap results and errors in an editor widget, without duplicating successful results in chat notifications. Generated time uses a 24-hour local clock.
 - Generate a short title as a recap side effect, with a deterministic recap-derived fallback and visible warning when the model omits a usable title.
-- Reject empty, truncated, failed, or malformed JSON-like model output without saving partial recap state.
+- Reject empty, truncated, failed, malformed JSON-like, or overly long unstructured model output without saving partial recap state.
 - Optionally apply the title to the Pi session name with `title.applyPolicy`: `off`, `if-empty`, `if-empty-or-auto`, or `always`. `off` leaves the name alone.
 - Optionally sync Pi session name changes to the nearest terminal multiplexer: a Herdr pane label or tmux window name.
 - `/recap` is always available. `/recap-config` only keeps auto recap, idle wait, model, language, session-name policy, plus multiplexer enablement and template.
@@ -133,7 +133,7 @@ Apply generated titles to Pi session names:
 
 Titles are always generated. If the model omits a usable title, recap deterministically uses the cleaned one-line recap as the title. `off` does not change the Pi session name. `if-empty` fills a blank name only. `if-empty-or-auto` also updates a name recap last wrote, without overwriting a later manual name. `always` overwrites. The persisted recap records that the title came from the fallback, so the editor widget shows the warning after generation and after a session reload.
 
-Plain text and ordinary bullet recap responses remain valid. Empty recaps, malformed or truncated JSON-like responses, and completions stopped with `length` or `error` are treated as failed recaps: the widget shows the failure, no recap entry is appended, the session is not renamed, and the previous recap source position is preserved.
+Short plain-text and ordinary bullet recap responses remain valid. Empty recaps, malformed or truncated JSON-like responses, overly long unstructured dumps, and completions stopped with `length` or `error` are treated as failed recaps: the widget shows the failure, no recap entry is appended, the session is not renamed, and the previous recap source position is preserved.
 
 Disable automatic recap and keep manual `/recap` only:
 
