@@ -1,9 +1,9 @@
 /**
  * Optional pi-meter guest quota sources.
  *
- * Cursor has two included pools. Composer uses Auto; Claude and other
- * third-party rows use API. Registration uses the process-global mailbox so
- * this package does not import pi-meter.
+ * Cursor has two included pools: Cursor Models (Auto in the usage API) for
+ * Composer and Grok, and Other Models (API) for Claude and remaining rows.
+ * Registration uses the process-global mailbox so this package does not import pi-meter.
  */
 
 import { CURSOR_ASK_IDENTITY } from "../identity.js";
@@ -66,8 +66,8 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-export function isCursorComposerModelId(id: string | undefined): boolean {
-  return typeof id === "string" && /composer/i.test(id);
+function usesCursorModelsPool(id: string | undefined): boolean {
+  return typeof id === "string" && (/composer/i.test(id) || /^(?:cursor-)?grok(?:-|$)/i.test(id));
 }
 
 function poolPercent(summary: CursorUsageSummary, pool: CursorQuotaPool): number {
@@ -139,14 +139,14 @@ export function createCursorQuotaAdapters(
       id: CURSOR_QUOTA_AUTO_ID,
       title: POOL_META.auto.title,
       matchProvider: (model) =>
-        model.provider === CURSOR_ASK_IDENTITY.providerId && isCursorComposerModelId(model.id),
+        model.provider === CURSOR_ASK_IDENTITY.providerId && usesCursorModelsPool(model.id),
       fetch: async (_ctx, fetchedAt = Date.now()) => fetchPool("auto", fetchedAt),
     },
     {
       id: CURSOR_QUOTA_API_ID,
       title: POOL_META.api.title,
       matchProvider: (model) =>
-        model.provider === CURSOR_ASK_IDENTITY.providerId && !isCursorComposerModelId(model.id),
+        model.provider === CURSOR_ASK_IDENTITY.providerId && !usesCursorModelsPool(model.id),
       fetch: async (_ctx, fetchedAt = Date.now()) => fetchPool("api", fetchedAt),
     },
   ];

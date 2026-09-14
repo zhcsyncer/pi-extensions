@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { create, fromBinary } from "@bufbuild/protobuf";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentClientMessageSchema,
   AgentServerMessageSchema,
@@ -28,9 +28,11 @@ import {
   resolveStreamIdleTimeoutMs,
 } from "../src/stream/native-core.js";
 import { MAX_ACTIVE_BLOB_ENTRIES } from "../src/stream/tuning.js";
+import { getDriftSignals, resetDriftSignalsForTests } from "../src/stream/drift.js";
 
 afterEach(() => {
   __testInternals.conversationStates.clear();
+  resetDriftSignalsForTests();
 });
 
 describe("idle progress classification", () => {
@@ -243,6 +245,60 @@ describe("idle progress classification", () => {
         message.case === "heartbeat" ? "liveness" : "work",
       ]);
     }
+  });
+
+  it.each(["stepStarted", "stepCompleted"] as const)(
+    "dispatches %s as work without reporting protocol drift",
+    (stepCase) => {
+      const message = create(AgentServerMessageSchema, {
+        message: {
+          case: "interactionUpdate",
+          value: { message: { case: stepCase, value: {} } },
+        },
+      });
+      const decoded = fromBinary(
+        AgentServerMessageSchema,
+        toBinary(AgentServerMessageSchema, message),
+      );
+      const state: StreamState = {
+        toolCallIndex: 0,
+        pendingExecs: [],
+        outputTokens: 0,
+        totalTokens: 0,
+        turnEnded: false,
+      };
+      const progress = processServerMessage(
+        decoded,
+        new Map(),
+        [],
+        () => {},
+        state,
+        () => {},
+        () => {},
+      );
+      expect(progress).toBe("work");
+      expect(getDriftSignals()).toEqual([]);
+    },
+  );
+
+  it("still reports an unrecognized interaction update instead of treating it as work", () => {
+    const message = create(AgentServerMessageSchema, {
+      message: {
+        case: "interactionUpdate",
+        value: create(InteractionUpdateSchema, {}),
+      },
+    });
+    const progress = processServerMessage(
+      message,
+      new Map(),
+      [],
+      () => {},
+      { toolCallIndex: 0, pendingExecs: [], outputTokens: 0, totalTokens: 0, turnEnded: false },
+      () => {},
+      () => {},
+    );
+    expect(progress).toBe("none");
+    expect(getDriftSignals()).toMatchObject([{ kind: "interaction_update", detail: "unknown" }]);
   });
 
   it("requires non-empty text for text/thinking deltas", () => {

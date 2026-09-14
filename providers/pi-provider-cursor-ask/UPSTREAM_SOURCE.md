@@ -10,6 +10,8 @@ This package is a standalone full-source fork of `@rahularya01/pi-cursor`.
 
 The production source, generated protobuf bindings, protocol schema, build tooling, tests, smoke scripts, and upstream protocol notes were copied from that revision. Upstream release history is preserved as [`UPSTREAM_CHANGELOG.md`](./UPSTREAM_CHANGELOG.md).
 
+This revision is the fork origin, not the last reviewed upstream version. Before checking for updates, read the [upstream review ledger](../../docs/upstream-forks.md) for the evaluated head and recorded adopt/skip decisions.
+
 ## Local differences
 
 - Published independently as the unscoped `pi-provider-cursor-ask` package; it is not embedded in the repository's root bundle.

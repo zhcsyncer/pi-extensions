@@ -144,6 +144,8 @@ export function interactionUpdateProgress(
     return hasNonEmptyText ? "work" : "none";
   if (updateCase === "heartbeat") return "liveness";
   if (updateCase === "tokenDelta") return "work";
+  // Known generation step boundaries are progress, not protocol drift.
+  if (updateCase === "stepStarted" || updateCase === "stepCompleted") return "work";
   if (updateCase === "toolCallCompleted") return "work";
   if (updateCase === "toolCallStarted") return "work";
   if (updateCase === "partialToolCall") return "work";
