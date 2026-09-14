@@ -2,7 +2,7 @@
 
 非显然外部事实：各 fork/改编的上游钉、**已评估到哪一版**、以及已锁定的跟/不跟。实现细节以代码和 `UPSTREAM_SOURCE.md` 为准。
 
-**版本锁定（已评估头）**：`2026-09-08T15:02:50Z` 首次全表核对；`2026-09-09T03:41:33Z` 复核 npm 头并写入讨论结论；同日补评 Glance `0.7.0`。
+**版本锁定（已评估头）**：`2026-09-08T15:02:50Z` 首次全表核对；`2026-09-09T03:41:33Z` 复核 npm 头并写入讨论结论；同日补评 Glance `0.7.0`。`2026-09-14T09:47:32Z` 仅补评 Cursor `1.4.33 → 1.4.34`，其余包未重扫。
 
 `last_seen_*` = 已经读过 changelog/compare、并写了跟或不跟的最新上游。下次**只打开比它新的版本**。不要重评本文件已写「不跟 / 已有 / 不搬」的旧条目，除非本地 pin 变了。
 
@@ -21,7 +21,7 @@
 | `pi-ask-user-question` | `@juicesharp/rpiv-ask-user-question` 2.4.0 / `a1531ed` | 2.9.0 | `v2.9.0` | overlay 专属修复不跟。可摘粘贴全文、改键确认、BEL、全局 note | `>2.9.0` |
 | `pi-glance` | `pi-glance` 0.5.3 / `v0.5.3` | **0.7.0** | `v0.7.0` | 不 rebase、不要 Working 扫光。0.7.0 的 stash/Git Summary 本地已有。可摘 CH%、Reply speed 推理计时 | `>0.7.0` |
 | `pi-subagents` | `@tintinweb/pi-subagents` 0.14.3 / `v0.14.3` | 0.19.0 | `v0.19.0` | 不 rebase。不跟默认后台 / Workflow / `@handle`。`reportUsage` 给 Pi/Glance，meter 保持 pin 并忽略父会话 rollup | `>0.19.0` |
-| `pi-provider-cursor-ask` | `@rahularya01/pi-cursor` 1.4.25 | 1.4.33 | `v1.4.33` | 传输已是 Node in-process。1.4.26–1.4.32 大多已在本地。不跟 Bun-only、不跟 Cursor 侧工具。剩：blob miss 勿回空包 | `>1.4.33` |
+| `pi-provider-cursor-ask` | `@rahularya01/pi-cursor` 1.4.25 | 1.4.34 | `v1.4.34` | blob miss 与 step 误报已修。工作区/工具名前缀暂不跟进；不跟缓存猜账。Node/MCP-only 边界不变 | `>1.4.34` |
 | `pi-search-hub` | `pi-search-hub` 2.8.0 / `v2.8.0` | 2.8.0 | `v2.9.0` | reader fallback 本地已有。401/403 改致命仅参考，不必须 | npm `>2.8.0` 或 git `>v2.9.0` |
 | `pi-context7` | `@upstash/context7-pi` 0.1.2 / `b250c25` | 0.1.2 | `packages/pi` 仍 0.1.2 | 持平 | npm `>0.1.2` 或该路径新 commit |
 | `pi-tool-display-intent` | display 0.5.0；summary 0.1.0 | display 0.5.0；summary npm 0.1.0 | display `v0.5.0`；summary `v0.1.1` | summary 把字段提前：不跟 | display `>0.5.0`；summary git `>v0.1.1` |
@@ -77,15 +77,24 @@ juicesharp 从 2.0 起整仓锁步。2.7.0–2.9.0 的 todo changelog 是空的�
 
 0.15 嵌套委派、fail-closed 未知类型等仍是可选小修，不是必须重评。
 
-## `pi-provider-cursor-ask` — 已评估至 1.4.33
+## `pi-provider-cursor-ask` — 已评估至 1.4.34
 
-本地 pin 文案仍是 1.4.25，但 main 已含 in-process（#113）以及 hang/schema/slim（#110）、限 Pi 工具（#116）。
+本地 pin `1.4.25` 是 fork 起点，不是已评估头。此前已评估至 `1.4.33`；本次仅比较 `v1.4.33...v1.4.34`（一个提交 `746704e388870b78d762981e99be64ffe019c700`），对照本地实现，未做线上回包验证。
 
-**已有，不要再当缺口**：全屏命令只 `notify`；未知 exec `ExecClientThrow`；Run 只发 `requestedModel`（Fable 双字段 `not_found`）；Node in-process HTTP/2。
+**已有，不要再当缺口**：全屏命令只 `notify`；未知 exec `ExecClientThrow`；Run 只发 `requestedModel`（Fable 双字段 `not_found`）；Node in-process HTTP/2。`getBlobArgs` miss 拒答、作废 checkpoint、本轮失败并在下一轮重建，已由 #123（`98e7df4`）补齐，不再是待办。
 
-**不跟**：1.4.29 Bun-only；1.4.31 Cursor 侧跑 read/ls/grep/write/shell/fetch；1.4.28 事故重发。
+**旧版不跟，保持原结论**：1.4.29 Bun-only；1.4.31 Cursor 侧跑 read/ls/grep/write/shell/fetch；1.4.28 事故重发。
 
-**仍缺**：`getBlobArgs` miss 仍回空 blob → Cursor 当合法历史 → `Connect internal`。应拒答、作废 checkpoint、本轮失败，下一轮从 Pi 历史重建。
+### 1.4.34 增量结论
+
+本轮只实施 step 误报修复。工作区提醒和工具名前缀尚无本地故障证据，用户选择暂不跟进；下列评估保留作后续有复现时的边界，不是已确认线上故障。
+
+- **已摘：step 事件误报**。`stepStarted` / `stepCompleted` 按有效工作进度处理，消除假 wire-drift；保留 heartbeat 仅表明连接存活、真正未知事件仍报 drift 的边界。
+- **可摘：工作区声明**。本地新建 conversation 已声明 cwd，`requestContext` 回复却不带 workspace，可能引入“工作区变为空”的假提醒。仅补当前 cwd 的 file URL，不增加文件内容、目录扫描或原生工具权限；恢复到不同 cwd 时保留真实的工作区变化，不改写旧 checkpoint 来压掉提示。
+- **适配后摘：live 工具名前缀**。历史使用 `mcp_pi_<tool>`，本地 live 调用仍只认注册原名。不能照搬上游无条件 strip：合法原名也可能以 `mcp_pi_` 开头。先精确匹配当前请求开放的工具；未匹配时才接受 Pi namespace 的单层前缀别名，结果仍须在同一工具列表内。拒绝 foreign provider 的新增别名路径，不做递归剥前缀、模糊匹配或任意 trim；保持 `toolName` / `name` 优先级。覆盖同名碰撞、未开放工具及 tool-free 请求，不能借兼容扩大执行范围。
+- **不跟：按上下文长度猜缓存及费用**。上游将前后 prompt 长度重叠视为 cache read、新增部分视为 cache write，并直接写入正式 usage/cost；长度相近不能证明缓存命中，压缩、换模型或重建后尤其不可靠。本地已解析 `turnEnded` 的缓存计费字段，Run receipt 只消费一次；缺失账单明确未知，不由 checkpoint 编造。金额仍是本地费率估值，不是 Cursor 实际扣款。保留[现有上下文与计费分离契约](./pi-provider-cursor-ask/upstream-protocol.md#usage-and-context-semantics)，不引入上游缓存启发式 fallback。
+
+不整包同步，不改 fork 起点；下次只评估 `>1.4.34`。
 
 ## `pi-search-hub` — npm 已评估至 2.8.0；git 至 v2.9.0
 
@@ -122,4 +131,5 @@ tracker 仍 0.3.0。usage 到 0.5.1：空闲打 API（他们 0.4.2 已撤回）�
 - npm `version` + `time`；2026-09-09 复核头：todo/ask/advisor 2.9.0，subagents 0.19.0，pi-cursor 1.4.33，glance **0.7.0（已评）**，tracker 0.3.0，usage 0.5.1
 - Glance `v0.6.9...v0.7.0`：1 commit `feat: add prompt stash and Git summaries`
 - GitHub tags / compare 见 2026-09-08 首次核对
-- 后续结论：meter 不搬、Z.ai 不用、subagents 用量两套账、Cursor in-process 已切、blob 空包仍缺
+- Cursor `2026-09-14`：[npm latest](https://registry.npmjs.org/@rahularya01%2Fpi-cursor/latest) 为 `1.4.34`，`gitHead` 为 `746704e388870b78d762981e99be64ffe019c700`；[v1.4.33...v1.4.34 compare](https://github.com/Rahularya01/pi-cursor/compare/v1.4.33...v1.4.34) 仅一个提交，已逐项对照本地。GitHub Release 对象仍止于 `1.4.32`，不能据此漏掉已发布 npm 的 `1.4.34`。
+- 后续结论：meter 不搬、Z.ai 不用、subagents 用量两套账；Cursor in-process 与 blob miss 拒空包均已落地，1.4.34 跟进范围见上节

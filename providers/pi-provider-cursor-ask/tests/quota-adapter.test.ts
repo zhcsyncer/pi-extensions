@@ -4,7 +4,6 @@ import {
   CURSOR_QUOTA_ADAPTERS_KEY,
   createCursorQuotaAdapters,
   cursorUsageToQuotaSnapshot,
-  isCursorComposerModelId,
   registerCursorQuotaAdapter,
   registerCursorQuotaAdapters,
 } from "../src/extension/quota-adapter.js";
@@ -44,15 +43,43 @@ describe("cursorUsageToQuotaSnapshot", () => {
 });
 
 describe("createCursorQuotaAdapters", () => {
-  it("routes Composer to Auto and other Cursor rows to API", () => {
-    const [auto, api] = createCursorQuotaAdapters(async () => "token");
-    expect(auto?.matchProvider({ provider: "cursor", id: "composer-2.5" })).toBe(true);
-    expect(auto?.matchProvider({ provider: "cursor", id: "opus-5" })).toBe(false);
-    expect(api?.matchProvider({ provider: "cursor", id: "opus-5" })).toBe(true);
-    expect(api?.matchProvider({ provider: "cursor", id: "composer-2.5-fast" })).toBe(false);
-    expect(api?.matchProvider({ provider: "xai", id: "opus-5" })).toBe(false);
-    expect(isCursorComposerModelId("composer-2.5")).toBe(true);
+  it.each([
+    "composer-2.5",
+    "composer-2.5-fast",
+    "grok-4.6",
+    "grok-4.6-fast",
+    "cursor-grok-4.6-low",
+    "cursor-grok-4.6-fast-xhigh",
+  ])("routes %s exclusively to Cursor Models (Auto)", (id) => {
+    const adapters = createCursorQuotaAdapters(async () => "token");
+    expect(
+      adapters
+        .filter((adapter) => adapter.matchProvider({ provider: "cursor", id }))
+        .map((adapter) => adapter.id),
+    ).toEqual(["cursor-auto"]);
   });
+
+  it.each(["fable-5.1", "fable-5", "opus-5", "opus-4.6", "sonnet-5", "unknown-model"])(
+    "routes %s exclusively to Other Models (API)",
+    (id) => {
+      const adapters = createCursorQuotaAdapters(async () => "token");
+      expect(
+        adapters
+          .filter((adapter) => adapter.matchProvider({ provider: "cursor", id }))
+          .map((adapter) => adapter.id),
+      ).toEqual(["cursor-api"]);
+    },
+  );
+
+  it.each(["grok-4.6", "composer-2.5", "opus-5"])(
+    "does not claim %s from another provider",
+    (id) => {
+      const adapters = createCursorQuotaAdapters(async () => "token");
+      expect(adapters.some((adapter) => adapter.matchProvider({ provider: "xai", id }))).toBe(
+        false,
+      );
+    },
+  );
 
   it("returns ok:false instead of throwing when usage cannot be fetched", async () => {
     const [auto] = createCursorQuotaAdapters(async () => {
