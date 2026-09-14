@@ -1,5 +1,12 @@
 # pi-provider-cursor-ask
 
+## 0.1.1
+
+### Patch Changes
+
+- 082898a: Fix Grok 4.6 and Grok 4.6 Fast quota display to use the Cursor Models pool alongside Composer instead of the Other Models pool.
+- 082898a: Recognize Cursor step-start and step-complete events as generation progress instead of reporting spurious wire-protocol drift.
+
 ## 0.1.0
 
 ### Minor Changes
