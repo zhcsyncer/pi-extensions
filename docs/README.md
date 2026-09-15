@@ -27,6 +27,7 @@
 | [pi-recap/extension.md](./pi-recap/extension.md) | 已落地 | 一行最近活动 recap：不是 compact；title → name → multiplexer；出环 one-shot |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
+| [providers/pi-provider-volcengine-agent-plan/model-compatibility.md](./providers/pi-provider-volcengine-agent-plan/model-compatibility.md) | 已落地 | 静态模型来源、个人版权限、网关兼容与费用估算边界 |
 | [providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md](./providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md) | 未实现 | 火山套餐余量与 tier 自动刷新 |
 | [pi-provider-cursor-ask/upstream-protocol.md](./pi-provider-cursor-ask/upstream-protocol.md) | 上游参考 | Cursor 原生 Connect/protobuf 协议与传输心智模型 |
 

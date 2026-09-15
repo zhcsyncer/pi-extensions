@@ -187,7 +187,7 @@ Month 850.5 / 2000 (42%) · resets 06-01
 ### 4.6 不改动清单
 
 - CATALOG 与 `minimumTier` 过滤逻辑（`ListArkAgentPlanModel` 动态化留作后续）；
-- `before_provider_request` 中 minimax-m2.7 / kimi-k2.6 的 thinking hack；
+- `before_provider_request` 中现有模型的 thinking 兼容处理（参见[模型维护边界](./model-compatibility.md)）；
 - 既有环境变量（`ARK_AGENT_PLAN_TIER`、`KEY_ENV_NAMES`）读取分支；
 - baseUrl、authHeader、两种 API（responses/completions）的注册方式。
 

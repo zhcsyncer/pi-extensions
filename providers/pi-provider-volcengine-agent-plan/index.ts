@@ -73,21 +73,26 @@ function inheritModelCapabilities(
 	};
 }
 
-// Pi has no native Doubao Seed 2.0 catalog yet. These USD-per-million-token
-// estimates follow public API listings normalized from Volcengine's price table.
+// Static reference prices, not AFP billing. New cards use standard online CNY
+// prices from https://www.volcengine.com/docs/82379/1544106 at an explicitly
+// approximate 7 CNY/USD. Cache storage is hourly, not a per-token write price.
+function estimateCnyApiCost(input: number, output: number, cacheRead: number): EstimatedApiCost {
+	return { input: input / 7, output: output / 7, cacheRead: cacheRead / 7, cacheWrite: 0 };
+}
+
+// Pi has no native Doubao catalog for these routes yet.
 const DOUBAO_API_COSTS = {
 	"doubao-seed-2.0-mini": { input: 0.03, output: 0.28, cacheRead: 0.01, cacheWrite: 0.0024 },
 	"doubao-seed-2.0-lite": { input: 0.09, output: 0.51, cacheRead: 0.02, cacheWrite: 0.0024 },
 	"doubao-seed-evolving": { input: 0.9, output: 4.5, cacheRead: 0.18, cacheWrite: 0 },
-	"doubao-seed-2.0-code": { input: 0.9, output: 4.48, cacheRead: 0, cacheWrite: 0 },
-	"doubao-seed-2.0-pro": { input: 0.45, output: 2.24, cacheRead: 0.09, cacheWrite: 0.0024 },
+	"doubao-seed-2.1-turbo": estimateCnyApiCost(3, 15, 0.6),
 } satisfies Record<string, EstimatedApiCost>;
 
 // Only model capabilities and reference API pricing are inherited. Agent Plan
 // continues to own protocol, endpoint, compatibility, tier gating, and route limits.
 const KIMI_K3_CAPABILITIES = inheritModelCapabilities(getBuiltinModel("moonshotai", "kimi-k3"), {
 	input: ["text", "image"],
-	contextWindow: 1_024_000,
+	contextWindow: 1_048_576,
 	maxTokens: 128_000,
 });
 
@@ -106,7 +111,7 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 256_000,
+		contextWindow: 262_144,
 		maxTokens: 128_000,
 		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-mini"]),
 		compat: RESPONSES_COMPAT,
@@ -118,7 +123,7 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 256_000,
+		contextWindow: 262_144,
 		maxTokens: 128_000,
 		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-lite"]),
 		compat: RESPONSES_COMPAT,
@@ -130,8 +135,8 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text"],
-		contextWindow: 1_024_000,
-		maxTokens: 384_000,
+		contextWindow: 1_048_576,
+		maxTokens: 393_216,
 		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-flash").cost),
 		compat: RESPONSES_COMPAT,
 	},
@@ -142,46 +147,44 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 1_024_000,
+		contextWindow: 1_048_576,
 		maxTokens: 256_000,
 		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-evolving"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
-		id: "doubao-seed-2.0-code",
-		name: "Doubao Seed 2.0 Code",
+		id: "doubao-seed-2.1-turbo",
+		name: "Doubao Seed 2.1 Turbo",
 		api: "openai-responses",
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 256_000,
-		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-code"]),
+		contextWindow: 262_144,
+		maxTokens: 256_000,
+		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.1-turbo"]),
 		compat: RESPONSES_COMPAT,
 	},
 	{
-		id: "doubao-seed-2.0-pro",
-		name: "Doubao Seed 2.0 Pro",
+		id: "deepseek-v4.1-flash",
+		name: "DeepSeek V4.1 Flash (Preview)",
 		api: "openai-responses",
 		minimumTier: "small",
 		reasoning: true,
+		// Snapshot: pi.dev/api/models/providers/deepseek, deepseek-flash (2026-09-15).
+		// Keep native effort levels; Plan's explicit off toggle is applied below.
+		thinkingLevelMap: {
+			minimal: null,
+			low: "low",
+			medium: null,
+			high: "high",
+			xhigh: null,
+			max: "max",
+		},
 		input: ["text", "image"],
-		contextWindow: 256_000,
-		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(DOUBAO_API_COSTS["doubao-seed-2.0-pro"]),
-		compat: RESPONSES_COMPAT,
-	},
-	{
-		id: "minimax-m2.7",
-		name: "MiniMax M2.7",
-		api: "openai-responses",
-		minimumTier: "small",
-		reasoning: true,
-		thinkingLevelMap: { off: null },
-		input: ["text"],
-		contextWindow: 200_000,
-		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(getBuiltinModel("minimax", "MiniMax-M2.7").cost),
+		contextWindow: 1_048_576,
+		maxTokens: 393_216,
+		// Peak-period API reference; off-peak is half. Neither is an AFP rate.
+		cost: estimateCnyApiCost(2, 8, 0.04),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -191,21 +194,32 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text", "image"],
-		contextWindow: 512_000,
+		contextWindow: 1_048_576,
 		maxTokens: 128_000,
 		cost: copyEstimatedApiCost(getBuiltinModel("minimax", "MiniMax-M3").cost),
 		compat: RESPONSES_COMPAT,
 	},
 	{
-		id: "glm-5.2",
-		name: "GLM 5.2",
+		id: "glm-5.3-flash",
+		name: "GLM 5.3 Flash",
 		api: "openai-responses",
 		minimumTier: "small",
 		reasoning: true,
-		input: ["text"],
-		contextWindow: 1_024_000,
+		// Snapshot: pi.dev/api/models/providers/zai, glm-5.3-flash (2026-09-15).
+		// Plan also rejects thinking.type: disabled; native effort holes still apply.
+		thinkingLevelMap: {
+			off: null,
+			minimal: null,
+			low: "low",
+			medium: null,
+			high: "high",
+			xhigh: null,
+			max: "max",
+		},
+		input: ["text", "image"],
+		contextWindow: 1_048_576,
 		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(getBuiltinModel("opencode-go", "glm-5.2").cost),
+		cost: estimateCnyApiCost(0.8, 2.8, 0.23),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -224,23 +238,10 @@ const CATALOG: CatalogEntry[] = [
 			max: "max",
 		},
 		input: ["text"],
-		contextWindow: 1_024_000,
+		contextWindow: 1_048_576,
 		maxTokens: 128_000,
 		cost: copyEstimatedApiCost(getBuiltinModel("opencode-go", "glm-5.2").cost),
 		compat: RESPONSES_COMPAT,
-	},
-	{
-		id: "kimi-k2.6",
-		name: "Kimi K2.6",
-		api: "openai-completions",
-		minimumTier: "small",
-		reasoning: true,
-		thinkingLevelMap: { off: "minimal" },
-		input: ["text", "image"],
-		contextWindow: 256_000,
-		maxTokens: 32_000,
-		cost: copyEstimatedApiCost(getBuiltinModel("moonshotai", "kimi-k2.6").cost),
-		compat: KIMI_CHAT_COMPAT,
 	},
 	{
 		id: "kimi-k2.7-code",
@@ -250,8 +251,8 @@ const CATALOG: CatalogEntry[] = [
 		reasoning: true,
 		thinkingLevelMap: { off: null },
 		input: ["text", "image"],
-		contextWindow: 256_000,
-		maxTokens: 32_000,
+		contextWindow: 262_144,
+		maxTokens: 32_768,
 		cost: copyEstimatedApiCost(getBuiltinModel("moonshotai", "kimi-k2.7-code").cost),
 		compat: KIMI_CHAT_COMPAT,
 	},
@@ -262,8 +263,8 @@ const CATALOG: CatalogEntry[] = [
 		minimumTier: "small",
 		reasoning: true,
 		input: ["text"],
-		contextWindow: 1_024_000,
-		maxTokens: 384_000,
+		contextWindow: 1_048_576,
+		maxTokens: 393_216,
 		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-pro").cost),
 		compat: RESPONSES_COMPAT,
 	},
@@ -546,26 +547,10 @@ export default function volcengineAgentPlan(pi: ExtensionAPI) {
 		if (ctx.model?.provider !== PROVIDER_ID || !isRecord(event.payload)) return;
 		const payload = { ...event.payload };
 
-		if (ctx.model.id === "minimax-m2.7") {
-			// The model emits standard Responses reasoning events but rejects the OpenAI
-			// `reasoning` request object. Keep reasoning enabled on the model card so Pi
-			// can render returned thinking blocks, while removing unsupported controls.
-			delete payload.reasoning;
-			if (Array.isArray(payload.include)) {
-				const include = payload.include.filter(
-					(item) => item !== "reasoning.encrypted_content",
-				);
-				if (include.length > 0) payload.include = include;
-				else delete payload.include;
-			}
-			payload.thinking = {
-				type: pi.getThinkingLevel() === "off" ? "disabled" : "enabled",
-			};
-		}
-
-		if (ctx.model.id === "kimi-k2.6") {
-			// `reasoning_effort: minimal` alone does not disable thinking through the
-			// Agent Plan gateway; this provider field is required for a real off state.
+		if (ctx.model.id === "deepseek-v4.1-flash" || ctx.model.id === "doubao-seed-2.1-turbo") {
+			// Explicit Plan thinking control: reasoning.effort alone is not a reliable
+			// off switch (V4.1 Flash still emits reasoning with effort: none).
+			// Preserve reasoning/include for streaming and tool-result replay.
 			payload.thinking = {
 				type: pi.getThinkingLevel() === "off" ? "disabled" : "enabled",
 			};

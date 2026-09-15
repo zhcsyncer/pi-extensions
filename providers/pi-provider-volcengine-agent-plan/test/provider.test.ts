@@ -18,6 +18,9 @@ const jiti = createJiti(import.meta.url, {
 const extension = await jiti.import<typeof import("../index.ts")>(
 	fileURLToPath(new URL("../index.ts", import.meta.url)),
 );
+const { getSupportedThinkingLevels, clampThinkingLevel } = await jiti.import<
+	typeof import("@earendil-works/pi-ai")
+>("@earendil-works/pi-ai");
 const {
 	default: volcengineAgentPlan,
 	createAgentPlanProvider,
@@ -133,9 +136,15 @@ test("allows an explicit save when validation is temporarily unavailable", async
 test("filters the static catalog by tier and resolves standard auth", async () => {
 	const provider = createAgentPlanProvider();
 	const models = provider.getModels();
-	assert.equal(models.length, 14);
-	assert.equal(models.filter((model) => model.api === "openai-completions").length, 2);
-	assert.equal(models.filter((model) => model.api === "openai-responses").length, 12);
+	assert.deepEqual(models.map((model) => model.id).sort(), [
+		"doubao-seed-2.0-mini", "doubao-seed-2.0-lite", "doubao-seed-2.1-turbo",
+		"doubao-seed-evolving", "deepseek-v4-flash", "deepseek-v4-pro",
+		"deepseek-v4.1-flash", "minimax-m3", "glm-5.3", "glm-5.3-flash",
+		"kimi-k2.7-code", "kimi-k3",
+	].sort());
+	for (const model of models) {
+		assert.equal(model.api, model.id === "kimi-k2.7-code" ? "openai-completions" : "openai-responses");
+	}
 
 	const smallCredential = {
 		type: "api_key" as const,
@@ -149,10 +158,13 @@ test("filters the static catalog by tier and resolves standard auth", async () =
 	};
 	const smallModels = provider.filterModels?.(models, smallCredential) ?? [];
 	const mediumModels = provider.filterModels?.(models, mediumCredential) ?? [];
-	assert.equal(smallModels.length, 13);
+	assert.equal(smallModels.length, 11);
 	assert.equal(smallModels.some((model) => model.id === "kimi-k3"), false);
 	assert.equal(smallModels.some((model) => model.id === "glm-5.3"), true);
-	assert.equal(mediumModels.length, 14);
+	assert.equal(mediumModels.length, 12);
+	for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash", "doubao-seed-2.1-turbo"]) {
+		assert.ok(smallModels.some((model) => model.id === id), `${id} must be visible on Small`);
+	}
 
 	const ctx = {
 		async env() { return undefined; },
@@ -173,20 +185,34 @@ test("provides public API cost estimates for every model", () => {
 	}
 });
 
+test("normalizes new-model CNY reference prices without treating hourly storage as token writes", () => {
+	const models = createAgentPlanProvider().getModels();
+	const cnyRates: Record<string, [number, number, number]> = {
+		"deepseek-v4.1-flash": [2, 8, 0.04],
+		"doubao-seed-2.1-turbo": [3, 15, 0.6],
+		"glm-5.3-flash": [0.8, 2.8, 0.23],
+	};
+	for (const [id, [input, output, cacheRead]] of Object.entries(cnyRates)) {
+		const model = models.find((entry) => entry.id === id);
+		assert.ok(model);
+		assert.deepEqual(model.cost, { input: input / 7, output: output / 7, cacheRead: cacheRead / 7, cacheWrite: 0 }, id);
+	}
+});
+
 test("declares image input only for vision-capable models", () => {
 	const models = createAgentPlanProvider().getModels();
 	const visionIds = [
 		"doubao-seed-2.0-mini",
 		"doubao-seed-2.0-lite",
 		"doubao-seed-evolving",
-		"doubao-seed-2.0-code",
-		"doubao-seed-2.0-pro",
+		"doubao-seed-2.1-turbo",
+		"deepseek-v4.1-flash",
+		"glm-5.3-flash",
 		"minimax-m3",
-		"kimi-k2.6",
 		"kimi-k2.7-code",
 		"kimi-k3",
 	];
-	const textOnlyIds = ["minimax-m2.7", "glm-5.2", "glm-5.3", "deepseek-v4-flash", "deepseek-v4-pro"];
+	const textOnlyIds = ["glm-5.3", "deepseek-v4-flash", "deepseek-v4-pro"];
 
 	for (const id of visionIds) {
 		const model = models.find((entry) => entry.id === id);
@@ -234,34 +260,85 @@ test("exposes only GLM 5.3's supported thinking levels", () => {
 	});
 });
 
-test("applies MiniMax and Kimi request compatibility hooks", () => {
+test("uses documented route limits rather than rounded decimal token counts", () => {
+	const models = createAgentPlanProvider().getModels();
+	const limits: Record<string, [number, number]> = {
+		"deepseek-v4.1-flash": [1_048_576, 393_216],
+		"deepseek-v4-flash": [1_048_576, 393_216],
+		"deepseek-v4-pro": [1_048_576, 393_216],
+		"glm-5.3-flash": [1_048_576, 128_000],
+		"doubao-seed-2.1-turbo": [262_144, 256_000],
+		"minimax-m3": [1_048_576, 128_000],
+		"kimi-k2.7-code": [262_144, 32_768],
+	};
+	for (const [id, expected] of Object.entries(limits)) {
+		const model = models.find((entry) => entry.id === id);
+		assert.ok(model);
+		assert.deepEqual([model.contextWindow, model.maxTokens], expected, id);
+	}
+});
+
+test("exposes the native DeepSeek V4.1 Flash effort levels with Plan's off control", () => {
+	const model = createAgentPlanProvider().getModels().find((entry) => entry.id === "deepseek-v4.1-flash");
+	assert.ok(model);
+	assert.deepEqual(getSupportedThinkingLevels(model), ["off", "low", "high", "max"]);
+	assert.equal(clampThinkingLevel(model, "medium"), "high");
+	assert.equal(model.thinkingLevelMap?.max, "max");
+});
+
+test("exposes the native GLM 5.3 Flash effort levels without an off control", () => {
+	const model = createAgentPlanProvider().getModels().find((entry) => entry.id === "glm-5.3-flash");
+	assert.ok(model);
+	assert.equal(model.reasoning, true);
+	assert.deepEqual(getSupportedThinkingLevels(model), ["low", "high", "max"]);
+	assert.equal(clampThinkingLevel(model, "off"), "low");
+	assert.equal(clampThinkingLevel(model, "medium"), "high");
+	assert.equal(model.thinkingLevelMap?.max, "max");
+});
+
+function captureRequestHook(level: string) {
 	let requestHook: ((event: any, ctx: any) => unknown) | undefined;
-	const pi = {
+	volcengineAgentPlan({
 		registerProvider() {},
 		on(event: string, handler: (event: any, ctx: any) => unknown) {
 			if (event === "before_provider_request") requestHook = handler;
 		},
-		getThinkingLevel() { return "off"; },
-	} as unknown as ExtensionAPI;
-	volcengineAgentPlan(pi);
+		getThinkingLevel() { return level; },
+	} as unknown as ExtensionAPI);
 	assert.ok(requestHook);
+	return requestHook;
+}
 
-	const minimax = requestHook(
-		{
-			payload: {
-				reasoning: { effort: "high" },
-				include: ["reasoning.encrypted_content", "message.output_text.logprobs"],
-			},
-		},
-		{ model: { provider: "volcengine-agent-plan", id: "minimax-m2.7" } },
-	) as Record<string, unknown>;
-	assert.equal("reasoning" in minimax, false);
-	assert.deepEqual(minimax.include, ["message.output_text.logprobs"]);
-	assert.deepEqual(minimax.thinking, { type: "disabled" });
+for (const id of ["deepseek-v4.1-flash", "doubao-seed-2.1-turbo"]) {
+	for (const level of id === "deepseek-v4.1-flash" ? ["off", "low", "high", "max"] : ["off", "low", "high"]) {
+		test(`${id} sends an explicit thinking toggle for ${level} without damaging replay`, () => {
+			const requestHook = captureRequestHook(level);
+			const payload = {
+				reasoning: { effort: level === "off" ? "none" : level },
+				include: ["reasoning.encrypted_content"],
+				input: [{ type: "function_call_output", call_id: "call-1", output: "ok" }],
+			};
+			const original = structuredClone(payload);
+			const result = requestHook({ payload }, { model: { provider: "volcengine-agent-plan", id } });
+			assert.deepEqual(result, {
+				...original,
+				thinking: { type: level === "off" ? "disabled" : "enabled" },
+			});
+			assert.deepEqual(payload, original, "must not mutate the caller's request");
+		});
+	}
+}
 
-	const kimi = requestHook(
-		{ payload: { reasoning_effort: "minimal" } },
-		{ model: { provider: "volcengine-agent-plan", id: "kimi-k2.6" } },
-	) as Record<string, unknown>;
-	assert.deepEqual(kimi.thinking, { type: "disabled" });
+test("leaves unrelated providers, models and invalid payloads untouched", () => {
+	const hook = captureRequestHook("off");
+	const payload = { reasoning: { effort: "high" } };
+	assert.equal(hook({ payload }, { model: { provider: "deepseek", id: "deepseek-v4.1-flash" } }), undefined);
+	assert.equal(hook({ payload }, {}), undefined);
+	for (const invalid of [null, [], "invalid"]) {
+		assert.equal(hook({ payload: invalid }, { model: { provider: "volcengine-agent-plan", id: "deepseek-v4.1-flash" } }), undefined);
+	}
+	for (const model of createAgentPlanProvider().getModels()) {
+		if (["deepseek-v4.1-flash", "doubao-seed-2.1-turbo"].includes(model.id)) continue;
+		assert.deepEqual(hook({ payload }, { model }), payload, `${model.id} must not get the toggle`);
+	}
 });
