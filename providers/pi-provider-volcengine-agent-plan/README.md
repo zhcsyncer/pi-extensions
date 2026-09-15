@@ -2,116 +2,78 @@
 
 [简体中文](./README.zh-CN.md)
 
-Unofficial [Pi](https://github.com/badlogic/pi-mono) provider extension for Volcengine Ark Agent Plan at `https://ark.cn-beijing.volces.com/api/plan/v3`.
-
-This community package is not affiliated with or endorsed by Volcengine.
+Unofficial [Pi](https://github.com/earendil-works/pi-mono) provider for [Volcengine Ark Agent Plan](https://www.volcengine.com/docs/82379/2366394). This community package is not affiliated with or endorsed by Volcengine.
 
 ## Features
 
-- Native Pi provider registration and `/login` integration.
-- Static catalog for the 14 current Agent Plan models.
-- Image input for the 9 vision-capable models; text-only routing for MiniMax M2.7, GLM 5.2, GLM 5.3, and DeepSeek V4 Flash/Pro.
-- Tier-aware availability for Small, Medium, Large, and Max plans.
-- OpenAI Responses by default, with Chat Completions routing for Kimi K2.6 and Kimi K2.7 Code.
-- Streaming, reasoning, and tool-call support tested through the Agent Plan gateway.
-- Request compatibility handling for MiniMax M2.7 and Kimi K2.6 thinking controls.
-- Zero-inference API key validation before Pi persists a login credential.
+- Native Pi provider registration and `/login`, with API key validation that does not start inference.
+- A maintained static catalog of 12 Agent Plan models, including DeepSeek V4.1 Flash (preview), GLM 5.3 Flash, and Doubao Seed 2.1 Turbo.
+- Image input for 9 models; GLM 5.3 and DeepSeek V4 Flash/Pro remain text-only.
+- Streaming, thinking, and tool calls, with gateway-specific thinking controls.
+- OpenAI Responses routing, except Kimi K2.7 Code, which uses Chat Completions.
+
+Unlike the minimal configuration in [Volcengine's Pi guide](https://www.volcengine.com/docs/82379/2666474), this extension provides login validation, reasoning metadata, reference cost estimates, and model-specific compatibility handling.
 
 ## Requirements
 
-- Node.js 20 or newer.
-- Pi and `@earendil-works/pi-ai` 0.81.1 or a compatible 0.81 release.
-- A dedicated Ark Agent Plan API key. A regular Volcengine Ark API key does not work with the Plan endpoint.
+- Node.js 20 or newer and Pi (tested with 0.84).
+- A dedicated **Agent Plan API key**. Regular Ark and Coding Plan keys are not interchangeable with it.
 
-## Install
+## Install and log in
 
 ```bash
 pi install npm:pi-provider-volcengine-agent-plan
 ```
 
-Restart Pi or run `/reload`, then verify the catalog:
-
-```bash
-pi --list-models volcengine-agent-plan
-```
-
-## Login and credentials
-
-### Interactive login
-
-Run:
+Restart Pi or run `/reload`, then:
 
 ```text
 /login volcengine-agent-plan
 ```
 
-Pi prompts for the dedicated Agent Plan API key and the subscribed tier. The login flow sends an authenticated, intentionally incomplete Responses request. A valid key reaches `MissingParameter`; an invalid or unauthorized key returns 401/403 and is requested again. This validation does not start model inference.
+Enter your Agent Plan key and subscription tier. Invalid keys are requested again; temporary validation failures allow retrying or explicitly saving without validation. Select a model with `/model`, or inspect the catalog:
 
-Pi stores the API key and selected tier in its standard credential file, normally `~/.pi/agent/auth.json`. The package does not read a custom key file.
+```bash
+pi --list-models volcengine-agent-plan
+```
 
-### Environment variables
-
-Interactive login is recommended. Ambient credentials remain available for automated environments:
+For automated environments:
 
 ```bash
 export ARK_AGENT_PLAN_API_KEY='...'
 export ARK_AGENT_PLAN_TIER='medium'
 ```
 
-`VOLCENGINE_ARK_PLAN_API_KEY` is also accepted as an API key fallback. Supported tier values are `small`, `medium`, `large`, and `max`; the default is `medium` when no tier is configured.
+`VOLCENGINE_ARK_PLAN_API_KEY` is also accepted. Tiers are `small`, `medium`, `large`, and `max`; the default is `medium`.
 
 ## Models and tiers
 
-The current catalog contains:
+- Doubao Seed 2.0 Mini and Lite
+- Doubao Seed 2.1 Turbo and Seed Evolving
+- DeepSeek V4 Flash, V4 Pro, and V4.1 Flash (preview)
+- MiniMax M3
+- GLM 5.3 and GLM 5.3 Flash
+- Kimi K2.7 Code and Kimi K3
 
-- Doubao Seed 2.0 Mini, Lite, Code, and Pro
-- Doubao Seed Evolving
-- DeepSeek V4 Flash and Pro
-- MiniMax M2.7 and M3
-- GLM 5.2 and GLM 5.3
-- Kimi K2.6, Kimi K2.7 Code, and Kimi K3
+Small exposes 11 models. Medium, Large, and Max expose all 12. Kimi K3 remains Medium+ according to the official personal-plan availability table; merely seeing its card in the console does not establish Small-tier access.
 
-Small exposes 13 models. Kimi K3 currently requires Medium or higher. Medium, Large, and Max expose all 14 current models.
+The retired Seed 2.0 Code/Pro, MiniMax M2.7, Kimi K2.6, and GLM 5.2 entries are no longer offered. If one was selected previously, choose its replacement with `/model`.
 
-## Compatibility
+## Thinking and compatibility
 
-Kimi K2.6 and Kimi K2.7 Code use Chat Completions because their Agent Plan Responses tool-call path returned repeated server errors during compatibility testing. Other catalog entries use Responses.
+- DeepSeek V4.1 Flash exposes `off`, `low`, `high`, and `max`; its thinking toggle uses an explicit gateway control. Seed 2.1 Turbo also supports explicit thinking on/off.
+- GLM 5.3 Flash, GLM 5.3, and Kimi K3 expose `low`, `high`, and `max`; they do not offer `off`.
+- V4.1 Flash and GLM 5.3 Flash follow Pi's native-provider effort metadata; unsupported `minimal`, `medium`, and `xhigh` choices are hidden.
+- Kimi K2.7 Code does not support disabling thinking. It retains Chat Completions routing for tool-call compatibility.
+- Successful requests do not guarantee that every model implements distinct behavior for every effort level.
 
-Kimi K2.7 Code does not support disabling thinking through the current gateway. Selecting Pi's `off` level therefore avoids sending an unsupported disable control but cannot guarantee that the model stops internal reasoning.
+## Cost estimates and limitations
 
-Kimi K3 inherits only model-intrinsic capabilities from Pi's Moonshot catalog. Agent Plan continues to own its protocol, limits, compatibility settings, and plan rules. Its available Pi thinking levels are `low`, `high`, and `max`.
+Pi displays estimated public API resource costs, **not the Agent Plan bill or AFP consumption**. For the three new models, CNY reference prices are converted using a fixed approximate 7 CNY/USD; DeepSeek V4.1 Flash uses peak-period rates. Hourly cache storage is not included. Actual subscription charges and quota remain controlled by Volcengine.
 
-GLM 5.3 cannot disable thinking. Official Z.ai/Zhipu docs only allow `low`, `high`, and `max` effort, so those are the Pi thinking levels this card exposes. It uses Responses like GLM 5.2; Pi sends OpenAI `reasoning.effort` and does not rewrite the request to Zhipu `thinking.type`.
+The catalog is static and may lag console changes. Full context/output limits, concurrency, and quota reporting are not live-tested. Image/video/audio generation requires separate tools or MCP integration, not these chat model cards.
 
-## Cost reporting
-
-The catalog retains public pay-as-you-go API reference rates in USD per million tokens, allowing Pi to estimate session cost from actual token usage. Models with an existing Pi upstream card selectively inherit its rates; the Doubao models use API estimates normalized from [Volcengine's public price table](https://www.volcengine.com/docs/82379/1544106).
-
-This value compares session resource usage; it is not the Agent Plan bill. Volcengine still calculates the subscription price, AFP usage, and remaining quota separately.
-
-## Security
-
-Pi's standard `auth.json` is protected by filesystem permissions but is not an operating-system keychain. Do not commit credentials, paste them into issue reports, or place them in project configuration.
-
-The API key validation request never logs the key or response body. Temporary network or service failures let the user retry, cancel, or explicitly save without validation.
-
-## Development
-
-From the repository root:
-
-```bash
-pnpm --filter pi-provider-volcengine-agent-plan check
-pi --no-extensions -e ./providers/pi-provider-volcengine-agent-plan --list-models volcengine-agent-plan
-npm pack --dry-run --json ./providers/pi-provider-volcengine-agent-plan
-```
-
-Unit tests use mocked credentials and fetch responses. Real-key contract tests are intentionally excluded from normal CI.
-
-## Limitations
-
-Agent Plan does not expose a usable `/models` endpoint, so the catalog and model metadata are versioned statically. Volcengine may change aliases, protocol behavior, limits, or tier availability before this package is updated.
-
-The catalog declares image input for the 9 vision-capable models (Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro, MiniMax M3, Kimi K2.6/K2.7 Code/K3). MiniMax M2.7, GLM 5.2, GLM 5.3, and DeepSeek V4 Flash/Pro remain text-only. Extreme context windows, maximum-length output, concurrency, rate limits, and subscription quota reporting are not covered.
+Keep your API key out of source control, issue reports, and chat messages.
 
 ## License
 

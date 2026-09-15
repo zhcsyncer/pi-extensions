@@ -2,116 +2,78 @@
 
 [English](./README.md)
 
-用于火山方舟 Agent Plan `https://ark.cn-beijing.volces.com/api/plan/v3` 的非官方 [Pi](https://github.com/badlogic/pi-mono) provider 扩展。
-
-这是社区包，与火山引擎无隶属关系，也未获得火山引擎官方背书。
+用于[火山方舟 Agent Plan](https://www.volcengine.com/docs/82379/2366394) 的非官方 [Pi](https://github.com/earendil-works/pi-mono) provider。这是社区包，与火山引擎无隶属关系，也未获得官方背书。
 
 ## 功能
 
-- 原生注册 Pi provider，并集成 `/login`。
-- 静态维护当前 14 个 Agent Plan 模型。
-- 9 个支持视觉的模型可接收图片输入；MiniMax M2.7、GLM 5.2、GLM 5.3、DeepSeek V4 Flash/Pro 仅文本。
-- 按 Small、Medium、Large 和 Max 套餐过滤可用模型。
-- 默认使用 OpenAI Responses；Kimi K2.6 和 Kimi K2.7 Code 路由到 Chat Completions。
-- 已通过 Agent Plan 网关验证流式、reasoning 和工具调用。
-- 处理 MiniMax M2.7 和 Kimi K2.6 的 thinking 请求兼容性。
-- Pi 持久化登录凭证前执行零推理 API Key 校验。
+- 原生注册 Pi provider，集成 `/login`，并提供不启动推理的 API Key 校验。
+- 静态维护 12 个 Agent Plan 模型，包含 DeepSeek V4.1 Flash（尝鲜版）、GLM 5.3 Flash 和 Doubao Seed 2.1 Turbo。
+- 9 个模型支持图片输入；GLM 5.3、DeepSeek V4 Flash/Pro 仍仅文本。
+- 支持流式、思考和工具调用，并适配网关的思考控制参数。
+- 使用 OpenAI Responses；Kimi K2.7 Code 例外，使用 Chat Completions。
+
+与[火山官方 Pi 指南](https://www.volcengine.com/docs/82379/2666474)的最小配置相比，本扩展额外提供登录校验、思考能力声明、参考费用估算和逐模型兼容处理。
 
 ## 要求
 
-- Node.js 20 或更高版本。
-- Pi 和 `@earendil-works/pi-ai` 0.81.1，或兼容的 0.81 版本。
-- Agent Plan 专属 API Key。普通火山方舟 API Key 不能用于 Plan 端点。
+- Node.js 20 或更高版本，以及 Pi（已在 0.84 验证）。
+- **Agent Plan 专属 API Key**，不能与普通方舟或 Coding Plan Key 混用。
 
-## 安装
+## 安装与登录
 
 ```bash
 pi install npm:pi-provider-volcengine-agent-plan
 ```
 
-重启 Pi 或执行 `/reload`，然后检查模型目录：
-
-```bash
-pi --list-models volcengine-agent-plan
-```
-
-## 登录与凭证
-
-### 交互登录
-
-执行：
+重启 Pi 或执行 `/reload`，然后运行：
 
 ```text
 /login volcengine-agent-plan
 ```
 
-Pi 会提示输入 Agent Plan 专属 API Key 和已订阅套餐。登录流程会发送一个已鉴权但故意缺少参数的 Responses 请求：有效 Key 会到达 `MissingParameter`，无效或无权限的 Key 返回 401/403，并提示重新输入。该校验不会启动模型推理。
+输入 Agent Plan Key 和订阅套餐。无效 Key 会提示重新输入；临时验证失败时可以重试，或明确选择未经验证仍然保存。通过 `/model` 选择模型，也可检查目录：
 
-Pi 将 API Key 和套餐保存到标准凭证文件，通常为 `~/.pi/agent/auth.json`。本包不会读取自定义 Key 文件。
+```bash
+pi --list-models volcengine-agent-plan
+```
 
-### 环境变量
-
-推荐使用交互登录。自动化环境也可以提供环境凭证：
+自动化环境可使用：
 
 ```bash
 export ARK_AGENT_PLAN_API_KEY='...'
 export ARK_AGENT_PLAN_TIER='medium'
 ```
 
-也支持使用 `VOLCENGINE_ARK_PLAN_API_KEY` 作为 API Key fallback。套餐可取 `small`、`medium`、`large` 或 `max`；未配置套餐时默认使用 `medium`。
+也接受 `VOLCENGINE_ARK_PLAN_API_KEY`。套餐可取 `small`、`medium`、`large`、`max`，默认 `medium`。
 
 ## 模型与套餐
 
-当前目录包含：
+- Doubao Seed 2.0 Mini 和 Lite
+- Doubao Seed 2.1 Turbo 和 Seed Evolving
+- DeepSeek V4 Flash、V4 Pro 和 V4.1 Flash（尝鲜版）
+- MiniMax M3
+- GLM 5.3 和 GLM 5.3 Flash
+- Kimi K2.7 Code 和 Kimi K3
 
-- Doubao Seed 2.0 Mini、Lite、Code 和 Pro
-- Doubao Seed Evolving
-- DeepSeek V4 Flash 和 Pro
-- MiniMax M2.7 和 M3
-- GLM 5.2 和 GLM 5.3
-- Kimi K2.6、Kimi K2.7 Code 和 Kimi K3
+Small 展示 11 个模型；Medium、Large、Max 展示全部 12 个。官方个人版套餐表仍要求 Kimi K3 使用 Medium 或以上套餐；仅在控制台看到模型卡片，并不能确认 Small 有调用权限。
 
-Small 展示 13 个模型。Kimi K3 当前要求 Medium 或更高套餐。Medium、Large 和 Max 展示当前全部 14 个模型。
+已下线的 Seed 2.0 Code/Pro、MiniMax M2.7、Kimi K2.6、GLM 5.2 不再提供。如果之前选用了这些模型，请通过 `/model` 切换到替代模型。
 
-## 兼容性
+## 思考与兼容性
 
-Kimi K2.6 和 Kimi K2.7 Code 使用 Chat Completions，因为兼容性测试中它们通过 Agent Plan Responses 执行工具调用会重复返回服务端错误。其余目录模型使用 Responses。
+- DeepSeek V4.1 Flash 提供 `off`、`low`、`high`、`max`，使用显式网关参数控制思考开关；Seed 2.1 Turbo 也支持显式开启、关闭思考。
+- GLM 5.3 Flash、GLM 5.3 和 Kimi K3 提供 `low`、`high`、`max`，不提供 `off`。
+- V4.1 Flash 和 GLM 5.3 Flash 对齐 Pi 原厂模型目录的 effort 声明，隐藏不支持的 `minimal`、`medium` 和 `xhigh`。
+- Kimi K2.7 Code 不支持关闭思考；为保证工具调用兼容性，继续使用 Chat Completions。
+- 请求成功不代表每个模型都会对不同 effort 档位表现出不同的思考强度。
 
-当前网关不支持关闭 Kimi K2.7 Code 的 thinking。Pi 选择 `off` 时，本包不会发送不受支持的禁用参数，但无法保证模型停止内部推理。
+## 费用估算与限制
 
-Kimi K3 只从 Pi 的 Moonshot 模型目录继承模型固有能力，并继续使用 Agent Plan 自己的协议、限额、兼容配置和套餐规则。Pi 中可选的 thinking 档位为 `low`、`high` 和 `max`。
+Pi 展示公共 API 的参考资源费用，**不是 Agent Plan 账单或 AFP 消耗**。新增三款模型按固定估算汇率 7 元人民币/美元换算；DeepSeek V4.1 Flash 使用高峰参考价，不包含按小时计费的缓存存储。实际套餐计费与额度仍由火山引擎决定。
 
-GLM 5.3 不能关闭 thinking。智谱 / Z.ai 官方只允许 `low`、`high`、`max` 三档 effort，因此本卡只向 Pi 暴露这些档位。它与 GLM 5.2 一样走 Responses；Pi 发送 OpenAI `reasoning.effort`，不会改写成智谱 `thinking.type`。
+静态目录可能滞后于控制台变化。完整上下文、最大输出、并发和余量展示未经过线上极限测试。图片、视频、语音生成需要通过独立工具或 MCP 接入，不属于这些对话模型卡片的能力。
 
-## 费用显示
-
-模型目录保留公共按量 API 的美元/百万 token 参考单价，因此 Pi 会根据实际 token usage 在 session 级估算费用。已有 Pi 上游模型卡的模型选择性继承其价格；Doubao 模型使用从[火山方舟公开价格表](https://www.volcengine.com/docs/82379/1544106)标准化得到的 API 估价。
-
-这个数值用于比较会话资源消耗，并不是 Agent Plan 的实际账单；套餐价格、AFP 消耗和剩余额度仍由火山方舟单独计算。
-
-## 安全
-
-Pi 标准 `auth.json` 由文件系统权限保护，但不是操作系统 Keychain。请勿提交凭证、将凭证粘贴到 issue，或把凭证写入项目配置。
-
-API Key 校验请求不会记录 Key 或响应正文。遇到临时网络或服务错误时，用户可以重试、取消，或明确选择未经验证仍然保存。
-
-## 开发
-
-在仓库根目录运行：
-
-```bash
-pnpm --filter pi-provider-volcengine-agent-plan check
-pi --no-extensions -e ./providers/pi-provider-volcengine-agent-plan --list-models volcengine-agent-plan
-npm pack --dry-run --json ./providers/pi-provider-volcengine-agent-plan
-```
-
-单元测试使用模拟凭证和 fetch 响应。需要真实 Key 的契约测试不会进入普通 CI。
-
-## 限制
-
-Agent Plan 没有可用的 `/models` 端点，因此模型目录和元数据采用静态版本维护。火山引擎可能在本包更新前修改别名、协议行为、限制或套餐权限。
-
-目录为 9 个支持视觉的模型（Doubao Seed 2.0 Mini/Lite/Evolving/Code/Pro、MiniMax M3、Kimi K2.6/K2.7 Code/K3）声明图片输入；MiniMax M2.7、GLM 5.2、GLM 5.3、DeepSeek V4 Flash/Pro 仍仅文本。极限上下文、最大长度输出、并发、限流和套餐余量展示不在当前覆盖范围内。
+请勿将 API Key 提交到源码、问题报告或聊天消息。
 
 ## 许可证
 
