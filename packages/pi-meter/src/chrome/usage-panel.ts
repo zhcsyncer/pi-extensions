@@ -75,7 +75,12 @@ export function renderUsagePanel(
 			blocks.push(`${heading}\n  ${snapshot.error ?? "unavailable"}`);
 			continue;
 		}
-		const rows = snapshot.windows.map((window) => formatWindow(window, polarity, now));
+		const rows = snapshot.windows.flatMap((window) => {
+			const models = (window.models ?? []).slice(0, 5).map((model) =>
+				`    ${String(model.requestCount).padStart(5)} req ${model.name}`
+			);
+			return [formatWindow(window, polarity, now), ...models];
+		});
 		const resetRows = snapshot.provider === "codex" ? formatResets(snapshot.resets, now) : undefined;
 		if (rows.length === 0 && !resetRows) {
 			blocks.push(`${heading}\n  (no usage data reported)`);

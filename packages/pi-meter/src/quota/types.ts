@@ -2,12 +2,19 @@ export type QuotaProviderId = "claude" | "codex" | "supergrok" | "ollama";
 /** Built-in id or a guest adapter id. Guest ids stay open strings. */
 export type QuotaSourceId = string;
 
+/** Per-model request counts for a window, persisted in quota.json. */
+export interface QuotaModelUsage {
+	name: string;
+	requestCount: number;
+}
+
 export interface QuotaWindow {
 	id: string;
 	label: string;
 	usedPercent: number;
 	resetsAt?: string;
 	note?: string;
+	models?: QuotaModelUsage[];
 }
 
 /** Banked Codex rate-limit resets. Not a usage window and not payload.credits. */
