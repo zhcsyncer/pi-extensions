@@ -13,6 +13,9 @@ export function inferCursorContextWindow(id: string, name: string): number {
   const text = `${id} ${name}`.toLowerCase();
   if (/\b1\s*m\b|(?:^|-)1m(?:-|$)/.test(text)) return 1_000_000;
   if (/\b272\s*k\b|(?:^|-)272k(?:-|$)/.test(text)) return 272_000;
+  // xAI documents grok-4.6 at 500K (https://docs.x.ai/developers/models/grok-4.6).
+  // Cursor's ModelDetails has no window field, so we take the upstream ceiling.
+  if (/\bgrok[- ]?4\.6\b/.test(text)) return 500_000;
   return DEFAULT_CONTEXT_WINDOW;
 }
 

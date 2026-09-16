@@ -17,6 +17,14 @@ describe("inferCursorContextWindow", () => {
     expect(inferCursorContextWindow("gpt-5.5-high", "GPT-5.5 272K High")).toBe(272_000);
     expect(inferCursorContextWindow("composer-2", "Composer 2")).toBe(200_000);
   });
+
+  it("uses xAI's 500K window for Grok 4.6, including Cursor effort/fast ids", () => {
+    expect(inferCursorContextWindow("cursor-grok-4.6", "Grok 4.6")).toBe(500_000);
+    expect(inferCursorContextWindow("cursor-grok-4.6-high", "Grok 4.6")).toBe(500_000);
+    expect(inferCursorContextWindow("cursor-grok-4.6-fast", "Grok 4.6 Fast")).toBe(500_000);
+    expect(inferCursorContextWindow("grok-4.6-fast", "Grok 4.6 Fast")).toBe(500_000);
+    expect(inferCursorContextWindow("grok-4-20", "Grok 4.20")).toBe(200_000);
+  });
 });
 
 describe("inferCursorMaxOutputTokens", () => {
