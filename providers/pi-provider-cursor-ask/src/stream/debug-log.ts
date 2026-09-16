@@ -1,11 +1,12 @@
 /**
  * Diagnostics sinks for the stream runtime.
  *
- * Four separate channels, deliberately:
+ * Five separate channels, deliberately:
  *   - `debugLog`             verbose JSONL, opt-in via PI_CURSOR_PROVIDER_DEBUG
  *   - `lifecycleLog`         always-on compact log for diagnosing multi-minute stalls
  *   - `emitMetric`           structured counters; defaults to lifecycleLog (never TUI)
  *   - `reportCursorAnomaly`  key user-visible recoveries: lifecycle + optional TUI notify
+ *   - `reportCursorBillingIncomplete`  billing incompleteness: lifecycle + footer status
  *
  * Everything here swallows its own errors: diagnostics must never break a turn.
  * Payloads pass through `sanitizeForDebug`, which truncates strings, summarizes
@@ -257,12 +258,49 @@ export function emitMetric(event: string, data: Record<string, unknown>): void {
 
 export type CursorNotifyLevel = "info" | "warning" | "error";
 export type CursorNotifySink = (message: string, level?: CursorNotifyLevel) => void;
+export type CursorStatusSink = (key: string, text: string | undefined) => void;
+
+export const CURSOR_BILLING_STATUS_KEY = "cursor-billing";
 
 let cursorNotifySink: CursorNotifySink | undefined;
+let cursorStatusSink: CursorStatusSink | undefined;
 
 /** Register a TUI notify sink from extension context. Omit to clear. */
 export function setCursorNotifySink(sink?: CursorNotifySink): void {
   cursorNotifySink = sink;
+}
+
+/** Register a TUI footer-status sink from extension context. Omit to clear. */
+export function setCursorStatusSink(sink?: CursorStatusSink): void {
+  cursorStatusSink = sink;
+}
+
+/**
+ * Billing incompleteness stays out of the chat transcript: lifecycle log plus
+ * an optional footer status. No notify, no stderr fallback.
+ */
+export function reportCursorBillingIncomplete(
+  statusText: string,
+  data?: Record<string, unknown>,
+): void {
+  try {
+    lifecycleLog("usage_incomplete", data);
+  } catch {
+    // Never throw from diagnostics.
+  }
+  try {
+    cursorStatusSink?.(CURSOR_BILLING_STATUS_KEY, statusText);
+  } catch {
+    // Never throw from diagnostics.
+  }
+}
+
+export function clearCursorBillingIncomplete(): void {
+  try {
+    cursorStatusSink?.(CURSOR_BILLING_STATUS_KEY, undefined);
+  } catch {
+    // Never throw from diagnostics.
+  }
 }
 
 /**

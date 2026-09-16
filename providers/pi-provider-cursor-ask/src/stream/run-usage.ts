@@ -1,5 +1,5 @@
 /** Receipt ownership follows an upstream Run, not each local Pi tool response. */
-import { lifecycleLog, reportCursorAnomaly } from "./debug-log.js";
+import { lifecycleLog, reportCursorBillingIncomplete } from "./debug-log.js";
 import type {
   CursorBilledUsage,
   CursorRunUsage,
@@ -8,9 +8,44 @@ import type {
 } from "./types.js";
 
 export interface CursorBillingInfo {
-  status: "reported" | "partial" | "already-reported" | "pending" | "unavailable" | "not-started";
+  status:
+    | "reported"
+    | "partial"
+    | "already-reported"
+    | "pending"
+    | "unavailable"
+    | "not-started"
+    | "estimated";
   missingFields?: Array<keyof CursorBilledUsage>;
   carriedReceipts?: number;
+}
+
+export function resetEstimatedUsageAnchor(stored?: StoredConversation): void {
+  if (!stored) return;
+  delete stored.estimatedContextTokens;
+  delete stored.estimatedContextModelId;
+}
+
+export function readEstimatedUsageAnchor(
+  stored: StoredConversation | undefined,
+  modelId: string,
+): number | undefined {
+  if (!stored || stored.estimatedContextModelId !== modelId) return undefined;
+  const tokens = stored.estimatedContextTokens;
+  return typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0
+    ? Math.ceil(tokens)
+    : undefined;
+}
+
+export function writeEstimatedUsageAnchor(
+  stored: StoredConversation | undefined,
+  tokens: number,
+  modelId: string,
+): void {
+  if (!stored) return;
+  if (!Number.isFinite(tokens) || tokens <= 0) return;
+  stored.estimatedContextTokens = Math.ceil(tokens);
+  stored.estimatedContextModelId = modelId;
 }
 
 export function recordRunReceipt(
@@ -98,10 +133,9 @@ export function reportRunUsageBoundary(run: CursorRunUsage, reason: string): voi
   run.boundaryLogged = true;
   const status = run.billedUsage ? "receipt_unreported" : "receipt_missing";
   lifecycleLog("usage_run_unsettled", { reason, status });
-  reportCursorAnomaly(
-    "usage_incomplete",
-    "Cursor billing is not fully reported; displayed costs may omit usage.",
-    { reason, status },
-    { level: "warning" },
-  );
+  // A tool-pause/transport boundary legitimately has no final receipt yet, so only a receipt
+  // that existed and was never consumed is anomalous. Either way this stays out of the chat.
+  if (status === "receipt_unreported") {
+    reportCursorBillingIncomplete("cursor: usage not fully billed", { reason, status });
+  }
 }

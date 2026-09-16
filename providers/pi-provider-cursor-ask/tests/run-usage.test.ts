@@ -40,21 +40,20 @@ function writer() {
 }
 
 describe("Cursor Run receipt accounting", () => {
-  it("keeps an absent bill explicitly unavailable on abort instead of inventing token costs", async () => {
+  it("estimates missing abort usage without changing totalTokens", async () => {
     const { stream, writer: output } = writer();
     output.contextSnapshot?.(12_000);
     output.text("partial response");
     output.error("Aborted", "aborted", state());
     const result = (await stream.result()) as CursorAssistantMessage;
-    expect(result.usage).toMatchObject({
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      cost: { total: 0 },
-    });
+    expect(result.cursorUsage?.billing?.status).toBe("estimated");
+    expect(result.usage.output).toBe(1656);
+    // The estimate anchors on the same context basis as totalTokens (checkpoint + generated suffix).
+    expect(result.usage.input).toBe(result.usage.totalTokens);
+    expect(result.usage.cacheRead).toBe(0);
+    expect(result.usage.cacheWrite).toBe(0);
+    expect(result.usage.cost.total).toBeGreaterThan(0);
     expect(result.usage.totalTokens).toBeGreaterThanOrEqual(12_000);
-    expect(result.cursorUsage?.billing?.status).toBe("unavailable");
   });
 
   it("distinguishes a failure before starting an upstream run", async () => {
@@ -71,8 +70,10 @@ describe("Cursor Run receipt accounting", () => {
     const first = writer();
     first.writer.done("toolUse", before);
     const pending = (await first.stream.result()) as CursorAssistantMessage;
-    expect(pending.cursorUsage?.billing?.status).toBe("pending");
-    expect(pending.usage.cost.total).toBe(0);
+    expect(pending.cursorUsage?.billing?.status).toBe("estimated");
+    expect(pending.usage.output).toBe(1656);
+    expect(pending.usage.cost.total).toBeGreaterThan(0);
+    const pendingCost = pending.usage.cost.total;
 
     // The old parser can receive turnEnded while Pi is executing tools locally.
     recordRunReceipt(before, bill, raw);
@@ -82,7 +83,7 @@ describe("Cursor Run receipt accounting", () => {
     expect(complete.cursorUsage?.billing?.status).toBe("reported");
     expect(complete.usage).toMatchObject({ input: 1000, output: 40, cacheRead: 8000 });
     expect(complete.usage.cost.total).toBeCloseTo(0.0022);
-    expect(pending.usage.cost.total).toBe(0); // Never mutate an already-emitted message.
+    expect(pending.usage.cost.total).toBe(pendingCost); // Never mutate an already-emitted message.
 
     recordRunReceipt(before, bill, raw); // duplicate terminal frame
     const third = writer();
@@ -127,7 +128,7 @@ describe("Cursor Run receipt accounting", () => {
     first.writer.error("Connection lost", "error", lost);
     expect(
       ((await first.stream.result()) as CursorAssistantMessage).cursorUsage?.billing?.status,
-    ).toBe("unavailable");
+    ).toBe("estimated");
     const replacement = state();
     recordRunReceipt(replacement, bill, raw);
     const next = writer();

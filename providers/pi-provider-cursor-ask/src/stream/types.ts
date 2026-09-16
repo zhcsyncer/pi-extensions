@@ -211,6 +211,10 @@ export interface StoredConversation {
   midPauseRecordedAtMs?: number;
   /** In-memory receipts received after their Pi writer closed; claim on the next same-model reply. */
   unreportedUsage?: CursorRunUsage[];
+  /** Last observed context tokens used to split estimated input vs cache. In-memory only. */
+  estimatedContextTokens?: number;
+  /** Model that recorded `estimatedContextTokens`; a switch is treated as a cache miss. */
+  estimatedContextModelId?: string;
   /** Hash of the system prompt last published to Cursor for this conversation. */
   systemPromptHash?: string;
   sessionScoped: boolean;
@@ -234,6 +238,8 @@ export interface CursorRunUsage {
   missingFields?: Array<keyof CursorBilledUsage>;
   reported?: boolean;
   boundaryLogged?: boolean;
+  /** Set when a local estimate was emitted for this run before a real receipt arrived. */
+  estimatedEmitted?: boolean;
 }
 
 export interface StreamState {
@@ -277,6 +283,7 @@ export interface NativeStreamWriter {
     checkpoint?: Uint8Array,
   ): void;
   carryUsage?(usage: CursorRunUsage): void;
+  bindConversation?(stored: StoredConversation): void;
   text(delta: string): void;
   thinking(delta: string): void;
   toolCall(exec: PendingExec): void;

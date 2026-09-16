@@ -8,12 +8,18 @@ import type {
   NativeBlockKind,
   NativeStreamWriter,
   PendingExec,
+  StoredConversation,
   StreamState,
 } from "./types.js";
 import { applyCursorUsage, createCursorAssistantMessage } from "./pi-adapter.js";
 import { parseToolCallArguments } from "./message-parsing.js";
 import { createCursorContextTracker, type CursorAssistantMessage } from "./context-usage.js";
-import { lifecycleLog, reportCursorAnomaly } from "./debug-log.js";
+import {
+  clearCursorBillingIncomplete,
+  lifecycleLog,
+  reportCursorBillingIncomplete,
+} from "./debug-log.js";
+import { readEstimatedUsageAnchor, writeEstimatedUsageAnchor } from "./run-usage.js";
 
 export function createNativeStreamWriter(
   stream: AssistantMessageEventStream,
@@ -24,6 +30,7 @@ export function createNativeStreamWriter(
   const output: CursorAssistantMessage = createCursorAssistantMessage(model);
   const contextTracker = createCursorContextTracker(model, context, options);
   const carriedReceipts = new Set<CursorRunUsage>();
+  let storedConversation: StoredConversation | undefined;
   let started = false;
   let closed = false;
   let active: { kind: NativeBlockKind; contentIndex: number; ended: boolean } | undefined;
@@ -74,7 +81,10 @@ export function createNativeStreamWriter(
 
   const finishUsage = (reason: string, state?: StreamState): void => {
     const snapshot = contextTracker.finish(output);
-    const billing = applyCursorUsage(output, model, state, snapshot.tokens);
+    const previousContextTokens = readEstimatedUsageAnchor(storedConversation, model.id);
+    const billing = applyCursorUsage(output, model, state, snapshot.tokens, {
+      previousContextTokens,
+    });
     for (const receipt of carriedReceipts) {
       const extra = createCursorAssistantMessage(model);
       const info = applyCursorUsage(
@@ -101,17 +111,31 @@ export function createNativeStreamWriter(
     }
     if (billing.status === "pending" && reason !== "toolUse") billing.status = "unavailable";
     output.cursorUsage!.billing = billing;
+    if (billing.status === "estimated") {
+      lifecycleLog("usage_estimated", {
+        modelId: model.id,
+        reason,
+        input: output.usage.input,
+        output: output.usage.output,
+        cacheRead: output.usage.cacheRead,
+        cacheWrite: output.usage.cacheWrite,
+        previousContextTokens,
+        contextTokens: snapshot.tokens,
+      });
+    }
     if (billing.status === "partial" || billing.status === "unavailable") {
       lifecycleLog("usage_incomplete", { modelId: model.id, reason, ...billing });
     }
     if (billing.status === "partial") {
-      reportCursorAnomaly(
-        "usage_incomplete",
-        "Cursor returned an incomplete billing split; displayed costs include only known buckets.",
-        { modelId: model.id, ...billing },
-        { level: "warning" },
-      );
+      reportCursorBillingIncomplete("cursor: usage not fully billed", {
+        modelId: model.id,
+        ...billing,
+      });
     }
+    if (billing.status === "reported") {
+      clearCursorBillingIncomplete();
+    }
+    writeEstimatedUsageAnchor(storedConversation, snapshot.tokens, model.id);
     if (snapshot.source === "estimate" && reason !== "toolUse") {
       lifecycleLog("usage_context_estimated", {
         modelId: model.id,
@@ -131,6 +155,9 @@ export function createNativeStreamWriter(
     },
     carryUsage(usage) {
       if (!closed && usage.modelId === model.id) carriedReceipts.add(usage);
+    },
+    bindConversation(stored) {
+      if (!closed) storedConversation = stored;
     },
     get closed() {
       return closed;

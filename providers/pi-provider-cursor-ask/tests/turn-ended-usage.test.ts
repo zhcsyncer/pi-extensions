@@ -199,7 +199,7 @@ describe("applyCursorUsage", () => {
     });
   });
 
-  it("preserves context without pricing tokenDelta when the bill is missing", () => {
+  it("estimates billed buckets from local signals when the receipt is missing", () => {
     const output = createCursorAssistantMessage(composerModel());
     const billing = applyCursorUsage(
       output,
@@ -207,19 +207,19 @@ describe("applyCursorUsage", () => {
       emptyState({ outputTokens: 1656, totalTokens: 1040, turnEnded: true }),
     );
     expect(output.usage).toMatchObject({
-      input: 0,
-      output: 0,
+      input: 1040,
+      output: 1656,
       cacheRead: 0,
       cacheWrite: 0,
       totalTokens: 1040,
-      cost: { total: 0 },
     });
-    expect(billing.status).toBe("unavailable");
+    expect(output.usage.cost.total).toBeGreaterThan(0);
+    expect(billing.status).toBe("estimated");
   });
 });
 
 describe("createNativeStreamWriter usage", () => {
-  it("reports intermediate context without inventing a toolUse bill", async () => {
+  it("estimates a toolUse pause from local signals without changing totalTokens", async () => {
     const stream = createAssistantMessageEventStream();
     const writer = createNativeStreamWriter(stream, composerModel());
 
@@ -229,13 +229,13 @@ describe("createNativeStreamWriter usage", () => {
     await expect(stream.result()).resolves.toMatchObject({
       stopReason: "toolUse",
       usage: {
-        input: 0,
-        output: 0,
+        input: 11_648,
+        output: 29,
         cacheRead: 0,
         cacheWrite: 0,
         totalTokens: 11_648,
-        cost: { total: 0 },
       },
+      cursorUsage: { billing: { status: "estimated" } },
     });
   });
 });

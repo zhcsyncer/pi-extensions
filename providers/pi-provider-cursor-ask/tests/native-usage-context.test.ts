@@ -196,7 +196,8 @@ describe("native usage across real provider response boundaries", () => {
     expect(result.cursorUsage?.billing?.carriedReceipts).toBe(1);
     expect(result.usage).toMatchObject({ input: 2000, output: 60, cacheRead: 8000 });
     expect(result.usage.cost.total).toBeCloseTo(0.00275);
-    expect(toolReply.usage.cost.total).toBe(0);
+    expect((toolReply as CursorAssistantMessage).cursorUsage?.billing?.status).toBe("estimated");
+    expect(toolReply.usage.cost.total).toBeGreaterThan(0);
   });
 
   it("uses a checkpoint that arrived after toolUse even if the resumed response has no fresh snapshot", async () => {
