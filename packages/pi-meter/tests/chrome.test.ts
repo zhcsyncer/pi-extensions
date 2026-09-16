@@ -548,4 +548,37 @@ describe("usage panel", () => {
 		expect(panel).toBe("Not signed in: Ollama Cloud — run /login");
 		expect(usageSeverity(snapshots, "remaining")).toBe("info");
 	});
+
+	it("lists the top five monthly model request counts in the dashboard only", () => {
+		const models = Array.from({ length: 6 }, (_, index) => ({
+			name: `model-${index}`,
+			requestCount: 60 - index * 10,
+		}));
+		const ollama = snapshot({
+			provider: "ollama",
+			title: "Ollama Cloud",
+			primary: { id: "monthly", label: "Monthly (30d)", usedPercent: 3.6 },
+			windows: [{ id: "monthly", label: "Monthly (30d)", usedPercent: 3.6, models }],
+		});
+		const panel = renderUsagePanel([ollama], "remaining", new Date("2026-08-15T12:00:00Z"));
+		const modelRows = panel.split("\n").filter((line) => line.includes("req model-"));
+		expect(modelRows).toHaveLength(5);
+		expect(modelRows[0]).toBe("       60 req model-0");
+		expect(modelRows[4]).toBe("       20 req model-4");
+		expect(panel).not.toContain("model-5");
+		expect(panel).not.toContain("more");
+
+		// The compact footer/status line never carries the per-model list.
+		const footer = strip(renderStatusText({
+			quota: { provider: "ollama", stale: false, window: ollama.windows[0]! },
+			polarity: "remaining",
+			now: new Date("2026-08-15T12:00:00Z"),
+		}, theme));
+		expect(footer).not.toContain("req");
+
+		// A window-less snapshot still renders the plain empty state.
+		const empty = renderUsagePanel([snapshot({ provider: "ollama", title: "Ollama Cloud" })], "remaining");
+		expect(empty).toContain("(no usage data reported)");
+		expect(empty).not.toContain("req");
+	});
 });

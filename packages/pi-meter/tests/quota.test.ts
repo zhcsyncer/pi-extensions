@@ -439,12 +439,74 @@ describe("provider parsers", () => {
 		expect(parsed.windows[2]).toMatchObject({ id: "extra", usedPercent: 0, note: "balance 4" });
 	});
 
-	it("rejects garbage or incomplete Ollama usage payloads without throwing", () => {
+	it("stores sorted monthly model request counts without a note when spend is zero", () => {
+		const parsed = parseOllamaUsage({
+			limits: {
+				monthly: {
+					usage: 0.036,
+					models: [
+						{ name: "kimi-k3", request_count: 48 },
+						{ name: "deepseek-v4.1-flash", request_count: 9 },
+					],
+				},
+			},
+			activity: {
+				cost: "0.00000",
+				period: { type: "last_4_weeks", starting_at: "2026-08-24T00:00:00Z", ending_at: "2026-09-16T08:05:24Z" },
+				models: [],
+			},
+		}, now);
+		expect(parsed.ok).toBe(true);
+		expect(parsed.title).toBe("Ollama Cloud");
+		expect(parsed.primary).toMatchObject({ id: "monthly", label: "Monthly (30d)", usedPercent: 3.6 });
+		expect(parsed.windows.map((window) => window.id)).toEqual(["monthly"]);
+		expect(parsed.windows[0]?.note).toBeUndefined();
+		expect(parsed.windows[0]?.models).toEqual([
+			{ name: "kimi-k3", requestCount: 48 },
+			{ name: "deepseek-v4.1-flash", requestCount: 9 },
+		]);
+		expect(parsed.primary?.resetsAt).toBeUndefined();
+	});
+
+	it("formats a nonzero activity cost as a spend note", () => {
+		const parsed = parseOllamaUsage({
+			limits: { monthly: { usage: 0.017 } },
+			activity: { cost: "4.2", period: { type: "last_4_weeks" } },
+		}, now);
+		expect(parsed.windows[0]?.note).toBe("$4.20 last 4 weeks");
+	});
+
+	it("reads monthly models from an object keyed by model name", () => {
+		const parsed = parseOllamaUsage({
+			limits: { monthly: { usage: 0.036, models: { "kimi-k3": { request_count: 48 } } } },
+		}, now);
+		expect(parsed.windows[0]?.note).toBeUndefined();
+		expect(parsed.windows[0]?.models).toEqual([{ name: "kimi-k3", requestCount: 48 }]);
+	});
+
+	it("caps stored monthly model usage at 10 entries", () => {
+		const models = Array.from({ length: 12 }, (_, index) => ({
+			name: `model-${index}`,
+			request_count: 100 - index,
+		}));
+		const parsed = parseOllamaUsage({ limits: { monthly: { usage: 0.1, models } } }, now);
+		const stored = parsed.windows[0]?.models ?? [];
+		expect(stored).toHaveLength(10);
+		expect(stored.map((entry) => entry.name)).toEqual(
+			Array.from({ length: 10 }, (_, index) => `model-${index}`),
+		);
+	});
+
+	it("handles garbage, partial, and empty Ollama usage payloads without throwing", () => {
 		expect(parseOllamaUsage(null, now)).toMatchObject({ ok: false, error: "unexpected response" });
-		expect(parseOllamaUsage({ limits: { session: { usage: 0.2 } } }, now)).toMatchObject({
+		expect(parseOllamaUsage({ limits: {} }, now)).toMatchObject({
 			ok: false,
-			error: "missing session or weekly usage",
+			error: "missing usage windows",
 		});
+		const partial = parseOllamaUsage({ limits: { session: { usage: 0.2 } } }, now);
+		expect(partial.ok).toBe(true);
+		expect(partial.primary).toMatchObject({ id: "session", label: "Session (5h)", usedPercent: 20 });
+		expect(partial.windows.map((window) => window.id)).toEqual(["session"]);
 	});
 });
 
