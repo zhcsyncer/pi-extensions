@@ -23,6 +23,7 @@ import {
   destroyIdleBridge,
 } from "./bridge-session.js";
 import { debugLog } from "./debug-log.js";
+import { resetEstimatedUsageAnchor } from "./run-usage.js";
 import { textContent } from "./message-parsing.js";
 import {
   clearStoredMidPauseMetadata as clearStoredMidPauseMetadataImpl,
@@ -122,6 +123,7 @@ export function markBlobMiss(convKey: string): void {
   });
   clearStoredCheckpoint(stored, false);
   stored.conversationId = randomUUID();
+  resetEstimatedUsageAnchor(stored);
   persistJournal(convKey, stored);
 }
 
@@ -204,6 +206,7 @@ export function discardStaleCheckpointIfNeeded(
     reason === "completed_history_fingerprint_mismatch";
   if (historyRewritten) {
     stored.conversationId = randomUUID();
+    resetEstimatedUsageAnchor(stored);
     debugLog("conversation.rotated", {
       requestId,
       convKey,

@@ -8,7 +8,11 @@ import { join as pathJoin } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCacheDir } from "../utils/cache-dir.js";
 import { cleanupSessionState } from "../stream/session-state.js";
-import { setCursorNotifySink } from "../stream/debug-log.js";
+import {
+  CURSOR_BILLING_STATUS_KEY,
+  setCursorNotifySink,
+  setCursorStatusSink,
+} from "../stream/debug-log.js";
 
 let extensionDebugLogFilePath: string | undefined;
 
@@ -242,14 +246,19 @@ export function debugExtensionLog(event: string, data?: Record<string, unknown>)
   }
 }
 
+/** Register the TUI notify and footer status sinks from extension context. */
 export function registerCursorNotifySink(pi: ExtensionAPI): void {
   const capture = (_event: unknown, ctx: ExtensionContext) => {
     if (!ctx.hasUI) {
       setCursorNotifySink(undefined);
+      setCursorStatusSink(undefined);
       return;
     }
     setCursorNotifySink((message, level) => {
       ctx.ui.notify(message, level);
+    });
+    setCursorStatusSink((key, text) => {
+      ctx.ui.setStatus(key, text);
     });
   };
 
@@ -264,6 +273,9 @@ export function registerSessionLifecycleCleanup(pi: ExtensionAPI): void {
       leafId: ctx.sessionManager.getLeafId?.(),
     });
     cleanupSessionState(ctx.sessionManager.getSessionId());
+    if (ctx.hasUI) {
+      ctx.ui.setStatus(CURSOR_BILLING_STATUS_KEY, undefined);
+    }
   };
 
   pi.on("session_before_switch", cleanupCurrentSession);

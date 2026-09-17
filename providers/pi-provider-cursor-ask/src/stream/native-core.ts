@@ -38,7 +38,12 @@ export type {
 } from "../client/cursor-wire.js";
 
 import { processServerMessage } from "./server-messages.js";
-import { reportRunUsageBoundary, retainRunReceipt, takePendingRunReceipts } from "./run-usage.js";
+import {
+  reportRunUsageBoundary,
+  resetEstimatedUsageAnchor,
+  retainRunReceipt,
+  takePendingRunReceipts,
+} from "./run-usage.js";
 import { positiveContextTokens } from "./context-usage.js";
 import { createThinkingTagFilter } from "./thinking-filter.js";
 import {
@@ -377,6 +382,7 @@ function logFullHistoryRebuild(
     bridgeKeyPrefix: bridgeKeyPrefix(input.bridgeKey),
   };
   debugLog("metric.cursor_provider.rebuild_full_history", lifecycleFields);
+  resetEstimatedUsageAnchor(conversationStates.get(input.convKey));
   reportCursorAnomaly(
     "rebuild_full_history",
     `Cursor rebuilt conversation history (${input.decision.rebuildReason})`,
@@ -779,6 +785,7 @@ async function handleCursorNativeRequest(
   stored.lastAccessMs = Date.now();
   evictStaleConversations();
   discardStaleCheckpointIfNeeded(stored, turns, requestId, convKey);
+  writer.bindConversation?.(stored);
 
   const mcpTools = buildMcpToolDefinitions(selectedTools);
   const effectiveUserText = userText;

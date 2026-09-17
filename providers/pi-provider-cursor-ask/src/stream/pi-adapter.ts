@@ -20,6 +20,7 @@ import type {
 
 import { redactSecrets } from "../utils/security.js";
 import { estimateMessageTokens, positiveContextTokens } from "./context-usage.js";
+import { lifecycleLog } from "./debug-log.js";
 import { takeRunReceipt, type CursorBillingInfo } from "./run-usage.js";
 import type { CursorNativeModelRouting } from "./model-routing.js";
 import type {
@@ -90,21 +91,27 @@ export function billedUsageFromTurnEnded(ended: {
  * are cumulative while `contextTokens` is the latest checkpoint's actual context snapshot. Pi
  * reads `totalTokens` for context/compaction while the buckets and cost retain billed usage.
  */
-function usageFromBilled(
-  billed: CursorBilledUsage,
+function pricedModel(model: Model<Api>, state?: StreamState): Model<Api> {
+  return state?.runUsage?.rates ? { ...model, cost: state.runUsage.rates } : model;
+}
+
+function usageFromBuckets(
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheWrite: number,
   model: Model<Api>,
   contextTokens: number,
 ): AssistantMessage["usage"] {
-  const uncachedInput = Math.max(0, billed.input - billed.cacheRead - billed.cacheWrite);
-  const costInput = tokenCost(uncachedInput, model.cost?.input);
-  const costOutput = tokenCost(billed.output, model.cost?.output);
-  const costCacheRead = tokenCost(billed.cacheRead, model.cost?.cacheRead);
-  const costCacheWrite = tokenCost(billed.cacheWrite, model.cost?.cacheWrite);
+  const costInput = tokenCost(input, model.cost?.input);
+  const costOutput = tokenCost(output, model.cost?.output);
+  const costCacheRead = tokenCost(cacheRead, model.cost?.cacheRead);
+  const costCacheWrite = tokenCost(cacheWrite, model.cost?.cacheWrite);
   return {
-    input: uncachedInput,
-    output: billed.output,
-    cacheRead: billed.cacheRead,
-    cacheWrite: billed.cacheWrite,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
     totalTokens: contextTokens,
     cost: {
       input: costInput,
@@ -116,24 +123,84 @@ function usageFromBilled(
   };
 }
 
+function usageFromBilled(
+  billed: CursorBilledUsage,
+  model: Model<Api>,
+  contextTokens: number,
+): AssistantMessage["usage"] {
+  return usageFromBuckets(
+    Math.max(0, billed.input - billed.cacheRead - billed.cacheWrite),
+    billed.output,
+    billed.cacheRead,
+    billed.cacheWrite,
+    model,
+    contextTokens,
+  );
+}
+
+function usageFromEstimate(
+  prompt: number,
+  outputTokens: number,
+  previousContextTokens: number | undefined,
+  model: Model<Api>,
+  contextTokens: number,
+): AssistantMessage["usage"] {
+  const hasPrev = previousContextTokens !== undefined;
+  const cacheRead = hasPrev ? Math.min(previousContextTokens, prompt) : 0;
+  const cacheWrite = hasPrev ? Math.max(0, prompt - previousContextTokens) : 0;
+  return usageFromBuckets(
+    hasPrev ? 0 : prompt,
+    outputTokens,
+    cacheRead,
+    cacheWrite,
+    model,
+    contextTokens,
+  );
+}
+
 export function applyCursorUsage(
   output: AssistantMessage,
   model: Model<Api>,
   state?: StreamState,
   contextTokens?: number,
+  estimate?: { previousContextTokens?: number },
 ): CursorBillingInfo {
   const contextEstimate =
     positiveContextTokens(contextTokens) ??
     positiveContextTokens(state?.totalTokens) ??
     estimateMessageTokens(output);
   const { billed, info } = takeRunReceipt(state);
-  output.usage = billed
-    ? usageFromBilled(
-        billed,
-        state?.runUsage?.rates ? { ...model, cost: state.runUsage.rates } : model,
-        contextEstimate,
-      )
-    : { ...emptyCursorUsage(), totalTokens: contextEstimate };
+  const priced = pricedModel(model, state);
+  if (billed) {
+    output.usage = usageFromBilled(billed, priced, contextEstimate);
+    if (state?.runUsage?.estimatedEmitted) {
+      lifecycleLog("usage_estimated_then_receipt", {
+        modelId: model.id,
+        status: info.status,
+      });
+    }
+    return info;
+  }
+
+  const promptBasis =
+    positiveContextTokens(contextTokens) ?? positiveContextTokens(state?.totalTokens);
+  const outputTokens = Math.max(0, state?.outputTokens ?? 0);
+  const canEstimate =
+    (info.status === "pending" || info.status === "unavailable") &&
+    (promptBasis !== undefined || outputTokens > 0);
+  if (canEstimate) {
+    output.usage = usageFromEstimate(
+      promptBasis ?? estimateMessageTokens(output),
+      outputTokens,
+      estimate?.previousContextTokens,
+      priced,
+      contextEstimate,
+    );
+    if (state?.runUsage) state.runUsage.estimatedEmitted = true;
+    return { status: "estimated" };
+  }
+
+  output.usage = { ...emptyCursorUsage(), totalTokens: contextEstimate };
   return info;
 }
 
