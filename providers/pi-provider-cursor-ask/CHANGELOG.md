@@ -1,5 +1,12 @@
 # pi-provider-cursor-ask
 
+## 0.1.2
+
+### Patch Changes
+
+- ff0eb57: Billing display and diagnostics for turns whose Cursor billing receipt never arrives. Missing receipts are now filled with a local estimate — marked `billing.status: "estimated"` in message metadata — computed from the live context snapshot, accumulated output deltas, and the conversation's previous-context anchor, priced at the model's configured rates. `usage.totalTokens` still carries the context observation and compaction behavior is unchanged. Billing incompleteness no longer writes warnings into the chat transcript: unconsumed receipts show a short footer status, and a normal tool-pause transport close no longer surfaces any warning.
+- ff0eb57: Report xAI's documented 500K context window for Cursor's Grok 4.6 rows instead of the 200K fallback. Cursor's model metadata carries no window value, so the provider takes the upstream ceiling; before this change every `cursor-grok-4.6*` row (including effort/fast variants) reported 200K, halving the effective context meter for those models.
+
 ## 0.1.1
 
 ### Patch Changes
