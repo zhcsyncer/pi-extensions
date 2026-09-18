@@ -18,6 +18,7 @@ export type Op =
 	| { kind: "list"; statusFilter?: TaskStatus; includeDeleted: boolean }
 	| { kind: "get"; task: Task }
 	| { kind: "batch"; operations: BatchItemOp[] }
+	| { kind: "noop" }
 	| { kind: "error"; message: string };
 
 export interface ApplyResult {
@@ -72,8 +73,41 @@ function rollover(state: TaskState): TaskState {
 	};
 }
 
+function metadataEquivalent(
+	left: Record<string, unknown> | undefined,
+	right: Record<string, unknown> | undefined,
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return !left && !right;
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	if (leftKeys.length !== rightKeys.length) return false;
+	return leftKeys.every((key) => Object.hasOwn(right, key) && Object.is(left[key], right[key]));
+}
+
+function taskEquivalent(left: Task, right: Task): boolean {
+	return (
+		left.id === right.id &&
+		left.status === right.status &&
+		left.subject === right.subject &&
+		left.description === right.description &&
+		left.owner === right.owner &&
+		metadataEquivalent(left.metadata, right.metadata)
+	);
+}
+
+function liveStateUnchanged(original: TaskState, next: TaskState): boolean {
+	return (
+		original.nextId === next.nextId &&
+		original.generation === next.generation &&
+		original.tasks.length === next.tasks.length &&
+		original.tasks.every((task, index) => taskEquivalent(task, next.tasks[index]!))
+	);
+}
+
 function finalizeMutation(original: TaskState, result: ApplyResult): ApplyResult {
 	if (result.op.kind === "error") return { state: original, op: result.op };
+	if (liveStateUnchanged(original, result.state)) return { state: original, op: { kind: "noop" } };
 	return {
 		state: { ...result.state, revision: original.revision + 1 },
 		op: result.op,
@@ -244,6 +278,7 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 				operations.push(result.op);
 				nextState = result.state;
 			}
+			if (liveStateUnchanged(state, nextState)) return { state, op: { kind: "noop" } };
 			return {
 				state: { ...nextState, revision: state.revision + 1 },
 				op: { kind: "batch", operations },

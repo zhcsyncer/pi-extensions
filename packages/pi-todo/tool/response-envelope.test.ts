@@ -130,6 +130,12 @@ describe("formatContent", () => {
 			"Error: subject required for create",
 		);
 	});
+
+	it("noop — reports that live state already matches", () => {
+		expect(formatContent({ kind: "noop" }, stateWith(t({ id: 1, subject: "x" })))).toBe(
+			"No changes; state already matches",
+		);
+	});
 });
 
 describe("buildToolResult", () => {
@@ -203,5 +209,13 @@ describe("buildToolResult", () => {
 		expect(env.details).not.toHaveProperty("tasks");
 		expect(env.details).not.toHaveProperty("nextId");
 		expect(env.details).not.toHaveProperty("params");
+	});
+
+	it("noop update writes a query envelope instead of a checkpoint", () => {
+		const state = stateWith(t({ id: 1, subject: "alpha", status: "in_progress" }));
+		const env = buildToolResult("update", { id: 1, status: "in_progress" }, state, { kind: "noop" });
+		expect(env.content[0]?.text).toBe("No changes; state already matches");
+		expect(env.details).toEqual({ schemaVersion: 2, kind: "query", action: "update" });
+		expect(env.details).not.toHaveProperty("state");
 	});
 });

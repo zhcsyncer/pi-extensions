@@ -1,4 +1,4 @@
-import type { Task, TaskStatus } from "../tool/types.js";
+import type { Task } from "../tool/types.js";
 import type { TaskState } from "./state.js";
 
 /** Tasks excluding deleted tombstones — the canonical "what's visible". */
@@ -76,39 +76,4 @@ export function selectOverlayLayout(state: TaskState, budget: number): OverlayLa
  */
 export function selectHasActive(state: TaskState): boolean {
 	return selectVisibleTasks(state).some((t) => t.status === "in_progress" || t.status === "pending");
-}
-
-export const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(["pending", "in_progress"]);
-
-function compactSubject(subject: string): string {
-	return subject.replace(/\s+/g, " ").trim();
-}
-
-/** Build the short per-run system-prompt suffix from canonical live state. */
-export function formatCurrentTodoState(state: TaskState): string | undefined {
-	const active = state.tasks.filter((task) => ACTIVE_STATUSES.has(task.status));
-	if (active.length === 0) return undefined;
-
-	const lines = [
-		"Current Todo state:",
-		...active.map((task) => `- #${task.id} ${task.status}: ${compactSubject(task.subject)}`),
-	];
-	const completedCount = state.tasks.filter((task) => task.status === "completed").length;
-	if (completedCount > 0) {
-		lines.push(`- ${completedCount} completed ${completedCount === 1 ? "task" : "tasks"} hidden`);
-	}
-	return lines.join("\n");
-}
-
-/** Ephemeral context fallback when live state changes after run-start injection. */
-export function formatCurrentTodoStateUpdate(state: TaskState): string {
-	const current = formatCurrentTodoState(state);
-	if (current) return current.replace("Current Todo state:", "Current Todo state update:");
-
-	const lines = ["Current Todo state update:", "- No pending or in_progress tasks"];
-	const completedCount = state.tasks.filter((task) => task.status === "completed").length;
-	if (completedCount > 0) {
-		lines.push(`- ${completedCount} completed ${completedCount === 1 ? "task" : "tasks"} hidden`);
-	}
-	return lines.join("\n");
 }

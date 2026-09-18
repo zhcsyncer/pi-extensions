@@ -41,7 +41,8 @@ describe("registerTodoTool — guidance overrides", () => {
 		expect(guidance).toContain("reports hidden completed tasks");
 		expect(guidance).toContain("start the next cycle with the required multi-create batch");
 		expect(guidance).toContain("Previous-cycle tasks leave live state");
-		expect(guidance).toContain("Current Todo state update");
+		expect(guidance).not.toContain("Current Todo state");
+		expect(guidance).toContain("If a new goal arrives while active tasks remain");
 		expect(guidance).toContain("User-confirmed reset");
 		expect(guidance).not.toContain("clear");
 		expect(guidance).not.toContain("blockedBy");

@@ -73,6 +73,21 @@ describe("applyTaskMutation — update", () => {
 		expect(result.op).toEqual({ kind: "error", message: "update requires at least one mutable field" });
 	});
 
+	it("returns noop when update restates the current fields", () => {
+		const state = stateWith(
+			task({ id: 1, subject: "契约层", status: "in_progress", description: "types" }),
+		);
+		const result = applyTaskMutation(state, "update", {
+			id: 1,
+			subject: "契约层",
+			status: "in_progress",
+			description: "types",
+		});
+		expect(result.op).toEqual({ kind: "noop" });
+		expect(result.state).toBe(state);
+		expect(result.state.revision).toBe(0);
+	});
+
 	it("rejects illegal transition completed → in_progress", () => {
 		const state = stateWith(task({ id: 1, subject: "x", status: "completed" }));
 		const result = applyTaskMutation(state, "update", { id: 1, status: "in_progress" });
@@ -160,6 +175,24 @@ describe("applyTaskMutation — batch", () => {
 			],
 		});
 		expect(result.state.tasks.map(({ status }) => status)).toEqual(["in_progress", "pending", "pending"]);
+	});
+
+	it("returns noop when every batch update restates current fields", () => {
+		const state = stateWith(
+			task({ id: 4, subject: "契约层", status: "in_progress" }),
+			task({ id: 5, subject: "Parallel", status: "pending" }),
+			task({ id: 6, subject: "清理", status: "pending" }),
+		);
+		const result = applyTaskMutation(state, "batch", {
+			operations: [
+				{ action: "update", id: 4, status: "in_progress" },
+				{ action: "update", id: 5, status: "pending" },
+				{ action: "update", id: 6, status: "pending" },
+			],
+		});
+		expect(result.op).toEqual({ kind: "noop" });
+		expect(result.state).toBe(state);
+		expect(result.state.revision).toBe(0);
 	});
 
 	it("commits ordered operations atomically", () => {

@@ -66,6 +66,8 @@ export function formatContent(op: Op, state: TaskState): string {
 				`Applied ${op.operations.length} todo operations`,
 				...op.operations.map((operation) => `- ${formatContent(operation, state)}`),
 			].join("\n");
+		case "noop":
+			return "No changes; state already matches";
 		case "error":
 			return `Error: ${op.message}`;
 	}
@@ -139,7 +141,7 @@ export function buildToolResult(
 	op: Op,
 ): TodoToolResult {
 	const content = [{ type: "text" as const, text: formatContent(op, state) }];
-	if (action === "list" || action === "get") {
+	if (action === "list" || action === "get" || op.kind === "noop") {
 		const details: QueryDetailsV2 = {
 			schemaVersion: 2,
 			kind: "query",

@@ -57,7 +57,7 @@ export interface MutationDetailsV2 {
 export interface QueryDetailsV2 {
 	schemaVersion: 2;
 	kind: "query";
-	action: TaskQueryAction;
+	action: TaskAction;
 }
 
 /** Branch-scoped custom checkpoint written by the user-confirmed reset UI. */
