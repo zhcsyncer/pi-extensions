@@ -2,73 +2,55 @@
  * Shared types for pi-search-hub extension.
  */
 
-export type ReaderName = "jina" | "sofya" | "firecrawl" | "exa" | "exa_mcp";
+export const SEARCH_BACKEND_NAMES = ["exa", "tavily", "firecrawl", "parallel"] as const;
+export type SearchBackendName = (typeof SEARCH_BACKEND_NAMES)[number];
+
+export const READER_NAMES = ["firecrawl", "exa", "parallel"] as const;
+export type ReaderName = (typeof READER_NAMES)[number];
+
+export const DEFAULT_READER = "firecrawl";
+export const KEYLESS_FALLBACK_BACKEND = "firecrawl";
+export const ROUTING_STRATEGIES = ["priority", "random", "best-latency"] as const;
+export type RoutingStrategy = (typeof ROUTING_STRATEGIES)[number];
+export const DEFAULT_ROUTING: RoutingStrategy = "priority";
+
+export function isSearchBackendName(value: unknown): value is SearchBackendName {
+	return typeof value === "string" && (SEARCH_BACKEND_NAMES as readonly string[]).includes(value);
+}
+
+export function isReaderName(value: unknown): value is ReaderName {
+	return typeof value === "string" && (READER_NAMES as readonly string[]).includes(value);
+}
+
+export function isRoutingStrategy(value: unknown): value is RoutingStrategy {
+	return typeof value === "string" && (ROUTING_STRATEGIES as readonly string[]).includes(value);
+}
 
 export interface BackendConfig {
 	enabled?: boolean;
+	/** Legacy single-key field. Normalized into `apiKeys` on load/save. */
 	apiKey?: string;
+	apiKeys?: string[];
 	/** Per-backend timeout override in milliseconds. Default: 30000 */
 	timeout?: number;
 	/** Per-backend max results override. Default: 10 */
 	maxResults?: number;
 	/** Per-backend extra headers */
 	headers?: Record<string, string>;
-	/** SearXNG-specific: base URL of the self-hosted instance (e.g. http://localhost:8888) */
-	instanceUrl?: string;
-	/** Perplexity-specific: model variant (sonar, sonar-pro, sonar-deep-research, sonar-reasoning). Default: sonar */
-	model?: string;
-	/** DuckDuckGo-specific: ddgs backend(s) — "auto", "duckduckgo", "bing", "brave", "google", comma-delimited */
-	ddgsBackend?: string;
-	/** DuckDuckGo-specific: region (e.g. "us-en"). Default: "us-en" */
-	ddgsRegion?: string;
-	/** DuckDuckGo-specific: timelimit — "d" (day), "w" (week), "m" (month), "y" (year) */
-	ddgsTimelimit?: string;
-	/** Brave LLM Context-specific: token budget for response chunks */
-	tokenBudget?: number;
-	/** Linkup-specific: search depth — "standard" (fast) or "deep" (comprehensive). Default: standard */
-	depth?: "standard" | "deep";
-	/** fastCRW-specific: base URL override (for self-hosted). Default: https://api.fastcrw.com */
-	baseUrl?: string;
-	/** Sofya-specific: search depth. "snippets" (1cr, SERP only) or "basic" (3cr, full page content). Default: basic */
-	searchDepth?: "snippets" | "basic";
-	/** Sofya-specific: topic. "general" or "news". Default: general */
-	topic?: "general" | "news";
 }
 
 export interface SearchConfig {
-	defaultBackend?: string;
-	combine?: boolean;
-	/** Combine strategy when combine is enabled. "all" queries every active backend; "targeted" queries only enough ordered backends to collect up to 3 usable result sets. */
-	combineMode?: "all" | "targeted";
-	selectionStrategy?: "sequential" | "random" | "round-robin" | "best-latency";
-	/** Default reader backend for web_read when the tool call does not choose one explicitly. */
-	reader?: ReaderName;
-	/** Ordered readers tried after the default reader when web_read does not choose one explicitly. */
-	readerFallback?: ReaderName[];
+	/** Try-order for fallback and targeted combine. Default: priority. */
+	routing?: RoutingStrategy;
+	/** Enabled backends in try order. Ignored names and disabled backends are dropped at use/save. */
+	priority?: SearchBackendName[];
 	/** Default compact output. When true, returns single-line results (title + URL). Default: false. */
 	compact?: boolean;
 	backends?: {
-		duckduckgo?: BackendConfig;
-		marginalia?: BackendConfig;
-
-		serper?: BackendConfig;
-		tavily?: BackendConfig;
 		exa?: BackendConfig;
-		exa_mcp?: BackendConfig;
-		"openai-codex"?: BackendConfig;
-		brave?: BackendConfig;
-		braveLLM?: BackendConfig;
-		"brave-llm"?: BackendConfig;
-		langsearch?: BackendConfig;
+		tavily?: BackendConfig;
 		firecrawl?: BackendConfig;
-		websearchapi?: BackendConfig;
-		perplexity?: BackendConfig;
-		searxng?: BackendConfig;
-		linkup?: BackendConfig;
-		youcom?: BackendConfig;
-		fastcrw?: BackendConfig;
-		sofya?: BackendConfig;
-		[key: string]: BackendConfig | undefined;
+		parallel?: BackendConfig;
 	};
 }
 
@@ -84,17 +66,13 @@ export interface SearchResultWithBackend extends SearchResult {
 }
 
 export interface BackendRunner {
-	/** Existing Pi provider whose credential must be resolved from the current session registry. */
-	providerAuth?: string;
 	needsKey: boolean;
-	needsKeyFromConfig: boolean;
 	optionalKey: boolean;
-	needsInstanceUrl: boolean;
 	label: string;
 	setupLabel: string | null;
 	search: (
 		query: string,
 		numResults: number,
-		deps: { key?: string; instanceUrl?: string; signal?: AbortSignal; backendConfig?: BackendConfig; onNotice?: (message: string) => void },
-	) => Promise<{ results: SearchResult[] }>;
+		deps: { key?: string; signal?: AbortSignal; backendConfig?: BackendConfig; onNotice?: (message: string) => void },
+	) => Promise<{ results: SearchResult[]; warning?: string }>;
 }

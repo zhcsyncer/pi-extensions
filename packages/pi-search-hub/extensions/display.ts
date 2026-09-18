@@ -1,4 +1,5 @@
 import { BACKEND_DEFS } from "./backends/registry.js";
+import { DEFAULT_READER } from "./types.js";
 
 export const WEB_READ_RESULT_MAX_CHARS = 10_000;
 
@@ -13,11 +14,9 @@ export interface SearchHubResultPresentation {
 }
 
 const READER_LABELS: Record<string, string> = {
-	jina: "Jina",
-	sofya: "Sofya",
 	firecrawl: "Firecrawl",
 	exa: "Exa",
-	exa_mcp: "Exa MCP",
+	parallel: "Parallel",
 };
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -51,7 +50,7 @@ function backendLabel(backend: string): string {
 	return BACKEND_DEFS[backend]?.label || backend;
 }
 
-function readerLabel(reader: unknown, fallback = "jina"): string {
+function readerLabel(reader: unknown, fallback = DEFAULT_READER): string {
 	const key = typeof reader === "string" && reader ? reader : fallback;
 	return READER_LABELS[key] || key;
 }
@@ -107,11 +106,8 @@ export function getWebSearchCallPresentation(args: unknown): SearchHubCallPresen
 	const query = singleLine(input.query, 72);
 	if (!query) return undefined;
 
-	const requestedBackend = typeof input.backend === "string" && input.backend
-		? input.backend
-		: "auto";
-	const metadata = [requestedBackend === "auto" ? "auto" : backendLabel(requestedBackend)];
-	if (input.combine === true && requestedBackend === "auto") metadata.push("combine");
+	const metadata: string[] = [];
+	if (input.combine === true) metadata.push("combine");
 	const requestedResults = typeof input.numResults === "number" && Number.isFinite(input.numResults)
 		? Math.max(1, Math.min(20, Math.floor(input.numResults)))
 		: 10;
@@ -151,21 +147,13 @@ export function getWebSearchResultPresentation(result: unknown): SearchHubResult
 
 export function getWebReadCallPresentation(
 	args: unknown,
-	defaultReader = "jina",
+	defaultReader = DEFAULT_READER,
 ): SearchHubCallPresentation | undefined {
 	const input = toRecord(args);
 	const target = shortenUrl(input.url);
 	if (!target) return undefined;
 
-	const metadata = [readerLabel(input.reader, defaultReader)];
-	if (input.mode === "rush" || input.mode === "smart") metadata.push(input.mode);
-	if (Array.isArray(input.keywords) && input.keywords.length > 0) {
-		metadata.push(`${input.keywords.length} ${input.keywords.length === 1 ? "keyword" : "keywords"}`);
-	}
-	if (input.fresh === true) metadata.push("fresh");
-	if (typeof input.objective === "string" && input.objective.trim()) metadata.push("selector");
-
-	return { target, metadata };
+	return { target, metadata: [readerLabel(input.reader, defaultReader)] };
 }
 
 export function getWebReadResultPresentation(result: unknown): SearchHubResultPresentation | undefined {

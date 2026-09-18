@@ -34,3 +34,7 @@ export function getLegacyExaUsagePath(agentDir = getAgentDir()): string {
 export function getEffectivenessPath(agentDir = getAgentDir()): string {
 	return join(getSearchHubDataDir(agentDir), "state", "effectiveness.json");
 }
+
+export function getKeyCursorsPath(agentDir = getAgentDir()): string {
+	return join(getSearchHubDataDir(agentDir), "state", "key-cursors.json");
+}

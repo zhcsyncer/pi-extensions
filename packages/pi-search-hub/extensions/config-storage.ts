@@ -12,39 +12,39 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import type { BackendConfig, ReaderName, SearchConfig } from "./types.js";
+import type { BackendConfig, SearchBackendName, SearchConfig } from "./types.js";
+import { isRoutingStrategy, isSearchBackendName } from "./types.js";
 
 export type MigrationNoticeSink = (message: string) => void;
 
 const ROOT_FIELDS = new Set([
+	"routing",
+	"priority",
+	"compact",
+	"backends",
+]);
+const LEGACY_ROOT_FIELDS = new Set([
 	"defaultBackend",
 	"combine",
 	"combineMode",
 	"selectionStrategy",
 	"reader",
 	"readerFallback",
-	"compact",
-	"backends",
 ]);
 const BACKEND_FIELDS = new Set([
 	"enabled",
 	"apiKey",
+	"apiKeys",
 	"timeout",
 	"maxResults",
 	"headers",
-	"instanceUrl",
-	"model",
-	"ddgsBackend",
-	"ddgsRegion",
-	"ddgsTimelimit",
-	"tokenBudget",
-	"depth",
-	"baseUrl",
-	"searchDepth",
-	"topic",
 ]);
-const READERS = new Set<ReaderName>(["jina", "sofya", "firecrawl", "exa", "exa_mcp"]);
-const SELECTION_STRATEGIES = new Set(["sequential", "random", "round-robin", "best-latency"]);
+function migrateRouting(value: unknown): SearchConfig["routing"] | undefined {
+	if (isRoutingStrategy(value)) return value;
+	if (value === "sequential" || value === "round-robin") return "priority";
+	if (value === "random" || value === "best-latency") return value;
+	return undefined;
+}
 const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 1_000;
 const LOCK_RETRY_MS = 20;
@@ -93,10 +93,8 @@ function normalizeBackend(value: unknown, prefix: string, dropped: string[]): Ba
 		if (!BACKEND_FIELDS.has(key)) dropped.push(`${prefix}${key}`);
 	}
 	keepBoolean(value, normalized, "enabled", dropped, prefix);
-	for (const key of ["apiKey", "instanceUrl", "model", "ddgsBackend", "ddgsRegion", "ddgsTimelimit", "baseUrl"] as const) {
-		keepString(value, normalized, key, dropped, prefix);
-	}
-	for (const key of ["timeout", "maxResults", "tokenBudget"] as const) {
+	keepString(value, normalized, "apiKey", dropped, prefix);
+	for (const key of ["timeout", "maxResults"] as const) {
 		keepPositiveNumber(value, normalized, key, dropped, prefix);
 	}
 	if ("headers" in value) {
@@ -111,65 +109,89 @@ function normalizeBackend(value: unknown, prefix: string, dropped: string[]): Ba
 			dropped.push(`${prefix}headers`);
 		}
 	}
-	if ("depth" in value) {
-		if (value.depth === "standard" || value.depth === "deep") normalized.depth = value.depth;
-		else dropped.push(`${prefix}depth`);
+	const apiKeys: string[] = [];
+	if ("apiKeys" in value) {
+		if (Array.isArray(value.apiKeys)) {
+			for (const [index, key] of value.apiKeys.entries()) {
+				if (typeof key === "string" && key.trim()) apiKeys.push(key.trim());
+				else dropped.push(`${prefix}apiKeys[${index}]`);
+			}
+		} else {
+			dropped.push(`${prefix}apiKeys`);
+		}
 	}
-	if ("searchDepth" in value) {
-		if (value.searchDepth === "snippets" || value.searchDepth === "basic") normalized.searchDepth = value.searchDepth;
-		else dropped.push(`${prefix}searchDepth`);
-	}
-	if ("topic" in value) {
-		if (value.topic === "general" || value.topic === "news") normalized.topic = value.topic;
-		else dropped.push(`${prefix}topic`);
-	}
+	const legacyKey = typeof normalized.apiKey === "string" ? normalized.apiKey.trim() : "";
+	delete normalized.apiKey;
+	if (legacyKey && !apiKeys.includes(legacyKey)) apiKeys.unshift(legacyKey);
+	if (apiKeys.length > 0) normalized.apiKeys = apiKeys;
 	return normalized as BackendConfig;
 }
 
 export function normalizeSearchConfigForStorage(value: unknown): { config: SearchConfig; dropped: string[] } {
 	if (!isRecord(value)) throw new Error("the root value must be a JSON object");
 	const dropped: string[] = [];
-	const normalized: Record<string, unknown> = {};
 	for (const key of Object.keys(value)) {
-		if (!ROOT_FIELDS.has(key)) dropped.push(key);
+		if (!ROOT_FIELDS.has(key) && !LEGACY_ROOT_FIELDS.has(key)) dropped.push(key);
 	}
-	keepString(value, normalized, "defaultBackend", dropped);
-	keepBoolean(value, normalized, "combine", dropped);
-	keepBoolean(value, normalized, "compact", dropped);
-	if ("combineMode" in value) {
-		if (value.combineMode === "all" || value.combineMode === "targeted") normalized.combineMode = value.combineMode;
-		else dropped.push("combineMode");
+
+	let routing: SearchConfig["routing"] | undefined;
+	if ("routing" in value) {
+		routing = migrateRouting(value.routing);
+		if (!routing) dropped.push("routing");
+	} else if ("selectionStrategy" in value) {
+		routing = migrateRouting(value.selectionStrategy);
+		if (!routing) dropped.push("selectionStrategy");
 	}
-	if ("selectionStrategy" in value) {
-		if (typeof value.selectionStrategy === "string" && SELECTION_STRATEGIES.has(value.selectionStrategy)) {
-			normalized.selectionStrategy = value.selectionStrategy;
-		} else dropped.push("selectionStrategy");
-	}
-	if ("reader" in value) {
-		if (typeof value.reader === "string" && READERS.has(value.reader as ReaderName)) normalized.reader = value.reader;
-		else dropped.push("reader");
-	}
-	if ("readerFallback" in value) {
-		if (Array.isArray(value.readerFallback)) {
-			const readers: ReaderName[] = [];
-			for (const [index, reader] of value.readerFallback.entries()) {
-				if (typeof reader === "string" && READERS.has(reader as ReaderName)) {
-					if (!readers.includes(reader as ReaderName)) readers.push(reader as ReaderName);
-				} else dropped.push(`readerFallback[${index}]`);
+
+	let priority: SearchBackendName[] = [];
+	let sawPriority = false;
+	if ("priority" in value) {
+		sawPriority = true;
+		if (Array.isArray(value.priority)) {
+			for (const [index, name] of value.priority.entries()) {
+				if (isSearchBackendName(name)) {
+					if (!priority.includes(name)) priority.push(name);
+				} else dropped.push(`priority[${index}]`);
 			}
-			normalized.readerFallback = readers;
-		} else dropped.push("readerFallback");
+		} else dropped.push("priority");
 	}
+	if (typeof value.defaultBackend === "string") {
+		if (isSearchBackendName(value.defaultBackend)) {
+			priority = [value.defaultBackend, ...priority.filter((name) => name !== value.defaultBackend)];
+			sawPriority = true;
+		} else dropped.push("defaultBackend");
+	} else if ("defaultBackend" in value) {
+		dropped.push("defaultBackend");
+	}
+
+	const compactHolder: Record<string, unknown> = {};
+	keepBoolean(value, compactHolder, "compact", dropped);
+
+	if ("combine" in value && value.combine !== undefined) dropped.push("combine");
+	if ("combineMode" in value && value.combineMode !== undefined) dropped.push("combineMode");
+	if ("reader" in value && value.reader !== undefined) dropped.push("reader");
+	if ("readerFallback" in value && value.readerFallback !== undefined) dropped.push("readerFallback");
+
+	let backends: Record<string, BackendConfig | undefined> | undefined;
 	if ("backends" in value) {
 		if (isRecord(value.backends)) {
-			const backends: Record<string, BackendConfig | undefined> = {};
+			backends = {};
 			for (const [backend, backendValue] of Object.entries(value.backends)) {
+				if (!isSearchBackendName(backend)) {
+					dropped.push(`backends.${backend}`);
+					continue;
+				}
 				const normalizedBackend = normalizeBackend(backendValue, `backends.${backend}.`, dropped);
 				if (normalizedBackend) backends[backend] = normalizedBackend;
 			}
-			normalized.backends = backends;
 		} else dropped.push("backends");
 	}
+
+	const normalized: Record<string, unknown> = {};
+	if (routing) normalized.routing = routing;
+	if (sawPriority) normalized.priority = priority;
+	if ("compact" in compactHolder) normalized.compact = compactHolder.compact;
+	if (backends) normalized.backends = backends;
 	return { config: normalized as SearchConfig, dropped: [...new Set(dropped)] };
 }
 

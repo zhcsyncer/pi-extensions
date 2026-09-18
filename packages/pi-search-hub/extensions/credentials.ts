@@ -11,6 +11,7 @@ import { execSync } from "node:child_process";
 import { COMMAND_TIMEOUT_MS } from "./utils.js";
 import type { NoticeSink } from "./diagnostics.js";
 import type { BackendConfig, SearchConfig } from "./types.js";
+import { readKeyCursor, writeKeyCursor } from "./key-cursors.js";
 
 // ---------------------------------------------------------------------------
 // Credential cache
@@ -91,41 +92,93 @@ export function resolveConfigValue(reference: string | undefined, onNotice?: Not
 
 /** Convenience env vars checked as fallback when config has no apiKey for a backend. */
 export const FALLBACK_ENV_MAP: Record<string, string> = {
-	jina: "SEARCH_JINA_API_KEY",
-	serper: "SEARCH_SERPER_API_KEY",
-	tavily: "SEARCH_TAVILY_API_KEY",
 	exa: "SEARCH_EXA_API_KEY",
-	brave: "SEARCH_BRAVE_API_KEY",
-	"brave-llm": "SEARCH_BRAVE_API_KEY",
-	langsearch: "SEARCH_LANGSEARCH_API_KEY",
+	tavily: "SEARCH_TAVILY_API_KEY",
 	firecrawl: "SEARCH_FIRECRAWL_API_KEY",
-	websearchapi: "SEARCH_WEBSEARCHAPI_API_KEY",
-	perplexity: "SEARCH_PERPLEXITY_API_KEY",
-	sofya: "SEARCH_SOFYA_API_KEY",
-	youcom: "SEARCH_YOUCOM_API_KEY",
-	linkup: "SEARCH_LINKUP_API_KEY",
-	fastcrw: "SEARCH_FASTCRW_API_KEY",
+	parallel: "SEARCH_PARALLEL_API_KEY",
 };
 
-/** Lazy resolution: config.apiKey → resolveConfigValue() → FALLBACK_ENV_MAP fallback. */
-export function resolveBackendKey(backend: string, config: SearchConfig, onNotice?: NoticeSink): string | undefined {
-	const bc = config.backends?.[backend as keyof typeof config.backends];
-	if (bc?.apiKey) {
-		const resolved = resolveConfigValue(bc.apiKey, onNotice ? (message) => onNotice(`Search Hub ${backend}: ${message}`) : undefined);
-		if (resolved) return resolved;
+function backendConfig(backend: string, config: SearchConfig): BackendConfig | undefined {
+	return config.backends?.[backend as keyof NonNullable<SearchConfig["backends"]>];
+}
+
+function collectKeyRefs(backend: string, config: SearchConfig): string[] {
+	const bc = backendConfig(backend, config);
+	const refs: string[] = [];
+	if (Array.isArray(bc?.apiKeys)) {
+		for (const value of bc.apiKeys) {
+			if (typeof value === "string" && value.trim()) refs.push(value.trim());
+		}
 	}
+	if (refs.length === 0 && typeof bc?.apiKey === "string" && bc.apiKey.trim()) {
+		refs.push(bc.apiKey.trim());
+	}
+	return refs;
+}
+
+/** Resolve every configured key for a backend: apiKeys (or legacy apiKey), then env fallback. */
+export function resolveBackendKeys(backend: string, config: SearchConfig, onNotice?: NoticeSink): string[] {
+	const notice = onNotice ? (message: string) => onNotice(`Search Hub ${backend}: ${message}`) : undefined;
+	const keys: string[] = [];
+	const seen = new Set<string>();
+	for (const ref of collectKeyRefs(backend, config)) {
+		const resolved = resolveConfigValue(ref, notice);
+		if (resolved && !seen.has(resolved)) {
+			seen.add(resolved);
+			keys.push(resolved);
+		}
+	}
+	if (keys.length > 0) return keys;
 	const fallbackEnv = FALLBACK_ENV_MAP[backend];
 	if (fallbackEnv) {
 		const envValue = process.env[fallbackEnv];
-		if (envValue && envValue.trim().length > 0) return envValue.trim();
+		if (envValue && envValue.trim().length > 0) return [envValue.trim()];
 	}
-	return undefined;
+	return [];
+}
+
+/** Lazy resolution: config.apiKeys / apiKey → resolveConfigValue() → FALLBACK_ENV_MAP fallback. */
+export function resolveBackendKey(backend: string, config: SearchConfig, onNotice?: NoticeSink): string | undefined {
+	return resolveBackendKeys(backend, config, onNotice)[0];
+}
+
+/** Rotate only on 429 / 402 / 432 / quota exhaustion. Ordinary 4xx/5xx/timeouts stay put. */
+export function isKeyRotationError(error: unknown): boolean {
+	const text = error instanceof Error ? error.message : String(error);
+	if (/\b(429|402|432)\b/.test(text)) return true;
+	return /\bquota\b/i.test(text);
+}
+
+/**
+ * Try keys starting at the persisted cursor. Advance and persist only on rotation errors.
+ * A changed key list resets the cursor to 0.
+ */
+export async function withRotatedKeys<T>(
+	backend: string,
+	keys: readonly string[],
+	fn: (key: string) => Promise<T>,
+): Promise<T> {
+	if (keys.length === 0) throw new Error(`No API keys configured for ${backend}`);
+	if (keys.length === 1) return fn(keys[0]);
+	const start = readKeyCursor(backend, keys);
+	let lastError: unknown;
+	for (let offset = 0; offset < keys.length; offset++) {
+		const index = (start + offset) % keys.length;
+		try {
+			return await fn(keys[index]);
+		} catch (error) {
+			lastError = error;
+			if (!isKeyRotationError(error) || offset === keys.length - 1) throw error;
+			writeKeyCursor(backend, keys, (index + 1) % keys.length);
+		}
+	}
+	throw lastError;
 }
 
 /** Describe where a backend's key comes from for setup and readiness display. */
 export function getKeySource(backend: string, config: SearchConfig): { configured: boolean; source: string } {
-	const bc = config.backends?.[backend as keyof typeof config.backends];
-	const ref = bc?.apiKey?.trim();
+	const refs = collectKeyRefs(backend, config);
+	const ref = refs[0];
 	if (!ref) {
 		const fallbackEnv = FALLBACK_ENV_MAP[backend];
 		if (fallbackEnv && process.env[fallbackEnv]?.trim()) {
@@ -144,5 +197,5 @@ export function getKeySource(backend: string, config: SearchConfig): { configure
 		if (envValue) return { configured: true, source: `env:${ref}` };
 		return { configured: false, source: `env:${ref} (unset)` };
 	}
-	return { configured: true, source: "literal" };
+	return { configured: true, source: refs.length > 1 ? "literal keys" : "literal" };
 }

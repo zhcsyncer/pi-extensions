@@ -10,6 +10,8 @@ import {
 	classifyError,
 	evaluateDegradation,
 	isUserAbort,
+	rankBackendsByEffectiveness,
+	readEffectivenessState,
 	recordEffectiveness,
 	reportEffectiveness,
 	type EffectivenessAttempt,
@@ -97,6 +99,18 @@ describe("evaluateDegradation", () => {
 	});
 });
 
+describe("rankBackendsByEffectiveness", () => {
+	it("ranks last-10 success rate then median successful latency, keeping unknown order", () => {
+		const attempt = (ok: boolean, latencyMs: number): EffectivenessAttempt => ({ t: 1, ok, latencyMs });
+		const ranked = rankBackendsByEffectiveness(["unknown", "slow", "fast", "failing"], {
+			"fast:search": [attempt(true, 40), attempt(true, 60)],
+			"slow:search": [attempt(true, 800), attempt(true, 900)],
+			"failing:search": [attempt(false, 20), attempt(false, 30)],
+		});
+		expect(ranked).toEqual(["fast", "slow", "unknown", "failing"]);
+	});
+});
+
 describe("recordEffectiveness persistence", () => {
 	let root: string;
 
@@ -161,5 +175,19 @@ describe("recordEffectiveness persistence", () => {
 			keys: Record<string, EffectivenessAttempt[]>;
 		};
 		expect(stored.keys["jina:read"]).toHaveLength(MAX_ATTEMPTS_PER_KEY);
+	});
+
+	it("reads persisted state for startup ranking", async () => {
+		await recordEffectiveness({
+			backend: "exa",
+			label: "Exa",
+			op: "search",
+			ok: true,
+			latencyMs: 50,
+			resultCount: 3,
+		});
+		const state = readEffectivenessState();
+		expect(state["exa:search"]?.[0]).toMatchObject({ ok: true, latencyMs: 50 });
+		expect(rankBackendsByEffectiveness(["tavily", "exa"], state)).toEqual(["exa", "tavily"]);
 	});
 });

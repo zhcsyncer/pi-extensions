@@ -11,7 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import searchHubExtension from "../extensions/search-hub.js";
 import { reciprocalRankFusion, runTargetedCombine, selectBackendsForFallback } from "../extensions/dispatch.js";
-import { recordBackendSuccess, recordBackendFailure } from "../extensions/scoring.js";
+import type { EffectivenessState } from "../extensions/effectiveness.js";
 import { resolveConfigValue, clearCredentialCache, FALLBACK_ENV_MAP } from "../extensions/credentials.js";
 import { loadConfig } from "../extensions/config.js";
 
@@ -62,12 +62,11 @@ describe("tool display integration", () => {
 			const searchCall = (adapters[0].getCallPresentation as (args: unknown) => unknown)({
 				query: "Pi coding agent latest release GitHub",
 				numResults: 3,
-				backend: "auto",
 				compact: false,
 			});
 			expect(searchCall).toEqual({
 				target: "“Pi coding agent latest release GitHub”",
-				metadata: ["auto", "top 3"],
+				metadata: ["top 3"],
 			});
 			const searchResult = (adapters[0].getResultPresentation as (result: unknown) => unknown)({
 				content: [{ type: "text", text: "## Search Results: test\nBackend: tavily · Results: 3\n\nfirst" }],
@@ -77,26 +76,36 @@ describe("tool display integration", () => {
 
 			const readCall = (adapters[1].getCallPresentation as (args: unknown) => unknown)({
 				url: "https://pi.dev/docs/latest/extensions",
-				reader: "jina",
-				mode: "smart",
-				keywords: ["renderCall", "renderResult", "custom tools"],
-				fresh: true,
 			});
 			expect(readCall).toEqual({
 				target: "pi.dev/docs/latest/extensions",
-				metadata: ["Jina", "smart", "3 keywords", "fresh"],
+				metadata: ["Firecrawl"],
 			});
 			const readResult = (adapters[1].getResultPresentation as (result: unknown) => unknown)({
-				details: { reader: "jina", length: 153010, truncated: true },
+				details: { reader: "firecrawl", length: 153010, truncated: true },
 			});
 			expect(readResult).toEqual({
-				summary: "Jina · 153k chars · truncated to 10k chars",
+				summary: "Firecrawl · 153k chars · truncated to 10k chars",
 				previewStartLine: 0,
 			});
 
-			expect(registeredTools[1].promptGuidelines).toContain(
-				"Set web_read objective only to a valid CSS selector for Jina targeted extraction; do not pass a natural-language question",
-			);
+			const searchSchema = registeredTools[0].parameters as {
+				properties?: Record<string, unknown>;
+				required?: string[];
+			};
+			expect(Object.keys(searchSchema.properties ?? {}).sort()).toEqual(["combine", "compact", "numResults", "query"]);
+			expect(searchSchema.properties).not.toHaveProperty("backend");
+
+			const readSchema = registeredTools[1].parameters as {
+				properties?: Record<string, unknown>;
+				required?: string[];
+			};
+			expect(Object.keys(readSchema.properties ?? {}).sort()).toEqual(["url"]);
+			expect(readSchema.properties).not.toHaveProperty("reader");
+			expect(readSchema.properties).not.toHaveProperty("fresh");
+			expect(readSchema.properties).not.toHaveProperty("keywords");
+			expect(readSchema.properties).not.toHaveProperty("mode");
+			expect(readSchema.properties).not.toHaveProperty("objective");
 
 			for (const tool of registeredTools) {
 				const schema = tool.parameters as {
@@ -378,73 +387,44 @@ describe("runTargetedCombine", () => {
 // ---------------------------------------------------------------------------
 
 describe("selectBackendsForFallback", () => {
-	it("sequential returns backends in original order", () => {
-		const backends = ["duckduckgo", "brave", "tavily"];
-		const result = selectBackendsForFallback("sequential", backends);
+	it("priority returns backends in original order", () => {
+		const backends = ["exa", "tavily", "firecrawl"];
+		const result = selectBackendsForFallback("priority", backends);
 		expect(result).toEqual(backends);
 	});
 
 	it("random returns all backends (possibly reordered)", () => {
-		const backends = ["duckduckgo", "brave", "tavily"];
+		const backends = ["exa", "tavily", "firecrawl"];
 		const result = selectBackendsForFallback("random", backends);
 		expect(result).toHaveLength(backends.length);
-		// All backends should be present
 		for (const b of backends) {
 			expect(result).toContain(b);
 		}
-		// Verify some reordering happens across multiple calls (distribution check)
 		const results: string[][] = [];
 		for (let i = 0; i < 20; i++) {
 			results.push(selectBackendsForFallback("random", [...backends]));
 		}
-		// At least one call should differ from the first result — confirms shuffling
 		const first = JSON.stringify(results[0]);
 		const shuffled = results.some((r) => JSON.stringify(r) !== first);
 		expect(shuffled).toBe(true);
 	});
 
-	it("round-robin rotates starting backend", () => {
-		const backends = ["duckduckgo", "brave", "tavily"];
-
-		// Call multiple times — the first element should rotate
-		const firsts = new Set<string>();
-		for (let i = 0; i < 12; i++) {
-			const result = selectBackendsForFallback("round-robin", backends);
-			firsts.add(result[0]);
-		}
-
-		// With 3 backends and 12 calls, should see all 3 backends as first
-		expect(firsts.size).toBe(3);
-	});
-
-	it("best-latency returns backends sorted by score", () => {
+	it("best-latency ranks by persisted success rate then median latency", () => {
 		const backends = ["slow-backend", "fast-backend", "broken-backend"];
+		const attempt = (ok: boolean, latencyMs: number) => ({ t: 1, ok, latencyMs });
+		const state: EffectivenessState = {
+			"fast-backend:search": [attempt(true, 80), attempt(true, 120)],
+			"slow-backend:search": [attempt(true, 4000), attempt(true, 5000)],
+			"broken-backend:search": [attempt(false, 10), attempt(false, 12)],
+		};
 
-		// Fast backend: fast + successful
-		recordBackendSuccess("fast-backend", 100, 10, 10);
-		// Slow backend: slow but successful
-		recordBackendSuccess("slow-backend", 5000, 10, 10);
-		// Broken backend: all failures
-		recordBackendFailure("broken-backend");
-		recordBackendFailure("broken-backend");
+		const result = selectBackendsForFallback("best-latency", backends, state);
 
-		const result = selectBackendsForFallback("best-latency", backends);
-
-		// Should return all backends in score order (best first)
-		expect(result).toHaveLength(3);
-		// Fast backend should be first
-		expect(result[0]).toBe("fast-backend");
-		// Broken backend should be last
-		expect(result[2]).toBe("broken-backend");
-	});
-
-	it("round-robin with empty backends returns empty array", () => {
-		const result = selectBackendsForFallback("round-robin", []);
-		expect(result).toEqual([]);
+		expect(result).toEqual(["fast-backend", "slow-backend", "broken-backend"]);
 	});
 
 	it("does not mutate original array", () => {
-		const backends = ["duckduckgo", "brave", "tavily"];
+		const backends = ["exa", "tavily", "firecrawl"];
 		const copy = [...backends];
 		selectBackendsForFallback("random", backends);
 		expect(backends).toEqual(copy);
@@ -518,15 +498,19 @@ describe("loadConfig", () => {
 		const envNames = [...new Set(Object.values(FALLBACK_ENV_MAP))];
 		const previous = new Map(envNames.map((name) => [name, process.env[name]]));
 		const previousHome = process.env.HOME;
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 		try {
 			for (const name of envNames) delete process.env[name];
 			process.env.HOME = "/nonexistent/pi-search-hub-test-home";
+			delete process.env.PI_CODING_AGENT_DIR;
 			const cfg = loadConfig("/nonexistent/path");
-			expect(cfg.defaultBackend).toBe("duckduckgo");
+			expect(cfg.routing).toBeUndefined();
 			expect(typeof cfg.backends).toBe("object");
 		} finally {
 			if (previousHome === undefined) delete process.env.HOME;
 			else process.env.HOME = previousHome;
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 			for (const [name, value] of previous) {
 				if (value === undefined) delete process.env[name];
 				else process.env[name] = value;
@@ -535,92 +519,3 @@ describe("loadConfig", () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// fetchSofya tests
-// ---------------------------------------------------------------------------
-
-import { fetchSofya } from "../extensions/backends/sofya.js";
-
-describe("fetchSofya", () => {
-	let fetchSpy: ReturnType<typeof vi.spyOn>;
-
-	beforeEach(() => {
-		fetchSpy = vi.spyOn(global, "fetch");
-	});
-
-	afterEach(() => {
-		fetchSpy.mockRestore();
-	});
-
-	it("throws on HTTP error response", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: false,
-			status: 401,
-			text: async () => "Unauthorized",
-		} as Response);
-
-		await expect(fetchSofya("https://example.com", "invalid-key")).rejects.toThrow("Sofya fetch");
-	});
-
-	it("throws when success is false in response", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({ results: [{ success: false, error: "Rate limit exceeded" }] }),
-		} as Response);
-
-		await expect(fetchSofya("https://example.com", "valid-key")).rejects.toThrow("Sofya fetch failed");
-	});
-
-	it("throws when no results returned", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({ results: [] }),
-		} as Response);
-
-		await expect(fetchSofya("https://example.com", "valid-key")).rejects.toThrow("no content returned");
-	});
-
-	it("returns content on success", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({
-				results: [{
-					success: true,
-					url: "https://example.com",
-					title: "Example",
-					content: "Page content here",
-				}],
-			}),
-		} as Response);
-
-		const result = await fetchSofya("https://example.com", "valid-key");
-		expect(result.content).toBe("Page content here");
-		expect(result.title).toBe("Example");
-	});
-
-	it("sends include_raw_html:false by default", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({
-				results: [{ success: true, url: "https://example.com", content: "x" }],
-			}),
-		} as Response);
-
-		await fetchSofya("https://example.com", "valid-key");
-		const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-		expect(body.include_raw_html).toBe(false);
-	});
-
-	it("sends include_raw_html:true when opts.includeRawHtml set", async () => {
-		fetchSpy.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({
-				results: [{ success: true, url: "https://example.com", content: "<html>x</html>" }],
-			}),
-		} as Response);
-
-		await fetchSofya("https://example.com", "valid-key", undefined, { includeRawHtml: true });
-		const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-		expect(body.include_raw_html).toBe(true);
-	});
-});
