@@ -253,13 +253,13 @@ interface MutationDetailsV2 {
 }
 ```
 
-只读 tool result：
+非 checkpoint 的 tool result（list/get，以及未改变 live state 的 update/batch）：
 
 ```ts
 interface QueryDetailsV2 {
   schemaVersion: 2;
   kind: "query";
-  action: "list" | "get";
+  action: TaskAction;
 }
 ```
 

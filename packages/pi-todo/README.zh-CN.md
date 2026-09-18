@@ -109,7 +109,7 @@ widget 超限时，入选优先级依次为 `in_progress`、`pending`、`complet
 
 - `renderShell: "self"` 默认隐藏成功节点，展开模式提供可审计摘要，避免与 widget 重复展示。
 - reducer 校验失败会抛出真正的 Pi 工具错误；执行错误始终可见。
-- 成功 mutation 保存 V2 `kind: "checkpoint"` envelope，其中只包含有界 live state（`tasks`、单调 `nextId`、内部 `generation` 与 `revision`）；`list/get` 只保存很小的 `kind: "query"` envelope，replay 会忽略它。
+- 成功 mutation 保存 V2 `kind: "checkpoint"` envelope，其中只包含有界 live state（`tasks`、单调 `nextId`、内部 `generation` 与 `revision`）；`list`/`get` 以及无变更的 mutation 只保存很小的 `kind: "query"` envelope，replay 会忽略它。
 - 用户确认 reset 以 branch-scoped `pi-todo-state` custom checkpoint 持久化；旧 V1 全量 tool result 保持 replay 兼容。
 - `session_start`、`session_tree` 和 `session_compact` 从当前 branch 最后一个合法 mutation/reset checkpoint 恢复；未知或损坏 envelope 会被跳过。
 - 模型只通过工具结果看到 Todo 状态。扩展不会把当前任务列表注入 system prompt，也不会额外塞进对话。`update` / `batch` 若只是重申当前字段，会返回 `No changes; state already matches`，并且不写 checkpoint。

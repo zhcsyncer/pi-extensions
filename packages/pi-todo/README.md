@@ -109,7 +109,7 @@ This package is published independently as `@zhcsyncer/pi-todo`; the root bundle
 
 - `renderShell: "self"` hides successful nodes by default and provides an auditable expanded summary without duplicating the widget.
 - Reducer validation failures throw real Pi tool errors; execution errors are always visible.
-- Successful mutations store a V2 `kind: "checkpoint"` envelope containing the bounded live state (`tasks`, monotonic `nextId`, internal `generation`, and `revision`). `list` and `get` store only a small `kind: "query"` envelope and are ignored by replay.
+- Successful mutations store a V2 `kind: "checkpoint"` envelope containing the bounded live state (`tasks`, monotonic `nextId`, internal `generation`, and `revision`). `list`, `get`, and no-op mutations store only a small `kind: "query"` envelope and are ignored by replay.
 - User-confirmed reset is persisted as a branch-scoped `pi-todo-state` custom checkpoint. V1 full-state tool results remain replay-compatible.
 - `session_start`, `session_tree`, and `session_compact` restore the last valid mutation/reset checkpoint on the active branch; unknown or malformed envelopes are skipped.
 - The model sees Todo state only through tool results. The extension does not inject a live task list into the system prompt or as extra conversation messages. An `update` or `batch` that restates the current fields returns `No changes; state already matches` and does not write a checkpoint.
