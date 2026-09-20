@@ -3,16 +3,18 @@
  */
 
 import type { NoticeSink } from "../diagnostics.js";
-import type { BackendRunner, BackendConfig, SearchResult } from "../types.js";
+import type { BackendRunner, BackendConfig, HostedSearchRuntime, SearchResult } from "../types.js";
 import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKeys, withRotatedKeys } from "../credentials.js";
 import { getConfig } from "../config.js";
 import { reportEffectiveness } from "../effectiveness.js";
+import { isQuotaExhaustedError, markHostedQuotaSkip } from "../quota-skips.js";
 
 import { searchTavily } from "./tavily.js";
 import { searchExa } from "./exa.js";
 import { searchFirecrawl } from "./firecrawl.js";
 import { searchParallel } from "./parallel.js";
+import { searchHostedWebSearch } from "./hosted-search.js";
 
 // ---------------------------------------------------------------------------
 // Backend Registry
@@ -59,6 +61,46 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 			return { results: result.results };
 		},
 	},
+	"openai-codex": {
+		providerAuth: "openai-codex",
+		needsKey: false,
+		optionalKey: false,
+		label: "OpenAI Codex",
+		setupLabel: "OpenAI Codex (Pi /login, hosted web search)",
+		search: async (query, numResults, { signal, backendConfig, onNotice, modelRegistry }) => {
+			const result = await searchHostedWebSearch(
+				"openai-codex",
+				query,
+				numResults,
+				modelRegistry,
+				signal,
+				backendConfig?.model,
+				backendConfig?.timeout,
+				onNotice,
+			);
+			return { results: result.results };
+		},
+	},
+	xai: {
+		providerAuth: "xai",
+		needsKey: false,
+		optionalKey: false,
+		label: "Grok",
+		setupLabel: "Grok (Pi /login, hosted web search)",
+		search: async (query, numResults, { signal, backendConfig, onNotice, modelRegistry }) => {
+			const result = await searchHostedWebSearch(
+				"xai",
+				query,
+				numResults,
+				modelRegistry,
+				signal,
+				backendConfig?.model,
+				backendConfig?.timeout,
+				onNotice,
+			);
+			return { results: result.results };
+		},
+	},
 };
 
 // ---------------------------------------------------------------------------
@@ -67,6 +109,7 @@ export const BACKEND_DEFS: Record<string, BackendRunner> = {
 
 export interface BackendRuntime {
 	onNotice?: NoticeSink;
+	modelRegistry?: HostedSearchRuntime;
 }
 
 export async function runBackend(
@@ -80,18 +123,19 @@ export async function runBackend(
 	const def = BACKEND_DEFS[backend];
 	if (!def) throw new Error(`Unknown backend: ${backend}`);
 	const config = getConfig();
-	const keys = resolveBackendKeys(backend, config, runtime?.onNotice);
+	const keys = def.providerAuth ? [] : resolveBackendKeys(backend, config, runtime?.onNotice);
 	if (def.needsKey && keys.length === 0) {
 		throw new Error(`${def.label} backend not configured. ${MISSING_KEY_HELP}`);
 	}
 
-	const bc = (config.backends as Record<string, BackendConfig> | undefined)?.[backend];
+	const bc = (config.backends as Record<string, BackendConfig | undefined>)?.[backend];
 	const startTime = Date.now();
 	const invoke = (key?: string) => def.search(query, numResults, {
 		key,
 		signal,
 		backendConfig: bc,
 		onNotice: runtime?.onNotice,
+		modelRegistry: runtime?.modelRegistry,
 	});
 	try {
 		const result = keys.length > 1
@@ -119,6 +163,12 @@ export async function runBackend(
 			signal,
 			onNotice: runtime?.onNotice,
 		});
+		if (def.providerAuth && isQuotaExhaustedError(err)) {
+			const until = markHostedQuotaSkip(backend);
+			runtime?.onNotice?.(
+				`Search Hub ${def.label}: quota exhausted, skipping until ${new Date(until).toISOString()}.`,
+			);
+		}
 		throw err;
 	} finally {
 		markCooldown(backend);

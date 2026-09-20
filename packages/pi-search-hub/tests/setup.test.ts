@@ -165,7 +165,13 @@ describe("Search Hub setup draft helpers", () => {
 			"Firecrawl keys",
 			"Parallel",
 			"Parallel keys",
+			"OpenAI Codex",
+			"OpenAI Codex model",
+			"Grok",
+			"Grok model",
 		]);
+		expect(providers.find((item) => item.id === "model.openai-codex")?.currentValue).toBe("gpt-5.6-luna");
+		expect(providers.find((item) => item.id === "model.xai")?.currentValue).toBe("grok-4.3");
 		expect(providers.find((item) => item.id === "keys.exa")?.currentValue).toBe("1 key");
 		expect(priorityHome.map((item) => item.label).join(" ")).not.toMatch(/Save|Discard|Exit|Search mode|Selection strategy|keyless bulk/i);
 	});
@@ -188,6 +194,17 @@ describe("Search Hub setup draft helpers", () => {
 
 	it("parses editor lines into apiKeys", () => {
 		expect(parseApiKeysEditor("sk-a\n\n# comment\nEXA_API_KEY\nsk-a\n")).toEqual(["sk-a", "EXA_API_KEY"]);
+	});
+
+	it("cycles hosted-search models without writing apiKeys", () => {
+		const next = applySetupSetting({
+			backends: { "openai-codex": { enabled: true } },
+		}, "model.openai-codex", "gpt-5.6-terra");
+		expect(next.backends?.["openai-codex"]).toEqual({
+			enabled: true,
+			model: "gpt-5.6-terra",
+		});
+		expect(next.backends?.["openai-codex"]).not.toHaveProperty("apiKeys");
 	});
 
 	it("toggles enabled backends in memory without dropping keys", () => {

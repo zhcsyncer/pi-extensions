@@ -2,7 +2,7 @@
  * Shared types for pi-search-hub extension.
  */
 
-export const SEARCH_BACKEND_NAMES = ["exa", "tavily", "firecrawl", "parallel"] as const;
+export const SEARCH_BACKEND_NAMES = ["exa", "tavily", "firecrawl", "parallel", "openai-codex", "xai"] as const;
 export type SearchBackendName = (typeof SEARCH_BACKEND_NAMES)[number];
 
 export const READER_NAMES = ["firecrawl", "exa", "parallel"] as const;
@@ -37,6 +37,8 @@ export interface BackendConfig {
 	maxResults?: number;
 	/** Per-backend extra headers */
 	headers?: Record<string, string>;
+	/** Hosted-search model id for Pi OAuth backends (openai-codex, xai). */
+	model?: string;
 }
 
 export interface SearchConfig {
@@ -51,6 +53,8 @@ export interface SearchConfig {
 		tavily?: BackendConfig;
 		firecrawl?: BackendConfig;
 		parallel?: BackendConfig;
+		"openai-codex"?: BackendConfig;
+		xai?: BackendConfig;
 	};
 }
 
@@ -65,14 +69,29 @@ export interface SearchResultWithBackend extends SearchResult {
 	backend?: string;
 }
 
+export interface HostedSearchRuntime {
+	find(provider: string, modelId: string): any;
+	getProvider?(provider: string): { getModels(): readonly { id: string }[] } | undefined;
+	complete(model: any, context: any, options?: Record<string, unknown>): Promise<any>;
+	hasConfiguredAuth?(model: any): boolean;
+}
+
 export interface BackendRunner {
 	needsKey: boolean;
 	optionalKey: boolean;
+	/** Pi provider id when this backend uses /login OAuth instead of apiKeys. */
+	providerAuth?: string;
 	label: string;
 	setupLabel: string | null;
 	search: (
 		query: string,
 		numResults: number,
-		deps: { key?: string; signal?: AbortSignal; backendConfig?: BackendConfig; onNotice?: (message: string) => void },
+		deps: {
+			key?: string;
+			signal?: AbortSignal;
+			backendConfig?: BackendConfig;
+			onNotice?: (message: string) => void;
+			modelRegistry?: HostedSearchRuntime;
+		},
 	) => Promise<{ results: SearchResult[]; warning?: string }>;
 }

@@ -19,7 +19,7 @@
 - `combine` — 用同一 query 合并多家已启用 provider（默认 false）；
 - `compact` — 返回标题、来源与 URL 单行，而不是详细搜索正文。
 
-受支持的搜索 backend 为 Exa、Tavily、Firecrawl 和 Parallel。没有明确启用 backend 时，Firecrawl 是无需 key 的 fallback。Exa、Tavily 和 Parallel 需要 API key。路由为 `priority`（已启用的有序名单）、`random` 或 `best-latency`。
+受支持的搜索 backend 为 Exa、Tavily、Firecrawl、Parallel、OpenAI Codex 和 Grok。没有明确启用 backend 时，Firecrawl 是无需 key 的 fallback。Exa、Tavily 和 Parallel 需要 API key。Codex 和 Grok 走 Pi `/login`（在对应推理 API 上注入 hosted web search），不把 key 写进 Search Hub 配置。hosted backend 若订阅额度耗尽，会跳过 5 小时，避免每次搜索都重试。路由为 `priority`（已启用的有序名单）、`random` 或 `best-latency`。
 
 ### `web_read`
 
@@ -69,7 +69,7 @@ Search Hub 从以下位置读取配置：
 
 ### 交互式配置
 
-运行 `/search-setup` 可编辑全局路由和 compact 输出。各家开关和 key 在二级 Providers 页。仅 `priority` 路由时，已启用尝试顺序在独立列表里改：Enter 选中，上下键移动。不再提供独立的 `/search-status` 命令。
+运行 `/search-setup` 可编辑全局路由和 compact 输出。各家开关、key，以及 Codex/Grok 模型在二级 Providers 页。仅 `priority` 路由时，已启用尝试顺序在独立列表里改：Enter 选中，上下键移动。不再提供独立的 `/search-status` 命令。
 
 修改留在草稿中。`s` 保存；干净时 Esc 直接关闭。有未保存修改时 Esc 只确认一次是丢弃还是继续编辑，确认框里没有保存。Key 用 `ui.editor` 编辑，一行一个引用，只有保存时才写盘。禁用 backend 会保留已存 key。受信任项目配置仍可覆盖全局文件；设置页只提示这一点，不编辑项目文件。
 

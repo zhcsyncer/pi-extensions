@@ -1,11 +1,13 @@
 /**
- * Extension — Unified web search (4 backends) + content extraction (web_read)
+ * Extension — Unified web search + content extraction (web_read)
  *
  * Backends (choose any, all disabled by default):
- *   exa        — AI-native search, needs API key
- *   tavily     — AI search, needs API key
- *   firecrawl  — Search+crawl, keyless 1000 credits/mo (optional key)
- *   parallel   — Official REST search + extract, needs API key
+ *   exa          — AI-native search, needs API key
+ *   tavily       — AI search, needs API key
+ *   firecrawl    — Search+crawl, keyless 1000 credits/mo (optional key)
+ *   parallel     — Official REST search + extract, needs API key
+ *   openai-codex — Pi /login hosted web search
+ *   xai          — Pi /login hosted web search (Grok)
  *
  * Tools: web_search (routed fallback + targeted combine), web_read (URL content)
  * Config: $PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json + .pi/extension-data/pi-search-hub/config.json
@@ -40,6 +42,7 @@ import { fetchParallel } from "./backends/parallel.js";
 import { getConfig, refreshConfig, getActiveBackends, routingOf } from "./config.js";
 import { BACKEND_DEFS, runBackend } from "./backends/registry.js";
 import { selectBackendsForFallback, runTargetedCombine } from "./dispatch.js";
+import { filterQuotaSkipped } from "./quota-skips.js";
 import { formatResults, formatCombinedResults, formatResultsCompact, formatCombinedResultsCompact } from "./formatters.js";
 import {
 	getWebReadCallPresentation,
@@ -103,7 +106,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Web Search",
 		description:
 			"Search the web using one of several backend search engines. " +
-			"Supports Exa, Tavily, Firecrawl, and Parallel. " +
+			"Supports Exa, Tavily, Firecrawl, Parallel, OpenAI Codex, and Grok. " +
 			"The best available backend is used automatically. " +
 			"Use for fact-finding, research, documentation lookups, and current events.",
 		promptSnippet: "Search the web (supports multiple search backends)",
@@ -160,10 +163,16 @@ export default function (pi: ExtensionAPI) {
 				query: string,
 				limit: number,
 				backendSignal?: AbortSignal,
-			) => runBackend(backend, query, limit, backendSignal, { onNotice });
+			) => runBackend(backend, query, limit, backendSignal, {
+				onNotice,
+				modelRegistry: ctx.modelRegistry,
+			});
 
 			const activeBackends = getActiveBackends();
-			const orderedBackends = selectBackendsForFallback(routing, activeBackends, effectiveness);
+			const orderedBackends = filterQuotaSkipped(
+				selectBackendsForFallback(routing, activeBackends, effectiveness),
+				onNotice,
+			);
 
 			if (combine) {
 				updateActivity(`🔍 targeted combine: up to 3 of ${activeBackends.length} backends...`);

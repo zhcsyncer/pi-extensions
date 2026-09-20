@@ -16,6 +16,7 @@ import {
 	type Component,
 } from "@earendil-works/pi-tui";
 import { BACKEND_DEFS } from "./backends/registry.js";
+import { HOSTED_SEARCH_BACKENDS, hostedSearchModelIds, isHostedSearchBackend } from "./backends/hosted-search.js";
 import { loadMigratedSearchConfig, saveSearchConfig } from "./config-storage.js";
 import { applyEnvAutoEnable, enabledBackendNames, effectiveSearchConfig, orderedActiveBackends, refreshConfig, routingOf } from "./config.js";
 import { getKeySource } from "./credentials.js";
@@ -125,6 +126,10 @@ export function normalizeSetupDraft(draft: SearchConfig): SearchConfig {
 		} else {
 			delete cleaned.apiKey;
 		}
+		if (typeof cleaned.model === "string") {
+			cleaned.model = cleaned.model.trim();
+			if (!cleaned.model) delete cleaned.model;
+		}
 		backends[name] = cleaned;
 	}
 	normalized.backends = backends;
@@ -190,6 +195,16 @@ export function applySetupSetting(draft: SearchConfig, id: string, value: string
 		if (next.priority.length === 0) delete next.priority;
 		return next;
 	}
+	if (id.startsWith("model.")) {
+		const backend = id.slice("model.".length);
+		if (!isSearchBackendName(backend) || !isHostedSearchBackend(backend)) return next;
+		const current = { ...(next.backends?.[backend] ?? {}) };
+		const model = value.trim();
+		if (model) current.model = model;
+		else delete current.model;
+		next.backends = { ...next.backends, [backend]: current };
+		return next;
+	}
 	return next;
 }
 
@@ -249,10 +264,35 @@ export function buildPrioritySetupItems(draft: SearchConfig, movingId?: string):
 	});
 }
 
-export function buildProviderSetupItems(draft: SearchConfig): SettingItem[] {
+export function buildProviderSetupItems(
+	draft: SearchConfig,
+	catalogs?: Partial<Record<SearchBackendName, string[]>>,
+): SettingItem[] {
 	return SEARCH_BACKEND_NAMES.flatMap((backend) => {
 		const def = BACKEND_DEFS[backend];
 		const on = draft.backends?.[backend]?.enabled === true;
+		if (isHostedSearchBackend(backend)) {
+			const spec = HOSTED_SEARCH_BACKENDS[backend];
+			const values = catalogs?.[backend] ?? [spec.defaultModel];
+			const selected = draft.backends?.[backend]?.model?.trim() || spec.defaultModel;
+			const modelValues = values.includes(selected) ? values : [selected, ...values];
+			return [
+				{
+					id: `enabled.${backend}`,
+					label: def.label,
+					description: `Pi /login ${spec.login}. Hosted web search, no API key in this file.`,
+					currentValue: enabledLabel(on),
+					values: ["on", "off"],
+				},
+				{
+					id: `model.${backend}`,
+					label: `${def.label} model`,
+					description: `Default ${spec.defaultModel}. Space cycles this provider's models.`,
+					currentValue: selected,
+					values: modelValues,
+				},
+			];
+		}
 		const credential = credentialSummary(backend, draft);
 		return [
 			{
@@ -504,13 +544,22 @@ function showPriorityPage(ctx: ExtensionCommandContext, state: SetupDraftState, 
 	});
 }
 
+function hostedCatalogs(ctx: ExtensionCommandContext): Partial<Record<SearchBackendName, string[]>> {
+	const catalogs: Partial<Record<SearchBackendName, string[]>> = {};
+	for (const name of Object.keys(HOSTED_SEARCH_BACKENDS) as Array<keyof typeof HOSTED_SEARCH_BACKENDS>) {
+		catalogs[name] = hostedSearchModelIds(ctx.modelRegistry, name);
+	}
+	return catalogs;
+}
+
 function showProvidersPage(ctx: ExtensionCommandContext, state: SetupDraftState, project: SearchConfig): Promise<SetupAction> {
+	const catalogs = hostedCatalogs(ctx);
 	return showPage(ctx, state, {
 		title: "Providers",
 		hint: "s save · Esc back",
 		project,
 		projectOverrides: Object.keys(project).length > 0,
-		itemsOf: buildProviderSetupItems,
+		itemsOf: (draft) => buildProviderSetupItems(draft, catalogs),
 		onCancel: () => ({ type: "back" }),
 		onActivate: (id, done) => {
 			if (id.startsWith("keys.")) {

@@ -35,9 +35,11 @@ web_read(url)
 
 ### combine
 
-只留给模型，默认 `false`。配置不得全局强制 combine。四家里 combine 固定 targeted：最多合并 3 家有结果的源。
+只留给模型，默认 `false`。配置不得全局强制 combine。combine 固定 targeted：最多合并 3 家有结果的源。
 
 打开 combine 只为：用户要多家或独立来源；高风险事实（版本、弃用、安全公告、定价/政策）需要对上独立索引；或一次结构良好的单源搜索结果过少、几乎同域。换 query 修角度；combine 只修索引盲区。日常文档、报错、changelog 不要开。
+
+Codex / Grok 不是 SERP：走 `modelRegistry.complete()`，注入服务端 `web_search`，用 Pi `/login` 额度。默认模型 `gpt-5.6-luna` / `grok-4.3`，可在 Providers 页切换该 provider 目录里的模型。不接 `x_search`，不把订阅 token 写进 Search Hub 配置。
 
 ### `/search-setup`
 

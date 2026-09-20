@@ -38,3 +38,7 @@ export function getEffectivenessPath(agentDir = getAgentDir()): string {
 export function getKeyCursorsPath(agentDir = getAgentDir()): string {
 	return join(getSearchHubDataDir(agentDir), "state", "key-cursors.json");
 }
+
+export function getQuotaSkipsPath(agentDir = getAgentDir()): string {
+	return join(getSearchHubDataDir(agentDir), "state", "quota-skips.json");
+}

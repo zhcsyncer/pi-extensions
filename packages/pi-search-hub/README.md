@@ -19,7 +19,7 @@ Important call options include:
 - `combine` — merge several enabled providers for the same query (default false);
 - `compact` — return title-source-URL lines instead of verbose search content.
 
-Supported search backends are Exa, Tavily, Firecrawl, and Parallel. Firecrawl is the keyless fallback when no backend is explicitly enabled. Exa, Tavily, and Parallel require an API key. Routing is `priority` (an ordered enabled list), `random`, or `best-latency`.
+Supported search backends are Exa, Tavily, Firecrawl, Parallel, OpenAI Codex, and Grok. Firecrawl is the keyless fallback when no backend is explicitly enabled. Exa, Tavily, and Parallel require an API key. Codex and Grok use Pi `/login` (hosted web search on the provider's inference API) and do not store keys in Search Hub config. If a hosted backend hits a subscription usage limit, it is skipped for 5 hours. Routing is `priority` (an ordered enabled list), `random`, or `best-latency`.
 
 ### `web_read`
 
@@ -69,7 +69,7 @@ On first use, Search Hub automatically migrates the previous global and trusted-
 
 ### Interactive setup
 
-Run `/search-setup` to edit global routing and compact output. Provider switches and keys are on a second page. When routing is `priority`, the enabled try order is a separate list: pick with Enter, move with up/down. There is no separate `/search-status` command.
+Run `/search-setup` to edit global routing and compact output. Provider switches, keys, and Codex/Grok models are on a second page. When routing is `priority`, the enabled try order is a separate list: pick with Enter, move with up/down. There is no separate `/search-status` command.
 
 Edits stay in a draft. `s` saves; Esc closes immediately when clean. A dirty Esc asks once whether to discard or keep editing, and does not offer save in that prompt. Keys are edited in `ui.editor`, one reference per line, and are written only on save. Disabling a backend keeps stored keys. A trusted project config can still override the global file; setup only hints at that and does not edit the project file.
 

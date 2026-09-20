@@ -38,6 +38,7 @@ const BACKEND_FIELDS = new Set([
 	"timeout",
 	"maxResults",
 	"headers",
+	"model",
 ]);
 function migrateRouting(value: unknown): SearchConfig["routing"] | undefined {
 	if (isRoutingStrategy(value)) return value;
@@ -94,6 +95,7 @@ function normalizeBackend(value: unknown, prefix: string, dropped: string[]): Ba
 	}
 	keepBoolean(value, normalized, "enabled", dropped, prefix);
 	keepString(value, normalized, "apiKey", dropped, prefix);
+	keepString(value, normalized, "model", dropped, prefix);
 	for (const key of ["timeout", "maxResults"] as const) {
 		keepPositiveNumber(value, normalized, key, dropped, prefix);
 	}
