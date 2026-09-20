@@ -176,6 +176,113 @@ describe("extension runtime", () => {
 		expect(raw).not.toContain("creditUsagePercent");
 	});
 
+	it("appends compaction usage from session_compact", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("session_compact")?.[0]?.({
+			type: "session_compact",
+			compactionEntry: {
+				type: "compaction",
+				id: "cmp-live",
+				timestamp: "2026-08-15T12:10:00.000Z",
+				summary: "old work",
+				usage: { input: 800, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 840, cost: { total: 0.2 } },
+			},
+		}, ctx);
+		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toEqual([{
+			ts: Date.parse("2026-08-15T12:10:00.000Z"),
+			sid: "ephemeral",
+			cwd: "/work",
+			model: "xai/grok-4",
+			in: 800,
+			out: 40,
+			cR: 0,
+			cW: 0,
+			tot: 840,
+			cost: 0.2,
+			costKnown: true,
+			sourceId: "compaction:cmp-live",
+			kind: "compaction",
+		}]);
+	});
+
+	it("appends branch-summary usage from session_tree and ignores navigation without a summary", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("session_tree")?.[0]?.({
+			type: "session_tree",
+			newLeafId: "leaf",
+			oldLeafId: "old",
+		}, ctx);
+		expect(() => readFileSync(getMeterPaths(agentDir).usageFile, "utf8")).toThrow();
+		await handlers.get("session_tree")?.[0]?.({
+			type: "session_tree",
+			newLeafId: "leaf",
+			oldLeafId: "old",
+			summaryEntry: {
+				type: "branch_summary",
+				id: "br-live",
+				timestamp: "2026-08-15T12:15:00.000Z",
+				fromId: "old",
+				summary: "left branch",
+				usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { total: 0.05 } },
+			},
+		}, ctx);
+		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			model: "xai/grok-4",
+			tot: 120,
+			sourceId: "branch_summary:br-live",
+			kind: "branch_summary",
+		});
+	});
+
+	it("does not import a live-captured compaction a second time", async () => {
+		const { default: piMeter } = await import("../extensions/meter.ts");
+		mkdirSync(join(agentDir, "sessions"), { recursive: true });
+		writeFileSync(join(agentDir, "sessions", "hist.jsonl"), [
+			JSON.stringify({ type: "session", cwd: "/work" }),
+			JSON.stringify({
+				type: "compaction",
+				id: "cmp-live",
+				timestamp: "2026-08-15T12:10:00.000Z",
+				summary: "old work",
+				usage: { input: 800, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 840, cost: { total: 0.2 } },
+			}),
+		].join("\n"));
+		const { pi, ctx, handlers, commands, notifications } = harness({
+			hasUI: true,
+			mode: "print",
+			sessionFile: join(agentDir, "sessions", "hist.jsonl"),
+		});
+		piMeter(pi);
+		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+		await handlers.get("session_compact")?.[0]?.({
+			type: "session_compact",
+			compactionEntry: {
+				type: "compaction",
+				id: "cmp-live",
+				timestamp: "2026-08-15T12:10:00.000Z",
+				summary: "old work",
+				usage: { input: 800, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 840, cost: { total: 0.2 } },
+			},
+		}, ctx);
+		await commands.get("usage").handler("import", ctx);
+		await commands.get("usage").handler("import", ctx);
+		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.sourceId).toBe("compaction:cmp-live");
+		const summary = notifications.filter((item) => item.message.startsWith("Import:")).at(-1);
+		expect(summary?.message).toContain("Import: 0 new records");
+		expect(summary?.message).toContain("1 usage record parsed");
+	});
+
 	it("captures usage-bearing Consult tool results under the advisor model", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
 		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });

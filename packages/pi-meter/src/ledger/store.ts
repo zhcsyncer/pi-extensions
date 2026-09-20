@@ -3,7 +3,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ensurePrivateDir, isRecord, pathExists, readTextFile, withDirectoryLock, writeFileAtomically } from "../fs.ts";
 import { getMeterPaths, type MeterPaths } from "../paths.ts";
 import { collapseDuplicateRecords } from "./session-parser.ts";
-import type { BudgetLimit, BudgetsConfig, UsageRecord } from "./types.ts";
+import { isSummaryKind, type BudgetLimit, type BudgetsConfig, type UsageRecord } from "./types.ts";
 
 export interface LedgerStore {
 	append(record: UsageRecord): Promise<boolean>;
@@ -28,6 +28,7 @@ export function serializeUsageRecord(record: UsageRecord): unknown[] {
 		record.cost,
 		record.costKnown ? 1 : 0,
 		record.sourceId ?? null,
+		...(record.kind ? [record.kind] : []),
 	];
 }
 
@@ -60,6 +61,7 @@ function parseArrayRecord(value: unknown[]): UsageRecord | undefined {
 		cost,
 		costKnown: value.length > 10 ? value[10] === 1 : cost > 0,
 		...(typeof value[11] === "string" && value[11] ? { sourceId: value[11] } : {}),
+		...(isSummaryKind(value[12]) ? { kind: value[12] } : {}),
 	};
 }
 
@@ -78,6 +80,7 @@ function parseObjectRecord(value: Record<string, unknown>): UsageRecord | undefi
 		cost: asNumber(value.cost),
 		costKnown: value.costKnown === true || (value.costKnown !== false && asNumber(value.cost) > 0),
 		...(typeof value.sourceId === "string" && value.sourceId ? { sourceId: value.sourceId } : {}),
+		...(isSummaryKind(value.kind) ? { kind: value.kind } : {}),
 	};
 }
 

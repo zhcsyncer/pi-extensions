@@ -1,5 +1,5 @@
 import { isRecord } from "../fs.ts";
-import type { UsageRecord } from "./types.ts";
+import { isSummaryKind, type SummaryKind, type UsageRecord } from "./types.ts";
 
 export interface ParsedSession {
 	cwd: string | null;
@@ -19,6 +19,7 @@ function recordFromUsage(
 	ts: number,
 	model: string,
 	sourceId?: string,
+	kind?: SummaryKind,
 ): UsageRecord {
 	const costValue = usage.cost;
 	const cost = isRecord(costValue) && typeof costValue.total === "number"
@@ -40,6 +41,7 @@ function recordFromUsage(
 		cost,
 		costKnown,
 		...(sourceId ? { sourceId } : {}),
+		...(kind ? { kind } : {}),
 	};
 }
 
@@ -114,9 +116,28 @@ export function assistantUsageWithoutTimestamp(message: unknown): boolean {
 	return isAssistantUsage(message) && messageTimestamp(message) === undefined;
 }
 
+export function usageFromSessionSummaryEntry(
+	entry: unknown,
+	meta: RecordMeta,
+	model: string,
+): UsageRecord | undefined {
+	if (!isRecord(entry) || !isSummaryKind(entry.type) || !isRecord(entry.usage)) return undefined;
+	const ts = sessionEntryTimestamp(entry);
+	if (ts === undefined) return undefined;
+	const id = typeof entry.id === "string" && entry.id ? entry.id : undefined;
+	if (!id) return undefined;
+	const label = model || "unknown/unknown";
+	return recordFromUsage(entry.usage, meta, ts, label, `${entry.type}:${id}`, entry.type);
+}
+
+export function summaryUsageWithoutTimestamp(entry: unknown): boolean {
+	return isRecord(entry) && isSummaryKind(entry.type) && isRecord(entry.usage) && sessionEntryTimestamp(entry) === undefined;
+}
+
 export function parseSession(content: string, sid: string): ParsedSession {
 	let cwd: string | null = null;
 	let skipped = 0;
+	let lastModel = "unknown/unknown";
 	const records: UsageRecord[] = [];
 
 	for (const line of content.split("\n")) {
@@ -132,13 +153,29 @@ export function parseSession(content: string, sid: string): ParsedSession {
 			cwd = entry.cwd;
 			continue;
 		}
-		if (entry.type !== "message") continue;
-		const parsed = usageRecordsFromMessage(entry.message, { sid, cwd: cwd ?? "" });
-		if (parsed.length > 0) {
-			records.push(...parsed);
+		const changed = modelChangeLabel(entry);
+		if (changed) {
+			lastModel = changed;
 			continue;
 		}
-		if (usageMessageWithoutTimestamp(entry.message)) skipped += 1;
+		const meta = { sid, cwd: cwd ?? "" };
+		if (entry.type === "message") {
+			const assistantModel = assistantModelLabel(entry.message);
+			if (assistantModel) lastModel = assistantModel;
+			const parsed = usageRecordsFromMessage(entry.message, meta);
+			if (parsed.length > 0) {
+				records.push(...parsed);
+				continue;
+			}
+			if (usageMessageWithoutTimestamp(entry.message)) skipped += 1;
+			continue;
+		}
+		const summary = usageFromSessionSummaryEntry(entry, meta, lastModel);
+		if (summary) {
+			records.push(summary);
+			continue;
+		}
+		if (summaryUsageWithoutTimestamp(entry)) skipped += 1;
 	}
 
 	return { cwd, sid, records, skipped };
@@ -172,8 +209,18 @@ export function collapseDuplicateRecords(records: readonly UsageRecord[]): Usage
 	return records.filter((_, i) => keep.has(i));
 }
 
+function sourceIdentity(record: UsageRecord): string | undefined {
+	return record.sourceId ? `${record.sid}|${record.sourceId}` : undefined;
+}
+
 export function diffRecords(existing: readonly UsageRecord[], incoming: readonly UsageRecord[]): UsageRecord[] {
 	const seenExact = new Set(existing.map(recordKey));
+	const seenSource = new Set(
+		existing.flatMap((record) => {
+			const identity = sourceIdentity(record);
+			return identity ? [identity] : [];
+		}),
+	);
 	const legacyPayloads = new Map<string, number>();
 	for (const record of existing) {
 		if (record.sourceId) continue;
@@ -184,16 +231,20 @@ export function diffRecords(existing: readonly UsageRecord[], incoming: readonly
 	for (const record of incoming) {
 		const exact = recordKey(record);
 		if (seenExact.has(exact)) continue;
+		const identity = sourceIdentity(record);
+		if (identity && seenSource.has(identity)) continue;
 		if (record.sourceId) {
 			const legacy = legacyPayloadKey(record);
 			const remaining = legacyPayloads.get(legacy) ?? 0;
 			if (remaining > 0) {
 				legacyPayloads.set(legacy, remaining - 1);
 				seenExact.add(exact);
+				if (identity) seenSource.add(identity);
 				continue;
 			}
 		}
 		seenExact.add(exact);
+		if (identity) seenSource.add(identity);
 		fresh.push(record);
 	}
 	return fresh;
@@ -206,6 +257,28 @@ function isAssistantUsage(message: unknown): message is Record<string, unknown> 
 function messageTimestamp(message: Record<string, unknown>): number | undefined {
 	if (typeof message.timestamp === "number" && Number.isFinite(message.timestamp)) return message.timestamp;
 	return undefined;
+}
+
+function sessionEntryTimestamp(entry: Record<string, unknown>): number | undefined {
+	if (typeof entry.timestamp === "number" && Number.isFinite(entry.timestamp)) return entry.timestamp;
+	if (typeof entry.timestamp !== "string" || !entry.timestamp) return undefined;
+	const ts = Date.parse(entry.timestamp);
+	return Number.isFinite(ts) ? ts : undefined;
+}
+
+function modelChangeLabel(entry: Record<string, unknown>): string | undefined {
+	if (entry.type !== "model_change") return undefined;
+	const provider = typeof entry.provider === "string" ? entry.provider : "unknown";
+	const modelId = typeof entry.modelId === "string" ? entry.modelId : "unknown";
+	return `${provider}/${modelId}`;
+}
+
+function assistantModelLabel(message: unknown): string | undefined {
+	if (!isRecord(message) || message.role !== "assistant") return undefined;
+	const provider = typeof message.provider === "string" ? message.provider : undefined;
+	const model = typeof message.model === "string" ? message.model : undefined;
+	if (!provider && !model) return undefined;
+	return `${provider ?? "unknown"}/${model ?? "unknown"}`;
 }
 
 function num(value: unknown): number {

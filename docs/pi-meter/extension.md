@@ -6,7 +6,7 @@
 
 落地边界：
 
-- 两套账分开：`message_end` 中主 assistant 与带 usage 的 tool result → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
+- 两套账分开：`message_end` 中主 assistant 与带 usage 的 tool result，以及带 usage 的 compaction / branch_summary → `extension-data/pi-meter/usage.jsonl`；订阅快照单独在 `quota.json`。远端额度不进账本，也不进本地 budget。
 - 常驻 chrome：一段 footer `setStatus`。左边本地用量，右边套餐窗口。
 - 对外只暴露 `/usage`。本地账是 `/usage footer|import|budget`，套餐剩余是 `/usage quota`（临时看板，不留在聊天记录里）。
 - 套餐条极性可切；颜色按剩余（约 30% / 15%）。本地摘要默认显示过去 24 小时的总量/费用。看板数字用 `34k` / `4.3M` / `5.35B`。
@@ -94,7 +94,10 @@ message_end（assistant + usage-bearing toolResult）
   ──► 本地账本 JSONL（每个进程自己追加）
   ──► token 条 /usage /usage budget
 
-session JSONL 只用于一次性回填。
+session_compact / session_tree（条目上带 usage 的摘要）
+  ──► 同一本账本；kind 标记 compaction / branch_summary
+
+session JSONL 只用于一次性回填（含上述摘要条目）。
 ```
 
 模块按变更边界拆，不按代码像不像拆：
@@ -166,7 +169,7 @@ Claude / Codex 仍走 `@pi-plugins/usage` 现有官方订阅接口，本方案�
 - 用远端剩余驱动现有 budget，或硬拦请求。
 - SuperGrok 网页周池 / 浏览器 cookie。
 - isolated 子代理的旁路记账。
-- 把没有 message/toolResult usage 契约的旁路调用猜进账本；side-call 必须显式附顶层 usage。compaction 仍不进入 pi-meter 账本。
+- 把没有 usage 契约的旁路调用猜进账本；compaction / branch summary 只在 session 条目或对应 hook 带 `usage` 时入账。
 - 独立跨进程 daemon。共享文件 + hasUI 写者够用。
 - 改 Glance，或把 meter 画进 Glance 输入框内部。
 

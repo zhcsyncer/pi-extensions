@@ -19,6 +19,8 @@ import {
 	collapseDuplicateRecords,
 	diffRecords,
 	parseSession,
+	summaryUsageWithoutTimestamp,
+	usageFromSessionSummaryEntry,
 	usageMessageWithoutTimestamp,
 	usageRecordsFromMessage,
 } from "../src/ledger/session-parser.ts";
@@ -114,6 +116,24 @@ export default function piMeter(pi: ExtensionAPI): void {
 		}
 	}
 
+	function modelLabelFromContext(ctx: ExtensionContext): string {
+		const model = ctx.model;
+		const provider = model && typeof model.provider === "string" ? model.provider : "unknown";
+		const id = model && typeof model.id === "string" ? model.id : "unknown";
+		return `${provider}/${id}`;
+	}
+
+	async function appendRecords(ctx: ExtensionContext, records: UsageRecord[]): Promise<void> {
+		if (!store || records.length === 0) return;
+		let appended = false;
+		for (const record of records) {
+			if (!(await store.append(record))) continue;
+			appended = true;
+			await checkBudgets(ctx, record);
+		}
+		if (appended) await renderChrome(ctx);
+	}
+
 	async function captureMessage(ctx: ExtensionContext, message: unknown): Promise<void> {
 		await ensureReady(ctx);
 		const records = usageRecordsFromMessage(message, {
@@ -126,14 +146,22 @@ export default function piMeter(pi: ExtensionAPI): void {
 			}
 			return;
 		}
-		if (!store) return;
-		let appended = false;
-		for (const record of records) {
-			if (!(await store.append(record))) continue;
-			appended = true;
-			await checkBudgets(ctx, record);
+		await appendRecords(ctx, records);
+	}
+
+	async function captureSummaryEntry(ctx: ExtensionContext, entry: unknown): Promise<void> {
+		await ensureReady(ctx);
+		const record = usageFromSessionSummaryEntry(entry, {
+			sid: session.sessionId,
+			cwd: session.cwd,
+		}, modelLabelFromContext(ctx));
+		if (!record) {
+			if (summaryUsageWithoutTimestamp(entry)) {
+				notify(ctx, "pi-meter skipped usage: summary timestamp is missing.", "warning");
+			}
+			return;
 		}
-		if (appended) await renderChrome(ctx);
+		await appendRecords(ctx, [record]);
 	}
 
 	async function checkBudgets(ctx: ExtensionContext, _record: UsageRecord): Promise<void> {
@@ -258,6 +286,15 @@ export default function piMeter(pi: ExtensionAPI): void {
 
 	pi.on("message_end", async (event, ctx) => {
 		await captureMessage(ctx, event.message);
+	});
+
+	pi.on("session_compact", async (event, ctx) => {
+		await captureSummaryEntry(ctx, event.compactionEntry);
+	});
+
+	pi.on("session_tree", async (event, ctx) => {
+		if (!event.summaryEntry) return;
+		await captureSummaryEntry(ctx, event.summaryEntry);
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {

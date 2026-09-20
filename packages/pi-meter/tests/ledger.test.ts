@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
+import { aggregate, sumRows, sumSummaryTokens } from "../src/ledger/aggregate.ts";
 import { budgetKey, statusForLimit } from "../src/ledger/budget.ts";
 import {
 	collapseDuplicateRecords,
 	diffRecords,
 	parseSession,
 	usageFromAssistantMessage,
+	usageFromSessionSummaryEntry,
 	usageFromToolResultMessage,
 	usageMessageWithoutTimestamp,
 } from "../src/ledger/session-parser.ts";
@@ -304,6 +305,22 @@ describe("dashboard", () => {
 		expect(new Dashboard(data, theme, "today", "rolling").render(80).join("\n")).toContain("Last 24h");
 		expect(new Dashboard(data, theme, "today", "calendar").render(80).join("\n")).toContain("Today");
 	});
+
+	it("shows a summaries share line only when compaction usage is in the window", async () => {
+		const { Dashboard } = await import("../src/ledger/dashboard.ts");
+		const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+		const compact = rec({
+			tot: 90,
+			in: 80,
+			out: 10,
+			sourceId: "compaction:cmp-1",
+			kind: "compaction",
+		});
+		const withSummary = new Dashboard({ records: [rec(), compact], budgets: [] }, theme, "all").render(80).join("\n");
+		expect(withSummary).toMatch(/summaries\s+90\s+·\s+30%/);
+		const withoutSummary = new Dashboard({ records: [rec()], budgets: [] }, theme, "all").render(80).join("\n");
+		expect(withoutSummary).not.toContain("summaries");
+	});
 });
 
 describe("session import", () => {
@@ -399,6 +416,118 @@ describe("session import", () => {
 		expect(collapseDuplicateRecords([live, imported, other])).toEqual([live, other]);
 		expect(collapseDuplicateRecords([imported, live, other])).toEqual([live, other]);
 	});
+
+	it("parses compaction and branch-summary usage from session JSONL", () => {
+		const compactTs = "2026-08-15T12:10:00.000Z";
+		const branchTs = "2026-08-15T12:15:00.000Z";
+		const parsed = parseSession([
+			JSON.stringify({ type: "session", cwd: "/repo" }),
+			JSON.stringify({ type: "model_change", provider: "anthropic", modelId: "claude" }),
+			JSON.stringify({
+				type: "compaction",
+				id: "cmp-1",
+				timestamp: compactTs,
+				summary: "old work",
+				firstKeptEntryId: "kept",
+				tokensBefore: 50_000,
+				usage: { input: 800, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 840, cost: { total: 0.2 } },
+			}),
+			JSON.stringify({
+				type: "branch_summary",
+				id: "br-1",
+				timestamp: branchTs,
+				fromId: "leaf",
+				summary: "left branch",
+				usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { total: 0.05 } },
+			}),
+		].join("\n"), "hist");
+		expect(parsed.skipped).toBe(0);
+		expect(parsed.records).toEqual([
+			{
+				ts: Date.parse(compactTs),
+				sid: "hist",
+				cwd: "/repo",
+				model: "anthropic/claude",
+				in: 800,
+				out: 40,
+				cR: 0,
+				cW: 0,
+				tot: 840,
+				cost: 0.2,
+				costKnown: true,
+				sourceId: "compaction:cmp-1",
+				kind: "compaction",
+			},
+			{
+				ts: Date.parse(branchTs),
+				sid: "hist",
+				cwd: "/repo",
+				model: "anthropic/claude",
+				in: 100,
+				out: 20,
+				cR: 0,
+				cW: 0,
+				tot: 120,
+				cost: 0.05,
+				costKnown: true,
+				sourceId: "branch_summary:br-1",
+				kind: "branch_summary",
+			},
+		]);
+	});
+
+	it("ignores compaction entries that only have tokensBefore", () => {
+		const parsed = parseSession(JSON.stringify({
+			type: "compaction",
+			id: "cmp-empty",
+			timestamp: "2026-08-15T12:10:00.000Z",
+			summary: "old work",
+			tokensBefore: 50_000,
+		}), "hist");
+		expect(parsed.records).toEqual([]);
+		expect(parsed.skipped).toBe(0);
+	});
+
+	it("skips summary usage that has no parseable timestamp", () => {
+		const parsed = parseSession(JSON.stringify({
+			type: "compaction",
+			id: "cmp-bad-ts",
+			timestamp: "not-a-date",
+			usage: { input: 1, output: 1, totalTokens: 2 },
+		}), "hist");
+		expect(parsed.records).toEqual([]);
+		expect(parsed.skipped).toBe(1);
+	});
+
+	it("treats live and imported summary rows as the same call even when model labels differ", () => {
+		const live = rec({
+			ts: Date.parse("2026-08-15T12:10:00.000Z"),
+			sid: "hist",
+			model: "xai/grok-4",
+			in: 800,
+			out: 40,
+			cR: 0,
+			cW: 0,
+			tot: 840,
+			sourceId: "compaction:cmp-1",
+			kind: "compaction",
+		});
+		const imported = usageFromSessionSummaryEntry({
+			type: "compaction",
+			id: "cmp-1",
+			timestamp: "2026-08-15T12:10:00.000Z",
+			usage: { input: 800, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 840, cost: { total: 0.2 } },
+		}, { sid: "hist", cwd: "/repo" }, "unknown/unknown");
+		expect(imported?.sourceId).toBe("compaction:cmp-1");
+		expect(diffRecords([live], imported ? [imported] : [])).toEqual([]);
+		expect(diffRecords(imported ? [imported] : [], imported ? [imported] : [])).toEqual([]);
+	});
+
+	it("counts only summary kinds toward the dashboard share", () => {
+		const compact = rec({ tot: 90, kind: "compaction", sourceId: "compaction:1" });
+		const branch = rec({ tot: 10, kind: "branch_summary", sourceId: "branch_summary:1" });
+		expect(sumSummaryTokens([rec(), compact, branch], "all")).toBe(100);
+	});
 });
 
 describe("local budgets", () => {
@@ -454,6 +583,12 @@ describe("config parsing", () => {
 describe("ledger serialization", () => {
 	it("round-trips compact JSONL rows including costKnown and sourceId", () => {
 		const original = rec({ costKnown: false, cost: 0, sourceId: "consult-1:0" });
+		const parsed = parseUsageLine(JSON.stringify(serializeUsageRecord(original)));
+		expect(parsed).toEqual(original);
+	});
+
+	it("round-trips summary kind on compact JSONL rows", () => {
+		const original = rec({ sourceId: "compaction:cmp-1", kind: "compaction" });
 		const parsed = parseUsageLine(JSON.stringify(serializeUsageRecord(original)));
 		expect(parsed).toEqual(original);
 	});
