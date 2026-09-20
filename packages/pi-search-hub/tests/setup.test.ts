@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import searchHubExtension from "../extensions/search-hub.js";
 import { FALLBACK_ENV_MAP } from "../extensions/credentials.js";
+import { effectiveSearchConfig } from "../extensions/config.js";
 import {
 	applySetupSetting,
 	buildPrioritySetupItems,
@@ -167,6 +168,22 @@ describe("Search Hub setup draft helpers", () => {
 		]);
 		expect(providers.find((item) => item.id === "keys.exa")?.currentValue).toBe("1 key");
 		expect(priorityHome.map((item) => item.label).join(" ")).not.toMatch(/Save|Discard|Exit|Search mode|Selection strategy|keyless bulk/i);
+	});
+
+	it("shows env auto-enabled backends and env credentials on the providers page", () => {
+		vi.stubEnv("SEARCH_TAVILY_API_KEY", "tvly-from-env");
+		try {
+			const effective = effectiveSearchConfig({
+				backends: { firecrawl: { enabled: true } },
+			});
+			const home = buildSearchSetupItems(effective);
+			const providers = buildProviderSetupItems(effective);
+			expect(home.find((item) => item.id === "providers")?.currentValue).toBe("2 on");
+			expect(providers.find((item) => item.id === "enabled.tavily")?.currentValue).toBe("on");
+			expect(providers.find((item) => item.id === "keys.tavily")?.currentValue).toBe("env SEARCH_TAVILY_API_KEY");
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("parses editor lines into apiKeys", () => {

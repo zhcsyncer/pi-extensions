@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import searchHubExtension from "../extensions/search-hub.js";
 import { reciprocalRankFusion, runTargetedCombine, selectBackendsForFallback } from "../extensions/dispatch.js";
 import type { EffectivenessState } from "../extensions/effectiveness.js";
-import { resolveConfigValue, clearCredentialCache, FALLBACK_ENV_MAP } from "../extensions/credentials.js";
+import { resolveBackendKeys, resolveConfigValue, clearCredentialCache, FALLBACK_ENV_MAP } from "../extensions/credentials.js";
 import { loadConfig } from "../extensions/config.js";
 
 
@@ -486,6 +486,16 @@ describe("resolveConfigValue", () => {
 			expect(notices[0]).not.toContain("DEFINITELY_NOT_SET_XYZ");
 			expect(warnSpy).not.toHaveBeenCalled();
 		} finally { warnSpy.mockRestore(); }
+	});
+
+	it("skips a failed credential command and still resolves later keys", () => {
+		const notices: string[] = [];
+		const keys = resolveBackendKeys("exa", {
+			backends: { exa: { apiKeys: ["!printf 'credential-command-private-marker' >&2; exit 1", "sk-valid-literal"] } },
+		}, (message) => notices.push(message));
+		expect(keys).toEqual(["sk-valid-literal"]);
+		expect(notices.join(" ")).toMatch(/credential command failed/i);
+		expect(JSON.stringify(notices)).not.toContain("credential-command-private-marker");
 	});
 });
 

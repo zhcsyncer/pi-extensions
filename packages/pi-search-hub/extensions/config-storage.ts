@@ -123,7 +123,11 @@ function normalizeBackend(value: unknown, prefix: string, dropped: string[]): Ba
 	const legacyKey = typeof normalized.apiKey === "string" ? normalized.apiKey.trim() : "";
 	delete normalized.apiKey;
 	if (legacyKey && !apiKeys.includes(legacyKey)) apiKeys.unshift(legacyKey);
-	if (apiKeys.length > 0) normalized.apiKeys = apiKeys;
+	if (apiKeys.length > 0) {
+		normalized.apiKeys = apiKeys;
+		// Older builds only read apiKey and drop unknown apiKeys on load. Dual-write so a downgrade cannot erase stored credentials.
+		normalized.apiKey = apiKeys[0];
+	}
 	return normalized as BackendConfig;
 }
 
@@ -269,7 +273,9 @@ export function loadMigratedSearchConfig(options: {
 					if (JSON.stringify(current.raw) !== JSON.stringify(current.config)) writeSearchConfigAtomically(targetPath, current.config);
 					return current;
 				});
-				emitNotice(onNotice, `Search Hub upgraded ${scope} config at ${targetPath}.${droppedSummary(loaded.dropped)}`);
+				if (loaded.dropped.length > 0) {
+					emitNotice(onNotice, `Search Hub upgraded ${scope} config at ${targetPath}.${droppedSummary(loaded.dropped)}`);
+				}
 			}
 			if (existsSync(legacyPath)) {
 				emitNotice(onNotice, `Search Hub ignored conflicting legacy ${scope} config at ${legacyPath}; canonical config is ${targetPath}.`);

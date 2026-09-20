@@ -17,7 +17,8 @@ import {
 } from "@earendil-works/pi-tui";
 import { BACKEND_DEFS } from "./backends/registry.js";
 import { loadMigratedSearchConfig, saveSearchConfig } from "./config-storage.js";
-import { enabledBackendNames, orderedActiveBackends, refreshConfig, routingOf } from "./config.js";
+import { applyEnvAutoEnable, enabledBackendNames, effectiveSearchConfig, orderedActiveBackends, refreshConfig, routingOf } from "./config.js";
+import { getKeySource } from "./credentials.js";
 import {
 	getGlobalConfigPath,
 	getLegacyGlobalConfigPath,
@@ -82,6 +83,16 @@ function keyCountLabel(count: number): string {
 	return `${count} ${count === 1 ? "key" : "keys"}`;
 }
 
+function credentialSummary(backend: SearchBackendName, config: SearchConfig): string {
+	const saved = keyCount(backend, config);
+	if (saved > 0) return keyCountLabel(saved);
+	const { configured, source } = getKeySource(backend, config);
+	if (!configured) return "0 keys";
+	if (source.startsWith("env:")) return `env ${source.slice(4)}`;
+	if (source.startsWith("shell:")) return "shell command";
+	return "configured";
+}
+
 function enabledLabel(enabled: boolean): "on" | "off" {
 	return enabled ? "on" : "off";
 }
@@ -108,6 +119,10 @@ export function normalizeSetupDraft(draft: SearchConfig): SearchConfig {
 		}
 		if (cleaned.apiKey) {
 			cleaned.apiKeys = [cleaned.apiKey, ...(cleaned.apiKeys ?? []).filter((key) => key !== cleaned.apiKey)];
+		}
+		if (cleaned.apiKeys && cleaned.apiKeys.length > 0) {
+			cleaned.apiKey = cleaned.apiKeys[0];
+		} else {
 			delete cleaned.apiKey;
 		}
 		backends[name] = cleaned;
@@ -150,7 +165,7 @@ export function applySetupSetting(draft: SearchConfig, id: string, value: string
 	if (id.startsWith("priority-move.")) {
 		const backend = id.slice("priority-move.".length);
 		if (!isSearchBackendName(backend)) return next;
-		const order = enabledOrder(next);
+		const order = enabledOrder(applyEnvAutoEnable(next));
 		const index = order.indexOf(backend);
 		if (index < 0) return next;
 		if (value === "move up" && index > 0) {
@@ -238,12 +253,12 @@ export function buildProviderSetupItems(draft: SearchConfig): SettingItem[] {
 	return SEARCH_BACKEND_NAMES.flatMap((backend) => {
 		const def = BACKEND_DEFS[backend];
 		const on = draft.backends?.[backend]?.enabled === true;
-		const keys = keyCount(backend, draft);
+		const credential = credentialSummary(backend, draft);
 		return [
 			{
 				id: `enabled.${backend}`,
 				label: def.label,
-				description: `${keyCountLabel(keys)}${def.optionalKey ? " (optional)" : def.needsKey ? "" : " · no key required"}. Disable keeps saved keys.`,
+				description: `${credential}${def.optionalKey ? " (optional)" : def.needsKey ? "" : " · no key required"}. Disable keeps saved keys.`,
 				currentValue: enabledLabel(on),
 				values: ["on", "off"],
 			},
@@ -251,7 +266,7 @@ export function buildProviderSetupItems(draft: SearchConfig): SettingItem[] {
 				id: `keys.${backend}`,
 				label: `${def.label} keys`,
 				description: "Enter to edit. One key, ENV_VAR, or !command per line.",
-				currentValue: keyCountLabel(keys),
+				currentValue: credential,
 				values: ["edit"],
 			},
 		];
@@ -328,7 +343,7 @@ function readDiskConfig(): SearchConfig {
 function saveDraft(ctx: ExtensionCommandContext, state: SetupDraftState): boolean {
 	try {
 		const disk = readDiskConfig();
-		const saved = mergePreservedKeys(normalizeSetupDraft(state.draft), disk, state.clearedKeys);
+		const saved = normalizeSetupDraft(mergePreservedKeys(normalizeSetupDraft(state.draft), disk, state.clearedKeys));
 		saveSearchConfig(getGlobalConfigPath(), saved);
 		state.original = cloneConfig(saved);
 		state.draft = cloneConfig(saved);
@@ -353,6 +368,7 @@ function showPage(
 	options: {
 		title: string;
 		hint: string;
+		project: SearchConfig;
 		projectOverrides: boolean;
 		itemsOf: (draft: SearchConfig, movingId?: string) => SettingItem[];
 		onCancel: () => SetupAction;
@@ -380,13 +396,16 @@ function showPage(
 			hint.setText(theme.fg("dim", movingId ? "↑↓ move · Enter/Esc drop" : options.hint));
 			dirty.setText(theme.fg("dim", draftIsDirty(state) ? "● Unsaved changes" : "No unsaved changes"));
 		};
+		const viewOf = (draft: SearchConfig, movingId?: string) => (
+			options.itemsOf(effectiveSearchConfig(draft, options.project), movingId)
+		);
 		const rebuild = () => {
-			replaceSettingsListItems(list, options.itemsOf(state.draft, movingId));
+			replaceSettingsListItems(list, viewOf(state.draft, movingId));
 			refreshChrome();
 		};
 		let list: SettingsList;
 		list = new SettingsList(
-			options.itemsOf(state.draft),
+			viewOf(state.draft),
 			18,
 			getSettingsListTheme(),
 			(id, value) => {
@@ -450,11 +469,12 @@ function showPage(
 	}).then((action) => action ?? { type: "close" });
 }
 
-function showHomePage(ctx: ExtensionCommandContext, state: SetupDraftState, projectOverrides: boolean): Promise<SetupAction> {
+function showHomePage(ctx: ExtensionCommandContext, state: SetupDraftState, project: SearchConfig): Promise<SetupAction> {
 	return showPage(ctx, state, {
 		title: "Search Hub",
 		hint: "s save · Esc close",
-		projectOverrides,
+		project,
+		projectOverrides: Object.keys(project).length > 0,
 		itemsOf: buildSearchSetupItems,
 		onCancel: () => draftIsDirty(state) ? { type: "esc-dirty" } : { type: "close" },
 		onActivate: (id, done) => {
@@ -471,11 +491,12 @@ function showHomePage(ctx: ExtensionCommandContext, state: SetupDraftState, proj
 	});
 }
 
-function showPriorityPage(ctx: ExtensionCommandContext, state: SetupDraftState, projectOverrides: boolean): Promise<SetupAction> {
+function showPriorityPage(ctx: ExtensionCommandContext, state: SetupDraftState, project: SearchConfig): Promise<SetupAction> {
 	return showPage(ctx, state, {
 		title: "Priority order",
 		hint: "s save · Esc back",
-		projectOverrides,
+		project,
+		projectOverrides: Object.keys(project).length > 0,
 		itemsOf: buildPrioritySetupItems,
 		onCancel: () => ({ type: "back" }),
 		allowPriorityMove: true,
@@ -483,11 +504,12 @@ function showPriorityPage(ctx: ExtensionCommandContext, state: SetupDraftState, 
 	});
 }
 
-function showProvidersPage(ctx: ExtensionCommandContext, state: SetupDraftState, projectOverrides: boolean): Promise<SetupAction> {
+function showProvidersPage(ctx: ExtensionCommandContext, state: SetupDraftState, project: SearchConfig): Promise<SetupAction> {
 	return showPage(ctx, state, {
 		title: "Providers",
 		hint: "s save · Esc back",
-		projectOverrides,
+		project,
+		projectOverrides: Object.keys(project).length > 0,
 		itemsOf: buildProviderSetupItems,
 		onCancel: () => ({ type: "back" }),
 		onActivate: (id, done) => {
@@ -515,15 +537,15 @@ export async function openSearchSetup(ctx: ExtensionCommandContext): Promise<voi
 		draft: cloneConfig(original),
 		clearedKeys: new Set(),
 	};
-	const projectOverrides = hasProjectOverrides(ctx);
+	const project = ctx.isProjectTrusted() ? readProjectConfig(ctx) : {};
 	let screen: "home" | "providers" | "priority" = "home";
 
 	while (true) {
 		const action = screen === "providers"
-			? await showProvidersPage(ctx, state, projectOverrides)
+			? await showProvidersPage(ctx, state, project)
 			: screen === "priority"
-				? await showPriorityPage(ctx, state, projectOverrides)
-				: await showHomePage(ctx, state, projectOverrides);
+				? await showPriorityPage(ctx, state, project)
+				: await showHomePage(ctx, state, project);
 		if (action.type === "close") return;
 		if (action.type === "back") {
 			screen = "home";

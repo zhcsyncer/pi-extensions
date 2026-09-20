@@ -42,7 +42,10 @@ export function resolveConfigValue(reference: string | undefined, onNotice?: Not
 	if (normalizedReference.startsWith("!")) {
 		const cached = commandValueCache.get(normalizedReference);
 		if (cached) {
-			if (cached.errorMessage) throw new Error(cached.errorMessage);
+			if (cached.errorMessage) {
+				onNotice?.(cached.errorMessage);
+				return undefined;
+			}
 			return cached.value;
 		}
 		try {
@@ -59,7 +62,8 @@ export function resolveConfigValue(reference: string | undefined, onNotice?: Not
 			// Node's shell error includes the command and stderr, which can contain credentials.
 			const errorMessage = "Search Hub credential command failed. Check the configured credential command and its permissions.";
 			commandValueCache.set(normalizedReference, { errorMessage });
-			throw new Error(errorMessage);
+			onNotice?.(errorMessage);
+			return undefined;
 		}
 	}
 

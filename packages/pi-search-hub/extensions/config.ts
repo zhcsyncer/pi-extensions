@@ -40,6 +40,43 @@ export function routingOf(searchConfig: SearchConfig): RoutingStrategy {
 	return searchConfig.routing ?? DEFAULT_ROUTING;
 }
 
+export function mergeProjectConfig(global: SearchConfig, project: SearchConfig): SearchConfig {
+	const preProjectBackends = { ...(global.backends ?? {}) };
+	let next: SearchConfig = { ...global, ...project };
+	if (next.backends == null) next.backends = preProjectBackends;
+	if (project.backends && typeof project.backends === "object") {
+		const merged: Record<string, BackendConfig | undefined> = { ...preProjectBackends, ...next.backends };
+		for (const [key, val] of Object.entries(project.backends)) {
+			const bc = val as BackendConfig | undefined;
+			if (bc && merged[key]) merged[key] = { ...merged[key], ...bc };
+			else merged[key] = bc;
+		}
+		next.backends = merged;
+	}
+	return next;
+}
+
+/** Auto-enable backends that have a convenience env var and are not explicitly disabled. */
+export function applyEnvAutoEnable(config: SearchConfig): SearchConfig {
+	const next: SearchConfig = { ...config, backends: { ...(config.backends ?? {}) } };
+	for (const [backend, envVar] of Object.entries(FALLBACK_ENV_MAP)) {
+		const envValue = process.env[envVar];
+		if (!envValue?.trim()) continue;
+		const existing = (next.backends as Record<string, BackendConfig | undefined>)[backend];
+		if (!existing || existing.enabled === undefined) {
+			(next.backends as Record<string, BackendConfig>)[backend] = {
+				...existing,
+				enabled: true,
+			};
+		}
+	}
+	return next;
+}
+
+export function effectiveSearchConfig(global: SearchConfig, project: SearchConfig = {}): SearchConfig {
+	return applyEnvAutoEnable(mergeProjectConfig(global, project));
+}
+
 // ---------------------------------------------------------------------------
 // Config loading
 // ---------------------------------------------------------------------------
@@ -55,47 +92,16 @@ export function loadConfig(cwd: string, projectTrusted = false, onNotice?: Migra
 		}),
 	};
 
-	// Save global backends before project config overwrites them.
-	const preProjectBackends = { ...(next.backends ?? {}) };
-
 	if (projectTrusted) {
-		const project = loadMigratedSearchConfig({
+		next = mergeProjectConfig(next, loadMigratedSearchConfig({
 			targetPath: getProjectConfigPath(cwd),
 			legacyPath: getLegacyProjectConfigPath(cwd),
 			scope: "project",
 			onNotice,
-		});
-		next = { ...next, ...project };
-		if (next.backends == null) next.backends = preProjectBackends;
-		if (project.backends && typeof project.backends === "object") {
-			const merged: Record<string, BackendConfig | undefined> = { ...preProjectBackends, ...next.backends };
-			for (const [key, val] of Object.entries(project.backends)) {
-				const bc = val as BackendConfig | undefined;
-				if (bc && merged[key]) merged[key] = { ...merged[key], ...bc };
-				else merged[key] = bc;
-			}
-			next.backends = merged;
-		}
+		}));
 	}
 
-	// Auto-enable backends that have a convenience env var but no explicit config yet.
-	// Only enables if the backend is not explicitly disabled (enabled !== false).
-	for (const [backend, envVar] of Object.entries(FALLBACK_ENV_MAP)) {
-		const envValue = process.env[envVar];
-		if (envValue && envValue.trim().length > 0) {
-			const configBackends = next.backends as Record<string, BackendConfig> ?? {};
-			const existing = configBackends[backend];
-			if (!existing || existing.enabled === undefined) {
-				if (!next.backends) next.backends = {};
-				(next.backends as Record<string, BackendConfig>)[backend] = {
-					...existing,
-					enabled: true,
-				};
-			}
-		}
-	}
-
-	return next;
+	return applyEnvAutoEnable(next);
 }
 
 // ---------------------------------------------------------------------------

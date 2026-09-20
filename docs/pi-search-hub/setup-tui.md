@@ -59,4 +59,6 @@ web_read(url)
 - `best-latency` 的主排序是持久化 effectiveness，不是进程内 60 秒窗口。
 - 设置页不把保存塞进脏 Esc 确认框，也不在每次改 key 时写盘。
 - 磁盘上已有的 key 不因 disable、未打开 key 编辑器、或丢掉 combine/reader 这类旧字段而被删。
+- 存盘双写 `apiKey`（第一把）和 `apiKeys`，避免回退到只认识 `apiKey` 的旧版时把凭据写丢。
+- `/search-setup` 展示 effective 状态（含 `SEARCH_*_API_KEY` 自动启用），编辑仍只写全局草稿。
 - 不提交、不推送，除非用户之后明确要求。

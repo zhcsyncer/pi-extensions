@@ -178,7 +178,8 @@ describe("Search Hub diagnostics through registered tools", () => {
 		const result = await createHarness().execute("web_search", ctx);
 
 		expect(result.details).toMatchObject({ backend: "firecrawl (fallback)", resultCount: 1 });
-		expect(result.details.errors?.join(" ")).toMatch(/credential|command/i);
+		expect(result.details.warnings?.join(" ")).toMatch(/credential command failed/i);
+		expect(result.details.errors?.join(" ")).toMatch(/tavily/i);
 		expect(JSON.stringify([result, ctx.ui.notify.mock.calls])).not.toContain("credential-command-private-marker");
 		expect(JSON.stringify([result, ctx.ui.notify.mock.calls])).not.toContain("printf");
 	});
