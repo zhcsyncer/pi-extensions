@@ -27,6 +27,52 @@ function textTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
 }
 
+function systemMessageText(message: Message): string {
+  if (message.role !== "system") return "";
+  const parts: string[] = [];
+  if (typeof message.content === "string") parts.push(message.content);
+  else if (Array.isArray(message.content)) {
+    for (const block of message.content) {
+      if (block && typeof block === "object" && block.type === "text") parts.push(block.text);
+    }
+  }
+  if ("sections" in message && message.sections && typeof message.sections === "object") {
+    for (const value of Object.values(message.sections as Record<string, unknown>)) {
+      if (typeof value === "string") parts.push(value);
+    }
+  }
+  return parts.join("\n");
+}
+
+/** Pi 0.85 `context.systemPrompt`, or 0.86 transcript system messages. */
+export function replayedSystemPrompt(context: Context): string {
+  if (typeof context.systemPrompt === "string" && context.systemPrompt.length > 0) {
+    return context.systemPrompt;
+  }
+  const parts: string[] = [];
+  for (const message of context.messages ?? []) {
+    const text = systemMessageText(message);
+    if (text) parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+/** Pi 0.85 `context.tools`, or 0.86 `toolsAdded` / `toolsRemoved` on system messages. */
+export function replayedTools(context: Context): NonNullable<Context["tools"]> {
+  if (context.tools && context.tools.length > 0) return context.tools;
+  const tools = new Map<string, NonNullable<Context["tools"]>[number]>();
+  for (const message of context.messages ?? []) {
+    if (message.role !== "system") continue;
+    const record = message as Message & {
+      toolsRemoved?: Array<{ name: string }>;
+      toolsAdded?: NonNullable<Context["tools"]>;
+    };
+    for (const tool of record.toolsRemoved ?? []) tools.delete(tool.name);
+    for (const tool of record.toolsAdded ?? []) tools.set(tool.name, tool);
+  }
+  return [...tools.values()];
+}
+
 /** A bounded image heuristic, not base64 length or an assertion of upstream tokenization. */
 export function estimateMessageTokens(message: Pick<Message, "content">): number {
   if (typeof message.content === "string") return 4 + textTokens(message.content);
@@ -69,18 +115,20 @@ export function createCursorContextTracker(
         window: model.contextWindow,
         session: options?.sessionId,
         reasoning: options?.reasoning,
-        system: context.systemPrompt,
-        tools: context.tools,
+        system: replayedSystemPrompt(context),
+        tools: replayedTools(context),
       }),
     )
     .digest("hex");
   const history = createHash("sha256");
+  const tools = replayedTools(context);
   let inputTokens =
-    textTokens(context.systemPrompt ?? "") + textTokens(JSON.stringify(context.tools ?? []));
+    textTokens(replayedSystemPrompt(context)) + textTokens(JSON.stringify(tools));
   let rawInputTokens = inputTokens;
   let anchorTokens: number | undefined;
   let trailingTokens = 0;
   for (const message of context.messages) {
+    if (message.role === "system") continue;
     appendMessageHash(history, message);
     const estimated = estimateMessageTokens(message);
     inputTokens += estimated;

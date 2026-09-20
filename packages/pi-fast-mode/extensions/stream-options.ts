@@ -58,18 +58,36 @@ function estimateTextAndImageContentTokens(content: unknown): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
 
+function estimateSystemMessageTokens(message: Message): number {
+	let chars = estimateTextAndImageContentChars(message.content);
+	if ("sections" in message && isRecord(message.sections)) {
+		for (const value of Object.values(message.sections)) {
+			if (typeof value === "string") chars += value.length;
+		}
+	}
+	if ("toolsAdded" in message && Array.isArray(message.toolsAdded)) {
+		chars += safeJsonStringify(message.toolsAdded).length;
+	}
+	return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
 function estimateMessageTokens(message: Message): number {
+	if (message.role === "system") return estimateSystemMessageTokens(message);
 	if (message.role === "user" || message.role === "toolResult") {
+		return estimateTextAndImageContentTokens(message.content);
+	}
+	if (!Array.isArray(message.content)) {
 		return estimateTextAndImageContentTokens(message.content);
 	}
 
 	let chars = 0;
 	for (const block of message.content) {
-		if (block.type === "text") {
+		if (!isRecord(block)) continue;
+		if (block.type === "text" && typeof block.text === "string") {
 			chars += block.text.length;
-		} else if (block.type === "thinking") {
+		} else if (block.type === "thinking" && typeof block.thinking === "string") {
 			chars += block.thinking.length;
-		} else {
+		} else if (typeof block.name === "string") {
 			chars += block.name.length + safeJsonStringify(block.arguments).length;
 		}
 	}

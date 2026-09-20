@@ -57,6 +57,14 @@ export function appendWhyToLastUser(messages: Message[], why: string): Message[]
 	return [...messages, { role: "user", content: [{ type: "text", text: whyBlock }], timestamp: Date.now() }];
 }
 
+/** Parent transcripts on Pi 0.86 carry system/tool deltas. Empty `tools: []` does not clear them. */
+export function stripSystemMessages(messages: Message[]): Message[] {
+	return messages.filter((message) => message.role !== "system");
+}
+
 export function prepareConsultMessages(messages: Message[], why: string, currentToolCallId?: string): Message[] {
-	return appendWhyToLastUser(ensureUserTailForConsult(stripInflightConsultCall(messages, currentToolCallId)), why);
+	return appendWhyToLastUser(
+		ensureUserTailForConsult(stripInflightConsultCall(stripSystemMessages(messages), currentToolCallId)),
+		why,
+	);
 }

@@ -8,6 +8,7 @@
 |---|---|---|
 | [upstream-forks.md](./upstream-forks.md) | 外部跟踪 | 有来源的 fork/改编：pin、已评估头 `last_seen`、锁定的跟/不跟；下次只打开比 last_seen 新的版本 |
 | [extension-data-layout.md](./extension-data-layout.md) | 已落地 | 扩展配置与内部状态的统一路径、trust 边界 |
+| [pi-0.86-extension-adapt.md](./pi-0.86-extension-adapt.md) | 核对结论 | Pi 0.86 扩展/provider：谁必须改组包、谁升级验证、谁不用改 |
 | [tui-design-system.md](./tui-design-system.md) | 参考 | Claude Code 风格 TUI 色板与 chrome |
 | [pi-glance/input-stash.md](./pi-glance/input-stash.md) | 已落地 | 输入框单槽暂存：快捷键、边框提示、按 session 覆盖写 |
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |

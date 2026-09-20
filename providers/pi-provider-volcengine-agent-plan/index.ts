@@ -56,20 +56,33 @@ function copyEstimatedApiCost(cost: EstimatedApiCost): EstimatedApiCost {
 	};
 }
 
+/** Pi 0.86 renamed some catalog ids (e.g. deepseek-v4-flash → deepseek-flash). Never throw on load. */
+function costFromBuiltin(
+	provider: string,
+	ids: string | string[],
+	fallback: EstimatedApiCost,
+): EstimatedApiCost {
+	for (const id of Array.isArray(ids) ? ids : [ids]) {
+		const model = getBuiltinModel(provider, id);
+		if (model?.cost) return copyEstimatedApiCost(model.cost);
+	}
+	return copyEstimatedApiCost(fallback);
+}
+
 function inheritModelCapabilities(
-	upstream: InheritedModelCapabilities,
+	upstream: InheritedModelCapabilities | undefined,
 	routeLimits: RouteCapabilityLimits,
+	fallback: InheritedModelCapabilities,
 ): InheritedModelCapabilities {
+	const source = upstream ?? fallback;
 	return {
-		name: upstream.name,
-		reasoning: upstream.reasoning,
-		...(upstream.thinkingLevelMap
-			? { thinkingLevelMap: { ...upstream.thinkingLevelMap } }
-			: {}),
-		input: upstream.input.filter((modality) => routeLimits.input.includes(modality)),
-		cost: copyEstimatedApiCost(upstream.cost),
-		contextWindow: Math.min(upstream.contextWindow, routeLimits.contextWindow),
-		maxTokens: Math.min(upstream.maxTokens, routeLimits.maxTokens),
+		name: source.name,
+		reasoning: source.reasoning,
+		...(source.thinkingLevelMap ? { thinkingLevelMap: { ...source.thinkingLevelMap } } : {}),
+		input: source.input.filter((modality) => routeLimits.input.includes(modality)),
+		cost: copyEstimatedApiCost(source.cost),
+		contextWindow: Math.min(source.contextWindow, routeLimits.contextWindow),
+		maxTokens: Math.min(source.maxTokens, routeLimits.maxTokens),
 	};
 }
 
@@ -90,11 +103,33 @@ const DOUBAO_API_COSTS = {
 
 // Only model capabilities and reference API pricing are inherited. Agent Plan
 // continues to own protocol, endpoint, compatibility, tier gating, and route limits.
-const KIMI_K3_CAPABILITIES = inheritModelCapabilities(getBuiltinModel("moonshotai", "kimi-k3"), {
+const KIMI_K3_FALLBACK: InheritedModelCapabilities = {
+	name: "Kimi K3",
+	reasoning: true,
+	thinkingLevelMap: {
+		off: null,
+		minimal: null,
+		low: "low",
+		medium: null,
+		high: "high",
+		xhigh: null,
+		max: "max",
+	},
 	input: ["text", "image"],
+	cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 0 },
 	contextWindow: 1_048_576,
 	maxTokens: 128_000,
-});
+};
+
+const KIMI_K3_CAPABILITIES = inheritModelCapabilities(
+	getBuiltinModel("moonshotai", "kimi-k3"),
+	{
+		input: ["text", "image"],
+		contextWindow: 1_048_576,
+		maxTokens: 128_000,
+	},
+	KIMI_K3_FALLBACK,
+);
 
 const TIER_RANK: Record<PlanTier, number> = {
 	small: 0,
@@ -137,7 +172,12 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_048_576,
 		maxTokens: 393_216,
-		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-flash").cost),
+		cost: costFromBuiltin("deepseek", ["deepseek-v4-flash", "deepseek-flash"], {
+			input: 0.3,
+			output: 1.2,
+			cacheRead: 0.006,
+			cacheWrite: 0,
+		}),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -196,7 +236,12 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text", "image"],
 		contextWindow: 1_048_576,
 		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(getBuiltinModel("minimax", "MiniMax-M3").cost),
+		cost: costFromBuiltin("minimax", ["MiniMax-M3", "minimax-m3"], {
+			input: 0.3,
+			output: 1.2,
+			cacheRead: 0.06,
+			cacheWrite: 0,
+		}),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -240,7 +285,12 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_048_576,
 		maxTokens: 128_000,
-		cost: copyEstimatedApiCost(getBuiltinModel("opencode-go", "glm-5.2").cost),
+		cost: costFromBuiltin("opencode-go", ["glm-5.3", "glm-5.2"], {
+			input: 1.4,
+			output: 4.4,
+			cacheRead: 0.26,
+			cacheWrite: 0,
+		}),
 		compat: RESPONSES_COMPAT,
 	},
 	{
@@ -253,7 +303,12 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text", "image"],
 		contextWindow: 262_144,
 		maxTokens: 32_768,
-		cost: copyEstimatedApiCost(getBuiltinModel("moonshotai", "kimi-k2.7-code").cost),
+		cost: costFromBuiltin("moonshotai", "kimi-k2.7-code", {
+			input: 0.95,
+			output: 4,
+			cacheRead: 0.19,
+			cacheWrite: 0,
+		}),
 		compat: KIMI_CHAT_COMPAT,
 	},
 	{
@@ -265,7 +320,12 @@ const CATALOG: CatalogEntry[] = [
 		input: ["text"],
 		contextWindow: 1_048_576,
 		maxTokens: 393_216,
-		cost: copyEstimatedApiCost(getBuiltinModel("deepseek", "deepseek-v4-pro").cost),
+		cost: costFromBuiltin("deepseek", "deepseek-v4-pro", {
+			input: 1.32,
+			output: 3.96,
+			cacheRead: 0.044,
+			cacheWrite: 0,
+		}),
 		compat: RESPONSES_COMPAT,
 	},
 	{

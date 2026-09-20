@@ -33,7 +33,7 @@ import {
 	writeDefaultEnabled,
 	type FastModeModel,
 } from "../extensions/fast-mode.ts";
-import { buildBaseOptions } from "../extensions/stream-options.ts";
+import { buildBaseOptions, estimateContextTokens } from "../extensions/stream-options.ts";
 
 function model(provider: string, api: string): FastModeModel {
 	return { provider, api };
@@ -118,6 +118,17 @@ test("extension runtime stays on loader-safe pi-ai specifiers", () => {
 		"Pi aliases @earendil-works/pi-ai to compat.js, so /api/* imports fail at load time.",
 	);
 	assert.ok(specifiers.includes("@earendil-works/pi-ai/compat"));
+});
+
+test("estimateContextTokens accepts Pi 0.86 system string messages", () => {
+	const context = {
+		messages: [
+			{ role: "system", content: "You are Pi. ".repeat(80), timestamp: 1 },
+			{ role: "user", content: "hi", timestamp: 2 },
+		],
+	} as Context;
+	assert.doesNotThrow(() => estimateContextTokens(context));
+	assert.ok(estimateContextTokens(context) > 20);
 });
 
 test("local buildBaseOptions matches the installed pi-ai recipe", () => {

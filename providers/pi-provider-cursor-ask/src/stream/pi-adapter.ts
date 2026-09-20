@@ -19,7 +19,12 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import { redactSecrets } from "../utils/security.js";
-import { estimateMessageTokens, positiveContextTokens } from "./context-usage.js";
+import {
+  estimateMessageTokens,
+  positiveContextTokens,
+  replayedSystemPrompt,
+  replayedTools,
+} from "./context-usage.js";
 import { lifecycleLog } from "./debug-log.js";
 import { takeRunReceipt, type CursorBillingInfo } from "./run-usage.js";
 import type { CursorNativeModelRouting } from "./model-routing.js";
@@ -401,9 +406,11 @@ export function contextToCursorChatCompletionRequest(
   config: CursorNativeStreamConfig,
 ): ChatCompletionRequest {
   const messages: OpenAIMessage[] = [];
-  if (context.systemPrompt) messages.push({ role: "system", content: context.systemPrompt });
+  const systemPrompt = replayedSystemPrompt(context);
+  if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
 
   for (const [index, message] of context.messages.entries()) {
+    if (message.role === "system") continue;
     if (message.role === "user") {
       messages.push({ role: "user", content: piContentToOpenAIContent(message.content) });
       continue;
@@ -442,7 +449,7 @@ export function contextToCursorChatCompletionRequest(
     model: model.id,
     messages,
     stream: true,
-    tools: (context.tools ?? []).map(piToolToOpenAI),
+    tools: replayedTools(context).map(piToolToOpenAI),
     tool_choice: options?.toolChoice,
     reasoning_effort: resolveNativeReasoningEffort(
       model,
