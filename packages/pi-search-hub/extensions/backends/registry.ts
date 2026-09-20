@@ -8,7 +8,15 @@ import { MISSING_KEY_HELP, waitForCooldown, markCooldown } from "../utils.js";
 import { resolveBackendKeys, withRotatedKeys } from "../credentials.js";
 import { getConfig } from "../config.js";
 import { reportEffectiveness } from "../effectiveness.js";
-import { isQuotaExhaustedError, markHostedQuotaSkip } from "../quota-skips.js";
+import {
+	formatLocalDateTime,
+	isQuotaExhaustedError,
+	markHostedQuotaSkip,
+	markKeyQuotaSkip,
+	maybeRefreshKeyUsage,
+	skipUntilForUsageBackend,
+	usableKeys,
+} from "../quota-skips.js";
 
 import { searchTavily } from "./tavily.js";
 import { searchExa } from "./exa.js";
@@ -124,8 +132,13 @@ export async function runBackend(
 	if (!def) throw new Error(`Unknown backend: ${backend}`);
 	const config = getConfig();
 	const keys = def.providerAuth ? [] : resolveBackendKeys(backend, config, runtime?.onNotice);
-	if (def.needsKey && keys.length === 0) {
+	if (!def.providerAuth) await maybeRefreshKeyUsage(backend, keys, Date.now(), signal);
+	const usable = def.providerAuth ? keys : usableKeys(backend, keys);
+	if (def.needsKey && usable.length === 0 && keys.length === 0) {
 		throw new Error(`${def.label} backend not configured. ${MISSING_KEY_HELP}`);
+	}
+	if (keys.length > 0 && usable.length === 0) {
+		throw new Error(`${def.label} keys are quota-skipped. Check /search-hub status.`);
 	}
 
 	const bc = (config.backends as Record<string, BackendConfig | undefined>)?.[backend];
@@ -137,10 +150,25 @@ export async function runBackend(
 		onNotice: runtime?.onNotice,
 		modelRegistry: runtime?.modelRegistry,
 	});
+	const invokeKey = async (key: string) => {
+		try {
+			return await invoke(key);
+		} catch (error) {
+			if (!def.providerAuth && isQuotaExhaustedError(error)) {
+				const until = markKeyQuotaSkip(backend, key, skipUntilForUsageBackend(backend, key));
+				runtime?.onNotice?.(
+					`Search Hub ${def.label}: key quota exhausted, skipping until ${formatLocalDateTime(until)}.`,
+				);
+			}
+			throw error;
+		}
+	};
 	try {
-		const result = keys.length > 1
-			? await withRotatedKeys(backend, keys, (key) => invoke(key))
-			: await invoke(keys[0]);
+		const result = def.providerAuth || usable.length === 0
+			? await invoke(undefined)
+			: usable.length > 1
+				? await withRotatedKeys(backend, usable, (key) => invokeKey(key))
+				: await invokeKey(usable[0]!);
 		const latencyMs = Date.now() - startTime;
 		await reportEffectiveness({
 			backend,
@@ -166,7 +194,7 @@ export async function runBackend(
 		if (def.providerAuth && isQuotaExhaustedError(err)) {
 			const until = markHostedQuotaSkip(backend);
 			runtime?.onNotice?.(
-				`Search Hub ${def.label}: quota exhausted, skipping until ${new Date(until).toISOString()}.`,
+				`Search Hub ${def.label}: quota exhausted, skipping until ${formatLocalDateTime(until)}.`,
 			);
 		}
 		throw err;

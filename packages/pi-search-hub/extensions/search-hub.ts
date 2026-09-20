@@ -52,6 +52,7 @@ import {
 	WEB_READ_RESULT_MAX_CHARS,
 } from "./display.js";
 import { openSearchSetup } from "./setup-ui.js";
+import { openSearchStatus } from "./status-ui.js";
 
 const READER_LABELS: Record<ReaderName, string> = {
 	firecrawl: "Firecrawl",
@@ -172,6 +173,10 @@ export default function (pi: ExtensionAPI) {
 			const orderedBackends = filterQuotaSkipped(
 				selectBackendsForFallback(routing, activeBackends, effectiveness),
 				onNotice,
+				Date.now(),
+				(backend) => BACKEND_DEFS[backend]?.providerAuth
+					? []
+					: resolveBackendKeys(backend, config, onNotice),
 			);
 
 			if (combine) {
@@ -396,10 +401,39 @@ export default function (pi: ExtensionAPI) {
 		getResultPresentation: getWebReadResultPresentation,
 	}));
 
-	pi.registerCommand("search-setup", {
-		description: "View status and configure Search Hub",
-		handler: async (_args, ctx) => {
-			await openSearchSetup(ctx);
+	pi.registerCommand("search-hub", {
+		description: "Configure Search Hub or show the quota ledger",
+		getArgumentCompletions: (prefix) => {
+			const options = [
+				{ value: "setup", label: "setup", description: "Routing, providers, and keys" },
+				{ value: "status", label: "status", description: "Quota ledger" },
+				{ value: "status refresh", label: "status refresh", description: "Refresh Tavily/Firecrawl usage" },
+			];
+			const needle = prefix.trim().toLowerCase();
+			const filtered = options.filter((option) => option.value.startsWith(needle));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args, ctx) => {
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			let sub = tokens[0];
+			if (!sub) {
+				if (!ctx.hasUI || ctx.mode !== "tui") {
+					ctx.ui.notify("Usage: /search-hub setup | status [refresh]", "info");
+					return;
+				}
+				const choice = await ctx.ui.select("Search Hub", ["setup", "status"]);
+				if (!choice) return;
+				sub = choice;
+			}
+			if (sub === "setup") {
+				await openSearchSetup(ctx);
+				return;
+			}
+			if (sub === "status") {
+				await openSearchStatus(ctx, tokens[1] === "refresh");
+				return;
+			}
+			ctx.ui.notify("Usage: /search-hub setup | status [refresh]", "error");
 		},
 	});
 

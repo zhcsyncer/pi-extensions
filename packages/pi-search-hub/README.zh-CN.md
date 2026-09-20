@@ -69,7 +69,7 @@ Search Hub 从以下位置读取配置：
 
 ### 交互式配置
 
-运行 `/search-setup` 可编辑全局路由和 compact 输出。各家开关、key，以及 Codex/Grok 模型在二级 Providers 页。仅 `priority` 路由时，已启用尝试顺序在独立列表里改：Enter 选中，上下键移动。不再提供独立的 `/search-status` 命令。
+运行 `/search-hub setup` 可编辑全局路由和 compact 输出。`/search-hub status` 显示本地余量账（Tavily/Firecrawl 剩余、已禁用的 key 和解禁时间），打开时不打官方接口。按 `r` 或 `/search-hub status refresh` 刷新 Tavily/Firecrawl 用量。各家开关、key，以及 Codex/Grok 模型在二级 Providers 页。仅 `priority` 路由时，已启用尝试顺序在独立列表里改：Enter 选中，上下键移动。
 
 修改留在草稿中。`s` 保存；干净时 Esc 直接关闭。有未保存修改时 Esc 只确认一次是丢弃还是继续编辑，确认框里没有保存。Key 用 `ui.editor` 编辑，一行一个引用，只有保存时才写盘。禁用 backend 会保留已存 key。受信任项目配置仍可覆盖全局文件；设置页只提示这一点，不编辑项目文件。
 

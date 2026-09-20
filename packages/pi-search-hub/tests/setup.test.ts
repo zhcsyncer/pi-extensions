@@ -282,9 +282,11 @@ describe("Search Hub setup and reader configuration", () => {
 			},
 		});
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
+		expect(harness.commands.has("search-setup")).toBe(false);
 		expect(harness.commands.has("search-status")).toBe(false);
+		expect(harness.commands.has("search-hub")).toBe(true);
 		expect(harness.select).not.toHaveBeenCalled();
 		expect(rendered[0]).toContain("Routing");
 		expect(rendered[0]).toContain("Providers");
@@ -313,7 +315,7 @@ describe("Search Hub setup and reader configuration", () => {
 			},
 		});
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
 		expect(harness.editor).toHaveBeenCalledOnce();
 		expect(readGlobalConfig(home).backends?.tavily).toMatchObject({
@@ -329,7 +331,7 @@ describe("Search Hub setup and reader configuration", () => {
 			custom: async () => ({ type: "esc-dirty" }),
 		});
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
 		expect(harness.select.mock.calls[0][0]).toBe("Unsaved Search Hub changes");
 		expect(harness.select.mock.calls[0][1]).toEqual(["Discard changes", "Keep editing"]);
@@ -352,7 +354,7 @@ describe("Search Hub setup and reader configuration", () => {
 			},
 		});
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
 		expect(harness.notifications.some(({ message }) => message.includes("project overrides remain effective"))).toBe(true);
 		expect(existsSync(join(cwd, ".pi", "extension-data", "pi-search-hub", "config.json")) || existsSync(join(cwd, ".pi", "search.json"))).toBe(true);

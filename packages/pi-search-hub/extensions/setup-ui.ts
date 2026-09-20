@@ -1,5 +1,5 @@
 /**
- * /search-setup — SettingsList home page plus a providers page, over one global draft.
+ * /search-hub setup — SettingsList home page plus a providers page, over one global draft.
  */
 
 import {
@@ -576,7 +576,7 @@ function showProvidersPage(ctx: ExtensionCommandContext, state: SetupDraftState,
 
 export async function openSearchSetup(ctx: ExtensionCommandContext): Promise<void> {
 	if (!ctx.hasUI || ctx.mode !== "tui") {
-		ctx.ui.notify("/search-setup requires TUI mode", "error");
+		ctx.ui.notify("/search-hub setup requires TUI mode", "error");
 		return;
 	}
 

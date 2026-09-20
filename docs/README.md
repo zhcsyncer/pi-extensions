@@ -26,7 +26,7 @@
 | [pi-subagents/pinned-extensions.md](./pi-subagents/pinned-extensions.md) | 已落地 | 子代理钉住观察者扩展：只保加载、不保工具 |
 | [pi-recap/extension.md](./pi-recap/extension.md) | 已落地 | 一行最近活动 recap：不是 compact；title → name → multiplexer；出环 one-shot |
 | [pi-search-hub/slim-backends-plan.md](./pi-search-hub/slim-backends-plan.md) | 第一刀已落地 | Search Hub 只留 Exa / Tavily / Firecrawl / Parallel |
-| [pi-search-hub/setup-tui.md](./pi-search-hub/setup-tui.md) | 契约已拍板 | 主模型不选供应商；routing / combine / `/search-setup` 一张草稿页 |
+| [pi-search-hub/setup-tui.md](./pi-search-hub/setup-tui.md) | 契约已拍板 | 主模型不选供应商；routing / combine / `/search-hub setup` 一张草稿页 |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
 | [providers/pi-provider-volcengine-agent-plan/model-compatibility.md](./providers/pi-provider-volcengine-agent-plan/model-compatibility.md) | 已落地 | 静态模型来源、个人版权限、网关兼容与费用估算边界 |

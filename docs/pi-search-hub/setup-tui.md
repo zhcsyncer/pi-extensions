@@ -41,7 +41,9 @@ web_read(url)
 
 Codex / Grok 不是 SERP：走 `modelRegistry.complete()`，注入服务端 `web_search`，用 Pi `/login` 额度。默认模型 `gpt-5.6-luna` / `grok-4.3`，可在 Providers 页切换该 provider 目录里的模型。不接 `x_search`，不把订阅 token 写进 Search Hub 配置。
 
-### `/search-setup`
+`/search-hub status` 读本地余量账，打开不拉官方接口。Tavily/Firecrawl 按 key 记剩余，耗尽禁到下个周期（Tavily 下月 1 号 UTC，Firecrawl `billingPeriodEnd`）。Exa/Parallel 耗尽的 key 禁 24h。一家 key 全禁则跳过该渠道。
+
+### `/search-hub setup`
 
 首页只放 routing、（仅 `priority` 时）Priority order 入口、Providers 入口、compact。四家开关和 key 在二级 Providers 页；尝试顺序在独立的 Priority order 列表里改。
 
@@ -62,5 +64,5 @@ Codex / Grok 不是 SERP：走 `modelRegistry.complete()`，注入服务端 `web
 - 设置页不把保存塞进脏 Esc 确认框，也不在每次改 key 时写盘。
 - 磁盘上已有的 key 不因 disable、未打开 key 编辑器、或丢掉 combine/reader 这类旧字段而被删。
 - 存盘双写 `apiKey`（第一把）和 `apiKeys`，避免回退到只认识 `apiKey` 的旧版时把凭据写丢。
-- `/search-setup` 展示 effective 状态（含 `SEARCH_*_API_KEY` 自动启用），编辑仍只写全局草稿。
+- `/search-hub setup` 展示 effective 状态（含 `SEARCH_*_API_KEY` 自动启用），编辑仍只写全局草稿。
 - 不提交、不推送，除非用户之后明确要求。

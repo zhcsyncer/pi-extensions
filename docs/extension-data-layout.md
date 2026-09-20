@@ -180,7 +180,7 @@ Recap/Search Hub 的项目迁移只在受信任项目中执行；Subagents 不�
 Search Hub 是本次路径治理中需要额外修正的实现：
 
 1. 删除 `packages/pi-search-hub/extensions/utils.ts` 中自行拼接 `$HOME/.pi/agent` 的 `getAgentDir()`；统一使用 Pi 导出的 `getAgentDir()`，正确遵循 `PI_CODING_AGENT_DIR`。
-2. 全局配置读取、`/search-setup` 保存和帮助文本统一指向：
+2. 全局配置读取、`/search-hub setup` 保存和帮助文本统一指向：
 
    ```text
    $PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json
