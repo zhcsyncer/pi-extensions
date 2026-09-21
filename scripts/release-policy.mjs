@@ -18,6 +18,7 @@ export const CHILD_PACKAGES = Object.freeze([
 	"@zhcsyncer/pi-fast-mode",
 	"@zhcsyncer/pi-meter",
 	"@zhcsyncer/pi-consult",
+	"@zhcsyncer/pi-search-hub",
 ]);
 
 /**

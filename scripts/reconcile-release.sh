@@ -15,6 +15,7 @@ PACKAGES=(
   "@zhcsyncer/pi-fast-mode|packages/pi-fast-mode/package.json|packages/pi-fast-mode/CHANGELOG.md|pi-fast-mode|child"
   "@zhcsyncer/pi-meter|packages/pi-meter/package.json|packages/pi-meter/CHANGELOG.md|pi-meter|child"
   "@zhcsyncer/pi-consult|packages/pi-consult/package.json|packages/pi-consult/CHANGELOG.md|pi-consult|child"
+  "@zhcsyncer/pi-search-hub|packages/pi-search-hub/package.json|packages/pi-search-hub/CHANGELOG.md|pi-search-hub|child"
   "@zhcsyncer/pi-adversarial-review|packages/pi-adversarial-review/package.json|packages/pi-adversarial-review/CHANGELOG.md|pi-adversarial-review|child"
   "pi-provider-volcengine-agent-plan|providers/pi-provider-volcengine-agent-plan/package.json|providers/pi-provider-volcengine-agent-plan/CHANGELOG.md|pi-provider-volcengine-agent-plan|child"
   "pi-provider-cursor-ask|providers/pi-provider-cursor-ask/package.json|providers/pi-provider-cursor-ask/CHANGELOG.md|pi-provider-cursor-ask|child"
