@@ -52,9 +52,13 @@ describe("runner restoration across process restart (real SDK, local faux provid
     const restored = await phase("restore");
     expect(restored.error).toBeUndefined();
     expect(restored.pid).not.toBe(original.pid);
-    expect(restored.originalPrompt).toBe(original.snapshot.systemPrompt);
-    expect(restored.request.systemPrompt).toBe(original.snapshot.systemPrompt);
-    expect(restored.before[0]).toMatchObject({ role: "compactionSummary", summary: "COMPACTED_ORIGINAL_CONTEXT" });
+    expect(restored.originalPrompt).toContain("ORIGINAL_ROLE");
+    expect(restored.originalPrompt).toContain("ORIGINAL_PARENT_SYSTEM");
+    expect(restored.originalPrompt).not.toContain("CHANGED_SKILL_CATALOGUE");
+    expect(restored.request.systemPrompt).toContain("ORIGINAL_ROLE");
+    expect(restored.request.systemPrompt).toContain("ORIGINAL_PARENT_SYSTEM");
+    expect(restored.request.systemPrompt).not.toContain("CHANGED_SKILL_CATALOGUE");
+    expect(restored.before.some((message: { role: string; summary?: string }) => message.role === "compactionSummary" && message.summary === "COMPACTED_ORIGINAL_CONTEXT")).toBe(true);
     expect(JSON.stringify(restored.before)).toContain("RETAINED_TASK");
     expect(JSON.stringify(restored.before)).not.toContain("ORIGINAL_TASK");
     expect(JSON.stringify(restored.request.messages)).toContain("COMPACTED_ORIGINAL_CONTEXT");

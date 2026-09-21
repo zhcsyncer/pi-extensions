@@ -12,6 +12,22 @@ const jiti = createJiti(import.meta.url, { nativeModules: ["@earendil-works/pi-c
 const { runAgent, resumeAgent, restoreAgentSession, setDefaultMaxTurns, setGraceTurns } = await jiti.import(
   fileURLToPath(new URL("../../src/agent-runner.ts", import.meta.url)),
 );
+
+function promptFromContext(context) {
+  if (typeof context.systemPrompt === "string" && context.systemPrompt.length > 0) return context.systemPrompt;
+  const parts = [];
+  for (const message of context.messages ?? []) {
+    if (message.role !== "system") continue;
+    if (typeof message.content === "string" && message.content) parts.push(message.content);
+    if (message.sections) {
+      for (const value of Object.values(message.sections)) {
+        if (typeof value === "string" && value) parts.push(value);
+      }
+    }
+  }
+  return parts.join("\n\n");
+}
+
 const [phase, root] = process.argv.slice(2);
 const cwd = join(root, "work");
 const configCwd = join(root, "config");
@@ -48,7 +64,7 @@ try {
     writeFileSync(inputFile, "READ_CONTENT");
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("read", { path: inputFile }), { stopReason: "toolUse" }),
-      (context) => fauxAssistantMessage(context.systemPrompt.includes("You have reached your turn limit") ? "GUIDED_FINAL" : "GUIDANCE_MISSING"),
+      (context) => fauxAssistantMessage(promptFromContext(context).includes("You have reached your turn limit") ? "GUIDED_FINAL" : "GUIDANCE_MISSING"),
     ]);
     const resumed = await resumeAgent(session, "Read the file then finish");
     const queues = [[...session.getSteeringMessages()], [...session.getFollowUpMessages()]];
@@ -94,7 +110,7 @@ try {
     const originalPrompt = session.systemPrompt;
     let request;
     faux.setResponses([(context) => {
-      request = { systemPrompt: context.systemPrompt, messages: context.messages };
+      request = { systemPrompt: promptFromContext(context), messages: context.messages };
       return fauxAssistantMessage("RESTORED_ANSWER");
     }]);
     const result = await resumeAgent(session, "NEW_TASK");

@@ -28,13 +28,20 @@ const model: Model<Api> = {
 };
 const user = { role: "user" as const, content: "Read the fixture", timestamp: 1 };
 const context: Context = {
-  messages: [user],
-  tools: [
+  messages: [
     {
-      name: "read",
-      description: "Read a fixture",
-      parameters: { type: "object", properties: {} } as never,
-    },
+      role: "system" as const,
+      content: "",
+      timestamp: 0,
+      toolsAdded: [
+        {
+          name: "read",
+          description: "Read a fixture",
+          parameters: { type: "object", properties: {} } as never,
+        },
+      ],
+    } as Context["messages"][number],
+    user,
   ],
 };
 let dir: string;

@@ -1066,7 +1066,10 @@ export async function restoreAgentSession(
       throw new Error("Subagent session route changed during restoration; refusing fallback");
     }
     if (session.systemPrompt !== snapshot.systemPrompt) {
-      throw new Error("Subagent system prompt changed during restoration");
+      const stem = snapshot.systemPrompt.replace(/\nCurrent working directory: [^\n]+$/, "").trim();
+      if (stem && !session.systemPrompt.includes(stem)) {
+        throw new Error("Subagent system prompt changed during restoration");
+      }
     }
     sessionExecutionLimits.set(session, { maxTurns: snapshot.maxTurns, graceTurns: snapshot.graceTurns });
     return session;
