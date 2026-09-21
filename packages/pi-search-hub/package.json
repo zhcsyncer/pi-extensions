@@ -1,6 +1,6 @@
 {
   "name": "@zhcsyncer/pi-search-hub",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "Unified web_search and web_read tools for the Pi coding agent.",
   "keywords": [
     "pi-package",

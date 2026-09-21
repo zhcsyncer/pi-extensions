@@ -1,5 +1,12 @@
 # pi-provider-volcengine-agent-plan
 
+## 0.4.1
+
+### Patch Changes
+
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+- 1192e34: Stop crashing on Pi 0.86+ when a built-in catalog id is missing or renamed (DeepSeek Flash is now `deepseek-flash`). Agent Plan still keeps its own route ids.
+
 ## 0.4.0
 
 ### Minor Changes

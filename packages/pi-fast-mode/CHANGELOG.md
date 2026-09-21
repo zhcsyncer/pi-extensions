@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- 1192e34: Estimate request size from Pi 0.86 system messages instead of treating them as assistant tool blocks, so OpenAI/Codex/Grok no longer crash on the first turn.
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+
 ## 0.2.0
 
 ### Minor Changes

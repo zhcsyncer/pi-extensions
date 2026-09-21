@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- 1192e34: Stop injecting live Todo state into the model prompt. No-op updates now return "No changes; state already matches" without writing a checkpoint.
+
 ## 0.5.0
 
 ### Minor Changes
