@@ -72,7 +72,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 ```text
 ✢ Brewing… (requesting)
 ✶ Brewing… (thinking with high effort · ↓ ~42 tokens · 8s)
-✻ Brewing… (↓ ~127 tokens · 12s)
+✻ Brewing… (responding · ↓ ~127 tokens · 12s)
 * Brewing… (running bash · ↓ 184 tokens · 18s)
 ✢ Brewing… (requesting · 19m 15s)
 ```
@@ -93,7 +93,7 @@ Pi 的 working row 是全局单例、没有 key 或 owner stack。文档说明�
 4. elapsed time；
 5. 最终才截断主文案。
 
-elapsed 达到 5 分钟进入 warning 后，在降级时优先于当前 run token 保留，但仍不抢占当前活动。Responding 状态本身可由 token 增长表达，无需额外显示 `responding`。首次请求显示 `requesting`。elapsed 满 3 秒才出现，避免正常首字延迟闪一下 `0s`/`1s`。
+elapsed 达到 5 分钟进入 warning 后，在降级时优先于当前 run token 保留，但仍不抢占当前活动。首次请求显示 `requesting`。出字时显示高亮的 `responding`，与 thinking 对称。elapsed 满 3 秒才出现，避免正常首字延迟闪一下 `0s`/`1s`。
 
 ## 4. Token 口径
 

@@ -83,7 +83,7 @@ Git stays quiet:
 
 **Fork difference:** provided by this package; upstream `pi-glance` 0.5.3 does not include it.
 
-While a high-level cycle is active, Glance shows a themed spinner, a stable per-cycle verb, current activity (`requesting`, thinking, or running a tool), cycle output, and elapsed time after three seconds (`3s`, `47s`, `3m 08s`). Elapsed time uses the theme warning color at five minutes or later. It is not an official Anthropic component and does not change the Agent, prompts, models, tools, messages, or session behavior.
+While a high-level cycle is active, Glance shows a themed spinner, a stable per-cycle verb, current activity (`requesting`, thinking, highlighted `responding`, or running a tool), cycle output, and elapsed time after three seconds (`3s`, `47s`, `3m 08s`). Elapsed time uses the theme warning color at five minutes or later. It is not an official Anthropic component and does not change the Agent, prompts, models, tools, messages, or session behavior.
 
 The working row is the current cycle's output. Top-border Tokens are session cumulative usage. Context is context-window occupancy. Empty partials stay hidden instead of showing `↓ ~0 tokens`.
 

@@ -119,6 +119,8 @@ assert.ok(humanizedLong.includes(styles.warn("19m 15s")), "long minute elapsed t
 const hourWithoutSeconds = renderWorkingMessage({ snapshot: noFacts, nowMs: 4_023_000, width: 80, styles });
 assert.ok(hourWithoutSeconds.includes(styles.warn("1h 07m")), "hour elapsed time should omit low-value seconds");
 const finalized = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_000, width: 80, styles });
+assert.ok(finalized.includes("responding"), "responding should be named while output is streaming");
+assert.ok(finalized.includes(`${STYLE_CODES.strongTitle}responding`), "responding should use strong title highlight by default");
 assert.ok(finalized.includes("↓ 184 tokens"), "finalized output should omit the estimate marker");
 assert.equal(finalized.includes("~184"), false, "finalized tokens should never retain a tilde");
 

@@ -79,6 +79,7 @@ function activityText(snapshot: WorkingIndicatorSnapshot): string | undefined {
 		if (snapshot.tools.length > 1) return `running ${snapshot.tools.length} tools`;
 	}
 	if (snapshot.phase === "requesting") return "requesting";
+	if (snapshot.phase === "responding") return "responding";
 	return undefined;
 }
 
@@ -102,7 +103,7 @@ function formatWorkingElapsed(elapsedMs: number): string {
 	return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
 }
 
-type DetailTone = "dim" | "text" | "warn";
+type DetailTone = "dim" | "text" | "warn" | "title" | "strongTitle";
 
 interface WorkingDetail {
 	readonly text: string;
@@ -143,7 +144,9 @@ export function renderWorkingMessage(input: WorkingRenderInput): string {
 	const elapsedMs = Math.max(0, nowMs - snapshot.startedAtMs);
 	const showElapsed = elapsedMs >= ELAPSED_TEXT_THRESHOLD_MS;
 	const elapsedWarning = elapsedMs >= ELAPSED_WARNING_THRESHOLD_MS;
-	const activity: WorkingDetail | undefined = activityValue ? { text: activityValue, tone: "dim" } : undefined;
+	const activity: WorkingDetail | undefined = activityValue
+		? { text: activityValue, tone: snapshot.phase === "responding" ? "strongTitle" : "dim" }
+		: undefined;
 	const tokens: WorkingDetail | undefined = tokenValue ? { text: tokenValue, tone: "dim" } : undefined;
 	const elapsed: WorkingDetail | undefined = showElapsed
 		? {

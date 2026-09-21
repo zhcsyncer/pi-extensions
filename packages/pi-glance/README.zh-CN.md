@@ -77,7 +77,7 @@ Git 保持安静：
 
 **Fork 差异：** 由本包提供；上游 `pi-glance` 0.5.3 不包含该功能。
 
-高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动（`requesting`、thinking 或 running 某工具）、本 cycle 输出，以及满 3 秒后的耗时（`3s`、`47s`、`3m 08s`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变 Agent、prompt、模型、工具、消息或 session 行为。
+高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动（`requesting`、thinking、高亮的 `responding`，或 running 某工具）、本 cycle 输出，以及满 3 秒后的耗时（`3s`、`47s`、`3m 08s`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变 Agent、prompt、模型、工具、消息或 session 行为。
 
 Working row 是当前 cycle 的 output。顶边框 Tokens 是当前 session 累计 usage。Context 是 context window 占用。空 partial 保持隐藏，不显示 `↓ ~0 tokens`。
 
