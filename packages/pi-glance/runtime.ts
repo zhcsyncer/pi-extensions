@@ -1,8 +1,9 @@
 import { getAgentDir, SettingsManager, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isGitCollectionEnabled } from "./config.js";
 import { handleDiffCommand } from "./diff-review.js";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
-import { GitRefresher, maybeFetchGitBaseRef, type GitBaseRefFetchReason } from "./git.js";
+import { emptyGitSnapshot, GitRefresher, maybeFetchGitBaseRef, type GitBaseRefFetchReason } from "./git.js";
 import { INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./input-stash.js";
 import { createInputStashStore, type InputStashStore } from "./input-stash-store.js";
 import { InputStashController } from "./input-stash-runtime.js";
@@ -185,12 +186,23 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		return gitRefresher;
 	}
 
+	function gitCollectionEnabled(): boolean {
+		return isGitCollectionEnabled(getConfig());
+	}
+
+	function stopGitCollection(): void {
+		clearGitRefresher();
+		const state = refreshSession.getState();
+		if (state) refreshSession.applyGitSnapshot(state.workspace.path, emptyGitSnapshot());
+	}
+
 	function scheduleGitRefresh(immediate = false): void {
+		if (!gitCollectionEnabled()) return;
 		gitRefresher?.schedule(immediate);
 	}
 
 	function requestBaseRefFetch(reason: GitBaseRefFetchReason): void {
-		if (!getConfig().git.showBaseBehind) return;
+		if (!gitCollectionEnabled() || !getConfig().git.showBaseBehind) return;
 		const cwd = refreshSession.getState()?.workspace.path;
 		if (!cwd) return;
 		const fetchBase = adapters.fetchGitBaseRef ?? maybeFetchGitBaseRef;
@@ -242,8 +254,12 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		workingIndicator.apply(ctx, renderStyleContext);
 		const generation = invalidateUiOwnership();
 
-		ensureGitRefresher().schedule(true);
-		requestBaseRefFetch("session");
+		if (gitCollectionEnabled()) {
+			ensureGitRefresher().schedule(true);
+			requestBaseRefFetch("session");
+		} else {
+			stopGitCollection();
+		}
 		// Clear any legacy keyed Working Tree widget from earlier builds so it cannot
 		// stack above todo/plan/recap widgets after the summary moved into the editor surface.
 		ctx.ui.setWidget(WORKTREE_WIDGET_KEY, undefined);
@@ -270,7 +286,9 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 					void refreshSession.execute("editor_thinking_cycle", ctx);
 				},
 				{
-					onForeground: () => requestBaseRefFetch("focus"),
+					onForeground: () => {
+						if (gitCollectionEnabled()) requestBaseRefFetch("focus");
+					},
 					getStashOccupied: () => inputStash.occupied(ctx),
 					...(renderStyleContext ? { renderStyleContext } : {}),
 				},
@@ -282,6 +300,10 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		commands: {
 			refreshGit: () => scheduleGitRefresh(true),
 			openDiff: async (_args, ctx) => {
+				if (!gitCollectionEnabled()) {
+					ctx.ui.notify("Glance Git is off; /diff is disabled.", "info");
+					return;
+				}
 				try {
 					await (adapters.reviewWorkingTree ?? handleDiffCommand)(ctx);
 				} finally {

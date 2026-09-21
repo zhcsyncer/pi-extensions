@@ -677,7 +677,7 @@ assert.equal(categoryById(settingsFocusView, "git").hasFocus, false, "settings f
 assert.equal(selectedSetting(settingsFocusView).id, "git.enabled", "settings focus view should select Git's remembered Enabled row");
 assert.equal(selectedSetting(settingsFocusView).labelHasFocus, true, "settings focus should mark selected row label focus");
 assert.equal(selectedSetting(settingsFocusView).valueHasFocus, false, "settings focus should not mark selected row value focus");
-assert.equal(settingsFocusView.selectedHint, "Show or hide this segment.", "view should expose the selected row hint");
+assert.equal(settingsFocusView.selectedHint, "Stop Glance git reads, fetch, /diff, and worktree counts.", "view should expose the selected row hint");
 assertHelp(
 	settingsFocusView.help,
 	[

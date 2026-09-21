@@ -513,3 +513,8 @@ export function toggleSegment(config: GlanceConfig, id: SegmentId): GlanceConfig
 	if (segment) segment.enabled = !segment.enabled;
 	return next;
 }
+
+export function isGitCollectionEnabled(config: GlanceConfig): boolean {
+	if (!config.enabled) return false;
+	return config.segments.find((segment) => segment.id === "git")?.enabled !== false;
+}
