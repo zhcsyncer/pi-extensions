@@ -1198,17 +1198,14 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
     const context = prior?.context ?? turn.context;
     const wrapUp =
       "You have reached your turn limit. Wrap up immediately — provide your final answer now.";
-    const wrapUpMessage = { role: "system" as const, content: wrapUp, timestamp: Date.now() };
     return {
       ...prior,
       context: {
         ...context,
-        ...(typeof context.systemPrompt === "string"
-          ? { systemPrompt: `${context.systemPrompt}\n\n${wrapUp}` }
-          : {}),
-        ...(Array.isArray(context.messages)
-          ? { messages: [...context.messages, wrapUpMessage] }
-          : {}),
+        messages: [
+          ...(context.messages ?? []),
+          { role: "system" as const, content: wrapUp, timestamp: Date.now() },
+        ],
       },
     };
   };

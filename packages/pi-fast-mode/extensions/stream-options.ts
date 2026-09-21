@@ -50,10 +50,6 @@ function estimateTextAndImageContentChars(content: unknown): number {
 	return chars;
 }
 
-function estimateTextTokens(text: string): number {
-	return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
 function estimateTextAndImageContentTokens(content: unknown): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
@@ -146,26 +142,8 @@ function estimateMessages(messages: readonly Message[]): {
 	return { tokens, usageTokens: 0, trailingTokens: tokens, lastUsageIndex: null };
 }
 
-function estimateToolsTokens(tools: Context["tools"]): number {
-	if (!tools || tools.length === 0) return 0;
-	return estimateTextTokens(safeJsonStringify(tools));
-}
-
 export function estimateContextTokens(context: Context): number {
-	const estimate = estimateMessages(context.messages);
-	if (estimate.lastUsageIndex !== null) {
-		const addedNames = new Set(
-			context.messages
-				.slice(estimate.lastUsageIndex + 1)
-				.filter((message) => message.role === "toolResult")
-				.flatMap((message) => message.addedToolNames ?? []),
-		);
-		const addedToolTokens = estimateToolsTokens(context.tools?.filter((tool) => addedNames.has(tool.name)));
-		return estimate.tokens + addedToolTokens;
-	}
-	const prefixTokens =
-		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
-	return estimate.tokens + prefixTokens;
+	return estimateMessages(context.messages).tokens;
 }
 
 export function clampMaxTokensToContext(model: Model<Api>, context: Context, maxTokens: number): number {

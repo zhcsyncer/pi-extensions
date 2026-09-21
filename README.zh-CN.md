@@ -42,6 +42,8 @@ zhcsyncer 维护的一组 Pi extensions。
 
 Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
+需要 Pi 0.86 或更高。本 bundle 里的 Fast Mode、Consult、Subagents，以及仓库里独立的 Cursor 与火山 provider，按 0.86 transcript（系统说明和工具在对话里）工作。
+
 ## 独立 Providers
 
 以下 provider 不进入根 bundle，各自独立发版。

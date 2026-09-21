@@ -44,9 +44,9 @@
     "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-fast-mode/assets/demo-fast-mode-status.png"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-ai": ">=0.86.0",
+    "@earendil-works/pi-coding-agent": ">=0.86.0",
+    "@earendil-works/pi-tui": ">=0.86.0"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.84.3",

@@ -25,8 +25,9 @@ const model: Model<Api> = {
   contextWindow: 200_000,
   maxTokens: 8192,
 };
+const system = { role: "system" as const, content: "Follow the user's request", timestamp: 0 };
 const user = { role: "user" as const, content: "inspect the fixture", timestamp: 1 };
-const context: Context = { systemPrompt: "Follow the user's request", messages: [user] };
+const context: Context = { messages: [system, user] };
 const options = { sessionId: "session-a", reasoning: "off" };
 
 function anchoredMessage(): CursorAssistantMessage {
@@ -158,7 +159,7 @@ describe("Cursor context independent of billing", () => {
     const output = createCursorAssistantMessage(model);
     const tracker = createCursorContextTracker(
       model,
-      { ...context, messages: [user, previous, tool] },
+      { ...context, messages: [system, user, previous, tool] },
       options,
     );
     expect(tracker.finish(output).tokens).toBe(
@@ -170,15 +171,23 @@ describe("Cursor context independent of billing", () => {
     "invalidates a previous anchor after a %s change",
     (change) => {
       const previous = anchoredMessage();
-      const nextContext: Context = { ...context, messages: [user, previous] };
+      const nextContext: Context = { ...context, messages: [system, user, previous] };
       const nextModel = { ...model };
       const nextOptions = { ...options };
       if (change === "session") nextOptions.sessionId = "forked-session";
       if (change === "model") nextModel.id = "composer-2.5-fast";
       if (change === "thinking") nextOptions.reasoning = "max";
-      if (change === "system") nextContext.systemPrompt = "new system prompt";
+      if (change === "system")
+        nextContext.messages = [{ ...system, content: "new system prompt" }, user, previous];
       if (change === "tools")
-        nextContext.tools = [{ name: "read", description: "changed", parameters: {} as never }];
+        nextContext.messages = [
+          {
+            ...system,
+            toolsAdded: [{ name: "read", description: "changed", parameters: {} as never }],
+          } as typeof system,
+          user,
+          previous,
+        ];
       if (change === "compaction") nextContext.messages = [previous];
       if (change === "history")
         nextContext.messages = [{ ...user, content: "edited history" }, previous];

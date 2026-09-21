@@ -42,6 +42,8 @@ A collection of Pi extensions by zhcsyncer.
 
 Search Hub ships only in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
+Requires Pi 0.86 or later. Fast Mode, Consult, Subagents, and the standalone Cursor and Volcengine providers in this repo follow the 0.86 transcript (system text and tools live on the conversation).
+
 ## Standalone providers
 
 These providers are not included in the root bundle and release independently.

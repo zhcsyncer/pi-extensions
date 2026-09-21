@@ -44,11 +44,8 @@ function systemMessageText(message: Message): string {
   return parts.join("\n");
 }
 
-/** Pi 0.85 `context.systemPrompt`, or 0.86 transcript system messages. */
+/** Pi 0.86 transcript system messages. */
 export function replayedSystemPrompt(context: Context): string {
-  if (typeof context.systemPrompt === "string" && context.systemPrompt.length > 0) {
-    return context.systemPrompt;
-  }
   const parts: string[] = [];
   for (const message of context.messages ?? []) {
     const text = systemMessageText(message);
@@ -57,9 +54,8 @@ export function replayedSystemPrompt(context: Context): string {
   return parts.join("\n");
 }
 
-/** Pi 0.85 `context.tools`, or 0.86 `toolsAdded` / `toolsRemoved` on system messages. */
+/** Pi 0.86 `toolsAdded` / `toolsRemoved` on system messages. */
 export function replayedTools(context: Context): NonNullable<Context["tools"]> {
-  if (context.tools && context.tools.length > 0) return context.tools;
   const tools = new Map<string, NonNullable<Context["tools"]>[number]>();
   for (const message of context.messages ?? []) {
     if (message.role !== "system") continue;
