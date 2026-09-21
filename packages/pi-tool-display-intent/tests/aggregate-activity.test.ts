@@ -372,7 +372,7 @@ test("in-progress Run ledger pins the latest narration above the tool rows", () 
 	assert.match(rendered.join("\n"), /› 先定位两边的设计与实现入口/);
 	assert.ok(
 		rendered.findIndex((line) => line.includes("先定位两边的设计与实现入口"))
-			< rendered.findIndex((line) => /◐ custom_1/.test(line)),
+			< rendered.findIndex((line) => /● custom_1/.test(line)),
 	);
 	const wrapped = renderAggregateActivity({
 		...view!,
@@ -473,6 +473,27 @@ test("settled Run ledger shows duration, tokens, cache, and completion time unde
 	assert.match(rendered[0] ?? "", /Run \(1 call · 1 turn\)/);
 	assert.equal(rendered[1], `  took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at ${formatAggregateClock(endedAt)}`);
 	assert.doesNotMatch(rendered.join("\n"), /›/);
+});
+
+test("Run header stays warning until the group settles even with no running tools", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-header-live");
+	projection.markStarted("read-gap", "read", { path: "a.ts" });
+	projection.markComplete("read-gap", { content: [{ type: "text", text: "ok" }] }, false);
+	const view = projection.getView("read-gap");
+	assert.equal(view?.settled, false);
+	assert.equal(view?.hasRunning, false);
+	const colors: string[] = [];
+	const theme = {
+		fg: (color: string, text: string) => {
+			if (text === "●" || text === "✓" || text === "◐") colors.push(color);
+			return text;
+		},
+		bold: (text: string) => text,
+	};
+	const header = renderAggregateActivity(view!, 80, theme)[0] ?? "";
+	assert.match(header, /^● Run/);
+	assert.equal(colors[0] === "warning" || colors[0] === "muted", true);
 });
 
 test("a steered user message stays on the same Run ledger", () => {
@@ -897,7 +918,7 @@ test("expanded turns timeline groups calls under 1/N headers without per-row clo
 	assert.match(first, /Read\(a\.ts\)/);
 	assert.doesNotMatch(first, /Read\(b\.ts\)/);
 	assert.doesNotMatch(second, /↻|1\/2|2\/2/);
-	assert.match(second, / {2}✓ Read\(b\.ts\)/);
+	assert.match(second, / {2}● Read\(b\.ts\)/);
 	assert.match(third, /↻ 2\/2 · 1 call · 19s {2}14:15:56/);
 	assert.match(third, /Edit\(a\.ts\)/);
 	assert.doesNotMatch(first, /14:13:45/);
@@ -920,7 +941,7 @@ test("expanded turns keep long call targets readable within the eight-row bound"
 	projection.rebuild(branch, messages(branch));
 	const lines = visibleText(projection.renderExpandedToolRow("todo-1", 40).join("\n")).split("\n");
 	assert.match(lines[0] ?? "", /↻ 1\/1/);
-	assert.match(lines[1] ?? "", /✓ todo\(Keep useful/);
+	assert.match(lines[1] ?? "", /● todo\(Keep useful/);
 	assert.match(lines.join("\n"), /Restore bounded/);
 	assert.doesNotMatch(lines.join("\n"), /(?:action|subject|description|owner)=/);
 	assert.ok(lines.length > 2 && lines.length <= 9, "one turn header plus at most eight call rows");
@@ -994,7 +1015,7 @@ test("prototype patch aggregates an arbitrary custom tool without changing its d
 		projection.markComplete("custom-1", { content: [{ type: "text", text: "ok" }] }, false);
 		component.updateResult({ content: [{ type: "text", text: "RAW CUSTOM RESULT" }], isError: false });
 		const completed = component.render(120).join("\n");
-		assert.match(completed, /✓.*custom_probe/);
+		assert.match(completed, /●.*custom_probe/);
 		assert.doesNotMatch(completed, /ORIGINAL CUSTOM|RAW CUSTOM/);
 		assert.equal(customTool.renderCall?.().render(120).join("\n").trimEnd(), "ORIGINAL CUSTOM CALL");
 	} finally {

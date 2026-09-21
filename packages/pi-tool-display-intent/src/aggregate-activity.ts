@@ -22,6 +22,24 @@ import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from 
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
+import { registerTimer } from "./disposable.js";
+
+const RUN_PULSE_MS = 720;
+
+function pulsingDot(theme: AggregateRenderTheme, nowMs: number): string {
+	const dim = Math.floor(nowMs / RUN_PULSE_MS) % 2 === 1;
+	return theme.fg(dim ? "muted" : "warning", "●");
+}
+
+function aggregateHeaderMarker(
+	theme: AggregateRenderTheme,
+	view: Pick<AggregateActivityView, "settled" | "failedCount" | "callCount">,
+	nowMs: number,
+): string {
+	if (view.failedCount > 0) return theme.fg("error", "!");
+	if (!view.settled) return pulsingDot(theme, nowMs);
+	return theme.fg(view.callCount ? "success" : "muted", view.callCount ? "●" : "•");
+}
 
 export type AggregateMemberState =
 	| "pending"
@@ -907,6 +925,7 @@ export class AggregateProjection {
 	private initialized = false;
 	private renderTheme: AggregateRenderTheme | undefined;
 	private readonly contextGrowth = new ContextGrowthLedger();
+	private pulseTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly contextInvalidators = new Map<string, () => void>();
 	private readonly turnIdsByMessage = new WeakMap<object, string>();
 	private timelineExpanded = false;
@@ -1399,6 +1418,29 @@ export class AggregateProjection {
 		group.settled = true;
 		this.rememberEndedAt(endedAtMs ?? (group.endedAtMs === undefined ? Date.now() : undefined));
 		this.invalidateIds(group.leaderToolCallId);
+		this.syncRunPulse();
+	}
+
+	private syncRunPulse(): void {
+		const live = this.groups.some((group) => !group.settled);
+		if (live && !this.pulseTimer) {
+			this.pulseTimer = setInterval(() => {
+				for (const group of this.groups) {
+					if (!group.settled) this.invalidateIds(group.leaderToolCallId);
+				}
+				if (!this.groups.some((group) => !group.settled)) this.stopRunPulse();
+			}, RUN_PULSE_MS);
+			this.pulseTimer.unref?.();
+			registerTimer(this.pulseTimer);
+			return;
+		}
+		if (!live) this.stopRunPulse();
+	}
+
+	private stopRunPulse(): void {
+		if (!this.pulseTimer) return;
+		clearInterval(this.pulseTimer);
+		this.pulseTimer = undefined;
 	}
 
 	latestNarrationFor(itemId: string): string | undefined {
@@ -1434,6 +1476,7 @@ export class AggregateProjection {
 			: undefined;
 		this.rememberStartedAt(startedAtMs ?? fromId);
 		group.settled = false;
+		this.syncRunPulse();
 		return resolvedId;
 	}
 
@@ -1712,6 +1755,7 @@ export class AggregateProjection {
 	}
 
 	rebuild(branchEntries: unknown[], visibleMessages?: unknown[]): void {
+		this.stopRunPulse();
 		this.clearViewportState();
 		const visibleIds = collectVisibleToolCallIds(visibleMessages);
 		const projectedEntries = materializeAggregateEntries(Array.isArray(branchEntries) ? branchEntries : []);
@@ -1804,6 +1848,7 @@ export class AggregateProjection {
 			if (!expansionKeys.has(key)) this.expandedGroups.delete(key);
 		}
 		this.rebuildContextGrowth(projectedEntries);
+		this.syncRunPulse();
 	}
 
 	private contextTurnId(message: unknown): string | undefined {
@@ -2135,8 +2180,8 @@ function memberStatusChrome(
 		const chrome = agentReceiptChrome(member.agentReceipt);
 		return { marker: theme.fg(chrome.color, chrome.marker), receiptLabel: chrome.label };
 	}
-	if (member.state === "success") return { marker: theme.fg("success", "✓") };
-	return { marker: theme.fg("warning", "◐") };
+	if (member.state === "success") return { marker: theme.fg("success", "●") };
+	return { marker: pulsingDot(theme, Date.now()) };
 }
 
 function appendTruncationMark(row: string, width: number): string {
@@ -2299,15 +2344,14 @@ export function renderAggregateActivity(
 	const safeWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 	if (safeWidth === 0) return [];
 	const hasFailure = view.failedCount > 0;
-	const marker = hasFailure ? "!" : view.hasRunning ? "◐" : view.callCount ? "✓" : "•";
-	const markerColor = hasFailure ? "error" : view.hasRunning ? "warning" : view.callCount ? "success" : "muted";
+	const marker = aggregateHeaderMarker(theme, view, nowMs);
 	const parts: string[] = [];
 	if (view.callCount || !view.customMessageCount) {
 		parts.push(`${view.callCount} ${pluralize(view.callCount, "call")}`, `${view.agentTurnCount} ${pluralize(view.agentTurnCount, "turn")}`);
 	}
 	if (view.customMessageCount) parts.push(`${view.customMessageCount} ${pluralize(view.customMessageCount, "message")}`);
 	const totals = theme.fg("muted", ` (${parts.join(" · ")})`);
-	let header = `${theme.fg(markerColor, marker)} ${theme.fg("toolTitle", theme.bold?.("Run") ?? "Run")}${totals}`;
+	let header = `${marker} ${theme.fg("toolTitle", theme.bold?.("Run") ?? "Run")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
 	for (const summary of view.toolSummaries) {
 		header += theme.fg("muted", " · ");
