@@ -2,7 +2,13 @@
  * Stream writer adapter converting internal events to Pi AssistantMessageEventStream.
  */
 
-import type { Api, AssistantMessageEventStream, Context, Model, ToolCall } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessageEventStream,
+  Context,
+  Model,
+  ToolCall,
+} from "@earendil-works/pi-ai";
 import type {
   CursorRunUsage,
   NativeBlockKind,
