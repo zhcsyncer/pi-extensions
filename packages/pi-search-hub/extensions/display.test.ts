@@ -4,6 +4,9 @@ import {
 	getWebReadResultPresentation,
 	getWebSearchCallPresentation,
 	getWebSearchResultPresentation,
+	formatWebSearchCallLine,
+	formatWebReadCallLine,
+	formatWebSearchResultLine,
 } from "./display.js";
 
 describe("Search Hub display formatters", () => {
@@ -72,6 +75,18 @@ describe("Search Hub display formatters", () => {
 			previewStartLine: 0,
 		});
 		expect(getWebReadResultPresentation({ details: {} })).toBeUndefined();
+	});
+
+	it("draws Claude-style call and result rows", () => {
+		const theme = {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+			bold: (text: string) => text,
+		};
+		expect(formatWebSearchCallLine({ query: "current release" }, theme)).toContain("Web Search");
+		expect(formatWebSearchCallLine({ query: "current release" }, theme)).toContain("current release");
+		expect(formatWebReadCallLine({ url: "https://pi.dev/docs" }, theme)).toContain("Read Web Page");
+		expect(formatWebSearchResultLine({ details: { backend: "tavily", resultCount: 2 } }, theme)).toContain("Tavily");
+		expect(formatWebSearchCallLine({ query: "q" }, theme, { isError: true })).toContain("<error>●</error>");
 	});
 
 	it("normalizes multiline call targets and ignores malformed inputs", () => {

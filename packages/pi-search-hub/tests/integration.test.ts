@@ -20,22 +20,9 @@ import { loadConfig } from "../extensions/config.js";
 // Tool display integration
 // ---------------------------------------------------------------------------
 
-describe("tool display integration", () => {
-	it("cooperatively decorates both tools with intent schemas and inherited output", () => {
-		const apiKey = Symbol.for("pi-tool-display-intent.api.v1");
-		const globalWithApi = globalThis as typeof globalThis & Record<symbol, unknown>;
-		const previousApi = globalWithApi[apiKey];
-		const adapters: Array<Record<string, unknown>> = [];
+describe("tool display", () => {
+	it("registers Claude-style renderers without tool-display-intent", () => {
 		const registeredTools: Array<Record<string, any>> = [];
-
-		globalWithApi[apiKey] = {
-			version: 1,
-			decorateTool(tool: Record<string, unknown>, adapter: Record<string, unknown>) {
-				adapters.push(adapter);
-				return tool;
-			},
-		};
-
 		const pi = {
 			registerTool(tool: Record<string, unknown>) {
 				registeredTools.push(tool);
@@ -44,84 +31,55 @@ describe("tool display integration", () => {
 			on() {},
 		} as unknown as ExtensionAPI;
 
-		try {
-			searchHubExtension(pi);
+		searchHubExtension(pi);
 
-			expect(registeredTools.map((tool) => tool.name)).toEqual(["web_search", "web_read"]);
-			expect(adapters).toHaveLength(2);
-			for (const adapter of adapters) {
-				expect(adapter).toMatchObject({
-					kind: "generic",
-					outputMode: "inherit",
-					overrideExistingRenderers: true,
-				});
-				expect(adapter.getCallPresentation).toBeTypeOf("function");
-				expect(adapter.getResultPresentation).toBeTypeOf("function");
-			}
+		expect(registeredTools.map((tool) => tool.name)).toEqual(["web_search", "web_read"]);
+		for (const tool of registeredTools) {
+			expect(tool.renderCall).toBeTypeOf("function");
+			expect(tool.renderResult).toBeTypeOf("function");
+		}
 
-			const searchCall = (adapters[0].getCallPresentation as (args: unknown) => unknown)({
-				query: "Pi coding agent latest release GitHub",
-				numResults: 3,
-				compact: false,
-			});
-			expect(searchCall).toEqual({
-				target: "“Pi coding agent latest release GitHub”",
-				metadata: ["top 3"],
-			});
-			const searchResult = (adapters[0].getResultPresentation as (result: unknown) => unknown)({
-				content: [{ type: "text", text: "## Search Results: test\nBackend: tavily · Results: 3\n\nfirst" }],
-				details: { backend: "tavily", resultCount: 3 },
-			});
-			expect(searchResult).toEqual({ summary: "Tavily · 3 results", previewStartLine: 3 });
+		const theme = {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+			bold: (text: string) => text,
+		};
+		const searchCall = registeredTools[0].renderCall(
+			{ query: "Pi coding agent latest release GitHub", numResults: 3 },
+			theme,
+			{},
+		);
+		const searchLine = typeof searchCall?.render === "function"
+			? searchCall.render(120).join("\n")
+			: String(searchCall);
+		expect(searchLine).toContain("Web Search");
+		expect(searchLine).toContain("Pi coding agent latest release GitHub");
 
-			const readCall = (adapters[1].getCallPresentation as (args: unknown) => unknown)({
-				url: "https://pi.dev/docs/latest/extensions",
-			});
-			expect(readCall).toEqual({
-				target: "pi.dev/docs/latest/extensions",
-				metadata: ["Firecrawl"],
-			});
-			const readResult = (adapters[1].getResultPresentation as (result: unknown) => unknown)({
-				details: { reader: "firecrawl", length: 153010, truncated: true },
-			});
-			expect(readResult).toEqual({
-				summary: "Firecrawl · 153k chars · truncated to 10k chars",
-				previewStartLine: 0,
-			});
+		const searchSchema = registeredTools[0].parameters as {
+			properties?: Record<string, unknown>;
+			required?: string[];
+		};
+		expect(Object.keys(searchSchema.properties ?? {}).sort()).toEqual(["combine", "compact", "numResults", "query"]);
+		expect(searchSchema.properties).not.toHaveProperty("backend");
 
-			const searchSchema = registeredTools[0].parameters as {
+		const readSchema = registeredTools[1].parameters as {
+			properties?: Record<string, unknown>;
+			required?: string[];
+		};
+		expect(Object.keys(readSchema.properties ?? {}).sort()).toEqual(["url"]);
+		expect(readSchema.properties).not.toHaveProperty("reader");
+		expect(readSchema.properties).not.toHaveProperty("fresh");
+		expect(readSchema.properties).not.toHaveProperty("keywords");
+		expect(readSchema.properties).not.toHaveProperty("mode");
+		expect(readSchema.properties).not.toHaveProperty("objective");
+
+		for (const tool of registeredTools) {
+			const schema = tool.parameters as {
 				properties?: Record<string, unknown>;
 				required?: string[];
 			};
-			expect(Object.keys(searchSchema.properties ?? {}).sort()).toEqual(["combine", "compact", "numResults", "query"]);
-			expect(searchSchema.properties).not.toHaveProperty("backend");
-
-			const readSchema = registeredTools[1].parameters as {
-				properties?: Record<string, unknown>;
-				required?: string[];
-			};
-			expect(Object.keys(readSchema.properties ?? {}).sort()).toEqual(["url"]);
-			expect(readSchema.properties).not.toHaveProperty("reader");
-			expect(readSchema.properties).not.toHaveProperty("fresh");
-			expect(readSchema.properties).not.toHaveProperty("keywords");
-			expect(readSchema.properties).not.toHaveProperty("mode");
-			expect(readSchema.properties).not.toHaveProperty("objective");
-
-			for (const tool of registeredTools) {
-				const schema = tool.parameters as {
-					properties?: Record<string, unknown>;
-					required?: string[];
-				};
-				expect(schema.properties?.displaySummary).toBeUndefined();
-				expect(schema.required?.includes("displaySummary") ?? false).toBe(false);
-				expect(tool.promptGuidelines?.some((line: string) => line.includes("displaySummary")) ?? false).toBe(false);
-			}
-		} finally {
-			if (previousApi === undefined) {
-				delete globalWithApi[apiKey];
-			} else {
-				globalWithApi[apiKey] = previousApi;
-			}
+			expect(schema.properties?.displaySummary).toBeUndefined();
+			expect(schema.required?.includes("displaySummary") ?? false).toBe(false);
+			expect(tool.promptGuidelines?.some((line: string) => line.includes("displaySummary")) ?? false).toBe(false);
 		}
 	});
 });

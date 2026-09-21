@@ -29,12 +29,12 @@ Important call options include:
 
 - `url` — page URL.
 
-## Intent-aware display in this fork
+## Tool rows
 
-Both tools use the cooperative API from [`pi-tool-display-intent`](../pi-tool-display-intent) rather than maintaining separate TUI renderers:
+Search Hub draws its own Claude-style rows. It does not use `pi-tool-display-intent`.
 
-- call lines show the search query or a shortened URL instead of generic `(N args)` text;
-- result rendering inherits the active global `results.mode` through `outputMode: "inherit"`.
+- call lines show `● Web Search("query")` or `● Read Web Page(url)` instead of generic `(N args)` text;
+- result lines show backend, result count, fallback, or extracted size.
 
 Semantic call metadata includes:
 
@@ -50,9 +50,9 @@ Search and read progress is emitted through the active tool call rather than a p
 | `web_search` | Actual backend, result count, fallback state, and usable/attempted backend health for combined searches |
 | `web_read` | Actual reader, extracted character count, and whether display content was truncated to the 10k-character presentation limit |
 
-Verbose search output begins with a raw `## Search Results:` header. The shared renderer skips that duplicated header when its semantic status is already visible.
+Verbose search output still begins with a raw `## Search Results:` header in the model-facing result.
 
-Global `results.mode` controls whether Search Hub results are hidden, summarized, or previewed in the transcript. Content previews use the same wrapped-row `results.previewRows` budget as other decorated tools. Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. In particular, the `web_search.compact` argument changes the tool result itself and is independent of the TUI-only global result mode.
+Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. The `web_search.compact` argument changes the tool result itself, not only the TUI row.
 
 ## Configuration
 

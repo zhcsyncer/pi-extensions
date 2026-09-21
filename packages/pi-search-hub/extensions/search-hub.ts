@@ -25,15 +25,13 @@
  */
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import {
-	decorateToolForDisplay,
-} from "../../pi-tool-display-intent/tool-display-api-consumer.js";
 
 import { createDiagnosticReporter } from "./diagnostics.js";
 import { readEffectivenessState, reportEffectiveness } from "./effectiveness.js";
 import type { ReaderName, SearchResultWithBackend } from "./types.js";
-import { DEFAULT_READER, READER_NAMES } from "./types.js";
+import { READER_NAMES } from "./types.js";
 import { clearCooldowns, MISSING_KEY_HELP, validateUrl } from "./utils.js";
 import { resolveBackendKeys, withRotatedKeys } from "./credentials.js";
 import { fetchFirecrawl } from "./backends/firecrawl.js";
@@ -45,10 +43,10 @@ import { selectBackendsForFallback, runTargetedCombine } from "./dispatch.js";
 import { filterQuotaSkipped } from "./quota-skips.js";
 import { formatResults, formatCombinedResults, formatResultsCompact, formatCombinedResultsCompact } from "./formatters.js";
 import {
-	getWebReadCallPresentation,
-	getWebReadResultPresentation,
-	getWebSearchCallPresentation,
-	getWebSearchResultPresentation,
+	formatWebReadCallLine,
+	formatWebReadResultLine,
+	formatWebSearchCallLine,
+	formatWebSearchResultLine,
 	WEB_READ_RESULT_MAX_CHARS,
 } from "./display.js";
 import { openSearchSetup } from "./setup-ui.js";
@@ -82,27 +80,25 @@ function readerOrder(): ReaderName[] {
 
 export default function (pi: ExtensionAPI) {
 	const diagnostics = createDiagnosticReporter();
-	const withSearchHubDisplay = <T extends object>(
+	const withClaudeRows = <T extends object>(
 		tool: T,
-		presentation: {
-			getCallPresentation(args: unknown): { target: string; metadata?: string[] } | undefined;
-			getResultPresentation(result: unknown): { summary: string; previewStartLine?: number } | undefined;
+		formatCall: (args: unknown, theme: { fg(color: string, text: string): string; bold(text: string): string }, context?: { isError?: boolean; isPartial?: boolean }) => string,
+		formatResult: (result: unknown, theme: { fg(color: string, text: string): string; bold(text: string): string }, context?: { isError?: boolean; isPartial?: boolean }) => string,
+	) => ({
+		...tool,
+		renderCall(args: unknown, theme: { fg(color: string, text: string): string; bold(text: string): string }, context?: { isError?: boolean; isPartial?: boolean }) {
+			return new Text(formatCall(args, theme, context), 0, 0);
 		},
-	) => decorateToolForDisplay(
-		tool,
-		{
-			kind: "generic",
-			outputMode: "inherit",
-			overrideExistingRenderers: true,
-			...presentation,
+		renderResult(result: unknown, _options: unknown, theme: { fg(color: string, text: string): string; bold(text: string): string }, context?: { isError?: boolean; isPartial?: boolean }) {
+			return new Text(formatResult(result, theme, context), 0, 0);
 		},
-	);
+	});
 
 	// -----------------------------------------------------------------------
 	// Tool: web_search
 	// -----------------------------------------------------------------------
 
-	pi.registerTool(withSearchHubDisplay(defineTool({
+	pi.registerTool(withClaudeRows(defineTool({
 		name: "web_search",
 		label: "Web Search",
 		description:
@@ -258,16 +254,13 @@ export default function (pi: ExtensionAPI) {
 			updateActivity(`❌ all backends failed`);
 			throw new Error(`All backends failed: ${errors.join("; ")}`);
 		},
-	}), {
-		getCallPresentation: getWebSearchCallPresentation,
-		getResultPresentation: getWebSearchResultPresentation,
-	}));
+	}), formatWebSearchCallLine, formatWebSearchResultLine));
 
 	// -----------------------------------------------------------------------
 	// Tool: web_read — Read/extract content from a URL
 	// -----------------------------------------------------------------------
 
-	pi.registerTool(withSearchHubDisplay(defineTool({
+	pi.registerTool(withClaudeRows(defineTool({
 		name: "web_read",
 		label: "Read Web Page",
 		description:
@@ -396,10 +389,7 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		},
-	}), {
-		getCallPresentation: (args) => getWebReadCallPresentation(args, DEFAULT_READER),
-		getResultPresentation: getWebReadResultPresentation,
-	}));
+	}), formatWebReadCallLine, formatWebReadResultLine));
 
 	pi.registerCommand("search-hub", {
 		description: "Configure Search Hub or show the quota ledger",

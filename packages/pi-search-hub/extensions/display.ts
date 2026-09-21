@@ -170,3 +170,78 @@ export function getWebReadResultPresentation(result: unknown): SearchHubResultPr
 		previewStartLine: 0,
 	};
 }
+
+export interface SearchHubRenderTheme {
+	fg(color: string, text: string): string;
+	bold(text: string): string;
+}
+
+export interface SearchHubRenderContext {
+	isError?: boolean;
+	isPartial?: boolean;
+}
+
+function claudeMarker(theme: SearchHubRenderTheme, context?: SearchHubRenderContext): string {
+	if (context?.isError) return theme.fg("error", "●");
+	if (context?.isPartial) return theme.fg("warning", "●");
+	return theme.fg("success", "●");
+}
+
+function callLine(
+	label: string,
+	presentation: SearchHubCallPresentation | undefined,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+): string {
+	const target = presentation?.target ?? "…";
+	const meta = presentation?.metadata?.length
+		? theme.fg("muted", ` · ${presentation.metadata.join(" · ")}`)
+		: "";
+	return `${claudeMarker(theme, context)} ${theme.fg("toolTitle", theme.bold(label))}(${target})${meta}`;
+}
+
+function resultLine(
+	presentation: SearchHubResultPresentation | undefined,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+	partialText = "working…",
+): string {
+	if (context?.isPartial) return theme.fg("muted", `  ⎿ ${partialText}`);
+	if (context?.isError) {
+		return `${theme.fg("muted", "  ⎿ ")}${theme.fg("error", presentation?.summary ?? "failed")}`;
+	}
+	return `${theme.fg("muted", "  ⎿ ")}${theme.fg("text", presentation?.summary ?? "done")}`;
+}
+
+export function formatWebSearchCallLine(
+	args: unknown,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+): string {
+	return callLine("Web Search", getWebSearchCallPresentation(args), theme, context);
+}
+
+export function formatWebReadCallLine(
+	args: unknown,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+	defaultReader = DEFAULT_READER,
+): string {
+	return callLine("Read Web Page", getWebReadCallPresentation(args, defaultReader), theme, context);
+}
+
+export function formatWebSearchResultLine(
+	result: unknown,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+): string {
+	return resultLine(getWebSearchResultPresentation(result), theme, context, "searching…");
+}
+
+export function formatWebReadResultLine(
+	result: unknown,
+	theme: SearchHubRenderTheme,
+	context?: SearchHubRenderContext,
+): string {
+	return resultLine(getWebReadResultPresentation(result), theme, context, "reading…");
+}

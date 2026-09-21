@@ -29,12 +29,12 @@
 
 - `url` — 页面 URL。
 
-## 本 fork 的 intent-aware 展示
+## 工具行
 
-两个工具都使用 [`pi-tool-display-intent`](../pi-tool-display-intent) 的合作式 API，而不是维护独立 TUI renderer：
+Search Hub 自己画 Claude 风格的工具行，不再使用 `pi-tool-display-intent`。
 
-- 调用行显示搜索词或缩短后的 URL，而不是通用 `(N args)`；
-- 结果通过 `outputMode: "inherit"` 继承当前全局 `results.mode`。
+- 调用行是 `● Web Search("query")` 或 `● Read Web Page(url)`，而不是通用 `(N args)`；
+- 结果行显示 backend、条数、fallback 或提取长度。
 
 语义化调用元数据包括：
 
@@ -50,9 +50,7 @@
 | `web_search` | 实际 backend、结果数、fallback 状态，以及组合搜索中可用/已尝试 backend 健康度 |
 | `web_read` | 实际 reader、提取字符数，以及展示内容是否被截断到 1 万字符上限 |
 
-详细搜索输出以原始 `## Search Results:` header 开头。共享 renderer 已显示语义状态时，会跳过这个重复 header。
-
-全局 `results.mode` 控制 Search Hub 结果在 transcript 中隐藏、显示摘要还是显示预览。内容预览与其他装饰工具共用折行后的 `results.previewRows` 行预算。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。特别是，`web_search.compact` 参数会改变工具结果本身，与仅影响 TUI 的全局结果模式相互独立。
+详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变工具结果本身，不只是 TUI 行。
 
 ## 配置
 
