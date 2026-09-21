@@ -24,11 +24,29 @@ import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
 import { registerTimer } from "./disposable.js";
 
-const RUN_PULSE_MS = 720;
+const RUN_BREATHE_MS = 2400;
+const RUN_BREATHE_TICK_MS = 80;
 
-function pulsingDot(theme: AggregateRenderTheme, nowMs: number): string {
-	const dim = Math.floor(nowMs / RUN_PULSE_MS) % 2 === 1;
-	return theme.fg(dim ? "muted" : "warning", "●");
+function rgbFromThemed(sample: string): [number, number, number] | undefined {
+	const match = sample.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+	if (!match) return undefined;
+	return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function lerpChannel(from: number, to: number, amount: number): number {
+	return Math.round(from + (to - from) * amount);
+}
+
+function breathingDot(theme: AggregateRenderTheme, nowMs: number): string {
+	const bright = rgbFromThemed(theme.fg("warning", "\u0001"));
+	if (!bright) return theme.fg("warning", "●");
+	const sampledDim = rgbFromThemed(theme.fg("muted", "\u0001"));
+	const trough = sampledDim ?? bright.map((channel) => Math.round(channel * 0.35)) as [number, number, number];
+	const amount = 0.5 - 0.5 * Math.cos((2 * Math.PI * nowMs) / RUN_BREATHE_MS);
+	const red = lerpChannel(trough[0], bright[0], amount);
+	const green = lerpChannel(trough[1], bright[1], amount);
+	const blue = lerpChannel(trough[2], bright[2], amount);
+	return `\x1b[38;2;${red};${green};${blue}m●\x1b[39m`;
 }
 
 function aggregateHeaderMarker(
@@ -37,7 +55,7 @@ function aggregateHeaderMarker(
 	nowMs: number,
 ): string {
 	if (view.failedCount > 0) return theme.fg("error", "!");
-	if (!view.settled) return pulsingDot(theme, nowMs);
+	if (!view.settled) return breathingDot(theme, nowMs);
 	return theme.fg(view.callCount ? "success" : "muted", view.callCount ? "●" : "•");
 }
 
@@ -1429,7 +1447,7 @@ export class AggregateProjection {
 					if (!group.settled) this.invalidateIds(group.leaderToolCallId);
 				}
 				if (!this.groups.some((group) => !group.settled)) this.stopRunPulse();
-			}, RUN_PULSE_MS);
+			}, RUN_BREATHE_TICK_MS);
 			this.pulseTimer.unref?.();
 			registerTimer(this.pulseTimer);
 			return;
@@ -2181,7 +2199,7 @@ function memberStatusChrome(
 		return { marker: theme.fg(chrome.color, chrome.marker), receiptLabel: chrome.label };
 	}
 	if (member.state === "success") return { marker: theme.fg("success", "●") };
-	return { marker: pulsingDot(theme, Date.now()) };
+	return { marker: breathingDot(theme, Date.now()) };
 }
 
 function appendTruncationMark(row: string, width: number): string {

@@ -496,6 +496,28 @@ test("Run header stays warning until the group settles even with no running tool
 	assert.equal(colors[0] === "warning" || colors[0] === "muted", true);
 });
 
+test("live Run dot breathes truecolor instead of swapping glyphs", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-breathe");
+	projection.markStarted("read-breathe", "read", { path: "a.ts" });
+	const view = projection.getView("read-breathe");
+	assert.equal(view?.settled, false);
+	const theme = {
+		fg: (color: string, text: string) => {
+			if (color === "warning") return `\x1b[38;2;255;255;0m${text}\x1b[39m`;
+			if (color === "muted") return `\x1b[38;2;128;128;128m${text}\x1b[39m`;
+			return text;
+		},
+		bold: (text: string) => text,
+	};
+	const peak = renderAggregateActivity(view!, 80, theme, 0)[0] ?? "";
+	const mid = renderAggregateActivity(view!, 80, theme, 1200)[0] ?? "";
+	assert.match(peak, /●/);
+	assert.match(mid, /●/);
+	assert.notEqual(peak, mid);
+	assert.doesNotMatch(`${peak}\n${mid}`, /◐|✓/);
+});
+
 test("a steered user message stays on the same Run ledger", () => {
 	const startedAt = Date.parse("2026-04-08T14:30:00");
 	const steeredAt = Date.parse("2026-04-08T14:31:20");

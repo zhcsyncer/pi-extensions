@@ -3,4 +3,4 @@
 "@zhcsyncer/pi-extensions": patch
 ---
 
-Aggregate Run rows use one ● marker. It stays warning (soft pulse) until the turn settles, then success. It no longer flips between ◐ and ✓ between tool calls.
+Aggregate Run rows use one ● marker. It breathes warning brightness until the turn settles, then success. It no longer flips between ◐ and ✓ between tool calls.
