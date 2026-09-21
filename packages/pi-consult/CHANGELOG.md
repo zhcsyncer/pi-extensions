@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- 1192e34: Strip parent system/tool transcript entries before advisor calls so `tools: []` cannot leak executor tools on Pi 0.86.
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+
 ## 0.1.0
 
 ### Minor Changes

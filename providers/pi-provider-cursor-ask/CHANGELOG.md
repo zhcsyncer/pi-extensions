@@ -1,5 +1,12 @@
 # pi-provider-cursor-ask
 
+## 0.1.3
+
+### Patch Changes
+
+- 1192e34: Read system prompt and tools from the Pi 0.86 transcript so Cursor still receives project instructions and tool declarations.
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+
 ## 0.1.2
 
 ### Patch Changes

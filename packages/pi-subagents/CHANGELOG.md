@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+- 1192e34: On Pi 0.86, append turn-limit wrap-up as a system message and accept system/usage entries when resuming a subagent session.
+
 ## 0.2.1
 
 ### Patch Changes

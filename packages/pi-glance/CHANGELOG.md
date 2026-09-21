@@ -1,5 +1,12 @@
 # @zhcsyncer/pi-glance
 
+## 0.9.1
+
+### Patch Changes
+
+- 1192e34: Glance Git Enabled now stops git reads, fetch, `/diff`, and worktree counts, not only the status segment.
+- 1192e34: The working row shows `requesting` as soon as a request is in flight, highlights `responding` while output streams, and shows elapsed time after three seconds instead of one minute.
+
 ## 0.9.0
 
 ### Minor Changes

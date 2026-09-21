@@ -1,5 +1,20 @@
 # @zhcsyncer/pi-extensions
 
+## 1.0.0
+
+### Major Changes
+
+- 1192e34: Search Hub keeps Exa, Tavily, Firecrawl, and Parallel, and adds OpenAI Codex and Grok search through Pi `/login` hosted web search (defaults: `gpt-5.6-luna`, `grok-4.3`). After a hosted backend hits a subscription usage limit, Search Hub skips it for 5 hours. Tavily and Firecrawl keys cache remaining quota locally; exhausted keys are skipped until the next billing cycle. Exa and Parallel keys that hit quota are skipped for 24 hours. `/search-hub status` shows this ledger. Configure with `/search-hub setup`. `web_search` no longer accepts `backend`; combine is model-only and off by default. `web_read` no longer accepts `reader`. Old backend names are no longer valid, and Firecrawl remains the keyless search fallback.
+
+### Patch Changes
+
+- 1192e34: Glance Git Enabled now stops git reads, fetch, `/diff`, and worktree counts, not only the status segment.
+- 1192e34: The working row shows `requesting` as soon as a request is in flight, highlights `responding` while output streams, and shows elapsed time after three seconds instead of one minute.
+- 1192e34: Require Pi 0.86 or later. These packages follow the 0.86 transcript and no longer support 0.85.
+- 1192e34: Search Hub draws its own Claude-style tool rows and no longer needs pi-tool-display-intent.
+- 1192e34: Stop injecting live Todo state into the model prompt. No-op updates now return "No changes; state already matches" without writing a checkpoint.
+- 1192e34: Aggregate Run rows use one ● marker. It breathes warning brightness until the turn settles, then success. It no longer flips between ◐ and ✓ between tool calls.
+
 ## 0.32.3
 
 ### Patch Changes

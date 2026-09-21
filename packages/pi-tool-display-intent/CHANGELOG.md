@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1
+
+### Patch Changes
+
+- 1192e34: Aggregate Run rows use one ● marker. It breathes warning brightness until the turn settles, then success. It no longer flips between ◐ and ✓ between tool calls.
+
 ## 0.10.0
 
 ### Minor Changes
