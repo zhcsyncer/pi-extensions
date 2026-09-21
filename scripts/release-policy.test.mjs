@@ -17,6 +17,7 @@ const SUBAGENTS = "@zhcsyncer/pi-subagents";
 const FAST_MODE = "@zhcsyncer/pi-fast-mode";
 const METER = "@zhcsyncer/pi-meter";
 const CONSULT = "@zhcsyncer/pi-consult";
+const SEARCH_HUB = "@zhcsyncer/pi-search-hub";
 const ADVERSARIAL_REVIEW = "@zhcsyncer/pi-adversarial-review";
 const AGENT_PLAN = "pi-provider-volcengine-agent-plan";
 const CURSOR_ASK = "pi-provider-cursor-ask";
@@ -127,6 +128,12 @@ test("requires the root package when Meter releases", () => {
 test("requires the root package when Consult releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([CONSULT, "minor"])), [
 		`${CONSULT} has a minor release, but ${ROOT} is missing from the release plan.`,
+	]);
+});
+
+test("requires the root package when Search Hub releases", () => {
+	assert.deepEqual(validateReleasePolicy(releases([SEARCH_HUB, "major"])), [
+		`${SEARCH_HUB} has a major release, but ${ROOT} is missing from the release plan.`,
 	]);
 });
 
