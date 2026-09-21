@@ -2,7 +2,7 @@
  * Stream writer adapter converting internal events to Pi AssistantMessageEventStream.
  */
 
-import type { Api, AssistantMessageEventStream, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessageEventStream, Context, Model, ToolCall } from "@earendil-works/pi-ai";
 import type {
   CursorRunUsage,
   NativeBlockKind,
@@ -184,16 +184,15 @@ export function createNativeStreamWriter(
       ensureStarted();
       endActiveBlock();
       const contentIndex = output.content.length;
-      const parsedArguments = parseToolCallArguments(exec.decodedArgs);
-      const block = {
-        type: "toolCall" as const,
+      const parsedArguments = parseToolCallArguments(exec.decodedArgs) as ToolCall["arguments"];
+      const block: ToolCall = {
+        type: "toolCall",
         id: exec.toolCallId,
         name: exec.toolName,
-        arguments: {},
+        arguments: parsedArguments,
       };
       output.content.push(block);
       stream.push({ type: "toolcall_start", contentIndex, partial: output });
-      block.arguments = parsedArguments;
       stream.push({
         type: "toolcall_delta",
         contentIndex,
@@ -203,12 +202,7 @@ export function createNativeStreamWriter(
       stream.push({
         type: "toolcall_end",
         contentIndex,
-        toolCall: {
-          type: "toolCall",
-          id: exec.toolCallId,
-          name: exec.toolName,
-          arguments: parsedArguments,
-        },
+        toolCall: block,
         partial: output,
       });
     },

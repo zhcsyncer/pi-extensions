@@ -63,7 +63,7 @@ function costFromBuiltin(
 	fallback: EstimatedApiCost,
 ): EstimatedApiCost {
 	for (const id of Array.isArray(ids) ? ids : [ids]) {
-		const model = getBuiltinModel(provider, id);
+		const model = getBuiltinModel(provider as never, id as never);
 		if (model?.cost) return copyEstimatedApiCost(model.cost);
 	}
 	return copyEstimatedApiCost(fallback);

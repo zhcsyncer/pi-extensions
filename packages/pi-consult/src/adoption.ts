@@ -29,7 +29,7 @@ export function resolveConsultAdoptions(entries: readonly SessionEntry[]): Resol
 
 	for (const entry of entries) {
 		if (entry.type !== "message") continue;
-		const message = entry.message;
+		const message: unknown = entry.message;
 		if (isRecord(message) && message.role === "user") {
 			pendingToolCallId = undefined;
 			continue;

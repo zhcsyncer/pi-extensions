@@ -15,6 +15,7 @@
  */
 import {
 	clampThinkingLevel,
+	normalizeContext,
 	streamOpenAICodexResponses,
 	streamOpenAIResponses,
 	type Api,
@@ -324,9 +325,10 @@ export default function fastMode(pi: ExtensionAPI): void {
 		api: "openai-codex-responses",
 		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
 			const tier = resolveTier(model);
+			const transcript = normalizeContext(context);
 			return streamOpenAICodexResponses(
 				model as Model<"openai-codex-responses">,
-				context,
+				transcript,
 				buildStreamOptions(model, context, options, tier) as never,
 			);
 		},
@@ -336,9 +338,10 @@ export default function fastMode(pi: ExtensionAPI): void {
 		api: "openai-responses",
 		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
 			const tier = resolveTier(model);
+			const transcript = normalizeContext(context);
 			return streamOpenAIResponses(
 				model as Model<"openai-responses">,
-				context,
+				transcript,
 				buildStreamOptions(model, context, options, tier) as never,
 			);
 		},
@@ -348,9 +351,10 @@ export default function fastMode(pi: ExtensionAPI): void {
 		api: "openai-responses",
 		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
 			const tier = resolveTier(model);
+			const transcript = normalizeContext(context);
 			return streamOpenAIResponses(
 				model as Model<"openai-responses">,
-				context,
+				transcript,
 				buildStreamOptions(model, context, options, tier) as never,
 			);
 		},
