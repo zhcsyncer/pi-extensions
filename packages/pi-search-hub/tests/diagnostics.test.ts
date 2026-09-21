@@ -73,14 +73,24 @@ function exaReply() {
 	});
 }
 
+function firecrawlSearchReply() {
+	return Response.json({
+		data: { web: [{ title: "Diagnostic fixture", url: PAGE_URL, description: PAGE_TEXT }] },
+	});
+}
+
+function firecrawlScrapeReply() {
+	return Response.json({
+		data: { markdown: PAGE_TEXT, metadata: { title: "Diagnostic fixture", sourceURL: PAGE_URL } },
+	});
+}
+
 /** Only these fixture endpoints are supported; unexpected requests never reach the network. */
 function successfulFetch(input: string | URL | Request): Response {
 	const url = new URL(input instanceof Request ? input.url : String(input));
 	if (url.origin === "https://api.exa.ai" && ["/search", "/contents"].includes(url.pathname)) return exaReply();
-	if (url.origin === "https://s.jina.ai") {
-		return Response.json({ data: [{ title: "Diagnostic fixture", url: PAGE_URL, description: PAGE_TEXT }] });
-	}
-	if (url.origin === "https://r.jina.ai") return new Response(PAGE_TEXT);
+	if (url.origin === "https://api.firecrawl.dev" && url.pathname === "/v2/search") return firecrawlSearchReply();
+	if (url.origin === "https://api.firecrawl.dev" && url.pathname === "/v2/scrape") return firecrawlScrapeReply();
 	throw new Error(`Unexpected fixture request: ${url.origin}${url.pathname}`);
 }
 
@@ -137,8 +147,8 @@ describe("Search Hub diagnostics through registered tools", () => {
 
 	it("reports missing-env credentials once while every successful fallback retains its warning", async () => {
 		writeJson(getProjectConfigPath(cwd), {
-			defaultBackend: "serper",
-			backends: { serper: { enabled: true, apiKey: MISSING_ENV }, jina: { enabled: true } },
+			priority: ["tavily", "firecrawl"],
+			backends: { tavily: { enabled: true, apiKeys: [MISSING_ENV] }, firecrawl: { enabled: true } },
 		});
 		const hub = createHarness();
 		const ctx = createContext(cwd);
@@ -146,40 +156,47 @@ describe("Search Hub diagnostics through registered tools", () => {
 		clearCooldowns();
 		const second = await hub.execute("web_search", ctx);
 
-		expect(first.details).toMatchObject({ backend: "jina (fallback)", resultCount: 1 });
-		expect(first.details.errors?.join(" ")).toContain("Serper backend not configured");
+		expect(first.details).toMatchObject({ backend: "firecrawl (fallback)", resultCount: 1 });
+		expect(first.details.errors?.join(" ")).toContain("Tavily backend not configured");
 		expect(ctx.ui.notify).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/credential|environment|env.var/i), "warning");
 		const message = ctx.ui.notify.mock.calls[0][0];
 		expect(message).not.toContain(MISSING_ENV);
 		expect(first.details.warnings).toEqual([message]);
 		expect(second.details.warnings).toEqual([message]);
-		expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(["s.jina.ai", "s.jina.ai"]);
+		expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual(["api.firecrawl.dev", "api.firecrawl.dev"]);
 	});
 
 	it("keeps a failed shell credential command and its stderr out of diagnostics and fallback errors", async () => {
 		writeJson(getProjectConfigPath(cwd), {
-			defaultBackend: "serper",
+			priority: ["tavily", "firecrawl"],
 			backends: {
-				serper: { enabled: true, apiKey: "!printf 'credential-command-private-marker' >&2; exit 1" },
-				jina: { enabled: true },
+				tavily: { enabled: true, apiKeys: ["!printf 'credential-command-private-marker' >&2; exit 1"] },
+				firecrawl: { enabled: true },
 			},
 		});
 		const ctx = createContext(cwd);
 		const result = await createHarness().execute("web_search", ctx);
 
-		expect(result.details).toMatchObject({ backend: "jina (fallback)", resultCount: 1 });
-		expect(result.details.errors?.join(" ")).toMatch(/credential|command/i);
+		expect(result.details).toMatchObject({ backend: "firecrawl (fallback)", resultCount: 1 });
+		expect(result.details.warnings?.join(" ")).toMatch(/credential command failed/i);
+		expect(result.details.errors?.join(" ")).toMatch(/tavily/i);
 		expect(JSON.stringify([result, ctx.ui.notify.mock.calls])).not.toContain("credential-command-private-marker");
 		expect(JSON.stringify([result, ctx.ui.notify.mock.calls])).not.toContain("printf");
 	});
 
 	it("deduplicates corrupt Exa state across search and read precheck/increment without losing call details", async () => {
-		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKey: "diagnostics-exa-fixture" } } });
+		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKeys: ["diagnostics-exa-fixture"] } } });
 		corruptExaUsage();
 		const hub = createHarness();
 		const ctx = createContext(cwd);
-		const search = await hub.execute("web_search", ctx, { backend: "exa" });
-		const read = await hub.execute("web_read", ctx, { reader: "exa" });
+		const search = await hub.execute("web_search", ctx);
+		fetchMock.mockImplementation(async (input) => {
+			if (String(input).includes("api.firecrawl.dev") && String(input).includes("/scrape")) {
+				return new Response("fixture upstream unavailable", { status: 503 });
+			}
+			return successfulFetch(input);
+		});
+		const read = await hub.execute("web_read", ctx);
 
 		expect(search.details.resultCount).toBe(1);
 		expect(read.content[0].text).toBe(PAGE_TEXT);
@@ -191,10 +208,18 @@ describe("Search Hub diagnostics through registered tools", () => {
 	});
 
 	it.each(["web_search", "web_read"] as const)("keeps corrupt-state warnings on headless %s success without touching UI", async (tool) => {
-		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKey: "diagnostics-exa-fixture" } } });
+		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKeys: ["diagnostics-exa-fixture"] } } });
 		corruptExaUsage();
 		const ctx = createContext(cwd, false);
-		const result = await createHarness().execute(tool, ctx, { backend: "exa", reader: "exa" });
+		if (tool === "web_read") {
+			fetchMock.mockImplementation(async (input) => {
+				if (String(input).includes("api.firecrawl.dev") && String(input).includes("/scrape")) {
+					return new Response("fixture upstream unavailable", { status: 503 });
+				}
+				return successfulFetch(input);
+			});
+		}
+		const result = await createHarness().execute(tool, ctx);
 
 		expect(result.content[0].text).toContain(PAGE_TEXT);
 		expect(result.details.warnings).toEqual([expect.stringContaining("Exa usage")]);
@@ -202,11 +227,11 @@ describe("Search Hub diagnostics through registered tools", () => {
 	});
 
 	it("routes an Exa quota threshold warning to Pi and the successful search details", async () => {
-		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKey: "diagnostics-exa-fixture" } } });
+		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKeys: ["diagnostics-exa-fixture"] } } });
 		const now = new Date();
 		writeJson(getExaUsagePath(), { count: 799, resetAt: new Date(now.getFullYear(), now.getMonth(), 1).toISOString() });
 		const ctx = createContext(cwd);
-		const result = await createHarness().execute("web_search", ctx, { backend: "exa" });
+		const result = await createHarness().execute("web_search", ctx);
 
 		expect(result.details.resultCount).toBe(1);
 		expect(ctx.ui.notify).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/Exa quota.*800/), "warning");
@@ -215,7 +240,7 @@ describe("Search Hub diagnostics through registered tools", () => {
 
 	it.each(["shared extension", "independent extensions"])("keeps overlapping call warnings attached to their own contexts: %s", async (scope) => {
 		writeJson(getProjectConfigPath(cwd), {
-			backends: { exa: { enabled: true, apiKey: "diagnostics-exa-fixture" }, jina: { apiKey: MISSING_ENV } },
+			backends: { exa: { enabled: true, apiKeys: ["diagnostics-exa-fixture"] }, firecrawl: { apiKeys: [MISSING_ENV] } },
 		});
 		corruptExaUsage();
 		const firstHub = createHarness();
@@ -231,15 +256,15 @@ describe("Search Hub diagnostics through registered tools", () => {
 				searchEntered.resolve();
 				return releaseSearch.promise;
 			}
-			if (String(input).startsWith("https://r.jina.ai/")) {
+			if (String(input) === "https://api.firecrawl.dev/v2/scrape") {
 				readEntered.resolve();
 				return releaseRead.promise;
 			}
 			return successfulFetch(input);
 		});
-		const firstCall = firstHub.execute("web_search", firstCtx, { backend: "exa" });
+		const firstCall = firstHub.execute("web_search", firstCtx);
 		await searchEntered.promise;
-		const secondCall = secondHub.execute("web_read", secondCtx, { reader: "jina" });
+		const secondCall = secondHub.execute("web_read", secondCtx);
 		await readEntered.promise;
 		// Finish the older call while the newer call still owns an in-flight fetch.
 		releaseSearch.resolve(exaReply());
@@ -247,7 +272,7 @@ describe("Search Hub diagnostics through registered tools", () => {
 		try {
 			search = await firstCall;
 		} finally {
-			releaseRead.resolve(new Response(PAGE_TEXT));
+			releaseRead.resolve(firecrawlScrapeReply());
 		}
 		const read = await secondCall;
 
@@ -258,13 +283,19 @@ describe("Search Hub diagnostics through registered tools", () => {
 	});
 
 	it("does not let one extension instance suppress another instance's identical Exa warning", async () => {
-		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKey: "diagnostics-exa-fixture" } } });
+		writeJson(getProjectConfigPath(cwd), { backends: { exa: { enabled: true, apiKeys: ["diagnostics-exa-fixture"] } } });
 		corruptExaUsage();
 		const first = createContext(cwd);
 		const second = createContext(cwd);
+		fetchMock.mockImplementation(async (input) => {
+			if (String(input).includes("api.firecrawl.dev") && String(input).includes("/scrape")) {
+				return new Response("fixture upstream unavailable", { status: 503 });
+			}
+			return successfulFetch(input);
+		});
 		const [search, read] = await Promise.all([
-			createHarness().execute("web_search", first, { backend: "exa" }),
-			createHarness().execute("web_read", second, { reader: "exa" }),
+			createHarness().execute("web_search", first),
+			createHarness().execute("web_read", second),
 		]);
 
 		expect(first.ui.notify).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("Exa usage"), "warning");
@@ -274,47 +305,45 @@ describe("Search Hub diagnostics through registered tools", () => {
 
 	it("preserves HTTP search fallback errors without converting ordinary failures to Pi warnings", async () => {
 		writeJson(getProjectConfigPath(cwd), {
-			defaultBackend: "serper",
-			backends: { serper: { enabled: true, apiKey: "diagnostics-serper-fixture" }, jina: { enabled: true } },
+			priority: ["tavily", "firecrawl"],
+			backends: { tavily: { enabled: true, apiKeys: ["diagnostics-tavily-fixture"] }, firecrawl: { enabled: true } },
 		});
-		fetchMock.mockImplementation(async (input) => String(input).startsWith("https://google.serper.dev/")
+		fetchMock.mockImplementation(async (input) => String(input).startsWith("https://api.tavily.com/")
 			? new Response("fixture upstream unavailable", { status: 503 }) : successfulFetch(input));
 		const ctx = createContext(cwd);
 		const result = await createHarness().execute("web_search", ctx);
 
-		expect(result.details).toMatchObject({ backend: "jina (fallback)", resultCount: 1 });
-		expect(result.details.errors).toEqual([expect.stringMatching(/serper:.*503.*fixture upstream unavailable/i)]);
+		expect(result.details).toMatchObject({ backend: "firecrawl (fallback)", resultCount: 1 });
+		expect(result.details.errors).toEqual([expect.stringMatching(/tavily:.*503.*fixture upstream unavailable/i)]);
 		expect(result.content[0].text).toContain("fixture upstream unavailable");
 		expect(result.details).not.toHaveProperty("warnings");
 		expect(ctx.ui.notify).not.toHaveBeenCalled();
 	});
 
-	it("preserves reader fallback and explicit-reader rejection without notifying on HTTP failures", async () => {
+	it("preserves reader fallback without notifying on HTTP failures", async () => {
 		writeJson(getProjectConfigPath(cwd), {
-			reader: "exa", readerFallback: ["jina"],
-			backends: { exa: { apiKey: "diagnostics-exa-fixture" } },
+			backends: { exa: { apiKeys: ["diagnostics-exa-fixture"] } },
 		});
-		fetchMock.mockImplementation(async (input) => String(input) === "https://api.exa.ai/contents"
+		fetchMock.mockImplementation(async (input) => String(input).includes("/v2/scrape")
 			? new Response("fixture upstream unavailable", { status: 503 }) : successfulFetch(input));
 		const hub = createHarness();
 		const ctx = createContext(cwd);
 		const result = await hub.execute("web_read", ctx);
 
 		expect(result.content[0].text).toBe(PAGE_TEXT);
-		expect(result.details.reader).toBe("jina");
-		expect(result.details.fallbackErrors).toEqual([expect.stringMatching(/exa:.*503.*fixture upstream unavailable/i)]);
+		expect(result.details.reader).toBe("exa");
+		expect(result.details.fallbackErrors).toEqual([expect.stringMatching(/firecrawl:.*503.*fixture upstream unavailable/i)]);
 		expect(result.details).not.toHaveProperty("warnings");
-		await expect(hub.execute("web_read", ctx, { reader: "exa" })).rejects.toThrow(/Exa contents.*503/);
 		expect(ctx.ui.notify).not.toHaveBeenCalled();
 	});
 
 	it("drains a headless startup migration notice into only the next tool result", async () => {
-		writeJson(getLegacyProjectConfigPath(cwd), { backends: { jina: { enabled: true } } });
+		writeJson(getLegacyProjectConfigPath(cwd), { backends: { firecrawl: { enabled: true } } });
 		const hub = createHarness();
 		const ctx = createContext(cwd, false);
 		await hub.start(ctx);
-		const first = await hub.execute("web_read", ctx, { reader: "jina" });
-		const next = await hub.execute("web_read", ctx, { reader: "jina" });
+		const first = await hub.execute("web_read", ctx);
+		const next = await hub.execute("web_read", ctx);
 
 		expect(first.content[0].text).toBe(PAGE_TEXT);
 		expect(first.details.warnings).toEqual([expect.stringMatching(/migrated.*project config/i)]);
@@ -324,9 +353,9 @@ describe("Search Hub diagnostics through registered tools", () => {
 
 	it("sanitizes real config migration notices before displaying or retaining them", async () => {
 		const unsafeField = "\u001b[31mapi_key=fixture-private-token\u001b[0m\r\npassword=fixture-private-password\u0007";
-		writeJson(getProjectConfigPath(cwd), { backends: { jina: { enabled: true } }, [unsafeField]: true });
+		writeJson(getProjectConfigPath(cwd), { backends: { firecrawl: { enabled: true } }, [unsafeField]: true });
 		const ctx = createContext(cwd);
-		const result = await createHarness().execute("web_read", ctx, { reader: "jina" });
+		const result = await createHarness().execute("web_read", ctx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/upgraded.*project config/i), "warning");
 		const notice = ctx.ui.notify.mock.calls[0][0];

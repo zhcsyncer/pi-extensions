@@ -61,11 +61,11 @@ Empty `/tools` opens the settings panel. Switching layout asks to reload this se
 ![Failed Run ledger](./assets/demo-aggregate-3.png)
 
 ```text
-◐ Run (37 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
+● Run (37 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×16
   › 先对照两边入口
-  ◐ Bash — 把策略固化成 zone · 54 lines · 2.3KB           12s
+  ● Bash — 把策略固化成 zone · 54 lines · 2.3KB           12s
 
-✓ Run (38 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
+● Run (38 calls · 3 turns) · read ×12 · ask_user_question ×1 · edit ×8 · bash ×17
   ↳ 2 steers
   took 2m14s · tok ↑62k ↓8.4k R120k W4.1k · at 2026-04-08 14:32:14
 ```

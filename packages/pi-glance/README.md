@@ -63,7 +63,7 @@ Open `/glance`:
 
 - **General** — `Color source` is `Follow Pi` on new installs. Choose `Glance palette` to use the 22 built-in palettes. `Light palette` and `Dark palette` are the fallback when the current Pi theme is unavailable. `Icons` default to `plain`; `nerd` needs a Nerd Font. If icons look like boxes, choose `plain`. `Workspace label` is `name`, `smart`, or `path`.
 - **Working indicator** — one `Enabled: on/off` switch in the first-level menu. `off` restores Pi's default working row.
-- **Git** — `Dirty marker` (hidden while file counts are visible; conflicts stay), `Ahead / behind`, `Behind main`, `SHA`, `Working tree` (`status` or `border right`), and `Polling`.
+- **Git** — `Enabled` stops all Glance git reads, `fetch`, `/diff`, and worktree counts, not just the status segment. Then `Dirty marker` (hidden while file counts are visible; conflicts stay), `Ahead / behind`, `Behind main`, `SHA`, `Working tree` (`status` or `border right`), and `Polling`.
 - **Reply speed** — enabled by default. Shows output tokens per second of server inference (thinking + writing): `?` unknown, `~42 tok/s` provisional, `42 tok/s` final. It excludes local tool execution and waiting before each response starts, so a slow tool no longer drags the speed down. Longer thinking lowers the speed for the same output. On supported Pi versions, time spent waiting in blocking UI prompts is excluded too. `Precision` is `auto`, `1 digit`, or `0 digits`. This is a reply-experience indicator, not a benchmark. It sends no notifications and does not estimate tokens from text.
 - **Tokens** — optional session totals. `Display` chooses input/output or total. `Cache` cycles through `auto` (read/write counts at full width), `show` (always show counts), `hide`, and `Hit rate` (`rate`). Hit rate shows a rounded percentage such as `42%` of prompt tokens served from cache; output tokens do not affect it. Narrow layouts keep the percentage first, and no percentage appears before there are prompt tokens. The default remains `auto`; existing settings stay unchanged.
 - **Context** — text as percent / tokens, plus an optional bottom-right `Progress bar` (`track` or `border`, `one third` or `remaining`). Unused border cells stay light `─`, used cells become heavy `━`. Below 70% is normal, 70% to below 85% is warning, 85% or higher is error.
@@ -83,7 +83,7 @@ Git stays quiet:
 
 **Fork difference:** provided by this package; upstream `pi-glance` 0.5.3 does not include it.
 
-While a high-level cycle is active, Glance shows a themed spinner, a stable per-cycle verb, current activity, cycle output, and elapsed time (`47s`, `3m 08s`, `1h 07m`). Elapsed time uses the theme warning color at five minutes or later. It is not an official Anthropic component and does not change the Agent, prompts, models, tools, messages, or session behavior.
+While a high-level cycle is active, Glance shows a themed spinner, a stable per-cycle verb, current activity (`requesting`, thinking, highlighted `responding`, or running a tool), cycle output, and elapsed time after three seconds (`3s`, `47s`, `3m 08s`). Elapsed time uses the theme warning color at five minutes or later. It is not an official Anthropic component and does not change the Agent, prompts, models, tools, messages, or session behavior.
 
 The working row is the current cycle's output. Top-border Tokens are session cumulative usage. Context is context-window occupancy. Empty partials stay hidden instead of showing `↓ ~0 tokens`.
 

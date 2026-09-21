@@ -68,7 +68,7 @@ function isQueryDetailsV2(value: unknown): value is QueryDetailsV2 {
 		value.schemaVersion === 2 &&
 		value.kind === "query" &&
 		typeof value.action === "string" &&
-		QUERY_ACTIONS.has(value.action)
+		(QUERY_ACTIONS.has(value.action) || MUTATION_ACTIONS.has(value.action))
 	);
 }
 

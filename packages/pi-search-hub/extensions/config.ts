@@ -2,7 +2,8 @@
  * Config loading and module-level mutable state for pi-search-hub extension.
  */
 
-import type { BackendConfig, SearchConfig } from "./types.js";
+import type { BackendConfig, RoutingStrategy, SearchBackendName, SearchConfig } from "./types.js";
+import { DEFAULT_ROUTING, KEYLESS_FALLBACK_BACKEND, SEARCH_BACKEND_NAMES } from "./types.js";
 import { clearCredentialCache, FALLBACK_ENV_MAP } from "./credentials.js";
 import { loadMigratedSearchConfig, type MigrationNoticeSink } from "./config-storage.js";
 import {
@@ -17,34 +18,63 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Current runtime config. Keep private so consumers cannot retain a stale Jiti import snapshot. */
-let config: SearchConfig = { defaultBackend: "duckduckgo", backends: {} };
+let config: SearchConfig = { backends: {} };
 
 export function getConfig(): SearchConfig {
 	return config;
 }
 
-/** Round-robin counter — increments on each call, never resets until pi restarts. */
-let roundRobinIndex = 0;
-
-export function incrementRoundRobin(): number {
-	return roundRobinIndex++;
+export function enabledBackendNames(searchConfig: SearchConfig): SearchBackendName[] {
+	const backends = searchConfig.backends ?? {};
+	return SEARCH_BACKEND_NAMES.filter((name) => backends[name]?.enabled === true);
 }
 
-/**
- * Latency samples per backend. Each sample is { ms, timestamp }.
- * Samples older than LATENCY_TTL_MS are pruned on every write.
- * Used by the "best-latency" selection strategy.
- */
-const LATENCY_TTL_MS = 60_000;
-export const latencyMap = new Map<string, { ms: number; timestamp: number }[]>();
+export function orderedActiveBackends(searchConfig: SearchConfig): SearchBackendName[] {
+	const enabled = enabledBackendNames(searchConfig);
+	if (enabled.length === 0) return [KEYLESS_FALLBACK_BACKEND];
+	const listed = (searchConfig.priority ?? []).filter((name) => enabled.includes(name));
+	return [...listed, ...enabled.filter((name) => !listed.includes(name))];
+}
 
-export function recordLatency(backend: string, ms: number): void {
-	const samples = latencyMap.get(backend) ?? [];
-	const now = Date.now();
-	// Prune stale samples
-	const fresh = samples.filter(s => now - s.timestamp < LATENCY_TTL_MS);
-	fresh.push({ ms, timestamp: now });
-	latencyMap.set(backend, fresh);
+export function routingOf(searchConfig: SearchConfig): RoutingStrategy {
+	return searchConfig.routing ?? DEFAULT_ROUTING;
+}
+
+export function mergeProjectConfig(global: SearchConfig, project: SearchConfig): SearchConfig {
+	const preProjectBackends = { ...(global.backends ?? {}) };
+	let next: SearchConfig = { ...global, ...project };
+	if (next.backends == null) next.backends = preProjectBackends;
+	if (project.backends && typeof project.backends === "object") {
+		const merged: Record<string, BackendConfig | undefined> = { ...preProjectBackends, ...next.backends };
+		for (const [key, val] of Object.entries(project.backends)) {
+			const bc = val as BackendConfig | undefined;
+			if (bc && merged[key]) merged[key] = { ...merged[key], ...bc };
+			else merged[key] = bc;
+		}
+		next.backends = merged;
+	}
+	return next;
+}
+
+/** Auto-enable backends that have a convenience env var and are not explicitly disabled. */
+export function applyEnvAutoEnable(config: SearchConfig): SearchConfig {
+	const next: SearchConfig = { ...config, backends: { ...(config.backends ?? {}) } };
+	for (const [backend, envVar] of Object.entries(FALLBACK_ENV_MAP)) {
+		const envValue = process.env[envVar];
+		if (!envValue?.trim()) continue;
+		const existing = (next.backends as Record<string, BackendConfig | undefined>)[backend];
+		if (!existing || existing.enabled === undefined) {
+			(next.backends as Record<string, BackendConfig>)[backend] = {
+				...existing,
+				enabled: true,
+			};
+		}
+	}
+	return next;
+}
+
+export function effectiveSearchConfig(global: SearchConfig, project: SearchConfig = {}): SearchConfig {
+	return applyEnvAutoEnable(mergeProjectConfig(global, project));
 }
 
 // ---------------------------------------------------------------------------
@@ -52,8 +82,7 @@ export function recordLatency(backend: string, ms: number): void {
 // ---------------------------------------------------------------------------
 
 export function loadConfig(cwd: string, projectTrusted = false, onNotice?: MigrationNoticeSink): SearchConfig {
-	let config: SearchConfig = {
-		defaultBackend: "duckduckgo",
+	let next: SearchConfig = {
 		backends: {},
 		...loadMigratedSearchConfig({
 			targetPath: getGlobalConfigPath(),
@@ -63,47 +92,16 @@ export function loadConfig(cwd: string, projectTrusted = false, onNotice?: Migra
 		}),
 	};
 
-	// Save global backends before project config overwrites them.
-	const preProjectBackends = { ...(config.backends ?? {}) };
-
 	if (projectTrusted) {
-		const project = loadMigratedSearchConfig({
+		next = mergeProjectConfig(next, loadMigratedSearchConfig({
 			targetPath: getProjectConfigPath(cwd),
 			legacyPath: getLegacyProjectConfigPath(cwd),
 			scope: "project",
 			onNotice,
-		});
-		config = { ...config, ...project };
-		if (config.backends == null) config.backends = preProjectBackends;
-		if (project.backends && typeof project.backends === "object") {
-			const merged = { ...preProjectBackends, ...config.backends };
-			for (const [key, val] of Object.entries(project.backends)) {
-				const bc = val as BackendConfig | undefined;
-				if (bc && merged[key]) merged[key] = { ...merged[key], ...bc };
-				else merged[key] = bc;
-			}
-			config.backends = merged;
-		}
+		}));
 	}
 
-	// Auto-enable backends that have a convenience env var but no explicit config yet.
-	// Only enables if the backend is not explicitly disabled (enabled !== false).
-	for (const [backend, envVar] of Object.entries(FALLBACK_ENV_MAP)) {
-		const envValue = process.env[envVar];
-		if (envValue && envValue.trim().length > 0) {
-			const configBackends = config.backends as Record<string, BackendConfig> ?? {};
-			const existing = configBackends[backend];
-			if (!existing || existing.enabled === undefined) {
-				if (!config.backends) config.backends = {};
-				(config.backends as Record<string, BackendConfig>)[backend] = {
-					...existing,
-					enabled: true,
-				};
-			}
-		}
-	}
-
-	return config;
+	return applyEnvAutoEnable(next);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,25 +126,7 @@ export function refreshConfig(
 	config = loadConfig(cwd, projectTrusted, onNotice);
 	configCacheTime = now;
 	configCacheKey = nextCacheKey;
-
-	activeBackendsList = Object.entries(config.backends || {})
-		.filter(([_, bc]) => bc?.enabled)
-		.map(([name]) => name);
-
-	// Always add duckduckgo if no backends explicitly enabled, since it needs no key
-	if (activeBackendsList.length === 0) {
-		activeBackendsList.push("duckduckgo");
-	}
-
-	// Honor defaultBackend: put it first in the auto-try order
-	if (config.defaultBackend && activeBackendsList.includes(config.defaultBackend)) {
-		activeBackendsList = [
-			config.defaultBackend,
-			...activeBackendsList.filter(b => b !== config.defaultBackend),
-		];
-	} else {
-		config.defaultBackend = activeBackendsList[0];
-	}
+	activeBackendsList = orderedActiveBackends(config);
 
 	// Invalidate credential cache so shell-command keys refresh after config reload
 	clearCredentialCache();

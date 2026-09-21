@@ -50,26 +50,40 @@ function estimateTextAndImageContentChars(content: unknown): number {
 	return chars;
 }
 
-function estimateTextTokens(text: string): number {
-	return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
 function estimateTextAndImageContentTokens(content: unknown): number {
 	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
 }
 
+function estimateSystemMessageTokens(message: Message): number {
+	let chars = estimateTextAndImageContentChars(message.content);
+	if ("sections" in message && isRecord(message.sections)) {
+		for (const value of Object.values(message.sections)) {
+			if (typeof value === "string") chars += value.length;
+		}
+	}
+	if ("toolsAdded" in message && Array.isArray(message.toolsAdded)) {
+		chars += safeJsonStringify(message.toolsAdded).length;
+	}
+	return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
 function estimateMessageTokens(message: Message): number {
+	if (message.role === "system") return estimateSystemMessageTokens(message);
 	if (message.role === "user" || message.role === "toolResult") {
+		return estimateTextAndImageContentTokens(message.content);
+	}
+	if (!Array.isArray(message.content)) {
 		return estimateTextAndImageContentTokens(message.content);
 	}
 
 	let chars = 0;
 	for (const block of message.content) {
-		if (block.type === "text") {
+		if (!isRecord(block)) continue;
+		if (block.type === "text" && typeof block.text === "string") {
 			chars += block.text.length;
-		} else if (block.type === "thinking") {
+		} else if (block.type === "thinking" && typeof block.thinking === "string") {
 			chars += block.thinking.length;
-		} else {
+		} else if (typeof block.name === "string") {
 			chars += block.name.length + safeJsonStringify(block.arguments).length;
 		}
 	}
@@ -128,26 +142,8 @@ function estimateMessages(messages: readonly Message[]): {
 	return { tokens, usageTokens: 0, trailingTokens: tokens, lastUsageIndex: null };
 }
 
-function estimateToolsTokens(tools: Context["tools"]): number {
-	if (!tools || tools.length === 0) return 0;
-	return estimateTextTokens(safeJsonStringify(tools));
-}
-
 export function estimateContextTokens(context: Context): number {
-	const estimate = estimateMessages(context.messages);
-	if (estimate.lastUsageIndex !== null) {
-		const addedNames = new Set(
-			context.messages
-				.slice(estimate.lastUsageIndex + 1)
-				.filter((message) => message.role === "toolResult")
-				.flatMap((message) => message.addedToolNames ?? []),
-		);
-		const addedToolTokens = estimateToolsTokens(context.tools?.filter((tool) => addedNames.has(tool.name)));
-		return estimate.tokens + addedToolTokens;
-	}
-	const prefixTokens =
-		(context.systemPrompt ? estimateTextTokens(context.systemPrompt) : 0) + estimateToolsTokens(context.tools);
-	return estimate.tokens + prefixTokens;
+	return estimateMessages(context.messages).tokens;
 }
 
 export function clampMaxTokensToContext(model: Model<Api>, context: Context, maxTokens: number): number {

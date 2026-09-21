@@ -2,54 +2,58 @@
 
 [English](./README.md)
 
-`@zhcsyncer/pi-extensions` 使用的 bundle 私有 Search Hub fork。它通过多个搜索和内容读取 backend 提供统一的 `web_search` 与 `web_read` 工具。
+Pi 用的 Search Hub fork。通过多个搜索和内容读取 backend 提供统一的 `web_search` 与 `web_read` 工具。
 
-该 package 是私有包，不会单独发布。安装 `@zhcsyncer/pi-extensions` 后即可使用。
+本包也包含在 `@zhcsyncer/pi-extensions` 里。
+
+## 安装
+
+```bash
+pi install npm:@zhcsyncer/pi-search-hub
+```
+
+或安装整个扩展 bundle：
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
 
 ## 工具
 
 ### `web_search`
 
-通过明确指定的 backend 搜索，或使用自动路由。Fallback 模式会按顺序尝试已启用 backend，并在首个成功结果处停止。`combine=true` 会查询多个已启用 backend，并合并、去重结果：`combineMode: "targeted"` 最多收集三个可用 backend 的结果集，`combineMode: "all"` 则查询全部已启用 backend。调用明确指定单个 backend 时会忽略 combine。
+按配置的路由搜索网页。已启用 backend 会按顺序尝试，第一次成功即停止。`combine=true` 只由模型打开（默认关闭），最多合并三家有结果的来源，每条结果都带来源。配置不能把 combine 设成全局强制。
 
 主要调用参数：
 
 - `query` — 自然语言搜索词；
 - `numResults` — 1 到 20 的目标结果数；
-- `backend` — 指定 backend 或 `auto`；
-- `combine` — 启用多 backend 搜索；
-- `compact` — 返回标题与 URL 单行，而不是详细搜索正文。
+- `combine` — 用同一 query 合并多家已启用 provider（默认 false）；
+- `compact` — 返回标题、来源与 URL 单行，而不是详细搜索正文。
 
-没有明确启用 backend 时，DuckDuckGo 是无需 key 的 fallback。其他受支持 backend 包括 Jina Search、Marginalia、Serper、Tavily、Exa、Exa MCP、OpenAI Codex、Brave、Brave LLM Context、LangSearch、Firecrawl、WebSearchAPI、Perplexity、SearXNG、Linkup、You.com、fastCRW 和 Sofya。
+受支持的搜索 backend 为 Exa、Tavily、Firecrawl、Parallel、OpenAI Codex 和 Grok。没有明确启用 backend 时，Firecrawl 是无需 key 的 fallback。Exa、Tavily 和 Parallel 需要 API key。Codex 和 Grok 走 Pi `/login`（在对应推理 API 上注入 hosted web search），不把 key 写进 Search Hub 配置。hosted backend 若订阅额度耗尽，会跳过 5 小时，避免每次搜索都重试。路由为 `priority`（已启用的有序名单）、`random` 或 `best-latency`。
 
 ### `web_read`
 
-读取 URL 并返回提取后的 Markdown。配置中的 `reader` 是 default reader，与默认搜索 backend 相互独立。调用未传 `reader` 时，Search Hub 会依次尝试 default reader 和 `readerFallback`；显式传入 `reader` 时只使用该 reader。Reader 只做顺序 fallback，不会并行查询或合并多份内容。默认 Jina reader 支持绕过远端缓存、keywords、`rush`/`smart` 模式和定向提取，也可以使用 Sofya、Firecrawl、Exa 与 Exa MCP reader。
+读取 URL 并返回提取后的 Markdown。Reader 固定按 Firecrawl → Exa → Parallel 顺序尝试，只做顺序 fallback，不会并行查询或合并。Firecrawl 无需 key；Exa 和 Parallel 需要 key。
 
 主要调用参数：
 
-- `url` — 页面 URL；
-- `fresh` — 在 reader 支持时绕过缓存；
-- `keywords` — 聚焦长页面提取的关键词；
-- `mode` — `rush` 优先速度，`smart` 提高筛选质量；
-- `reader` — 仅使用指定 reader，并跳过配置的 reader fallback；
-- `objective` — Jina CSS target selector。
+- `url` — 页面 URL。
 
-> `web_read.objective` 是通过 `x-target-selector` 传给 Jina 的 CSS selector，不是自然语言问题或提取指令。应使用 `main`、`article`、`#pricing` 等值；语义聚焦请使用 `keywords`。
+## 工具行
 
-## 本 fork 的 intent-aware 展示
+Search Hub 自己画 Claude 风格的工具行，不再使用 `pi-tool-display-intent`。
 
-两个工具都使用 [`pi-tool-display-intent`](../pi-tool-display-intent) 的合作式 API，而不是维护独立 TUI renderer：
-
-- 调用行显示搜索词或缩短后的 URL，而不是通用 `(N args)`；
-- 结果通过 `outputMode: "inherit"` 继承当前全局 `results.mode`。
+- 调用行是 `● Web Search("query")` 或 `● Read Web Page(url)`，而不是通用 `(N args)`；
+- 结果行显示 backend、条数、fallback 或提取长度。
 
 语义化调用元数据包括：
 
 | 工具 | Target | 元数据 |
 |---|---|---|
-| `web_search` | 搜索词 | 请求的 backend、combine 模式、结果上限、compact 模式 |
-| `web_read` | 缩短后的 URL | reader、rush/smart 模式、keyword 数量、fresh 模式、是否使用 selector |
+| `web_search` | 搜索词 | combine、结果上限、compact 模式 |
+| `web_read` | 缩短后的 URL | 起始 reader |
 
 搜索与读取进度通过当前 tool call 展示，不再写入常驻 footer 状态。语义化结果状态包括：
 
@@ -58,9 +62,7 @@
 | `web_search` | 实际 backend、结果数、fallback 状态，以及组合搜索中可用/已尝试 backend 健康度 |
 | `web_read` | 实际 reader、提取字符数，以及展示内容是否被截断到 1 万字符上限 |
 
-详细搜索输出以原始 `## Search Results:` header 开头。共享 renderer 已显示语义状态时，会跳过这个重复 header。
-
-全局 `results.mode` 控制 Search Hub 结果在 transcript 中隐藏、显示摘要还是显示预览。内容预览与其他装饰工具共用折行后的 `results.previewRows` 行预算。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。特别是，`web_search.compact` 参数会改变工具结果本身，与仅影响 TUI 的全局结果模式相互独立。
+详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变工具结果本身，不只是 TUI 行。
 
 ## 配置
 
@@ -69,7 +71,7 @@ Search Hub 从以下位置读取配置：
 1. `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json`：全局设置；
 2. 受信任当前项目的 `.pi/extension-data/pi-search-hub/config.json`。
 
-受信任项目的设置优先。backend map 会按单个 backend 合并，因此项目可以只覆盖一个 backend，无需重复全部全局条目。未受信任项目中的 Search Hub 配置不会被探测或读取。配置会在使用过程中刷新；交互式修改会暂存在草稿中，直到选择 `Save & apply`。
+受信任项目的设置优先。backend map 会按单个 backend 合并，因此项目可以只覆盖一个 backend，无需重复全部全局条目。未受信任项目中的 Search Hub 配置不会被探测或读取。配置会在使用过程中刷新；交互式修改会留在草稿中，直到按 `s` 保存。
 
 配置、凭据和 Exa 用量告警通过 Pi 原生通知去重展示，不再直接写终端。同一 backend 的搜索或读取连续失败时也会告警。这些本地调用结果不用于推算剩余配额。成功的工具结果也会在详情中保留告警，无 UI 运行同样保留。普通 provider 失败仍走原有工具错误与 fallback 路径。
 
@@ -77,31 +79,24 @@ Search Hub 从以下位置读取配置：
 
 ### 交互式配置
 
-运行 `/search-setup` 可在同一入口查看 Search Hub 的有效状态并编辑全局配置。一级页面只汇总搜索路由、网页读取、backend/credential 数量和输出设置，再进入独立的 `Search routing`、`Web reading`、`Backends` 与 `Output` 页面。较长的 backend 列表只出现在 Backends 二级页；不再提供独立的 `/search-status` 命令。
+运行 `/search-hub setup` 可编辑全局路由和 compact 输出。`/search-hub status` 显示本地余量账（Tavily/Firecrawl 剩余、已禁用的 key 和解禁时间），打开时不打官方接口。按 `r` 或 `/search-hub status refresh` 刷新 Tavily/Firecrawl 用量。各家开关、key，以及 Codex/Grok 模型在二级 Providers 页。仅 `priority` 路由时，已启用尝试顺序在独立列表里改：Enter 选中，上下键移动。
 
-每个简洁 backend 行都以前置 `[ON]`、`[OFF]` 或 `[AUTO]` 开头，并对 API key 与 Pi credential 统一使用 `auth` 口径：`auth ✓ saved key`、`auth ✓ env <名称>`、`auth ✓ Pi /login`、`auth ✗ missing`、`auth — optional` 或 `auth — not required`。无法解析的引用按“当前没有 credential”展示。Shell command credential 会标成 `auth ? shell command`，因为 setup 不会仅为渲染状态而执行它。选择 backend 后会对比全局草稿与经过项目覆盖后的有效配置，并分别提供开关、credential、URL 和 Pi auth 操作。禁用会保留 credential；只要保留的 credential 仍可解析，重新启用时无需再次输入。批量操作只启用可直接使用的 keyless hosted backend，SearXNG 会保持关闭直到配置实例 URL。
-
-所有页面共同编辑一份内存中的全局草稿。`Back` 不会写盘，一级页面会标记未保存修改。`Save & apply` 会归一化草稿、清理废弃字段、以 `0600` 权限原子写入全局文件，只刷新一次运行时配置，并只发一条结果通知。带未保存修改关闭时，可选择 `Save & apply`、`Discard changes` 或 `Continue editing`。保存成功后无需 `/reload` 或新建会话。
-
-`/search-setup` 只修改全局文件。受信任项目的 `.pi/extension-data/pi-search-hub/config.json` 可以覆盖这次修改，Search Hub 会在保存后提示。禁用 backend 不会删除已保存的 credential；如果还需要从磁盘移除，请在该 backend 的详情菜单选择 `Remove saved API key or reference`。Search Hub 不在本地缓存搜索结果；`web_read.fresh` 只要求支持它的远端 reader 绕过自身缓存。
+修改留在草稿中。`s` 保存；干净时 Esc 直接关闭。有未保存修改时 Esc 只确认一次是丢弃还是继续编辑，确认框里没有保存。Key 用 `ui.editor` 编辑，一行一个引用，只有保存时才写盘。禁用 backend 会保留已存 key。受信任项目配置仍可覆盖全局文件；设置页只提示这一点，不编辑项目文件。
 
 最小示例：
 
 ```json
 {
-  "defaultBackend": "duckduckgo",
-  "combine": false,
-  "combineMode": "targeted",
-  "reader": "jina",
-  "readerFallback": ["firecrawl", "exa_mcp"],
+  "routing": "priority",
+  "priority": ["exa", "firecrawl"],
   "backends": {
-    "duckduckgo": { "enabled": true },
-    "serper": { "enabled": true, "apiKey": "SERPER_API_KEY" }
+    "exa": { "enabled": true, "apiKeys": ["EXA_API_KEY"] },
+    "firecrawl": { "enabled": true }
   }
 }
 ```
 
-可以复制 [`search.json.example`](./search.json.example) 获取更完整的 backend 配置矩阵。搜索服务 credential（包括 Jina 的可选 key）可以是 `JINA_API_KEY` 这样的环境变量名、以 `!` 开头的 shell command，或直接保存在配置中的 key 值。优先使用环境变量或 secret manager，绝不要提交凭据。OpenAI Codex 是例外：它从当前 Pi model registry 解析已有的 `openai-codex` provider credential，因此 `/login openai-codex` 是唯一凭据来源。其他搜索服务不是 Pi model provider，而 Pi 目前没有公开通用的 extension secret store，所以 Search Hub 不会为了把 key 放进 `auth.json` 而注册伪 provider。
+可以复制 [`search.json.example`](./search.json.example) 获取完整 backend 配置矩阵。credential 可以是 `EXA_API_KEY` 这样的环境变量名、以 `!` 开头的 shell command，或直接保存在 `apiKeys` 中的 key 值。优先使用环境变量或 secret manager，绝不要提交凭据。旧的 `apiKey` 字符串会在存盘时迁入 `apiKeys`。多把 key 只在 429、402、432 或配额用尽时轮换。
 
 上游 backend 专属参考见 [`UPSTREAM_README.md`](./UPSTREAM_README.md)。对于 bundle fork，本 README 描述的本地行为优先。
 

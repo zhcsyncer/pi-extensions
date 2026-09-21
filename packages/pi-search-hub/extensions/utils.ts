@@ -16,10 +16,10 @@ export const COMMAND_TIMEOUT_MS = 5_000;
 
 export const MISSING_KEY_HELP =
 	"Set the API key via env var (SEARCH_<BACKEND>_API_KEY), " +
-	"config reference (\"apiKey\": \"SOME_ENV_VAR\"), " +
-	"shell command (\"apiKey\": \"!pass show api/backend\"), " +
+	"config reference (\"apiKeys\": [\"SOME_ENV_VAR\"]), " +
+	"shell command (\"apiKeys\": [\"!pass show api/backend\"]), " +
 	"or a literal key in $PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json. " +
-	"DuckDuckGo needs no key. Marginalia uses a shared public key (optional)."
+	"Firecrawl needs no key."
 
 // ---------------------------------------------------------------------------
 // Per-backend cooldown

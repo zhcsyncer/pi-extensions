@@ -41,7 +41,7 @@ Try without installing:
 pi -e npm:@zhcsyncer/pi-consult
 ```
 
-Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Until a panel is set, `consult` is not in the active tools.
+Requires Pi 0.86 or later. Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Until a panel is set, `consult` is not in the active tools.
 
 ## Commands
 

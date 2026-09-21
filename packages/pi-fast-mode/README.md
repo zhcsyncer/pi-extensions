@@ -12,6 +12,8 @@
 - Unconfigured models start off. There is no all-models default.
 - Show a footer status on supported models. Hide it on unsupported models and leave the request unchanged.
 
+Requires Pi 0.86 or later.
+
 ## Install
 
 ```bash

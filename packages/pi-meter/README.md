@@ -29,7 +29,7 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 
   ![Meter footer](./assets/demo-meter-status.png)
 
-- Local dashboard by model, project, or session, including cache write. Usage-bearing tool results are counted too; Consult fanout is attributed to each advisor model instead of the main model.
+- Local dashboard by model, project, or session, including cache write. Usage-bearing tool results are counted too; Consult fanout is attributed to each advisor model instead of the main model. Compaction and `/tree` branch summaries are included when they report usage; the dashboard shows their share only when it is non-zero.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider. Codex also shows banked weekly resets when you have any; the footer adds `N resets …` only while the current model is Codex.
 - `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar. Snapshot titles show their age (`12m ago`) instead of the word stale.
 - Other extensions can register a quota source. The footer still follows the current model only.

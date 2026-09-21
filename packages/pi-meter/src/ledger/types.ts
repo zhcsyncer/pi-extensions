@@ -1,4 +1,6 @@
-/** One captured assistant or usage-bearing tool result. Local ledger only — never stores remote quota. */
+export type SummaryKind = "compaction" | "branch_summary";
+
+/** One captured assistant, tool result, or summary-generation call. Local ledger only — never stores remote quota. */
 export interface UsageRecord {
 	ts: number;
 	sid: string;
@@ -11,8 +13,18 @@ export interface UsageRecord {
 	tot: number;
 	cost: number;
 	costKnown: boolean;
-	/** Stable assistant-message or tool-call identity for live/import dedupe. */
+	/** Stable assistant-message, tool-call, or session-entry identity for live/import dedupe. */
 	sourceId?: string;
+	/** Compaction / branch-summary LLM calls. Absent on ordinary turns. */
+	kind?: SummaryKind;
+}
+
+export function isSummaryKind(value: unknown): value is SummaryKind {
+	return value === "compaction" || value === "branch_summary";
+}
+
+export function isSummaryRecord(record: UsageRecord): boolean {
+	return isSummaryKind(record.kind);
 }
 
 export type Dimension = "model" | "session" | "project";

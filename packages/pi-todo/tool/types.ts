@@ -53,11 +53,11 @@ export interface MutationDetailsV2 {
 	state: TaskState;
 }
 
-/** V2 query results deliberately carry no replayable task state. */
+/** V2 query results deliberately carry no replayable task state. list/get and no-op mutations share this shape. */
 export interface QueryDetailsV2 {
 	schemaVersion: 2;
 	kind: "query";
-	action: TaskQueryAction;
+	action: TaskAction;
 }
 
 /** Branch-scoped custom checkpoint written by the user-confirmed reset UI. */

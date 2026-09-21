@@ -1,20 +1,20 @@
 /**
- * Dispatch logic: selection strategies, RRF combiner, fallback ordering.
+ * Dispatch logic: routing, RRF combiner, targeted combine.
  */
 
-import type { SearchResult, SearchResultWithBackend } from "./types.js";
+import { rankBackendsByEffectiveness, type EffectivenessState } from "./effectiveness.js";
+import type { RoutingStrategy, SearchResult, SearchResultWithBackend } from "./types.js";
 
 export type BackendStats = { success: boolean; count: number; error?: string };
-import { incrementRoundRobin } from "./config.js";
-import { scoreBackends } from "./scoring.js";
 
 // ---------------------------------------------------------------------------
-// Selection strategies
+// Routing
 // ---------------------------------------------------------------------------
 
 export function selectBackendsForFallback(
-	strategy: "sequential" | "random" | "round-robin" | "best-latency",
+	strategy: RoutingStrategy,
 	activeBackends: string[],
+	effectiveness?: EffectivenessState,
 ): string[] {
 	const backends = [...activeBackends];
 	switch (strategy) {
@@ -25,18 +25,9 @@ export function selectBackendsForFallback(
 			}
 			return backends;
 		}
-		case "round-robin": {
-			if (backends.length === 0) return [];
-			const index = incrementRoundRobin() % backends.length;
-			const selected = backends[index];
-			// Put selected first, then the rest
-			return [selected, ...backends.filter((b) => b !== selected)];
-		}
-		case "best-latency": {
-			// Use smart composite scoring (success rate + latency + quality)
-			return scoreBackends(backends).map(s => s.backend);
-		}
-		case "sequential":
+		case "best-latency":
+			return rankBackendsByEffectiveness(backends, effectiveness ?? {});
+		case "priority":
 		default:
 			return backends;
 	}

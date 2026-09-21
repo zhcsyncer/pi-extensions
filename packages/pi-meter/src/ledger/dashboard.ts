@@ -1,5 +1,5 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { aggregate, dimensionKey, sumRows } from "./aggregate.ts";
+import { aggregate, dimensionKey, sumRows, sumSummaryTokens } from "./aggregate.ts";
 import { DIMENSIONS, WINDOWS } from "./enums.ts";
 import { fmtBar, fmtCompactTokens, fmtCost, fmtNum, padRight } from "./format.ts";
 import { windowDisplayLabel, type LedgerWindowMode } from "./time.ts";
@@ -156,12 +156,16 @@ export class Dashboard {
 		this.cachedWidth = -1;
 	}
 
+	private filteredRecords(): UsageRecord[] {
+		let recs = this.data.records;
+		for (const filter of this.filters) recs = recs.filter((record) => dimensionKey(filter.dim, record).key === filter.key);
+		return recs;
+	}
+
 	private computeRows(): AggRow[] {
 		const win = WINDOWS[this.windowIdx];
 		const dim = DIMENSIONS[this.dimIdx];
-		let recs = this.data.records;
-		for (const filter of this.filters) recs = recs.filter((record) => dimensionKey(filter.dim, record).key === filter.key);
-		return aggregate(recs, win.key, dim.key, new Date(), this.windowMode);
+		return aggregate(this.filteredRecords(), win.key, dim.key, new Date(), this.windowMode);
 	}
 
 	render(width: number): string[] {
@@ -243,6 +247,12 @@ export class Dashboard {
 			metricTexts(rowMetrics(total), (text) => t.fg("accent", text)),
 		);
 		lines.push(truncateToWidth(totalLine, width));
+		const summaryTokens = sumSummaryTokens(this.filteredRecords(), win.key, new Date(), this.windowMode);
+		if (summaryTokens > 0 && total.tokens > 0) {
+			const pct = (summaryTokens / total.tokens) * 100;
+			const pctText = pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`;
+			lines.push(t.fg("muted", `  summaries ${fmtCompactTokens(summaryTokens)} · ${pctText}`));
+		}
 		if (rows.length > PAGE) lines.push(t.fg("dim", `   showing ${pageStart + 1}-${pageEnd} of ${rows.length}`));
 
 		if (this.data.budgets.length > 0) {

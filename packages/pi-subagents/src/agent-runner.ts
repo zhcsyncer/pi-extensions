@@ -1066,7 +1066,10 @@ export async function restoreAgentSession(
       throw new Error("Subagent session route changed during restoration; refusing fallback");
     }
     if (session.systemPrompt !== snapshot.systemPrompt) {
-      throw new Error("Subagent system prompt changed during restoration");
+      const stem = snapshot.systemPrompt.replace(/\nCurrent working directory: [^\n]+$/, "").trim();
+      if (stem && !session.systemPrompt.includes(stem)) {
+        throw new Error("Subagent system prompt changed during restoration");
+      }
     }
     sessionExecutionLimits.set(session, { maxTurns: snapshot.maxTurns, graceTurns: snapshot.graceTurns });
     return session;
@@ -1107,6 +1110,14 @@ function isStoredMessage(message: any): boolean {
   if (!message || typeof message !== "object") return false;
   if (message.role === "bashExecution") return typeof message.command === "string" && typeof message.output === "string";
   if (message.role === "branchSummary" || message.role === "compactionSummary") return typeof message.summary === "string";
+  if (message.role === "system") {
+    if (typeof message.content === "string") return true;
+    return Array.isArray(message.content) && message.content.every((block: any) => {
+      if (!block || typeof block !== "object") return false;
+      if (block.type === "text") return typeof block.text === "string";
+      return block.type === "image" && (typeof block.data === "string" || !!block.source);
+    });
+  }
   if (!["user", "assistant", "toolResult", "custom", "hookMessage"].includes(message.role)) return false;
   if (typeof message.content === "string") return ["user", "custom", "hookMessage"].includes(message.role);
   return Array.isArray(message.content) && message.content.every((block: any) => {
@@ -1139,7 +1150,7 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
   }
   const ids = new Set<string>();
   const knownTypes = new Set(["message", "model_change", "thinking_level_change", "compaction", "branch_summary",
-    "custom", "custom_message", "label", "session_info"]);
+    "custom", "custom_message", "label", "session_info", "usage"]);
   for (const entry of entries.slice(1)) {
     if (!entry || !knownTypes.has(entry.type) || typeof entry.timestamp !== "string" ||
         ((header.version ?? 1) >= 2 && (typeof entry.id !== "string" || !entry.id || ids.has(entry.id) ||
@@ -1188,11 +1199,16 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
       : await previousLegacyPrepare?.(signal);
     if (!softLimitReached) return prior;
     const context = prior?.context ?? turn.context;
+    const wrapUp =
+      "You have reached your turn limit. Wrap up immediately — provide your final answer now.";
     return {
       ...prior,
       context: {
         ...context,
-        systemPrompt: `${context.systemPrompt ?? ""}\n\nYou have reached your turn limit. Wrap up immediately — provide your final answer now.`,
+        messages: [
+          ...(context.messages ?? []),
+          { role: "system" as const, content: wrapUp, timestamp: Date.now() },
+        ],
       },
     };
   };

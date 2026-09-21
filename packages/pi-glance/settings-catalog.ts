@@ -142,7 +142,15 @@ function descriptorRow(config: GlanceConfig, descriptor: SegmentSettingDescripto
 function segmentRows(config: GlanceConfig, id: SegmentId, rows: SettingsRow[]): SettingsRow[] {
 	const segment = config.segments.find((candidate) => candidate.id === id);
 	return [
-		toggleRow(`${id}.enabled`, "Enabled", Boolean(segment?.enabled), "Show or hide this segment.", (draft) => toggleSegment(draft, id)),
+		toggleRow(
+			`${id}.enabled`,
+			"Enabled",
+			Boolean(segment?.enabled),
+			id === "git"
+				? "Stop Glance git reads, fetch, /diff, and worktree counts."
+				: "Show or hide this segment.",
+			(draft) => toggleSegment(draft, id),
+		),
 		...rows,
 	];
 }

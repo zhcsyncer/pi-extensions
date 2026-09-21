@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { NoticeSink } from "./diagnostics.js";
@@ -30,7 +31,7 @@ const LOCK_STALE_MS = 30_000;
 const LOCK_WAIT_MS = 2_000;
 const LOCK_RETRY_MS = 25;
 
-type EffectivenessState = Record<string, EffectivenessAttempt[]>;
+export type EffectivenessState = Record<string, EffectivenessAttempt[]>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -67,6 +68,51 @@ export function classifyError(error: unknown): ErrorClass {
 function successRate(attempts: EffectivenessAttempt[]): number {
 	if (attempts.length === 0) return 1;
 	return attempts.filter((attempt) => attempt.ok).length / attempts.length;
+}
+
+function median(values: number[]): number | undefined {
+	if (values.length === 0) return undefined;
+	const sorted = [...values].sort((a, b) => a - b);
+	const mid = Math.floor(sorted.length / 2);
+	return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid];
+}
+
+export function readEffectivenessState(): EffectivenessState {
+	try {
+		const path = getEffectivenessPath();
+		if (!existsSync(path)) return {};
+		return parseState(readFileSync(path, "utf8"));
+	} catch {
+		return {};
+	}
+}
+
+/** Rank by last-10 success rate, then median latency of successful calls. Unknowns keep input order. */
+export function rankBackendsByEffectiveness(
+	backends: readonly string[],
+	state: EffectivenessState,
+	op: SearchHubOp = "search",
+): string[] {
+	const scored = backends.map((backend, index) => {
+		const attempts = (state[attemptKey(backend, op)] ?? []).slice(-ROLLING_WINDOW);
+		const total = attempts.length;
+		const rate = total === 0 ? 0.5 : attempts.filter((attempt) => attempt.ok).length / total;
+		return {
+			backend,
+			index,
+			successRate: rate,
+			medianLatency: median(attempts.filter((attempt) => attempt.ok).map((attempt) => attempt.latencyMs)),
+		};
+	});
+	return scored
+		.sort((left, right) => {
+			if (left.successRate !== right.successRate) return right.successRate - left.successRate;
+			const leftLatency = left.medianLatency ?? Number.POSITIVE_INFINITY;
+			const rightLatency = right.medianLatency ?? Number.POSITIVE_INFINITY;
+			if (leftLatency !== rightLatency) return leftLatency - rightLatency;
+			return left.index - right.index;
+		})
+		.map((entry) => entry.backend);
 }
 
 export function attemptKey(backend: string, op: SearchHubOp): string {

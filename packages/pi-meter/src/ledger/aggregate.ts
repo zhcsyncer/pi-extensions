@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { AggRow, Dimension, UsageRecord, WindowKey } from "./types.ts";
+import { isSummaryRecord, type AggRow, type Dimension, type UsageRecord, type WindowKey } from "./types.ts";
 import { windowStartMs, type LedgerWindowMode } from "./time.ts";
 
 export function dimensionKey(dim: Dimension, rec: UsageRecord): { key: string; label: string } {
@@ -80,4 +80,19 @@ export function sumToday(
 	windowMode: LedgerWindowMode = "rolling",
 ): AggRow {
 	return sumRows(aggregate(records, "today", "model", now, windowMode));
+}
+
+export function sumSummaryTokens(
+	records: readonly UsageRecord[],
+	window: WindowKey,
+	now: Date = new Date(),
+	windowMode: LedgerWindowMode = "rolling",
+): number {
+	const start = windowStartMs(window, now, windowMode);
+	let tokens = 0;
+	for (const rec of records) {
+		if (rec.ts < start || !isSummaryRecord(rec)) continue;
+		tokens += rec.tot;
+	}
+	return tokens;
 }

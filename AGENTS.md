@@ -1,3 +1,8 @@
+# Commands and time
+
+- 带有子命令的 slash command 必须提供 `getArgumentCompletions`；空调用要弹出选择，不能静默失败或只丢一行 Usage。
+- 用户可见的时间用本地时区格式化（`YYYY-MM-DD HH:mm`），不要用 UTC 的 `toISOString()`。
+
 # Documentation
 
 - 维护中的用户可见包文档必须提供双语版本：英文使用默认 `README.md`，简体中文使用 `README.zh-CN.md`；只有仓库中明确记录的例外可以省略该规则。

@@ -21,7 +21,7 @@ zhcsyncer 维护的一组 Pi extensions。
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
-- [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle 私有的 `web_search` 和 `web_read` 工具，集成 intent-aware 展示。
+- [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — 统一的 `web_search` / `web_read`，支持 Exa、Tavily、Firecrawl、Parallel、Codex、Grok。也嵌入根 bundle。
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr 集成，提供跨 Workspace 托管进程身份、可导航 Process Widget、紧凑 Tool 渲染、临时 `/btw` 支线、blocked 状态和统一设置；需单独安装，根 bundle 不会启用。
@@ -41,6 +41,8 @@ zhcsyncer 维护的一组 Pi extensions。
 ## 说明
 
 Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
+
+需要 Pi 0.86 或更高。本 bundle 里的 Fast Mode、Consult、Subagents，以及仓库里独立的 Cursor 与火山 provider，按 0.86 transcript（系统说明和工具在对话里）工作。
 
 ## 独立 Providers
 

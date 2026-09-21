@@ -23,7 +23,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, resolveTodoVisualConfig, saveTodoVisualConfig } from "./config.js";
 import { I18N_NAMESPACE } from "./state/i18n-bridge.js";
 import { TODO_STATE_CUSTOM_TYPE, replayFromBranch } from "./state/replay.js";
-import { formatCurrentTodoState, formatCurrentTodoStateUpdate } from "./state/selectors.js";
 import { resetTaskState } from "./state/state.js";
 import { createTodoStore } from "./state/store.js";
 import { registerTodoCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
@@ -62,8 +61,6 @@ export default function (pi: ExtensionAPI) {
 	const loadedConfig = loadConfig();
 	let visualConfig = resolveTodoVisualConfig(loadedConfig);
 	let todoOverlay: TodoOverlay | undefined;
-	let agentRunStarted = false;
-	let runStartTodoSummary: string | undefined;
 
 	registerTodoTool(pi, store, loadedConfig);
 	registerTodoCommand(pi, {
@@ -89,39 +86,6 @@ export default function (pi: ExtensionAPI) {
 			todoOverlay?.update();
 			return state;
 		},
-	});
-
-	pi.on("before_agent_start", async (event) => {
-		agentRunStarted = true;
-		runStartTodoSummary = formatCurrentTodoState(store.getState());
-		if (!runStartTodoSummary) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${runStartTodoSummary}` };
-	});
-
-	// Pi 0.84 keeps one system-prompt override across overflow compact/retry.
-	// If Todo mutates later in that same run, append an ephemeral exact update
-	// to each subsequent model context; this is not persisted to session JSONL.
-	pi.on("context", async (event) => {
-		if (!agentRunStarted) return;
-		const current = formatCurrentTodoState(store.getState());
-		if (current === runStartTodoSummary) return;
-		return {
-			messages: [
-				...event.messages,
-				{
-					role: "custom" as const,
-					customType: "pi-todo-current-state",
-					content: formatCurrentTodoStateUpdate(store.getState()),
-					display: false,
-					timestamp: Date.now(),
-				},
-			],
-		};
-	});
-
-	pi.on("agent_settled", async () => {
-		agentRunStarted = false;
-		runStartTodoSummary = undefined;
 	});
 
 	pi.on("session_start", async (_event, ctx) => {

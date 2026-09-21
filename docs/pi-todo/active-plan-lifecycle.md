@@ -11,7 +11,7 @@
 3. 任务 ID 在 session 内保持单调递增；
 4. 默认 `list` 隐藏 completed，只报告数量；
 5. 模型不能直接 hard clear，用户通过确认 UI reset；
-6. 模型在每次 agent run 中获得简短、精确的 active Todo 摘要，因此 compact/resume/tree 后无需依赖有损摘要猜测当前任务。
+6. 模型只通过 `todo` 工具结果感知任务状态；不向 system prompt 或对话注入 live 列表。
 
 明确不引入显式 Plan、planGoal、close_plan、archive、history 查询或多 Agent 调度。
 
@@ -201,32 +201,11 @@ Reset checkpoint 可使用专用 custom entry；replay 按 branch 顺序同时�
 
 旧 V1 快照中的 `action:"clear"` 继续正常 replay；无需重新执行旧工具调用。新模型 schema 不再接受 clear。
 
-### 8. 模型可见 Active Todo 摘要
+### 8. 模型如何看到 Todo
 
-在每次 `before_agent_start` 中，如果存在 pending/in-progress，向本次 agent run 的系统提示尾部追加一个短且稳定的状态段：
+模型只通过 `todo` 工具的 call/result 看到当前任务。扩展不向 system prompt 追加 `Current Todo state`，也不在后续模型调用中注入 `Current Todo state update`。
 
-```text
-Current Todo state:
-- #12 in_progress: 实现修改
-- #13 pending: 验证结果
-- 2 completed tasks hidden
-```
-
-规则：
-
-- 仅包含 pending/in-progress 的 ID、status、subject 和 completed 数量；
-- 不包含 description、metadata、deleted 或旧周期任务；
-- 按 task 自然顺序输出；
-- 无 active task 时不追加；
-- 内容由当前 store 在 agent run 开始时生成；
-- 同一 run 中后续 Todo mutation 通过 tool result 告知模型变化；下一 run 重新生成；
-- 追加在系统提示尾部，尽量保持前缀缓存稳定；
-- 不写 session entry，因此不会增加 JSONL；
-- 自然覆盖 startup/resume/reload/compact/tree 后的下一次 agent run。
-
-实现阶段必须验证 Pi 在 auto-compaction retry 中是否重新触发 `before_agent_start`，以及本次修改后的 system prompt 是否覆盖整个 agent loop。若不能满足，允许改用等价的 `context` 注入，但产品行为保持不变：模型每次开始工作时看到精确 active Todo。
-
-实施实证（锁定依赖 Pi 0.84.0）：`before_agent_start` 在顶层 `AgentSession.prompt()` 进入 agent loop 前触发一次，返回的 override 随即写入 `agent.state.systemPrompt`；overflow compaction/retry 在同一个 `_runAgentPrompt()` 中通过 `agent.continue()` 续跑，直到整个 loop settled 后才清除 override。因此 hook 不会在 retry 时二次触发。若同一 run 已发生 Todo mutation，起始 system 段可能过期，且对应 tool result 可能落入 split-turn 的被摘要前缀；实现因此在 run-start 摘要发生变化后，通过不落 session 的 `context` 事件向后续每次模型调用补充精确 `Current Todo state update`。这保留了 system-prompt 起始契约，并消除了 compact/retry 的陈旧状态歧义。
+`update` / `batch` 若未改变 live state（id 对应的 status、subject、description、owner、metadata 均相同），返回 `No changes; state already matches`，不增加 revision，也不写 replay checkpoint。
 
 ### 9. Widget
 
@@ -274,13 +253,13 @@ interface MutationDetailsV2 {
 }
 ```
 
-只读 tool result：
+非 checkpoint 的 tool result（list/get，以及未改变 live state 的 update/batch）：
 
 ```ts
 interface QueryDetailsV2 {
   schemaVersion: 2;
   kind: "query";
-  action: "list" | "get";
+  action: TaskAction;
 }
 ```
 
@@ -329,7 +308,6 @@ rollover 判断属于顶层 mutation 前置步骤，必须纳入 batch 的原子
 - 所有任务终态后，使用规定的 multi-create batch 开启下一周期，runtime 在 batch 前自动 rollover；
 - rollover 后旧周期离开 live state，`list/get` 不可查询，只能从 transcript/tree 查看；
 - 不尝试调用 reset/clear；
-- 每次 agent run 的 `Current Todo state` 及后续 update 是当前 live state 真相，后者优先；
 - 新目标到来但当前仍有活动任务时，不静默删除旧任务；根据用户意图继续、requeue、delete 或询问。
 
 ## 验收标准
@@ -344,9 +322,9 @@ rollover 判断属于顶层 mutation 前置步骤，必须纳入 batch 的原子
 8. model-facing schema 不包含 clear；旧 V1 clear 快照仍可 replay。
 9. `/todo` reset 有确认、活动任务警告，并通过 branch-scoped checkpoint 持久化。
 10. reset 后 reload/tree 恢复正确状态，widget 立即消失。
-11. 每次 agent run 有 active task 时，最终模型 system prompt 包含短 `Current Todo state`；无 active task 时不包含。
-12. active 摘要不包含 description、metadata、deleted 或旧周期任务。
-13. compact/resume/tree 后的下一次 agent run 获得恢复后的精确 active 摘要。
+11. 不向 system prompt 或 model context 注入 live Todo 列表。
+12. compact/resume/tree 后 store 与 widget 从 checkpoint 恢复；模型仍只通过后续 tool result 看到任务。
+13. 未改变 live state 的 `update` / `batch` 返回 No changes，不写 checkpoint。
 14. model-facing schema、live state、输出、widget 和 guidance 均不包含依赖图字段或行为。
 15. 旧 checkpoint 中的额外历史字段被兼容读取但不进入新 live state。
 16. 现有单 in-progress、batch rollback 与 overlay 生命周期测试继续通过。

@@ -45,21 +45,38 @@ describe("Search Hub storage migration", () => {
 			backends: {
 				firecrawl: { enabled: true, apiKey: "fc-test-key" },
 				serper: { enabled: true, apiKey: "SERPER_KEY", removed: 1 },
+				duckduckgo: { enabled: true },
+				jina: { enabled: true },
 			},
 		});
 		const notices: string[] = [];
 
 		const loaded = loadConfig(cwd, false, (message) => notices.push(message));
 
-		expect(loaded.reader).toBe("firecrawl");
-		expect(loaded.backends?.firecrawl).toEqual({ enabled: true, apiKey: "fc-test-key" });
+		expect(loaded).not.toHaveProperty("reader");
+		expect(loaded).not.toHaveProperty("combine");
+		expect(loaded).not.toHaveProperty("priority");
+		expect(loaded.backends?.firecrawl).toEqual({
+			enabled: true,
+			apiKey: "fc-test-key",
+			apiKeys: ["fc-test-key"],
+		});
 		expect(resolveBackendKey("firecrawl", loaded)).toBe("fc-test-key");
-		expect(loaded.backends?.serper).toEqual({ enabled: true, apiKey: "SERPER_KEY" });
+		expect(loaded.backends).not.toHaveProperty("serper");
+		expect(loaded.backends).not.toHaveProperty("duckduckgo");
+		expect(loaded.backends).not.toHaveProperty("jina");
 		expect(readFileSync(target, "utf8")).not.toContain("obsolete");
 		expect(readFileSync(target, "utf8")).not.toContain("removed");
+		expect(JSON.parse(readFileSync(target, "utf8")).backends.firecrawl).toEqual({
+			enabled: true,
+			apiKey: "fc-test-key",
+			apiKeys: ["fc-test-key"],
+		});
 		expect(() => statSync(legacy)).toThrow();
 		expect(notices.join("\n")).toContain("obsolete");
-		expect(notices.join("\n")).toContain("backends.serper.removed");
+		expect(notices.join("\n")).toContain("backends.serper");
+		expect(notices.join("\n")).toContain("backends.duckduckgo");
+		expect(notices.join("\n")).toContain("backends.jina");
 		expect(statSync(target).mode & 0o777).toBe(0o600);
 	});
 

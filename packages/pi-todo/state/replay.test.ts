@@ -71,6 +71,8 @@ describe("V1/V2 replay envelope guards", () => {
 		expect(isTaskDetails(v1([], 1))).toBe(true);
 		expect(isTaskDetails(checkpoint(state([], 4, 2, 8)))).toBe(true);
 		expect(isTaskDetails({ schemaVersion: 2, kind: "query", action: "list" })).toBe(true);
+		expect(isTaskDetails({ schemaVersion: 2, kind: "query", action: "update" })).toBe(true);
+		expect(isTaskDetails({ schemaVersion: 2, kind: "query", action: "batch" })).toBe(true);
 	});
 
 	it("rejects unknown versions, actions, and malformed state rows", () => {
@@ -158,6 +160,8 @@ describe("replayFromBranch", () => {
 				checkpoint(liveState),
 				{ schemaVersion: 2, kind: "query", action: "list" },
 				{ schemaVersion: 2, kind: "query", action: "get" },
+				{ schemaVersion: 2, kind: "query", action: "update" },
+				{ schemaVersion: 2, kind: "query", action: "batch" },
 			]),
 		});
 		expect(replayFromBranch(ctx)).toEqual(liveState);

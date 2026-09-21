@@ -82,8 +82,9 @@ const requestingNext = renderWorkingMessage({ snapshot: firstRequest, nowMs: 1_3
 assert.equal(requestingAtStart, requestingStillOffscreen, "requesting shimmer should begin with a calm offscreen lead-in");
 assert.ok(requestingShoulderEntry.includes(`${STYLE_CODES.title}B`), "requesting shimmer shoulder should enter before its center");
 assert.notEqual(requestingEntry, requestingNext, "requesting shimmer should move left to right one visible column per ticker frame");
-assert.equal(requestingAtStart.includes("("), false, "first requesting state with no other facts should show only the main phrase");
-assert.equal(requestingAtStart, styles.text("Brewing…"), "offscreen shimmer should leave the whole verb in normal text color");
+assert.ok(requestingAtStart.includes("requesting"), "first requesting state should show requesting instead of hiding the phase");
+assert.equal(requestingAtStart.includes("0s"), false, "elapsed time should stay hidden during a short requesting wait");
+assert.ok(requestingAtStart.includes(styles.text("Brewing…")), "offscreen shimmer should leave the verb in normal text color");
 assert.ok(requestingEntry.includes(`${STYLE_CODES.strongTitle}B`), "requesting shimmer center should enter on the left in bold accent");
 assert.ok(requestingNext.includes(`${STYLE_CODES.title}B`) && requestingNext.includes(`${STYLE_CODES.strongTitle}r`), "shimmer shoulders should retain accent around its bold center");
 const respondingOffscreen = renderWorkingMessage({ snapshot: snapshot(), nowMs: 0, width: 80, styles });
@@ -104,9 +105,11 @@ assert.ok(estimated.includes("↓ ~226 tokens"), "partial output should add to f
 const noFacts = snapshot({ finalizedOutput: 0, partialOutput: 0, hasPartialEstimate: false, hasGenerationProgress: false });
 const emptyPartial = renderWorkingMessage({ snapshot: noFacts, nowMs: 2_000, width: 80, styles });
 assert.equal(emptyPartial.includes("token"), false, "an empty partial should not render a meaningless zero-token estimate");
-assert.equal(emptyPartial.includes("2s"), false, "a short empty partial should preserve the main-phrase-only state");
+assert.equal(emptyPartial.includes("2s"), false, "elapsed time should stay hidden before the three-second threshold");
+const threeSecondsWithoutFacts = renderWorkingMessage({ snapshot: noFacts, nowMs: 3_000, width: 80, styles });
+assert.ok(threeSecondsWithoutFacts.includes(styles.text("3s")), "elapsed time should appear at three seconds even without activity or token details");
 const minuteWithoutFacts = renderWorkingMessage({ snapshot: noFacts, nowMs: 60_000, width: 80, styles });
-assert.ok(minuteWithoutFacts.includes(styles.text("1m 00s")), "a one-minute cycle should surface elapsed time even without activity or token details");
+assert.ok(minuteWithoutFacts.includes(styles.text("1m 00s")), "a one-minute cycle should keep human-readable elapsed time");
 const almostLong = renderWorkingMessage({ snapshot: noFacts, nowMs: 299_999, width: 80, styles });
 assert.ok(almostLong.includes(styles.text("4m 59s")), "elapsed time before five minutes should use normal text emphasis");
 const longWithoutFacts = renderWorkingMessage({ snapshot: noFacts, nowMs: 300_000, width: 80, styles });
@@ -116,13 +119,17 @@ assert.ok(humanizedLong.includes(styles.warn("19m 15s")), "long minute elapsed t
 const hourWithoutSeconds = renderWorkingMessage({ snapshot: noFacts, nowMs: 4_023_000, width: 80, styles });
 assert.ok(hourWithoutSeconds.includes(styles.warn("1h 07m")), "hour elapsed time should omit low-value seconds");
 const finalized = renderWorkingMessage({ snapshot: snapshot(), nowMs: 2_000, width: 80, styles });
+assert.ok(finalized.includes("responding"), "responding should be named while output is streaming");
+assert.ok(finalized.includes(`${STYLE_CODES.strongTitle}responding`), "responding should use strong title highlight by default");
 assert.ok(finalized.includes("↓ 184 tokens"), "finalized output should omit the estimate marker");
 assert.equal(finalized.includes("~184"), false, "finalized tokens should never retain a tilde");
 
 const tool = snapshot({ phase: "tool-use", tools: [{ id: "a", name: "bash" }] });
 const toolAtStart = renderWorkingMessage({ snapshot: tool, nowMs: 0, width: 80, styles });
 const wide = renderWorkingMessage({ snapshot: tool, nowMs: 18_000, width: 80, styles });
-assert.equal(toolAtStart.replace(/0s/g, "18s"), wide, "tool-use verb should remain static instead of adding shimmer or breathing motion");
+assert.equal(toolAtStart.includes("0s"), false, "tool-use should not flash a 0s elapsed time");
+assert.ok(wide.includes("18s"), "tool-use should show elapsed time after the three-second threshold");
+assert.ok(toolAtStart.includes("running bash") && wide.includes("running bash"), "tool-use verb should remain static instead of adding shimmer or breathing motion");
 assert.ok(wide.includes(styles.text("Brewing…")), "tool-use verb should use normal text styling");
 assert.equal(wide.includes(STYLE_CODES.title!), false, "tool-use should not compete with the visible tool call using animated accent text");
 assert.ok(wide.includes("running bash") && wide.includes("↓ 184 tokens") && wide.includes("18s"), "wide output should include activity, token and elapsed details");

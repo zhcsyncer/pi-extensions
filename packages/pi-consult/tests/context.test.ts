@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@earendil-works/pi-ai";
-import { appendWhyToLastUser, prepareConsultMessages, stripInflightConsultCall } from "../src/context.ts";
+import {
+	appendWhyToLastUser,
+	prepareConsultMessages,
+	stripInflightConsultCall,
+	stripSystemMessages,
+} from "../src/context.ts";
 import { CONSULT_TOOL_NAME, MSG_CONSULT_NUDGE } from "../src/messages.ts";
 
 function assistantWithConsult(): Message {
@@ -15,6 +20,29 @@ function assistantWithConsult(): Message {
 }
 
 describe("consult context tail", () => {
+	it("drops parent system/tool transcript deltas before the advisor call", () => {
+		const bash = {
+			name: "bash",
+			description: "Run a shell command",
+			parameters: { type: "object" },
+		};
+		const messages = prepareConsultMessages(
+			[
+				{
+					role: "system",
+					content: "You are the executor.",
+					toolsAdded: [bash],
+					timestamp: 0,
+				} as unknown as Message,
+				{ role: "user", content: [{ type: "text", text: "plan this" }], timestamp: 1 },
+				assistantWithConsult(),
+			],
+			"need a second opinion",
+			"1",
+		);
+		expect(stripSystemMessages(messages).every((message) => message.role !== "system")).toBe(true);
+		expect(messages.some((message) => message.role === "system")).toBe(false);
+	});
 	it("strips the current in-flight consult tool call", () => {
 		const stripped = stripInflightConsultCall(
 			[

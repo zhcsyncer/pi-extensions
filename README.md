@@ -21,7 +21,7 @@ A collection of Pi extensions by zhcsyncer.
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 
 - [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
-- [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — bundle-private `web_search` and `web_read` tools integrated with intent-aware rendering.
+- [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — unified `web_search` and `web_read` across Exa, Tavily, Firecrawl, Parallel, Codex, and Grok. Also embedded in the root bundle.
 - [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
@@ -41,6 +41,8 @@ A collection of Pi extensions by zhcsyncer.
 ## Notes
 
 Search Hub ships only in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
+
+Requires Pi 0.86 or later. Fast Mode, Consult, Subagents, and the standalone Cursor and Volcengine providers in this repo follow the 0.86 transcript (system text and tools live on the conversation).
 
 ## Standalone providers
 

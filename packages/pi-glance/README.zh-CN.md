@@ -57,7 +57,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 - **General** — 新安装 `Color source` 为 `Follow Pi`。选 `Glance palette` 使用 22 套内置配色。当前 Pi 主题不可用时，用 `Light palette` / `Dark palette`。`Icons` 默认 `plain`；`nerd` 需要 Nerd Font。图标变成方框就改回 `plain`。`Workspace label` 为 `name`、`smart` 或 `path`。
 - **Working indicator** — 一级菜单只有一个 `Enabled: on/off`。`off` 恢复 Pi 默认 working row。
-- **Git** — `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或 `border right`）、`Polling`。
+- **Git** — `Enabled` 会停掉 Glance 的全部 git 读取、`fetch`、`/diff` 和 worktree 计数，不只是隐藏状态行。然后是 `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或 `border right`）、`Polling`。
 - **Reply speed** — 默认开启。按输出 token 数 / 服务端推理时间（thinking 思考 + 正文生成）显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s` 最终。排除本地工具执行和每段回复开始前的等待，慢工具不再拖低速度；同样的输出，思考越久，速度越低。在支持的 Pi 版本中，等待阻塞 UI 提示的时间也不计入。`Precision` 为 `auto`、1 位或 0 位。这是回复体验指标，不是性能基准（benchmark）。不发通知、不从文本估算 token。
 - **Tokens** — 可选的会话累计用量。`Display` 选择输入/输出或总数。`Cache` 可循环选择 `auto`（完整宽度才显示读写数量）、`show`（始终显示数量）、`hide` 和 `Hit rate`（命中率，配置值 `rate`）。命中率显示提示 token 中从缓存读取的比例，四舍五入为 `42%` 这样的百分比，不受输出 token 数影响。窄布局优先保留百分比；尚无提示 token 时不显示百分比。默认仍为 `auto`，已有设置不变。
 - **Context** — 百分比 / tokens 文本，可选右下角 `Progress bar`（`track` 或 `border`，`one third` 或 `remaining`）。未用部分细线 `─`，已用部分粗线 `━`。低于 70% 正常，70%（含）到 85%（不含）warning，85% 及以上 error。
@@ -77,7 +77,7 @@ Git 保持安静：
 
 **Fork 差异：** 由本包提供；上游 `pi-glance` 0.5.3 不包含该功能。
 
-高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动、本 cycle 输出和耗时（`47s`、`3m 08s`、`1h 07m`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变 Agent、prompt、模型、工具、消息或 session 行为。
+高层 cycle 活跃时显示主题化 spinner、稳定动词、当前活动（`requesting`、thinking、高亮的 `responding`，或 running 某工具）、本 cycle 输出，以及满 3 秒后的耗时（`3s`、`47s`、`3m 08s`）。五分钟及以上耗时使用主题 warning 色。它不是 Anthropic 官方组件，也不改变 Agent、prompt、模型、工具、消息或 session 行为。
 
 Working row 是当前 cycle 的 output。顶边框 Tokens 是当前 session 累计 usage。Context 是 context window 占用。空 partial 保持隐藏，不显示 `↓ ~0 tokens`。
 

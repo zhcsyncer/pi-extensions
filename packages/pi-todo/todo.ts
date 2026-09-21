@@ -69,7 +69,7 @@ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
 	"The normal lifecycle is pending → in_progress → completed, with deleted as a tombstone. A pending task may move directly to completed only to reconcile work already finished before its status was updated. An in-progress task may return to pending; completed or deleted tasks cannot reopen.",
 	"By default, `todo` list returns only pending and in_progress tasks and reports hidden completed tasks. With no status filter, includeDeleted:true returns all live-state statuses; an explicit status filter can query completed or deleted directly.",
 	"When all current tasks are terminal, start the next cycle with the required multi-create batch; rollover happens automatically before that batch. Previous-cycle tasks leave live state and cannot be retrieved with list/get; use the transcript or session tree for history. Task ids remain monotonic. User-confirmed reset is available only in the `/todo` TUI.",
-	"Treat the per-run `Current Todo state` system-prompt section, and any later `Current Todo state update`, as live-state truth; the latest update wins. If a new goal arrives while active tasks remain, continue, re-queue, delete, or ask according to user intent instead of silently discarding them.",
+	"If a new goal arrives while active tasks remain, continue, re-queue, delete, or ask according to user intent instead of silently discarding them.",
 	"Keep subject short and imperative; use description only for durable context, task boundaries, or acceptance criteria that the subject cannot express. owner and metadata are compatibility fields, not default planning structure.",
 ];
 
@@ -88,7 +88,7 @@ export function registerTodoTool(pi: ExtensionAPI, store: TodoStore, config: Tod
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const result = applyTaskMutation(store.getState(), params.action, params as TaskMutationParams);
 			if (result.op.kind === "error") throw new Error(result.op.message);
-			store.commitState(result.state);
+			if (result.op.kind !== "noop") store.commitState(result.state);
 			return buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
 		},
 

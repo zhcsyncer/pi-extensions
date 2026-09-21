@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildBaseOptions as installedBuildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import {
+	normalizeContext,
 	streamOpenAIResponses,
 	type Api,
 	type AssistantMessage,
@@ -33,7 +34,7 @@ import {
 	writeDefaultEnabled,
 	type FastModeModel,
 } from "../extensions/fast-mode.ts";
-import { buildBaseOptions } from "../extensions/stream-options.ts";
+import { buildBaseOptions, estimateContextTokens } from "../extensions/stream-options.ts";
 
 function model(provider: string, api: string): FastModeModel {
 	return { provider, api };
@@ -94,6 +95,7 @@ function openaiModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
 }
 
 const emptyContext = { messages: [] } as Context;
+const emptyTranscript = normalizeContext(emptyContext);
 
 function importedSpecifiers(source: string): string[] {
 	return Array.from(
@@ -120,12 +122,23 @@ test("extension runtime stays on loader-safe pi-ai specifiers", () => {
 	assert.ok(specifiers.includes("@earendil-works/pi-ai/compat"));
 });
 
+test("estimateContextTokens accepts Pi 0.86 system string messages", () => {
+	const context = {
+		messages: [
+			{ role: "system", content: "You are Pi. ".repeat(80), timestamp: 1 },
+			{ role: "user", content: "hi", timestamp: 2 },
+		],
+	} as Context;
+	assert.doesNotThrow(() => estimateContextTokens(context));
+	assert.ok(estimateContextTokens(context) > 20);
+});
+
 test("local buildBaseOptions matches the installed pi-ai recipe", () => {
 	const gpt = openaiModel();
 	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2, apiKey: "test-key" };
 	assert.deepEqual(
 		buildBaseOptions(gpt, emptyContext, options, options.apiKey),
-		installedBuildBaseOptions(gpt, emptyContext, options, options.apiKey),
+		installedBuildBaseOptions(gpt, emptyTranscript, options, options.apiKey),
 	);
 
 	const longContext = {
@@ -139,7 +152,7 @@ test("local buildBaseOptions matches the installed pi-ai recipe", () => {
 	const tight = openaiModel({ contextWindow: 20000, maxTokens: 16000 });
 	assert.deepEqual(
 		buildBaseOptions(tight, longContext, { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
-		installedBuildBaseOptions(tight, longContext, { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
+		installedBuildBaseOptions(tight, normalizeContext(longContext), { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
 	);
 });
 
@@ -206,7 +219,7 @@ async function runXaiResponses(responseServiceTier: "priority" | "default") {
 	let errorMessage: string | undefined;
 	for await (const event of streamOpenAIResponses(
 		xai as Model<"openai-responses">,
-		emptyContext,
+		emptyTranscript,
 		options as never,
 	)) {
 		if (event.type === "done") completed = event.message;

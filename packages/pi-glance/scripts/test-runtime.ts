@@ -6,6 +6,7 @@ import { renderInputSurface } from "../renderer.js";
 import type { GlanceRenderStyleContext } from "../theme-adapter.js";
 import {
 	assistantMessage,
+	cloneConfig,
 	createGitHarness,
 	createRuntimeHarness,
 	createRuntimeTestContext as createContext,
@@ -197,6 +198,23 @@ for (const matrixCase of [
 	assert.deepEqual(git.schedules, [true], "enabled sessionStart should schedule an immediate git refresh through the adapter");
 	assert.deepEqual(git.baseFetches, [{ cwd: "/repo", reason: "session" }], "enabled sessionStart should request a non-blocking origin/main fetch");
 	assert.equal(harness.getLoadConfigCalls(), 0, "sessionStart should not call the async loadConfig adapter");
+}
+
+{
+	const git = createGitHarness();
+	const test = createContext();
+	const config = cloneConfig();
+	const gitSegment = config.segments.find((segment) => segment.id === "git");
+	assert.ok(gitSegment, "default config should include a git segment");
+	gitSegment.enabled = false;
+	const harness = createRuntimeHarness({ loadConfigSyncConfig: config, git });
+	harness.runtime.events.sessionStart({}, test.ctx);
+	assert.equal(git.created, 0, "git segment off should not create a git refresher");
+	assert.deepEqual(git.schedules, [], "git segment off should not schedule git refresh");
+	assert.deepEqual(git.baseFetches, [], "git segment off should not fetch origin/main");
+	await harness.runtime.commands.openDiff("", test.ctx);
+	assert.equal(hasNotification(test.notifications, "Glance Git is off; /diff is disabled.", "info"), true, "git segment off should refuse /diff");
+	assert.deepEqual(git.schedules, [], "refused /diff should not schedule git refresh");
 }
 
 {

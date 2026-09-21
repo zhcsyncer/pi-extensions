@@ -8,6 +8,7 @@
 |---|---|---|
 | [upstream-forks.md](./upstream-forks.md) | 外部跟踪 | 有来源的 fork/改编：pin、已评估头 `last_seen`、锁定的跟/不跟；下次只打开比 last_seen 新的版本 |
 | [extension-data-layout.md](./extension-data-layout.md) | 已落地 | 扩展配置与内部状态的统一路径、trust 边界 |
+| [pi-0.86-extension-adapt.md](./pi-0.86-extension-adapt.md) | 已落地 | Pi 0.86.1：MUST 包已改；peer ≥0.86.0；测试钉 0.86.1 |
 | [tui-design-system.md](./tui-design-system.md) | 参考 | Claude Code 风格 TUI 色板与 chrome |
 | [pi-glance/input-stash.md](./pi-glance/input-stash.md) | 已落地 | 输入框单槽暂存：快捷键、边框提示、按 session 覆盖写 |
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |
@@ -25,6 +26,8 @@
 | [pi-subagents/configuration-and-integrations.md](./pi-subagents/configuration-and-integrations.md) | 已落地 | 配置位置与授权、进程内编排及运行时复用 |
 | [pi-subagents/pinned-extensions.md](./pi-subagents/pinned-extensions.md) | 已落地 | 子代理钉住观察者扩展：只保加载、不保工具 |
 | [pi-recap/extension.md](./pi-recap/extension.md) | 已落地 | 一行最近活动 recap：不是 compact；title → name → multiplexer；出环 one-shot |
+| [pi-search-hub/slim-backends-plan.md](./pi-search-hub/slim-backends-plan.md) | 第一刀已落地 | Search Hub 只留 Exa / Tavily / Firecrawl / Parallel |
+| [pi-search-hub/setup-tui.md](./pi-search-hub/setup-tui.md) | 契约已拍板 | 主模型不选供应商；routing / combine / `/search-hub setup` 一张草稿页 |
 | [pi-plan-mode/plan-lifecycle.md](./pi-plan-mode/plan-lifecycle.md) | 已落地 | Plan 文档评审与工作生命周期正交 |
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
 | [providers/pi-provider-volcengine-agent-plan/model-compatibility.md](./providers/pi-provider-volcengine-agent-plan/model-compatibility.md) | 已落地 | 静态模型来源、个人版权限、网关兼容与费用估算边界 |

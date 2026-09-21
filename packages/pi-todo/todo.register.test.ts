@@ -82,6 +82,24 @@ describe("registerTodoTool — execute mutates its injected store", () => {
 		});
 	});
 
+	it("no-op update returns No changes without a checkpoint", async () => {
+		const { tool } = setup();
+		await call(tool, {
+			action: "batch",
+			operations: [
+				{ action: "create", subject: "first", status: "in_progress" },
+				{ action: "create", subject: "second" },
+			],
+		});
+		const result = await call(tool, { action: "update", id: 1, status: "in_progress" });
+		expect(result?.content[0]).toMatchObject({ text: "No changes; state already matches" });
+		expect(result?.details as QueryDetailsV2).toEqual({
+			schemaVersion: 2,
+			kind: "query",
+			action: "update",
+		});
+	});
+
 	it("batch creates and starts the first task in one tool result", async () => {
 		const { tool } = setup();
 		const result = await call(tool, {

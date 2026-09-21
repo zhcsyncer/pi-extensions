@@ -276,9 +276,9 @@ export class DetailViewer implements Component {
 		const output: string[] = [];
 		if (border) output.push(this.fg("border", `┌${"─".repeat(inner)}┐`));
 		if (title) {
-			const glyph = this.model.failed ? "! Failed" : this.model.status === "success" ? "✓" : this.model.status ? "◐" : "";
+			const glyph = this.model.failed ? "! Failed" : this.model.status === "success" ? "●" : this.model.status ? "●" : "";
 			const timing = this.model.timing?.trim().split(/\s+/)[0] ?? "";
-			const status = [this.fg(this.model.failed ? "error" : glyph === "✓" ? "success" : "muted", glyph), this.fg("dim", timing)].filter((part) => visibleWidth(part) > 0).join(" ");
+			const status = [this.fg(this.model.failed ? "error" : this.model.status === "success" ? "success" : "muted", glyph), this.fg("dim", timing)].filter((part) => visibleWidth(part) > 0).join(" ");
 			const label = this.model.title + (!tabs && this.model.showTabs ? ` · ${this.tab().label}${this.isRaw() ? " / Raw" : ""}` : "");
 			output.push(row(composeDetailLine(this.fg("text", this.options.theme?.bold(label) ?? label), status, contentWidth)));
 		}

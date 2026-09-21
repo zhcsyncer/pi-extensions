@@ -38,6 +38,7 @@ Thinking cannot be disabled on the five Claude rows. Depending on Cursor's metad
 ## Requirements
 
 - Node.js 22.19 or newer.
+- Pi 0.86 or later.
 - Pi 0.80 or a compatible newer release.
 - A Cursor account entitled to use the selected model.
 

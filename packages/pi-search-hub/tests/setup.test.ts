@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,7 +7,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import searchHubExtension from "../extensions/search-hub.js";
 import { FALLBACK_ENV_MAP } from "../extensions/credentials.js";
+import { effectiveSearchConfig } from "../extensions/config.js";
+import {
+	applySetupSetting,
+	buildPrioritySetupItems,
+	buildProviderSetupItems,
+	buildSearchSetupItems,
+	mergePreservedKeys,
+	parseApiKeysEditor,
+} from "../extensions/setup-ui.js";
 import type { SearchConfig } from "../extensions/types.js";
+
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
+	return {
+		...actual,
+		getSettingsListTheme: () => ({
+			label: (text: string) => text,
+			value: (text: string) => text,
+			description: (text: string) => text,
+			cursor: ">",
+			hint: (text: string) => text,
+		}),
+	};
+});
 
 type Selection = string | undefined | ((options: string[]) => string | undefined);
 type CommandHandler = (args: string, ctx: any) => Promise<void> | void;
@@ -22,17 +46,36 @@ type RegisteredTool = {
 	) => Promise<any>;
 };
 
-function createHarness(cwd: string, selections: Selection[] = [], inputs: Array<string | undefined> = []) {
+function makeTheme() {
+	return {
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+}
+
+function createHarness(cwd: string, options: {
+	selections?: Selection[];
+	editorResults?: Array<string | undefined>;
+	custom?: (factory: (...args: any[]) => Component) => Promise<unknown>;
+} = {}) {
+	const selections = options.selections ?? [];
+	const editorResults = options.editorResults ?? [];
 	const commands = new Map<string, CommandHandler>();
 	const events = new Map<string, EventHandler>();
 	const tools = new Map<string, RegisteredTool>();
 	const notifications: Array<{ message: string; level: string }> = [];
 	const setStatus = vi.fn();
-	const select = vi.fn(async (_title: string, options: string[]) => {
+	const select = vi.fn(async (_title: string, opts: string[]) => {
 		const next = selections.shift();
-		return typeof next === "function" ? next(options) : next;
+		return typeof next === "function" ? next(opts) : next;
 	});
-	const input = vi.fn(async () => inputs.shift());
+	const editor = vi.fn(async () => editorResults.shift());
+	const custom = vi.fn(async (factory: (...args: any[]) => Component) => {
+		if (options.custom) return options.custom(factory);
+		const component = factory({ requestRender: vi.fn() }, makeTheme(), {}, vi.fn());
+		return undefined;
+	});
 	const pi = {
 		registerTool(tool: RegisteredTool & { name: string }) {
 			tools.set(tool.name, tool);
@@ -59,7 +102,9 @@ function createHarness(cwd: string, selections: Selection[] = [], inputs: Array<
 		},
 		ui: {
 			select,
-			input,
+			input: vi.fn(),
+			editor,
+			custom,
 			setStatus,
 			notify(message: string, level: string) {
 				notifications.push({ message, level });
@@ -67,11 +112,7 @@ function createHarness(cwd: string, selections: Selection[] = [], inputs: Array<
 		},
 	};
 
-	return { commands, events, tools, ctx, notifications, select, input, setStatus };
-}
-
-function pickOption(fragment: string): Selection {
-	return (options) => options.find((option) => option.includes(fragment));
+	return { commands, events, tools, ctx, notifications, select, editor, custom, setStatus };
 }
 
 function globalConfigPath(home: string): string {
@@ -87,6 +128,117 @@ function readGlobalConfig(home: string): SearchConfig {
 	return JSON.parse(readFileSync(globalConfigPath(home), "utf-8")) as SearchConfig;
 }
 
+describe("Search Hub setup draft helpers", () => {
+	it("keeps providers and priority editing off the home page unless routing is priority", () => {
+		const draft = {
+			routing: "priority" as const,
+			priority: ["tavily", "exa"] as SearchConfig["priority"],
+			backends: {
+				tavily: { enabled: true },
+				exa: { enabled: true, apiKeys: ["sk-test"] },
+			},
+		};
+		const priorityHome = buildSearchSetupItems(draft);
+		expect(priorityHome.map((item) => item.label)).toEqual([
+			"Routing",
+			"Priority order",
+			"Providers",
+			"Compact",
+		]);
+		expect(priorityHome.find((item) => item.id === "priority")?.currentValue).toBe("Tavily → Exa");
+		expect(buildPrioritySetupItems(draft).map((item) => item.label)).toEqual(["1. Tavily", "2. Exa"]);
+		expect(buildPrioritySetupItems(draft, "priority-move.exa").find((item) => item.id === "priority-move.exa")?.currentValue).toBe("moving");
+		expect(buildSearchSetupItems({
+			routing: "random",
+			priority: ["tavily", "exa"],
+			backends: { tavily: { enabled: true }, exa: { enabled: true } },
+		}).map((item) => item.label)).toEqual(["Routing", "Providers", "Compact"]);
+		const providers = buildProviderSetupItems({
+			backends: { exa: { enabled: true, apiKeys: ["sk-test"] } },
+		});
+		expect(providers.map((item) => item.label)).toEqual([
+			"Exa",
+			"Exa keys",
+			"Tavily",
+			"Tavily keys",
+			"Firecrawl",
+			"Firecrawl keys",
+			"Parallel",
+			"Parallel keys",
+			"OpenAI Codex",
+			"OpenAI Codex model",
+			"Grok",
+			"Grok model",
+		]);
+		expect(providers.find((item) => item.id === "model.openai-codex")?.currentValue).toBe("gpt-5.6-luna");
+		expect(providers.find((item) => item.id === "model.xai")?.currentValue).toBe("grok-4.3");
+		expect(providers.find((item) => item.id === "keys.exa")?.currentValue).toBe("1 key");
+		expect(priorityHome.map((item) => item.label).join(" ")).not.toMatch(/Save|Discard|Exit|Search mode|Selection strategy|keyless bulk/i);
+	});
+
+	it("shows env auto-enabled backends and env credentials on the providers page", () => {
+		vi.stubEnv("SEARCH_TAVILY_API_KEY", "tvly-from-env");
+		try {
+			const effective = effectiveSearchConfig({
+				backends: { firecrawl: { enabled: true } },
+			});
+			const home = buildSearchSetupItems(effective);
+			const providers = buildProviderSetupItems(effective);
+			expect(home.find((item) => item.id === "providers")?.currentValue).toBe("2 on");
+			expect(providers.find((item) => item.id === "enabled.tavily")?.currentValue).toBe("on");
+			expect(providers.find((item) => item.id === "keys.tavily")?.currentValue).toBe("env SEARCH_TAVILY_API_KEY");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("parses editor lines into apiKeys", () => {
+		expect(parseApiKeysEditor("sk-a\n\n# comment\nEXA_API_KEY\nsk-a\n")).toEqual(["sk-a", "EXA_API_KEY"]);
+	});
+
+	it("cycles hosted-search models without writing apiKeys", () => {
+		const next = applySetupSetting({
+			backends: { "openai-codex": { enabled: true } },
+		}, "model.openai-codex", "gpt-5.6-terra");
+		expect(next.backends?.["openai-codex"]).toEqual({
+			enabled: true,
+			model: "gpt-5.6-terra",
+		});
+		expect(next.backends?.["openai-codex"]).not.toHaveProperty("apiKeys");
+	});
+
+	it("toggles enabled backends in memory without dropping keys", () => {
+		const next = applySetupSetting({
+			backends: { tavily: { enabled: true, apiKeys: ["sk-retained"] } },
+			priority: ["tavily"],
+		}, "enabled.tavily", "off");
+		expect(next.backends?.tavily).toEqual({ enabled: false, apiKeys: ["sk-retained"] });
+		expect(next.priority ?? []).not.toContain("tavily");
+	});
+
+	it("moves a priority backend up or down without accepting typed names", () => {
+		const base: SearchConfig = {
+			routing: "priority",
+			priority: ["tavily", "exa"],
+			backends: { tavily: { enabled: true }, exa: { enabled: true } },
+		};
+		expect(applySetupSetting(base, "priority-move.exa", "move up").priority).toEqual(["exa", "tavily"]);
+		expect(applySetupSetting(base, "priority-move.tavily", "move down").priority).toEqual(["exa", "tavily"]);
+	});
+
+	it("keeps on-disk keys unless the editor explicitly cleared them", () => {
+		const disk = { backends: { tavily: { enabled: true, apiKeys: ["sk-disk"] } } };
+		const saved = { backends: { tavily: { enabled: false } } };
+		expect(mergePreservedKeys(saved, disk, new Set()).backends?.tavily).toEqual({
+			enabled: false,
+			apiKeys: ["sk-disk"],
+		});
+		expect(mergePreservedKeys(saved, disk, new Set(["tavily"])).backends?.tavily).toEqual({
+			enabled: false,
+		});
+	});
+});
+
 describe("Search Hub setup and reader configuration", () => {
 	let home: string;
 	let cwd: string;
@@ -101,7 +253,7 @@ describe("Search Hub setup and reader configuration", () => {
 		process.env.HOME = home;
 		vi.stubEnv("PI_CODING_AGENT_DIR", join(home, ".pi", "agent"));
 		vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected network request in setup test"); }));
-		for (const name of new Set([...Object.values(FALLBACK_ENV_MAP), "JINA_API_KEY", "SERPER_API_KEY"])) {
+		for (const name of Object.values(FALLBACK_ENV_MAP)) {
 			previousEnv.set(name, process.env[name]);
 			delete process.env[name];
 		}
@@ -120,312 +272,115 @@ describe("Search Hub setup and reader configuration", () => {
 		rmSync(home, { recursive: true, force: true });
 	});
 
-	it("integrates readiness status into search-setup and removes search-status", async () => {
-		writeJson(globalConfigPath(home), {
-			backends: {
-				jina: { enabled: true, apiKey: "JINA_API_KEY" },
-				serper: { enabled: true, apiKey: "SERPER_API_KEY" },
-				tavily: { enabled: true, apiKey: "   " },
-				"openai-codex": { enabled: true },
+	it("opens a SettingsList page with search disabled and no nested select wizard", async () => {
+		const rendered: string[] = [];
+		const harness = createHarness(cwd, {
+			custom: async (factory) => {
+				const component = factory({ requestRender: vi.fn() }, makeTheme(), {}, vi.fn());
+				rendered.push(component.render(100).join("\n"));
+				return { type: "close" };
 			},
 		});
-		const harness = createHarness(cwd, ["🔌 Backends", "↩ Back", "✅ Close"]);
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
+		expect(harness.commands.has("search-setup")).toBe(false);
 		expect(harness.commands.has("search-status")).toBe(false);
-		expect(harness.select.mock.calls[0][0]).toContain("Search:");
-		const homeOptions = harness.select.mock.calls[0][1] as string[];
-		expect(homeOptions).toContain("🔌 Backends");
-		expect(homeOptions.some((option) => option.includes("Jina AI"))).toBe(false);
-		const backendOptions = harness.select.mock.calls[1][1] as string[];
-		expect(backendOptions.find((option) => option.includes("Jina AI"))).toContain("auth — optional");
-		expect(backendOptions.find((option) => option.includes("Jina AI"))).not.toContain("JINA_API_KEY");
-		expect(backendOptions.find((option) => option.includes("Serper"))).toContain("auth ✗ missing");
-		expect(backendOptions.find((option) => option.includes("Tavily"))).toContain("auth ✗ missing");
-		expect(backendOptions.find((option) => option.includes("OpenAI Codex"))).toContain("auth ✗ run /login openai-codex");
+		expect(harness.commands.has("search-hub")).toBe(true);
+		expect(harness.select).not.toHaveBeenCalled();
+		expect(rendered[0]).toContain("Routing");
+		expect(rendered[0]).toContain("Providers");
+		expect(rendered[0]).toContain("s save");
+		expect(rendered[0]).not.toContain("Enter/Space to change");
+		expect(rendered[0]).not.toContain("Exa keys");
+		expect(rendered[0]).not.toContain("Type to search");
+		expect(rendered[0]).not.toContain("Save & apply");
+		expect(rendered[0]).not.toContain("Search mode");
+		expect(rendered[0]).not.toContain("Enable ready keyless");
 	});
 
-	it("presents stored OpenAI Codex auth as a Pi login credential", async () => {
+	it("saves the draft with s and does not write keys until then", async () => {
 		writeJson(globalConfigPath(home), {
-			backends: { "openai-codex": { enabled: true } },
+			backends: { tavily: { enabled: false, apiKeys: ["sk-old"] } },
 		});
-		const harness = createHarness(cwd, ["🔌 Backends", "↩ Back", "✅ Close"]);
-		harness.ctx.modelRegistry.getProviderAuthStatus = () => ({ configured: true, source: "stored" });
-
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		const options = harness.select.mock.calls[1][1] as string[];
-		expect(options.find((option) => option.includes("OpenAI Codex"))).toContain("auth ✓ Pi /login");
-	});
-
-	it("shows global/effective state and re-enables a backend with retained credentials", async () => {
-		writeJson(globalConfigPath(home), {
-			backends: {
-				serper: { enabled: true, apiKey: "sk-retained", maxResults: 7 },
+		let stage = 0;
+		const harness = createHarness(cwd, {
+			editorResults: ["sk-new\nTAVILY_API_KEY"],
+			custom: async (factory) => {
+				stage += 1;
+				if (stage === 1) return { type: "edit-keys", backend: "tavily" };
+				const component = factory({ requestRender: vi.fn() }, makeTheme(), {}, vi.fn());
+				component.handleInput?.("s");
+				return { type: "close" };
 			},
 		});
-		const disableHarness = createHarness(cwd, [
-			"🔌 Backends",
-			pickOption("Serper"),
-			"Disable globally (keep credentials)",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
 
-		await disableHarness.commands.get("search-setup")!("", disableHarness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
-		expect(disableHarness.select.mock.calls[2][0]).toContain("Global draft:         [ON] auth ✓ saved key");
-		expect(disableHarness.select.mock.calls[2][0]).toContain("Effective after save: [ON] auth ✓ saved key");
-		expect(readGlobalConfig(home).backends?.serper).toEqual({
+		expect(harness.editor).toHaveBeenCalledOnce();
+		expect(readGlobalConfig(home).backends?.tavily).toMatchObject({
 			enabled: false,
-			apiKey: "sk-retained",
-			maxResults: 7,
+			apiKeys: ["sk-new", "TAVILY_API_KEY"],
 		});
-
-		const enableHarness = createHarness(cwd, [
-			"🔌 Backends",
-			pickOption("Serper"),
-			"Enable in global configuration",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
-		await enableHarness.commands.get("search-setup")!("", enableHarness.ctx);
-		expect(enableHarness.input).not.toHaveBeenCalled();
-		expect(readGlobalConfig(home).backends?.serper).toEqual({
-			enabled: true,
-			apiKey: "sk-retained",
-			maxResults: 7,
-		});
-		expect(enableHarness.notifications.some(({ message }) => message.includes("saved and applied"))).toBe(true);
-		expect(enableHarness.setStatus).not.toHaveBeenCalled();
-	});
-
-	it("does not enable a required-key backend for whitespace input", async () => {
-		const harness = createHarness(
-			cwd,
-			["🔌 Backends", pickOption("Serper"), "Enable in global configuration", "↩ Back", "✅ Close"],
-			["   "],
-		);
-
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		expect(existsSync(globalConfigPath(home))).toBe(false);
-		expect(harness.notifications).toContainEqual({
-			level: "warning",
-			message: expect.stringContaining("Draft unchanged"),
-		});
-	});
-
-	it("trims required keys and enables optional-key backends without empty fields", async () => {
-		const required = createHarness(
-			cwd,
-			[
-				"🔌 Backends",
-				pickOption("Serper"),
-				"Enable in global configuration",
-				"↩ Back",
-				"💾 Save & apply",
-				"✅ Close",
-			],
-			["  sk-test-value  "],
-		);
-		await required.commands.get("search-setup")!("", required.ctx);
-		expect(readGlobalConfig(home).backends?.serper).toEqual({ enabled: true, apiKey: "sk-test-value" });
-
-		rmSync(globalConfigPath(home));
-		const optional = createHarness(
-			cwd,
-			[
-				"🔌 Backends",
-				pickOption("Jina AI"),
-				"Enable in global configuration",
-				"↩ Back",
-				"💾 Save & apply",
-				"✅ Close",
-			],
-			[undefined],
-		);
-		await optional.commands.get("search-setup")!("", optional.ctx);
-		expect(readGlobalConfig(home).backends?.jina).toEqual({ enabled: true });
-		expect(readGlobalConfig(home).backends?.jina).not.toHaveProperty("apiKey");
-	});
-
-	it("updates and removes a saved key independently from the backend switch", async () => {
-		writeJson(globalConfigPath(home), {
-			backends: { serper: { enabled: false, apiKey: "sk-old" } },
-		});
-		const updateHarness = createHarness(
-			cwd,
-			[
-				"🔌 Backends",
-				pickOption("Serper"),
-				"Update API key or reference",
-				"↩ Back",
-				"💾 Save & apply",
-				"✅ Close",
-			],
-			["  sk-new  "],
-		);
-		await updateHarness.commands.get("search-setup")!("", updateHarness.ctx);
-		expect(readGlobalConfig(home).backends?.serper).toMatchObject({ enabled: false, apiKey: "sk-new" });
-
-		const removeHarness = createHarness(cwd, [
-			"🔌 Backends",
-			pickOption("Serper"),
-			"Remove saved API key or reference",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
-		await removeHarness.commands.get("search-setup")!("", removeHarness.ctx);
-		expect(readGlobalConfig(home).backends?.serper).toEqual({ enabled: false });
-	});
-
-	it("bulk-enables only ready keyless backends", async () => {
-		const harness = createHarness(cwd, [
-			"🔌 Backends",
-			"⚡ Enable ready keyless backends",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		const backends = readGlobalConfig(home).backends;
-		for (const backend of ["duckduckgo", "jina", "marginalia", "exa_mcp"]) {
-			expect(backends?.[backend]?.enabled).toBe(true);
-		}
-		expect(backends?.searxng).toBeUndefined();
-	});
-
-	it("keeps edits in a shared draft and discards them without writing", async () => {
-		const harness = createHarness(cwd, [
-			"🖥 Output",
-			pickOption("Compact output:"),
-			"On",
-			"↩ Back",
-			"✅ Close",
-			"Discard changes",
-		]);
-
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		expect(existsSync(globalConfigPath(home))).toBe(false);
-		expect(harness.select.mock.calls[4][0]).toContain("Unsaved changes");
-		expect(harness.notifications.some(({ message }) => message.includes("saved and applied"))).toBe(false);
-	});
-
-	it("can save the shared draft from the close confirmation", async () => {
-		const harness = createHarness(cwd, [
-			"🖥 Output",
-			pickOption("Compact output:"),
-			"On",
-			"↩ Back",
-			"✅ Close",
-			"Save & apply",
-		]);
-
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		expect(readGlobalConfig(home).compact).toBe(true);
 		expect(harness.notifications.some(({ message }) => message.includes("saved and applied"))).toBe(true);
 	});
 
-	it("reports a project override when it keeps a globally disabled backend enabled", async () => {
+	it("confirms dirty Esc without a Save option and discards without writing", async () => {
+		const harness = createHarness(cwd, {
+			selections: ["Discard changes"],
+			custom: async () => ({ type: "esc-dirty" }),
+		});
+
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
+
+		expect(harness.select.mock.calls[0][0]).toBe("Unsaved Search Hub changes");
+		expect(harness.select.mock.calls[0][1]).toEqual(["Discard changes", "Keep editing"]);
+		expect(existsSync(globalConfigPath(home))).toBe(false);
+		expect(harness.notifications.some(({ message }) => message.includes("saved and applied"))).toBe(false);
+	});
+
+	it("reports a project override after saving global config", async () => {
 		writeJson(globalConfigPath(home), {
-			backends: { serper: { enabled: true, apiKey: "sk-global" } },
+			backends: { tavily: { enabled: true, apiKeys: ["sk-global"] } },
 		});
 		writeJson(join(cwd, ".pi", "search.json"), {
-			backends: { serper: { enabled: true } },
+			backends: { tavily: { enabled: true } },
 		});
-		const harness = createHarness(cwd, [
-			"🔌 Backends",
-			pickOption("Serper"),
-			"Disable globally (keep credentials)",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
+		const harness = createHarness(cwd, {
+			custom: async (factory) => {
+				const component = factory({ requestRender: vi.fn() }, makeTheme(), {}, vi.fn());
+				component.handleInput?.("s");
+				return { type: "close" };
+			},
+		});
 
-		await harness.commands.get("search-setup")!("", harness.ctx);
+		await harness.commands.get("search-hub")!("setup", harness.ctx);
 
-		expect(readGlobalConfig(home).backends?.serper?.enabled).toBe(false);
 		expect(harness.notifications.some(({ message }) => message.includes("project overrides remain effective"))).toBe(true);
+		expect(existsSync(join(cwd, ".pi", "extension-data", "pi-search-hub", "config.json")) || existsSync(join(cwd, ".pi", "search.json"))).toBe(true);
 	});
 
-	it("presents search mode as one setting and removes legacy status/cache fields on save", async () => {
+	it("falls back across readers in firecrawl → exa → parallel order", async () => {
 		writeJson(globalConfigPath(home), {
-			showStatus: true,
-			cacheTtl: 300000,
-			cacheMax: 100,
-			backends: { duckduckgo: { enabled: true } },
-		});
-		const harness = createHarness(cwd, [
-			"🔀 Search routing",
-			pickOption("Search mode:"),
-			"Targeted combine",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
-
-		await harness.commands.get("search-setup")!("", harness.ctx);
-
-		const saved = JSON.parse(readFileSync(globalConfigPath(home), "utf-8")) as Record<string, unknown>;
-		expect(saved).toMatchObject({ combine: true, combineMode: "targeted" });
-		expect(saved).not.toHaveProperty("showStatus");
-		expect(saved).not.toHaveProperty("cacheTtl");
-		expect(saved).not.toHaveProperty("cacheMax");
-	});
-
-	it("configures ordered reader fallbacks and keeps the previous default when switching", async () => {
-		const fallbackHarness = createHarness(
-			cwd,
-			[
-				"📖 Web reading",
-				pickOption("Reader fallback order:"),
-				"Edit ordered fallback list",
-				"↩ Back",
-				"💾 Save & apply",
-				"✅ Close",
-			],
-			["firecrawl, exa_mcp, jina"],
-		);
-		await fallbackHarness.commands.get("search-setup")!("", fallbackHarness.ctx);
-		expect(readGlobalConfig(home).reader).toBeUndefined();
-		expect(readGlobalConfig(home).readerFallback).toEqual(["firecrawl", "exa_mcp"]);
-
-		const defaultHarness = createHarness(cwd, [
-			"📖 Web reading",
-			pickOption("Default reader:"),
-			"Firecrawl (firecrawl)",
-			"↩ Back",
-			"💾 Save & apply",
-			"✅ Close",
-		]);
-		await defaultHarness.commands.get("search-setup")!("", defaultHarness.ctx);
-		expect(readGlobalConfig(home).reader).toBe("firecrawl");
-		expect(readGlobalConfig(home).readerFallback).toEqual(["jina", "exa_mcp"]);
-	});
-
-	it("falls back across configured readers but honors an explicit reader", async () => {
-		writeJson(globalConfigPath(home), {
-			reader: "exa",
-			readerFallback: ["jina"],
+			backends: { exa: { apiKeys: ["exa-fixture"] } },
 		});
 		const harness = createHarness(cwd);
 		const webRead = harness.tools.get("web_read")!;
 		await harness.events.get("session_start")!({ reason: "startup" }, harness.ctx);
 		const onUpdate = vi.fn();
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-			ok: true,
-			status: 200,
-			headers: new Headers(),
-			text: async () => "page content",
-		} as Response);
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+			const url = String(input);
+			if (url.includes("api.firecrawl.dev")) {
+				return new Response("fixture upstream unavailable", { status: 503 });
+			}
+			if (url === "https://api.exa.ai/contents") {
+				return Response.json({
+					statuses: [{ id: "https://example.com", status: "success" }],
+					results: [{ url: "https://example.com", title: "Example", text: "page content" }],
+				});
+			}
+			throw new Error(`Unexpected request: ${url}`);
+		});
 
 		try {
 			const result = await webRead.execute(
@@ -435,56 +390,50 @@ describe("Search Hub setup and reader configuration", () => {
 				onUpdate,
 				harness.ctx,
 			);
-			expect(result.details.reader).toBe("jina");
-			expect(result.details.fallbackErrors[0]).toContain("exa:");
-			expect(onUpdate.mock.calls.map(([update]) => update.details.reader)).toEqual(["exa", "exa", "jina", "jina"]);
+			expect(result.details.reader).toBe("exa");
+			expect(result.details.fallbackErrors[0]).toContain("firecrawl:");
+			expect(onUpdate.mock.calls[0][0].details.reader).toBe("firecrawl");
 			expect(harness.setStatus).not.toHaveBeenCalled();
-
-			fetchSpy.mockClear();
-			await expect(webRead.execute(
-				"read-2",
-				{ url: "https://example.com", reader: "exa" },
-				undefined,
-				onUpdate,
-				harness.ctx,
-			)).rejects.toThrow("Exa reader selected but no API key configured");
-			expect(fetchSpy).not.toHaveBeenCalled();
+			expect(webRead).not.toHaveProperty("parameters.properties.reader");
 		} finally {
 			fetchSpy.mockRestore();
 		}
 	});
 
-	it("resolves Codex auth through the current Pi model registry", async () => {
-		const harness = createHarness(cwd);
-		const onUpdate = vi.fn();
-
-		await expect(harness.tools.get("web_search")!.execute(
-			"search-codex",
-			{ query: "test", backend: "openai-codex" },
-			undefined,
-			onUpdate,
-			harness.ctx,
-		)).rejects.toThrow("OpenAI Codex authentication not found");
-
-		expect(harness.ctx.modelRegistry.getApiKeyForProvider).toHaveBeenCalledWith("openai-codex");
-	});
-
 	it("emits tool activity without creating footer status", async () => {
+		writeJson(globalConfigPath(home), {
+			backends: { tavily: { enabled: true } },
+		});
 		const harness = createHarness(cwd);
 		await harness.events.get("session_start")!({ reason: "startup" }, harness.ctx);
 		const onUpdate = vi.fn();
 
 		await expect(harness.tools.get("web_search")!.execute(
 			"search-1",
-			{ query: "test", backend: "serper" },
+			{ query: "test" },
 			undefined,
 			onUpdate,
 			harness.ctx,
-		)).rejects.toThrow("Serper backend not configured");
+		)).rejects.toThrow("All backends failed");
 
-		expect(onUpdate).toHaveBeenCalledTimes(2);
 		expect(onUpdate.mock.calls[0][0].details.activity).toContain("searching");
-		expect(onUpdate.mock.calls[1][0].details.activity).toContain("failed");
+		expect(onUpdate.mock.calls.at(-1)?.[0].details.activity).toContain("all backends failed");
 		expect(harness.setStatus).not.toHaveBeenCalled();
+	});
+
+	it("rejects Parallel search without a key instead of using MCP", async () => {
+		writeJson(globalConfigPath(home), {
+			backends: { parallel: { enabled: true } },
+		});
+		const harness = createHarness(cwd);
+		await harness.events.get("session_start")!({ reason: "startup" }, harness.ctx);
+
+		await expect(harness.tools.get("web_search")!.execute(
+			"search-parallel",
+			{ query: "test" },
+			undefined,
+			undefined,
+			harness.ctx,
+		)).rejects.toThrow("Parallel backend not configured");
 	});
 });

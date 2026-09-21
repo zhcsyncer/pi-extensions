@@ -1,24 +1,13 @@
 {
-  "defaultBackend": "duckduckgo",
-  "combine": false,
-  "combineMode": "targeted",
-  "selectionStrategy": "sequential",
-  "reader": "jina",
-  "readerFallback": ["firecrawl", "exa_mcp"],
+  "routing": "priority",
+  "priority": ["exa", "tavily", "firecrawl", "parallel", "openai-codex", "xai"],
   "compact": false,
   "backends": {
-    "duckduckgo": { "enabled": true },
-    "sofya": { "enabled": true, "apiKey": "SOFYA_API_KEY", "searchDepth": "basic" },
-    "jina": { "enabled": true },
-    "marginalia": { "enabled": true },
-    "serper": { "enabled": true, "apiKey": "SERPER_API_KEY" },
-    "brave": { "enabled": true, "apiKey": "BRAVE_API_KEY" },
-    "tavily": { "enabled": true, "apiKey": "TAVILY_API_KEY" },
-    "exa": { "enabled": true, "apiKey": "EXA_API_KEY" },
-    "firecrawl": { "enabled": true, "apiKey": "FIRECRAWL_API_KEY" },
-    "langsearch": { "enabled": true, "apiKey": "LANGSEARCH_API_KEY" },
-    "websearchapi": { "enabled": true, "apiKey": "WEBSEARCHAPI_API_KEY" },
-    "perplexity": { "enabled": true, "apiKey": "PERPLEXITY_API_KEY", "model": "sonar" },
-    "searxng": { "enabled": true, "instanceUrl": "http://localhost:8888" }
+    "exa": { "enabled": true, "apiKeys": ["EXA_API_KEY"] },
+    "tavily": { "enabled": true, "apiKeys": ["TAVILY_API_KEY"] },
+    "firecrawl": { "enabled": true, "apiKeys": ["FIRECRAWL_API_KEY"] },
+    "parallel": { "enabled": true, "apiKeys": ["PARALLEL_API_KEY"] },
+    "openai-codex": { "enabled": false, "model": "gpt-5.6-luna" },
+    "xai": { "enabled": false, "model": "grok-4.3" }
   }
 }

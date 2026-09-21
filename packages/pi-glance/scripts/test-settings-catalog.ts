@@ -276,7 +276,7 @@ const gitRows = assertRows(config, "git", [
 		id: "git.enabled",
 		label: "Enabled",
 		value: "on",
-		hint: "Show or hide this segment.",
+		hint: "Stop Glance git reads, fetch, /diff, and worktree counts.",
 		kind: "toggle",
 	},
 	{

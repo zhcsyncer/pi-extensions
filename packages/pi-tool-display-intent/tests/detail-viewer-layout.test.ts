@@ -68,7 +68,7 @@ test("title status and footer position stay right-aligned without repeated chrom
 	for (const width of [50, 80, 100]) {
 		const lines = component.render(width);
 		const shown = lines.map(clean);
-		assert.match(shown[1], /✓ 0\.8s\s*│$/);
+		assert.match(shown[1], /● 0\.8s\s*│$/);
 		assert.match(shown[shown.length - 2], /\/20\s*│$/);
 		assert.doesNotMatch(shown.join("\n"), /Tools —|Read-only|12:34:56/);
 		assert.ok(lines.every((line) => visibleWidth(line) === width));

@@ -9,29 +9,24 @@ import type { BackendRunner } from "./types.js";
 // Compact formatting
 // ---------------------------------------------------------------------------
 
+function compactLine(result: SearchResultWithBackend, index: number): string {
+	const title = (result.title || "Untitled").slice(0, 60);
+	const url = result.url.length > 50 ? result.url.slice(0, 47) + "..." : result.url;
+	const src = result.backend ? ` [${result.backend}]` : "";
+	return `${index + 1}. ${title}${src} — ${url}`;
+}
+
 export function formatResultsCompact(
-	results: SearchResult[],
+	results: SearchResultWithBackend[],
 ): string {
 	if (results.length === 0) return "No results.";
-	const lines = results.map((r, i) => {
-		const title = (r.title || "Untitled").slice(0, 60);
-		const url = r.url.length > 50 ? r.url.slice(0, 47) + "..." : r.url;
-		return `${i + 1}. ${title} — ${url}`;
-	});
-	return lines.join("\n");
+	return results.map((result, index) => compactLine(result, index)).join("\n");
 }
 
 export function formatCombinedResultsCompact(
 	results: SearchResultWithBackend[],
 ): string {
-	if (results.length === 0) return "No results.";
-	const lines = results.map((r, i) => {
-		const title = (r.title || "Untitled").slice(0, 60);
-		const url = r.url.length > 50 ? r.url.slice(0, 47) + "..." : r.url;
-		const src = r.backend ? ` [${r.backend}]` : "";
-		return `${i + 1}. ${title}${src} — ${url}`;
-	});
-	return lines.join("\n");
+	return formatResultsCompact(results);
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +48,7 @@ export function formatResults(
 	for (let i = 0; i < results.length; i++) {
 		const r = results[i];
 		lines.push(`### ${i + 1}. ${r.title || "Untitled"}`);
+		lines.push(`   *Source: ${backend}*`);
 		lines.push(`   URL: ${r.url}`);
 		const displayText = r.snippet || r.content || "";
 		if (displayText) {

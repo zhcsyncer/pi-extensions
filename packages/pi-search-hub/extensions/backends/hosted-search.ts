@@ -1,19 +1,38 @@
-import {
-	getModel,
-	streamOpenAICodexResponses,
-	type Context,
-	type Model,
-} from "@earendil-works/pi-ai/compat";
+/**
+ * Hosted web_search via Pi's modelRegistry.complete().
+ * Codex and Grok are inference calls with a server-side search tool, not SERP APIs.
+ */
+
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-
+import type { NoticeSink } from "../diagnostics.js";
+import type { HostedSearchRuntime, SearchResult } from "../types.js";
 import { timeoutSignal } from "../utils.js";
-import type { BackendConfig, SearchResult } from "../types.js";
 
-const DEFAULT_MODEL_ID = "gpt-5.4-mini";
-const DEFAULT_SEARCH_CONTEXT_SIZE = "low";
+export const HOSTED_SEARCH_BACKENDS = {
+	"openai-codex": {
+		provider: "openai-codex",
+		login: "openai-codex",
+		label: "OpenAI Codex",
+		defaultModel: "gpt-5.6-luna",
+		flavor: "codex",
+	},
+	xai: {
+		provider: "xai",
+		login: "xai",
+		label: "Grok",
+		defaultModel: "grok-4.3",
+		flavor: "xai",
+	},
+} as const;
+
+export type HostedSearchBackendName = keyof typeof HOSTED_SEARCH_BACKENDS;
+export type HostedSearchFlavor = (typeof HOSTED_SEARCH_BACKENDS)[HostedSearchBackendName]["flavor"];
+
 const MAX_TOOL_RESULTS = 20;
 const MAX_TITLE_LENGTH = 200;
 const MAX_SNIPPET_LENGTH = 1000;
+const DEFAULT_SEARCH_CONTEXT_SIZE = "low";
 
 const SUBMIT_SEARCH_RESULTS_TOOL = {
 	name: "submit_search_results",
@@ -37,27 +56,65 @@ const SUBMIT_SEARCH_RESULTS_TOOL = {
 	}),
 } as const;
 
-export async function searchOpenAICodex(
+export function isHostedSearchBackend(name: string): name is HostedSearchBackendName {
+	return name in HOSTED_SEARCH_BACKENDS;
+}
+
+export function hostedSearchModelIds(
+	runtime: Pick<HostedSearchRuntime, "getProvider"> | undefined,
+	backend: HostedSearchBackendName,
+): string[] {
+	const spec = HOSTED_SEARCH_BACKENDS[backend];
+	const ids = runtime?.getProvider?.(spec.provider)?.getModels().map((model) => model.id) ?? [];
+	if (ids.length === 0) return [spec.defaultModel];
+	if (ids.includes(spec.defaultModel)) {
+		return [spec.defaultModel, ...ids.filter((id) => id !== spec.defaultModel)];
+	}
+	return ids;
+}
+
+export function resolveHostedSearchModel(
+	runtime: HostedSearchRuntime,
+	backend: HostedSearchBackendName,
+	requested: string | undefined,
+	onNotice?: NoticeSink,
+): Model<Api> {
+	const spec = HOSTED_SEARCH_BACKENDS[backend];
+	const requestedId = requested?.trim();
+	if (requestedId) {
+		const found = runtime.find(spec.provider, requestedId) as Model<Api> | undefined;
+		if (found) return found;
+		onNotice?.(
+			`Search Hub ${spec.label}: unknown model "${requestedId}", using ${spec.defaultModel}.`,
+		);
+	}
+	const fallback = (runtime.find(spec.provider, spec.defaultModel) as Model<Api> | undefined)
+		?? (runtime.getProvider?.(spec.provider)?.getModels()[0] as Model<Api> | undefined);
+	if (fallback) return fallback;
+	throw new Error(`${spec.label} model not found: ${spec.defaultModel}`);
+}
+
+export async function searchHostedWebSearch(
+	backend: HostedSearchBackendName,
 	query: string,
 	numResults: number,
-	apiKey: string | undefined,
+	runtime: HostedSearchRuntime | undefined,
 	signal?: AbortSignal,
-	backendConfig?: BackendConfig,
+	modelId?: string,
+	timeoutMs?: number,
+	onNotice?: NoticeSink,
 ): Promise<{ results: SearchResult[] }> {
+	const spec = HOSTED_SEARCH_BACKENDS[backend];
 	if (signal?.aborted) {
-		throw new Error("OpenAI Codex search cancelled");
+		throw new Error(`${spec.label} search cancelled`);
 	}
-	if (!apiKey) {
-		throw new Error("OpenAI Codex authentication not found. Run /login openai-codex.");
+	if (!runtime) {
+		throw new Error(`${spec.label} authentication not found. Run /login ${spec.login}.`);
 	}
-	const modelId = backendConfig?.model?.trim() || DEFAULT_MODEL_ID;
-	const lookupModel = getModel as unknown as (
-		provider: string,
-		id: string,
-	) => Model<"openai-codex-responses"> | undefined;
-	const model = lookupModel("openai-codex", modelId);
-	if (!model) {
-		throw new Error(`OpenAI Codex model not found: ${modelId}`);
+
+	const model = resolveHostedSearchModel(runtime, backend, modelId, onNotice);
+	if (runtime.hasConfiguredAuth && !runtime.hasConfiguredAuth(model)) {
+		throw new Error(`${spec.label} authentication not found. Run /login ${spec.login}.`);
 	}
 
 	const context: Context = {
@@ -72,35 +129,52 @@ export async function searchOpenAICodex(
 		tools: [SUBMIT_SEARCH_RESULTS_TOOL],
 	};
 
-	const message = await streamOpenAICodexResponses(model, context, {
-		apiKey,
-		signal: timeoutSignal(signal),
-		transport: "sse",
-		reasoningEffort: "minimal",
-		textVerbosity: "low",
-		onPayload: (payload) => injectCodexSearchPayload(payload),
-	}).result();
+	const options: Record<string, unknown> = {
+		signal: timeoutSignal(signal, timeoutMs),
+		onPayload: (payload: unknown) => injectHostedWebSearch(payload, spec.flavor),
+	};
+	if (spec.flavor === "codex") {
+		options.reasoningEffort = "minimal";
+		options.textVerbosity = "low";
+	}
+
+	let message: AssistantMessage;
+	try {
+		message = await runtime.complete(model, context, options) as AssistantMessage;
+	} catch (error) {
+		throw hostedAuthError(spec, error);
+	}
 
 	if (message.stopReason === "error") {
-		throw new Error(message.errorMessage || "OpenAI Codex search failed");
+		throw hostedAuthError(spec, new Error(message.errorMessage || `${spec.label} search failed`));
 	}
 	if (message.stopReason === "aborted") {
-		throw new Error("OpenAI Codex search cancelled");
+		throw new Error(`${spec.label} search cancelled`);
 	}
 
 	const submitCall = message.content.find(
 		(block) => block.type === "toolCall" && block.name === "submit_search_results",
 	);
 	if (!submitCall || submitCall.type !== "toolCall") {
-		throw new Error("OpenAI Codex search did not submit structured results");
+		throw new Error(`${spec.label} search did not submit structured results`);
 	}
 
 	const results = normalizeSubmitSearchResults(submitCall.arguments, numResults);
 	if (results.length === 0) {
-		throw new Error("OpenAI Codex search returned no valid URL results");
+		throw new Error(`${spec.label} search returned no valid URL results`);
 	}
-
 	return { results };
+}
+
+function hostedAuthError(
+	spec: (typeof HOSTED_SEARCH_BACKENDS)[HostedSearchBackendName],
+	error: unknown,
+): Error {
+	const message = error instanceof Error ? error.message : String(error);
+	if (/not configured|No API key|authentication not found/i.test(message)) {
+		return new Error(`${spec.label} authentication not found. Run /login ${spec.login}.`);
+	}
+	return error instanceof Error ? error : new Error(message);
 }
 
 function buildSystemPrompt(numResults: number): string {
@@ -115,29 +189,31 @@ function buildSystemPrompt(numResults: number): string {
 	].join(" ");
 }
 
-export function injectCodexSearchPayload(payload: unknown): unknown {
+export function injectHostedWebSearch(payload: unknown, flavor: HostedSearchFlavor): unknown {
 	const body = isRecord(payload) ? payload : {};
 	const existingTools = Array.isArray(body.tools) ? body.tools.filter(Boolean) : [];
 	const filteredTools = existingTools.filter((tool) => {
 		if (!isRecord(tool)) return true;
 		return tool.type !== "web_search";
 	});
-
-	body.tools = [
-		{
+	const hostedTool = flavor === "codex"
+		? {
 			type: "web_search",
 			external_web_access: true,
 			search_context_size: DEFAULT_SEARCH_CONTEXT_SIZE,
-		},
-		...filteredTools,
-	];
+		}
+		: { type: "web_search" };
+
+	body.tools = [hostedTool, ...filteredTools];
 	body.tool_choice = "auto";
 	body.parallel_tool_calls = false;
 
-	const include = Array.isArray(body.include)
-		? body.include.filter((value): value is string => typeof value === "string")
-		: [];
-	body.include = Array.from(new Set([...include, "web_search_call.action.sources"]));
+	if (flavor === "codex") {
+		const include = Array.isArray(body.include)
+			? body.include.filter((value): value is string => typeof value === "string")
+			: [];
+		body.include = Array.from(new Set([...include, "web_search_call.action.sources"]));
+	}
 
 	return body;
 }
@@ -220,6 +296,10 @@ export function normalizeUrlForDedup(url: string): string {
 	}
 }
 
+export function looksLikeDomainOrPath(value: string): boolean {
+	return /^[^\s/]+\.[^\s]+(?:\/.*)?$/.test(value);
+}
+
 function safeUrlHostname(url: string): string {
 	try {
 		return new URL(url).hostname;
@@ -240,10 +320,6 @@ function hasUrlScheme(value: string): boolean {
 	return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value);
 }
 
-export function looksLikeDomainOrPath(value: string): boolean {
-	return /^[^\s/]+\.[^\s]+(?:\/.*)?$/.test(value);
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
