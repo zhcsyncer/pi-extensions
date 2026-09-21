@@ -4,7 +4,7 @@
 
 面向 [Pi coding agent](https://pi.dev) 的第二意见原语。主模型调用 `consult({ why })`；无工具的顾问模型返回 recommend / confirm / revise / stop。watchdog 可在重复失败后强制这次调用。可选双路 panel。本地行为日志。
 
-本包也包含在 `@zhcsyncer/pi-extensions` 里。
+本包也包含在 `@zhcsyncer/pi-extensions` 里。需要 Pi 0.86 或更高。
 
 ## 来源
 

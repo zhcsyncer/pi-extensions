@@ -16,7 +16,7 @@ Unlike the minimal configuration in [Volcengine's Pi guide](https://www.volcengi
 
 ## Requirements
 
-- Node.js 20 or newer and Pi (tested with 0.84).
+- Node.js 20 or newer and Pi 0.86 or later.
 - A dedicated **Agent Plan API key**. Regular Ark and Coding Plan keys are not interchangeable with it.
 
 ## Install and log in

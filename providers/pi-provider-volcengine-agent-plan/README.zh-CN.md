@@ -16,7 +16,7 @@
 
 ## 要求
 
-- Node.js 20 或更高版本，以及 Pi（已在 0.84 验证）。
+- Node.js 20 或更高版本，以及 Pi 0.86 或更高。
 - **Agent Plan 专属 API Key**，不能与普通方舟或 Coding Plan Key 混用。
 
 ## 安装与登录

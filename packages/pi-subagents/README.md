@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
+Requires Pi 0.86 or later. Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
 
 ## Core features and upstream differences
 

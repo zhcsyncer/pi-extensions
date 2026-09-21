@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
+需要 Pi 0.86 或更高。加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
 
 ## 核心功能与上游差异
 
