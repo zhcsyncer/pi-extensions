@@ -118,8 +118,7 @@ export function createCursorContextTracker(
     .digest("hex");
   const history = createHash("sha256");
   const tools = replayedTools(context);
-  let inputTokens =
-    textTokens(replayedSystemPrompt(context)) + textTokens(JSON.stringify(tools));
+  let inputTokens = textTokens(replayedSystemPrompt(context)) + textTokens(JSON.stringify(tools));
   let rawInputTokens = inputTokens;
   let anchorTokens: number | undefined;
   let trailingTokens = 0;
