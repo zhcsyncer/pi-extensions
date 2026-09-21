@@ -2,9 +2,21 @@
 
 [简体中文](./README.zh-CN.md)
 
-A bundle-private fork of Search Hub for `@zhcsyncer/pi-extensions`. It provides unified `web_search` and `web_read` tools across multiple search and content-reading backends.
+A Search Hub fork for the [Pi coding agent](https://pi.dev). It provides unified `web_search` and `web_read` tools across multiple search and content-reading backends.
 
-This package is private and is not published separately. Install `@zhcsyncer/pi-extensions` to use it.
+This package is also included in `@zhcsyncer/pi-extensions`.
+
+## Install
+
+```bash
+pi install npm:@zhcsyncer/pi-search-hub
+```
+
+Or install the whole extension bundle:
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
 
 ## Tools
 

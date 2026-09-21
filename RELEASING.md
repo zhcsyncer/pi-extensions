@@ -8,6 +8,7 @@ This repository publishes these public npm packages:
 - `@zhcsyncer/pi-todo`
 - `@zhcsyncer/pi-glance`
 - `@zhcsyncer/pi-plan-mode`
+- `@zhcsyncer/pi-search-hub`
 - `@zhcsyncer/pi-context7`
 - `@zhcsyncer/pi-ask-user-question`
 - `@zhcsyncer/pi-herdr-companion`

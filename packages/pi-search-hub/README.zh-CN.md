@@ -2,9 +2,21 @@
 
 [English](./README.md)
 
-`@zhcsyncer/pi-extensions` 使用的 bundle 私有 Search Hub fork。它通过多个搜索和内容读取 backend 提供统一的 `web_search` 与 `web_read` 工具。
+Pi 用的 Search Hub fork。通过多个搜索和内容读取 backend 提供统一的 `web_search` 与 `web_read` 工具。
 
-该 package 是私有包，不会单独发布。安装 `@zhcsyncer/pi-extensions` 后即可使用。
+本包也包含在 `@zhcsyncer/pi-extensions` 里。
+
+## 安装
+
+```bash
+pi install npm:@zhcsyncer/pi-search-hub
+```
+
+或安装整个扩展 bundle：
+
+```bash
+pi install npm:@zhcsyncer/pi-extensions
+```
 
 ## 工具
 

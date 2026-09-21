@@ -1,8 +1,7 @@
 {
   "name": "@zhcsyncer/pi-search-hub",
   "version": "0.1.2",
-  "private": true,
-  "description": "Internal fork of pi-search-hub for the @zhcsyncer/pi-extensions bundle.",
+  "description": "Unified web_search and web_read tools for the Pi coding agent.",
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -40,12 +39,16 @@
     "search.json.example",
     "README.md",
     "README.zh-CN.md",
+    "CHANGELOG.md",
     "LICENSE",
     "UPSTREAM_NOTICE.md",
     "UPSTREAM_README.md",
     "UPSTREAM_CHANGELOG.md",
     "UPSTREAM_SOURCE.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./extensions/search-hub.ts"
