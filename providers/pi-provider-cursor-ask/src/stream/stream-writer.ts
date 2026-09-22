@@ -133,7 +133,7 @@ export function createNativeStreamWriter(
       lifecycleLog("usage_incomplete", { modelId: model.id, reason, ...billing });
     }
     if (billing.status === "partial") {
-      reportCursorBillingIncomplete("cursor: usage not fully billed", {
+      reportCursorBillingIncomplete({
         modelId: model.id,
         ...billing,
       });

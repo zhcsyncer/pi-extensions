@@ -28,6 +28,8 @@ describe("usage formatting", () => {
     const output = formatCursorUsage(summary);
     expect(output).toMatch(/Usage • Pro/);
     expect(output).toMatch(/Included\s+40% used/);
+    expect(output).toMatch(/Include\s+35% used/);
+    expect(output).toMatch(/Other\s+45% used/);
     expect(output).toMatch(/cursor\.com\/dashboard\?tab=usage/);
   });
 

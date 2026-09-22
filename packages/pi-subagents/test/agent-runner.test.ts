@@ -369,6 +369,34 @@ describe("agent-runner restore failure cleanup", () => {
     expect(sessionManagerOpen).not.toHaveBeenCalled();
   });
 
+  it("does not treat a Pi 0.87 recovery omission as a corrupt session", async () => {
+    const timestamp = new Date().toISOString();
+    writeFileSync(file, [
+      { type: "session", version: 3, id: "original", cwd: dir, timestamp },
+      {
+        type: "message", id: "asst1", parentId: null, timestamp,
+        message: { role: "assistant", content: [{ type: "text", text: "failed" }] },
+      },
+      { type: "context_edit", id: "edit1", parentId: "asst1", timestamp, targetId: "asst1", replacement: null },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/Subagent session changed while opening/);
+    expect(sessionManagerOpen).toHaveBeenCalled();
+  });
+
+  it("still rejects a context_edit that does not target an earlier entry", async () => {
+    const timestamp = new Date().toISOString();
+    writeFileSync(file, [
+      { type: "session", version: 3, id: "original", cwd: dir, timestamp },
+      {
+        type: "message", id: "asst1", parentId: null, timestamp,
+        message: { role: "assistant", content: [{ type: "text", text: "failed" }] },
+      },
+      { type: "context_edit", id: "edit1", parentId: "asst1", timestamp, targetId: "missing", replacement: null },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/Corrupt subagent session entry/);
+    expect(sessionManagerOpen).not.toHaveBeenCalled();
+  });
+
   it("rejects unavailable history models without construction", async () => {
     await expect(restoreAgentSession(ctx, file, snapshot, { pi })).rejects.toThrow(/unavailable/);
     expect(createAgentSession).not.toHaveBeenCalled();

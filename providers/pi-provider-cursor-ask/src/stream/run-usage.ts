@@ -136,6 +136,6 @@ export function reportRunUsageBoundary(run: CursorRunUsage, reason: string): voi
   // A tool-pause/transport boundary legitimately has no final receipt yet, so only a receipt
   // that existed and was never consumed is anomalous. Either way this stays out of the chat.
   if (status === "receipt_unreported") {
-    reportCursorBillingIncomplete("cursor: usage not fully billed", { reason, status });
+    reportCursorBillingIncomplete({ reason, status });
   }
 }

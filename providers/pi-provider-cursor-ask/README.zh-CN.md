@@ -72,7 +72,7 @@ pi --list-models cursor
 
 若 Cursor 请求的历史在本地已缺失，本轮生成会以 `Refusing to answer empty` 明确失败，而不是发送残缺历史。重试即可从 Pi 对话历史重建。
 
-若同时加载了 `@zhcsyncer/pi-meter`，底栏会跟当前 Cursor 模型走：Composer 和 Grok 看 Cursor Models（Auto）池，Claude 行看 Other Models（API）池。
+若同时加载了 `@zhcsyncer/pi-meter`，底栏会跟当前 Cursor 模型走：Composer 和 Grok 看 Include 池，Claude 行看 Other 池。
 
 本包有意占用 `cursor` provider id，作为旧扩展的直接替代品。不要与 `@rahularya01/pi-cursor` 同时加载；后注册的扩展会覆盖另一方的 `cursor` 模型目录。
 

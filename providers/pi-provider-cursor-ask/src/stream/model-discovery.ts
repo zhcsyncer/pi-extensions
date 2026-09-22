@@ -127,21 +127,13 @@ export async function getCursorModels(
     }
   } catch (err) {
     if (options?.signal?.aborted) return [];
-    reportCursorAnomaly(
-      "model_discovery_failed",
-      "Cursor model discovery failed",
-      { message: err instanceof Error ? err.message : String(err) },
-      { level: "error", stderrIfNoSink: true },
-    );
+    reportCursorAnomaly("model_discovery_failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
   if (options?.signal?.aborted) return [];
-  reportCursorAnomaly(
-    "model_discovery_failed",
-    "Cursor model discovery failed",
-    { reason: "no_models" },
-    { level: "warning", stderrIfNoSink: true },
-  );
+  reportCursorAnomaly("model_discovery_failed", { reason: "no_models" });
   return [];
 }
 

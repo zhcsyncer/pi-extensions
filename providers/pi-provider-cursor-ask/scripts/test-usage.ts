@@ -29,8 +29,8 @@ const output = formatCursorUsage(summary);
 assert.match(output, /Usage • Pro/);
 assert.match(output, /Category\s+Current\s+Usage/);
 assert.match(output, /Included\s+40% used/);
-assert.match(output, /Auto\s+35% used/);
-assert.match(output, /API\s+45% used/);
+assert.match(output, /Include\s+35% used/);
+assert.match(output, /Other\s+45% used/);
 assert.match(output, /View in dashboard: cursor\.com\/dashboard\?tab=usage/);
 assert.throws(() => parseCursorUsageSummary(null), /invalid response/);
 
@@ -49,8 +49,8 @@ const connectSummary = parseConnectPeriodUsage({
 const connectOutput = formatCursorUsage(connectSummary);
 assert.match(connectOutput, /Usage • Pro/);
 assert.match(connectOutput, /Included\s+13% used/);
-assert.match(connectOutput, /Auto\s+12% used/);
-assert.match(connectOutput, /API\s+14% used/);
+assert.match(connectOutput, /Include\s+12% used/);
+assert.match(connectOutput, /Other\s+14% used/);
 
 await assert.rejects(
   () => getCursorUsageSummary(undefined, ""),

@@ -21,18 +21,23 @@ const summary = {
 };
 
 describe("cursorUsageToQuotaSnapshot", () => {
-  it("maps Auto and API percents to separate primary windows", () => {
+  it("maps Include and Other percents to separate primary windows", () => {
     const auto = cursorUsageToQuotaSnapshot(summary, 1, "auto");
     const api = cursorUsageToQuotaSnapshot(summary, 1, "api");
     expect(auto).toMatchObject({
-      provider: "cursor-auto",
-      title: "Cursor Auto",
-      primary: { id: "auto", label: "Auto", usedPercent: 12, resetsAt: summary.billingCycleEnd },
+      provider: "cursor-include",
+      title: "Cursor Include",
+      primary: {
+        id: "include",
+        label: "Include",
+        usedPercent: 12,
+        resetsAt: summary.billingCycleEnd,
+      },
     });
     expect(api).toMatchObject({
-      provider: "cursor-api",
-      title: "Cursor API",
-      primary: { id: "api", label: "API", usedPercent: 55, resetsAt: summary.billingCycleEnd },
+      provider: "cursor-other",
+      title: "Cursor Other",
+      primary: { id: "other", label: "Other", usedPercent: 55, resetsAt: summary.billingCycleEnd },
     });
   });
 
@@ -50,24 +55,24 @@ describe("createCursorQuotaAdapters", () => {
     "grok-4.6-fast",
     "cursor-grok-4.6-low",
     "cursor-grok-4.6-fast-xhigh",
-  ])("routes %s exclusively to Cursor Models (Auto)", (id) => {
+  ])("routes %s exclusively to the Include pool", (id) => {
     const adapters = createCursorQuotaAdapters(async () => "token");
     expect(
       adapters
         .filter((adapter) => adapter.matchProvider({ provider: "cursor", id }))
         .map((adapter) => adapter.id),
-    ).toEqual(["cursor-auto"]);
+    ).toEqual(["cursor-include"]);
   });
 
   it.each(["fable-5.1", "fable-5", "opus-5", "opus-4.6", "sonnet-5", "unknown-model"])(
-    "routes %s exclusively to Other Models (API)",
+    "routes %s exclusively to the Other pool",
     (id) => {
       const adapters = createCursorQuotaAdapters(async () => "token");
       expect(
         adapters
           .filter((adapter) => adapter.matchProvider({ provider: "cursor", id }))
           .map((adapter) => adapter.id),
-      ).toEqual(["cursor-api"]);
+      ).toEqual(["cursor-other"]);
     },
   );
 
@@ -100,7 +105,7 @@ describe("registerCursorQuotaAdapters", () => {
     const host = (globalThis as Record<symbol, { mailbox?: { id: string }[] }>)[
       CURSOR_QUOTA_ADAPTERS_KEY
     ];
-    expect(host?.mailbox?.map((item) => item.id)).toEqual(["cursor-auto", "cursor-api"]);
+    expect(host?.mailbox?.map((item) => item.id)).toEqual(["cursor-include", "cursor-other"]);
   });
 
   it("calls host.register for each source when meter is already loaded", () => {
@@ -110,7 +115,10 @@ describe("registerCursorQuotaAdapters", () => {
     };
     registerCursorQuotaAdapters(async () => "token");
     expect(register).toHaveBeenCalledTimes(2);
-    expect(register.mock.calls.map((call) => call[0]?.id)).toEqual(["cursor-auto", "cursor-api"]);
+    expect(register.mock.calls.map((call) => call[0]?.id)).toEqual([
+      "cursor-include",
+      "cursor-other",
+    ]);
   });
 
   it("still registers a single adapter through the mailbox helper", () => {

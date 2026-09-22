@@ -383,11 +383,7 @@ function logFullHistoryRebuild(
   };
   debugLog("metric.cursor_provider.rebuild_full_history", lifecycleFields);
   resetEstimatedUsageAnchor(conversationStates.get(input.convKey));
-  reportCursorAnomaly(
-    "rebuild_full_history",
-    `Cursor rebuilt conversation history (${input.decision.rebuildReason})`,
-    lifecycleFields,
-  );
+  reportCursorAnomaly("rebuild_full_history", lifecycleFields);
 }
 
 export type RecoveryDecision = ExtractedRecoveryDecision;

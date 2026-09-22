@@ -78,16 +78,14 @@ describe("cursor lifecycle notify", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("notifies a short human message for rebuild when a sink is registered", () => {
+  it("does not notify when a sink is registered for rebuild", async () => {
     const notify = vi.fn();
     setCursorNotifySink(notify);
 
     __testInternals.logFullHistoryRebuild("native.rebuild_full_history", rebuildInput());
 
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledWith(
-      "Cursor rebuilt conversation history (stale_checkpoint)",
-      "warning",
-    );
+    const events = await readLifecycleEvents(logFile);
+    expect(events.some((event) => event.event === "rebuild_full_history")).toBe(true);
+    expect(notify).not.toHaveBeenCalled();
   });
 });

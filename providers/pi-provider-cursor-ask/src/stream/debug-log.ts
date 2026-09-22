@@ -5,8 +5,8 @@
  *   - `debugLog`             verbose JSONL, opt-in via PI_CURSOR_PROVIDER_DEBUG
  *   - `lifecycleLog`         always-on compact log for diagnosing multi-minute stalls
  *   - `emitMetric`           structured counters; defaults to lifecycleLog (never TUI)
- *   - `reportCursorAnomaly`  key user-visible recoveries: lifecycle + optional TUI notify
- *   - `reportCursorBillingIncomplete`  billing incompleteness: lifecycle + footer status
+ *   - `reportCursorAnomaly`  recoverable protocol noise: lifecycle only (never TUI)
+ *   - `reportCursorBillingIncomplete`  billing incompleteness: lifecycle only (never footer)
  *
  * Everything here swallows its own errors: diagnostics must never break a turn.
  * Payloads pass through `sanitizeForDebug`, which truncates strings, summarizes
@@ -262,12 +262,11 @@ export type CursorStatusSink = (key: string, text: string | undefined) => void;
 
 export const CURSOR_BILLING_STATUS_KEY = "cursor-billing";
 
-let cursorNotifySink: CursorNotifySink | undefined;
 let cursorStatusSink: CursorStatusSink | undefined;
 
-/** Register a TUI notify sink from extension context. Omit to clear. */
-export function setCursorNotifySink(sink?: CursorNotifySink): void {
-  cursorNotifySink = sink;
+/** Kept for extension/test wiring. Recoverable anomalies no longer notify. */
+export function setCursorNotifySink(_sink?: CursorNotifySink): void {
+  // Commands notify through ctx.ui; this sink is intentionally unused.
 }
 
 /** Register a TUI footer-status sink from extension context. Omit to clear. */
@@ -275,21 +274,10 @@ export function setCursorStatusSink(sink?: CursorStatusSink): void {
   cursorStatusSink = sink;
 }
 
-/**
- * Billing incompleteness stays out of the chat transcript: lifecycle log plus
- * an optional footer status. No notify, no stderr fallback.
- */
-export function reportCursorBillingIncomplete(
-  statusText: string,
-  data?: Record<string, unknown>,
-): void {
+/** Billing incompleteness stays out of chat and the footer: lifecycle only. */
+export function reportCursorBillingIncomplete(data?: Record<string, unknown>): void {
   try {
     lifecycleLog("usage_incomplete", data);
-  } catch {
-    // Never throw from diagnostics.
-  }
-  try {
-    cursorStatusSink?.(CURSOR_BILLING_STATUS_KEY, statusText);
   } catch {
     // Never throw from diagnostics.
   }
@@ -303,34 +291,9 @@ export function clearCursorBillingIncomplete(): void {
   }
 }
 
-/**
- * Persist a rare user-visible anomaly to the lifecycle file.
- * Notifies the TUI when a sink is registered; otherwise no-op unless this is a
- * real failure with no other sink, in which case a short human line goes to stderr.
- */
-export function reportCursorAnomaly(
-  event: string,
-  message: string,
-  data?: Record<string, unknown>,
-  options?: { level?: CursorNotifyLevel; stderrIfNoSink?: boolean },
-): void {
+/** Persist a recoverable anomaly to the lifecycle file. Never notify or stderr. */
+export function reportCursorAnomaly(event: string, data?: Record<string, unknown>): void {
   lifecycleLog(event, data);
-  const level = options?.level ?? "warning";
-  if (cursorNotifySink) {
-    try {
-      cursorNotifySink(message, level);
-    } catch {
-      // Never throw from diagnostics.
-    }
-    return;
-  }
-  if (options?.stderrIfNoSink) {
-    try {
-      console.error(message);
-    } catch {
-      // Never throw from diagnostics.
-    }
-  }
 }
 
 export function nextDebugRequestId(): string {

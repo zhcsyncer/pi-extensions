@@ -237,13 +237,13 @@ export function formatCursorUsage(summary: CursorUsageSummary): string {
 
   if (plan?.autoPercentUsed !== undefined && plan.autoPercentUsed !== null) {
     lines.push(
-      `  Auto          ${formatPctLabel(plan.autoPercentUsed).padEnd(16)}${renderProgressBar(plan.autoPercentUsed)}`,
+      `  Include       ${formatPctLabel(plan.autoPercentUsed).padEnd(16)}${renderProgressBar(plan.autoPercentUsed)}`,
     );
   }
 
   if (plan?.apiPercentUsed !== undefined && plan.apiPercentUsed !== null) {
     lines.push(
-      `  API           ${formatPctLabel(plan.apiPercentUsed).padEnd(16)}${renderProgressBar(plan.apiPercentUsed)}`,
+      `  Other         ${formatPctLabel(plan.apiPercentUsed).padEnd(16)}${renderProgressBar(plan.apiPercentUsed)}`,
     );
   }
 

@@ -697,12 +697,7 @@ function handleExecMessageInner(
   // ExecClientThrow answers any exec by id without claiming a result, so the model
   // sees a failed tool instead of a dead stream.
   const unhandledCase = String(execCase ?? "unknown");
-  reportCursorAnomaly(
-    "unhandled_exec",
-    `Cursor unhandled exec answered with a throw (${unhandledCase})`,
-    { execCase: unhandledCase },
-    { level: "warning", stderrIfNoSink: true },
-  );
+  reportCursorAnomaly("unhandled_exec", { execCase: unhandledCase });
   lifecycleLog("exec_unknown_shape", {
     execCase: unhandledCase,
     unknownFields: describeUnknownFields(execMsg),
