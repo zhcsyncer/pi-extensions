@@ -1131,6 +1131,14 @@ function isStoredMessage(message: any): boolean {
   });
 }
 
+/** Pi 0.87 writes these for retry/overflow omissions; target is always an earlier branch entry. */
+function isStoredContextEdit(entry: any, ids: Set<string>): boolean {
+  if (typeof entry.targetId !== "string" || !entry.targetId || !ids.has(entry.targetId)) return false;
+  if (entry.replacement === null) return true;
+  return !!entry.replacement && typeof entry.replacement === "object" &&
+    (typeof entry.replacement.content === "string" || Array.isArray(entry.replacement.content));
+}
+
 /** SDK's parser skips malformed lines and open() can create a new session. Guard both before opening. */
 function validateSessionFile(sessionFile: string, cwd: string): { id: string; entryCount: number } {
   if (!sessionFile || !statSync(sessionFile).isFile()) throw new Error("Subagent session file is not a readable file");
@@ -1150,7 +1158,7 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
   }
   const ids = new Set<string>();
   const knownTypes = new Set(["message", "model_change", "thinking_level_change", "compaction", "branch_summary",
-    "custom", "custom_message", "label", "session_info", "usage"]);
+    "custom", "custom_message", "label", "session_info", "usage", "context_edit"]);
   for (const entry of entries.slice(1)) {
     if (!entry || !knownTypes.has(entry.type) || typeof entry.timestamp !== "string" ||
         ((header.version ?? 1) >= 2 && (typeof entry.id !== "string" || !entry.id || ids.has(entry.id) ||
@@ -1164,7 +1172,8 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
         (entry.type === "compaction" && (typeof entry.summary !== "string" || !Number.isFinite(entry.tokensBefore) ||
           (entry.retainedTail !== undefined
             ? !Array.isArray(entry.retainedTail) || !entry.retainedTail.every(isStoredMessage)
-            : !ids.has(entry.firstKeptEntryId))))) {
+            : !ids.has(entry.firstKeptEntryId)))) ||
+        (entry.type === "context_edit" && !isStoredContextEdit(entry, ids))) {
       throw new Error("Corrupt subagent session entry");
     }
     ids.add(entry.id);
