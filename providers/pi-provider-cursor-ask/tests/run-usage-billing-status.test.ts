@@ -113,18 +113,19 @@ describe("Cursor billing status surface", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("sets footer status for an unconsumed receipt and never notifies chat", async () => {
+  it("logs an unconsumed receipt without footer status or chat notify", async () => {
     reportRunUsageBoundary({ billedUsage: bill }, "stream_end");
 
-    expect(status).toHaveBeenCalledTimes(1);
-    expect(status).toHaveBeenCalledWith(
-      CURSOR_BILLING_STATUS_KEY,
-      "cursor: usage not fully billed",
-    );
+    const events = await readLifecycleEvents(logFile);
+    expect(events.find((event) => event.event === "usage_incomplete")).toMatchObject({
+      reason: "stream_end",
+      status: "receipt_unreported",
+    });
+    expect(status).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it("wires billing anomalies through footer status, not notify", () => {
+  it("does not surface billing incompleteness through notify or footer status", () => {
     const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => void>>();
     registerCursorNotifySink({
       on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void) {
@@ -144,25 +145,20 @@ describe("Cursor billing status surface", () => {
     reportRunUsageBoundary({ billedUsage: bill }, "stream_end");
 
     expect(uiNotify).not.toHaveBeenCalled();
-    expect(uiSetStatus).toHaveBeenCalledWith(
-      CURSOR_BILLING_STATUS_KEY,
-      "cursor: usage not fully billed",
-    );
+    expect(uiSetStatus).not.toHaveBeenCalled();
   });
 
-  it("sets footer status on a partial bill and clears it on a later complete receipt", async () => {
+  it("logs a partial bill without footer status and still clears leftover status on a complete receipt", async () => {
     const partialState = state();
     recordRunReceipt(partialState, bill, { ...raw, cacheWriteTokens: undefined });
     const partial = writer();
     partial.writer.done("stop", partialState);
     await partial.stream.result();
 
-    expect(status).toHaveBeenCalledWith(
-      CURSOR_BILLING_STATUS_KEY,
-      "cursor: usage not fully billed",
-    );
+    const events = await readLifecycleEvents(logFile);
+    expect(events.some((event) => event.event === "usage_incomplete")).toBe(true);
+    expect(status).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
-    status.mockClear();
 
     const completeState = state();
     recordRunReceipt(completeState, bill, raw);
