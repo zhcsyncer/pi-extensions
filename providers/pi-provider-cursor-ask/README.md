@@ -73,7 +73,7 @@ Available command:
 
 If Cursor requests history that is no longer available locally, the current generation fails with `Refusing to answer empty` instead of sending incomplete history. Retry to rebuild from Pi's conversation history.
 
-If `@zhcsyncer/pi-meter` is also loaded, the footer follows the current Cursor model: Composer and Grok use the Cursor Models (Auto) pool, while Claude rows use the Other Models (API) pool.
+If `@zhcsyncer/pi-meter` is also loaded, the footer follows the current Cursor model: Composer and Grok use the Include pool, while Claude rows use the Other pool.
 
 This package intentionally owns the `cursor` provider id as a drop-in replacement. Do not load it together with `@rahularya01/pi-cursor`; whichever extension registers last would replace the other's `cursor` catalog.
 

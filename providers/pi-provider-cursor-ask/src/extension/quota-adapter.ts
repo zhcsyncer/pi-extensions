@@ -1,8 +1,9 @@
 /**
  * Optional pi-meter guest quota sources.
  *
- * Cursor has two included pools: Cursor Models (Auto in the usage API) for
- * Composer and Grok, and Other Models (API) for Claude and remaining rows.
+ * Cursor has two included pools: Include (Composer and Grok; usage API `autoPercentUsed`)
+ * and Other (Claude and remaining rows; `apiPercentUsed`). Registration ids are the
+ * meter mailbox keys and also appear as footer brands, so they follow the same names.
  * Registration uses the process-global mailbox so this package does not import pi-meter.
  */
 
@@ -14,8 +15,8 @@ export const CURSOR_QUOTA_ADAPTERS_KEY = Symbol.for("@zhcsyncer/pi-meter/quota-a
 
 export type CursorQuotaPool = "auto" | "api";
 
-export const CURSOR_QUOTA_AUTO_ID = "cursor-auto";
-export const CURSOR_QUOTA_API_ID = "cursor-api";
+export const CURSOR_QUOTA_INCLUDE_ID = "cursor-include";
+export const CURSOR_QUOTA_OTHER_ID = "cursor-other";
 
 export interface CursorQuotaModelRef {
   provider?: string;
@@ -57,8 +58,8 @@ const POOL_META: Record<
   CursorQuotaPool,
   { id: string; title: string; windowId: string; label: string }
 > = {
-  auto: { id: CURSOR_QUOTA_AUTO_ID, title: "Cursor Auto", windowId: "auto", label: "Auto" },
-  api: { id: CURSOR_QUOTA_API_ID, title: "Cursor API", windowId: "api", label: "API" },
+  auto: { id: CURSOR_QUOTA_INCLUDE_ID, title: "Cursor Include", windowId: "include", label: "Include" },
+  api: { id: CURSOR_QUOTA_OTHER_ID, title: "Cursor Other", windowId: "other", label: "Other" },
 };
 
 function clampPercent(value: number): number {
@@ -136,14 +137,14 @@ export function createCursorQuotaAdapters(
 
   return [
     {
-      id: CURSOR_QUOTA_AUTO_ID,
+      id: CURSOR_QUOTA_INCLUDE_ID,
       title: POOL_META.auto.title,
       matchProvider: (model) =>
         model.provider === CURSOR_ASK_IDENTITY.providerId && usesCursorModelsPool(model.id),
       fetch: async (_ctx, fetchedAt = Date.now()) => fetchPool("auto", fetchedAt),
     },
     {
-      id: CURSOR_QUOTA_API_ID,
+      id: CURSOR_QUOTA_OTHER_ID,
       title: POOL_META.api.title,
       matchProvider: (model) =>
         model.provider === CURSOR_ASK_IDENTITY.providerId && !usesCursorModelsPool(model.id),
