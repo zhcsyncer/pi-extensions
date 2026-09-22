@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+### Patch Changes
+
+- 2f97f4c: Persisted subagents that hit retry or context overflow on Pi 0.87 can be resumed instead of being rejected as corrupt.
+
 ## 0.2.2
 
 ### Patch Changes
