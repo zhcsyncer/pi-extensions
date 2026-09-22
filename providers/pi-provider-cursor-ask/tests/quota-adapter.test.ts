@@ -27,7 +27,12 @@ describe("cursorUsageToQuotaSnapshot", () => {
     expect(auto).toMatchObject({
       provider: "cursor-include",
       title: "Cursor Include",
-      primary: { id: "include", label: "Include", usedPercent: 12, resetsAt: summary.billingCycleEnd },
+      primary: {
+        id: "include",
+        label: "Include",
+        usedPercent: 12,
+        resetsAt: summary.billingCycleEnd,
+      },
     });
     expect(api).toMatchObject({
       provider: "cursor-other",
@@ -110,7 +115,10 @@ describe("registerCursorQuotaAdapters", () => {
     };
     registerCursorQuotaAdapters(async () => "token");
     expect(register).toHaveBeenCalledTimes(2);
-    expect(register.mock.calls.map((call) => call[0]?.id)).toEqual(["cursor-include", "cursor-other"]);
+    expect(register.mock.calls.map((call) => call[0]?.id)).toEqual([
+      "cursor-include",
+      "cursor-other",
+    ]);
   });
 
   it("still registers a single adapter through the mailbox helper", () => {

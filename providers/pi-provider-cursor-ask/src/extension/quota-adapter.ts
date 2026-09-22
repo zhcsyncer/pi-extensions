@@ -58,7 +58,12 @@ const POOL_META: Record<
   CursorQuotaPool,
   { id: string; title: string; windowId: string; label: string }
 > = {
-  auto: { id: CURSOR_QUOTA_INCLUDE_ID, title: "Cursor Include", windowId: "include", label: "Include" },
+  auto: {
+    id: CURSOR_QUOTA_INCLUDE_ID,
+    title: "Cursor Include",
+    windowId: "include",
+    label: "Include",
+  },
   api: { id: CURSOR_QUOTA_OTHER_ID, title: "Cursor Other", windowId: "other", label: "Other" },
 };
 
