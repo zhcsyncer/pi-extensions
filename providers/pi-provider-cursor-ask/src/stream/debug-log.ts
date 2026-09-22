@@ -262,12 +262,11 @@ export type CursorStatusSink = (key: string, text: string | undefined) => void;
 
 export const CURSOR_BILLING_STATUS_KEY = "cursor-billing";
 
-let cursorNotifySink: CursorNotifySink | undefined;
 let cursorStatusSink: CursorStatusSink | undefined;
 
-/** Register a TUI notify sink from extension context. Omit to clear. */
-export function setCursorNotifySink(sink?: CursorNotifySink): void {
-  cursorNotifySink = sink;
+/** Kept for extension/test wiring. Recoverable anomalies no longer notify. */
+export function setCursorNotifySink(_sink?: CursorNotifySink): void {
+  // Commands notify through ctx.ui; this sink is intentionally unused.
 }
 
 /** Register a TUI footer-status sink from extension context. Omit to clear. */
