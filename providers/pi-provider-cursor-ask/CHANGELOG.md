@@ -1,5 +1,12 @@
 # pi-provider-cursor-ask
 
+## 0.1.4
+
+### Patch Changes
+
+- 2f97f4c: Cursor quota labels now use Include and Other, matching Cursor's own wording. Composer and Grok still read the Include pool; Claude and other rows still read Other. Meter registration ids changed from `cursor-auto` / `cursor-api` to `cursor-include` / `cursor-other` because those ids appear in the footer brand; a `/reload` after upgrade starts a fresh snapshot under the new ids.
+- 2f97f4c: Successful Cursor recoveries and protocol noise no longer print a Warning in the chat transcript, and incomplete billing no longer occupies the footer. Those events still go to the lifecycle log; `/cursor usage` and `/cursor doctor` are unchanged.
+
 ## 0.1.3
 
 ### Patch Changes

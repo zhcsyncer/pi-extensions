@@ -1,5 +1,11 @@
 # @zhcsyncer/pi-extensions
 
+## 1.0.1
+
+### Patch Changes
+
+- 2f97f4c: Persisted subagents that hit retry or context overflow on Pi 0.87 can be resumed instead of being rejected as corrupt.
+
 ## 1.0.0
 
 ### Major Changes
