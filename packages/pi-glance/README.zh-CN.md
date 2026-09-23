@@ -31,9 +31,19 @@ pi install npm:@zhcsyncer/pi-glance
 /diff
 ```
 
-`/glance` 打开设置和实时输入界面预览。`/diff` 把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅未提交 Working Tree；annotations 只回填编辑器供你确认，不会自动发送。缺少 revdiff 时，仅 `/diff` 显示安装提示。
+`/glance` 打开设置和实时输入界面预览。`/diff` 先让你选择 Working tree、Branch vs main 或 Compare revisions，再把终端临时交给可选的 [`revdiff`](https://revdiff.com/) 审阅；annotations 只回填编辑器供你确认，不会自动发送。缺少 revdiff 时，仅 `/diff` 显示安装提示。
 
 `Ctrl+Shift+S` 收起或拿回当前输入框草稿。`Ctrl+Shift+U` 连按两次丢掉暂存。确认提示出现在输入框下方，带草稿开头，超时后消失。槽里还有未取回内容时，左边框会挂醒目的 `!stash`。同一会话 `/reload` 或 resume 后，若输入框是空的会自动倒回。
+
+### 审阅改动
+
+- `/diff worktree` — 审阅已暂存、未暂存和未跟踪改动。
+- `/diff branch [base]` — 从基线与 HEAD 的共同祖先开始，按 MR 方式审阅。选择 **Committed only**（仅已提交）或 **Include working tree**（包含工作区及未跟踪文件）。默认基线优先使用本地已有的 `origin/main`，其次本地 `main`；`/diff` 不会 fetch。两者都不存在时请指定基线。
+- `/diff compare [from] [to]` — 比较两个已提交版本的端点，不包含工作区改动。缺少的端点会打开可搜索选择器，列出本地/远端分支、tag 和 HEAD 最近 50 次提交；可按名称、SHA 或提交主题搜索，也可粘贴版本并选择 **Use typed ref/SHA**。
+
+Fullscreen 模式下，可点击 Git 状态栏或右下边框中末尾带强调色加粗 `›` 的改动摘要，直接审阅工作区。Regular 模式请使用 `/diff worktree`。只有实际显示的摘要可点击，分支名和空白边框不是链接。
+
+子命令支持补全。↑↓ 选择、Enter 确认，Esc 取消且不改动草稿。批注追加到回填时的当前草稿（空编辑器则直接填入）；取消或没有批注时不改动草稿。审阅需要空闲的 Pi TUI 和 Git 工作区。revdiff 原生的主题、compact、wrap 等外观偏好保持不变；比较范围由所选审阅模式决定，原生 include/exclude 文件过滤仍然有效。原配置不会被修改；在 `/diff` 内按 `T` 切换主题只对本次审阅有效。若要保存主题偏好，请单独运行 revdiff 或编辑其原生配置。
 
 ## 你会看到什么
 
@@ -67,7 +77,7 @@ Git 保持安静：
 
 - 干净仓库只显示分支名。
 - 脏仓库加 `*` / `●`；文件计数已可见时不亮灯，例如 `main Δ6 +123 −99`。
-- 冲突加 `!` / `⚠`。
+- 窄屏隐藏文件计数摘要时，已启用的 dirty marker 会恢复。冲突 `!` / `⚠` 始终独立保留。
 - 上游计数形如 `↑2 ↓1`。
 - 落后上次拿到的 `origin/main` 时显示高亮 `main↓N`。计数为 0、没有 `origin/main`、或上游 `↓N` 已经在报同一件事时不显示。
 

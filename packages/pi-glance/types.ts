@@ -224,10 +224,22 @@ interface SegmentDisplay {
 	minimal?: string;
 }
 
+export interface WorktreeRange {
+	start: number;
+	end: number;
+}
+
+export interface WorktreeText {
+	text: string;
+	worktreeRange?: WorktreeRange;
+}
+
 export interface SegmentData {
 	primary: string;
 	secondary?: string;
 	display?: SegmentDisplay;
+	worktreeSummary?: string;
+	gitMarker?: string;
 }
 
 export interface SegmentRenderContext {
@@ -236,11 +248,13 @@ export interface SegmentRenderContext {
 	widthMode: WidthMode;
 	icons: IconSet;
 	showProvider: boolean;
+	borderWorktreeSummaryVisible?: boolean;
+	omitWorktreeSummary?: boolean;
 }
 
-export interface SegmentRenderResult {
+export interface SegmentRenderResult extends WorktreeText {
 	id: SegmentId;
-	text: string;
+	gitFallback?: { label: string; marker: string };
 }
 
 export interface SegmentDefinition {

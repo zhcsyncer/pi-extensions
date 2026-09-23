@@ -77,8 +77,8 @@ assert.equal(
 			config.git.worktreeSummary = "border-right";
 		},
 	),
-	"git main",
-	"border-right should keep worktree counts and the dirty lamp out of the Git status line",
+	"git main *",
+	"standalone status rendering must retain the marker without evidence of a visible border summary",
 );
 assert.equal(
 	gitLine({ status: "dirty", dirty: true, unstaged: 1 }, (config) => {
@@ -186,8 +186,8 @@ assert.equal(
 		undefined,
 		48,
 	),
-	"git main main↓8",
-	"minimal git keeps base behind after the dirty lamp yields to worktree counts",
+	"git main *",
+	"minimal git restores the dirty marker because worktree counts are omitted",
 );
 assert.equal(
 	gitLine({ ahead: 2, behind: 0, baseBehind: 8 }, undefined, 80),

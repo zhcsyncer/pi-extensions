@@ -6,7 +6,8 @@ import {
 	safeWorkingSpinnerGlyphs,
 	splitGraphemes,
 	styledWorkingSpinnerFrames,
-	WORKING_SPINNER_GLYPHS,
+	workingSpinnerGlyphs,
+	WORKING_SPINNER_INTERVAL_MS,
 } from "../working-indicator-renderer.js";
 import type { WorkingIndicatorSnapshot } from "../working-indicator-state.js";
 
@@ -58,15 +59,31 @@ function snapshot(overrides: Partial<WorkingIndicatorSnapshot> = {}): WorkingInd
 	};
 }
 
-assert.deepEqual(
-	WORKING_SPINNER_GLYPHS,
-	["·", "·", "✢", "✢", "✱", "✶", "✻", "*", "*", "*", "*", "✻", "✶", "✱", "✢", "✢", "·"],
-	"spinner should use Claude Code's Ghostty peak-frame swap so the dwell stays one column",
-);
-assert.equal(WORKING_SPINNER_GLYPHS.length * 120, 2_040, "spinner cycle should stay close to Claude Code's calmer two-second rhythm");
-assert.ok(safeWorkingSpinnerGlyphs().every((glyph) => visibleWidth(glyph) === 1), "every spinner frame should be exactly one visible column");
-assert.deepEqual(safeWorkingSpinnerGlyphs(["✢", "ab", "🧪"]), ["✢", "*", "*"], "unsafe-width spinner glyphs should fall back to one-column stars");
-assert.ok(styledWorkingSpinnerFrames(styles).every((frame) => frame.includes(STYLE_CODES.title!)), "spinner frames should use resolved title styling");
+const ghosttyGlyphs = ["·", "·", "✢", "✢", "✳", "✶", "✻", "✻", "✻", "✻", "✻", "✻", "✶", "✳", "✢", "✢", "·"];
+const defaultGlyphs = ["·", "·", "✢", "✢", "✳", "✶", "✻", "✽", "✽", "✽", "✽", "✻", "✶", "✳", "✢", "✢", "·"];
+assert.deepEqual(workingSpinnerGlyphs("xterm-ghostty"), ghosttyGlyphs, "Ghostty should preserve the repeated and round-trip frames with a five-petalled peak");
+assert.deepEqual(workingSpinnerGlyphs("xterm-256color"), defaultGlyphs, "other terminals should preserve the repeated and round-trip frames with a six-petalled peak");
+assert.deepEqual(workingSpinnerGlyphs("xterm-ghostty-extra"), defaultGlyphs, "only the exact Ghostty TERM should select its frames");
+assert.equal(WORKING_SPINNER_INTERVAL_MS, 120, "spinner frames should retain the 120ms interval");
+
+const originalTerm = process.env.TERM;
+try {
+	for (const [term, expected] of [["xterm-ghostty", ghosttyGlyphs], ["xterm-256color", defaultGlyphs], [undefined, defaultGlyphs]] as const) {
+		if (term === undefined) delete process.env.TERM;
+		else process.env.TERM = term;
+		assert.deepEqual(workingSpinnerGlyphs(), expected, `TERM=${term} should select the expected 17-frame rhythm by default`);
+		assert.deepEqual(safeWorkingSpinnerGlyphs(), expected, `TERM=${term} should preserve every required glyph through the width guard`);
+		const frames = styledWorkingSpinnerFrames(styles);
+		assert.equal(frames.length, 17, `TERM=${term} should retain 17 frames`);
+		assert.equal(frames.length * WORKING_SPINNER_INTERVAL_MS, 2_040, `TERM=${term} should retain the 2040ms cycle`);
+		assert.deepEqual(frames, expected.map(styles.title), `TERM=${term} should render the selected glyphs with resolved title styling`);
+		assert.ok(frames.every((frame) => visibleWidth(frame) === 1), `TERM=${term} styled frames should each occupy exactly one column`);
+	}
+} finally {
+	if (originalTerm === undefined) delete process.env.TERM;
+	else process.env.TERM = originalTerm;
+}
+assert.deepEqual(safeWorkingSpinnerGlyphs(["✢", "", "ab", "🧪"]), ["✢", "*", "*", "*"], "unsafe-width spinner glyphs should fall back to one-column stars");
 
 assert.deepEqual(splitGraphemes("A👩‍💻e\u0301"), ["A", "👩‍💻", "é"], "grapheme segmentation should preserve emoji ZWJ and combining sequences");
 const unicode = renderWorkingMessage({ snapshot: snapshot({ verb: "👩‍💻e\u0301" }), nowMs: 0, width: 80, styles });

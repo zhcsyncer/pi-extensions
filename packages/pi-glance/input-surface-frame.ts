@@ -1,8 +1,8 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { bottomBorderProgressPercent, bottomDetailsBudget, renderBottomDetails } from "./bottom-details.js";
 import { inputStashMark, resolveInputStashChrome } from "./input-stash-chrome.js";
 import { contextRiskLevel } from "./context-risk.js";
-import { renderGlanceLine } from "./status-line.js";
+import { renderGlanceLineWithWorktree } from "./status-line.js";
 import {
 	planSurfaceBottomFrame,
 	planSurfaceRemainingLeftWidth,
@@ -18,7 +18,7 @@ import {
 	SURFACE_CONTENT_PADDING_X,
 } from "./surface-layout.js";
 import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
-import type { GlanceConfig, GlanceState } from "./types.js";
+import type { GlanceConfig, GlanceState, WorktreeRange, WorktreeText } from "./types.js";
 import { isBorderWorktreeSummary, renderWorktreeInline } from "./worktree-summary.js";
 
 export type InputSurfaceChromeFocus = "focused" | "unfocused";
@@ -45,7 +45,7 @@ export interface InputSurfaceFrameChrome {
 }
 
 export interface InputSurfaceFrameStatus {
-	render?: (budget: number, styles: ResolvedGlanceStyles) => string;
+	render?: (budget: number, styles: ResolvedGlanceStyles, borderSummaryVisible: boolean, worktreeMarker: string) => string | WorktreeText;
 }
 
 export interface InputSurfaceFrameInput {
@@ -56,6 +56,16 @@ export interface InputSurfaceFrameInput {
 	body: InputSurfaceFrameBody;
 	chrome?: InputSurfaceFrameChrome;
 	status?: InputSurfaceFrameStatus;
+	interactiveWorktree?: boolean;
+}
+
+export interface WorktreeRegion extends WorktreeRange {
+	row: number;
+}
+
+export interface InputSurfaceFrameResult {
+	lines: string[];
+	worktreeRegion?: WorktreeRegion;
 }
 
 function identity(text: string): string {
@@ -77,12 +87,34 @@ function shouldDimChrome(input: InputSurfaceFrameInput): boolean {
 	return input.body.kind === "editor" && input.chrome?.focus === "unfocused";
 }
 
-function resolveStatus(input: InputSurfaceFrameInput, budget: number): string {
-	const status = input.status?.render
-		? input.status.render(budget, input.styles)
-		: renderGlanceLine(input.state, input.config, budget, input.state.providers.availableCount, { styles: input.styles });
-	if (!status || !shouldDimChrome(input)) return status;
-	return input.styles.dim(stripControlsPreservingSpaces(status));
+const WORKTREE_REVIEW_MARKER = " ›";
+
+function canReviewWorktree(input: InputSurfaceFrameInput): boolean {
+	return input.interactiveWorktree === true && input.body.kind === "editor" && input.config.enabled
+		&& input.config.segments.some((segment) => segment.id === "git" && segment.enabled)
+		&& input.state.git.repo && (input.state.git.status === "dirty" || input.state.git.status === "conflict");
+}
+
+function resolveStatus(input: InputSurfaceFrameInput, budget: number, borderSummaryVisible: boolean): WorktreeText {
+	const marker = canReviewWorktree(input) ? WORKTREE_REVIEW_MARKER : "";
+	const rendered = input.status?.render
+		? input.status.render(budget, input.styles, borderSummaryVisible, marker)
+		: renderGlanceLineWithWorktree(input.state, input.config, budget, input.state.providers.availableCount, { styles: input.styles }, borderSummaryVisible, marker);
+	const status = typeof rendered === "string" ? { text: rendered } : rendered;
+	if (!status.text || !shouldDimChrome(input)) return status;
+	const plain = stripControlsPreservingSpaces(status.text);
+	if (marker && status.worktreeRange) {
+		const end = status.worktreeRange.end;
+		const markerWidth = visibleWidth(marker);
+		// Split plain columns after dimming away existing ANSI; keep only the affordance emphasized.
+		return {
+			...status,
+			text: input.styles.dim(sliceByColumn(plain, 0, end - markerWidth, true))
+				+ input.styles.strongTitle(sliceByColumn(plain, end - markerWidth, markerWidth, true))
+				+ input.styles.dim(sliceByColumn(plain, end, visibleWidth(plain) - end, true)),
+		};
+	}
+	return { ...status, text: input.styles.dim(plain) };
 }
 
 function activeBorder(input: InputSurfaceFrameInput): TextStyler {
@@ -130,23 +162,24 @@ function workspaceTitlePlan(
 	});
 }
 
-function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">): string {
+function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfaceFrameMetrics, "safeWidth" | "innerWidth">, borderSummaryVisible: boolean): WorktreeText {
 	const dimChrome = shouldDimChrome(input);
 	const border = activeBorder(input);
 	const title = dimChrome ? input.styles.dim : input.styles.title;
 	const interactiveLeft = interactiveTopLeftPlan(input, metrics);
 	let plan: ReturnType<typeof planSurfaceTopFrame>;
+	let status: WorktreeText;
 
 	if (interactiveLeft) {
 		const statusBudget = planSurfaceStatusBudget(metrics.innerWidth, interactiveLeft.width);
-		const status = resolveStatus(input, statusBudget);
-		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left: interactiveLeft, status });
+		status = resolveStatus(input, statusBudget, borderSummaryVisible);
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left: interactiveLeft, status: status.text });
 	} else {
 		const statusBudget = planSurfaceStatusFirstBudget(metrics.innerWidth);
-		const status = resolveStatus(input, statusBudget);
-		const titleMaxWidth = planSurfaceRemainingLeftWidth(metrics.innerWidth, status);
+		status = resolveStatus(input, statusBudget, borderSummaryVisible);
+		const titleMaxWidth = planSurfaceRemainingLeftWidth(metrics.innerWidth, status.text);
 		const left = workspaceTitlePlan(input, metrics, titleMaxWidth);
-		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left, status });
+		plan = planSurfaceTopFrame({ width: metrics.safeWidth, left, status: status.text });
 	}
 
 	const rendered = renderSurfaceChunks(plan.chunks, {
@@ -156,7 +189,10 @@ function renderTopFrame(input: InputSurfaceFrameInput, metrics: Pick<InputSurfac
 		text: identity,
 		dim: border,
 	});
-	return truncateToWidth(rendered, metrics.safeWidth, border("…"));
+	return {
+		text: truncateToWidth(rendered, metrics.safeWidth, border("…")),
+		worktreeRange: status.worktreeRange && plan.status.text === status.text ? rangeInStatusChunks(plan.chunks, status.worktreeRange) : undefined,
+	};
 }
 
 function renderPreviewRow(input: InputSurfaceFrameInput, text: string, index: number, width: number): string {
@@ -207,20 +243,22 @@ function renderBodyRow(input: InputSurfaceFrameInput, text: string, index: numbe
 		: renderEditorRow(input, text, width);
 }
 
-function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string {
+function renderBottomFrame(input: InputSurfaceFrameInput, width: number): WorktreeText {
 	const dimmed = shouldDimChrome(input);
 	const border = activeBorder(input);
 	const innerWidth = surfaceMetrics(width).innerWidth;
 	const scrollIndicator = input.chrome?.bottomScrollIndicator;
 	const indicatorWidth = Math.min(innerWidth, visibleWidth(scrollIndicator ?? ""));
 	const availableDetailsBudget = planSurfaceStatusBudget(innerWidth, indicatorWidth);
-	const hasBorderSummary = isBorderWorktreeSummary(input.config.git.worktreeSummary) && input.state.git.repo;
+	const hasBorderSummary = input.config.enabled && input.config.segments.some((segment) => segment.id === "git" && segment.enabled)
+		&& isBorderWorktreeSummary(input.config.git.worktreeSummary) && input.state.git.repo;
+	const marker = canReviewWorktree(input) ? WORKTREE_REVIEW_MARKER : "";
 	const rawSummary = hasBorderSummary
-		? renderWorktreeInline(input.state.git, availableDetailsBudget, input.styles)
+		? renderWorktreeInline(input.state.git, Math.max(0, availableDetailsBudget - visibleWidth(marker)), input.styles)
 		: "";
-	const summary = dimmed && rawSummary
-		? input.styles.dim(stripControlsPreservingSpaces(rawSummary))
-		: rawSummary;
+	const summary = rawSummary
+		? (dimmed ? input.styles.dim(stripControlsPreservingSpaces(rawSummary)) : rawSummary) + (marker ? input.styles.strongTitle(marker) : "")
+		: "";
 	const summaryReservation = summary ? visibleWidth(summary) + visibleWidth(" · ") : 0;
 	const remainingDetailsBudget = Math.max(0, availableDetailsBudget - summaryReservation);
 	const detailsBudget = input.config.context.progressWidth === "remaining"
@@ -252,8 +290,9 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 					? input.styles.dim
 					: input.styles.segments.context.fg;
 	const progressEmpty = dimmed || risk === "unknown" ? input.styles.dim : border;
-	return renderSurfaceChunks(
-		planSurfaceBottomFrame({ width, scrollIndicator, leftStatus, status, contextProgress }).chunks,
+	const plan = planSurfaceBottomFrame({ width, scrollIndicator, leftStatus, status, contextProgress });
+	const text = renderSurfaceChunks(
+		plan.chunks,
 		{
 			border,
 			status: identity,
@@ -261,6 +300,22 @@ function renderBottomFrame(input: InputSurfaceFrameInput, width: number): string
 			contextProgressEmpty: progressEmpty,
 		},
 	);
+	const summaryStart = detailsStatus ? visibleWidth(detailsStatus) + visibleWidth(joinedSeparator) : 0;
+	return {
+		text,
+		worktreeRange: summary && (input.state.git.status === "dirty" || input.state.git.status === "conflict") && plan.status.text === status
+			? rangeInStatusChunks(plan.chunks, { start: summaryStart, end: summaryStart + visibleWidth(summary) }) : undefined,
+	};
+}
+
+function rangeInStatusChunks(chunks: readonly { role: string; text: string }[], range: WorktreeRange): WorktreeRange | undefined {
+	let column = 0;
+	let result: WorktreeRange | undefined;
+	for (const chunk of chunks) {
+		if (chunk.role === "status") result = { start: column + range.start, end: column + range.end };
+		column += visibleWidth(chunk.text);
+	}
+	return result;
 }
 
 export function measureInputSurfaceFrame(width: number): InputSurfaceFrameMetrics {
@@ -273,19 +328,26 @@ export function measureInputSurfaceFrame(width: number): InputSurfaceFrameMetric
 	};
 }
 
-export function renderInputSurfaceFrame(input: InputSurfaceFrameInput): string[] {
+export function renderInputSurfaceFrameWithWorktree(input: InputSurfaceFrameInput): InputSurfaceFrameResult {
 	const metrics = measureInputSurfaceFrame(input.width);
 	const sourceLines = bodyLines(input.body);
 	const rows = Math.max(minContentRows(input.config), sourceLines.length);
-	const lines = [
-		...renderSurfaceTopMargin(metrics.safeWidth, input.config.editor.topMarginRows),
-		renderTopFrame(input, metrics),
-	];
+	const bottom = renderBottomFrame(input, metrics.safeWidth);
+	const top = renderTopFrame(input, metrics, Boolean(bottom.worktreeRange));
+	const margin = renderSurfaceTopMargin(metrics.safeWidth, input.config.editor.topMarginRows);
+	const lines = [...margin, top.text];
 
 	for (let i = 0; i < rows; i++) {
 		lines.push(renderBodyRow(input, sourceLines[i] ?? "", i, metrics.safeWidth));
 	}
 
-	lines.push(renderBottomFrame(input, metrics.safeWidth));
-	return lines;
+	lines.push(bottom.text);
+	const range = top.worktreeRange ?? bottom.worktreeRange;
+	const worktreeRegion = canReviewWorktree(input) && range
+		? { ...range, row: top.worktreeRange ? margin.length : lines.length - 1 } : undefined;
+	return { lines, worktreeRegion };
+}
+
+export function renderInputSurfaceFrame(input: InputSurfaceFrameInput): string[] {
+	return renderInputSurfaceFrameWithWorktree(input).lines;
 }

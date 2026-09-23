@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ResolvedGlanceStyles, TextStyler } from "./theme-adapter.js";
 import type { GitSnapshot, WorktreeSummaryMode } from "./types.js";
 
@@ -46,8 +46,7 @@ function chooseCandidate(candidates: readonly SummaryCandidate[], width: number,
 	for (const candidate of candidates) {
 		if (partsWidth(candidate) <= width) return renderParts(candidate, styles);
 	}
-	const fallback = candidates.at(-1) ?? [];
-	return truncateToWidth(renderParts(fallback, styles), width, "");
+	return "";
 }
 
 function separator(): SummaryPart {
@@ -96,6 +95,8 @@ export function worktreeInlineCandidates(snapshot: GitSnapshot): SummaryCandidat
 		];
 	}
 
+	if (snapshot.status !== "dirty" && snapshot.status !== "conflict") return [[]];
+	if (snapshot.worktree.files <= 0) return [[]];
 	const fullFiles = fileParts(snapshot, true);
 	const compactFiles = fileParts(snapshot, false);
 	const fullConflicts = conflictParts(snapshot, true);

@@ -470,7 +470,7 @@ function assertInputSurfaceFrameSeamImports(files: SourceFile[]): void {
 	if (/GlanceRenderStyleContext|resolveGlanceRenderStyles|readPiUiTheme|createPiRenderStyleContext|enablePiThemeStyles|resolvePiThemeStyles|PiThemeLike|ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(inputSurfaceFrame.text)) {
 		fail(`${inputSurfaceFrame.path}: frame seam must not depend on Pi theme provider/product APIs`);
 	}
-	if (!/renderGlanceLine\([\s\S]*?\{ styles: input\.styles \}/.test(inputSurfaceFrame.text)) fail(`${inputSurfaceFrame.path}: default status rendering should pass resolved styles into status-line`);
+	if (!/renderGlanceLineWithWorktree\([\s\S]*?\{ styles: input\.styles \}/.test(inputSurfaceFrame.text)) fail(`${inputSurfaceFrame.path}: default status rendering should pass resolved styles into status-line`);
 	if (/\bPALETTES\b|(^|[^.\w$])fg\s*\(/.test(inputSurfaceFrame.text)) fail(`${inputSurfaceFrame.path}: frame seam must not style through direct palette/fg access`);
 }
 
@@ -807,8 +807,6 @@ function assertEditorSeamImports(files: SourceFile[]): void {
 	if (!editor.text.includes("resolveGlanceRenderStyles(config, this.glanceOptions?.renderStyleContext)")) fail(`${editor.path}: editor styling should resolve config.theme pair through the shared adapter context`);
 	if (/selectGlanceTheme\(config\.theme,\s*["']light["']\)/.test(editor.text)) fail(`${editor.path}: editor must not hardcode the light theme slot bridge`);
 	if (!editor.text.includes("measureInputSurfaceFrame") || !editor.text.includes("renderInputSurfaceFrame")) fail(`${editor.path}: editor live frame path should delegate frame metrics/assembly to input-surface-frame`);
-	if (!/renderGlanceLine\([\s\S]*?\{ styles \}/.test(editor.text)) fail(`${editor.path}: editor cached status callback should pass its render-pass styles into status-line rendering`);
-	if (!editor.text.includes("cachedStatusStyleKey") || !editor.text.includes("styles.cacheKey")) fail(`${editor.path}: editor status cache should include style cacheKey awareness`);
 	assertNoLowLevelFrameCompositionTokens(editor, "editor live path");
 	if (importSpecifiers(editor).includes("./surface-layout.js")) {
 		const names = namedImportsFrom(editor, "./surface-layout.js");
@@ -838,7 +836,7 @@ function assertStatusLineConsumers(files: SourceFile[]): void {
 	const editorImports = [...editor.text.matchAll(importPattern)].map((match) => match[1]!);
 	if (editorImports.includes("./renderer.js")) fail(`${editor.path}: editor must not import renderGlanceLine from renderer after status-line split`);
 	assert.ok(editorImports.includes("./input-surface-frame.js"), "editor.ts should import input-surface-frame seam for live frame assembly");
-	assert.ok(editorImports.includes("./status-line.js"), "editor.ts should still import status-line for cached live status rendering");
+	assert.equal(editorImports.includes("./status-line.js"), false, "editor.ts should receive fresh status visibility through input-surface-frame");
 }
 
 function assertStateModulePiFree(files: SourceFile[]): void {

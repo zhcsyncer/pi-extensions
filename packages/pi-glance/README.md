@@ -35,9 +35,19 @@ Needs Pi 0.80.4 or newer.
 /diff
 ```
 
-`/glance` opens settings with a live input-surface preview. `/diff` hands the terminal to optional [`revdiff`](https://revdiff.com/) for an uncommitted working-tree review; annotations return to the editor for you to confirm and are never sent automatically. If revdiff is missing, only `/diff` shows the install hint.
+`/glance` opens settings with a live input-surface preview. `/diff` hands the terminal to optional [`revdiff`](https://revdiff.com/) after you choose Working tree, Branch vs main, or Compare revisions; annotations return to the editor for you to confirm and are never sent automatically. If revdiff is missing, only `/diff` shows the install hint.
 
 `Ctrl+Shift+S` stashes or restores the current editor draft. `Ctrl+Shift+U` discards the stash after a second press. Confirm prompts appear under the editor with a short draft preview and disappear if you wait. The left border shows a highlighted `!stash` mark while a draft is waiting. Reloading or resuming the same session restores it automatically if the editor is empty.
+
+### Review changes
+
+- `/diff worktree` — review staged, unstaged, and untracked changes.
+- `/diff branch [base]` — MR-style review from the common ancestor of the base and HEAD. Choose **Committed only** or **Include working tree** (including untracked files). The default base is the locally available `origin/main`, falling back to local `main`; `/diff` never fetches. Supply a base if neither exists.
+- `/diff compare [from] [to]` — compare two committed endpoints, without working-tree changes. Missing endpoints open a searchable picker for local/remote branches, tags, and the latest 50 commits on HEAD. Search by name, SHA, or commit subject, or choose **Use typed ref/SHA** after pasting a revision.
+
+In fullscreen mode, click the changes summary ending in a bold, accent-colored `›` in the Git status line or bottom-right border to review the working tree directly. In regular mode, use `/diff worktree`. Only the displayed summary is clickable, not the branch name or empty border.
+
+Subcommands have completion. Use ↑↓ and Enter to choose; Esc cancels without changing your draft. Annotations append to the current draft (or fill an empty editor); a cancelled or annotation-free review leaves it untouched. Reviews require an idle Pi TUI and a Git worktree. Revdiff keeps your native appearance preferences, including theme, compact mode, and wrapping; the selected review mode determines which changes are included. Native include/exclude file filters still apply. Your original config is not modified; theme changes made with `T` inside `/diff` apply only to that review. To save a theme preference, use standalone revdiff or edit its native config.
 
 ## What you see
 
@@ -73,7 +83,7 @@ Git stays quiet:
 
 - Clean trees show only the branch name.
 - Dirty trees add `*` / `●` unless Working Tree file counts are already visible, for example `main Δ6 +123 −99`.
-- Conflicts add `!` / `⚠`.
+- If a narrow layout hides the file-count summary, the enabled dirty marker returns. Conflicts add `!` / `⚠` independently of the summary.
 - Upstream counts look like `↑2 ↓1`.
 - Behind the last local `origin/main` adds highlighted `main↓N`. It stays hidden when the count is 0, `origin/main` is missing, or upstream `↓N` is already showing that same lag.
 
