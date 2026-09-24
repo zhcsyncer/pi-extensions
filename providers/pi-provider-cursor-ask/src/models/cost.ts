@@ -20,6 +20,8 @@ export const MODEL_COST_TABLE: Record<string, ModelCost> = {
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
   "claude-opus-4-6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  // Pi Anthropic catalog pricing, in USD per million tokens.
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "composer-1": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
   "composer-1.5": { input: 3.5, output: 17.5, cacheRead: 0.35, cacheWrite: 0 },
@@ -63,6 +65,10 @@ export const MODEL_COST_PATTERNS: Array<{ match: (id: string) => boolean; cost: 
   {
     match: (id) => /claude.*opus.*fast/i.test(id),
     cost: { input: 30, output: 150, cacheRead: 3, cacheWrite: 37.5 },
+  },
+  {
+    match: (id) => /(?:^|[\s-])opus-5[.-]5(?=$|[\s-])/i.test(id),
+    cost: MODEL_COST_TABLE["claude-opus-5-5"] ?? DEFAULT_COST,
   },
   {
     match: (id) => /claude.*opus|opus-5|opus-4/i.test(id),

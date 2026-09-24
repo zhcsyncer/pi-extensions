@@ -21,6 +21,7 @@ export interface AskModelSpec {
   requestedModelId: string;
   context: "1m";
   contextWindow: number;
+  includeThinkingParameter: boolean;
   candidates: readonly string[];
   familyCandidates: readonly string[];
 }
@@ -46,6 +47,13 @@ const families = {
     defaultContext: "300k" as const,
     candidates: ["claude-fable-5-thinking", "claude-5-fable-thinking"],
     oneMillionCandidates: ["claude-fable-5-1m-thinking", "claude-5-fable-1m-thinking"],
+  },
+  opus55: {
+    requestedModelId: "claude-opus-5-5",
+    defaultContext: "300k" as const,
+    candidates: ["claude-opus-5-5"],
+    oneMillionCandidates: ["claude-opus-5-5-1m"],
+    includeThinkingParameter: false,
   },
   opus5: {
     requestedModelId: "claude-opus-5",
@@ -82,6 +90,7 @@ function specForFamily(options: {
   defaultContext: "200k" | "300k";
   candidates: readonly string[];
   oneMillionCandidates: readonly string[];
+  includeThinkingParameter?: boolean;
 }): AskModelSpec {
   return {
     id: options.id,
@@ -89,6 +98,7 @@ function specForFamily(options: {
     requestedModelId: options.requestedModelId,
     context: "1m",
     contextWindow: 1_000_000,
+    includeThinkingParameter: options.includeThinkingParameter ?? true,
     candidates: options.oneMillionCandidates,
     familyCandidates: [...options.candidates, ...options.oneMillionCandidates],
   };
@@ -97,6 +107,7 @@ function specForFamily(options: {
 export const ASK_MODEL_SPECS: readonly AskModelSpec[] = [
   specForFamily({ id: "fable-5.1", name: "Fable 5.1", ...families.fable51 }),
   specForFamily({ id: "fable-5", name: "Fable 5", ...families.fable5 }),
+  specForFamily({ id: "opus-5.5", name: "Opus 5.5", ...families.opus55 }),
   specForFamily({ id: "opus-5", name: "Opus 5", ...families.opus5 }),
   specForFamily({ id: "opus-4.6", name: "Opus 4.6", ...families.opus46 }),
   specForFamily({ id: "sonnet-5", name: "Sonnet 5", ...families.sonnet5 }),
@@ -161,7 +172,7 @@ function routeForLevel(
     ) ?? [];
   const parameters = [
     ...passthrough,
-    { id: "thinking", value: "true" },
+    ...(spec.includeThinkingParameter ? [{ id: "thinking", value: "true" }] : []),
     { id: "context", value: spec.context },
     { id: "effort", value: sourceEffortParameter(sourceRoute, level) },
     { id: "fast", value: "false" },

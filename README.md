@@ -48,7 +48,7 @@ Requires Pi 0.86 or later. Fast Mode, Consult, Subagents, and the standalone Cur
 
 These providers are not included in the root bundle and release independently.
 
-- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — a full `@rahularya01/pi-cursor` replacement that keeps the `cursor` provider/login identity and maps only a curated subset of models: five always-thinking 1M Fable/Opus/Sonnet rows, Composer 2.5 / Fast, and Grok 4.6 / Fast when the live catalog includes them.
+- [`pi-provider-cursor-ask`](./providers/pi-provider-cursor-ask) — a full `@rahularya01/pi-cursor` replacement that keeps the `cursor` provider/login identity and maps only a curated subset of models: six 1M Fable/Opus/Sonnet rows (including Opus 5.5), Composer 2.5 / Fast, and Grok 4.6 / Fast when the live catalog includes them.
 - [`pi-provider-volcengine-agent-plan`](./providers/pi-provider-volcengine-agent-plan) — an unofficial Volcengine Ark Agent Plan provider with tier-aware models and Pi login.
 
 ```bash

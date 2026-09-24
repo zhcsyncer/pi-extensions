@@ -14,6 +14,8 @@ import type {
   ProcessedModel,
 } from "../src/models/processing.js";
 import { modelConfig, processModels } from "../src/models/processing.js";
+import { modelsFromParameterizedMetadata } from "../src/models/parameterized.js";
+import type { CursorParameterizedModel } from "../src/client/cursor-wire.js";
 import type { CursorModel } from "../src/stream/model-discovery.js";
 import { resolveNativeReasoningEffort } from "../src/stream/pi-adapter.js";
 
@@ -86,6 +88,49 @@ function parameters(route: CursorModelRouting): Record<string, string> {
   return Object.fromEntries((route.parameters ?? []).map(({ id, value }) => [id, value]));
 }
 
+function assertOpus55Routes(catalog: ProcessedModel[]): void {
+  expect(catalog.filter((model) => model.id.startsWith("opus-5")).map(({ id }) => id)).toEqual([
+    "opus-5.5",
+    "opus-5",
+  ]);
+  const opus55 = catalog.find((model) => model.id === "opus-5.5")!;
+  expect(opus55).toMatchObject({
+    name: "Opus 5.5",
+    requestedModelId: "claude-opus-5-5",
+    contextWindow: 1_000_000,
+    supportsImages: true,
+    requiresMaxMode: true,
+    requestedMaxMode: true,
+  });
+  expect(supportedAskThinkingLevels(opus55)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  expect(parameters(opus55.rawRoutingByEffort!.medium!)).toEqual({
+    context: "1m",
+    effort: "medium",
+    fast: "false",
+  });
+  expect(opus55.parameters).toEqual(opus55.rawRoutingByEffort!.medium!.parameters);
+  const opus5 = catalog.find((model) => model.id === "opus-5")!;
+  for (const level of ["low", "medium", "high", "xhigh", "max"]) {
+    expect(opus55.rawRoutingByEffort?.[level]).toEqual({
+      modelId: "claude-opus-5-5",
+      parameters: [
+        { id: "context", value: "1m" },
+        { id: "effort", value: level },
+        { id: "fast", value: "false" },
+      ],
+      requiresMaxMode: true,
+      requestedMaxMode: true,
+    });
+    expect(opus5.rawRoutingByEffort?.[level]?.modelId).toBe("claude-opus-5");
+    expect(parameters(opus5.rawRoutingByEffort![level]!)).toEqual({
+      thinking: "true",
+      context: "1m",
+      effort: level,
+      fast: "false",
+    });
+  }
+}
+
 describe("Cursor Ask catalog contract", () => {
   it("always exposes the curated 1M Claude rows plus Composer 2.5 / Fast", () => {
     const catalog = buildAskCatalog([]);
@@ -111,18 +156,21 @@ describe("Cursor Ask catalog contract", () => {
     ).toBe(false);
   });
 
-  it("routes every level through the official requestedModelId and fixed parameters", () => {
-    const sources = ASK_MODEL_SPECS.map((spec) =>
+  it("keeps thinking=true for every level of the older Claude families", () => {
+    const legacySpecs = ASK_MODEL_SPECS.filter((spec) => spec.id !== "opus-5.5");
+    const sources = legacySpecs.map((spec) =>
       sourceModel({
         id: spec.candidates[0]!,
         requestedModelId: spec.requestedModelId,
         context: spec.context,
       }),
     );
-    const catalog = buildAskCatalog(sources).slice(0, ASK_MODEL_SPECS.length);
+    const catalog = buildAskCatalog(sources).filter((model) =>
+      legacySpecs.some((spec) => spec.id === model.id),
+    );
 
     for (const [index, model] of catalog.entries()) {
-      const spec = ASK_MODEL_SPECS[index]!;
+      const spec = legacySpecs[index]!;
       expect(supportedAskThinkingLevels(model)).toEqual(ALL_LEVELS);
       for (const level of ALL_LEVELS) {
         const route = model.rawRoutingByEffort?.[level];
@@ -136,6 +184,89 @@ describe("Cursor Ask catalog contract", () => {
         expect(route?.requiresMaxMode).toBe(spec.context === "1m");
         expect(route?.requestedMaxMode).toBe(spec.context === "1m");
       }
+    }
+  });
+
+  it("routes live Opus 5.5 metadata through 1M without a thinking parameter", () => {
+    const metadata: CursorParameterizedModel = {
+      name: "claude-opus-5-5",
+      serverModelName: "claude-opus-5-5",
+      clientDisplayName: "Opus 5.5",
+      supportsMaxMode: true,
+      supportsNonMaxMode: true,
+      supportsImages: true,
+      contextTokenLimit: 300_000,
+      contextTokenLimitForMaxMode: 1_000_000,
+      variants: ["300k", "1m"].flatMap((context) =>
+        ["low", "medium", "high", "xhigh", "max"].flatMap((effort) =>
+          [false, true].map((fast) => ({
+            parameters: [
+              { id: "context", value: context },
+              { id: "effort", value: effort },
+              { id: "fast", value: String(fast) },
+            ],
+            isMaxMode: context === "1m" || fast,
+            isDefaultNonMaxConfig: context === "300k" && effort === "medium" && !fast,
+            isDefaultMaxConfig: context === "1m" && effort === "medium" && !fast,
+          })),
+        ),
+      ),
+    };
+    const processed = processModels(modelsFromParameterizedMetadata([metadata]));
+    expect(processed.map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-opus-5-5-1m",
+      "claude-opus-5-5-1m-fast",
+      "claude-opus-5-5-max",
+      "claude-opus-5-5-max-fast",
+    ]);
+    const catalog = buildAskCatalog(processed);
+    assertOpus55Routes(catalog);
+  });
+
+  it("provides the same Opus 5.5 routes without a live source", () => {
+    assertOpus55Routes(buildAskCatalog([]));
+  });
+
+  it("rebuilds raw Opus 5.5 effort ids without confusing Opus 5", () => {
+    const raw: CursorModel[] = ["low", "medium", "high", "xhigh", "max"].flatMap((effort) =>
+      ["", "-fast"].map((suffix) => ({
+        id: `claude-opus-5-5-${effort}${suffix}`,
+        name: "Opus 5.5",
+        reasoning: true,
+        contextWindow: 300_000,
+        maxTokens: 64_000,
+        supportsImages: true,
+      })),
+    );
+    assertOpus55Routes(
+      buildAskCatalog([
+        ...processModels(raw),
+        sourceModel({
+          id: "claude-opus-5-1m-thinking",
+          requestedModelId: "claude-opus-5",
+          context: "1m",
+        }),
+      ]),
+    );
+  });
+
+  it("preserves an authoritative parameterized source backend for Opus 5.5", () => {
+    const catalog = buildAskCatalog([
+      sourceModel({
+        id: "claude-opus-5-5-1m",
+        requestedModelId: "authoritative-opus-backend",
+        context: "1m",
+      }),
+    ]);
+    const model = catalog.find((row) => row.id === "opus-5.5")!;
+    for (const level of ALL_LEVELS) {
+      expect(model.rawRoutingByEffort?.[level]?.modelId).toBe("authoritative-opus-backend");
+      expect(parameters(model.rawRoutingByEffort![level]!)).toEqual({
+        context: "1m",
+        effort: level,
+        fast: "false",
+      });
     }
   });
 
