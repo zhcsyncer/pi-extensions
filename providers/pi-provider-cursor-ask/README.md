@@ -14,8 +14,8 @@ The fork differs in these user-visible ways:
 
 - Replaces the upstream extension under the same `cursor` provider/login identity and `cursor-native` stream API.
 - Keeps tool execution in Pi: requests with Pi tools expose only the Cursor MCP tool family; tool-free questions disable Cursor tools. Cursor-native filesystem, shell, and subagent tools are not offered.
-- Maps only a curated subset of Cursor models, not the full catalog: five always-thinking 1M Claude rows, Composer 2.5 / Composer 2.5 Fast, and Grok 4.6 / Grok 4.6 Fast when the live account catalog includes them. Other Cursor families are not registered.
-- Uses readable picker names without a separate default-context row, because Cursor bills these Claude models at one rate up to 1M.
+- Maps only a curated subset of Cursor models, not the full catalog: six 1M Claude rows (including Opus 5.5), Composer 2.5 / Composer 2.5 Fast, and Grok 4.6 / Grok 4.6 Fast when the live account catalog includes them. Other Cursor families are not registered.
+- Uses readable picker names with a single 1M row per Claude model instead of separate default-context rows.
 - Maps only advertised Pi thinking levels. Claude uses Cursor `effort`. Composer 2.5 has no effort parameter, so `off`/`max` are an explicit Max Mode switch and other levels stay unavailable. Grok keeps upstream `low`/`medium`/`high`/`xhigh` routing instead of the Claude 1M rebuild.
 - Publishes independently as `pi-provider-cursor-ask` and is not included in `@zhcsyncer/pi-extensions`.
 
@@ -27,13 +27,14 @@ This package maps only the models below. The rest of the Cursor catalog is omitt
 
 - Fable 5.1
 - Fable 5
+- Opus 5.5
 - Opus 5
 - Opus 4.6
 - Sonnet 5
 - Composer 2.5 / Composer 2.5 Fast
 - Grok 4.6 / Grok 4.6 Fast (only when the account catalog includes them)
 
-Thinking cannot be disabled on the five Claude rows. Depending on Cursor's metadata for a Claude model, Pi may offer `low`, `medium`, `high`, `xhigh`, and `max`; unavailable levels are omitted. Composer 2.5 exposes only `off` (standard) and `max` (Max Mode). Grok exposes `low`, `medium`, `high`, and `xhigh`.
+The six Claude rows do not offer Pi's thinking `off` level. Depending on Cursor's metadata for a Claude model, Pi may offer `low`, `medium`, `high`, `xhigh`, and `max`; unavailable levels are omitted. Opus 5.5 offers all five levels at normal speed with 1M context, which requires Cursor Max Mode. Composer 2.5 exposes only `off` (standard) and `max` (Max Mode). Grok exposes `low`, `medium`, `high`, and `xhigh`.
 
 ## Requirements
 
@@ -64,7 +65,7 @@ List the filtered models:
 pi --list-models cursor
 ```
 
-Select `cursor/fable-5.1`, `cursor/fable-5`, `cursor/opus-5`, `cursor/opus-4.6`, `cursor/sonnet-5`, or, when advertised, `cursor/grok-4.6` / `cursor/grok-4.6-fast`.
+Select `cursor/fable-5.1`, `cursor/fable-5`, `cursor/opus-5.5`, `cursor/opus-5`, `cursor/opus-4.6`, `cursor/sonnet-5`, or, when advertised, `cursor/grok-4.6` / `cursor/grok-4.6-fast`.
 
 Available command:
 

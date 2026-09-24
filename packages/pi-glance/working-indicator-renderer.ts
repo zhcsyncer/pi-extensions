@@ -2,7 +2,6 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ResolvedGlanceStyles } from "./theme-adapter.js";
 import { isWorkingStalled, type WorkingIndicatorSnapshot, workingOutputTokens } from "./working-indicator-state.js";
 
-export const WORKING_SPINNER_GLYPHS = ["·", "·", "✢", "✢", "✱", "✶", "✻", "*", "*", "*", "*", "✻", "✶", "✱", "✢", "✢", "·"] as const;
 export const WORKING_SPINNER_INTERVAL_MS = 120;
 
 const SHIMMER_EDGE_TRAVEL_COLUMNS = 10;
@@ -19,7 +18,12 @@ export interface WorkingRenderInput {
 	readonly styles: ResolvedGlanceStyles;
 }
 
-export function safeWorkingSpinnerGlyphs(glyphs: readonly string[] = WORKING_SPINNER_GLYPHS): string[] {
+export function workingSpinnerGlyphs(term: string | undefined = process.env.TERM): string[] {
+	const peak = term === "xterm-ghostty" ? "✻" : "✽";
+	return ["·", "·", "✢", "✢", "✳", "✶", "✻", peak, peak, peak, peak, "✻", "✶", "✳", "✢", "✢", "·"];
+}
+
+export function safeWorkingSpinnerGlyphs(glyphs: readonly string[] = workingSpinnerGlyphs()): string[] {
 	return glyphs.map((glyph) => (visibleWidth(glyph) === 1 ? glyph : "*"));
 }
 

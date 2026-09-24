@@ -97,7 +97,7 @@ export interface RuntimeHarnessOptions {
 	clearTimeout?: GlanceRuntimeAdapters["clearTimeout"];
 	createInputStashStore?: GlanceRuntimeAdapters["createInputStashStore"];
 	workingIndicator?: GlanceRuntimeAdapters["workingIndicator"];
-	reviewWorkingTree?: GlanceRuntimeAdapters["reviewWorkingTree"];
+	reviewDiff?: GlanceRuntimeAdapters["reviewDiff"];
 }
 
 export interface RuntimeHarness {
@@ -426,7 +426,7 @@ export function createRuntimeHarness(options: RuntimeHarnessOptions = {}): Runti
 		},
 		createGitRefresher: options.git?.create,
 		fetchGitBaseRef: options.git?.fetchGitBaseRef,
-		reviewWorkingTree: options.reviewWorkingTree,
+		reviewDiff: options.reviewDiff,
 		nowMs: options.nowMs,
 		setTimeout: options.setTimeout,
 		clearTimeout: options.clearTimeout,

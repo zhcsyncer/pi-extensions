@@ -27,12 +27,13 @@ function worktreeSummaryLabel(mode: GlanceConfig["git"]["worktreeSummary"]): str
 	return mode === "border-right" ? "border right" : "status";
 }
 
-function worktreeHasVisibleSummary(ctx: SegmentRenderContext): boolean {
-	return ctx.state.git.status !== "clean" && ctx.state.git.worktree.files > 0;
+function hasStatusSummary(ctx: SegmentRenderContext): boolean {
+	return ctx.config.git.worktreeSummary === "status" && ctx.widthMode !== "minimal" && !ctx.omitWorktreeSummary
+		&& (ctx.state.git.status === "dirty" || ctx.state.git.status === "conflict") && ctx.state.git.worktree.files > 0;
 }
 
 function worktreeStatusParts(ctx: SegmentRenderContext): string[] {
-	if (ctx.config.git.worktreeSummary !== "status" || !worktreeHasVisibleSummary(ctx)) return [];
+	if (!hasStatusSummary(ctx)) return [];
 	const worktree = ctx.state.git.worktree;
 	const parts = [`Δ${worktree.files}`];
 	if (worktree.additions !== null && worktree.deletions !== null) {
@@ -77,7 +78,7 @@ function gitStatusPart(ctx: SegmentRenderContext): string {
 	if (!status) return "";
 	if (ctx.state.git.status === "conflict") return status;
 	if (!ctx.config.git.showDirty) return "";
-	if (worktreeHasVisibleSummary(ctx)) return "";
+	if (ctx.borderWorktreeSummaryVisible || hasStatusSummary(ctx)) return "";
 	return status;
 }
 
@@ -92,7 +93,6 @@ function gitDetailParts(ctx: SegmentRenderContext): string[] {
 	}
 	const baseBehind = gitBaseBehindPart(ctx);
 	if (baseBehind) parts.push(baseBehind);
-	parts.push(...worktreeStatusParts(ctx));
 	return parts;
 }
 
@@ -107,6 +107,8 @@ function collectGit(ctx: SegmentRenderContext): SegmentData | undefined {
 	return {
 		primary: branch,
 		secondary: parts.join(" ") || undefined,
+		worktreeSummary: worktreeStatusParts(ctx).join(" ") || undefined,
+		gitMarker: status || undefined,
 		display: {
 			minimal: [branch, ...minimalParts].join(" ").trim(),
 		},

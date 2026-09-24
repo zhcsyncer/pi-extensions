@@ -5,6 +5,15 @@ import { estimateModelCost } from "../src/models/cost.js";
 import { modelConfig } from "../src/models/processing.js";
 
 describe("estimateModelCost", () => {
+  it.each(["claude-opus-5-5", "opus-5.5"])("prices %s from Pi's Anthropic catalog", (id) => {
+    expect(estimateModelCost(id)).toEqual({
+      input: 4,
+      output: 20,
+      cacheRead: 0.2,
+      cacheWrite: 5,
+    });
+  });
+
   it("prices Fable 5.1 cheaper on cache reads than Fable 5", () => {
     expect(estimateModelCost("claude-fable-5-1")).toEqual({
       input: 10,
@@ -48,6 +57,7 @@ describe("Ask catalog local prices", () => {
     expect(catalog.map((model) => model.name)).toEqual([
       "Fable 5.1",
       "Fable 5",
+      "Opus 5.5",
       "Opus 5",
       "Opus 4.6",
       "Sonnet 5",
@@ -66,7 +76,18 @@ describe("Ask catalog local prices", () => {
       cacheRead: 1,
       cacheWrite: 12.5,
     });
-    expect(cost["opus-5"]).toMatchObject({ input: 5, output: 25 });
+    expect(cost["opus-5.5"]).toEqual({
+      input: 4,
+      output: 20,
+      cacheRead: 0.2,
+      cacheWrite: 5,
+    });
+    expect(cost["opus-5"]).toEqual({
+      input: 5,
+      output: 25,
+      cacheRead: 0.5,
+      cacheWrite: 6.25,
+    });
     expect(cost["sonnet-5"]).toEqual({
       input: 2,
       output: 10,

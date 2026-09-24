@@ -4,7 +4,7 @@ import { ICONS } from "./palette.js";
 import { SEGMENT_BY_ID } from "./segment-registry.js";
 import { renderSegment } from "./segments.js";
 import { resolveGlanceRenderStyles, type GlanceRenderStyleContext, type ResolvedGlanceStyles } from "./theme-adapter.js";
-import type { GlanceConfig, GlanceState, SegmentRenderContext, SegmentRenderResult, WidthMode } from "./types.js";
+import type { GlanceConfig, GlanceState, SegmentRenderContext, SegmentRenderResult, WidthMode, WorktreeText } from "./types.js";
 
 const RESET = "\x1b[0m";
 
@@ -48,6 +48,7 @@ function renderEnabledSegments(
 	width: number,
 	providerCount = 1,
 	styleContext: GlanceRenderStyleContext = {},
+	visibility: Pick<SegmentRenderContext, "borderWorktreeSummaryVisible" | "omitWorktreeSummary"> = {},
 ): { styles: ResolvedGlanceStyles; segments: SegmentRenderResult[] } {
 	const widthMode = widthModeFor(width);
 	const styles = resolveGlanceRenderStyles(config, styleContext);
@@ -58,6 +59,7 @@ function renderEnabledSegments(
 		widthMode,
 		icons,
 		showProvider: resolveShowProvider(config, providerCount, widthMode),
+		...visibility,
 	};
 	const rendered: SegmentRenderResult[] = [];
 	for (const segmentConfig of config.segments) {
@@ -70,41 +72,68 @@ function renderEnabledSegments(
 	return { styles, segments: rendered };
 }
 
-interface JoinedSegments {
-	text: string;
+interface JoinedSegments extends WorktreeText {
 	width: number;
+	gitFallback?: SegmentRenderResult["gitFallback"];
 }
 
-function joinSegments(styles: ResolvedGlanceStyles, segments: SegmentRenderResult[]): JoinedSegments {
+function joinSegments(styles: ResolvedGlanceStyles, segments: SegmentRenderResult[], worktreeMarker: string): JoinedSegments {
 	if (segments.length === 0) return { text: "", width: 0 };
 	const text = `${segments
-		.map((segment) => applyInlineSegmentStyle(segment, styles, segment.text))
+		.map((segment) => applyInlineSegmentStyle(segment, styles, segment.text) + (segment.worktreeRange && worktreeMarker ? styles.strongTitle(worktreeMarker) : ""))
 		.join(styles.separator(" · "))}${RESET}`;
-	return { text, width: visibleWidth(text) };
+	let offset = 0;
+	let worktreeRange: WorktreeText["worktreeRange"];
+	for (const segment of segments) {
+		const markerWidth = segment.worktreeRange ? visibleWidth(worktreeMarker) : 0;
+		if (segment.worktreeRange) worktreeRange = { start: offset + segment.worktreeRange.start, end: offset + segment.worktreeRange.end + markerWidth };
+		offset += visibleWidth(segment.text) + markerWidth + visibleWidth(" · ");
+	}
+	return { text, width: visibleWidth(text), worktreeRange, gitFallback: segments.length === 1 ? segments[0]?.gitFallback : undefined };
 }
 
-function fitSegments(styles: ResolvedGlanceStyles, segments: SegmentRenderResult[], width: number): JoinedSegments {
+function fitSegments(styles: ResolvedGlanceStyles, segments: SegmentRenderResult[], width: number, worktreeMarker: string): JoinedSegments {
 	const fitted = [...segments];
-	let joined = joinSegments(styles, fitted);
+	let joined = joinSegments(styles, fitted, worktreeMarker);
 	while (fitted.length > 1 && joined.width > width) {
 		fitted.pop();
-		joined = joinSegments(styles, fitted);
+		joined = joinSegments(styles, fitted, worktreeMarker);
 	}
 	return joined;
 }
 
-export function renderGlanceLine(
+export function renderGlanceLineWithWorktree(
 	state: GlanceState,
 	config: GlanceConfig,
 	width: number,
 	providerCount = state.providers.availableCount,
 	styleContext: GlanceRenderStyleContext = {},
-): string {
-	if (!config.enabled) return "";
-	const { styles, segments } = renderEnabledSegments(state, config, width, providerCount, styleContext);
-	const line = fitSegments(styles, segments, width);
-	if (line.width > width) {
-		return truncateToWidth(line.text, width, styles.dim("…"));
+	borderWorktreeSummaryVisible = false,
+	worktreeMarker = "",
+): WorktreeText {
+	if (!config.enabled || width <= 0) return { text: "" };
+	const { styles, segments } = renderEnabledSegments(state, config, width, providerCount, styleContext, { borderWorktreeSummaryVisible });
+	let line = fitSegments(styles, segments, width, worktreeMarker);
+	if (line.worktreeRange && line.width > width) {
+		// One-way fallback: a clipped summary is not evidence that changes are visible.
+		const fallback = renderEnabledSegments(state, config, width, providerCount, styleContext, { borderWorktreeSummaryVisible, omitWorktreeSummary: true });
+		line = fitSegments(styles, fallback.segments, width, worktreeMarker);
 	}
-	return line.text;
+	if (line.width > width) {
+		if (line.gitFallback) {
+			const { label, marker } = line.gitFallback;
+			const budget = width - visibleWidth(marker) - 1;
+			const text = budget > 0 ? `${truncateToWidth(label, budget, "…")} ${marker}` : truncateToWidth(marker, width, "");
+			return { text: applyGitSegmentStyle(styles, text) };
+		}
+		return { text: truncateToWidth(line.text, width, styles.dim("…")) };
+	}
+	return { text: line.text, worktreeRange: line.worktreeRange };
+}
+
+export function renderGlanceLine(
+	state: GlanceState, config: GlanceConfig, width: number,
+	providerCount = state.providers.availableCount, styleContext: GlanceRenderStyleContext = {},
+): string {
+	return renderGlanceLineWithWorktree(state, config, width, providerCount, styleContext).text;
 }

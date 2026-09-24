@@ -86,7 +86,7 @@ function bottomFrame(width = 80): { raw: string; plain: string; state: GlanceSta
 	config.context.progressWidth = "remaining";
 	config.context.text = "percent";
 	config.bottomDetails.showAutoCompact = false;
-	onlySegments(config, ["context"]);
+	onlySegments(config, ["context", "git"]);
 	const state = testState({ git: dirty, context: { tokens: 100_000, window: 200_000, percent: 50 } });
 	const raw = renderInputSurfaceFrame({
 		state,

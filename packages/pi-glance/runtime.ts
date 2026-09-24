@@ -1,6 +1,6 @@
 import { getAgentDir, SettingsManager, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isGitCollectionEnabled } from "./config.js";
-import { handleDiffCommand } from "./diff-review.js";
+import { createDiffCommandHandler, type DiffReviewContext } from "./diff-review.js";
 import { GlanceEditor } from "./editor.js";
 import { StatusOnlyFooter } from "./footer.js";
 import { emptyGitSnapshot, GitRefresher, maybeFetchGitBaseRef, type GitBaseRefFetchReason } from "./git.js";
@@ -16,6 +16,7 @@ import { WORKTREE_WIDGET_KEY } from "./worktree-summary.js";
 import { createWorkingIndicatorController, type WorkingIndicatorControllerAdapters, type WorkingMessageUpdateEvent } from "./working-indicator.js";
 
 export { INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT };
+export { diffArgumentCompletions } from "./diff-target.js";
 
 export type GlancePaneResult = { action: "save"; config: GlanceConfig } | { action: "cancel" };
 
@@ -49,7 +50,7 @@ export interface GlanceRuntimeAdapters {
 	clearTimeout?: (id: unknown) => void;
 	createInputStashStore?: () => InputStashStore;
 	workingIndicator?: Partial<Omit<WorkingIndicatorControllerAdapters, "getConfig" | "getThinkingLevel" | "getTerminalWidth">>;
-	reviewWorkingTree?: (ctx: ExtensionCommandContext) => Promise<unknown>;
+	reviewDiff?: (args: string, ctx: DiffReviewContext) => Promise<unknown>;
 }
 
 interface MessageEndLikeEvent {
@@ -118,6 +119,7 @@ function readAutoCompactionEnabled(ctx: ExtensionContext): boolean {
 }
 
 export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRuntime {
+	const reviewDiff = adapters.reviewDiff ?? createDiffCommandHandler();
 	let config: GlanceConfig | undefined;
 	let footer: StatusOnlyFooter | undefined;
 	let gitRefresher: RuntimeGitRefresher | undefined;
@@ -238,6 +240,19 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 		ctx.ui.setFooter(undefined);
 	}
 
+	async function openDiff(args: string, ctx: DiffReviewContext, generation = uiGeneration): Promise<void> {
+		if (!isCurrentUiGeneration(generation)) return;
+		if (!gitCollectionEnabled()) {
+			ctx.ui.notify("Glance Git is off; /diff is disabled.", "info");
+			return;
+		}
+		try {
+			await reviewDiff(args, ctx);
+		} finally {
+			if (isCurrentUiGeneration(generation)) scheduleGitRefresh(true);
+		}
+	}
+
 	function installInputSurface(ctx: ExtensionContext): void {
 		if (!isTuiMode(ctx)) return;
 		refreshSession.ensureState(ctx);
@@ -290,6 +305,11 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 						if (gitCollectionEnabled()) requestBaseRefFetch("focus");
 					},
 					getStashOccupied: () => inputStash.occupied(ctx),
+					onWorktreeReview: () => {
+						void openDiff("worktree", ctx, generation).catch((error) => {
+							if (isCurrentUiGeneration(generation)) ctx.ui.notify(`Diff review failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+						});
+					},
 					...(renderStyleContext ? { renderStyleContext } : {}),
 				},
 			);
@@ -299,17 +319,7 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 	return {
 		commands: {
 			refreshGit: () => scheduleGitRefresh(true),
-			openDiff: async (_args, ctx) => {
-				if (!gitCollectionEnabled()) {
-					ctx.ui.notify("Glance Git is off; /diff is disabled.", "info");
-					return;
-				}
-				try {
-					await (adapters.reviewWorkingTree ?? handleDiffCommand)(ctx);
-				} finally {
-					scheduleGitRefresh(true);
-				}
-			},
+			openDiff,
 			openPane: async (_args, ctx) => {
 				if (!isTuiMode(ctx)) {
 					ctx.ui.notify("pi-glance configuration pane requires TUI mode", "error");

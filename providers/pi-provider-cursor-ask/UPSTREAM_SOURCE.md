@@ -17,8 +17,8 @@ This revision is the fork origin, not the last reviewed upstream version. Before
 - Published independently as the unscoped `pi-provider-cursor-ask` package; it is not embedded in the repository's root bundle.
 - Keeps the upstream `cursor` provider/login identity and `cursor-native` stream API so existing Pi credentials continue to work. OAuth label is `Cursor Ask`, and diagnostics stay `/cursor` subcommands.
 - Declares `apiKey: "$CURSOR_ACCESS_TOKEN"` on `registerProvider` so Pi will list models when that env var is set (CI smoke). Ask still resolves the token itself; upstream relies on OAuth only at this layer.
-- Filters the processed Cursor catalog in `src/models/ask-catalog.ts` to a curated subset: 1M Claude rows, Composer 2.5 / Composer 2.5 Fast, and passthrough Grok 4.6 / Fast rows when the live catalog contains them. Other families are not registered; upstream `processModels` remains unchanged.
-- Keeps thinking enabled for Claude rows and maps supported Pi levels to explicit Cursor `requestedModelId` plus `thinking`, `context`, `effort`, and `fast` parameters. Composer 2.5 maps Pi `off`/`max` to Cursor Max Mode instead of inventing an effort parameter.
+- Filters the processed Cursor catalog in `src/models/ask-catalog.ts` to a curated subset: six 1M Claude rows including Opus 5.5, Composer 2.5 / Composer 2.5 Fast, and passthrough Grok 4.6 / Fast rows when the live catalog contains them. Other families are not registered; upstream `processModels` remains unchanged.
+- Maps supported Pi levels for Claude rows to explicit Cursor `requestedModelId` plus `context`, `effort`, and `fast` parameters. Opus 5.5 has no `thinking` parameter; other Claude rows retain `thinking=true`. All Claude rows omit Pi's thinking `off` level. Composer 2.5 maps Pi `off`/`max` to Cursor Max Mode instead of inventing an effort parameter.
 - Accepts both current folded Claude ids and legacy bundled-catalog spellings such as `claude-4.6-opus-thinking`.
 - Replaces the upstream user README and changelog with fork-specific bilingual usage documentation and release history.
 

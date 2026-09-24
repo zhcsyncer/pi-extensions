@@ -129,7 +129,7 @@ export function runSmokeChecks() {
 				const modelCount = (result.stdout ?? "")
 					.split("\n")
 					.filter((line) => line.startsWith(`${providerId} `)).length;
-				const expectedCount = isAgentPlan ? 11 : 7;
+				const expectedCount = isAgentPlan ? 11 : 8;
 				if (modelCount !== expectedCount) {
 					process.stderr.write(result.stderr ?? "");
 					process.stderr.write(result.stdout ?? "");

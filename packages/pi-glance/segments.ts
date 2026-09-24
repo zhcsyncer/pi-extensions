@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { SegmentData, SegmentDefinition, SegmentRenderContext, SegmentRenderResult } from "./types.js";
 
 function displayForMode(data: SegmentData, widthMode: SegmentRenderContext["widthMode"]): string {
@@ -16,9 +17,13 @@ function renderCollectedSegment(ctx: SegmentRenderContext, segment: SegmentDefin
 	const icon = ctx.icons[segment.id];
 	const value = displayForMode(data, ctx.widthMode);
 	const prefix = icon ? `${icon}${iconGapForSegment(ctx, segment)}` : "";
+	const base = `${prefix}${value}`.trim();
+	const summary = ctx.widthMode !== "minimal" ? data.worktreeSummary : undefined;
 	return {
 		id: segment.id,
-		text: `${prefix}${value}`.trim(),
+		text: summary ? `${base} ${summary}` : base,
+		...(summary ? { worktreeRange: { start: visibleWidth(base) + 1, end: visibleWidth(base) + 1 + visibleWidth(summary) } } : {}),
+		...(data.gitMarker ? { gitFallback: { label: `${prefix}${data.primary}`.trim(), marker: data.gitMarker } } : {}),
 	};
 }
 

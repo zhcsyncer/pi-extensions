@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { consumeGlanceConfigNotices, loadConfig, loadConfigSync, saveConfig } from "./config.js";
 import { showGlancePane } from "./pane.js";
-import { createGlanceRuntime, INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./runtime.js";
+import { createGlanceRuntime, diffArgumentCompletions, INPUT_STASH_PRIMARY_SHORTCUT, INPUT_STASH_SECONDARY_SHORTCUT } from "./runtime.js";
 
 export default function piGlance(pi: ExtensionAPI): void {
 	const runtime = createGlanceRuntime({
@@ -19,7 +19,8 @@ export default function piGlance(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("diff", {
-		description: "Review the current Git working tree with revdiff",
+		description: "Review Git changes with revdiff: worktree, branch [base], or compare [from] [to]",
+		getArgumentCompletions: diffArgumentCompletions,
 		handler: runtime.commands.openDiff,
 	});
 
