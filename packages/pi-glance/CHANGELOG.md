@@ -1,5 +1,13 @@
 # @zhcsyncer/pi-glance
 
+## 0.9.2
+
+### Patch Changes
+
+- 5453edf: Add a bold, accent-colored trailing `›` to the clickable changes summary in fullscreen mode, opening a working-tree review when any part of the summary is clicked. Restore the dirty marker when narrow layouts hide the summary, preserve normal editor mouse behavior, and append review annotations without overwriting the current draft.
+- 5453edf: Add interactive `/diff` modes for working-tree changes, MR-style branch reviews, and comparisons between two revisions. Search branches, tags, and recent commits or enter a ref/SHA, with subcommand completion. Preserve revdiff's native appearance preferences and return annotations to the editor without sending them automatically.
+- 5453edf: Preserve the working spinner's repeated frames and 17-frame round-trip rhythm, selecting its peak glyph by TERM (✻ for xterm-ghostty, ✽ otherwise). Keep the 120ms frame interval, 2040ms cycle, and title styling.
+
 ## 0.9.1
 
 ### Patch Changes
