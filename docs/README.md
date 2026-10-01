@@ -20,6 +20,7 @@
 | [pi-herdr-companion/extension.md](./pi-herdr-companion/extension.md) | 已落地 | Herdr 可见进程、临时 `/btw`、blocked、当前 linked worktree 的确定性 cleanup；worker 实现保留但不注册 |
 | [pi-tool-display-intent/aggregate-layout.md](./pi-tool-display-intent/aggregate-layout.md) | 已落地 | aggregate Tools 账本：按请求汇总、不改执行与历史 |
 | [pi-tool-display-intent/aggregate-steer.md](./pi-tool-display-intent/aggregate-steer.md) | 已落地 | steer 留在同一轮：钉顶首行、结束后留一行、展开后时间线高亮 |
+| [pi-tool-display-intent/codemode-display.md](./pi-tool-display-intent/codemode-display.md) | 已落地 | codemode 脚本调用与嵌套执行在 individual/aggregate 布局下的展示与账本投影 |
 | [pi-todo/active-plan-lifecycle.md](./pi-todo/active-plan-lifecycle.md) | 已落地 | Todo 有界周期与 checkpoint 收缩 |
 | [pi-subagents/background-duplication.md](./pi-subagents/background-duplication.md) | 已落地 | 后台委派重复工作的根因与修复边界 |
 | [pi-subagents/delivery-and-resume.md](./pi-subagents/delivery-and-resume.md) | 契约 | 完整报告预算、投递时机、运行代次与终态恢复边界 |

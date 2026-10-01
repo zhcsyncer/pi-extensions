@@ -18,7 +18,7 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 
 ## Features
 
-- Bash always asks the current model for a `displaySummary` intent. Other built-ins keep deterministic targets only.
+- Bash and codemode ask the current model for a `displaySummary` intent (in individual layout; in aggregate layout codemode extracts intent from code comments and called tools). Other built-ins keep deterministic targets only.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one **Run** ledger per user request, including Agent and consult by default.
 - Fullscreen mouse support: click a collapsed Run block to expand that run, click its expanded summary to collapse it, and inspect individual call results without rerunning tools.

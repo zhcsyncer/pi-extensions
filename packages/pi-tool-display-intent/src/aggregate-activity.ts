@@ -19,6 +19,7 @@ import { createAggregateCollapseWidget } from "./aggregate-collapse-widget.js";
 import type { DetailRequest } from "./detail-viewer.js";
 import { lookupAggregateCallPresentation } from "./call-presentation-registry.js";
 import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
+import { extractCodemodeToolCalls, formatCodemodeTarget } from "./display-summary-fallback.js";
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
@@ -82,6 +83,24 @@ export interface AggregateMember {
 	agentTurnId?: string;
 	/** Immutable interpretation of the Agent tool receipt, not live task progress. */
 	agentReceipt?: AgentCallReceipt;
+	/** Active nested call being run by an orchestrating tool (e.g. codemode) */
+	activeNestedCall?: {
+		toolCallId: string;
+		toolName: string;
+		args: Record<string, unknown>;
+	};
+	/** Bounded nested calls executed under this parent tool call. */
+	nestedCalls?: {
+		complete?: boolean;
+		calls?: Array<{
+			toolCallId?: string;
+			name: string;
+			arguments?: Record<string, unknown>;
+			status: "ok" | "error" | "unfinished";
+			durationMs?: number;
+			error?: string;
+		}>;
+	};
 }
 
 export interface AggregateUsageTotals {
@@ -378,6 +397,35 @@ export function formatAggregateTarget(
 			return `Edit(${path})`;
 		case "write":
 			return `Write(${path})`;
+		case "codemode": {
+			const target = formatCodemodeTarget(args);
+			const nested = (member as AggregateMember).nestedCalls;
+			let nestedSuffix = "";
+			if (nested?.calls && nested.calls.length > 0) {
+				const counts = new Map<string, number>();
+				for (const call of nested.calls) {
+					if (!call || typeof call !== "object" || !call.name) continue;
+					counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
+				}
+				nestedSuffix = [...counts.entries()].map(([name, count]) => `${name} ×${count}`).join(" · ");
+			}
+			const isStaticToolCalls = Boolean(
+				nestedSuffix &&
+				target &&
+				target === extractCodemodeToolCalls(args?.code).join(" · "),
+			);
+			const effectiveTarget = isStaticToolCalls ? "" : target;
+			if (effectiveTarget && nestedSuffix) {
+				return `Codemode(${effectiveTarget} · ${nestedSuffix})`;
+			}
+			if (effectiveTarget) {
+				return `Codemode(${effectiveTarget})`;
+			}
+			if (nestedSuffix) {
+				return `Codemode(${nestedSuffix})`;
+			}
+			return "Codemode";
+		}
 		default:
 			return formatCustomAggregateTarget(member.toolName, args);
 	}
@@ -1645,6 +1693,10 @@ export class AggregateProjection {
 		const record = toRecord(message);
 		if (typeof record.toolCallId === "string") {
 			const member = this.membersById.get(record.toolCallId);
+			const nested = record.nestedCalls ?? (record.details as any)?.nestedCalls;
+			if (member && nested) {
+				member.nestedCalls = nested as any;
+			}
 			if (!member || !this.isPassthrough(member.toolName)) {
 				this.rememberUsage(`tool:${record.toolCallId}`, message);
 			}
@@ -1682,6 +1734,69 @@ export class AggregateProjection {
 		this.invalidateGroup(member.groupId, toolCallId);
 	}
 
+	markNestedStarted(parentToolCallId: string, toolCallId: string, toolName: string, args: unknown): void {
+		const parent = this.membersById.get(parentToolCallId);
+		if (!parent) return;
+		const normalizedName = normalizeToolName(toolName);
+		if (!normalizedName) return;
+		parent.activeNestedCall = {
+			toolCallId,
+			toolName: normalizedName,
+			args: toRecord(args),
+		};
+		parent.nestedCalls ??= { calls: [] };
+		parent.nestedCalls.calls ??= [];
+		const existing = parent.nestedCalls.calls.find((c) => c.toolCallId === toolCallId);
+		if (!existing) {
+			parent.nestedCalls.calls.push({
+				toolCallId,
+				name: normalizedName,
+				arguments: toRecord(args),
+				status: "unfinished",
+			});
+		}
+		this.invalidateGroup(parent.groupId, parentToolCallId);
+	}
+
+	markNestedUpdated(parentToolCallId: string, toolCallId: string, args: unknown): void {
+		const parent = this.membersById.get(parentToolCallId);
+		if (!parent) return;
+		if (parent.activeNestedCall?.toolCallId === toolCallId) {
+			parent.activeNestedCall.args = { ...parent.activeNestedCall.args, ...toRecord(args) };
+		}
+		const existing = parent.nestedCalls?.calls?.find((c) => c.toolCallId === toolCallId);
+		if (existing) {
+			existing.arguments = { ...existing.arguments, ...toRecord(args) };
+		}
+		this.invalidateGroup(parent.groupId, parentToolCallId);
+	}
+
+	markNestedComplete(parentToolCallId: string, toolCallId: string, result: unknown, isError = false): void {
+		const parent = this.membersById.get(parentToolCallId);
+		if (!parent) return;
+		parent.nestedCalls ??= { calls: [] };
+		parent.nestedCalls.calls ??= [];
+		const existing = parent.nestedCalls.calls.find((c) => c.toolCallId === toolCallId);
+		if (existing) {
+			existing.status = isError ? "error" : "ok";
+		}
+		if (parent.activeNestedCall?.toolCallId === toolCallId) {
+			const remaining = parent.nestedCalls.calls.find(
+				(c) => c.status === "unfinished" && c.toolCallId !== toolCallId,
+			);
+			if (remaining) {
+				parent.activeNestedCall = {
+					toolCallId: remaining.toolCallId ?? "",
+					toolName: remaining.name,
+					args: remaining.arguments ?? {},
+				};
+			} else {
+				delete parent.activeNestedCall;
+			}
+		}
+		this.invalidateGroup(parent.groupId, parentToolCallId);
+	}
+
 	markComplete(
 		toolCallId: string,
 		result: unknown,
@@ -1690,6 +1805,14 @@ export class AggregateProjection {
 	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
+		if (member.toolName === "codemode") {
+			delete member.activeNestedCall;
+			const resObj = toRecord(result);
+			const nested = resObj.nestedCalls ?? (resObj.details as any)?.nestedCalls;
+			if (nested) {
+				member.nestedCalls = nested as any;
+			}
+		}
 		if (isError) {
 			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."), options);
 			return;
@@ -1734,6 +1857,7 @@ export class AggregateProjection {
 		if (!member || member.state === "needsAttention") return;
 		member.state = "failed";
 		delete member.agentReceipt;
+		delete member.activeNestedCall;
 		member.errorSummary = normalizeDisplaySummary(summary, FAILED_SUMMARY_MAX_LENGTH) ?? "Tool failed.";
 		member.retainedDone = false;
 		member.completionOrder = undefined;
@@ -2207,6 +2331,45 @@ function appendTruncationMark(row: string, width: number): string {
 	return `${truncateToWidth(row, Math.max(0, width - visibleWidth(mark)), "")}${mark}`;
 }
 
+function renderCodemodeLedgerLabel(
+	member: Pick<AggregateMember, "args" | "state" | "activeNestedCall" | "nestedCalls">,
+	theme: AggregateRenderTheme,
+): string {
+	const args = member.args;
+	const baseTarget = formatCodemodeTarget(args);
+
+	if (member.activeNestedCall && (member.state === "pending" || member.state === "running")) {
+		const target = baseTarget ? `Codemode(${baseTarget})` : "Codemode";
+		const coloredTarget = theme.fg(toolColor("codemode"), target);
+		const nestedMember: Pick<AggregateMember, "toolName" | "args"> = {
+			toolName: member.activeNestedCall.toolName,
+			args: member.activeNestedCall.args,
+		};
+		const nestedTarget = formatColoredTarget(nestedMember, theme);
+		return `${coloredTarget} › ${nestedTarget}`;
+	}
+
+	const nested = member.nestedCalls;
+	if (nested?.calls && nested.calls.length > 0) {
+		const counts = new Map<string, number>();
+		for (const call of nested.calls) {
+			if (!call || typeof call !== "object" || !call.name) continue;
+			counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
+		}
+		const chips = [...counts.entries()].map(([name, count]) => `${name} ×${count}`).join(" · ");
+		const isStaticToolCalls = Boolean(
+			baseTarget && baseTarget === extractCodemodeToolCalls(args?.code).join(" · "),
+		);
+		const effectiveTarget = isStaticToolCalls ? "" : baseTarget;
+		const target = effectiveTarget ? `Codemode(${effectiveTarget})` : "Codemode";
+		const coloredTarget = theme.fg(toolColor("codemode"), target);
+		return `${coloredTarget} ${theme.fg("muted", `(${chips})`)}`;
+	}
+
+	const target = baseTarget ? `Codemode(${baseTarget})` : "Codemode";
+	return theme.fg(toolColor("codemode"), target);
+}
+
 function renderBoundedCallRows(
 	member: Pick<AggregateMember, "toolName" | "args" | "state" | "errorSummary" | "agentReceipt">,
 	contentWidth: number,
@@ -2239,7 +2402,9 @@ function renderBoundedCallRows(
 	const availableLabelRows = labelRowLimit - (moveLabelBelowTiming ? 1 : 0);
 	const label = member.toolName === "bash"
 		? renderBashLedgerLabel(member.args, theme, labelWidth, availableLabelRows)
-		: `${formatColoredTarget(member, theme)}${receiptLabel ? theme.fg("muted", ` · ${receiptLabel}`) : ""}`;
+		: member.toolName === "codemode"
+			? renderCodemodeLedgerLabel(member as never, theme)
+			: `${formatColoredTarget(member, theme)}${receiptLabel ? theme.fg("muted", ` · ${receiptLabel}`) : ""}`;
 	const labelLayout = layoutPreviewRows([label], availableLabelRows, labelWidth);
 	const labelRows = labelLayout.rows.length > 0 ? [...labelLayout.rows] : [""];
 	if (labelLayout.longLineTruncated || labelLayout.rowLimitReached) {
@@ -2716,10 +2881,27 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("tool_execution_start", async (event) => {
 		clearSettleTimer();
+		const parentId = typeof (event as any).parentToolCallId === "string" ? (event as any).parentToolCallId : undefined;
+		if (parentId) {
+			projection.markNestedStarted(parentId, event.toolCallId, event.toolName, event.args);
+			return;
+		}
 		projection.markStarted(event.toolCallId, event.toolName, event.args);
 	});
-	pi.on("tool_execution_update", async (event) => projection.markUpdated(event.toolCallId, event.args));
+	pi.on("tool_execution_update", async (event) => {
+		const parentId = typeof (event as any).parentToolCallId === "string" ? (event as any).parentToolCallId : undefined;
+		if (parentId) {
+			projection.markNestedUpdated(parentId, event.toolCallId, event.args);
+			return;
+		}
+		projection.markUpdated(event.toolCallId, event.args);
+	});
 	pi.on("tool_execution_end", async (event) => {
+		const parentId = typeof (event as any).parentToolCallId === "string" ? (event as any).parentToolCallId : undefined;
+		if (parentId) {
+			projection.markNestedComplete(parentId, event.toolCallId, event.result, event.isError === true);
+			return;
+		}
 		projection.markComplete(event.toolCallId, event.result, event.isError === true);
 	});
 	pi.on("agent_settled", async () => {

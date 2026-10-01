@@ -19,6 +19,7 @@ const CLAUDE_TOOL_LABELS: Record<string, string> = {
 	find: "Find",
 	ls: "List",
 	bash: "Bash",
+	codemode: "Codemode",
 	edit: "Update",
 	write: "Write",
 	mcp: "MCP",

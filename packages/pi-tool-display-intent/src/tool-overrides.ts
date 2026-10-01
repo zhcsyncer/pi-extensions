@@ -38,12 +38,21 @@ import {
 import { setAggregateCallPresentationLookup } from "./call-presentation-registry.js";
 import { renderBashCall } from "./bash-display.js";
 import {
+  renderCodemodeCall,
+  renderCodemodeResult,
+  type CodemodeCallArgs,
+  type CodemodeCallRenderContextLike,
+} from "./codemode-display.js";
+import {
+  addDisplaySummaryParameter,
   normalizeDisplaySummary,
   stripDisplaySummary,
   withDisplaySummary,
 } from "./display-summary.js";
 import {
   buildDeterministicDisplaySummary,
+  extractCodemodeCommentIntent,
+  formatCodemodeTarget,
   resolveDisplaySummaryForTool,
 } from "./display-summary-fallback.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
@@ -190,6 +199,7 @@ const TOOL_DISPLAY_DECORATED_PROPERTIES = [
   "promptGuidelines",
   "parameters",
   "prepareArguments",
+  "execute",
 ] as const;
 
 type ToolDisplayKind = "read" | "edit" | "mcp" | "generic";
@@ -2347,6 +2357,101 @@ export function registerToolDisplayOverrides(
   const wrappedMcpToolNames = new Set<string>();
   registerCleanup(() => wrappedMcpToolNames.clear());
 
+  const wrappedCodemodeToolNames = new Set<string>();
+  registerCleanup(() => wrappedCodemodeToolNames.clear());
+
+  const decorateCodemodeToolCandidate = (candidate: unknown): boolean => {
+    if (getCustomOverrideForCandidate(candidate)) {
+      return false;
+    }
+    const toolName = getTextField(candidate, "name");
+    if (toolName !== "codemode" || wrappedCodemodeToolNames.has(toolName)) {
+      return false;
+    }
+
+    const runtimeTool = candidate as RuntimeToolDefinition;
+    const config = getConfig();
+
+    if (config.toolCallLayout === "aggregate") {
+      return false;
+    }
+
+    const toolIntent = config.toolIntent;
+    applyToolDisplayDecorationInPlace(
+      runtimeTool,
+      toolDisplayApi,
+      {
+        toolName: "codemode",
+        overrideExistingRenderers: true,
+        getCallPresentation: (args) => {
+          const target = formatCodemodeTarget(toRecord(args));
+          return target ? { target } : undefined;
+        },
+        renderCall(args, theme, context) {
+          return renderCodemodeCall(
+            args as CodemodeCallArgs,
+            theme,
+            context as CodemodeCallRenderContextLike,
+            getConfig().toolIntent,
+            getConfig().toolCallStyle,
+          );
+        },
+        renderResult(result, options, theme, context) {
+          return renderCodemodeResult(
+            result as Record<string, unknown>,
+            options,
+            getConfig(),
+            theme,
+            context as CodemodeCallRenderContextLike,
+          );
+        },
+      },
+    );
+
+    if (typeof runtimeTool.execute === "function") {
+      const wrapped = withDisplaySummary(runtimeTool as never, {
+        required: true,
+        language: toolIntent.language,
+        maxLength: toolIntent.maxLength,
+        preserveRendererArgs: true,
+        fallback: (args) => {
+          const comment = extractCodemodeCommentIntent((args as Record<string, unknown>)?.code);
+          return comment || buildDeterministicDisplaySummary(
+            "codemode",
+            toolIntent.language,
+            toolIntent.maxLength,
+          );
+        },
+      }) as unknown as RuntimeToolDefinition & {
+        promptGuidelines?: string[];
+      };
+
+      Object.assign(runtimeTool, {
+        parameters: wrapped.parameters,
+        prepareArguments: wrapped.prepareArguments,
+        promptGuidelines: wrapped.promptGuidelines,
+        execute: wrapped.execute,
+      });
+    } else if (runtimeTool.parameters && typeof runtimeTool.parameters === "object") {
+      try {
+        const parameters = addDisplaySummaryParameter(
+          runtimeTool.parameters as Record<string, unknown>,
+          {
+            required: true,
+            language: toolIntent.language,
+            maxLength: toolIntent.maxLength,
+          },
+        );
+        Object.assign(runtimeTool, { parameters });
+      } catch {
+        // Schema may already define displaySummary or be non-extensible
+      }
+    }
+
+    wrappedCodemodeToolNames.add(toolName);
+    return true;
+  };
+
   const decorateMcpToolCandidate = (candidate: unknown): void => {
     if (getCustomOverrideForCandidate(candidate)) {
       return;
@@ -2434,7 +2539,9 @@ export function registerToolDisplayOverrides(
       originalRegisterTool.call(this, tool);
       try {
         if (!decorateCustomToolOverrideCandidate(tool)) {
-          decorateMcpToolCandidate(tool);
+          if (!decorateCodemodeToolCandidate(tool)) {
+            decorateMcpToolCandidate(tool);
+          }
         }
       } catch (error) {
         logToolDisplayDebug("Tool display registration decoration failed.", error);
@@ -2467,8 +2574,14 @@ export function registerToolDisplayOverrides(
     }
 
     for (const candidate of allTools) {
-      if (!decorateCustomToolOverrideCandidate(candidate)) {
-        decorateMcpToolCandidate(candidate);
+      try {
+        if (!decorateCustomToolOverrideCandidate(candidate)) {
+          if (!decorateCodemodeToolCandidate(candidate)) {
+            decorateMcpToolCandidate(candidate);
+          }
+        }
+      } catch (error) {
+        logToolDisplayDebug("Tool candidate decoration failed.", error);
       }
     }
   };
@@ -2508,6 +2621,13 @@ export function registerToolDisplayOverrides(
   });
 
   if (aggregateProjection) {
+    toolDisplayApi.registerAdapter({
+      toolName: "codemode",
+      getCallPresentation: (args) => {
+        const target = formatCodemodeTarget(toRecord(args));
+        return target ? { target } : undefined;
+      },
+    });
     registerAggregateProjectionEvents(pi, aggregateProjection, { getConfig });
   }
 }

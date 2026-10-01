@@ -18,7 +18,7 @@ $ pnpm test — 验证 extension 测试套件
 
 ## 功能
 
-- 只有 bash 会向当前模型要 `displaySummary` 意图。其它内置工具只用确定性 target。
+- bash 和 codemode 会向当前模型要 `displaySummary` 意图（individual 布局；aggregate 布局下 codemode 从代码注释与被调用工具提取意图）。其它内置工具只用确定性 target。
 - Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 **Run** 账本，默认也收纳 Agent 和 consult。
 - Fullscreen 鼠标交互：点击收起的 Run 内容区展开本账本，点击展开后的摘要区收起；工具行可查看结果，不重新执行工具。

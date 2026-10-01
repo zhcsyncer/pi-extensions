@@ -338,6 +338,30 @@ function metadataReport(result: unknown, details: unknown, hasDetails: boolean):
 	return hasDetails ? jsonReport(details) : undefined;
 }
 
+function formatNestedCallsReport(nestedCalls: unknown): FormattingReport | undefined {
+	if (!nestedCalls || typeof nestedCalls !== "object") return undefined;
+	const calls = field(nestedCalls, "calls");
+	if (!Array.isArray(calls) || calls.length === 0) return undefined;
+	const icons: Record<string, string> = { ok: "✓", error: "✗", unfinished: "…" };
+	const lines: string[] = [];
+	const complete = field(nestedCalls, "complete") !== false;
+	lines.push(`Nested calls: ${calls.length}${complete ? "" : " (incomplete record)"}`);
+	for (const call of calls) {
+		if (!call || typeof call !== "object") continue;
+		const name = String(field(call, "name") ?? "tool");
+		const status = String(field(call, "status") ?? "ok");
+		const durationMs = field(call, "durationMs");
+		const duration = typeof durationMs === "number" ? ` ${durationMs}ms` : "";
+		const rawArgs = field(call, "arguments");
+		const argsBytes = field(call, "argumentsBytes");
+		const args = rawArgs ? ` ${JSON.stringify(rawArgs)}` : typeof argsBytes === "number" ? ` [arguments omitted, ${argsBytes} bytes]` : "";
+		const rawError = field(call, "error");
+		const error = typeof rawError === "string" ? `\n    ${rawError.split("\n").join("\n    ")}` : "";
+		lines.push(`${icons[status] ?? "?"} ${name}${args}${duration}${error}`);
+	}
+	return boundedText(lines.join("\n"), false);
+}
+
 function resultReport(request: Extract<DetailRequest, { kind: "tool" }>, hasDetails: boolean, hasDiff: boolean, metadata: FormattingReport | undefined): FormattingReport {
 	const content = field(request.result, "content");
 	let parts: FormattingReport[] = [];
@@ -369,6 +393,15 @@ function resultReport(request: Extract<DetailRequest, { kind: "tool" }>, hasDeta
 	else if (request.result !== undefined && request.result !== null && !hasDetails) {
 		add(jsonReport(request.result)); hasText = true;
 	}
+	if (request.toolName === "codemode") {
+		const details = field(request.result, "details");
+		const nestedCalls = field(request.result, "nestedCalls") ?? field(details, "nestedCalls");
+		const nestedReport = formatNestedCallsReport(nestedCalls);
+		if (nestedReport) {
+			add(nestedReport);
+			hasText = true;
+		}
+	}
 	if (!hasText && metadata && !hasDiff) {
 		parts = [metadata, ...parts.filter((part) => sanitizeDetailText(part.text, false).trim())];
 	}
@@ -398,7 +431,7 @@ function resultTab(report: FormattingReport, request: Extract<DetailRequest, { k
 		} catch { /* Native text stays native. */ }
 	}
 	// Non-Markdown files and command/search output remain literal, regardless of apparent markers.
-	if (!["read", "bash", "grep", "find", "ls", "edit", "write"].includes(request.toolName) && looksLikeMarkdown(report.text)) tab.presentation = "markdown";
+	if (!["read", "bash", "grep", "find", "ls", "edit", "write", "codemode"].includes(request.toolName) && looksLikeMarkdown(report.text)) tab.presentation = "markdown";
 	return tab;
 }
 
@@ -419,6 +452,7 @@ function argsTab(args: unknown, toolName: string): DetailTab {
 			return {
 				key, kind, value: kind === "json" ? JSON.stringify(value, null, 2) : String(value),
 				...(toolName === "bash" && key === "command" && kind === "string" ? { language: "bash" } : {}),
+				...(toolName === "codemode" && key === "code" && kind === "string" ? { language: "typescript" } : {}),
 			};
 		});
 		if (fields.some((item) => boundedText(item.value, false).truncated)) return tab;
