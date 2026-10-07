@@ -36,6 +36,13 @@ import {
   normalizeUserMessageContentLines,
   type UserMessageBackgroundTheme,
 } from "../src/user-message-box-utils.ts";
+import {
+  OSC133_ZONE_END,
+  OSC133_ZONE_FINAL,
+  OSC133_ZONE_START,
+  hasPromptZoneStart,
+  stripPromptZone,
+} from "../src/prompt-zone-markers.ts";
 
 // ===========================================================================
 // Issue #10: OSC 133 prompt marker stripping
@@ -721,7 +728,7 @@ test("nativeRender produces top margin spacer and border when enabled and width 
   };
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
   const rendered = prototype.render(40);
-  assert.equal(rendered[0], "", "first line is top margin spacer");
+  assert.equal(stripPromptZone(rendered)[0], "", "first line is top margin spacer");
   assert.ok(rendered[1]?.includes("╭"), "second line has top border");
   assert.ok(rendered.some((l) => l.includes("│")), "has content border lines");
   assert.ok(rendered.some((l) => l.includes("╰")), "has bottom border");
@@ -1050,4 +1057,105 @@ test("unregistering the user message patch restores the original renderer", () =
   unregisterUserMessageRenderPrototypePatch(prototype);
   assert.deepEqual(prototype.render(40), ["orig"]);
   assert.equal(prototype.setExpanded, undefined);
+});
+
+// ===========================================================================
+// Prompt zone markers: rebuilt user message rows must stay navigable
+// pi-tui's fullscreen transcript finds prompt boundaries with
+// /^\x1b\]133;A(?:\x07|\x1b\\)/ against each rendered row, and pi core marks
+// every non-empty user message render. The rebuilt box rows carry no markers,
+// so the patch re-emits them; the rows themselves must not change.
+// ===========================================================================
+
+// Captured from the unmarked (pre-fix) renderer at width 20.
+const UNMARKED_BOX_ROWS = [
+  "",
+  "╭ user ────────────╮",
+  "│                  │",
+  "│ hello world      │",
+  "│                  │",
+  "╰──────────────────╯",
+];
+const UNMARKED_COMPACT_ROWS = [
+  "▎                   ",
+  "▎ hello world       ",
+  "▎                   ",
+];
+
+function renderPatchedUserMessage(
+  width: number,
+  options: {
+    original?: () => string[];
+    compact?: boolean;
+    steer?: { hide?: boolean; lines?: string[] };
+  } = {},
+): string[] {
+  const prototype: PatchableUserMessagePrototype = {
+    render: options.original ?? (() => ["hello world"]),
+  };
+  patchNativeUserMessagePrototype(
+    prototype,
+    () => undefined,
+    () => true,
+    () => options.compact === true,
+    options.steer ? () => options.steer as never : undefined,
+  );
+  try {
+    return prototype.render(width);
+  } finally {
+    unregisterUserMessageRenderPrototypePatch(prototype);
+  }
+}
+
+test("user message box render starts with the A marker and ends with B+C", () => {
+  const rendered = renderPatchedUserMessage(20);
+  assert.ok(hasPromptZoneStart(rendered), "first row must start with OSC133 A");
+  assert.ok(
+    rendered[rendered.length - 1].startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL),
+    "last row must start with OSC133 B + C",
+  );
+});
+
+test("user message box rows are unchanged after stripping the zone markers", () => {
+  assert.deepEqual(stripPromptZone(renderPatchedUserMessage(20)), UNMARKED_BOX_ROWS);
+});
+
+test("user message compact render is marked and otherwise unchanged", () => {
+  const rendered = renderPatchedUserMessage(20, { compact: true });
+  assert.ok(hasPromptZoneStart(rendered));
+  assert.ok(rendered[rendered.length - 1].startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL));
+  assert.deepEqual(stripPromptZone(rendered), UNMARKED_COMPACT_ROWS);
+});
+
+test("user message cache hit keeps exactly one zone marker", () => {
+  const prototype: PatchableUserMessagePrototype = {
+    render: () => ["hello world"],
+  };
+  patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
+  try {
+    const first = prototype.render(20);
+    const second = prototype.render(20);
+    assert.deepEqual(first, second);
+    assert.equal(second[0].split(OSC133_ZONE_START).length - 1, 1);
+    assert.equal(second[1].split(OSC133_ZONE_START).length - 1, 0);
+  } finally {
+    unregisterUserMessageRenderPrototypePatch(prototype);
+  }
+});
+
+test("user message steer presentation lines are marked, hidden steers stay empty", () => {
+  const steer = renderPatchedUserMessage(20, { compact: true, steer: { lines: ["steer line"] } });
+  assert.ok(hasPromptZoneStart(steer));
+  assert.deepEqual(stripPromptZone(steer), ["steer line"]);
+
+  assert.deepEqual(
+    renderPatchedUserMessage(20, { compact: true, steer: { hide: true } }),
+    [],
+  );
+});
+
+test("user message passthrough renders keep pi's own markers untouched", () => {
+  const markedOriginal = () => [OSC133_ZONE_START + "orig", OSC133_ZONE_END + OSC133_ZONE_FINAL + "row"];
+  const rendered = renderPatchedUserMessage(7, { original: markedOriginal });
+  assert.deepEqual(rendered, markedOriginal());
 });

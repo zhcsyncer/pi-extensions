@@ -17,6 +17,7 @@ import {
   patchNativeUserMessagePrototype,
   shouldBypassUserMessageMarkdownRebuild,
 } from "../src/user-message-box-renderer.ts";
+import { stripPromptZone } from "../src/prompt-zone-markers.ts";
 import {
   patchUserMessageRenderPrototype,
   type PatchableUserMessagePrototype,
@@ -271,7 +272,7 @@ test("native user message renderer inserts one blank spacer line before the box"
 
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
 
-  const rendered = prototype.render(24);
+  const rendered = stripPromptZone(prototype.render(24));
 
   assert.equal(rendered[0], "");
   assert.match(rendered[1] ?? "", /^╭/);
@@ -283,7 +284,7 @@ test("aggregate native user message renderer uses a guttered prompt with vertica
   };
 
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true, () => true);
-  const rendered = prototype.render(40);
+  const rendered = stripPromptZone(prototype.render(40));
   assert.equal(rendered.length, 3);
   assert.match(rendered[0] ?? "", /^▎\s*$/);
   assert.match(rendered[1] ?? "", /^▎ Original user content/);

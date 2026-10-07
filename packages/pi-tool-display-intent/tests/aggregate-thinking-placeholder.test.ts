@@ -25,6 +25,12 @@ import {
 	patchAggregateThinkingPlaceholders,
 	restoreAggregateThinkingPlaceholders,
 } from "../src/aggregate-thinking-placeholder.ts";
+import {
+	OSC133_ZONE_END,
+	OSC133_ZONE_FINAL,
+	hasPromptZoneStart,
+	stripPromptZone,
+} from "../src/prompt-zone-markers.ts";
 
 function assistant(content: unknown[], overrides: Record<string, unknown> = {}) {
 	return {
@@ -75,7 +81,7 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 		const withText = withTextLines.join("\n");
 		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
-		assert.equal(withTextLines[0], "");
+		assert.equal(stripPromptZone(withTextLines)[0], "");
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
@@ -381,7 +387,7 @@ test("a direct final answer keeps a blank row under the user prompt", () => {
 		], { id: "assistant-direct-final", stopReason: "stop" });
 		projection.ingestAssistantMessage(message);
 		const rendered = createComponent(message, true).render(100);
-		assert.equal(rendered[0], "");
+		assert.equal(stripPromptZone(rendered)[0], "");
 		assert.match(rendered.join("\n"), /换地方画 Run/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
@@ -635,6 +641,50 @@ test("overlapping thinking and final text keep the final text", () => {
 		const rendered = createComponent(message, false).render(100).join("\n");
 		assert.match(rendered, /modify the aggregate projection to use WeakMap/);
 		assert.doesNotMatch(rendered, /present this clearly|Thinking\.\.\./);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+	}
+});
+
+// ===========================================================================
+// Prompt zone markers: the aggregate path rebuilds rows, so it must re-emit
+// pi core's markers or the transcript loses prompt navigation.
+// ===========================================================================
+
+test("aggregate assistant render keeps pi's prompt zone markers", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const rendered = render(assistant([{ type: "text", text: "hello" }], { stopReason: "stop" }), false);
+		assert.ok(rendered.length > 0, "text message should render rows");
+		assert.ok(hasPromptZoneStart(rendered), "first row must start with OSC133 A");
+		assert.ok(
+			rendered[rendered.length - 1].startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL),
+			"last row must start with OSC133 B + C",
+		);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+	}
+});
+
+test("aggregate assistant render adds no zone markers when pi did not mark the message", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const rendered = render(assistant([
+			{ type: "text", text: "narration" },
+			{ type: "toolCall", id: "read-2", name: "read", arguments: { path: "b.ts" } },
+		]), false);
+		assert.ok(rendered.length > 0, "narration rows should survive");
+		assert.equal(hasPromptZoneStart(rendered), false);
+		assert.equal(rendered.some((line) => line.includes("\x1b]133;")), false);
+
+		assert.deepEqual(
+			render(assistant([
+				{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+			]), false),
+			[],
+		);
 	} finally {
 		restoreAggregateThinkingPlaceholders();
 	}

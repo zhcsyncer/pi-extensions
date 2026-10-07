@@ -22,6 +22,7 @@ import {
   normalizeUserMessageContentLines,
   type UserMessageBackgroundTheme,
 } from "./user-message-box-utils.js";
+import { markPromptZone } from "./prompt-zone-markers.js";
 
 export interface UserMessageTheme extends UserMessageBackgroundTheme {
   fg(color: string, text: string): string;
@@ -436,7 +437,7 @@ export function patchNativeUserMessagePrototype(
         if (compact && getSteerPresentation && canCacheFinalOutput) {
           const presentation = getSteerPresentation(this as object, safeWidth);
           if (presentation?.hide === true) return [];
-          if (presentation?.lines) return presentation.lines;
+          if (presentation?.lines) return markPromptZone(presentation.lines);
         }
         if (safeWidth < MIN_BORDER_WIDTH) return originalRender.call(this, safeWidth) as string[];
         const markdownState = canCacheFinalOutput
@@ -480,14 +481,20 @@ export function patchNativeUserMessagePrototype(
             buildBottomBorder(safeWidth, theme),
           ];
 
+        // Pi core marks every non-empty user message render (A on the first row,
+        // B + C on the last) so the transcript can find prompt boundaries. The
+        // rebuilt box rows carry no markers of their own, so re-emit them here.
+        // Mark before caching so cache hits return marked rows and nothing is
+        // ever double-marked.
+        const markedOutput = markPromptZone(output);
         if (canCacheFinalOutput) {
           finalOutputCache.set(
             this as object,
-            toFinalOutputCacheEntry(safeWidth, theme, markdownState, output, compact),
+            toFinalOutputCacheEntry(safeWidth, theme, markdownState, markedOutput, compact),
           );
         }
 
-        return output;
+        return markedOutput;
       },
   );
 }
