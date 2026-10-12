@@ -4,7 +4,7 @@
 
 面向 [Pi coding agent](https://pi.dev) 的第二意见原语。主模型调用 `consult({ why })`；无工具的顾问模型返回 recommend / confirm / revise / stop。watchdog 可在重复失败后强制这次调用。可选双路 panel。本地行为日志。
 
-本包也包含在 `@zhcsyncer/pi-extensions` 里。需要 Pi 0.86 或更高。
+本包也包含在 `@zhcsyncer/pi-extensions` 里。需要 Pi 1.1 或更高。
 
 ## 来源
 
@@ -12,10 +12,11 @@
 
 ## 功能
 
-- `consult({ why })` 把当前会话转给已配置的顾问。顾问没有工具，也不对用户说话。
+- `consult({ why })` 通过 Pi 公开 SDK 把当前会话转给已配置的顾问，沿用所选 provider 和账号/订阅认证。顾问没有工具，也不对用户说话。
+- Consult 仅供主模型直接调用（model-only）：不开 codemode 也能正常使用；脚本或其他工具的嵌套调用不能启动顾问请求。安装本包不会开启 codemode。
 - 主动 Consult 仅用于用户明确要求顾问、后果重大的证据未决结构选择，或真正卡住的方案。已拍板、可逆、机械和只需主模型直接判断的工作不 Consult；有证据时拒绝顾问是正常结果。
 - 未配置 panel 时卸载该工具。关掉零占用。
-- Watchdog：连续 N 次相同工具调用或连续 N 次 error 后，steer 先 consult。默认阈值为 5；Consult 完成后清空此前的证据。
+- Watchdog：连续 N 次相同顶层工具调用或连续 N 次顶层 error 后，steer 先 consult。嵌套子调用不与外层重复计数。默认阈值为 5；Consult 完成后清空此前的证据。
 - `/consult` 选择 panel 模型和 effort、开关 watchdog。`/consult status` 用临时 dashboard 展示预算和最近活动，不向 transcript 添加任何内容。
 - 顾问 summary 跟随用户最近一条实质性请求的语言，同时保留技术语法。展开态渲染 Markdown；折叠态保持干净的单行预览。
 - 等待行实时显示 `connecting` / `thinking` / `writing` 和估算的 `~out`；完成后的展开态与 status dashboard 只显示精确 input、output 和 total tokens。

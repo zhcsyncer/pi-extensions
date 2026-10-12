@@ -20,6 +20,8 @@
                 └── watchdog steer 只催这一次调用，不替主模型执行
 ```
 
+- Pi 1.1+ 的顾问请求走公开 `ctx.modelRegistry.streamSimple()`，由 SDK 在请求时解析所选 provider 的认证、凭据派生 endpoint/headers 和 provider 环境。认证预检只用于尽早拒绝，不把预检 key 回灌为请求 override（会改变 OAuth 解析渠道）；不探查私有 runtime，也不回退到独立 pi-ai 流函数。
+- Consult 注册为 model-only，普通模式下直接调用仍是正式路径；其他工具的 nested 调用由宿主拒绝。watchdog 只接收没有 `parentToolCallId` 的 start/end，避免子事件与 outer 双计，也避免 nested Consult 结束事件清空顶层状态。
 - 顾问看不到用户，也不回传 thinking。summary 跟随最近一条实质性用户请求的主要语言，JSON keys/verdict 与路径、标识符、命令、引用代码保持原样。summary 可在有助表达时使用 Markdown，不额外禁止标题、表格或代码块；展开态交给 Pi 原生 Markdown 渲染，折叠态仅生成去除展示标记的单行预览。
 - `consult` 必须作为当前 assistant step 的唯一工具调用，并等结果后再调其他工具；顾问快照只剥离当前 consult，同时保留用户图片。主模型 on-demand 调用只允许三类：用户明确要求顾问、后果重大的证据未决结构选择、同一方案重复失败到可能要放弃。用户已拍板、可逆 UI/default/calibration、主模型自身评估、工具结果已给出机械下一步时直接回答或执行。顾问是挑战而非权威，证据支持 reject；下一条可见回复必须精确使用 `adopt | changed:`、`adopt | confirmed:` 或 `reject |` 三种 `CONSULT-LOG:` 形式。
 - Watchdog 强制 panel[0]；`fanout` 只作用于 on-demand 调用。watchdog 默认阈值为 5；触发后锁保持到 Consult 结束，Consult 自身不参与 watchdog 复评，结束时清空旧 fingerprint，下一次必须重新累计 N 个新事件。`budget.perRun` 默认 3，从一次真实用户输入覆盖到下一次用户输入；旧 `perTurn` 只作解析别名。预算在发出顾问请求前原子占位，并按请求尝试计数（失败或取消也计）。所有实际请求（含空响应重试和 fanout）按标准 Usage 聚合到顶层 toolResult，Pi session 计入 Tools/summaries；raw/events 保留顾问模型、cache 与 cost 供账本使用，但 Consult UI 只显示 input/output/total tokens。

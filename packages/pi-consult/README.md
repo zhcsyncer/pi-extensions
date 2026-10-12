@@ -12,10 +12,11 @@ New package. Side-call, inventory prefix, and active-tool reconcile are adapted 
 
 ## Features
 
-- `consult({ why })` forwards the current session to the configured advisor. The advisor has no tools and no user-visible output.
+- `consult({ why })` forwards the current session to the configured advisor through Pi's public SDK, preserving the configured provider and account/subscription authentication. The advisor has no tools and no user-visible output.
+- Consult is model-only: ordinary direct calls work without codemode; nested calls from scripts or other tools cannot start an advisor request. Installing this package does not enable codemode.
 - Proactive Consult is limited to explicit advisor requests, consequential unresolved structural choices, or genuinely stuck approaches. Decided, reversible, mechanical, and direct-assessment work proceeds without Consult; rejecting advice with evidence is valid.
 - Unconfigured panel unloads the tool. Off costs nothing.
-- Watchdog: after N identical tool calls or N consecutive errors, steer the model to consult first. The default threshold is 5; completing Consult clears the prior evidence.
+- Watchdog: after N identical top-level tool calls or N consecutive top-level errors, steer the model to consult first. Nested calls do not count again alongside their outer call. The default threshold is 5; completing Consult clears the prior evidence.
 - `/consult` picks panel models and effort and toggles the watchdog. `/consult status` opens a temporary dashboard for budget and recent activity without adding anything to the transcript.
 - Advisor summaries follow the language of the user's latest substantive request while preserving technical syntax. Expanded results render Markdown; collapsed rows remain clean one-line previews.
 - Waiting rows stream `connecting` / `thinking` / `writing` and an approximate `~out` count. Completed expanded rows and the status dashboard show exact input, output, and total tokens only.
@@ -41,7 +42,7 @@ Try without installing:
 pi -e npm:@zhcsyncer/pi-consult
 ```
 
-Requires Pi 0.86 or later. Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Until a panel is set, `consult` is not in the active tools.
+Requires Pi 1.1 or later. Then restart Pi or run `/reload`. Use `/consult` to choose an advisor model. Until a panel is set, `consult` is not in the active tools.
 
 ## Commands
 
