@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree，正在固定计划快照并准备 E0；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree并提交计划快照，E0 独立实施 session 已启动；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -27,11 +27,11 @@
 - 调度：当前 session `01a12e08-fb4e-7135-9f57-a5843fb8ce27`，Herdr pane `w3:p64`。
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
-- 最新集成 SHA：`f48a91b`；计划提交：正在准备。依赖见 §2。
+- 最新集成 SHA / 计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`。E0 合同：[tasks/e0-baseline.md](./tasks/e0-baseline.md)。依赖见 §2。
 
 | 任务 | 状态 | worktree / session | 基线 → 交付 → 集成 | 验收 / 阻塞与下一步 | 更新时间 |
 |---|---|---|---|---|---|
-| E0 基线与隔离环境 | 未派发 | — | `f48a91b` → — → — | 已授权，正在固定计划快照与派发合同 | 2026-10-12 14:52 |
+| E0 基线与隔离环境 | 执行中 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-e0`；`pi11-e0-20261012`；agent `pi11-e0` / `w9X:p1` | `c7d251f` → — → — | 已确认 agent working；执行隔离 SDK/依赖/全包检查基线，尚未验收 | 2026-10-12 14:55 |
 | R1 终态/恢复/费用水位 | 未派发 | — | — | 待 E0 | — |
 | R2 会话授权边界 | 未派发 | — | — | 待 R1 | — |
 | R3 child 装配 | 未派发 | — | — | 待 R2＋K1 | — |

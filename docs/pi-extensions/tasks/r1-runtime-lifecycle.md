@@ -1,0 +1,44 @@
+# R1：子代理投递、终态、恢复与费用身份
+
+状态：派发前合同；依赖 E0 已验收集成。任务进度由调度者维护，不在本文件另立账本。
+
+## Goal / AC
+
+让 Pi 1.1 下运行中 steer、结束/取消和恢复都反映真实生命周期，并向 Meter/Glance/父 Agent 提供稳定的已记录费用身份；不因消息回执变化重复执行用户输入或重复计费。
+
+- 对 `queued`、`handled` 与拒绝/异常作真实区分；已处理的输入不得再次排队，已拒绝的不谎称送达，投递尚未结算时不提前释放执行资源。
+- SDK 内部 abort 与外部 abort 均反映为取消，但 `agent_settled` 通知不能替代 prompt/abort/idle 的实际结算。取消、完成和排队后继不会跨代串态。
+- 合法 retain-none compaction 历史可恢复；损坏 JSONL、缺失引用、非法前向引用或 cwd/ID 错误明确失败，不静默新建会话。
+- 计入已定义范围内的 assistant、外层 tool result、独立 usage/summary；同一已持久记录只计一次，nested 事件不叠加外层已经汇总的消费。不能将未知回执当确认零。
+- 父工具结果保留 `subagentUsageRollup` 与可恢复水位语义；重复查询/reload/恢复不会重复结算，旧 archive 不让累计水位倒退。
+
+## Design / 边界
+
+优先复用 `packages/pi-subagents/src/agent-manager.ts` 的 settlement barrier/steering 集合、`agent-runner.ts` 的单次执行与恢复校验、`usage.ts` 与 `usage-reporting.ts` 的累计/水位模型。当前 `queueSteer` 假设 Promise<void>，runner 只从 assistant message_end 收 usage，恢复校验默认 firstKeptEntryId 指向已见 ID；这些是本任务核验并适配的具体边界。
+
+保留现有公开 runtime facade 和已支持的恢复语义；确需扩展内部回调时给消费者清楚的记录身份合同，不新造跨包账本框架。相邻调用方、结果展示和 archive 字段按实际受影响范围检查，不用宽泛 cast 或忽略回执消除类型错误。
+
+允许写 `packages/pi-subagents` 中生命周期/恢复/usage 及对应测试、双语文档、独立 changeset；manifest/锁文件归 E0 负责人。不得改 Meter/Glance/Review，不实施权限 hook/factory 装配（R2/R3）、B10 脱敏、B11 双加载警告、B12 schedule/RPC 标签专项。新旧直接/nested权限的最终验收留 R2/R3，不把 R1 宣称为全运行时已适配。
+
+## Contract / Test Impact
+
+T1 状态与恢复；T0 精确用量；T2 真实 SDK 回执/历史适配。复用现有测试与离线 provider，只补回归边界。
+
+| 输入/事件 | 可观察结果 |
+|---|---|
+| steer queued / handled / rejected / throws | 用户可见状态准确；同一输入不重发，投递 promise 完成或失败后释放 reservation |
+| 内部 abort 先发 settled、prompt 尚未完成 | 显示取消意图，但不提前启动会冲突的后继任务或清理 session |
+| 旧代迟到 settled/usage 与新代运行重叠 | 不改写新代终态；消费按稳定记录身份计入一次 |
+| 正常 session、合法 retain-none、损坏/未知/前向引用 | 前两者恢复；后三者明确失败且无新 session 副作用 |
+| assistant $0.01＋outer tool $0.03＋独立 usage $0.02，另有 nested 对 outer 的分解 | 已记录总费用 $0.06，nested 不重复相加 |
+| 同一条 usage live 后 import/reload，重复 get | 累计不增加；下一条真实新记录只增加其差额 |
+| 父结果已持久 rollup 后恢复或旧 archive 回放 | 水位不倒退，重复查询不再次消费已上报部分 |
+| tree 切到不包含原父 rollup 的分支 | 依据当前分支持久证据重建水位，不泄漏其他分支内存 reservation |
+
+独立测试作者先按固定合同编写高代价用例，不读待测新实现；调度者将测试与实现组合到候选验收树后验证。真实模型/账号不用于这些测试。
+
+## 派发与交付
+
+先读取全局规则（`/root/.agent-vm-state/pi/agent/AGENTS.md`、`/root/.agent-vm-state/pi/agent/rules/coding.md`、`/root/develop/AGENTS.md`）及任务 worktree 的 AGENTS.md，完整阅读运行时计划、E0 失败归属与目标 1.1 SDK 文档/相关链接。先回报 cwd/origin/base/允许写范围再编辑。
+
+交付本地任务提交、测试实际结果、用于消费者的费用身份与终态合同说明；不 push/main merge/release，不编辑全局进度表。若需要修改冻结项或扩大公共协议，停止相关部分并报告调度者。
