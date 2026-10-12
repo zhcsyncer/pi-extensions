@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，R1、D1、K1 三个独立 Pi session 已并行启动；R1/D1 已进入实现并与独立测试作者分工，K1 已独立审阅并集成复验通过，释放的实施槽位将派发 C1；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；当前 R1、D1、C1 三个实施 session 并行，独立测试作者按冻结合同写用例；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -28,7 +28,7 @@
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
 - 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`6fa7613144c2d48b717e0efccbc2bc686b56021c`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0 环境门槛已通过；R1/A1 类型与 R1/N1 功能失败仍是后续任务，不表示整轮适配已通过。
-- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)。依赖见 §2。
+- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)。依赖见 §2。
 - 独立审阅资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review`；session `pi11-review-20261012`；agent `pi11-review` / `w9Y:p1`。只读审阅合同，不代写实现或维护另一份进度。
 - 独立测试资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-contract-tests`；session `pi11-tests-20261012`；agent `pi11-tests` / `wA2:p1`。全新上下文，不读取产品实现；仅写约定测试并提交。与审阅任务共用额外活动槽位。
 
@@ -43,7 +43,7 @@
 | D3 nested 投影 | 未派发 | — | — | 待 D2 | — |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
 | K1 Context7 离线合同 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-context7`；`pi11-context7-20261012`；agent `pi11-context7` / `wA1:p1` | `4975745` → `f0261015` → `6fa7613` | 完整独立审阅及集成态 typecheck＋24/24、真实 loader 无告警/私有加载、pack17/17 通过；消费者可信身份合同已写回接入规格，真实服务仍待 L1 | 2026-10-12 16:30 |
-| C1 Consult 公开 SDK | 未派发 | — | — | K1 已释放实施槽位；调度正在固定公开 SDK 适配合同 | 2026-10-12 16:30 |
+| C1 Consult 公开 SDK | 执行中 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-consult`；`pi11-consult-20261012`；agent `pi11-consult` / `wA3:p1` | `cc66a05` → — → — | 独立依赖与 SDK 验证通过，working；公开 SDK/认证保真、model-only、watchdog 顶层过滤；独立合同测试排在 R1/D1 后 | 2026-10-12 16:36 |
 | F1 Todo＋Question | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | H1 Herdr 兼容 | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | N1 Fast | 未派发 | — | — | E0 已通过；待实施槽位，已知 stream options 回归归本项 | 2026-10-12 16:20 |
