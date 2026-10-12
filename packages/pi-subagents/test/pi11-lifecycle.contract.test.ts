@@ -189,9 +189,9 @@ describe("R1 public lifecycle contract (Pi 1.1)", () => {
     const manager = f.manager(), id = f.spawn(manager);
     await manager.waitForResult(id);
     const previous = manager.getRecord(id)!.runGeneration;
-    const delivery = manager.sendMessage(id, "new generation", { pi: f.pi, ctx: f.ctx });
+    const delivery = manager.resume(id, "new generation", undefined, { pi: f.pi, ctx: f.ctx, isBackground: true });
     try {
-      await entered.promise;
+      await Promise.race([entered.promise, delivery.then(() => entered.promise)]);
       expect(manager.getRecord(id)!.runGeneration).toBeGreaterThan(previous!);
       expect(manager.isResultReady(id)).toBe(false);
       await tick();
