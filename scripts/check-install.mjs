@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { findPackageJSON } from "node:module";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createIsolatedSmokeEnvironment } from "./check-smoke.mjs";
 import { runIsolated } from "./run-isolated.mjs";
 
@@ -34,6 +36,30 @@ function hostCopies(modules, copies = []) {
 	return copies;
 }
 
+function contentHashes(directory, prefix = "") {
+	return Object.fromEntries(readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.name !== "node_modules")
+		.flatMap((entry) => {
+			const path = join(directory, entry.name);
+			const relative = `${prefix}${entry.name}`;
+			return entry.isDirectory() ? Object.entries(contentHashes(path, `${relative}/`))
+				: [[relative, createHash("sha256").update(readFileSync(path)).digest("hex")]];
+		}).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function pack(tree, path, destination) {
+	mkdirSync(destination, { recursive: true });
+	const [packed] = JSON.parse(command("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", destination, resolve(tree, path)]));
+	const tarball = join(destination, packed.filename);
+	command("tar", ["-xf", tarball, "-C", destination]);
+	return { tarball, files: contentHashes(join(destination, "package")) };
+}
+
+function verifyContent(installed, packed) {
+	const actual = contentHashes(installed);
+	assert.deepEqual(actual, packed.files, `Installed manifest AND every packed file must match ${packed.tarball}`);
+	return { files: Object.keys(actual).length, sha256: createHash("sha256").update(JSON.stringify(actual)).digest("hex"), tarball: packed.tarball };
+}
+
 async function worker(output, previousRef) {
 	const { DefaultPackageManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 	const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")), "utf8")).version;
@@ -44,17 +70,15 @@ async function worker(output, previousRef) {
 	const archive = join(output, "previous.tar");
 	command("git", ["archive", "--format=tar", `--output=${archive}`, previousRef]);
 	command("tar", ["-xf", archive, "-C", oldTree]);
-	const results = [];
-	for (const path of paths) {
+	const packages = paths.map((path) => {
 		const manifest = JSON.parse(readFileSync(resolve(root, path, "package.json"), "utf8"));
 		const label = manifest.name.replaceAll("/", "-").replaceAll("@", "");
-		const packs = {};
-		for (const [phase, tree] of [["previous", oldTree], ["candidate", root]]) {
-			const destination = join(output, "packs", phase, label);
-			mkdirSync(destination, { recursive: true });
-			const packed = JSON.parse(command("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", destination, resolve(tree, path)]));
-			packs[phase] = join(destination, packed[0].filename);
-		}
+		return { path, manifest, label, packs: Object.fromEntries([["previous", oldTree], ["candidate", root]]
+			.map(([phase, tree]) => [phase, pack(tree, path, join(output, "packs", phase, label))])) };
+	});
+	const subagents = packages.find(({ manifest }) => manifest.name === "@zhcsyncer/pi-subagents");
+	const results = [];
+	for (const { path, manifest, label, packs } of packages) {
 		for (const mode of ["fresh", "upgrade"]) {
 			const agentDir = join(output, mode, label);
 			mkdirSync(agentDir, { recursive: true });
@@ -63,20 +87,29 @@ async function worker(output, previousRef) {
 			try {
 				// Exercise Pi's real managed npm install flags using unpublished tarballs.
 				// The previous source is an explicit Git ref, never the user's installed tree.
-				if (mode === "upgrade") await manager.install(`npm:${packs.previous}`);
-				await manager.install(`npm:${packs.candidate}`);
+				const review = manifest.name === "@zhcsyncer/pi-adversarial-review";
 				const installed = join(agentDir, "npm", "node_modules", manifest.name);
-				assert.deepEqual(JSON.parse(readFileSync(join(installed, "package.json"), "utf8")), manifest, "Candidate manifest must replace the previous tarball even at the same release version");
+				const embeddedPath = () => dirname(findPackageJSON("@zhcsyncer/pi-subagents", pathToFileURL(join(installed, "package.json"))));
+				if (mode === "upgrade") {
+					if (review) await manager.install(`npm:${subagents.packs.previous.tarball}`);
+					await manager.install(`npm:${packs.previous.tarball}`);
+					if (review) row.previousEmbeddedContent = verifyContent(embeddedPath(), subagents.packs.previous);
+				}
+				// Satisfy Review's normal semver dependency with the actual candidate artifact,
+				// through Pi-managed npm installs, not a workspace link or a registry version guess.
+				if (review) await manager.install(`npm:${subagents.packs.candidate.tarball}`);
+				await manager.install(`npm:${packs.candidate.tarball}`);
+				row.content = verifyContent(installed, packs.candidate);
+				if (review) row.embeddedContent = verifyContent(embeddedPath(), subagents.packs.candidate);
+				// Disk presence alone says nothing about which instance the loader actually uses.
 				row.hostCopies = hostCopies(join(agentDir, "npm", "node_modules"));
-				const embedded = join(agentDir, "npm", "node_modules", "@zhcsyncer", "pi-subagents", "package.json");
-				if (manifest.name === "@zhcsyncer/pi-adversarial-review" && existsSync(embedded)) row.embeddedSubagents = JSON.parse(readFileSync(embedded, "utf8")).version;
 				const loaded = runIsolated(process.execPath, [join(root, "scripts/check-loader.mjs"), "--child", installed], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 				const log = `${label}-${mode}-loader.log`;
 				writeFileSync(join(output, log), `${loaded.stdout ?? ""}${loaded.stderr ?? ""}${loaded.error ?? ""}`);
 				row.loaderStatus = loaded.status ?? 1;
 				row.log = log;
-				assert.equal(loaded.status, 0, `${manifest.name}: installed registration failed; see ${log}`);
-				assert.deepEqual(row.hostCopies, [], "Managed package tree must not retain private host modules");
+				row.loaderDiagnostics = JSON.parse(loaded.stdout.trim().split("\n").at(-1));
+				assert.equal(loaded.status, 0, `${manifest.name}: installed registration/provenance failed; see ${log}`);
 				row.status = 0;
 			} catch (error) {
 				row.status = 1;

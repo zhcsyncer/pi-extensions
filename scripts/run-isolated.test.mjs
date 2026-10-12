@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { runIsolated } from "./run-isolated.mjs";
 
 test("offline harness allows fake loopback transports and rejects external TCP", () => {
@@ -19,5 +20,19 @@ test("offline harness allows fake loopback transports and rejects external TCP",
 		assert.equal(error.code, 'ENETUNREACH');
 		remote.destroy();
 	`], { encoding: "utf8", timeout: 5000 });
+	assert.equal(result.status, 0, `${result.stderr}\n${result.error ?? ""}`);
+});
+
+test("generic isolation preserves Cursor's default local startup catalog without network", () => {
+	const cursor = new URL("../providers/pi-provider-cursor-ask/", import.meta.url);
+	const result = runIsolated(process.execPath, ["--import", new URL("node_modules/tsx/dist/loader.mjs", cursor).href, "--input-type=module", "-e", `
+		import assert from 'node:assert/strict';
+		import { writeCachedCatalog } from ${JSON.stringify(new URL("src/stream/model-cache.ts", cursor).href)};
+		import { loadStartupCatalog } from ${JSON.stringify(new URL("src/extension/provider.ts", cursor).href)};
+		process.env.PI_CURSOR_CACHE_DIR = process.env.HOME + '/synthetic-cursor-cache';
+		const rawModels = [{ id: 'fixture-cached-model', name: 'Local fixture', reasoning: false, contextWindow: 4096, maxTokens: 1024 }];
+		writeCachedCatalog({ tokenHash: 'fixture-not-a-credential', rawModels, parameterizedModels: [] });
+		assert.deepEqual(loadStartupCatalog().rawModels, rawModels);
+	`], { cwd: fileURLToPath(cursor), encoding: "utf8", timeout: 15_000 });
 	assert.equal(result.status, 0, `${result.stderr}\n${result.error ?? ""}`);
 });

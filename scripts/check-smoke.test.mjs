@@ -27,7 +27,6 @@ test("isolates every user-level config root used by smoke extensions", () => {
 		});
 		assert.equal(environment.OPENAI_API_KEY, undefined);
 		assert.equal(environment.HERDR_SOCKET, undefined);
-		assert.equal(environment.PI_OFFLINE, "1");
 		assert.equal(environment.pnpm_config_pm_on_fail, "ignore");
 		assert.equal(environment.PATH, process.env.PATH);
 		assert.equal(environment.COREPACK_HOME, "/real/home/.cache/node/corepack");

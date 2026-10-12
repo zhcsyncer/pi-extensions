@@ -32,7 +32,6 @@ export function createIsolatedSmokeEnvironment(baseEnvironment = process.env) {
 			XDG_DATA_HOME: join(root, "data"),
 			XDG_STATE_HOME: join(root, "state"),
 			XDG_CACHE_HOME: join(root, "cache"),
-			PI_OFFLINE: "1",
 			// pnpm 11 otherwise resolves its own version through the registry in an empty HOME.
 			// Checks must run the already-selected executable, not install or reconcile anything.
 			pnpm_config_pm_on_fail: "ignore",
@@ -110,6 +109,8 @@ export function runSmokeChecks() {
 				{
 					env: {
 						...environment,
+						// Catalog smoke intentionally avoids live discovery; generic tests do not.
+						PI_OFFLINE: "1",
 						...(isAgentPlan
 							? {
 								ARK_AGENT_PLAN_API_KEY: "release-smoke-test-key",

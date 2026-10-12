@@ -55,7 +55,7 @@ async function main(): Promise<void> {
 		bold: (text: string) => text,
 	};
 	const renderer = createToolHtmlRenderer({
-		getToolDefinition: (name: string) => aggregateDefinitions.get(name),
+		getToolRenderers: (name: string) => aggregateDefinitions.get(name),
 		theme,
 		cwd: process.cwd(),
 		width: 120,
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 	registerToolDisplayOverrides(individualStub.api, previewIndividualConfig);
 	const individualDefinitions = new Map(individualStub.tools.map((tool) => [tool.name, tool]));
 	const individualRenderer = createToolHtmlRenderer({
-		getToolDefinition: (name: string) => individualDefinitions.get(name),
+		getToolRenderers: (name: string) => individualDefinitions.get(name),
 		theme,
 		cwd: process.cwd(),
 		width: 120,
