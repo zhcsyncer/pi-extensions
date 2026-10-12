@@ -39,7 +39,7 @@ import {
 } from "./display-summary-fallback.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { createCleanupScope, type CleanupScope } from "./disposable.js";
-import { composeToolRenderers } from "./renderer-shell.js";
+import { createToolRendererComposer } from "./renderer-shell.js";
 import {
   registerLiveToolCallEvents,
   shouldShowDeterministicFallback,
@@ -1492,7 +1492,11 @@ function drainPendingToolDisplayDecorations(api: ToolDisplayApi, scope: CleanupS
   }
 }
 
-function installToolDisplayApi(getConfig: ConfigGetter, scope: CleanupScope) {
+function installToolDisplayApi(
+  getConfig: ConfigGetter,
+  scope: CleanupScope,
+  composeToolRenderers: ReturnType<typeof createToolRendererComposer>,
+) {
   const adapters = new Map<string, ToolDisplayAdapter>();
   const decoratedCallbacks = new Set<unknown>();
   let nextAdapterId = 0;
@@ -1627,8 +1631,9 @@ export function registerToolDisplayOverrides(
   getConfig: ConfigGetter,
 ): void {
   const scope = createCleanupScope();
+  const composeToolRenderers = createToolRendererComposer();
   const clearLiveCalls = registerLiveToolCallEvents(pi);
-  const { api: toolDisplayApi, adapters, decoratedCallbacks } = installToolDisplayApi(getConfig, scope);
+  const { api: toolDisplayApi, adapters, decoratedCallbacks } = installToolDisplayApi(getConfig, scope, composeToolRenderers);
   scope.register(() => {
     clearLiveCalls();
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;

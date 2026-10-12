@@ -19,7 +19,7 @@ interface Row {
 }
 
 class RendererSlot extends Box {
-  constructor(readonly row: Row) { super(0, 0); }
+  constructor(readonly row: Row, readonly owner: object) { super(0, 0); }
   update(child: Component, padding: number): void {
     this.setPaddingX(padding);
     this.clear();
@@ -27,22 +27,31 @@ class RendererSlot extends Box {
   }
 }
 
+interface RendererOptions {
+  style: ToolCallStyle;
+  native?: ToolRenderers;
+  connectRows?: boolean;
+  run?: <T>(fn: () => T) => T;
+}
+
+/** One registration owner keeps row state across independent call/result resolutions (HTML). */
+export function createToolRendererComposer() {
+  const rows = new WeakMap<object, Row>();
+  return (own: ToolRenderers, delegate: ToolRenderers | undefined, options: RendererOptions): ToolRenderers =>
+    composeToolRenderers(rows, own, delegate, options);
+}
+
 /** A row owns the framing; each renderer owns its own state and both previous-component slots. */
-export function composeToolRenderers(
+function composeToolRenderers(
+  rows: WeakMap<object, Row>,
   own: ToolRenderers,
   delegate: ToolRenderers | undefined,
-  options: {
-    style: ToolCallStyle;
-    native?: ToolRenderers;
-    connectRows?: boolean;
-    run?: <T>(fn: () => T) => T;
-  },
+  options: RendererOptions,
 ): ToolRenderers {
   // Cooperative callers may install these callbacks back onto their definition.
   // Capture the inputs so that installation cannot turn delegation into recursion.
   own = { ...own };
   delegate = delegate ? { ...delegate } : undefined;
-  const rows = new WeakMap<object, Row>();
   const run = options.run ?? (<T>(fn: () => T): T => fn());
   const useCallDelegate = !!delegate?.renderCall && (!own.renderCall || delegate.renderCall !== options.native?.renderCall);
   const useResultDelegate = !!delegate?.renderResult && (!own.renderResult || delegate.renderResult !== options.native?.renderResult);
@@ -51,7 +60,9 @@ export function composeToolRenderers(
   function prepare(context: RenderContext | undefined, slot: Slot, delegated: boolean) {
     const carrier = context?.state && typeof context.state === "object" ? context.state : undefined;
     let row = carrier ? rows.get(carrier) : undefined;
-    if (!row && context?.lastComponent instanceof RendererSlot) row = context.lastComponent.row;
+    if (!row && context?.lastComponent instanceof RendererSlot && context.lastComponent.owner === rows) {
+      row = context.lastComponent.row;
+    }
     row ??= { own: { state: {} }, delegate: { state: {} } };
     if (carrier) rows.set(carrier, row);
     const layer = delegated ? row.delegate : row.own;
@@ -70,7 +81,7 @@ export function composeToolRenderers(
     const styled = slot === "result" && !delegated
       ? applyToolResultStyle(child, options.style, { connectRows: options.connectRows, theme }) as Component
       : child;
-    const component = row[slot] ??= new RendererSlot(row);
+    const component = row[slot] ??= new RendererSlot(row, rows);
     component.update(styled, shell === "self" && !selfPadded ? context?.outputPad ?? 0 : 0);
     return component;
   }

@@ -10,6 +10,7 @@ import { renderBashCall } from "../src/bash-display.ts";
 import { createToolDisplayDebugLogger } from "../src/debug-logger.ts";
 import { loadToolDisplayConfig, saveToolDisplayConfig } from "../src/config-store.ts";
 import { applyToolDisplayMode } from "../src/presets.ts";
+import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 import { getToolDisplayApi } from "../tool-display-api-consumer.js";
 import { createDisplaySession } from "./helpers/display-session.ts";
 import type { PatchableUserMessagePrototype } from "../src/user-message-box-patch.ts";
@@ -112,6 +113,48 @@ test("old renderer cleanup cannot stop a newer session's timer", async t => {
     for (const timer of timers) originalClear(timer);
   }
 });
+
+for (const boundary of ["quit", "reload"] as const) {
+  test(`aggregate event-created pulse stops on ${boundary} without clearing a newer session`, async () => {
+    const config = { ...DEFAULT_TOOL_DISPLAY_CONFIG, toolCallLayout: "aggregate" as const };
+    const older = await createDisplaySession(config);
+    const newer = await createDisplaySession(config);
+    const originalSet = globalThis.setInterval;
+    const originalClear = globalThis.clearInterval;
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const cleared = new Set<ReturnType<typeof setInterval>>();
+    globalThis.setInterval = ((fn: any, ms: number) => { const timer = originalSet(fn, ms); timers.push(timer); return timer; }) as typeof setInterval;
+    globalThis.clearInterval = ((timer: ReturnType<typeof setInterval>) => { cleared.add(timer); originalClear(timer); }) as typeof clearInterval;
+    const start = (h: typeof older, content: string) => h.session.extensionRunner.emit({
+      type: "message_start", message: { role: "user", content, timestamp: Date.now() },
+    });
+    try {
+      // These are later lifecycle events, not synchronous renderer callbacks.
+      await start(older, "old session");
+      await start(newer, "new session");
+      assert.equal(timers.length, 2);
+      if (boundary === "reload") await older.session.reload();
+      else await older.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      assert.equal(cleared.has(timers[0]), true, "old event timer is stopped");
+      assert.equal(cleared.has(timers[1]), false, "newer session still owns its live pulse");
+      if (boundary === "reload") {
+        await start(older, "reloaded session");
+        assert.equal(timers.length, 3, "the replacement session gets its own pulse");
+        await older.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+        assert.equal(cleared.has(timers[2]), true);
+        assert.equal(cleared.has(timers[1]), false);
+      }
+      await newer.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      assert.equal(cleared.has(timers[1]), true);
+    } finally {
+      await older.close();
+      await newer.close();
+      globalThis.setInterval = originalSet;
+      globalThis.clearInterval = originalClear;
+      for (const timer of timers) originalClear(timer);
+    }
+  });
+}
 
 test("existing user-message prototype patch remains safe across entry-point reload", async t => {
   const h = await createDisplaySession(undefined, [], { display: false, factories: [toolDisplayExtension] });

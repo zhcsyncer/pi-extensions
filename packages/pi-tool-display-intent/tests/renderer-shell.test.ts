@@ -42,6 +42,30 @@ test("delegated call/result components share their state, not the framing or oth
   assert.match(output(second), /RESULT:two:two:73:true/);
 });
 
+test("separate registration owners never adopt each other's row state or framing", async t => {
+  const definition: ToolDefinition = {
+    name: "owner_probe", label: "Probe", description: "Probe", parameters: { type: "object", properties: {} },
+    execute: async () => ({ content: [], details: undefined }),
+    renderCall(args, _theme, ctx) {
+      ctx.state.seed ??= (args as { seed: string }).seed;
+      return new Text(`OWNER:${ctx.state.seed}`, 0, 0);
+    },
+    renderResult(_result, _options, _theme, ctx) { return new Text(`RESULT:${ctx.state.seed}`, 0, 0); },
+  };
+  const older = await createDisplaySession(defaults, [definition]);
+  const newer = await createDisplaySession(defaults, [definition]);
+  t.after(async () => { await older.close(); await newer.close(); });
+  const context = { state: {}, outputPad: 0 } as any;
+  const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as any;
+  const oldCall = older.renderers(definition.name)!.renderCall!({ seed: "old" }, theme, context);
+  const newCall = newer.renderers(definition.name)!.renderCall!({ seed: "new" }, theme, { ...context, lastComponent: oldCall });
+  assert.match(newCall.render(80).join("\n"), /OWNER:new/);
+  const oldResult = older.renderers(definition.name)!.renderResult!(result, { expanded: false, isPartial: false }, theme, context);
+  const newResult = newer.renderers(definition.name)!.renderResult!(result, { expanded: false, isPartial: false }, theme, context);
+  assert.match(oldResult.render(80).join("\n"), /RESULT:old/);
+  assert.match(newResult.render(80).join("\n"), /RESULT:new/);
+});
+
 for (const style of ["compact", "claude"] as const) {
   for (const shell of ["default", "self"] as const) {
     test(`${style}/${shell} applies outputPad exactly once`, async t => {

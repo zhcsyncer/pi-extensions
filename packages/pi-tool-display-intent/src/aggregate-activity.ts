@@ -22,7 +22,6 @@ import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from 
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
-import { registerTimer } from "./disposable.js";
 
 const RUN_BREATHE_MS = 2400;
 const RUN_BREATHE_TICK_MS = 80;
@@ -944,6 +943,7 @@ export class AggregateProjection {
 	private renderTheme: AggregateRenderTheme | undefined;
 	private readonly contextGrowth = new ContextGrowthLedger();
 	private pulseTimer: ReturnType<typeof setInterval> | undefined;
+	private disposed = false;
 	private readonly contextInvalidators = new Map<string, () => void>();
 	private readonly turnIdsByMessage = new WeakMap<object, string>();
 	private timelineExpanded = false;
@@ -1439,7 +1439,16 @@ export class AggregateProjection {
 		this.syncRunPulse();
 	}
 
+	/** The pulse is created by later events, so its owner is this projection, not a render scope. */
+	dispose(): void {
+		this.disposed = true;
+		this.stopRunPulse();
+		this.clearViewportState();
+		this.setDetailOpener(undefined);
+	}
+
 	private syncRunPulse(): void {
+		if (this.disposed) return;
 		const live = this.groups.some((group) => !group.settled);
 		if (live && !this.pulseTimer) {
 			this.pulseTimer = setInterval(() => {
@@ -1449,7 +1458,6 @@ export class AggregateProjection {
 				if (!this.groups.some((group) => !group.settled)) this.stopRunPulse();
 			}, RUN_BREATHE_TICK_MS);
 			this.pulseTimer.unref?.();
-			registerTimer(this.pulseTimer);
 			return;
 		}
 		if (!live) this.stopRunPulse();
@@ -2674,8 +2682,7 @@ export function registerAggregateProjectionEvents(
 	pi.on("session_shutdown", async () => {
 		clearSettleTimer();
 		collapseWidget.dispose();
-		projection.clearViewportState();
-		projection.setDetailOpener(undefined);
+		projection.dispose();
 		const wasHost = hostAggregateProjection === projection;
 		forgetProjection(pi, projection);
 		// The UI host owns shared rendering, not the last lingering child session.
