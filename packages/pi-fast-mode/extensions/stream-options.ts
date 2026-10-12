@@ -1,30 +1,24 @@
 /**
- * Local copy of Pi's streamSimple option recipe.
- *
- * Why this is forked: Pi's extension loader aliases `@earendil-works/pi-ai`
- * to `dist/compat.js`. Deep imports such as
- * `@earendil-works/pi-ai/api/simple-options` then resolve to
- * `compat.js/api/simple-options` and fail to load. compat does not re-export
- * `buildBaseOptions`, so the extension keeps a local recipe and only imports
- * the loader-safe `@earendil-works/pi-ai/compat` surface.
- *
- * Keep this aligned with installed pi-ai `api/simple-options` +
- * `utils/estimate`. Tests compare the two on representative fixtures.
+ * Pi 1.1's extension loader maps pi-ai subpaths onto compat.js, so neither
+ * api/simple-options nor utils/estimate is loadable here. Keep only the budget
+ * recipe locally; tests compare it with the installed SDK and real loader.
+ * Sampling defaults belong to the official Responses adapter, not request
+ * overrides. Spread options so provider hooks and future fields survive.
  */
-import type {
-	Api,
-	AssistantMessage,
-	Context,
-	Message,
-	Model,
-	SimpleStreamOptions,
-	StreamOptions,
-	Usage,
+import {
+	getSystemMessageText,
+	type Api,
+	type Context,
+	type Message,
+	type Model,
+	type SimpleStreamOptions,
+	type StreamOptions,
+	type Usage,
 } from "@earendil-works/pi-ai/compat";
 
 const CONTEXT_SAFETY_TOKENS = 4096;
 const MIN_MAX_TOKENS = 1;
-const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN = 3.5;
 const ESTIMATED_IMAGE_CHARS = 4800;
 
 function calculateContextTokens(usage: Usage): number {
@@ -39,111 +33,53 @@ function safeJsonStringify(value: unknown): string {
 	}
 }
 
-function estimateTextAndImageContentChars(content: unknown): number {
-	if (typeof content === "string") return content.length;
-	if (!Array.isArray(content)) return 0;
-	let chars = 0;
-	for (const block of content) {
-		if (!isRecord(block)) continue;
-		chars += block.type === "text" && typeof block.text === "string" ? block.text.length : ESTIMATED_IMAGE_CHARS;
-	}
-	return chars;
-}
-
-function estimateTextAndImageContentTokens(content: unknown): number {
-	return Math.ceil(estimateTextAndImageContentChars(content) / CHARS_PER_TOKEN);
-}
-
-function estimateSystemMessageTokens(message: Message): number {
-	let chars = estimateTextAndImageContentChars(message.content);
-	if ("sections" in message && isRecord(message.sections)) {
-		for (const value of Object.values(message.sections)) {
-			if (typeof value === "string") chars += value.length;
-		}
-	}
-	if ("toolsAdded" in message && Array.isArray(message.toolsAdded)) {
-		chars += safeJsonStringify(message.toolsAdded).length;
-	}
-	return Math.ceil(chars / CHARS_PER_TOKEN);
+function estimateToolsTokens(tools: unknown[] | undefined): number {
+	return tools?.length ? Math.ceil(safeJsonStringify(tools).length / CHARS_PER_TOKEN) : 0;
 }
 
 function estimateMessageTokens(message: Message): number {
-	if (message.role === "system") return estimateSystemMessageTokens(message);
+	if (message.role === "system") {
+		return Math.ceil(getSystemMessageText(message).length / CHARS_PER_TOKEN)
+			+ estimateToolsTokens(message.toolsAdded)
+			+ estimateToolsTokens(message.toolsRemoved);
+	}
 	if (message.role === "user" || message.role === "toolResult") {
-		return estimateTextAndImageContentTokens(message.content);
+		const chars = typeof message.content === "string"
+			? message.content.length
+			: message.content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : ESTIMATED_IMAGE_CHARS), 0);
+		return Math.ceil(chars / CHARS_PER_TOKEN);
 	}
-	if (!Array.isArray(message.content)) {
-		return estimateTextAndImageContentTokens(message.content);
-	}
-
 	let chars = 0;
 	for (const block of message.content) {
-		if (!isRecord(block)) continue;
-		if (block.type === "text" && typeof block.text === "string") {
-			chars += block.text.length;
-		} else if (block.type === "thinking" && typeof block.thinking === "string") {
-			chars += block.thinking.length;
-		} else if (typeof block.name === "string") {
-			chars += block.name.length + safeJsonStringify(block.arguments).length;
-		}
+		if (block.type === "text") chars += block.text.length;
+		else if (block.type === "thinking") chars += block.thinking.length;
+		else chars += block.name.length + safeJsonStringify(block.arguments).length;
 	}
 	return Math.ceil(chars / CHARS_PER_TOKEN);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getLastAssistantUsageInfo(messages: readonly Message[]): { usage: Usage; index: number } | undefined {
-	let latestPrefixTimestamp = Number.NEGATIVE_INFINITY;
-	let usageInfo: { usage: Usage; index: number } | undefined;
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i];
-		if (message?.role === "assistant") {
-			const assistant = message as AssistantMessage;
-			const usageAppliesToPrefix = assistant.timestamp >= latestPrefixTimestamp;
-			if (
-				usageAppliesToPrefix &&
-				assistant.stopReason !== "aborted" &&
-				assistant.stopReason !== "error" &&
-				calculateContextTokens(assistant.usage) > 0
-			) {
-				usageInfo = { usage: assistant.usage, index: i };
-			}
-		}
-		if (message) latestPrefixTimestamp = Math.max(latestPrefixTimestamp, message.timestamp);
-	}
-	return usageInfo;
-}
-
-function estimateMessages(messages: readonly Message[]): {
-	tokens: number;
-	usageTokens: number;
-	trailingTokens: number;
-	lastUsageIndex: number | null;
-} {
-	const usageInfo = getLastAssistantUsageInfo(messages);
-	if (usageInfo) {
-		const usageTokens = calculateContextTokens(usageInfo.usage);
-		let trailingTokens = 0;
-		for (let i = usageInfo.index + 1; i < messages.length; i++) {
-			const message = messages[i];
-			if (message) trailingTokens += estimateMessageTokens(message);
-		}
-		return {
-			tokens: usageTokens + trailingTokens,
-			usageTokens,
-			trailingTokens,
-			lastUsageIndex: usageInfo.index,
-		};
-	}
-	let tokens = 0;
-	for (const message of messages) tokens += estimateMessageTokens(message);
-	return { tokens, usageTokens: 0, trailingTokens: tokens, lastUsageIndex: null };
-}
-
 export function estimateContextTokens(context: Context): number {
-	return estimateMessages(context.messages).tokens;
+	let latestPrefixTimestamp = Number.NEGATIVE_INFINITY;
+	let tokens = 0;
+	let lastUsageIndex = -1;
+	for (const [index, message] of context.messages.entries()) {
+		// Only a successful, non-stale usage receipt describes the whole prefix.
+		if (
+			message.role === "assistant" &&
+			message.timestamp >= latestPrefixTimestamp &&
+			message.stopReason !== "aborted" &&
+			message.stopReason !== "error" &&
+			calculateContextTokens(message.usage) > 0
+		) {
+			tokens = calculateContextTokens(message.usage);
+			lastUsageIndex = index;
+		}
+		latestPrefixTimestamp = Math.max(latestPrefixTimestamp, message.timestamp);
+	}
+	for (let i = lastUsageIndex + 1; i < context.messages.length; i++) {
+		tokens += estimateMessageTokens(context.messages[i]!);
+	}
+	return tokens;
 }
 
 export function clampMaxTokensToContext(model: Model<Api>, context: Context, maxTokens: number): number {
@@ -158,29 +94,9 @@ export function buildBaseOptions(
 	options?: SimpleStreamOptions,
 	apiKey?: string,
 ): StreamOptions {
-	const samplingParams =
-		model.samplingParams || options?.samplingParams
-			? { ...model.samplingParams, ...options?.samplingParams }
-			: undefined;
 	return {
-		temperature: options?.temperature,
-		samplingParams,
+		...options,
 		maxTokens: clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens),
-		signal: options?.signal,
-		telemetryContext: options?.telemetryContext,
 		apiKey: apiKey || options?.apiKey,
-		fetch: options?.fetch,
-		transport: options?.transport,
-		cacheRetention: options?.cacheRetention,
-		sessionId: options?.sessionId,
-		headers: options?.headers,
-		onPayload: options?.onPayload,
-		onResponse: options?.onResponse,
-		timeoutMs: options?.timeoutMs,
-		websocketConnectTimeoutMs: options?.websocketConnectTimeoutMs,
-		maxRetries: options?.maxRetries,
-		maxRetryDelayMs: options?.maxRetryDelayMs,
-		metadata: options?.metadata,
-		env: options?.env,
 	};
 }

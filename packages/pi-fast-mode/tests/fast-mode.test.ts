@@ -3,13 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { zstdDecompressSync } from "node:zlib";
 import { buildBaseOptions as installedBuildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
+import { estimateContextTokens as installedEstimate } from "@earendil-works/pi-ai/utils/estimate";
+import { streamSimple as installedStreamSimple } from "@earendil-works/pi-ai/api/openai-responses";
+import { streamSimple as installedCodexStreamSimple } from "@earendil-works/pi-ai/api/openai-codex-responses";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
 	normalizeContext,
 	streamOpenAIResponses,
+	streamOpenAICodexResponses,
 	type Api,
 	type AssistantMessage,
 	type Context,
@@ -88,41 +93,69 @@ function openaiModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
 		provider: "openai",
 		id: "gpt-5.6",
 		api: "openai-responses",
+		name: "Offline Responses fixture",
+		baseUrl: "https://responses.invalid/v1",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
 		contextWindow: 128000,
 		maxTokens: 16000,
 		...overrides,
-	} as Model<Api>;
+	};
 }
 
 const emptyContext = { messages: [] } as Context;
 const emptyTranscript = normalizeContext(emptyContext);
 
-function importedSpecifiers(source: string): string[] {
-	return Array.from(
-		source.matchAll(/from\s+["']([^"']+)["']/g),
-		(match) => match[1] ?? "",
-	).filter(Boolean);
-}
-
-test("extension runtime stays on loader-safe pi-ai specifiers", () => {
-	const source = readFileSync(
-		join(dirname(fileURLToPath(import.meta.url)), "../extensions/fast-mode.ts"),
-		"utf8",
-	);
-	const helper = readFileSync(
-		join(dirname(fileURLToPath(import.meta.url)), "../extensions/stream-options.ts"),
-		"utf8",
-	);
-	const specifiers = [...importedSpecifiers(source), ...importedSpecifiers(helper)];
-	assert.equal(
-		specifiers.some((specifier) => specifier.startsWith("@earendil-works/pi-ai/api/")),
-		false,
-		"Pi aliases @earendil-works/pi-ai to compat.js, so /api/* imports fail at load time.",
-	);
-	assert.ok(specifiers.includes("@earendil-works/pi-ai/compat"));
+test("real Pi 1.1 loader cannot import the SDK helpers but loads Fast and streams offline", async () => {
+	await withSettingsDir(async (agentDir) => {
+		async function load(extensionPath: string) {
+			const loader = new DefaultResourceLoader({
+				cwd: agentDir, agentDir, settingsManager: SettingsManager.inMemory(),
+				noExtensions: true, additionalExtensionPaths: [extensionPath],
+				noSkills: true, noPromptTemplates: true, noThemes: true,
+			});
+			await loader.reload();
+			return loader.getExtensions();
+		}
+		for (const [subpath, symbol] of [["api/simple-options", "buildBaseOptions"], ["utils/estimate", "estimateContextTokens"]]) {
+			const file = join(agentDir, `${symbol}.ts`);
+			await writeFile(file, `import { ${symbol} } from '@earendil-works/pi-ai/${subpath}'; export default function() { if (typeof ${symbol} !== 'function') throw new Error('missing helper'); }`);
+			const result = await load(file);
+			assert.equal(result.extensions.length, 0);
+			assert.equal(result.errors.length, 1);
+			assert.match(result.errors[0]!.error, /compat\.js\/(api\/simple-options|utils\/estimate)/);
+		}
+		const result = await load(fileURLToPath(new URL("../extensions/fast-mode.ts", import.meta.url)));
+		assert.deepEqual(result.errors, []);
+		assert.equal(result.extensions.length, 1);
+		for (const provider of ["openai", "openai-codex", "xai"]) {
+			const registration = result.runtime.pendingProviderRegistrations.find(({ name }) => name === provider);
+			assert.ok(registration?.config.streamSimple);
+			const observed: string[] = [];
+			const model = openaiModel({ provider, api: provider === "openai-codex" ? "openai-codex-responses" : "openai-responses" });
+			const { payload, message, headers, url } = await captureResponses(model, emptyContext, {
+				headers: { "x-fixture": "preserved" },
+				onPayload: (data) => { observed.push("payload"); return { ...data as object, fixture: true }; },
+				onResponse: () => { observed.push("response"); },
+				onProviderStreamEvent: async (_data, receivedModel) => {
+					await Promise.resolve();
+					assert.equal(receivedModel.provider, provider);
+					observed.push("event");
+				},
+			}, (model, context, options) => registration.config.streamSimple!(model, normalizeContext(context), options));
+			assert.equal(payload.model, "gpt-5.6");
+			assert.equal(payload.service_tier, undefined);
+			assert.equal(payload.fixture, true);
+			assert.equal(headers.get("x-fixture"), "preserved");
+			assert.equal(new URL(url).hostname, "responses.invalid");
+			assert.equal(message.provider, provider);
+			assert.deepEqual(observed, ["payload", "response", "event"]);
+		}
+	});
 });
 
-test("estimateContextTokens accepts Pi 0.86 system string messages", () => {
+test("estimateContextTokens accepts transcript system string messages", () => {
 	const context = {
 		messages: [
 			{ role: "system", content: "You are Pi. ".repeat(80), timestamp: 1 },
@@ -133,27 +166,38 @@ test("estimateContextTokens accepts Pi 0.86 system string messages", () => {
 	assert.ok(estimateContextTokens(context) > 20);
 });
 
-test("local buildBaseOptions matches the installed pi-ai recipe", () => {
-	const gpt = openaiModel();
-	const options: SimpleStreamOptions = { maxTokens: 64000, temperature: 0.2, apiKey: "test-key" };
-	assert.deepEqual(
-		buildBaseOptions(gpt, emptyContext, options, options.apiKey),
-		installedBuildBaseOptions(gpt, emptyTranscript, options, options.apiKey),
-	);
-
-	const longContext = {
-		messages: [
-			{
-				role: "user",
-				content: [{ type: "text", text: "x".repeat(18000) }],
-			},
-		],
-	} as Context;
+test("local budget matches the installed SDK, including the exact 32000-character regression", () => {
+	const context: Context = { messages: [{ role: "user", content: "x".repeat(32000), timestamp: 1 }] };
 	const tight = openaiModel({ contextWindow: 20000, maxTokens: 16000 });
-	assert.deepEqual(
-		buildBaseOptions(tight, longContext, { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
-		installedBuildBaseOptions(tight, normalizeContext(longContext), { maxTokens: 64000, apiKey: "test-key" }, "test-key"),
-	);
+	assert.equal(buildStreamOptions(tight, context, undefined, undefined).maxTokens, 6761);
+	for (const contextWindow of [0, -1, 1, 4096, 20000, 128000]) {
+		for (const maxTokens of [undefined, 1, 512, 64000]) {
+			const model = { ...tight, contextWindow };
+			assert.equal(
+				buildStreamOptions(model, context, { maxTokens }, SERVICE_TIER).maxTokens,
+				installedBuildBaseOptions(model, normalizeContext(context), { maxTokens }).maxTokens,
+			);
+		}
+	}
+});
+
+test("all stream options survive without promoting model defaults to request overrides", () => {
+	const options: SimpleStreamOptions = {
+		apiKey: "offline-key", temperature: 0, samplingParams: { temperature: 0.2 },
+		signal: new AbortController().signal, fetch: async () => new Response(),
+		transport: "sse", cacheRetention: "long", sessionId: "offline-session",
+		headers: { "x-test": "header" }, metadata: { test: true }, env: { PI_CACHE_RETENTION: "long" },
+		onPayload: () => undefined, onResponse: () => {}, onProviderStreamEvent: () => {},
+		telemetryContext: { startSpan() { throw new Error("Identity-only telemetry fixture"); } },
+		timeoutMs: 123, websocketConnectTimeoutMs: 456, maxRetries: 0, maxRetryDelayMs: 789,
+		toolChoice: "none", reasoning: "high",
+	};
+	const gpt = openaiModel({ samplingParams: { temperature: 1, top_p: 0.9 } });
+	const actual = buildStreamOptions(gpt, emptyContext, options, SERVICE_TIER);
+	for (const [key, value] of Object.entries(options)) {
+		assert.equal((actual as Record<string, unknown>)[key], value, key);
+	}
+	assert.equal(buildStreamOptions(gpt, emptyContext, undefined, undefined).samplingParams, undefined);
 });
 
 test("buildStreamOptions copies Pi streamSimple options and only adds serviceTier", () => {
@@ -268,30 +312,111 @@ test("buildStreamOptions keeps Pi maxTokens defaulting and context clamping", ()
 	assert.equal(clamped.serviceTier, SERVICE_TIER);
 });
 
-test("OpenAI streamSimple wrappers still match the installed pi-ai recipe", () => {
-	const openaiSource = readInstalledApiSource("openai-responses.js");
-	const codexSource = readInstalledApiSource("openai-codex-responses.js");
-	const recipe =
-		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?const base = \{\s*\.\.\.buildBaseOptions\(model, context, options, options\?\.apiKey\),\s*toolChoice: options\?\.toolChoice,\s*\};[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
-	const codexRecipe =
-		/export const streamSimple = \(model, context, options\) => \{[\s\S]*?const base = \{\s*\.\.\.buildBaseOptions\(model, context, options, apiKey\),\s*toolChoice: options\?\.toolChoice,\s*\};[\s\S]*?clampThinkingLevel\(model, options\.reasoning\)[\s\S]*?return stream\(model, context, \{\s*\.\.\.base,\s*reasoningEffort,\s*\}\);/;
+type ResponsesStream = (model: Model<Api>, context: Context, options: SimpleStreamOptions) => ReturnType<typeof streamOpenAIResponses>;
 
-	assert.match(
-		openaiSource,
-		recipe,
-		"pi-ai openai-responses streamSimple changed. Re-read it and update buildStreamOptions if the recipe gained new fields.",
-	);
-	assert.match(
-		codexSource,
-		codexRecipe,
-		"pi-ai openai-codex-responses streamSimple changed. Re-read it and update buildStreamOptions if the recipe gained new fields.",
-	);
+function fastResponses(model: Model<Api>, context: Context, options: SimpleStreamOptions, tier?: typeof SERVICE_TIER) {
+	const built = buildStreamOptions(model, context, options, tier);
+	return model.api === "openai-codex-responses"
+		? streamOpenAICodexResponses(model as Model<"openai-codex-responses">, normalizeContext(context), built)
+		: streamOpenAIResponses(model as Model<"openai-responses">, normalizeContext(context), built);
+}
+
+async function captureResponses(
+	model: Model<Api>, context: Context, options: SimpleStreamOptions,
+	stream: ResponsesStream = fastResponses,
+) {
+	let payload: Record<string, unknown> | undefined;
+	let headers = new Headers();
+	let url = "";
+	const fetch: typeof globalThis.fetch = async (input, init) => {
+		headers = new Headers(init?.headers);
+		url = String(input);
+		const body = init?.body;
+		assert.ok(typeof body === "string" || body instanceof Uint8Array);
+		payload = JSON.parse(typeof body === "string" ? body : zstdDecompressSync(body).toString());
+		return new Response(`data: ${JSON.stringify({ type: "response.completed", response: {
+			id: "offline-response", status: "completed", output: [], service_tier: "default",
+			usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+		} })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+	};
+	// Deliberately unsigned fixture; only the SDK's local account-id extraction runs.
+	const apiKey = model.api === "openai-codex-responses"
+		? `offline.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "offline-account" } })).toString("base64url")}.fixture`
+		: "offline-key";
+	const message = await stream(model, normalizeContext(context), { apiKey, transport: "sse", ...options, fetch }).result();
+	assert.equal(message.stopReason, "stop", message.errorMessage);
+	assert.ok(payload);
+	return { payload, message, headers, url };
+}
+
+test("sampling on the wire matches official model < thinking < request semantics", async () => {
+	const defaults = {
+		samplingParams: { temperature: 1 },
+		samplingParamsByThinkingLevel: { high: { temperature: 0.3, top_k: 20 }, off: { temperature: 0.7 } },
+	};
+	const cases: Array<{ model: Model<Api>; options: SimpleStreamOptions; temperature?: number; top_k?: number }> = [
+		{ model: openaiModel(defaults), options: { reasoning: "high" }, temperature: 0.3, top_k: 20 },
+		{ model: openaiModel(defaults), options: { reasoning: "high", samplingParams: { temperature: 0.2 } }, temperature: 0.2, top_k: 20 },
+		{ model: openaiModel(defaults), options: {}, temperature: 0.7 },
+		{ model: openaiModel(defaults), options: { reasoning: "high", samplingParams: { temperature: undefined } }, top_k: 20 },
+		{ model: openaiModel(), options: {} },
+		{ model: openaiModel(), options: { temperature: 0 }, temperature: 0 },
+		{ model: openaiModel(), options: { samplingParams: { temperature: 0.2 } }, temperature: 0.2 },
+		{ model: openaiModel({ ...defaults, reasoning: false }), options: { reasoning: "high" }, temperature: 0.7 },
+		{ model: openaiModel(defaults), options: { reasoning: "xhigh" }, temperature: 0.3, top_k: 20 },
+		{ model: openaiModel({ samplingParams: { temperature: 1 } }), options: { reasoning: "high" }, temperature: 1 },
+		{ model: openaiModel({ samplingParamsByThinkingLevel: defaults.samplingParamsByThinkingLevel }), options: { reasoning: "high" }, temperature: 0.3, top_k: 20 },
+	];
+	for (const fixture of cases) {
+		const actual = await captureResponses(fixture.model, emptyContext, fixture.options);
+		const official = await captureResponses(fixture.model, emptyContext, fixture.options, (m, c, o) => installedStreamSimple(m as Model<"openai-responses">, normalizeContext(c), o));
+		assert.deepEqual(actual.payload, official.payload);
+		assert.equal(actual.payload.temperature, fixture.temperature);
+		assert.equal(actual.payload.top_k, fixture.top_k);
+	}
 });
 
-function readInstalledApiSource(fileName: string): string {
-	const simpleOptionsUrl = import.meta.resolve("@earendil-works/pi-ai/api/simple-options");
-	return readFileSync(join(dirname(fileURLToPath(simpleOptionsUrl)), fileName), "utf8");
-}
+test("Codex preserves the official channel, thinking and sampling serialization with Fast on or off", async () => {
+	const model = openaiModel({ provider: "openai-codex", api: "openai-codex-responses", samplingParams: { temperature: 1 } });
+	const options: SimpleStreamOptions = { reasoning: "high", temperature: 0.2, toolChoice: "none", samplingParams: { top_k: 20 } };
+	const official = await captureResponses(model, emptyContext, options, (m, c, o) => installedCodexStreamSimple(m as Model<"openai-codex-responses">, normalizeContext(c), o));
+	for (const tier of [undefined, SERVICE_TIER]) {
+		const actual = await captureResponses(model, emptyContext, options, (m, c, o) => fastResponses(m, c, o, tier));
+		assert.equal(actual.headers.get("chatgpt-account-id"), "offline-account");
+		assert.equal(actual.payload.temperature, 0.2);
+		assert.equal(actual.payload.top_k, undefined, "Codex does not serialize arbitrary samplingParams in the target SDK");
+		assert.deepEqual(actual.payload, { ...official.payload, ...(tier ? { service_tier: tier } : {}) });
+	}
+});
+
+test("budget parity covers reliable usage, invalid receipts, images and system deltas", () => {
+	const assistant: AssistantMessage = {
+		role: "assistant", api: "openai-responses", provider: "openai", model: "fixture", timestamp: 2,
+		content: [{ type: "thinking", thinking: "think" }, { type: "toolCall", id: "call", name: "read", arguments: { path: "file" } }],
+		stopReason: "toolUse",
+		usage: { input: 100, output: 20, cacheRead: 30, cacheWrite: 40, totalTokens: 190,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+	};
+	const user: Context["messages"][number] = { role: "user", content: "x".repeat(32000), timestamp: 1 };
+	const trailing: Context["messages"] = [
+		{ role: "system", content: [{ type: "text", text: "rules" }], sections: { add: "extra", remove: null }, toolsAdded: [], toolsRemoved: [{ name: "read" }], timestamp: 3 },
+		{ role: "toolResult", toolCallId: "call", toolName: "read", content: [{ type: "image", data: "AA==", mimeType: "image/png" }], isError: false, timestamp: 4 },
+	];
+	const fixtures: Context[] = [
+		{ messages: [user, assistant, ...trailing] },
+		{ messages: [user, { ...assistant, stopReason: "error" }, ...trailing] },
+		{ messages: [user, { ...assistant, stopReason: "aborted" }, ...trailing] },
+		{ messages: [{ ...user, timestamp: 10 }, assistant, ...trailing] },
+		{ messages: [user, { ...assistant, usage: { ...assistant.usage, totalTokens: 0 } }, ...trailing] },
+		{ systemPrompt: "shorthand".repeat(100), messages: [user], tools: [{ name: "read", description: "fixture", parameters: { type: "object", properties: {} } }] },
+	];
+	for (const fixture of fixtures) {
+		const transcript = normalizeContext(fixture);
+		assert.equal(estimateContextTokens(transcript), installedEstimate(transcript).tokens);
+		assert.equal(buildStreamOptions(openaiModel(), fixture, undefined, undefined).maxTokens,
+			installedBuildBaseOptions(openaiModel(), transcript).maxTokens);
+	}
+});
 
 test("applyXaiPriorityPayload only mutates custom xAI Completions payloads when enabled", () => {
 	const payload = { model: "grok-4.6", max_tokens: 8000 };

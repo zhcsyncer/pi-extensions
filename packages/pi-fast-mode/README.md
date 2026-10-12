@@ -12,7 +12,7 @@
 - Unconfigured models start off. There is no all-models default.
 - Show a footer status on supported models. Hide it on unsupported models and leave the request unchanged.
 
-Requires Pi 0.86 or later.
+Requires Pi 1.1 or later. Fast preserves Pi's request hooks, thinking-level sampling defaults, and context-safe output budget; it does not change your model, account, or billing channel.
 
 ## Install
 

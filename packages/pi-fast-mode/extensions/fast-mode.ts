@@ -40,7 +40,7 @@ export const SHORTCUT_REPEAT_GUARD_MS = 800;
 
 export type ServiceTierOptions = ReturnType<typeof buildBaseOptions> & {
 	serviceTier?: typeof SERVICE_TIER;
-	reasoningEffort?: string;
+	reasoningEffort?: SimpleStreamOptions["reasoning"];
 	toolChoice?: SimpleStreamOptions["toolChoice"];
 };
 
@@ -204,7 +204,7 @@ export function buildStreamOptions(
 	serviceTier: typeof SERVICE_TIER | undefined,
 ): ServiceTierOptions {
 	const base = {
-		...buildBaseOptions(model, context, options, options?.apiKey),
+		...buildBaseOptions(model, normalizeContext(context), options, options?.apiKey),
 		toolChoice: options?.toolChoice,
 	};
 	const clamped = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
