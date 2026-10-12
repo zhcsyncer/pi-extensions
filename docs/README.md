@@ -9,7 +9,7 @@
 | [upstream-forks.md](./upstream-forks.md) | 外部跟踪 | 有来源的 fork/改编：pin、已评估头 `last_seen`、锁定的跟/不跟；下次只打开比 last_seen 新的版本 |
 | [extension-data-layout.md](./extension-data-layout.md) | 已落地 | 扩展配置与内部状态的统一路径、trust 边界 |
 | [pi-0.86-extension-adapt.md](./pi-0.86-extension-adapt.md) | 已落地 | Pi 0.86.1：MUST 包已改；peer ≥0.86.0；测试钉 0.86.1 |
-| [pi-1.1-implementation-plan.md](./pi-1.1-implementation-plan.md) | 实施已授权，基线准备中 | 仅支持 Pi 1.1+；Consult 公开 SDK 适配纳入；七项存量、Antigravity、Herdr 命令体验及 Search 三项旧债暂缓 |
+| [pi-1.1-implementation-plan.md](./pi-1.1-implementation-plan.md) | 实施进行中，进度见统一表 | 仅支持 Pi 1.1+；Consult 公开 SDK 适配纳入；七项存量、Antigravity、Herdr 命令体验及 Search 三项旧债暂缓 |
 | [pi-extensions/pi-1.1-execution-plan.md](./pi-extensions/pi-1.1-execution-plan.md) | 当前 session 调度，已开工 | §0 为唯一进度表；独立 Herdr worktree/session、共同基线、三队列滚动派发与独立验收 |
 | [pi-1.0-upgrade-review.md](./pi-1.0-upgrade-review.md) | 审计记录，更新至 1.1.0，未实施 | 版本差异与分版本验证；实际实施范围和新环境快照以上述计划为准 |
 | [tui-design-system.md](./tui-design-system.md) | 参考 | Claude Code 风格 TUI 色板与 chrome |

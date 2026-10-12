@@ -1,6 +1,6 @@
 # Pi 1.1.0 全扩展适配与待办整合计划
 
-状态：**用户已授权按执行编排开工及本地提交/集成；当前在准备 E0 基线，实际进度统一见执行编排 §0。七项存量、Antigravity、Herdr 命令体验、Search 登录识别/用量补报/配置串用修复仍不做；只支持 Pi 1.1+，Consult 的 Pi 上游公开 SDK 调用入口适配纳入。未升级用户宿主、未推送、未合并/关闭 GitHub 项目、未发布。**
+状态：**用户已授权按执行编排开工及本地提交/集成；实际实施、返修与集成进度统一见执行编排 §0。七项存量、Antigravity、Herdr 命令体验、Search 登录识别/用量补报/配置串用修复仍不做；只支持 Pi 1.1+，Consult 的 Pi 上游公开 SDK 调用入口适配纳入。未升级用户宿主、未推送、未合并/关闭 GitHub 项目、未发布。**
 
 范围快照：**2026-10-10 21:59（北京时间）**。仓库 `git@github.com:zhcsyncer/pi-extensions.git`，本地与远端 main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`。
 
@@ -81,7 +81,7 @@ GitHub 清单仅针对本仓当前开放项目，含 draft（本次无 draft）�
 
 | 资源 | 本轮处置 |
 |---|---|
-| Ollama Cloud 0.12.2 | 两处 ProviderModelConfig 联合类型按 chat 语义收窄；检查发现/思考档/额度/工具与 1.1；从受维护版本或明确 fork 交付，不直接手改 node_modules |
+| Ollama Cloud 当前安装 0.13.0（旧快照 0.12.2） | 开工复核来源为 `fgrehm/pi-ollama-cloud`；先对照 0.13.0 重验旧快照中的 ProviderModelConfig 类型问题是否仍在，不能照搬旧诊断。检查发现/思考档/额度/工具与 1.1；从受维护版本或明确 fork 交付，不直接手改 node_modules |
 | Junie 1.3.2 + 用户修改 | 当前排除；保留工作副本。重新启用前在其独立仓验证 OAuth/Grazie/许可/余额；不能宣布已适配，也不阻塞未启用路径 |
 | 全局 `herdr-agent-state.ts` v9 | 保留 session identity/socket 及 custom blocked；核验 OSC 支持与双源优先级，等价证据不足不删除 |
 | worktree Plan | 默认不启用/不合入；若批准 relay，另审只读 ceiling、0.84 依赖及测试债务 |
