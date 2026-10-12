@@ -45,7 +45,7 @@ T1 状态与恢复；T0 精确用量；T2 真实 SDK 回执/历史适配。复�
 
 ### 独立测试落地前的接口证据门槛
 
-E0 交接已核验目标回执/事件类型、合法 retain-none JSONL 样本与源码位置；R1 在写实现前提交沿用的公开 facade 导入路径、投递/取消/恢复入口、可观察状态以及可控离线 provider 的结算方式。调度者将这些具体路径/样本固定给测试作者后，才进入独立测试编写；不是让测试作者阅读新实现猜接口。此补齐不改变上述用户行为合同，也不要求 E0 提前修好 R1。
+E0 已交接目标 1.1 证据（路径相对任务 node_modules/@earendil-works/pi-coding-agent）：公开 `AgentSession.steer/followUp` 在 `dist/core/agent-session.d.ts:555–568` 返回 `Promise<"handled" | "queued">`，拒绝通过 rejection 表达；别名不由根入口直接导出，按公开方法返回值推导即可。公开 `AgentSessionEvent`/`AgentSettledEvent` 包含 aborted，声明见 `dist/core/agent-session.d.ts:54` 与 `dist/core/extensions/types.d.ts:777`。用公开 `SessionManager.appendCompaction(summary, null, tokensBefore)` 生成合法 retain-none fixture（`dist/core/session-manager.d.ts:271`），持久 firstKeptEntryId 等于该 compaction 自己的 ID，不依赖先前 message；不可把这当任意前向引用许可。R1 在写实现前提交沿用的公开 facade 导入路径、投递/取消/恢复入口、可观察状态以及可控离线 provider 的结算方式。调度者将这些具体路径/样本固定给测试作者后，才进入独立测试编写；不是让测试作者阅读新实现猜接口。此补齐不改变上述用户行为合同，也不要求 E0 提前修好 R1。
 
 独立测试作者先按固定合同编写高代价用例，不读待测新实现；调度者将测试与实现组合到候选验收树后验证。真实模型/账号不用于这些测试。
 

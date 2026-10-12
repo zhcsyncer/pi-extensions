@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 首轮交付已完成独立审阅，验证脚本问题退回原 session 返修，尚未释放后续实施；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，开始释放 R1、D1、K1 首批并行任务；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -27,21 +27,21 @@
 - 调度：当前 session `01a12e08-fb4e-7135-9f57-a5843fb8ce27`，Herdr pane `w3:p64`。
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
-- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；最新集成 SHA：`3be801ddd3cb84a2a1650dd3e48849a2608b2024`（首批合同及独立审阅修订，尚无产品代码集成）。
+- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；最新已验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`。E0 环境门槛已通过；R1/A1 类型与 R1/N1 功能失败仍是后续任务，不表示整轮适配已通过。
 - 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)。依赖见 §2。
 - 独立审阅资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review`；session `pi11-review-20261012`；agent `pi11-review` / `w9Y:p1`。只读审阅合同，不代写实现或维护另一份进度。
 
 | 任务 | 状态 | worktree / session | 基线 → 交付 → 集成 | 验收 / 阻塞与下一步 | 更新时间 |
 |---|---|---|---|---|---|
-| E0 基线与隔离环境 | 返修中 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-e0`；`pi11-e0-20261012`；agent `pi11-e0` / `w9X:p1` | `c7d251f` → `411d3f8`（未接受） → — | 独立审阅阻断：安装副本误判/候选依赖身份、全局 offline 改变业务测试、HTML 夹具旧回调、全新缓存离线重装；见 E0 合同返修段。保留 R1/A1/N1 生产失败归属，撤回 D1 生产回归判断 | 2026-10-12 15:54 |
-| R1 终态/恢复/费用水位 | 未派发 | — | — | 合同审阅完成，已补身份/分支数值样本；待 E0 SDK 证据及实施前公开测试入口交接 | 2026-10-12 15:11 |
+| E0 基线与隔离环境 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-e0`；`pi11-e0-20261012`；agent `pi11-e0` / `w9X:p1` | `c7d251f` → `411d3f8`＋`d96b74f` → `71a7c2e` | 独立复审 ACCEPT；调度在集成态断网冻结安装、harness7/7、物理 SDK 图、pack17/17 全通过，锁不变树干净；证据 `/var/tmp/pi-1.1-dispatch-20261012/e0-integration-71a7c2e/` | 2026-10-12 16:17 |
+| R1 终态/恢复/费用水位 | 未派发 | — | — | E0 已解锁；准备独立环境，实施前先固定公开测试入口给独立测试作者 | 2026-10-12 16:17 |
 | R2 会话授权边界 | 未派发 | — | — | 待 R1 | — |
 | R3 child 装配 | 未派发 | — | — | 待 R2＋K1 | — |
-| D1 renderer/语义保真 | 未派发 | — | — | 合同审阅完成，已补 Write 可观察结果；待 E0 loader 证据及测试 fixture 接口交接 | 2026-10-12 15:11 |
+| D1 renderer/语义保真 | 未派发 | — | — | E0 已解锁；准备独立环境，实施前先固定 loader/fixture 接口给独立测试作者 | 2026-10-12 16:17 |
 | D2 缓存/有界输出 | 未派发 | — | — | 待 D1 | — |
 | D3 nested 投影 | 未派发 | — | — | 待 D2 | — |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
-| K1 Context7 离线合同 | 未派发 | — | — | 独立合同审阅无阻塞；待 E0，独立包队列优先 | 2026-10-12 15:11 |
+| K1 Context7 离线合同 | 未派发 | — | — | E0 已解锁且合同无阻塞；准备独立环境 | 2026-10-12 16:17 |
 | C1 Consult 公开 SDK | 未派发 | — | — | 待 E0 | — |
 | F1 Todo＋Question | 未派发 | — | — | 待 E0 | — |
 | H1 Herdr 兼容 | 未派发 | — | — | 待 E0 | — |
