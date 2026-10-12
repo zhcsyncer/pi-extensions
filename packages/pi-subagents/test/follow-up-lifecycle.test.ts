@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentManager } from "../src/agent-manager.js";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { AgentManager, type OnAgentComplete, type OnAgentStart, type OnAgentCompact } from "../src/agent-manager.js";
 import { restoreAgentSession, resumeAgent, runAgent } from "../src/agent-runner.js";
 import { archiveAgentRecord } from "../src/session-archive.js";
 import type { AgentRecord, AgentResumeSnapshot } from "../src/types.js";
@@ -146,9 +146,9 @@ const ctx = { cwd: "/tmp", sessionManager: { getBranch: () => [] } } as any;
 let managers: AgentManager[];
 let calls: PromptControl[];
 let delayFirstStart: boolean;
-let onComplete: ReturnType<typeof vi.fn>;
-let onStart: ReturnType<typeof vi.fn>;
-let onCompact: ReturnType<typeof vi.fn>;
+let onComplete: Mock<OnAgentComplete>;
+let onStart: Mock<OnAgentStart>;
+let onCompact: Mock<OnAgentCompact>;
 
 function manager(limit = 1, options: ConstructorParameters<typeof AgentManager>[4] = {}) {
   const value = new AgentManager(onComplete, limit, onStart, onCompact, options);
@@ -187,9 +187,9 @@ beforeEach(() => {
   managers = [];
   calls = [];
   delayFirstStart = false;
-  onComplete = vi.fn();
-  onStart = vi.fn();
-  onCompact = vi.fn();
+  onComplete = vi.fn<OnAgentComplete>();
+  onStart = vi.fn<OnAgentStart>();
+  onCompact = vi.fn<OnAgentCompact>();
   vi.mocked(runAgent).mockImplementation((_ctx, _type, prompt, options) => {
     const call = new PromptControl("first", new SessionQueue(), prompt, options);
     calls.push(call);

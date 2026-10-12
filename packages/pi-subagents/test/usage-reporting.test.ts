@@ -18,7 +18,7 @@ function record(id = "agent-a", lifetimeUsage = toLifetimeUsage({ input: 10, out
 function message(report: NonNullable<ReturnType<UsageReporter["claim"]>>, toolName = "Agent"): ToolResultMessage {
   return {
     role: "toolResult", toolName, toolCallId: "call-1", content: [{ type: "text", text: "done" }],
-    usage: report.usage, details: { subagentUsageRollup: report.subagentUsageRollup },
+    usage: report.usage, details: { subagentUsageRollup: { ...report.subagentUsageRollup } },
     isError: false, timestamp: 1,
   };
 }
