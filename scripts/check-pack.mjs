@@ -424,6 +424,14 @@ for (const readmePath of maintainedReadmes) {
 }
 
 for (const packagePath of packagePaths) {
+	const packageManifest = JSON.parse(await readFile(resolve(repositoryRoot, packagePath, "package.json"), "utf8"));
+	for (const hostModule of ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@sinclair/typebox", "typebox"]) {
+		assert.equal(packageManifest.dependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must come from Pi, not runtime dependencies`);
+		assert.equal(packageManifest.optionalDependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must not be an optional runtime copy`);
+		if (packageManifest.peerDependencies?.[hostModule] !== undefined) {
+			assert.equal(packageManifest.peerDependencies[hostModule], "*", `${packagePath}: host peers must use *`);
+		}
+	}
 	const result = spawnSync(
 		"npm",
 		["pack", "--dry-run", "--json", packagePath],
