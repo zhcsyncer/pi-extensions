@@ -42,6 +42,21 @@ Write 的可观察合同是：对预先存在的内容 A 执行写入 B 后，�
 
 高风险合同用例由独立测试作者按合同编写，冻结交付后在候选树组合实现验收。实际 Mac 全屏/输入性能留 D2/D4 与 L1，不冒称 D1 已全端验收。
 
+## 已冻结的实现/独立测试交接
+
+独立测试作者独占 `packages/pi-tool-display-intent/tests/pi11-renderer.contract.test.ts`；只按合同/SDK 公共文档和测试基础设施写用例，不读产品实现。实现者不改此文件，可维护其他现有测试。首次完整只读交接证据在 `/tmp/pi11-display-phase-one-handoff.md`，以下保留独立写测试必需的入口。
+
+- 真实产品入口：本包 `extensions/tool-display-intent.ts`。使用 SDK 根导出的 `DefaultResourceLoader`、`SettingsManager`、`ModelRuntime`、`SessionManager`、`createAgentSession`。loader 传隔离 cwd/agentDir、in-memory settings、按加载顺序排列的 additionalExtensionPaths/extensionFactories，关闭 skills/themes/promptTemplates/contextFiles 自动发现；reload 后 errors 必须为空。ModelRuntime 关闭模型网络和初始化刷新，auth/models/cache 均在空 agentDir；session 绑定 onError 回调。
+- resolver 公开签名为 `(toolName, next: () => ToolRenderers | undefined) => ToolRenderers | undefined`。通过 `session.extensionRunner.resolveToolRenderers(name, () => session.getToolDefinition(name))` 解析；后者才包含 built-in，不能只查 runner 的扩展定义。next 最终进入 base，不自动合并字段。
+- 隔离配置文件用 v2 的 toolCalls.layout=individual、results.mode=preview；自定义 probe 设置 tools.custom.probe={renderer:generic,mode:preview}，避免默认隐藏结果干扰合同。原 renderer fixture 在真实 extension 中 registerTool，带原 schema/prepare/execute/renderers，输出可辨认 Text/Component；比较显示/执行行为，不检查包装器私有字段。
+- 动态注册先用真实 ExtensionAPI；MCP 场景另以原生 `createMcpExtension({loadConfig,createTransport})` 和本地 transport 完成 initialize/tools/list/tools/call。工具列表返回前后以 gate 控制，观察真实 `mcp__offline__probe` 的定义/renderer，不能用手工同名注册冒充 MCP 握手。历史独有工具不注册，base 返回 undefined，以保存 args/result 创建行；执行次数和 active tools 必须不变。
+- 公共 `ToolExecutionComponent(name,id,args,{showImages:false,outputPad:0},resolve(name),tui,cwd)` 配合真实 TUI 与已有 AggregateTerminal。通过 updateArgs/setArgsComplete/markExecutionStarted/updateResult/setExpanded/setOutputPad/setShowImages/invalidate/render 驱动，不直接调用私有布局。renderCall(args,theme,context)、renderResult(result,{expanded,isPartial},theme,context)；call/result 共享 state，但 lastComponent 分槽，委托 renderer 看到自身组件而非外壳。
+- 用 `session.reload()` 后的新 runner/resolver 重建行，旧 owner 清理通过两套真实 loader/session 验证，不篡改注册表伪造。未持久的 Write 原内容不要求通过 reload 重建，不凭当前文件冒充历史。
+- 执行测试用离线 streamFunction 返回工具调用/停止响应，再 `session.prompt()`，经过真实 prepare/validation/execute。Bash 用合成模型身份与 PI_SESSION_ID/PI_PROVIDER/PI_MODEL/PI_REASONING_LEVEL 输出观测 context，并与原生 `createBashToolDefinition(cwd)` 对照成功/非零退出/取消。直接调用 execute 只能作补充，不能替代执行链路验收。原生 codemode factory 的执行参数为 {code}，不改变 raw-JS grammar。
+- Write 的公开观察出口是同一次调用行的展开 diff：预写 A → 实际写 B → 外部写 C → 对原调用 ID updateResult/展开/render，保持 A→B，不出现 C；新文件不伪造旧正文。
+
+若 SDK 实际类型与上述交接不一致，测试作者向调度者报告具体差异，再核对公开定义；不阅读新实现来修改期望，也不为了通过测试要求新增产品测试 API。
+
 ## 派发与交付
 
 完整读取全局规则绝对路径 `/root/.agent-vm-state/pi/agent/AGENTS.md`、`/root/.agent-vm-state/pi/agent/rules/coding.md`、`/root/develop/AGENTS.md`、worktree AGENTS.md，以及 Tool Display 规格、目标 SDK extensions/TUI 及相关文档。先回报 cwd/origin/base/允许写范围。

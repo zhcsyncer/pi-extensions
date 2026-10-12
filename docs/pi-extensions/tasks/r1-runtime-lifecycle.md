@@ -49,6 +49,23 @@ E0 已交接目标 1.1 证据（路径相对任务 node_modules/@earendil-works/
 
 独立测试作者先按固定合同编写高代价用例，不读待测新实现；调度者将测试与实现组合到候选验收树后验证。真实模型/账号不用于这些测试。
 
+## 已冻结的实现/独立测试交接
+
+R1 首轮只读交接已由调度者确认；保留现有 manager/runner，不扩建 runtime facade。独立测试文件由测试作者独占：`packages/pi-subagents/test/pi11-lifecycle.contract.test.ts`，沿用现有 `test/**/*.test.ts` 收集，不改 Vitest 配置。实现者可维护其余既有测试，不改该保留文件。测试作者仅按本合同和目标 SDK 公共文档编写，不读产品实现。
+
+从该测试文件导入公开入口：
+
+- `../src/agent-manager.js`：`AgentManager`，构造参数 `(onComplete?, maxConcurrent?, onStart?, onCompact?, options?)`；`spawn(pi, ctx, type, prompt, options): string`；`getRecord(id)`、`waitForResult(id)`、`isResultReady(id)`；`abort(id): boolean`、`abortAndWait(id): Promise<boolean>`、`waitForAll(): Promise<void>`。
+- `sendMessage(id, message, {pi?, ctx?}?): Promise<"handled" | "steered" | "queued" | "resumed">` 为已确认目标合同：SDK input hook 已处理返回 handled；运行中 SDK queued 返回 steered；manager 尚未运行而暂存返回 queued；启动后续运行返回 resumed。拒绝通过 rejection，不新增 rejected 成功值。同步 `manager.steer(): boolean` 只代表接纳，不作为真实送达凭证。
+- `../src/agent-runner.js`：`steerAgent(session,message)` 保留 `ReturnType<AgentSession["steer"]>`；`runAgent(ctx,type,prompt,options)` 的 onResumeSnapshot/onSessionCreated 捕获真实恢复 fixture；`restoreAgentSession(ctx,file,snapshot,{pi})`、`resumeAgent(session,prompt,options?)` 测恢复，不调用私有校验/清理方法。
+- `../src/usage-reporting.js`：`new UsageReporter().claim(record,parent)`；零新增返回 undefined。`../src/usage.js` 的 `toLifetimeUsage` 仅作数据构造；类型声明允许从 `../src/types.js` 读取。父 toolResult 用真实 SDK `appendMessage` 保存 usage 与 details.subagentUsageRollup，通过 parent.branch(id) 驱动上文 A/B 样本。
+
+SDK 夹具使用根入口 `ModelRuntime/ModelRegistry/SessionManager`，AI 根入口 `InMemoryCredentialStore/fauxProvider/fauxAssistantMessage`；内存凭据、modelsPath:null、allowModelNetwork:false，只有本地假 key。ctx 提供绝对 cwd、model、modelRegistry、父 sessionManager、getSystemPrompt；pi.exec 可返回 code:1 与空 stdout/stderr 来避免环境探测。role 的 builtinToolNames=[]、extensions/skills=false、promptMode=replace、systemPrompt=R1、persistSession=true、绝对 sessionDir；manager spawn 显式传 description/model/thinkingLevel:off/isBackground/inlineAgentConfig。不得真实联网。
+
+faux provider 以 promise 闸门延迟响应：记录进入，请求收到 abort 后暂不释放，断言 abortAndWait/后继 onStart 未提前完成，然后释放。外部取消保持 stopped，内部取消标 aborted。若需制造“SDK settled 已发但调用方 prompt 尚未返回”的窗口，可对公开 session.prompt 增加尾闸，明确这是 T1 时序夹具，不声称是 SDK 自然行为。handled 由测试 extension 的 input hook 返回 `{action:"handled"}`；恢复使用真实运行生成的 recipe/session，再复制到隔离目录制造损坏/错误引用。
+
+更完整的首次接口交接证据保存在 `/var/tmp/pi-1.1-dispatch-20261012/r1-interface-handoff.md`；其中原 src 测试路径已在文末更正，以此处 test 路径为准。
+
 ## 派发与交付
 
 先读取全局规则（`/root/.agent-vm-state/pi/agent/AGENTS.md`、`/root/.agent-vm-state/pi/agent/rules/coding.md`、`/root/develop/AGENTS.md`）及任务 worktree 的 AGENTS.md，完整阅读运行时计划、E0 失败归属与目标 1.1 SDK 文档/相关链接。先回报 cwd/origin/base/允许写范围再编辑。
