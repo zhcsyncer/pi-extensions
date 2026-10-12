@@ -38,6 +38,7 @@ type Transport = ReturnType<McpTransportFactory>;
 async function fixture(t: TestContext, options: {
   display?: boolean; codemode?: boolean; factories?: ExtensionFactory[];
   before?: string; after?: string;
+  layout?: "individual" | "aggregate"; persist?: boolean;
 } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "pi11-d1-contract-"));
   const agentDir = join(cwd, "agent"); mkdirSync(agentDir);
@@ -50,7 +51,7 @@ async function fixture(t: TestContext, options: {
   const configDir = join(agentDir, "extension-data", "pi-tool-display-intent");
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "config.json"), JSON.stringify({ version: 2,
-    toolCalls: { layout: "individual" }, results: { mode: "preview" },
+    toolCalls: { layout: options.layout ?? "individual" }, results: { mode: "preview" },
     tools: { custom: { probe: {renderer:"generic",mode:"preview"}, late_probe:{renderer:"generic",mode:"preview"},
       mcp__offline__probe:{renderer:"generic",mode:"preview"}, retired_probe:{renderer:"generic",mode:"preview"} } } }));
   const paths: string[] = [];
@@ -73,7 +74,8 @@ async function fixture(t: TestContext, options: {
   modelRuntime.registerNativeProvider(faux.provider);
   await modelRuntime.setRuntimeApiKey("d1-offline", "local-test-only");
   const { session } = await createAgentSession({ cwd, agentDir, settingsManager, modelRuntime,
-    resourceLoader:loader, sessionManager:SessionManager.inMemory(cwd), model:faux.getModel(), thinkingLevel:"off" });
+    resourceLoader:loader, sessionManager:options.persist ? SessionManager.create(cwd,join(cwd,"sessions")) : SessionManager.inMemory(cwd),
+    model:faux.getModel(), thinkingLevel:"off" });
   const errors: unknown[] = [];
   await session.bindExtensions({onError:error=>{errors.push(error);}});
   assert.deepEqual(errors, [], "session_start fixture must not fail");
@@ -440,4 +442,130 @@ test("D1 new Write history never invents old body from the later current file", 
   row.updateResult({content:result.content,details:result.details,isError:false}); row.setExpanded(true);
   const output = render(row).join("\n");
   assert.match(output,/CREATED_BODY/); assert.doesNotMatch(output,/UNRELATED_LATER_BODY/);
+});
+
+test("D1 HTML export shares dedicated renderer state across separate call/result resolution", async t => {
+  const probe: ExtensionFactory = pi => pi.registerTool(defineTool({
+    name:"probe",label:"Probe",description:"HTML renderer state fixture",parameters:Type.Object({}),
+    async execute() {return {content:[{type:"text",text:"persisted execution output"}],details:{}};},
+    renderCall(_args,_theme,context) {
+      context.state.exportToken = "call-established-token";
+      return new Text("HTML CALL OUTPUT ONLY",0,0);
+    },
+    renderResult(_result,_options,_theme,context) {
+      return new Text(context.state.exportToken === "call-established-token"
+        ? "HTML RESULT SHARED STATE CONFIRMED" : "HTML RESULT STATE LOST",0,0);
+    },
+  }));
+  // The native exporter is a positive control for this synthetic renderer. The
+  // product export must use its real resolver, not a cached composer in the test.
+  for (const display of [false,true]) {
+    const f = await fixture(t,{display,persist:true,factories:[probe]});
+    const {result} = await execute(f.session,"probe",{},"html-probe");
+    assert.equal(result.isError,false,text(result));
+    assert.ok(f.session.sessionFile && existsSync(f.session.sessionFile),"the real tool call must be persisted");
+    const htmlPath = await f.session.exportToHtml(join(f.cwd,"export.html"),{themeName:"dark"});
+    const html = readFileSync(htmlPath,"utf8");
+    // The standalone artifact embeds session/rendered output in base64 JSON.
+    // Decode data blobs without depending on its DOM, script names or layout.
+    const data = [...html.matchAll(/[A-Za-z0-9+/]{100,}={0,2}/g)].flatMap(match=>{
+      try {return [JSON.stringify(JSON.parse(Buffer.from(match[0],"base64").toString("utf8")))];}
+      catch {return [];}
+    });
+    const exportedText = [html,...data].join("\n");
+    assert.ok(exportedText.includes("HTML CALL OUTPUT ONLY"),"export must contain the dedicated call renderer's output");
+    assert.ok(exportedText.includes("HTML RESULT SHARED STATE CONFIRMED"),
+      display ? "product resolver must preserve call state for exported result rendering" : "native export fixture must preserve state");
+    assert.equal(exportedText.includes("HTML RESULT STATE LOST"),false);
+    assert.deepEqual(f.errors,[]);
+  }
+});
+
+test("D1 aggregate activity timers respect reload and newer-session ownership", async t => {
+  t.mock.timers.enable({apis:["setInterval"]});
+  const schedule = globalThis.setInterval;
+  type Owner = "control" | "old" | "new";
+  let owner: Owner | undefined;
+  const activity: Array<{owner:Owner;firings:number}> = [];
+  t.mock.method(globalThis,"setInterval",((callback:(...args:unknown[])=>void,ms?:number,...args:unknown[]) => {
+    const observed = owner ? {owner,firings:0} : undefined;
+    if (observed) activity.push(observed);
+    return schedule((...values:unknown[])=>{
+      if (observed) observed.firings++;
+      callback(...values);
+    },ms,...args);
+  }) as typeof setInterval);
+  const firings = (which:Owner) => activity.filter(item=>item.owner === which).reduce((sum,item)=>sum+item.firings,0);
+  function waitingTool(entered:ReturnType<typeof gate>):ExtensionFactory {
+    return pi=>pi.registerTool(defineTool({name:"probe",label:"Probe",description:"Held aggregate activity",parameters:Type.Object({}),
+      async execute(_id,_args,signal) {
+        await new Promise<void>(resolve=>{
+          if (signal?.aborted) resolve();
+          else signal?.addEventListener("abort",()=>resolve(),{once:true});
+          entered.resolve();
+        });
+        throw new Error("offline activity cancelled by session teardown");
+      },
+    }));
+  }
+  const controlEntered=gate();
+  const control=await fixture(t,{display:false,layout:"aggregate",factories:[waitingTool(controlEntered)]});
+  owner="control";
+  const controlRun=execute(control.session,"probe",{},"control-activity");
+  try {
+    await Promise.race([controlEntered.promise,controlRun.then(()=>controlEntered.promise)]);
+    owner=undefined;
+    assert.equal(activity.some(item=>item.owner === "control"),false,
+      "the same SDK/tool fixture without display must not create the measured intervals");
+  } finally {owner=undefined;await control.session.abort();await controlRun;}
+
+  const oldEntered=gate(),newEntered=gate();
+  const old=await fixture(t,{layout:"aggregate",factories:[waitingTool(oldEntered)]});
+  owner="old";
+  const oldRun=execute(old.session,"probe",{},"old-activity");
+  let newer:Awaited<ReturnType<typeof fixture>> | undefined;
+  let newRun:ReturnType<typeof execute> | undefined;
+  try {
+    await Promise.race([oldEntered.promise,oldRun.then(()=>oldEntered.promise)]);
+    owner=undefined;
+    assert.ok(activity.some(item=>item.owner === "old"),"real execution events must create an activity timer before any row render");
+    // Leave event-created resources unattached to a row until after teardown:
+    // rendering must not accidentally adopt an otherwise orphaned timer.
+    t.mock.timers.tick(1000);
+    assert.ok(firings("old")>0,"old activity must actually tick before teardown");
+
+    newer=await fixture(t,{layout:"aggregate",factories:[waitingTool(newEntered)]});
+    owner="new";
+    newRun=execute(newer.session,"probe",{},"new-activity");
+    await Promise.race([newEntered.promise,newRun.then(()=>newEntered.promise)]);
+    owner=undefined;
+    assert.ok(activity.some(item=>item.owner === "new"),"new execution must own a live event-created timer");
+    t.mock.timers.tick(1000);
+    assert.ok(firings("new")>0,"new activity must tick before old-owner cleanup");
+
+    // Use SDK cancellation to settle the fake tool, then SDK reload to deliver
+    // shutdown/session_start. The newer session deliberately remains active.
+    await old.session.abort();const oldResult=await oldRun;await old.session.reload();
+    const oldAfterReload=firings("old"),newBeforeTick=firings("new");
+    t.mock.timers.tick(1000);
+    const oldAfterTick=firings("old"),newAfterOldCleanup=firings("new");
+    await newer.session.abort();const newResult=await newRun;await newer.session.reload();
+    const newAfterReload=firings("new");
+    t.mock.timers.tick(1000);
+    const newAfterFinalTick=firings("new");
+    for (const [f,id,result] of [[old,"old-activity",oldResult.result],[newer,"new-activity",newResult.result]] as const) {
+      const row=f.row("probe",id,{});
+      row.setArgsComplete();row.updateResult({content:result.content,details:result.details,isError:result.isError});
+      assert.ok(render(row).some(line=>line.trim()),"completed activity must remain publicly renderable after reload");
+    }
+    assert.equal(oldAfterTick,oldAfterReload,"old activity callbacks must stop after old-session reload");
+    assert.ok(newAfterOldCleanup>newBeforeTick,"old cleanup must not clear the newer owner's timer");
+    assert.equal(newAfterFinalTick,newAfterReload,"new activity callbacks must stop at their own teardown");
+    assert.deepEqual([...old.errors,...newer.errors],[]);
+  } finally {
+    owner=undefined;
+    await old.session.abort();await oldRun;
+    if (newer) await newer.session.abort();
+    if (newRun) await newRun;
+  }
 });
