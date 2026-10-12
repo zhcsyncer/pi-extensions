@@ -18,7 +18,8 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 
 ## Features
 
-- Bash always asks the current model for a `displaySummary` intent. Other built-ins keep deterministic targets only.
+- Bash asks the current model for a `displaySummary` intent. Direct calls and codemode scripts that omit it receive a fallback; other invalid arguments still fail validation. Other built-ins keep their original schemas.
+- Unified rows for built-ins, custom tools, late-connected MCP tools, and saved tool history, while preserving tools' specialized content.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
 - Optional `aggregate` layout: one **Run** ledger per user request, including Agent and consult by default.
 - Fullscreen mouse support: click a collapsed Run block to expand that run, click its expanded summary to collapse it, and inspect individual call results without rerunning tools.
@@ -30,6 +31,8 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 Do not load `pi-tool-display`, `pi-tool-display-summary`, and this extension together. They register the same built-in tool names.
 
 ## Install
+
+Requires **Pi 1.1 or newer**. Ordinary direct calls remain fully supported; installing this extension does not enable codemode or connect MCP servers. When you opt into codemode, its JavaScript input and structured tool results stay unchanged.
 
 ```bash
 pi install npm:@zhcsyncer/pi-tool-display-intent
@@ -50,7 +53,7 @@ Empty `/tools` opens the settings panel. Switching layout asks to reload this se
 
 ## Layouts
 
-`individual` is the default: each tool keeps its own row.
+`individual` is the default: each tool keeps its own row. A Write row can compare the content captured immediately before that write with the supplied new content, even if the file changes again afterward. Historical rows never reread the current file to invent an earlier version.
 
 `aggregate` folds every registered built-in, custom, MCP, and late-loaded tool in one user request into one Run view:
 
@@ -92,9 +95,9 @@ Explicit passthrough lists are preserved. These tools keep their native content,
 
 ### Click to inspect
 
-In Pi **0.85+ fullscreen mode**, click anywhere in a **collapsed Run block**, including the receipt and current-call previews, to expand only that run. When expanded, the whole title/summary area can collapse it again. Top/bottom padding and expanded narration text do not toggle the ledger; dragging still selects text. `Ctrl+O` still switches the whole transcript and overrides local choices. Passthrough tools keep their native interactions.
+In Pi **1.1+ fullscreen mode**, click anywhere in a **collapsed Run block**, including the receipt and current-call previews, to expand only that run. When expanded, the whole title/summary area can collapse it again. Top/bottom padding and expanded narration text do not toggle the ledger; dragging still selects text. `Ctrl+O` still switches the whole transcript and overrides local choices. Passthrough tools keep their native interactions.
 
-Expanding a run keeps its aggregate title in view instead of following the newly expanded content to the bottom. When you scroll into a long expanded run and its title moves above the viewport, a right-aligned **`↑ Run (…) · Collapse`** control appears at the top of the above-editor widget group. Click it to collapse only that run and return to its aggregate title. The control does not take keyboard focus or cover the transcript. These viewport controls require a compatible Pi 0.85+ fullscreen renderer; ordinary terminal-scrollback mode does not provide ledger mouse interaction.
+Expanding a run keeps its aggregate title in view instead of following the newly expanded content to the bottom. When you scroll into a long expanded run and its title moves above the viewport, a right-aligned **`↑ Run (…) · Collapse`** control appears at the top of the above-editor widget group. Click it to collapse only that run and return to its aggregate title. The control does not take keyboard focus or cover the transcript. These viewport controls require a compatible Pi 1.1+ fullscreen renderer; ordinary terminal-scrollback mode does not provide ledger mouse interaction.
 
 Click an expanded tool-call row to open a read-only **Result / Args** viewer. Result formats JSON, Markdown files read from `.md` / `.markdown` / `.mdx` paths, and clear custom-tool Markdown; other source and logs remain literal. Args uses key/value rows and multiline blocks, with shell syntax colors for Bash commands. Extra **Metadata** lives behind `⋯` / `M`; it does not enter the primary Tab cycle. `Raw` / `R` shows source text or JSON. The popup does not redact credentials; terminal-control filtering and explicit size limits still apply, so check content before sharing it. Long text lines wrap automatically, including after resizing. Use `Tab` to switch Result/Args, arrows/Page Up/Page Down or the wheel to scroll, and `Esc` to return. Output already truncated by the tool cannot be recovered.
 
@@ -138,7 +141,9 @@ Older `toolCalls.style` and `transcript.userMessageStyle` settings are ignored.
 
 In aggregate mode, generic custom tools show at most two identifying values without key names, such as `web_search(prod metrics)` or `todo(Review the migration)`. Prompts, payloads, control flags and credential-like values stay out of the inline preview; open Args for full key/value detail. A tool-provided `getCallPresentation` remains authoritative. Individual mode keeps its existing parameter preview.
 
-Wrap the tool **before** `pi.registerTool` if you want the same intent field:
+Custom renderers keep their specialized call/result content. Per-tool output settings apply to generic fallback content; use `tools.passthrough` to leave a tool's entire presentation alone.
+
+Wrap the tool **before** `pi.registerTool` only if you want to opt that tool into the same intent field. `overrideExistingRenderers: true` explicitly opts into replacing its renderers:
 
 ```ts
 import {

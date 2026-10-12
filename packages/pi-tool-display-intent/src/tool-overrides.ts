@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type {
   BashToolDetails,
   EditToolDetails,
@@ -9,27 +7,20 @@ import type {
   LsToolDetails,
   ReadToolDetails,
   ToolDefinition,
+  ToolRenderers,
   ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import {
-  createBashTool,
   createBashToolDefinition,
-  createEditTool,
   createEditToolDefinition,
-  createFindTool,
   createFindToolDefinition,
-  createGrepTool,
   createGrepToolDefinition,
-  createLsTool,
   createLsToolDefinition,
-  createReadTool,
   createReadToolDefinition,
-  createWriteTool,
   createWriteToolDefinition,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
-import { resolvePiAgentDir } from "./agent-dir.js";
 import { formatFlatArgumentPreview } from "./arg-preview.js";
 import {
   AggregateProjection,
@@ -47,9 +38,9 @@ import {
   resolveDisplaySummaryForTool,
 } from "./display-summary-fallback.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
-import { registerCleanup } from "./disposable.js";
+import { createCleanupScope, type CleanupScope } from "./disposable.js";
+import { composeToolRenderers } from "./renderer-shell.js";
 import {
-  clearLiveToolCalls,
   registerLiveToolCallEvents,
   shouldShowDeterministicFallback,
 } from "./live-tool-call.js";
@@ -71,12 +62,8 @@ import {
   type PendingDiffPreviewData,
 } from "./pending-diff-preview.js";
 import {
-  buildPromptSnippetFromDescription,
-  extractPromptMetadata,
   getTextField,
   isMcpToolCandidate,
-  MCP_PROXY_PROMPT_GUIDELINES,
-  MCP_PROXY_PROMPT_SNIPPET,
   toRecord,
 } from "./tool-metadata.js";
 import {
@@ -84,7 +71,7 @@ import {
   formatClaudeToolCall,
 } from "./tool-call-style.js";
 import { BUILT_IN_TOOL_OVERRIDE_NAMES } from "./types.js";
-import { toCustomToolOverrideKind, toCustomToolOutputMode, normalizeCustomToolOverrideEntry } from "./config-store.js";
+import { normalizeCustomToolOverrideEntry } from "./config-store.js";
 import type {
   BuiltInToolOverrideName,
   CustomToolOverrideConfig,
@@ -97,13 +84,13 @@ import {
 } from "./write-display-utils.js";
 
 interface BuiltInTools {
-  read: ReturnType<typeof createReadTool>;
-  grep: ReturnType<typeof createGrepTool>;
-  find: ReturnType<typeof createFindTool>;
-  ls: ReturnType<typeof createLsTool>;
-  bash: ReturnType<typeof createBashTool>;
-  edit: ReturnType<typeof createEditTool>;
-  write: ReturnType<typeof createWriteTool>;
+  read: ReturnType<typeof createReadToolDefinition>;
+  grep: ReturnType<typeof createGrepToolDefinition>;
+  find: ReturnType<typeof createFindToolDefinition>;
+  ls: ReturnType<typeof createLsToolDefinition>;
+  bash: ReturnType<typeof createBashToolDefinition>;
+  edit: ReturnType<typeof createEditToolDefinition>;
+  write: ReturnType<typeof createWriteToolDefinition>;
 }
 
 type ConfigGetter = () => ToolDisplayConfig;
@@ -160,17 +147,6 @@ interface PendingDiffPreviewState {
   data?: PendingDiffPreviewData;
 }
 
-interface PiSettingsShellConfig {
-  shellPath?: unknown;
-  shellCommandPrefix?: unknown;
-}
-
-interface BashToolOverrideOptions {
-  shellPath?: string;
-  commandPrefix?: string;
-}
-
-const builtInToolCache = new Map<string, BuiltInTools>();
 const RTK_COMPACTION_LABEL = "compacted by RTK";
 export const WRITE_EXECUTION_META_LIMIT = 100;
 const WRITE_EXECUTION_META_STATE_KEY = "__piToolDisplayIntentWriteExecutionMeta";
@@ -179,17 +155,10 @@ const WRITE_PENDING_PREVIEW_STATE_KEY = "__piToolDisplayIntentWritePendingPrevie
 
 const TOOL_DISPLAY_API_KEY = Symbol.for("pi-tool-display-intent.api.v1");
 const TOOL_DISPLAY_PENDING_DECORATIONS_KEY = Symbol.for("pi-tool-display-intent.pendingDecorations.v1");
-const TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY = Symbol.for("pi-tool-display-intent.registerToolInterceptor.v1");
 const TOOL_DISPLAY_DECORATED_PROPERTIES = [
   "renderCall",
   "renderResult",
   "renderShell",
-  "label",
-  "description",
-  "promptSnippet",
-  "promptGuidelines",
-  "parameters",
-  "prepareArguments",
 ] as const;
 
 type ToolDisplayKind = "read" | "edit" | "mcp" | "generic";
@@ -232,296 +201,21 @@ interface PendingToolDisplayDecoration {
   adapter?: ToolDisplayAdapter;
 }
 
-type DecoratedPropertyName = typeof TOOL_DISPLAY_DECORATED_PROPERTIES[number];
-type ToolPropertyDescriptorSnapshot = Partial<Record<DecoratedPropertyName, PropertyDescriptor>>;
-
 type GlobalWithToolDisplayApi = typeof globalThis & {
   [TOOL_DISPLAY_API_KEY]?: ToolDisplayApi;
   [TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?: PendingToolDisplayDecoration[];
 };
 
-type PiWithRegisterToolInterception = ExtensionAPI & {
-  [TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY]?: {
-    original: ExtensionAPI["registerTool"];
-    wrapped: ExtensionAPI["registerTool"];
-  };
-};
-
-const decoratedToolDescriptors = new WeakMap<RuntimeToolDefinition, ToolPropertyDescriptorSnapshot>();
-const decoratedTools = new Set<RuntimeToolDefinition>();
-
-function applyRuntimeToolCallStyle(
-  tool: RuntimeToolDefinition,
-  getConfig: ConfigGetter,
-): RuntimeToolDefinition {
-  const styledTool: RuntimeToolDefinition = { ...tool };
-  if (getConfig().toolCallStyle === "claude") {
-    styledTool.renderShell = "self";
-  }
-
-  const originalRenderResult = tool.renderResult;
-  if (typeof originalRenderResult === "function") {
-    styledTool.renderResult = function renderStyledResult(result, options, theme, context) {
-      const component = originalRenderResult.call(tool, result, options, theme, context);
-      return applyToolResultStyle(component, getConfig().toolCallStyle, {
-        connectRows: tool.name === "bash",
-        theme,
-      });
-    };
-  }
-
-  return styledTool;
-}
-
-function registerRuntimeTool(
-  pi: ExtensionAPI,
-  tool: RuntimeToolDefinition,
-  getConfig: ConfigGetter,
-  aggregateProjection?: AggregateProjection,
-): void {
-  const styledTool = applyRuntimeToolCallStyle(tool, getConfig);
-  if (aggregateProjection) {
-    const originalRenderCall = styledTool.renderCall;
-    if (typeof originalRenderCall === "function") {
-      styledTool.renderCall = function captureAggregateCallTheme(args, theme, context) {
-        aggregateProjection.setRenderTheme(theme);
-        return originalRenderCall.call(styledTool, args, theme, context);
-      };
-    }
-    const originalRenderResult = styledTool.renderResult;
-    if (typeof originalRenderResult === "function") {
-      styledTool.renderResult = function captureAggregateResultTheme(result, options, theme, context) {
-        aggregateProjection.setRenderTheme(theme);
-        return originalRenderResult.call(styledTool, result, options, theme, context);
-      };
-    }
-  }
-  const config = getConfig();
-  const toolIntent = config.toolIntent;
-  const wantsIntent = tool.name === "bash";
-  const registeredTool = wantsIntent
-    ? withDisplaySummary(styledTool as never, {
-        required: true,
-        language: toolIntent.language,
-        maxLength: toolIntent.maxLength,
-        preserveRendererArgs: true,
-        fallback: () => buildDeterministicDisplaySummary(
-          tool.name,
-          toolIntent.language,
-          toolIntent.maxLength,
-        ),
-      })
-    : styledTool;
-  pi.registerTool(registeredTool as unknown as ToolDefinition);
-}
-
-function captureToolPropertyDescriptors(
-  tool: RuntimeToolDefinition,
-  descriptorSnapshots: WeakMap<RuntimeToolDefinition, ToolPropertyDescriptorSnapshot>,
-  decoratedTools: Set<RuntimeToolDefinition>,
-): void {
-  if (descriptorSnapshots.has(tool)) {
-    return;
-  }
-
-  const snapshot: ToolPropertyDescriptorSnapshot = {};
-  for (const property of TOOL_DISPLAY_DECORATED_PROPERTIES) {
-    const descriptor = Object.getOwnPropertyDescriptor(tool, property);
-    if (descriptor) {
-      snapshot[property] = descriptor;
-    }
-  }
-  descriptorSnapshots.set(tool, snapshot);
-  decoratedTools.add(tool);
-}
-
-function restoreToolPropertyDescriptors(
-  descriptorSnapshots: WeakMap<RuntimeToolDefinition, ToolPropertyDescriptorSnapshot>,
-  decoratedTools: Set<RuntimeToolDefinition>,
-): void {
-  for (const tool of decoratedTools) {
-    const snapshot = descriptorSnapshots.get(tool) ?? {};
-    for (const property of TOOL_DISPLAY_DECORATED_PROPERTIES) {
-      const descriptor = snapshot[property];
-      if (descriptor) {
-        Object.defineProperty(tool, property, descriptor);
-      } else {
-        delete tool[property];
-      }
-    }
-    descriptorSnapshots.delete(tool);
-  }
-  decoratedTools.clear();
-}
-
-
-function getToolPrepareArguments(tool: unknown): unknown {
-  const prepareArguments = toRecord(tool).prepareArguments;
-  return typeof prepareArguments === "function" ? prepareArguments : undefined;
-}
-
-function cloneToolParameters(parameters: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  if (parameters === null || typeof parameters !== "object") {
-    return parameters;
-  }
-
-  if (seen.has(parameters)) {
-    return seen.get(parameters);
-  }
-
-  const clone: object = Array.isArray(parameters)
-    ? []
-    : Object.create(Object.getPrototypeOf(parameters) as object | null) as object;
-  seen.set(parameters, clone);
-
-  for (const key of Reflect.ownKeys(parameters)) {
-    const descriptor = Object.getOwnPropertyDescriptor(parameters, key);
-    if (!descriptor) {
-      continue;
-    }
-
-    if ("value" in descriptor) {
-      descriptor.value = cloneToolParameters(descriptor.value as unknown, seen);
-    }
-
-    Object.defineProperty(clone, key, descriptor);
-  }
-
-  return clone;
-}
-
-function clearBuiltInToolCache(): void {
-  builtInToolCache.clear();
-}
-
-function getStringSetting(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function loadBashToolOverrideOptions(): BashToolOverrideOptions {
-  const settingsPath = join(resolvePiAgentDir(), "settings.json");
-  if (!existsSync(settingsPath)) {
-    return {};
-  }
-
-  try {
-    const rawSettings = JSON.parse(readFileSync(settingsPath, "utf-8")) as PiSettingsShellConfig;
-    return {
-      shellPath: getStringSetting(rawSettings.shellPath),
-      commandPrefix: getStringSetting(rawSettings.shellCommandPrefix),
-    };
-  } catch (error) {
-    logToolDisplayDebug("Failed to read Pi settings for bash tool overrides.", error);
-    return {};
-  }
-}
-
-function getBuiltInTools(cwd: string): BuiltInTools {
-  let tools = builtInToolCache.get(cwd);
-  if (!tools) {
-    tools = createLazyBuiltInTools(cwd);
-    builtInToolCache.set(cwd, tools);
-  }
-  return tools;
-}
-
-function createLazyBuiltInTools(cwd: string): BuiltInTools {
-  const cache = new Map<string, unknown>();
-  const get = <K extends keyof BuiltInTools>(name: K, factory: () => BuiltInTools[K]): BuiltInTools[K] => {
-    if (!cache.has(name)) {
-      cache.set(name, factory());
-    }
-    return cache.get(name) as BuiltInTools[K];
-  };
+function createBuiltInToolDefinitions(cwd: string): BuiltInTools {
   return {
-    get read() { return get("read", () => createReadTool(cwd)); },
-    get grep() { return get("grep", () => createGrepTool(cwd)); },
-    get find() { return get("find", () => createFindTool(cwd)); },
-    get ls() { return get("ls", () => createLsTool(cwd)); },
-    get bash() { return get("bash", () => createBashTool(cwd, loadBashToolOverrideOptions())); },
-    get edit() { return get("edit", () => createEditTool(cwd)); },
-    get write() { return get("write", () => createWriteTool(cwd)); },
-  } as BuiltInTools;
-}
-
-function createLazyToolRecord<T>(
-  bootstrapTools: BuiltInTools,
-  factory: (tool: BuiltInTools[keyof BuiltInTools]) => T,
-): Record<keyof BuiltInTools, T> {
-  const cache = new Map<string, unknown>();
-  const get = (name: keyof BuiltInTools): T => {
-    if (!cache.has(name)) {
-      cache.set(name, factory(bootstrapTools[name]));
-    }
-    return cache.get(name) as T;
+    read: createReadToolDefinition(cwd),
+    grep: createGrepToolDefinition(cwd),
+    find: createFindToolDefinition(cwd),
+    ls: createLsToolDefinition(cwd),
+    bash: createBashToolDefinition(cwd),
+    edit: createEditToolDefinition(cwd),
+    write: createWriteToolDefinition(cwd),
   };
-  return {
-    get read() { return get("read"); },
-    get grep() { return get("grep"); },
-    get find() { return get("find"); },
-    get ls() { return get("ls"); },
-    get bash() { return get("bash"); },
-    get edit() { return get("edit"); },
-    get write() { return get("write"); },
-  } as Record<keyof BuiltInTools, T>;
-}
-
-function createBuiltInToolDefinitions(cwd: string) {
-  return {
-    read: () => createReadToolDefinition(cwd),
-    grep: () => createGrepToolDefinition(cwd),
-    find: () => createFindToolDefinition(cwd),
-    ls: () => createLsToolDefinition(cwd),
-    bash: () => createBashToolDefinition(cwd, loadBashToolOverrideOptions()),
-    edit: () => createEditToolDefinition(cwd),
-    write: () => createWriteToolDefinition(cwd),
-  } as const;
-}
-
-/**
- * Prompt metadata must come from ToolDefinition factories.
- * `create*Tool()` goes through `wrapToolDefinition()`, which drops
- * `promptSnippet` / `promptGuidelines`. Without those fields, Pi omits the
- * overridden tools from the system prompt `Available tools` section.
- */
-function createLazyPromptMetadata(
-  bootstrapTools: BuiltInTools,
-  cwd: string = process.cwd(),
-): Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>> {
-  const definitions = createBuiltInToolDefinitions(cwd);
-  const cache = new Map<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>();
-  const get = (name: keyof BuiltInTools): ReturnType<typeof extractPromptMetadata> => {
-    const cached = cache.get(name);
-    if (cached) {
-      return cached;
-    }
-
-    const fromDefinition = extractPromptMetadata(definitions[name]());
-    const fallbackSnippet = buildPromptSnippetFromDescription(
-      bootstrapTools[name].description,
-      name,
-    );
-    const metadata = {
-      promptSnippet: fromDefinition.promptSnippet ?? fallbackSnippet,
-      promptGuidelines: fromDefinition.promptGuidelines,
-    };
-    cache.set(name, metadata);
-    return metadata;
-  };
-
-  return {
-    get read() { return get("read"); },
-    get grep() { return get("grep"); },
-    get find() { return get("find"); },
-    get ls() { return get("ls"); },
-    get bash() { return get("bash"); },
-    get edit() { return get("edit"); },
-    get write() { return get("write"); },
-  } as Record<keyof BuiltInTools, ReturnType<typeof extractPromptMetadata>>;
-}
-
-function createLazyClonedParameters(bootstrapTools: BuiltInTools): Record<keyof BuiltInTools, unknown> {
-  return createLazyToolRecord(bootstrapTools, (tool) => cloneToolParameters(tool.parameters));
 }
 
 function captureExistingWriteContent(
@@ -1765,22 +1459,7 @@ function handleEditOrWriteResult(
   return { fallbackText, earlyResult: undefined };
 }
 
-function applyToolDisplayDecorationInPlace(
-  tool: RuntimeToolDefinition,
-  api: ToolDisplayApi,
-  adapter?: ToolDisplayAdapter,
-): boolean {
-  try {
-    captureToolPropertyDescriptors(tool, decoratedToolDescriptors, decoratedTools);
-    Object.assign(tool, api.decorateTool(tool, adapter));
-    return true;
-  } catch (error) {
-    logToolDisplayDebug("Tool display decoration failed.", error);
-    return false;
-  }
-}
-
-function drainPendingToolDisplayDecorations(api: ToolDisplayApi): void {
+function drainPendingToolDisplayDecorations(api: ToolDisplayApi, scope: CleanupScope): void {
   const globalWithApi = globalThis as GlobalWithToolDisplayApi;
   const pendingDecorations = globalWithApi[TOOL_DISPLAY_PENDING_DECORATIONS_KEY];
   if (!Array.isArray(pendingDecorations) || pendingDecorations.length === 0) {
@@ -1793,12 +1472,29 @@ function drainPendingToolDisplayDecorations(api: ToolDisplayApi): void {
       continue;
     }
 
-    applyToolDisplayDecorationInPlace(entry.tool, api, entry.adapter);
+    // Only explicit cooperative requests may decorate a real definition in place.
+    // Never touch getAllTools() metadata, and never restore over a later owner.
+    try {
+      const decorated = api.decorateTool(entry.tool, entry.adapter);
+      for (const key of TOOL_DISPLAY_DECORATED_PROPERTIES) {
+        const before = Object.getOwnPropertyDescriptor(entry.tool, key);
+        const value = decorated[key];
+        entry.tool[key] = value as never;
+        scope.register(() => {
+          if (entry.tool[key] !== value) return;
+          if (before) Object.defineProperty(entry.tool, key, before);
+          else delete entry.tool[key];
+        });
+      }
+    } catch (error) {
+      logToolDisplayDebug("Cooperative tool display decoration failed.", error);
+    }
   }
 }
 
-function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
+function installToolDisplayApi(getConfig: ConfigGetter, scope: CleanupScope) {
   const adapters = new Map<string, ToolDisplayAdapter>();
+  const decoratedCallbacks = new Set<unknown>();
   let nextAdapterId = 0;
 
   const resolveAdapter = (tool: RuntimeToolDefinition, adapter?: ToolDisplayAdapter): ToolDisplayAdapter => {
@@ -1873,20 +1569,19 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
         };
       }
 
-      const renderResult = decorated.renderResult;
-      if (typeof renderResult === "function") {
-        decorated.renderResult = function renderStyledDecoratedResult(result, options, theme, context) {
-          const component = renderResult.call(tool, result, options, theme, context);
-          return applyToolResultStyle(component, getConfig().toolCallStyle);
-        };
-      }
-
-      if (getConfig().toolCallStyle === "claude") {
-        decorated.renderShell = "self";
-      } else if (kind === "edit" && (overrideExisting || typeof decorated.renderShell !== "string")) {
-        decorated.renderShell = "default";
-      }
-
+      Object.assign(decorated, composeToolRenderers(
+        decorated as unknown as ToolRenderers,
+        tool as unknown as ToolRenderers,
+        {
+          style: getConfig().toolCallStyle, run: scope.run,
+          native: overrideExisting ? {
+            renderCall: decorated.renderCall !== tool.renderCall ? tool.renderCall : undefined,
+            renderResult: decorated.renderResult !== tool.renderResult ? tool.renderResult : undefined,
+          } as unknown as ToolRenderers : undefined,
+        },
+      ));
+      decoratedCallbacks.add(decorated.renderCall);
+      decoratedCallbacks.add(decorated.renderResult);
       return decorated as T;
     },
     registerAdapter(adapter: ToolDisplayAdapter): string {
@@ -1914,8 +1609,8 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
     if (!adapter?.getCallPresentation) return undefined;
     return resolveCallPresentation(toRecord(stripDisplaySummary(args)), adapter);
   });
-  drainPendingToolDisplayDecorations(api);
-  return api;
+  drainPendingToolDisplayDecorations(api, scope);
+  return { api, adapters, decoratedCallbacks };
 }
 
 function tryGetAllTools(pi: ExtensionAPI, debugMessage: string): unknown[] | undefined {
@@ -1931,23 +1626,22 @@ export function registerToolDisplayOverrides(
   pi: ExtensionAPI,
   getConfig: ConfigGetter,
 ): void {
-  clearBuiltInToolCache();
-  registerLiveToolCallEvents(pi);
-  const toolDisplayApi = installToolDisplayApi(getConfig);
-  registerCleanup(() => {
-    clearLiveToolCalls();
-    restoreToolPropertyDescriptors(decoratedToolDescriptors, decoratedTools);
+  const scope = createCleanupScope();
+  const clearLiveCalls = registerLiveToolCallEvents(pi);
+  const { api: toolDisplayApi, adapters, decoratedCallbacks } = installToolDisplayApi(getConfig, scope);
+  scope.register(() => {
+    clearLiveCalls();
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
     if (globalWithApi[TOOL_DISPLAY_API_KEY] === toolDisplayApi) {
       delete globalWithApi[TOOL_DISPLAY_API_KEY];
       setAggregateCallPresentationLookup(undefined);
     }
   });
-  const bootstrapTools = getBuiltInTools(process.cwd());
-  const builtInPromptMetadata = createLazyPromptMetadata(bootstrapTools);
-  const clonedParameters = createLazyClonedParameters(bootstrapTools);
+  pi.on("session_shutdown", () => scope.dispose());
+  const bootstrapTools = createBuiltInToolDefinitions(process.cwd());
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
-  const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
+  scope.register(() => clearWriteExecutionMeta(writeExecutionMetaByToolCallId));
+  const builtInDisplays = new Map<string, RuntimeToolDefinition>();
   const aggregateProjection = getConfig().toolCallLayout === "aggregate"
     ? new AggregateProjection(
         (toolName) =>
@@ -1958,61 +1652,17 @@ export function registerToolDisplayOverrides(
         () => getConfig().showContextGrowth,
       )
     : undefined;
-  const registerOwnedTool = (tool: RuntimeToolDefinition): void =>
-    registerRuntimeTool(pi, tool, getConfig, aggregateProjection);
-
-  const isExternallyOwnedBuiltInTool = (toolName: BuiltInToolOverrideName): boolean => {
-    const allTools = tryGetAllTools(pi, "Built-in tool override ownership discovery unavailable during extension load; registering renderer for pre-bind history rendering.");
-    if (!allTools) {
-      return false;
-    }
-
-    const currentOwner = allTools.find((tool) => getTextField(tool, "name") === toolName);
-    const sourceInfo = toRecord(toRecord(currentOwner).sourceInfo);
-    const source = getTextField(sourceInfo, "source");
-    if (currentOwner && source && source !== "builtin") {
-      logToolDisplayDebug("Skipped built-in tool display override because another tool owner is active.", {
-        toolName,
-        source,
-        path: getTextField(sourceInfo, "path") ?? "unknown",
-      });
-      return true;
-    }
-
-    return false;
+  const registerOwnedTool = (tool: RuntimeToolDefinition): void => {
+    builtInDisplays.set(tool.name!, tool);
   };
-
-  const registerIfOwned = (
-    toolName: BuiltInToolOverrideName,
-    register: () => void,
-  ): void => {
-    if (
-      registeredBuiltInToolOverrides.has(toolName) ||
-      !getConfig().registerToolOverrides[toolName] ||
-      isExternallyOwnedBuiltInTool(toolName)
-    ) {
-      return;
-    }
-
-    register();
-    registeredBuiltInToolOverrides.add(toolName);
+  const registerIfOwned = (toolName: BuiltInToolOverrideName, register: () => void): void => {
+    if (getConfig().registerToolOverrides[toolName]) register();
   };
 
   function createBuiltinToolBase(toolName: keyof BuiltInTools) {
-    return {
-      description: bootstrapTools[toolName].description,
-      ...builtInPromptMetadata[toolName],
-      parameters: clonedParameters[toolName],
-      prepareArguments: getToolPrepareArguments(bootstrapTools[toolName]),
-      async execute(toolCallId: string, params: Record<string, unknown>, signal: unknown, onUpdate: unknown, ctx: { cwd: string }) {
-        return getBuiltInTools(ctx.cwd)[toolName].execute(
-          toolCallId,
-          params as never,
-          signal as never,
-          onUpdate as never,
-        );
-      },
-    };
+    // Keep the definition, not an AgentTool reconstruction: schemas, sampling,
+    // prepare/exposure/loadout and the SDK's context-aware execute all survive.
+    return { ...bootstrapTools[toolName] };
   }
 
   const renderSearchToolResult = (
@@ -2120,19 +1770,8 @@ export function registerToolDisplayOverrides(
     registerOwnedTool({
       name: "edit",
     label: "edit",
-    description: bootstrapTools.edit.description,
-    ...builtInPromptMetadata.edit,
-    parameters: clonedParameters.edit,
+    ...createBuiltinToolBase("edit"),
     renderShell: "default",
-    prepareArguments: getToolPrepareArguments(bootstrapTools.edit),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      return getBuiltInTools(ctx.cwd).edit.execute(
-        toolCallId,
-        params as never,
-        signal,
-        onUpdate as never,
-      );
-    },
     renderCall(args, theme, context) {
       return renderEditDisplayCall(args, theme, context, {}, getConfig);
     },
@@ -2146,10 +1785,7 @@ export function registerToolDisplayOverrides(
     registerOwnedTool({
       name: "write",
     label: "write",
-    description: bootstrapTools.write.description,
-    ...builtInPromptMetadata.write,
-    parameters: clonedParameters.write,
-    prepareArguments: getToolPrepareArguments(bootstrapTools.write),
+    ...createBuiltinToolBase("write"),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const previous = captureExistingWriteContent(ctx.cwd, params.path);
       const executionMeta = {
@@ -2158,11 +1794,12 @@ export function registerToolDisplayOverrides(
       };
       recordWriteExecutionMeta(writeExecutionMetaByToolCallId, toolCallId, executionMeta);
 
-      return getBuiltInTools(ctx.cwd).write.execute(
+      return bootstrapTools.write.execute(
         toolCallId,
         params as never,
         signal,
         onUpdate as never,
+        ctx as Parameters<BuiltInTools["write"]["execute"]>[4],
       );
     },
     renderCall(args, theme, context) {
@@ -2291,220 +1928,82 @@ export function registerToolDisplayOverrides(
     });
   });
 
-  const wrappedCustomToolNames = new Set<string>();
-  registerCleanup(() => wrappedCustomToolNames.clear());
-
-  const getCustomOverrideForCandidate = (candidate: unknown): {
-    toolName: string;
-    override: CustomToolOverrideConfig;
-  } | undefined => {
-    const toolName = getTextField(candidate, "name");
-    if (!toolName) {
-      return undefined;
+  const semanticTools = new Set<string>();
+  pi.on("session_start", (_event, ctx) => {
+    // Wait until all extension factories have registered: a display extension must
+    // not win a name conflict against another extension's Bash or Write tool.
+    const metadata = tryGetAllTools(pi, "Tool ownership discovery failed.") ?? [];
+    for (const name of ["bash", "write"] as const) {
+      const owner = metadata.find(tool => getTextField(tool, "name") === name);
+      if (semanticTools.has(name) || !getConfig().registerToolOverrides[name] ||
+          getConfig().passthroughToolNames.includes(name) ||
+          getTextField(toRecord(owner).sourceInfo, "source") !== "builtin") continue;
+      if (name === "bash") {
+        const settings = pi.getSettings();
+        const definition = createBashToolDefinition(ctx.cwd, {
+          shellPath: settings.shellPath,
+          commandPrefix: settings.shellCommandPrefix,
+        });
+        bootstrapTools.bash = definition;
+        const intent = getConfig().toolIntent;
+        pi.registerTool(withDisplaySummary({ ...definition, defaultActive: pi.getActiveTools().includes(name) }, {
+          required: true, language: intent.language, maxLength: intent.maxLength,
+          preserveRendererArgs: true,
+          fallback: () => buildDeterministicDisplaySummary("bash", intent.language, intent.maxLength),
+        }));
+      } else {
+        pi.registerTool({
+          ...bootstrapTools.write,
+          defaultActive: pi.getActiveTools().includes(name),
+          execute: builtInDisplays.get("write")!.execute as ToolDefinition["execute"],
+        });
+      }
+      semanticTools.add(name);
     }
+  });
 
-    const override = getRuntimeCustomToolOverride(toolName, getConfig());
-    return override ? { toolName, override } : undefined;
-  };
-
-  const decorateCustomToolOverrideCandidate = (candidate: unknown): boolean => {
-    const customOverride = getCustomOverrideForCandidate(candidate);
-    if (!customOverride || wrappedCustomToolNames.has(customOverride.toolName)) {
-      return customOverride !== undefined;
+  pi.registerToolRenderer((toolName, next) => {
+    const delegate = next();
+    const config = getConfig();
+    if ((delegate?.renderCall && decoratedCallbacks.has(delegate.renderCall)) ||
+        (delegate?.renderResult && decoratedCallbacks.has(delegate.renderResult))) return delegate;
+    if (config.passthroughToolNames.includes(toolName) ||
+        (isBuiltInToolName(toolName) && !config.registerToolOverrides[toolName as BuiltInToolOverrideName])) {
+      return delegate;
     }
-
-    const { toolName, override } = customOverride;
-    const runtimeTool = candidate as RuntimeToolDefinition;
-    applyToolDisplayDecorationInPlace(
-      runtimeTool,
-      toolDisplayApi,
-      {
-        kind: override.kind,
-        overrideExistingRenderers: true,
-        renderCall(args, theme, context) {
-          if (override.kind === "mcp") {
-            return formatMcpCallLine("mcp", "MCP Proxy", toRecord(args), theme, getConfig(), context);
-          }
-          return formatGenericToolCallLine(toolName, args, theme, getConfig(), context);
-        },
-        renderResult(result, options, theme, context) {
-          return renderCustomToolResult(
-            result as ToolRenderInput,
-            options,
-            getConfig(),
-            override.outputMode,
-            theme,
-            context,
-          );
-        },
-      },
-    );
-
-    wrappedCustomToolNames.add(toolName);
-    return true;
-  };
-
-  const wrappedMcpToolNames = new Set<string>();
-  registerCleanup(() => wrappedMcpToolNames.clear());
-
-  const decorateMcpToolCandidate = (candidate: unknown): void => {
-    if (getCustomOverrideForCandidate(candidate)) {
-      return;
-    }
-
-    if (!isMcpToolCandidate(candidate)) {
-      return;
-    }
-
-    const toolName = getTextField(candidate, "name");
-    if (!toolName || wrappedMcpToolNames.has(toolName)) {
-      return;
-    }
-
-    const toolRecord = toRecord(candidate);
-    const prepareArgumentsDelegate =
-      typeof toolRecord.prepareArguments === "function"
-        ? (toolRecord.prepareArguments as (args: unknown) => unknown)
-        : undefined;
-    const toolLabel =
-      getTextField(candidate, "label") ||
-      (toolName === "mcp" ? "MCP Proxy" : `MCP ${toolName}`);
-    const toolDescription =
-      getTextField(candidate, "description") || "MCP tool";
-    const parameters = toRecord(toolRecord.parameters);
-
-    const promptMetadata =
-      toolName === "mcp"
-        ? {
-            promptSnippet: MCP_PROXY_PROMPT_SNIPPET,
-            promptGuidelines: [...MCP_PROXY_PROMPT_GUIDELINES],
-          }
-        : {
-            promptSnippet: buildPromptSnippetFromDescription(
-              toolDescription,
-              `Call MCP tool '${toolName}'.`,
-            ),
-          };
-
-    const runtimeTool = candidate as RuntimeToolDefinition;
-    applyToolDisplayDecorationInPlace(
-      runtimeTool,
-      toolDisplayApi,
-      {
-        kind: "mcp",
-        overrideExistingRenderers: true,
-        renderCall(args, theme, context) {
-          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme, getConfig(), context);
-        },
-        renderResult(result, options, theme, context) {
-          return renderMcpResult(
-            result as ToolRenderInput,
-            options,
-            getConfig(),
-            theme,
-            context,
-          );
-        },
-      },
-    );
-    Object.assign(runtimeTool, {
-      label: toolLabel,
-      description: toolDescription,
-      ...promptMetadata,
-      parameters,
-      prepareArguments: prepareArgumentsDelegate,
-    });
-
-    wrappedMcpToolNames.add(toolName);
-  };
-
-  const installMcpRegistrationInterceptor = (): void => {
-    const piWithInterception = pi as PiWithRegisterToolInterception;
-    const existingInterception = piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-    if (existingInterception && pi.registerTool === existingInterception.wrapped) {
-      pi.registerTool = existingInterception.original;
-      delete piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-    }
-
-    const originalRegisterTool = pi.registerTool;
-    const wrappedRegisterTool = function registerToolWithMcpDecoration(
-      this: ExtensionAPI,
-      tool: ToolDefinition,
-    ): void {
-      originalRegisterTool.call(this, tool);
-      try {
-        if (!decorateCustomToolOverrideCandidate(tool)) {
-          decorateMcpToolCandidate(tool);
+    const builtin = builtInDisplays.get(toolName);
+    const custom = getRuntimeCustomToolOverride(toolName, config);
+    const adapter = adapters.get(toolName) ?? {};
+    const metadata = tryGetAllTools(pi, "Tool display metadata unavailable.")?.find(tool => getTextField(tool, "name") === toolName);
+    const isMcp = custom?.kind === "mcp" || adapter.kind === "mcp" || isMcpToolCandidate(metadata ?? { name: toolName });
+    const own: ToolRenderers = builtin as unknown as ToolRenderers ?? {
+      renderCall(args, theme, context) {
+        if (isMcp) {
+          const name = custom?.kind === "mcp" ? "mcp" : toolName;
+          return formatMcpCallLine(name, name === "mcp" ? "MCP Proxy" : `MCP ${name}`, toRecord(args), theme, getConfig(), context);
         }
-      } catch (error) {
-        logToolDisplayDebug("Tool display registration decoration failed.", error);
-      }
-    } as ExtensionAPI["registerTool"];
-
-    pi.registerTool = wrappedRegisterTool;
-    piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY] = {
-      original: originalRegisterTool,
-      wrapped: wrappedRegisterTool,
+        return formatGenericToolCallLine(toolName, args, theme, getConfig(), context, adapter);
+      },
+      renderResult(result, options, theme, context) {
+        const config = getConfig();
+        const mode = custom?.outputMode ?? (adapter.outputMode === "inherit" ? undefined : adapter.outputMode) ?? config.mcpOutputMode;
+        return renderCustomToolResult(result, options, config, mode, theme, context, adapter);
+      },
     };
-
-    registerCleanup(() => {
-      if (pi.registerTool === wrappedRegisterTool) {
-        pi.registerTool = originalRegisterTool;
-      }
-      const currentInterception = piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-      if (currentInterception?.wrapped === wrappedRegisterTool) {
-        delete piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-      }
+    const renderers = composeToolRenderers(own, delegate, {
+      style: config.toolCallStyle,
+      native: isBuiltInToolName(toolName) ? bootstrapTools[toolName as BuiltInToolOverrideName] : undefined,
+      connectRows: toolName === "bash",
+      run: scope.run,
     });
-  };
-
-  if (!aggregateProjection) installMcpRegistrationInterceptor();
-
-  const registerMcpToolOverrides = (): void => {
-    const allTools = tryGetAllTools(pi, "MCP tool override discovery failed.");
-    if (!allTools) {
-      return;
+    if (aggregateProjection) {
+      const call = renderers.renderCall;
+      renderers.renderCall = (args, theme, context) => {
+        aggregateProjection.setRenderTheme(theme);
+        return call!(args, theme, context);
+      };
     }
-
-    for (const candidate of allTools) {
-      if (!decorateCustomToolOverrideCandidate(candidate)) {
-        decorateMcpToolCandidate(candidate);
-      }
-    }
-  };
-
-  const mcpDiscoveryRetryTimers = new Set<ReturnType<typeof setTimeout> & { unref?: () => void }>();
-  registerCleanup(() => {
-    for (const timer of mcpDiscoveryRetryTimers) {
-      clearTimeout(timer);
-    }
-    mcpDiscoveryRetryTimers.clear();
-  });
-
-  const scheduleMcpToolOverrideDiscovery = (): void => {
-    for (const delayMs of [25, 75, 150, 300]) {
-      const timer = setTimeout(() => {
-        mcpDiscoveryRetryTimers.delete(timer);
-        registerMcpToolOverrides();
-      }, delayMs) as ReturnType<typeof setTimeout> & { unref?: () => void };
-      mcpDiscoveryRetryTimers.add(timer);
-      timer.unref?.();
-    }
-  };
-
-  pi.on("session_start", async () => {
-    clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    if (!aggregateProjection) {
-      registerMcpToolOverrides();
-      scheduleMcpToolOverrideDiscovery();
-    }
-  });
-  pi.on("before_agent_start", async () => {
-    clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    if (!aggregateProjection) {
-      registerMcpToolOverrides();
-      scheduleMcpToolOverrideDiscovery();
-    }
+    return renderers;
   });
 
   if (aggregateProjection) {

@@ -1,0 +1,93 @@
+import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
+import { Box, type Component } from "@earendil-works/pi-tui";
+import { applyToolResultStyle } from "./tool-call-style.js";
+import type { ToolCallStyle } from "./types.js";
+
+/** Derive the context from the public callback; it is not a root SDK type export. */
+type RenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
+type Slot = "call" | "result";
+interface Layer {
+  state: Record<string, unknown>;
+  call?: Component;
+  result?: Component;
+}
+interface Row {
+  own: Layer;
+  delegate: Layer;
+  call?: RendererSlot;
+  result?: RendererSlot;
+}
+
+class RendererSlot extends Box {
+  constructor(readonly row: Row) { super(0, 0); }
+  update(child: Component, padding: number): void {
+    this.setPaddingX(padding);
+    this.clear();
+    this.addChild(child);
+  }
+}
+
+/** A row owns the framing; each renderer owns its own state and both previous-component slots. */
+export function composeToolRenderers(
+  own: ToolRenderers,
+  delegate: ToolRenderers | undefined,
+  options: {
+    style: ToolCallStyle;
+    native?: ToolRenderers;
+    connectRows?: boolean;
+    run?: <T>(fn: () => T) => T;
+  },
+): ToolRenderers {
+  // Cooperative callers may install these callbacks back onto their definition.
+  // Capture the inputs so that installation cannot turn delegation into recursion.
+  own = { ...own };
+  delegate = delegate ? { ...delegate } : undefined;
+  const rows = new WeakMap<object, Row>();
+  const run = options.run ?? (<T>(fn: () => T): T => fn());
+  const useCallDelegate = !!delegate?.renderCall && (!own.renderCall || delegate.renderCall !== options.native?.renderCall);
+  const useResultDelegate = !!delegate?.renderResult && (!own.renderResult || delegate.renderResult !== options.native?.renderResult);
+  const shell = options.style === "claude" || delegate?.renderShell === "self" ? "self" : "default";
+
+  function prepare(context: RenderContext | undefined, slot: Slot, delegated: boolean) {
+    const carrier = context?.state && typeof context.state === "object" ? context.state : undefined;
+    let row = carrier ? rows.get(carrier) : undefined;
+    if (!row && context?.lastComponent instanceof RendererSlot) row = context.lastComponent.row;
+    row ??= { own: { state: {} }, delegate: { state: {} } };
+    if (carrier) rows.set(carrier, row);
+    const layer = delegated ? row.delegate : row.own;
+    return {
+      row, layer,
+      context: { ...context, state: layer.state, lastComponent: layer[slot] } as RenderContext,
+    };
+  }
+
+  function frame(row: Row, layer: Layer, slot: Slot, child: Component, context: RenderContext, delegated: boolean, theme: Parameters<NonNullable<ToolRenderers["renderCall"]>>[1]) {
+    layer[slot] = child;
+    // A delegated self shell already owns outputPad. Default renderers leave it to their host.
+    const selfPadded = delegated && delegate?.renderShell === "self";
+    // Specialized content (including its markers and mouse handlers) belongs to
+    // its renderer. Only our generic bodies receive the result-prefix component.
+    const styled = slot === "result" && !delegated
+      ? applyToolResultStyle(child, options.style, { connectRows: options.connectRows, theme }) as Component
+      : child;
+    const component = row[slot] ??= new RendererSlot(row);
+    component.update(styled, shell === "self" && !selfPadded ? context?.outputPad ?? 0 : 0);
+    return component;
+  }
+
+  return {
+    renderShell: shell,
+    renderCall: own.renderCall || delegate?.renderCall ? (args, theme, context) => run(() => {
+      const renderer = useCallDelegate ? delegate! : own;
+      const { row, layer, context: inner } = prepare(context, "call", useCallDelegate);
+      const child = renderer.renderCall!(args, theme, inner);
+      return frame(row, layer, "call", child, context, useCallDelegate, theme);
+    }) : undefined,
+    renderResult: own.renderResult || delegate?.renderResult ? (result, renderOptions, theme, context) => run(() => {
+      const renderer = useResultDelegate ? delegate! : own;
+      const { row, layer, context: inner } = prepare(context, "result", useResultDelegate);
+      const child = renderer.renderResult!(result, renderOptions, theme, inner);
+      return frame(row, layer, "result", child, context, useResultDelegate, theme);
+    }) : undefined,
+  };
+}

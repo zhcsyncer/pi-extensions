@@ -18,7 +18,8 @@ $ pnpm test — 验证 extension 测试套件
 
 ## 功能
 
-- 只有 bash 会向当前模型要 `displaySummary` 意图。其它内置工具只用确定性 target。
+- 只有 Bash 会向当前模型要 `displaySummary` 意图。普通调用或 codemode 脚本省略时会补上 fallback，其它非法参数仍会被校验拒绝；其它内置工具保留原 schema。
+- 内置、自定义、晚连接的 MCP 工具及已保存的工具历史使用统一行样式，同时保留工具原有的专用内容。
 - Claude 风格：状态标记、`Name(target)`、缩进结果。
 - 可选 `aggregate`：一次用户请求收成一条 **Run** 账本，默认也收纳 Agent 和 consult。
 - Fullscreen 鼠标交互：点击收起的 Run 内容区展开本账本，点击展开后的摘要区收起；工具行可查看结果，不重新执行工具。
@@ -30,6 +31,8 @@ $ pnpm test — 验证 extension 测试套件
 不要同时加载 `pi-tool-display`、`pi-tool-display-summary` 和本扩展。它们会注册同名内置工具。
 
 ## 安装
+
+需要 **Pi 1.1 或更新版本**。普通直接调用仍是完整支持的使用方式；安装不会开启 codemode 或连接 MCP 服务。自行启用 codemode 后，其 JavaScript 输入和工具结构化结果保持不变。
 
 ```bash
 pi install npm:@zhcsyncer/pi-tool-display-intent
@@ -50,7 +53,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ## 布局
 
-`individual` 是默认：每个工具各占一行。
+`individual` 是默认：每个工具各占一行。Write 行可以对比本次写入前捕获的原内容与提供的新内容，即使文件随后再次变化也不会混淆。历史行不会重新读取当前文件来猜测旧版本。
 
 `aggregate` 把一次用户请求里所有已注册内置、custom、MCP 和延迟加载工具收进一条 Run：
 
@@ -92,9 +95,9 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ### 点击查看详情
 
-在 Pi **0.85+ fullscreen 模式**下，点击**收起的 Run 内容区**任意位置（包括统计收据、当前调用预览）即可只展开这一本 run 账本。展开后，整个标题／统计摘要区都可点击收起。上下空白间距和展开后的旁白正文不触发开合，拖动仍用于选择文本。`Ctrl+O` 仍切换整个会话，并覆盖局部选择。透传工具保留自己的原生交互。
+在 Pi **1.1+ fullscreen 模式**下，点击**收起的 Run 内容区**任意位置（包括统计收据、当前调用预览）即可只展开这一本 run 账本。展开后，整个标题／统计摘要区都可点击收起。上下空白间距和展开后的旁白正文不触发开合，拖动仍用于选择文本。`Ctrl+O` 仍切换整个会话，并覆盖局部选择。透传工具保留自己的原生交互。
 
-展开时会保留聚合标题在视口中的位置，不再追随新增内容跳到末尾。向下阅读较长的展开账本、标题滚出视口上方后，输入框上方的 widget 组顶部会出现固定的 **`↑ Run (…) · Collapse`** 收起条，靠右显示。点击只收起当前账本，并回到它的聚合标题；不会抢输入焦点或覆盖正文。这些视口功能需要兼容的 Pi 0.85+ fullscreen 渲染器，普通终端滚动模式不提供账本鼠标交互。
+展开时会保留聚合标题在视口中的位置，不再追随新增内容跳到末尾。向下阅读较长的展开账本、标题滚出视口上方后，输入框上方的 widget 组顶部会出现固定的 **`↑ Run (…) · Collapse`** 收起条，靠右显示。点击只收起当前账本，并回到它的聚合标题；不会抢输入焦点或覆盖正文。这些视口功能需要兼容的 Pi 1.1+ fullscreen 渲染器，普通终端滚动模式不提供账本鼠标交互。
 
 点击展开后的工具行，打开只读 **Result / Args** 查看器。Result 会排版 JSON、从 `.md` / `.markdown` / `.mdx` 路径读取的 Markdown 文件，以及明确的自定义工具 Markdown；其他源码和日志保持原文。Args 使用键值行和多行文本块，Bash command 会做 Shell 语法高亮。额外的 **Metadata** 收在 `⋯` / `M` 后，不参与主标签的 Tab 循环。`Raw` / `R` 查看文本或 JSON 原文。弹窗不再对凭据脱敏，但仍过滤终端控制字符并保留明确的体积限制，分享前请核查内容。长文本自动换行，调整窗口尺寸后也会重排。用 `Tab` 切换 Result/Args，方向键／Page Up／Page Down 或滚轮滚动，`Esc` 返回。工具本身已截断的输出无法恢复。
 
@@ -138,7 +141,9 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 
 aggregate 下，没有 call-presentation adapter 的 generic custom tool 最多显示两个有辨识度的值，不展示键名，例如 `web_search(prod metrics)`、`todo(审查迁移方案)`。prompt、载荷、控制开关和疑似凭据不进入行内预览；完整键值请打开 Args 查看。工具自己提供的 `getCallPresentation` 始终优先，individual 模式保留原有参数预览。
 
-若要同一意图字段，在 `pi.registerTool` **之前**包装：
+自定义 renderer 保留原有的专用调用／结果内容。逐工具输出设置控制通用 fallback 内容；若要完全保留某个工具的原展示，使用 `tools.passthrough`。
+
+只有希望该工具主动加入同一意图字段时，才在 `pi.registerTool` **之前**包装。`overrideExistingRenderers: true` 表示明确允许替换它的 renderer：
 
 ```ts
 import {

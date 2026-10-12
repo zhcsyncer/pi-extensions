@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createRendererTestHarness as createExtensionApiStub } from "./helpers/display-session.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 
@@ -45,41 +45,6 @@ function buildConfig(overrides: Partial<ToolDisplayConfig>): ToolDisplayConfig {
 			...overrides.registerToolOverrides,
 		},
 	};
-}
-
-function withDefaultReadEditOwners(tools: unknown[] = []): unknown[] {
-	const names = new Set(
-		tools
-			.map((tool) => (tool as { name?: unknown }).name)
-			.filter((name): name is string => typeof name === "string"),
-	);
-	const defaults = ["read", "edit"]
-		.filter((name) => !names.has(name))
-		.map((name) => ({ name, sourceInfo: { source: "builtin", path: `<builtin:${name}>` } }));
-	return [...defaults, ...tools];
-}
-
-function createExtensionApiStub(allTools: Array<RegisteredToolLike & Record<string, unknown>> = []): {
-	api: ExtensionAPI;
-	registeredTools: RegisteredToolLike[];
-	runtimeTools: Array<RegisteredToolLike & Record<string, unknown>>;
-	eventHandlers: ToolEventHandlers;
-} {
-	const registeredTools: RegisteredToolLike[] = [];
-	const eventHandlers: ToolEventHandlers = {};
-	const api = {
-		registerTool(tool: RegisteredToolLike): void {
-			registeredTools.push(tool);
-		},
-		on(event: keyof ToolEventHandlers, handler: () => Promise<void> | void): void {
-			eventHandlers[event] = handler;
-		},
-		getAllTools(): unknown[] {
-			return withDefaultReadEditOwners(allTools);
-		},
-	} as unknown as ExtensionAPI;
-
-	return { api, registeredTools, runtimeTools: allTools, eventHandlers };
 }
 
 async function runLifecycle(eventHandlers: ToolEventHandlers): Promise<void> {
@@ -158,7 +123,7 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 		searchOutputMode: "count",
 		mcpOutputMode: "summary",
 	});
-	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([
+	const { api, registeredTools, runtimeTools, eventHandlers } = await createExtensionApiStub([
 		{
 			name: "mcp",
 			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
@@ -240,7 +205,7 @@ test("MCP errors stay visible in every output mode and expand from content", asy
 				// No-op test stub.
 			},
 		};
-		const { api, runtimeTools, eventHandlers } = createExtensionApiStub([mcpTool]);
+		const { api, runtimeTools, eventHandlers } = await createExtensionApiStub([mcpTool]);
 		registerToolDisplayOverrides(api, () => config);
 		await runLifecycle(eventHandlers);
 
@@ -268,8 +233,8 @@ test("MCP errors stay visible in every output mode and expand from content", asy
 	}
 });
 
-test("registerToolDisplayOverrides preserves MCP prompt metadata for proxy and direct wrappers", async () => {
-	const { api, runtimeTools, eventHandlers } = createExtensionApiStub([
+test("display selection does not synthesize MCP prompt metadata", async () => {
+	const { api, runtimeTools, eventHandlers } = await createExtensionApiStub([
 		{
 			name: "mcp",
 			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
@@ -294,17 +259,9 @@ test("registerToolDisplayOverrides preserves MCP prompt metadata for proxy and d
 	await runLifecycle(eventHandlers);
 
 	const byName = new Map(runtimeTools.map((tool) => [tool.name, tool]));
-	assert.equal(
-		byName.get("mcp")?.promptSnippet,
-		"Discover, inspect, and call MCP tools across configured servers",
-	);
-	assert.deepEqual(byName.get("mcp")?.promptGuidelines, [
-		"Use mcp for MCP discovery first: search by capability, describe one exact tool, then call it.",
-	]);
-	assert.equal(
-		byName.get("exa_web_search_exa")?.promptSnippet,
-		"Search the web for current information",
-	);
+	assert.equal(byName.get("mcp")?.promptSnippet, undefined);
+	assert.equal(byName.get("mcp")?.promptGuidelines, undefined);
+	assert.equal(byName.get("exa_web_search_exa")?.promptSnippet, undefined);
 	assert.equal(byName.get("exa_web_search_exa")?.promptGuidelines, undefined);
 });
 
@@ -321,7 +278,7 @@ test("read-only ownership keeps summary line counts confined to read", async () 
 		},
 		readOutputMode: "summary",
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
@@ -343,7 +300,7 @@ test("showTruncationHints=false suppresses backend truncation summaries across r
 		mcpOutputMode: "summary",
 		showTruncationHints: false,
 	});
-	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([
+	const { api, registeredTools, runtimeTools, eventHandlers } = await createExtensionApiStub([
 		{
 			name: "mcp",
 			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
@@ -389,7 +346,7 @@ test("showRtkCompactionHints stays independent from showTruncationHints for summ
 		showTruncationHints: false,
 		showRtkCompactionHints: true,
 	});
-	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([
+	const { api, registeredTools, runtimeTools, eventHandlers } = await createExtensionApiStub([
 		{
 			name: "mcp",
 			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
@@ -442,7 +399,7 @@ test("showRtkCompactionHints stays independent from showTruncationHints for prev
 		showTruncationHints: false,
 		showRtkCompactionHints: true,
 	});
-	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([
+	const { api, registeredTools, runtimeTools, eventHandlers } = await createExtensionApiStub([
 		{
 			name: "mcp",
 			description: "Unified MCP gateway for status, discovery, reconnects, and proxy tool calls.",
@@ -495,7 +452,7 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 		bashOutputMode: "summary",
 		previewRows: 1,
 	});
-	const summaryStub = createExtensionApiStub();
+	const summaryStub = await createExtensionApiStub();
 	registerToolDisplayOverrides(summaryStub.api, () => summaryConfig);
 	await summaryStub.eventHandlers.before_agent_start?.();
 	assert.equal(
@@ -514,7 +471,7 @@ test("bash summary and preview modes stay distinct while preview uses shared row
 		bashOutputMode: "preview",
 		previewRows: 2,
 	});
-	const previewStub = createExtensionApiStub();
+	const previewStub = await createExtensionApiStub();
 	registerToolDisplayOverrides(previewStub.api, () => previewConfig);
 	await previewStub.eventHandlers.before_agent_start?.();
 	assert.equal(
@@ -529,7 +486,7 @@ test("Claude Bash results keep a connected frame when collapsed and expanded", a
 		bashOutputMode: "preview",
 		previewRows: 2,
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -548,7 +505,7 @@ test("bash call spinner appears only while execution is active", async () => {
 	const config = buildConfig({
 		bashOutputMode: "summary",
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -598,7 +555,7 @@ test("bash render keeps the running result area empty until output exists", asyn
 	const config = buildConfig({
 		bashOutputMode: "summary",
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -614,7 +571,7 @@ test("bash render shows live partial output once streaming begins", async () => 
 		bashOutputMode: "summary",
 		previewRows: 2,
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -633,7 +590,7 @@ test("bash live partial output uses the shared preview row budget", async () => 
 		bashOutputMode: "preview",
 		previewRows: 1,
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -652,7 +609,7 @@ test("bash errors render with an explicit failure header and preview", async () 
 		bashOutputMode: "summary",
 		previewRows: 2,
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
@@ -681,7 +638,7 @@ test("previewRows bounds long single-line read, search, and MCP results", async 
 			// No-op test stub.
 		},
 	};
-	const { api, registeredTools, runtimeTools, eventHandlers } = createExtensionApiStub([mcpTool]);
+	const { api, registeredTools, runtimeTools, eventHandlers } = await createExtensionApiStub([mcpTool]);
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
@@ -706,7 +663,7 @@ test("bash completed, live, and error previews share the long-line row budget", 
 		bashOutputMode: "preview",
 		previewRows: 2,
 	});
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
+	const { api, registeredTools, eventHandlers } = await createExtensionApiStub();
 	registerToolDisplayOverrides(api, () => config);
 	await eventHandlers.before_agent_start?.();
 
