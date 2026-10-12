@@ -17,7 +17,7 @@
 
 主要入口是 `packages/pi-tool-display-intent/src/tool-overrides.ts` 的 registerRuntimeTool/createBuiltinToolBase/registerToolDisplayOverrides，以及 `src/index.ts` 接线、`display-summary.js` 已有 helper、相关 renderer/shell 组件和测试。现有 helper 已能补位并传 context；已确认外围 createBuiltinToolBase 只传四参且手工挑字段，修复应针对真实丢失边界，不为 displaySummary 再造机制。
 
-使用目标 1.1 公开注册 API，将显示 ownership 与执行语义装饰分开；保留没有公共替代的 aggregate/消息补丁，不在 D1 顺手完成 D2–D4。保持合作工具专用内容与历史兼容，不建立通用跨扩展注册代理。必要代码整理围绕本次变更边界，不以大文件行数为理由扩展重构。
+使用目标 1.1 公开注册 API，将显示 ownership 与执行语义装饰分开；保留没有公共替代的 aggregate/消息补丁，不在 D1 顺手完成 D2–D4。保持合作工具专用内容与历史兼容，不建立通用跨扩展注册代理。HTML exporter 会分别 resolve call/result，共享 state 不能依赖同一个组合器实例或 lastComponent 恰好存在；必须按宿主调用状态与注册 owner 保持隔离。事件回调晚于工厂初始化创建的 aggregate 定时器也须绑定所属 session/projection，不能只清理 render 回调作用域，更不能全局清理别人的新 owner。必要代码整理围绕本次变更边界，不以大文件行数为理由扩展重构。
 
 只写 Tool Display 包的实现、测试、双语说明与独立 changeset；SDK/manifest/lock 归 E0。不得改其他包、真实 Pi 设置、用户 defaultTools/mode，也不直接合入 #149/#150。
 
@@ -34,6 +34,8 @@ T1 为意图预处理、ownership、状态隔离；T2 为真实 1.1 loader/regis
 | 自定义专用 renderer 与统一外壳组合 | 专用内容保留；原/包装 state 与 lastComponent 各自正确，padding 不重复 |
 | 不同加载顺序、MCP 晚注册、只含历史的旧工具 | 正确 resolve/委托，不重复注册执行工具，不改变工具可用权限 |
 | reload、旧 session 清理与新 owner 并存 | 只撤销自己仍持有的装饰，不拆掉后来注册的其他 renderer |
+| session.exportToHtml 分别解析 call/result | 原 renderer 在 call 写入的 state 在 result 仍可见；不能只验证缓存的同一组合器 |
+| aggregate 事件创建活动定时器，随后 shutdown/reload | 已创建的旧 timer 停止；旧 owner 清理不关闭新 session 的活跃 timer |
 | codemode 未加载/未启用，打开旧脚本历史 | 普通工具仍可用，无自动启用或重执行 |
 
 优先使用 E0 建立的目标 SDK 与隔离 agentDir，MCP 用离线 transport；不能用可变 ToolInfo stub 证明真实注册正确。E0 已交接目标 1.1 的公开 `DefaultResourceLoader`、`ExtensionRunner` 与 `ExtensionAPI.registerToolRenderer`；注册接线见任务 `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js:289–292`，resolver 类型见 `extensions/types.d.ts:513`，解析见 `extensions/runner.js:542–546`，按扩展加载顺序委托 next 最终落到 base。HTML 测试入口为 getToolRenderers，旧 callback 的夹具适配已由 E0 完成，不再作为本任务生产 bug。独立测试编写前，D1 在写实现前确定原 renderer、晚注册离线 MCP、历史独有工具的最小 fixture，以及重绘/reload 的触发和结果观察方式，由调度者固定给测试作者，不让其靠新实现猜测试接线。

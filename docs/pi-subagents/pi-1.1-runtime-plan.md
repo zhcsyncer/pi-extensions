@@ -1,6 +1,6 @@
 # Pi 1.1.0：子会话、工作流与权限实施规格
 
-状态：待 review，未实施。归属：[总计划](../pi-1.1-implementation-plan.md) W1/W2；用户已冻结 B10–B12，本轮不实现或专项复核这三项，以下对应段落仅留作参考。
+状态：分阶段实施中，验收状态见[统一执行表](../pi-extensions/pi-1.1-execution-plan.md#0-统一进度表调度-session-唯一写入)。归属：[总计划](../pi-1.1-implementation-plan.md) W1/W2；用户已冻结 B10–B12，本轮不实现或专项复核这三项，以下对应段落仅留作参考。
 
 ## Goal
 

@@ -37,6 +37,16 @@ T0 为精确预算和采样优先级，T2 为真实 loader/provider 接线。以
 
 独立测试作者后续按本合同编写 `packages/pi-fast-mode/tests/pi11-options.contract.test.ts`（已核对包 test 脚本为 `tsx --test tests/*.test.ts`，该路径可直接收集，使用 node:test，不改配置）。实现者不写该文件，可维护既有测试；代码交付后须与独立测试组合通过才能验收。保持测试预算集中在分支/数值合同，不复制全套框架测试。
 
+## 独立测试公开接口交接
+
+- 观察入口保持 `buildStreamOptions(model, context, options, serviceTier)`；预算案例仍应直接得到 maxTokens=6761。最终采样优先级在官方 `streamOpenAIResponses` 的离线 wire payload 观察，不能要求 builder 提前合并模型/档位默认值。
+- 最小模型采用 provider=openai、api=openai-responses、id=offline-fixture、baseUrl=https://responses.invalid/v1、reasoning=true、input=[text]、全零 cost、contextWindow=20000/maxTokens=16000。模型默认为 `samplingParams:{temperature:1}`；档位为 `samplingParamsByThinkingLevel:{high:{temperature:0.3,top_k:20},off:{temperature:0.7}}`。thinkingLevelMap 是能力/映射，不放采样默认。
+- 显式请求覆盖使用 `options:{reasoning:"high",samplingParams:{temperature:0.2}}`；wire 高档无覆盖应0.3/20，有覆盖应0.2/20。顶层 temperature 与任意 samplingParams 的冲突优先级按官方规则，不自行假定两种载体等价。
+- 目标 `SimpleStreamOptions.reasoning` 不含 off，typed fixture 省略 reasoning 表示关闭；builder.reasoningEffort 应undefined。上述模型的 off 档 wire temperature=0.7，top_k 省略；无 off 默认时再按模型/官方规则处理。
+- `streamOpenAIResponses`、`normalizeContext` 来自 loader-safe compat；注入离线 fetch 捕获 JSON body，返回合成 Responses SSE，消费流至终态。至少一例核验真实扩展注册后的 provider 路径与 callback，不用仅对函数属性相等的断言代替功能链路。
+- Codex 官方适配器忽略任意 samplingParams，不把 Responses 的任意字段断言强加给 Codex。
+- N1 交接的真实1.1 loader 证据：`@earendil-works/pi-ai/api/simple-options` 与 `@earendil-works/pi-ai/utils/estimate` 分别解析到错误的 compat.js/api/simple-options、compat.js/utils/estimate，extensions=0/errors=1；compat 未导出这两个 helper，而 getSystemMessageText 可加载。因此可以保留最薄本地配方，不能改产品为绝对路径导入。独立验证无需重复下载 SDK。
+
 ## 派发与交付
 
 读取全局 `/root/.agent-vm-state/pi/agent/AGENTS.md`、`/root/.agent-vm-state/pi/agent/rules/coding.md`、`/root/develop/AGENTS.md`，Herdr/worktree 和任务树 AGENTS；完整阅读本合同、总范围及目标 Pi/AI 官方 docs/相关链接。先回报 cwd/origin/base/允许写范围，再说明选用 helper 的真实 loader 证据及独立测试所需模型/档位 fixture 形状。
