@@ -63,7 +63,7 @@ function harness(options: { usage?: LifetimeUsage; reportUsage?: boolean } = {})
   vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
     options.onResumeSnapshot?.(snapshot);
     options.onSessionCreated?.(session);
-    options.onAssistantUsage?.(usage);
+    options.onSessionUsage?.(usage);
     return { responseText: "FIRST", session, aborted: false, steered: false };
   });
   let sequence = 0;
@@ -113,7 +113,7 @@ describe("usage rollup tool wiring", () => {
     const first = await h.launch();
     const id = first.details.agentId;
     vi.mocked(resumeAgent).mockImplementation(async (_session, _prompt, options) => {
-      options?.onAssistantUsage?.(spend);
+      options?.onSessionUsage?.({ input: 20, output: 10, cacheRead: 40, cacheWrite: 6, cost: 1.5 });
       return { text: "SECOND" };
     });
     const second = await h.launch({ resume: id });

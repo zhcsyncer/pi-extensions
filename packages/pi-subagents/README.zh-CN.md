@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-需要 Pi 0.86 或更高。加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
+需要 Pi 1.1 或更高。加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
 
 ## 核心功能与上游差异
 
@@ -43,11 +43,12 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ## 会话用量与 Glance
 
-本 fork 的 `reportUsage` 默认**开启**（不同于上游 0.18）。Pi **0.81.0 及以上**会将已收集的子代理花费计入原生会话统计和 Glance：
+本 fork 的 `reportUsage` 默认**开启**（不同于上游 0.18）。Pi 会将已收集的子代理花费计入原生会话统计和 Glance：
 
 - 前台：盖在返回最终结果的 `Agent` 工具结果上。
 - 后台：启动回执不盖 usage；完成后的 `get_subagent_result` 结算一次。只收到通知、没有收集结果时，父会话统计暂不增加。
-- 重复查询和续跑只补尚未上报的 lifetime 增量，包含 cacheRead 和 provider 已报告的费用。
+- 重复查询和续跑只补尚未上报的 lifetime 增量，包含 cacheRead 和 provider 已报告的费用。已记录的 assistant 回复、外层工具结果、独立 usage 和摘要生成都计入，nested 调用不重复叠加。
+- 父会话结算跟随所选对话分支；切换分支不会把互斥分支的报告相加。缺少费用信息不代表已确认免费。
 
 保留 **pi-meter pin**，让子会话实时逐消息记账。Meter 忽略父会话汇总，不重复收费；子消息与历史导入仍按原 session/model 归属。可在 `/agents → Settings` 关闭 **Report usage**（或配置 `reportUsage: false`），只关闭父会话汇总，不影响 pin。
 
@@ -57,10 +58,12 @@ pi install npm:@zhcsyncer/pi-extensions
 
 | Agent 状态 | 行为 |
 | --- | --- |
-| 运行中 | 向当前运行追加 steering |
+| 运行中 | 明确返回 SDK 已排队，或扩展已处理且未排队；投递失败仍报错 |
 | 排队或初始化中 | 保存消息，等子 agent 就绪后投递 |
 | 已完成或 `steered`（软轮次上限） | 沿同一 ID 和上下文启动后台续跑，受并发上限约束 |
 | Error、aborted 或 stopped | 拒绝 steering；重试必须显式 resume |
+
+取消状态可能先于子 agent 实际停止出现。结果等待、关闭和会冲突的后继排队工作都等待真实结算，不能只凭生命周期通知提前放行。
 
 显式续跑时，调用 `Agent` 并传入 `resume: "<agent-id>"`、`prompt: "<后续要求>"`。Resume 默认 **foreground**，即使上次运行在后台。加上 `run_in_background: true` 后立即返回排队/运行状态，并使用与新后台任务相同的自动完成通知、等待和停止生命周期。后台续跑遵守并发上限；前台续跑与首次前台运行一样绕过后台队列。
 
@@ -72,7 +75,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 恢复已保存的终态任务，需要当前父会话分支上符合条件的新格式历史，以及完整的子会话。旧历史仍可查看，但缺少恢复信息时不能通过这些工具续跑。已保存的失败/停止任务仍须显式 `Agent(resume=...)`。
 
-恢复文件缺失或损坏、原工作目录不可用（包括已清理的 worktree）、原模型不可用，都会明确报错，绝不悄悄新建 session 或替换模型。恢复会使用当前安装的扩展和当前凭证；它**不是进程/内存快照，也不是沙箱**。异常崩溃后不持久重放执行中的工作或排队的后续消息，也不保证跨崩溃恰好执行一次。
+合法压缩历史即使未保留任何压缩前消息，也可以恢复。恢复文件缺失或损坏、原工作目录不可用（包括已清理的 worktree）、原模型不可用，都会明确报错，绝不悄悄新建 session 或替换模型。恢复会使用当前安装的扩展和当前凭证；它**不是进程/内存快照，也不是沙箱**。异常崩溃后不持久重放执行中的工作或排队的后续消息，也不保证跨崩溃恰好执行一次。
 
 ## 查看进展与设置
 

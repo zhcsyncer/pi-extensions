@@ -45,10 +45,11 @@ class SessionQueue {
   deliveryFailure?: Error;
   dispose = vi.fn();
   sessionManager = { getSessionFile: () => "/sessions/child.jsonl" };
-  steer = vi.fn(async (message: string) => {
+  steer = vi.fn(async (message: string): Promise<"queued" | "handled"> => {
     if (this.deliveryGate) await this.deliveryGate.promise;
     if (this.deliveryFailure) throw this.deliveryFailure;
     this.steering.push(message);
+    return "queued" as const;
   });
   getSteeringMessages = () => [...this.steering];
   getFollowUpMessages = () => [...this.followUps];
@@ -321,16 +322,20 @@ describe("follow-up lifecycle — shared execution ownership", () => {
     const aborted = vi.fn();
     const waited = vi.fn();
     const stopping = m.abortAndWait(id).then(aborted);
+    const joined = vi.fn();
+    const joining = m.abortAndWait(id).then(joined);
     const all = m.waitForAll().then(waited);
     await flush();
     expect(m.getRecord(id)?.status).toBe("stopped");
     expect(calls[1].options.signal.aborted).toBe(true);
     expect(aborted).not.toHaveBeenCalled();
+    expect(joined).not.toHaveBeenCalled();
     expect(waited).not.toHaveBeenCalled();
     // Even a non-cooperative runner returning success must not undo stop.
     calls[1].finish();
-    await Promise.all([stopping, all]);
+    await Promise.all([stopping, joining, all]);
     expect(aborted).toHaveBeenCalledWith(true);
+    expect(joined).toHaveBeenCalledWith(true);
     expect(m.getRecord(id)?.status).toBe("stopped");
     expect(m.getRecord(id)?.result).toBe("answer: first | resume");
     expect(onComplete).toHaveBeenCalledTimes(2);
@@ -373,7 +378,7 @@ describe("follow-up lifecycle — shared execution ownership", () => {
     const options = calls[1].options;
     options.onToolActivity({ type: "start", toolName: "read", toolCallId: "t1" });
     options.onToolActivity({ type: "end", toolName: "read", toolCallId: "t1" });
-    options.onAssistantUsage({ input: 13, output: 7, cacheRead: 11, cacheWrite: 2 });
+    options.onSessionUsage({ input: 13, output: 7, cacheRead: 11, cacheWrite: 2 });
     options.onCompaction({ reason: "overflow", tokensBefore: 999 });
     const cleanup = vi.fn();
     m.getRecord(id)!.outputCleanup = cleanup;
@@ -392,6 +397,52 @@ describe("follow-up lifecycle — shared execution ownership", () => {
 });
 
 describe("follow-up lifecycle — delivery and completion races", () => {
+  it("does not turn an extension-handled steer into a continuation", async () => {
+    const m = manager();
+    const id = spawn(m);
+    calls[0].session.steer.mockImplementationOnce(async () => "handled");
+    await expect(m.sendMessage(id, "consumed by extension")).resolves.toBe("handled");
+    calls[0].finish();
+    await m.waitForAll();
+    expect(calls).toHaveLength(1);
+    expectAnswer(m.getRecord(id)!, ["first"]);
+  });
+
+  it("synchronous SDK throws follow the same rejection path as asynchronous delivery", async () => {
+    const m = manager();
+    const id = spawn(m);
+    calls[0].session.steer.mockImplementationOnce(() => { throw new Error("sync delivery failure"); });
+    await expect(m.sendMessage(id, "bad")).rejects.toThrow("sync delivery failure");
+    calls[0].finish();
+    await m.waitForAll();
+    expect(m.getRecord(id)).toMatchObject({ status: "error", error: expect.stringContaining("sync delivery failure") });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("internal cancellation remains unsettled until the run returns, and old callbacks cannot cancel a retry", async () => {
+    const m = manager();
+    const id = spawn(m);
+    const first = calls[0];
+    const queued = spawn(m, "queued");
+    first.options.onAborted();
+    expect(m.getRecord(id)?.status).toBe("aborted");
+    expect(m.isResultReady(id)).toBe(false);
+    m.clearCompleted();
+    expect(first.session.dispose).not.toHaveBeenCalled();
+    expect(m.getRecord(queued)?.status).toBe("queued");
+    await expect(m.resume(id, "too soon")).rejects.toThrow(/still active/);
+    first.finish({ aborted: true });
+    await flush();
+    calls[1].finish();
+    await m.waitForAll();
+    const retry = m.resume(id, "retry");
+    first.options.onAborted();
+    expect(m.getRecord(id)?.status).toBe("running");
+    calls[2].finish();
+    await retry;
+    expect(m.getRecord(id)?.status).toBe("completed");
+  });
+
   it("retains messages during first-session startup until the model actually consumes them", async () => {
     delayFirstStart = true;
     const m = manager();

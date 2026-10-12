@@ -25,7 +25,7 @@ import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
 import type { AgentConfig, AgentResumeSnapshot, InlineAgentConfig, SubagentType, ThinkingLevel } from "./types.js";
-import { toLifetimeUsage, type LifetimeUsage } from "./usage.js";
+import { readSessionUsage, toLifetimeUsage, type LifetimeUsage } from "./usage.js";
 
 /**
  * Tool names registered by THIS extension. Single source of truth so the
@@ -442,12 +442,15 @@ export interface RunOptions {
   onSessionCreated?: (session: AgentSession) => void;
   /** Called at the end of each agentic turn with the cumulative count. */
   onTurnEnd?: (turnCount: number) => void;
+  /** Cancellation intent only; the invocation still owns prompt/abort/idle settlement. */
+  onAborted?: () => void;
   /**
-   * Called once per assistant message_end with that message's usage delta.
-   * Lets callers maintain a lifetime accumulator that survives compaction
-   * (which replaces session.state.messages and resets stats-derived sums).
+   * Compatibility observer for assistant message_end. This precedes persistence
+   * and excludes tool/summary usage; use onSessionUsage for authoritative totals.
    */
   onAssistantUsage?: (usage: LifetimeUsage) => void;
+  /** Authoritative cumulative journal usage; snapshots must not be added as deltas. */
+  onSessionUsage?: (usage: LifetimeUsage) => void;
   /**
    * Called when the session successfully compacts. `tokensBefore` is upstream's
    * pre-compaction context size estimate. Aborted compactions don't fire.
@@ -458,7 +461,7 @@ export interface RunOptions {
 export interface RunResult {
   responseText: string;
   session: AgentSession;
-  /** True if the agent was hard-aborted (max_turns + grace exceeded). */
+  /** True for internal/external cancellation, including the hard turn limit. */
   aborted: boolean;
   /** True if the agent was steered to wrap up (hit soft turn limit) but finished in time. */
   steered: boolean;
@@ -550,13 +553,8 @@ function finalTurnError(session: Pick<AgentSession, "messages">, startIndex = 0)
  * Wire an AbortSignal to abort a session.
  * Returns a cleanup function to remove the listener.
  */
-function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
+function forwardAbortSignal(onAbort: () => void, signal?: AbortSignal): () => void {
   if (!signal) return () => {};
-  const onAbort = () => {
-    void session.abort().catch(() => {
-      // The manager still owns terminal/error reporting; abort cleanup is best-effort.
-    });
-  };
   if (signal.aborted) onAbort();
   else signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
@@ -1152,27 +1150,32 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
   }
   const [header] = entries;
   if (!header || header.type !== "session" || ![1, 2, 3].includes(header.version ?? 1) ||
-      typeof header.id !== "string" || !header.id || typeof header.timestamp !== "string" ||
+      typeof header.id !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(header.id) || typeof header.timestamp !== "string" ||
       typeof header.cwd !== "string" || !isAbsolute(header.cwd) || resolve(header.cwd) !== resolve(cwd)) {
     throw new Error("Invalid subagent session header or cwd mismatch");
   }
   const ids = new Set<string>();
   const knownTypes = new Set(["message", "model_change", "thinking_level_change", "compaction", "branch_summary",
     "custom", "custom_message", "label", "session_info", "usage", "context_edit"]);
-  for (const entry of entries.slice(1)) {
+  for (let index = 1; index < entries.length; index++) {
+    const entry = entries[index];
     if (!entry || !knownTypes.has(entry.type) || typeof entry.timestamp !== "string" ||
         ((header.version ?? 1) >= 2 && (typeof entry.id !== "string" || !entry.id || ids.has(entry.id) ||
           (entry.parentId !== null && !ids.has(entry.parentId)))) ||
         (entry.type === "message" && !isStoredMessage(entry.message)) ||
         (["custom", "custom_message"].includes(entry.type) && typeof entry.customType !== "string") ||
         (entry.type === "custom_message" && !isStoredMessage({ role: "custom", content: entry.content })) ||
-        (entry.type === "branch_summary" && (typeof entry.summary !== "string" || typeof entry.fromId !== "string")) ||
+        (entry.type === "branch_summary" && (typeof entry.summary !== "string" ||
+          (entry.fromId !== null && !ids.has(entry.fromId)))) ||
+        (entry.type === "label" && !ids.has(entry.targetId)) ||
         (entry.type === "model_change" && (typeof entry.provider !== "string" || !entry.provider || typeof entry.modelId !== "string" || !entry.modelId)) ||
         (entry.type === "thinking_level_change" && !isThinkingLevel(entry.thinkingLevel)) ||
         (entry.type === "compaction" && (typeof entry.summary !== "string" || !Number.isFinite(entry.tokensBefore) ||
-          (entry.retainedTail !== undefined
-            ? !Array.isArray(entry.retainedTail) || !entry.retainedTail.every(isStoredMessage)
-            : !ids.has(entry.firstKeptEntryId)))) ||
+          ((header.version ?? 1) < 2
+            // Pi migrates the old file-entry index to a persisted entry ID.
+            ? !Number.isSafeInteger(entry.firstKeptEntryIndex) || entry.firstKeptEntryIndex < 1 || entry.firstKeptEntryIndex > index
+            : typeof entry.firstKeptEntryId !== "string" || !entry.firstKeptEntryId ||
+              (entry.firstKeptEntryId !== entry.id && !ids.has(entry.firstKeptEntryId))))) ||
         (entry.type === "context_edit" && !isStoredContextEdit(entry, ids))) {
       throw new Error("Corrupt subagent session entry");
     }
@@ -1182,8 +1185,8 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
 }
 
 export type ResumeOptions = Pick<RunOptions,
-  "onToolActivity" | "onAssistantUsage" | "onCompaction" | "signal" |
-  "maxTurns" | "graceTurns" | "onTextDelta" | "onTurnEnd"
+  "onToolActivity" | "onAssistantUsage" | "onSessionUsage" | "onCompaction" | "signal" |
+  "maxTurns" | "graceTurns" | "onTextDelta" | "onTurnEnd" | "onAborted"
 >;
 
 const sessionExecutionLimits = new WeakMap<AgentSession, Pick<ResumeOptions, "maxTurns" | "graceTurns">>();
@@ -1195,18 +1198,21 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
   const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
   let softLimitReached = false;
   let aborted = false;
+  const aborts: Promise<void>[] = [];
+  const abortSession = () => {
+    const promise = Promise.resolve(session.abort());
+    aborts.push(promise);
+    // Observed again at the settlement barrier; never leak an unhandled rejection.
+    void promise.catch(() => {});
+  };
 
-  // A turn_end notification is not a promise of another turn: queueing a steer
-  // here can leave an internal message stranded after a terminal response (or
-  // a terminating tool). Instead decorate the SDK's next-turn context only for
-  // this invocation. This neither forces another turn nor touches user queues.
-  const previousPrepare = session.agent.prepareNextTurnWithContext;
-  const previousLegacyPrepare = session.agent.prepareNextTurn;
-  const prepareNextTurn: NonNullable<typeof previousPrepare> = async (turn, signal) => {
-    const prior = previousPrepare
-      ? await previousPrepare(turn, signal)
-      : await previousLegacyPrepare?.(signal);
-    if (!softLimitReached) return prior;
+  // Pi 1.1 rebuilds canonical context in prepareRequest, AFTER next-turn
+  // preparation. Decorate that final projection so guidance survives, without
+  // persisting it, forcing another turn, or consuming the user's input queues.
+  const previousPrepare = session.agent.prepareRequest;
+  const prepareRequest: NonNullable<typeof previousPrepare> = async (turn, signal) => {
+    const prior = await previousPrepare?.(turn, signal);
+    if (!softLimitReached) return prior ?? undefined;
     const context = prior?.context ?? turn.context;
     const wrapUp =
       "You have reached your turn limit. Wrap up immediately — provide your final answer now.";
@@ -1221,10 +1227,21 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
       },
     };
   };
-  if (maxTurns != null) session.agent.prepareNextTurnWithContext = prepareNextTurn;
+  if (maxTurns != null) session.agent.prepareRequest = prepareRequest;
 
+  // message_end is emitted BEFORE SDK persistence. Reconcile at finalized
+  // boundaries and after prompt/idle instead of billing an unpersisted event.
+  const reportUsage = () => {
+    if (options.onSessionUsage) options.onSessionUsage(readSessionUsage(session.sessionManager));
+  };
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
+    if (event.type === "turn_end" || event.type === "entry_appended" ||
+        event.type === "compaction_end" || event.type === "agent_settled") reportUsage();
+    if (event.type === "agent_settled" && event.aborted) {
+      aborted = true;
+      options.onAborted?.();
+    }
     if (event.type === "turn_end") {
       turnCount++;
       options.onTurnEnd?.(turnCount);
@@ -1233,7 +1250,7 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
           softLimitReached = true;
         } else if (softLimitReached && turnCount >= maxTurns + effectiveGraceTurns) {
           aborted = true;
-          void session.abort().catch(() => {});
+          abortSession();
         }
       }
     }
@@ -1260,6 +1277,10 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
       });
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
+      if (event.message.stopReason === "aborted") {
+        aborted = true;
+        options.onAborted?.();
+      }
       const usage = event.message.usage;
       if (usage) options.onAssistantUsage?.(toLifetimeUsage(usage));
     }
@@ -1269,12 +1290,13 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
   });
 
   const collector = collectResponseText(session);
-  const cleanupAbort = forwardAbortSignal(session, options.signal);
+  const cleanupAbort = forwardAbortSignal(abortSession, options.signal);
 
   // Events remain authoritative across compaction, which replaces the history
   // array. The identity fallback supports sessions that don't stream events.
   const priorMessages = new Set(session.messages);
   try {
+    reportUsage();
     // Abort can arrive while the loader/session/extensions are still initializing,
     // before forwardAbortSignal is installed. Never start a model request after
     // that cancellation has already happened.
@@ -1284,11 +1306,21 @@ async function executeAgentSession(session: AgentSession, prompt: string, option
       await session.prompt(prompt);
     }
   } finally {
-    unsubTurns();
-    collector.unsubscribe();
-    cleanupAbort();
-    if (session.agent.prepareNextTurnWithContext === prepareNextTurn) {
-      session.agent.prepareNextTurnWithContext = previousPrepare;
+    try {
+      // agent_settled is notification-only. A prompt rejection, an abort, or
+      // extension work may still be settling; keep listeners/resources until idle.
+      await session.waitForIdle?.();
+      const settledAborts = await Promise.allSettled(aborts);
+      reportUsage();
+      const failed = settledAborts.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    } finally {
+      unsubTurns();
+      collector.unsubscribe();
+      cleanupAbort();
+      if (session.agent.prepareRequest === prepareRequest) {
+        session.agent.prepareRequest = previousPrepare;
+      }
     }
   }
 
@@ -1319,11 +1351,11 @@ export async function resumeAgent(
  * Send a steering message to a running subagent.
  * The message will interrupt the agent after its current tool execution.
  */
-export async function steerAgent(
+export function steerAgent(
   session: AgentSession,
   message: string,
-): Promise<void> {
-  await session.steer(message);
+): ReturnType<AgentSession["steer"]> {
+  return session.steer(message);
 }
 
 /**

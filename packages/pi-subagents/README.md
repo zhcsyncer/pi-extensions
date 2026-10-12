@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-Requires Pi 0.86 or later. Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
+Requires Pi 1.1 or later. Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
 
 ## Core features and upstream differences
 
@@ -43,11 +43,12 @@ Manual Agent-tool background completion (including custom roles that default to 
 
 ## Session usage and Glance
 
-`reportUsage` defaults to **on** in this fork (unlike upstream 0.18). Pi **0.81.0 or newer** counts collected child usage in native session totals and Glance:
+`reportUsage` defaults to **on** in this fork (unlike upstream 0.18). Pi counts collected child usage in native session totals and Glance:
 
 - Foreground: usage is attached to the completed `Agent` tool result.
 - Background: the launch acknowledgement carries no usage; the completed `get_subagent_result` reports it once. A notification alone does not yet update parent totals.
-- Repeated retrievals and resumes report only previously unreported lifetime usage, including cache reads and provider-reported cost.
+- Repeated retrievals and resumes report only previously unreported lifetime usage, including cache reads and provider-reported cost. This includes recorded assistant replies, outer tool results, standalone usage, and summary generation without double-counting nested calls.
+- Parent reporting follows the selected conversation branch; switching branches does not combine mutually exclusive reports. Missing cost information is not confirmation of free work.
 
 Keep **pi-meter pinned** for live child-session accounting. Meter ignores the parent rollup rather than charging it again; child messages and history imports retain their original session/model attribution. Disable **Report usage** in `/agents → Settings` (or `reportUsage: false`) to opt out of parent totals without disabling the pin.
 
@@ -57,10 +58,12 @@ Use `steer_subagent` with the same agent ID and a message:
 
 | Agent state | What happens |
 | --- | --- |
-| Running | Appends steering to the current run |
+| Running | Reports whether the SDK queued the input or an extension handled it without queueing; delivery failures remain errors |
 | Queued or initializing | Saves the message for delivery when the child is ready |
 | Completed or `steered` (soft turn limit) | Starts a background continuation with the same ID and context, subject to concurrency limits |
 | Error, aborted, or stopped | Rejects steering; an explicit resume is required to retry |
+
+A cancellation status can appear before the child has finished stopping. Result waits, shutdown, and conflicting queued work wait for actual settlement, not just a lifecycle notification.
 
 For explicit continuation, use `Agent` with `resume: "<agent-id>"` and `prompt: "<follow-up>"`. Resume defaults to **foreground**, even if the earlier run was background. Add `run_in_background: true` to return immediately with queued/running status and use the same automatic completion, wait, and stop lifecycle as a new background run. Background resumes respect the concurrency limit; foreground resumes bypass the background queue, like new foreground runs.
 
@@ -72,7 +75,7 @@ Ordinary runs persist by default. Set `persist_session: false` in an agent file 
 
 Recovery of saved terminal work requires eligible new-format history on the current parent-session branch and an intact child session. Older history remains viewable but cannot be resumed through these tools without recovery information. Failed/stopped saved runs still require explicit `Agent(resume=...)`.
 
-Missing or corrupt recovery files, an unavailable original working directory (including a cleaned-up worktree), or an unavailable original model cause an explicit error—never a fresh session or substitute model. Recovery uses currently installed extensions and current credentials; it is **not a process/memory snapshot or a sandbox**. In-flight work and queued follow-ups are not durably replayed after an unclean crash; no crash-exactly-once guarantee is provided.
+Valid compacted history can be resumed even when compaction retained none of the earlier messages. Missing or corrupt recovery files, an unavailable original working directory (including a cleaned-up worktree), or an unavailable original model cause an explicit error—never a fresh session or substitute model. Recovery uses currently installed extensions and current credentials; it is **not a process/memory snapshot or a sandbox**. In-flight work and queued follow-ups are not durably replayed after an unclean crash; no crash-exactly-once guarantee is provided.
 
 ## Inspect progress and settings
 

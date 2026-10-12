@@ -248,6 +248,27 @@ describe("agent-runner construction and execution boundaries", () => {
     expect(session.bindExtensions).not.toHaveBeenCalled();
   });
 
+  it("observes internal cancellation before prompt settlement without returning early", async () => {
+    const { session, listeners } = createSession("NEVER");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const aborted = vi.fn();
+    session.prompt.mockImplementation(async () => {
+      listeners.forEach((listener) => listener({ type: "agent_settled", aborted: true }));
+      await gate;
+    });
+    const completed = vi.fn();
+    const result = resumeAgent(session as any, "go", { onAborted: aborted }).then((value) => {
+      completed(value);
+      return value;
+    });
+    await Promise.resolve();
+    expect(aborted).toHaveBeenCalledOnce();
+    expect(completed).not.toHaveBeenCalled();
+    release();
+    await expect(result).resolves.toMatchObject({ aborted: true });
+  });
+
   it("does not prompt a pre-aborted live session or return its prior output", async () => {
     const { session } = createSession("NEVER");
     session.messages.push({ role: "assistant", content: [{ type: "text", text: "OLD" }] });

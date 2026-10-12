@@ -1,6 +1,6 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentRecord } from "./types.js";
-import { createLifetimeUsage, toLifetimeUsage, toReportedUsage, type LifetimeUsage } from "./usage.js";
+import { createLifetimeUsage, toLifetimeUsage, toReportedUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 
 /** Persist inside the actual parent toolResult.details alongside native usage. */
 export interface SubagentUsageRollup {
@@ -13,6 +13,7 @@ type ParentSession = {
   getBranch(): readonly unknown[];
   getSessionId?(): string;
   getLeafId?(): string | null;
+  getEntries?(): readonly unknown[];
 };
 
 const components = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -20,20 +21,6 @@ const components = ["input", "output", "cacheRead", "cacheWrite"] as const;
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : undefined;
-}
-
-/** Component-wise maxima fence stale archive snapshots and regressing counters. */
-function watermark(a: LifetimeUsage, b: LifetimeUsage): LifetimeUsage {
-  const result = createLifetimeUsage();
-  for (const key of components) result[key] = Math.max(a[key], b[key]);
-  if (a.cost !== undefined || b.cost !== undefined) result.cost = Math.max(a.cost ?? 0, b.cost ?? 0);
-  if (a.costBreakdown || b.costBreakdown) {
-    result.costBreakdown = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-    for (const key of components) {
-      result.costBreakdown[key] = Math.max(a.costBreakdown?.[key] ?? 0, b.costBreakdown?.[key] ?? 0);
-    }
-  }
-  return result;
 }
 
 /**
@@ -47,6 +34,7 @@ export class UsageReporter {
   private parent: ParentSession | undefined;
   private sessionId: string | undefined;
   private leafId: string | null | undefined;
+  private entryCount = 0;
 
   claim(record: AgentRecord, sessionManager: ParentSession): {
     usage: Usage;
@@ -64,6 +52,26 @@ export class UsageReporter {
     const switchedBranch = this.leafId != null && this.leafId !== leafId
       && !branch.some((entry) => object(entry)?.id === this.leafId);
     if (replaced || switchedBranch) this.claimed.clear();
+    const entries = sessionManager.getEntries?.();
+    if (entries && !replaced && !switchedBranch) {
+      // A claim may have been persisted and then branched away BEFORE the next
+      // query. Its original leaf is still an ancestor, so leaf-only detection
+      // cannot see that navigation. Retire reservations whose receipts landed
+      // off-branch; only active-branch receipts rebuild confirmed watermarks.
+      const branchIds = new Set(branch.map((entry) => object(entry)?.id));
+      for (const entry of entries.slice(this.entryCount)) {
+        const node = object(entry);
+        if (node?.type !== "message" || branchIds.has(node.id)) continue;
+        const message = object(node.message);
+        if (message?.role !== "toolResult" || !object(message.usage) ||
+            (message.toolName !== "Agent" && message.toolName !== "get_subagent_result")) continue;
+        const marker = object(object(message.details)?.subagentUsageRollup);
+        if (marker?.version === 1 && typeof marker.agentId === "string" && object(marker.cumulative)) {
+          this.claimed.delete(marker.agentId);
+        }
+      }
+    }
+    this.entryCount = entries?.length ?? 0;
     this.parent = sessionManager;
     this.sessionId = sessionId;
     this.leafId = leafId;
@@ -77,10 +85,10 @@ export class UsageReporter {
         || (message.toolName !== "Agent" && message.toolName !== "get_subagent_result")) continue;
       const marker = object(object(message.details)?.subagentUsageRollup);
       if (marker?.version !== 1 || marker.agentId !== record.id || !object(marker.cumulative)) continue;
-      previous = watermark(previous, toLifetimeUsage(marker.cumulative));
+      previous = usageWatermark(previous, toLifetimeUsage(marker.cumulative));
     }
 
-    const cumulative = watermark(previous, toLifetimeUsage(record.lifetimeUsage));
+    const cumulative = usageWatermark(previous, toLifetimeUsage(record.lifetimeUsage));
     const delta = createLifetimeUsage();
     for (const key of components) delta[key] = cumulative[key] - previous[key];
     if (cumulative.cost !== undefined) delta.cost = cumulative.cost - (previous.cost ?? 0);

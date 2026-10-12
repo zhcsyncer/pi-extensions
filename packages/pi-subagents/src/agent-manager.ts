@@ -24,7 +24,7 @@ import type {
 } from "./types.js";
 import { listArchivedAgents, recordFromArchive } from "./session-archive.js";
 import { shortModelLabel } from "./ui/agent-widget.js";
-import { addUsage, createLifetimeUsage, type LifetimeUsage } from "./usage.js";
+import { createLifetimeUsage, readSessionUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 import {
   cleanupWorktree,
   createWorktree,
@@ -124,8 +124,10 @@ export interface SpawnOptions {
   onSessionCreated?: (session: AgentSession) => void;
   /** Called at the end of each agentic turn with the cumulative count. */
   onTurnEnd?: (turnCount: number) => void;
-  /** Called once per assistant message_end with that message's usage delta. */
+  /** Compatibility observer for assistant events, not authoritative accounting. */
   onAssistantUsage?: (usage: LifetimeUsage) => void;
+  /** Cumulative recorded child usage, including tool and summary costs; never a delta. */
+  onSessionUsage?: (usage: LifetimeUsage) => void;
   /** Called when the session successfully compacts. */
   onCompaction?: (info: CompactionInfo) => void;
 }
@@ -143,7 +145,7 @@ export class AgentManager {
 
   /** Queue of background agents waiting to start. */
   private queue: { id: string; start: () => void }[] = [];
-  private steering = new Map<string, Set<Promise<void>>>();
+  private steering = new Map<string, Set<ReturnType<AgentSession["steer"]>>>();
   private steeringErrors = new Map<string, string>();
   /** Number of currently running background agents. */
   private runningBackground = 0;
@@ -342,6 +344,8 @@ export class AgentManager {
       this.worktreeRepos.add(baseCwd);
     }
 
+    const generation = record.runGeneration;
+    const current = () => record.runGeneration === generation && !this.isExecutionSettled(id);
     this.execute(record, options, () => runAgent(ctx, type, prompt, {
       pi,
       agentId: id,
@@ -367,9 +371,16 @@ export class AgentManager {
       onResumeSnapshot: (snapshot) => { record.resumeSnapshot = snapshot; },
       onTurnEnd: options.onTurnEnd,
       onTextDelta: options.onTextDelta,
+      onAborted: () => {
+        if (current() && record.status !== "stopped") record.status = "aborted";
+      },
+      onSessionUsage: (usage) => {
+        if (!current()) return;
+        record.lifetimeUsage = usageWatermark(record.lifetimeUsage, usage);
+        options.onSessionUsage?.(structuredClone(record.lifetimeUsage));
+      },
       onAssistantUsage: (usage) => {
-        addUsage(record.lifetimeUsage, usage);
-        options.onAssistantUsage?.(usage);
+        if (current()) options.onAssistantUsage?.(usage);
       },
       onCompaction: (info) => {
         record.compactionCount++;
@@ -455,7 +466,7 @@ export class AgentManager {
           const deliveryError = this.steeringErrors.get(id);
           this.steeringErrors.delete(id);
           if (deliveryError) throw new Error(`Follow-up delivery failed: ${deliveryError}`);
-          if (record.status === "stopped") break;
+          if (record.status === "stopped" || record.status === "aborted") break;
           if (outcome.aborted || outcome.failure) {
             record.status = outcome.aborted ? "aborted" : "error";
             record.error = outcome.failure;
@@ -478,7 +489,7 @@ export class AgentManager {
           outcome = { ...next, session };
         }
       } catch (err) {
-        if (record.status !== "stopped") record.status = "error";
+        if (record.status !== "stopped" && record.status !== "aborted") record.status = "error";
         record.error = err instanceof Error ? err.message : String(err);
       } finally {
         // Rejection may bypass the normal completion barrier. Stop can also
@@ -495,7 +506,7 @@ export class AgentManager {
         try { record.outputCleanup?.(); } catch { /* best effort transcript flush */ }
         record.outputCleanup = undefined;
         try { cleanup?.(); } catch (err) {
-          if (record.status !== "stopped") record.status = "error";
+          if (record.status !== "stopped" && record.status !== "aborted") record.status = "error";
           record.error = err instanceof Error ? err.message : String(err);
         }
         if (!options.isBackground) record.resultConsumed = true;
@@ -512,6 +523,8 @@ export class AgentManager {
   }
 
   private async runContinuation(record: AgentRecord, prompt: string, options: Partial<SpawnOptions> = {}) {
+    const generation = record.runGeneration;
+    const current = () => record.runGeneration === generation && !this.isExecutionSettled(record.id);
     const { text, failure, aborted, steered } = await resumeAgent(record.session!, prompt, {
       maxTurns: record.resumeSnapshot?.maxTurns ?? record.invocation?.maxTurns,
       graceTurns: record.resumeSnapshot?.graceTurns,
@@ -522,9 +535,16 @@ export class AgentManager {
       },
       onTextDelta: options.onTextDelta,
       onTurnEnd: options.onTurnEnd,
+      onAborted: () => {
+        if (current() && record.status !== "stopped") record.status = "aborted";
+      },
+      onSessionUsage: (usage) => {
+        if (!current()) return;
+        record.lifetimeUsage = usageWatermark(record.lifetimeUsage, usage);
+        options.onSessionUsage?.(structuredClone(record.lifetimeUsage));
+      },
       onAssistantUsage: (usage) => {
-        addUsage(record.lifetimeUsage, usage);
-        options.onAssistantUsage?.(usage);
+        if (current()) options.onAssistantUsage?.(usage);
       },
       onCompaction: (info) => {
         record.compactionCount++;
@@ -541,14 +561,25 @@ export class AgentManager {
     }
   }
 
-  private queueSteer(record: AgentRecord, message: string): Promise<void> {
-    const pending = this.steering.get(record.id) ?? new Set<Promise<void>>();
+  private queueSteer(record: AgentRecord, message: string): ReturnType<AgentSession["steer"]> {
+    const pending = this.steering.get(record.id) ?? new Set<ReturnType<AgentSession["steer"]>>();
     this.steering.set(record.id, pending);
-    const delivery = record.session!.steer(message);
+    const session = record.session!;
+    const generation = record.runGeneration;
+    // Reserve before invoking the SDK: synchronous throws and async preflight
+    // rejections must cross the same completion barrier as successful delivery.
+    const delivery = Promise.resolve().then(() => session.steer(message)).then((disposition) => {
+      if (disposition !== "handled" && disposition !== "queued") {
+        throw new Error("Subagent returned an invalid steering disposition");
+      }
+      return disposition;
+    });
     pending.add(delivery);
     void delivery.then(() => pending.delete(delivery), (err) => {
       pending.delete(delivery);
-      this.steeringErrors.set(record.id, err instanceof Error ? err.message : String(err));
+      if (record.runGeneration === generation && !this.isExecutionSettled(record.id)) {
+        this.steeringErrors.set(record.id, err instanceof Error ? err.message : String(err));
+      }
     });
     return delivery;
   }
@@ -612,7 +643,7 @@ export class AgentManager {
   /** Restore only metadata here. Runnable reconstruction is owned by execute(). */
   getRecordOrArchive(id: string, ctx: ExtensionContext): AgentRecord | undefined {
     const live = this.agents.get(id);
-    if (live) return live;
+    if (live) return this.getRecord(id);
     const archive = listArchivedAgents(ctx.sessionManager).find((item) => item.id === id);
     if (!archive) return undefined;
     const record = recordFromArchive(archive);
@@ -625,7 +656,7 @@ export class AgentManager {
     id: string,
     prompt: string,
     signal?: AbortSignal,
-    options: Pick<SpawnOptions, "isBackground" | "onSessionCreated" | "onToolActivity" | "onTextDelta" | "onTurnEnd" | "onAssistantUsage" | "onCompaction"> & { pi?: ExtensionAPI; ctx?: ExtensionContext } = {},
+    options: Pick<SpawnOptions, "isBackground" | "onSessionCreated" | "onToolActivity" | "onTextDelta" | "onTurnEnd" | "onAssistantUsage" | "onSessionUsage" | "onCompaction"> & { pi?: ExtensionAPI; ctx?: ExtensionContext } = {},
   ): Promise<AgentRecord | undefined> {
     const record = options.ctx ? this.getRecordOrArchive(id, options.ctx) : this.agents.get(id);
     if (!record) return undefined;
@@ -677,7 +708,7 @@ export class AgentManager {
     id: string,
     message: string,
     options: { pi?: ExtensionAPI; ctx?: ExtensionContext } = {},
-  ): Promise<"steered" | "queued" | "resumed"> {
+  ): Promise<"handled" | "steered" | "queued" | "resumed"> {
     const record = options.ctx ? this.getRecordOrArchive(id, options.ctx) : this.agents.get(id);
     if (!record) throw new Error(`Agent not found: "${id}".`);
     if (record.status === "completed" || record.status === "steered") {
@@ -691,16 +722,19 @@ export class AgentManager {
       (record.pendingSteers ??= []).push(message);
       return "queued";
     }
-    await this.queueSteer(record, message);
-    return "steered";
+    const disposition = await this.queueSteer(record, message);
+    return disposition === "handled" ? "handled" : "steered";
   }
 
-  /** Compatibility adapter for synchronous UI composers; all routing stays above. */
+  /** Acceptance-only adapter for synchronous UI composers, not a delivery receipt. */
   steer(id: string, message: string): boolean {
     const record = this.agents.get(id);
     if (!record || !["running", "queued", "completed", "steered"].includes(record.status)) return false;
+    const generation = record.runGeneration;
     void this.sendMessage(id, message).catch((err) => {
-      this.steeringErrors.set(id, err instanceof Error ? err.message : String(err));
+      if (record.runGeneration === generation && !this.isExecutionSettled(id)) {
+        this.steeringErrors.set(id, err instanceof Error ? err.message : String(err));
+      }
     });
     return true;
   }
@@ -711,7 +745,7 @@ export class AgentManager {
       const record = this.agents.get(id);
       if (!record) return undefined;
       const settlement = this.settlements.get(id);
-      if (!settlement || settlement.settled) return record;
+      if (!settlement || settlement.settled) return this.getRecord(id);
       await settlement.promise;
       // The completion callback may have synchronously admitted another run.
       // Inspect the current settlement, not the promise captured before await.
@@ -723,11 +757,21 @@ export class AgentManager {
     return !!record && record.status !== "running" && record.status !== "queued" && this.isExecutionSettled(id);
   }
 
+  private refreshUsage(record: AgentRecord): void {
+    const manager = record.session?.sessionManager;
+    if (manager?.getEntries) {
+      record.lifetimeUsage = usageWatermark(record.lifetimeUsage, readSessionUsage(manager));
+    }
+  }
+
   getRecord(id: string): AgentRecord | undefined {
-    return this.agents.get(id);
+    const record = this.agents.get(id);
+    if (record) this.refreshUsage(record);
+    return record;
   }
 
   listAgents(): AgentRecord[] {
+    for (const record of this.agents.values()) this.refreshUsage(record);
     return [...this.agents.values()].sort(
       (a, b) => b.startedAt - a.startedAt,
     );
@@ -769,7 +813,11 @@ export class AgentManager {
   /** Abort an agent and wait until its execution promise has actually settled. */
   async abortAndWait(id: string): Promise<boolean> {
     const settlement = this.settlements.get(id);
-    if (!settlement || !this.abort(id)) return false;
+    if (!settlement) return false;
+    const requested = this.abort(id);
+    // A prior stop or internal cancellation can already be visible while the
+    // same execution still owns resources. Joining that stop must also wait.
+    if (!requested && settlement.settled) return false;
     await settlement.promise;
     return true;
   }
@@ -809,7 +857,7 @@ export class AgentManager {
     }
   }
 
-  /** Whether any agents are still running or queued. */
+  /** Display activity only; use waitForAll/isResultReady for actual settlement. */
   hasRunning(): boolean {
     return [...this.agents.values()].some(
       r => r.status === "running" || r.status === "queued",

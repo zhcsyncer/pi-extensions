@@ -508,16 +508,18 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     manager.abort(id);
   });
 
-  it("onAssistantUsage from runAgent accumulates into record.lifetimeUsage", async () => {
+  it("reconciles cumulative journal snapshots without adding raw assistant events", async () => {
     manager = new AgentManager();
 
     // Capture the options passed to runAgent so we can drive callbacks
     let captured: any;
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
       captured = opts;
-      // Two assistant messages with usage
       opts.onAssistantUsage?.({ input: 100, output: 50, cacheRead: 1_000, cacheWrite: 10, cost: 0.1 });
-      opts.onAssistantUsage?.({ input: 200, output: 80, cacheRead: 2_000, cacheWrite: 20, cost: 0.2 });
+      opts.onSessionUsage?.({ input: 100, output: 50, cacheRead: 1_000, cacheWrite: 10, cost: 0.1 });
+      const total = { input: 300, output: 130, cacheRead: 3_000, cacheWrite: 30, cost: 0.1 + 0.2 };
+      opts.onSessionUsage?.(total);
+      opts.onSessionUsage?.(total);
       return { responseText: "done", session: mockSession(), aborted: false, steered: false };
     });
 
@@ -572,7 +574,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     // First, spawn with a session that resume can latch onto and non-zero usage.
     const session = { ...mockSession() };
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
-      opts.onAssistantUsage?.({
+      opts.onSessionUsage?.({
         input: 40, output: 10, cacheRead: 100, cacheWrite: 2, cost: 0.1,
       });
       return {
@@ -597,8 +599,8 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     // Now resume — drive callbacks via the mocked resumeAgent
     const { resumeAgent: resumeMock } = await import("../src/agent-runner.js");
     vi.mocked(resumeMock).mockImplementation(async (_session, _prompt, opts: any) => {
-      opts.onAssistantUsage?.({
-        input: 70, output: 30, cacheRead: 300, cacheWrite: 5, cost: 0.2,
+      opts.onSessionUsage?.({
+        input: 110, output: 40, cacheRead: 400, cacheWrite: 7, cost: 0.1 + 0.2,
       });
       opts.onCompaction?.({ reason: "overflow", tokensBefore: 999 });
       return { text: "second" };
@@ -910,9 +912,9 @@ describe("AgentManager — steer()", () => {
     expect(manager.steer("nope", "hi")).toBe(false);
   });
 
-  it("delivers to a live session via session.steer()", () => {
+  it("accepts a live-session steer before its asynchronous delivery", async () => {
     manager = new AgentManager();
-    const steer = vi.fn(() => Promise.resolve());
+    const steer = vi.fn(async () => "queued" as const);
     let captured: ((s: any) => void) | undefined;
     vi.mocked(runAgent).mockImplementation((_ctx, _type, _prompt, opts) => {
       captured = (opts as any)?.onSessionCreated;
@@ -923,6 +925,7 @@ describe("AgentManager — steer()", () => {
     captured?.({ steer, dispose: vi.fn() });
 
     expect(manager.steer(id, "go left")).toBe(true);
+    await Promise.resolve();
     expect(steer).toHaveBeenCalledWith("go left");
   });
 

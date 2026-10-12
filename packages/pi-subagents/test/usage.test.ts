@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   addUsage,
@@ -5,9 +9,67 @@ import {
   getLifetimeTotal,
   getSessionContextPercent,
   getSessionTokens,
+  readSessionUsage,
   toLifetimeUsage,
   toReportedUsage,
 } from "../src/usage.js";
+
+describe("journal usage identity", () => {
+  const spend = (cost: number) => toReportedUsage(toLifetimeUsage({ input: 1, cost }));
+
+  it("counts explicit summary generation and arbitrary usage kinds, not summary snapshots", () => {
+    const sm = SessionManager.inMemory();
+    sm.appendMessage({ role: "user", content: "start", timestamp: 0 });
+    sm.appendUsage("future-kind", "local", "model", spend(0.02));
+    const leaf = sm.getLeafId()!;
+    sm.appendCompaction("summarized $0.02", null, 100, { cumulativeCost: 0.02 });
+    expect(readSessionUsage(sm).cost).toBe(0.02);
+    sm.appendCompaction("summary", null, 100, undefined, false, spend(0.01));
+    sm.branchWithSummary(leaf, "branch summary", undefined, false, spend(0.03));
+    expect(readSessionUsage(sm).cost).toBeCloseTo(0.06);
+    expect(readSessionUsage(sm).cost).toBeCloseTo(0.06);
+    // The child lifetime records all actual work, not just the model's branch projection.
+    sm.branch(leaf);
+    expect(readSessionUsage(sm).cost).toBeCloseTo(0.06);
+  });
+
+  it("deduplicates imported entry IDs and separates a replacement session", () => {
+    const sm = SessionManager.inMemory();
+    const entry = sm.appendUsage("independent", "local", "model", spend(0.02));
+    const imported = SessionManager.inMemory(sm.getCwd(), undefined,
+      structuredClone([sm.getHeader()!, entry, entry]));
+    expect(readSessionUsage(imported).cost).toBe(0.02);
+    imported.appendUsage("independent", "local", "model", spend(0.01));
+    expect(readSessionUsage(imported).cost).toBeCloseTo(0.03);
+    imported.newSession();
+    expect(readSessionUsage(imported).cost).toBeUndefined();
+  });
+
+  it("uses SDK-persisted migration IDs when reopening a legacy file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-legacy-"));
+    try {
+      const file = join(dir, "legacy.jsonl");
+      const timestamp = new Date().toISOString();
+      writeFileSync(file, [
+        { type: "session", version: 1, id: "legacy", cwd: dir, timestamp },
+        { type: "message", timestamp, message: {
+          role: "assistant", api: "local", provider: "local", model: "test", timestamp: 1,
+          content: [{ type: "text", text: "done" }], stopReason: "stop", usage: spend(0.04),
+        } },
+      ].map((entry) => JSON.stringify(entry)).join("\n"));
+      const first = SessionManager.open(file);
+      const ids = first.getEntries().map((entry) => entry.id);
+      const persisted = readFileSync(file, "utf8");
+      expect(readSessionUsage(first).cost).toBe(0.04);
+      const reopened = SessionManager.open(file);
+      expect(reopened.getEntries().map((entry) => entry.id)).toEqual(ids);
+      expect(readSessionUsage(reopened).cost).toBe(0.04);
+      expect(readFileSync(file, "utf8")).toBe(persisted);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 // Regression for issue #38 — token semantics + context indicator
 describe("usage", () => {

@@ -95,7 +95,7 @@ import {
   renderUndetailedResult,
   toolResultText,
 } from "./ui/tool-render.js";
-import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "./usage.js";
+import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, toLifetimeUsage, type LifetimeUsage, type SessionLike } from "./usage.js";
 import {
   isWorktreeIsolationEnabled,
   setWorktreeIsolationEnabled,
@@ -271,8 +271,8 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
     onSessionCreated: (session: any) => {
       state.session = session;
     },
-    onAssistantUsage: (usage: LifetimeUsage) => {
-      addUsage(state.lifetimeUsage, usage);
+    onSessionUsage: (usage: LifetimeUsage) => {
+      state.lifetimeUsage = toLifetimeUsage(usage);
       onStreamUpdate?.();
     },
   };
@@ -713,6 +713,7 @@ export default function (pi: ExtensionAPI) {
     for (const timer of pendingNudges.values()) clearTimeout(timer);
     pendingNudges.clear();
     fleet.dispose();
+    await manager.waitForAll();
     manager.dispose();
   });
 
@@ -1753,16 +1754,18 @@ Terse command-style prompts produce shallow, generic work.
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       try {
         const disposition = await manager.sendMessage(params.agent_id, params.message, { pi, ctx });
-        pi.events.emit("subagents:steered", { id: params.agent_id, message: params.message });
+        pi.events.emit("subagents:steered", { id: params.agent_id, message: params.message, disposition });
         widget.ensureTimer();
         widget.update();
         fleet.ensureTimer();
         fleet.update();
         return textResult(disposition === "resumed"
           ? `Agent ${params.agent_id} resumed in background with your follow-up. Completion will be delivered automatically.`
-          : disposition === "queued"
-            ? `Follow-up message queued for agent ${params.agent_id}; it will be processed when the session is ready.`
-            : `Follow-up message sent to agent ${params.agent_id}; it will be processed after the current tool execution.`);
+          : disposition === "handled"
+            ? `Follow-up message handled by an extension in agent ${params.agent_id}; it was not queued for the model.`
+            : disposition === "queued"
+              ? `Follow-up message queued for agent ${params.agent_id}; it will be processed when the session is ready.`
+              : `Follow-up message queued in agent ${params.agent_id} after the current assistant turn and its tool calls.`);
       } catch (err) {
         return errorTextResult(err instanceof Error ? err.message : String(err));
       }

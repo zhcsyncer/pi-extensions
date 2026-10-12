@@ -172,8 +172,9 @@ export interface AgentRecord {
   /** Cleanup function for the output file stream subscription. */
   outputCleanup?: () => void;
   /**
-   * Lifetime usage breakdown, accumulated via assistant `message_end` events.
-   * Survives compaction and retains input/output/cacheRead/cacheWrite plus cost
+   * Lifetime usage from stable child journal entries (assistant, outer tool,
+   * standalone usage and summary generation). Survives compaction and retains
+   * input/output/cacheRead/cacheWrite plus cost
    * when available. The legacy compact total remains input + output +
    * cacheWrite; cacheRead is breakdown-only (issue #38).
    */

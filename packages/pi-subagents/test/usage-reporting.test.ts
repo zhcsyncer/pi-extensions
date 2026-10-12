@@ -167,6 +167,26 @@ describe("UsageReporter", () => {
     expect(reporter.claim(record(), parent)?.usage.totalTokens).toBe(47);
   });
 
+  it("drops a reservation whose receipt was branched away before another claim observed it", () => {
+    const parent = SessionManager.inMemory();
+    const root = parent.appendMessage({ role: "user", content: "root", timestamp: 0 });
+    const reporter = new UsageReporter();
+    const agent = record("child", toLifetimeUsage({ cost: 0.06 }));
+    const a = parent.appendMessage(message(reporter.claim(agent, parent)!));
+    // No intermediate claim at A's receipt: the reporter last saw the shared root.
+    parent.branch(root);
+    parent.appendMessage({ role: "user", content: "B", timestamp: 1 });
+    const b = reporter.claim(agent, parent)!;
+    expect(b.usage.cost.total).toBe(0.06);
+    parent.appendMessage(message(b));
+    agent.lifetimeUsage = toLifetimeUsage({ cost: 0.08 });
+    parent.branch(a);
+    const growth = reporter.claim(agent, parent)!;
+    expect(growth.usage.cost.total).toBeCloseTo(0.02);
+    parent.appendMessage(message(growth));
+    expect(reporter.claim(agent, parent)).toBeUndefined();
+  });
+
   it("rebuilds shared-ancestor claims after branching instead of carrying abandoned growth", () => {
     const reporter = new UsageReporter();
     const parent = SessionManager.inMemory();
