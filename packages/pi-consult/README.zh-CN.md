@@ -75,7 +75,7 @@ CONSULT-LOG: reject | <reason>
 }
 ```
 
-空 `panel` 保持工具卸载。`fanout: true` 时 on-demand `consult()` 会并行问整组 panel；watchdog 始终只用第一路。`perRun` 从一次真实用户输入开始，覆盖其后的所有模型/工具轮次，并在下一次用户输入时重置。预算按已开始的顾问请求计数，包括之后失败或取消的尝试；旧 `perTurn` 仍作为兼容别名。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。每次调用记录 `session + toolCallId`、outcome、trigger、verdict、usage，以及后续 changed / confirmed / rejected 效果，用于关联 transcript 做事后整体评估。
+空 `panel` 保持工具卸载。`fanout: true` 时 on-demand `consult()` 会并行问整组 panel；watchdog 始终只用第一路。`perRun` 从一次真实用户输入开始，覆盖其后的所有模型/工具轮次，并在下一次用户输入时重置。每次进入请求阶段的 `consult()` 调用消耗一个调用预算单位，其中的 fanout 请求和内部空响应重试均包含在这个单位内，不额外占用调用预算。已开始的调用之后即使失败或取消，仍计入预算。所有实际模型请求的用量仍完整汇总到 Consult tool result。旧 `perTurn` 仍作为兼容别名。行为日志：`$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`。每次调用记录 `session + toolCallId`、outcome、trigger、verdict、usage，以及后续 changed / confirmed / rejected 效果，用于关联 transcript 做事后整体评估。
 
 ## 许可证
 

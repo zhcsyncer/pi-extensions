@@ -75,7 +75,7 @@ Global file: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/config.json` (norma
 }
 ```
 
-Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an on-demand `consult()`; the watchdog always uses the first advisor only. `perRun` spans one real user input through all following model/tool rounds; the next user input resets it. Budgets count started advisor requests, including attempts that later fail or are cancelled. Legacy `perTurn` is accepted as an alias. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`. Each call records `session + toolCallId`, outcome, trigger, verdict, usage, and the later changed / confirmed / rejected effect for transcript-linked retrospective analysis.
+Empty `panel` keeps the tool unloaded. `fanout: true` asks the whole panel on an on-demand `consult()`; the watchdog always uses the first advisor only. `perRun` spans one real user input through all following model/tool rounds; the next user input resets it. Each `consult()` invocation entering the request phase consumes one call-budget unit, including all fanout requests and internal empty-response retries within that invocation; these do not consume additional units. A started invocation still counts if it later fails or is cancelled. Usage from every physical model request is nevertheless aggregated into the Consult tool result. Legacy `perTurn` is accepted as an alias. Behavior log: `$PI_CODING_AGENT_DIR/extension-data/pi-consult/events.jsonl`. Each call records `session + toolCallId`, outcome, trigger, verdict, usage, and the later changed / confirmed / rejected effect for transcript-linked retrospective analysis.
 
 ## License
 
