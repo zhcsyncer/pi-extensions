@@ -260,11 +260,11 @@ describe("C1 real public SDK contracts",()=>{
     expect(f.requests).toHaveLength(1);
   });
 
-  it("empty-response retries aggregate their actual usage and consume the remaining run budget",async()=>{
+  it("one-call budget allows an empty-response retry, aggregates its usage, and blocks a second Consult",async()=>{
     let attempts=0;
-    const f=await fixture({config:{budget:{perRun:2,perSession:2}},respond:()=>stream(++attempts === 1 ? answer("",0.01) : answer(undefined,0.02))});
+    const f=await fixture({config:{budget:{perRun:1,perSession:1}},respond:()=>stream(++attempts === 1 ? answer("",0.01) : answer(undefined,0.02))});
     script(f.session,[call("consult","retry-consult",{why}),call("consult","over-budget",{why}),fauxAssistantMessage("done")]);
-    await f.session.prompt("Ask for a second opinion, with exactly two attempts available.");
+    await f.session.prompt("Ask for a second opinion, with exactly one Consult invocation available.");
     const completed=consultResult(f.session,"retry-consult");
     expect(details(completed).outcome).toBe("completed");
     expect.soft(f.requests).toHaveLength(2);
