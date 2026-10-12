@@ -56,7 +56,7 @@ R1 首轮只读交接已由调度者确认；保留现有 manager/runner，不�
 从该测试文件导入公开入口：
 
 - `../src/agent-manager.js`：`AgentManager`，构造参数 `(onComplete?, maxConcurrent?, onStart?, onCompact?, options?)`；`spawn(pi, ctx, type, prompt, options): string`；`getRecord(id)`、`waitForResult(id)`、`isResultReady(id)`；`abort(id): boolean`、`abortAndWait(id): Promise<boolean>`、`waitForAll(): Promise<void>`。
-- `sendMessage(id, message, {pi?, ctx?}?): Promise<"handled" | "steered" | "queued" | "resumed">` 为已确认目标合同：SDK input hook 已处理返回 handled；运行中 SDK queued 返回 steered；manager 尚未运行而暂存返回 queued；启动后续运行返回 resumed。拒绝通过 rejection，不新增 rejected 成功值。同步 `manager.steer(): boolean` 只代表接纳，不作为真实送达凭证。
+- `sendMessage(id, message, {pi?, ctx?}?): Promise<"handled" | "steered" | "queued" | "resumed">` 为已确认目标合同：SDK input hook 已处理返回 handled；运行中 SDK queued 返回 steered；manager 尚未运行而暂存返回 queued；启动后续运行返回 resumed。拒绝通过 rejection，不新增 rejected 成功值。同步 `manager.steer(): boolean` 只代表接纳，不作为真实送达凭证。**sendMessage 的自动 resumed 仅适用于成功完成任务；failed/aborted/stopped 必须由调用方显式 manager.resume / Agent resume 授权**，不能为测试续跑放宽这个边界。
 - `../src/agent-runner.js`：`steerAgent(session,message)` 保留 `ReturnType<AgentSession["steer"]>`；`runAgent(ctx,type,prompt,options)` 的 onResumeSnapshot/onSessionCreated 捕获真实恢复 fixture；`restoreAgentSession(ctx,file,snapshot,{pi})`、`resumeAgent(session,prompt,options?)` 测恢复，不调用私有校验/清理方法。
 - `../src/usage-reporting.js`：`new UsageReporter().claim(record,parent)`；零新增返回 undefined。`../src/usage.js` 的 `toLifetimeUsage` 仅作数据构造；类型声明允许从 `../src/types.js` 读取。父 toolResult 用真实 SDK `appendMessage` 保存 usage 与 details.subagentUsageRollup，通过 parent.branch(id) 驱动上文 A/B 样本。
 
@@ -65,6 +65,15 @@ SDK 夹具使用根入口 `ModelRuntime/ModelRegistry/SessionManager`，AI 根�
 faux provider 以 promise 闸门延迟响应：记录进入，请求收到 abort 后暂不释放，断言 abortAndWait/后继 onStart 未提前完成，然后释放。外部取消保持 stopped，内部取消标 aborted。若需制造“SDK settled 已发但调用方 prompt 尚未返回”的窗口，可对公开 session.prompt 增加尾闸，明确这是 T1 时序夹具，不声称是 SDK 自然行为。handled 由测试 extension 的 input hook 返回 `{action:"handled"}`；恢复使用真实运行生成的 recipe/session，再复制到隔离目录制造损坏/错误引用。
 
 更完整的首次接口交接证据保存在 `/var/tmp/pi-1.1-dispatch-20261012/r1-interface-handoff.md`；其中原 src 测试路径已在文末更正，以此处 test 路径为准。
+
+## 首轮组合审阅返修边界
+
+候选2202c41已证明核心结算、投递、恢复及数值合同；尚未接受：
+
+- 内部取消不得被 status-note、completion-notification、tool-render、conversation-viewer 一律描述为超过轮次上限；无明确原因时用中性已中止文案，不新造原因推断。
+- onSessionUsage 是新增内部回调，必须从 RpcSpawnOptions 排除；这是已有传输边界保真，不实施 B12。
+- 验证夹具需完成目标 SDK 输入与 JSON 持久化类型适配。两处 createAgentSession 的旧 modelRegistry 入参及 usage rollup JSON fixture 归本任务；另外7条旧测试类型诊断仅授权必要的类型/fixture 修正，使本模块独立测试类型检查可通过，不改产品行为、不删弱断言或新增产品字段。超出纯夹具范围须报告。
+- 独立跨代测试对已 aborted 任务误用 sendMessage；测试作者单独提交改用显式 resume，保留全部状态/代次/时序断言，生产重试策略不得迁就错误测试。
 
 ## 派发与交付
 
