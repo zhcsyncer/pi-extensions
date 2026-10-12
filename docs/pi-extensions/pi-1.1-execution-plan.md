@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree并提交计划快照，E0 独立实施 session 已启动；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 独立实施 session 已启动；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -27,19 +27,21 @@
 - 调度：当前 session `01a12e08-fb4e-7135-9f57-a5843fb8ce27`，Herdr pane `w3:p64`。
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
-- 最新集成 SHA / 计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`。E0 合同：[tasks/e0-baseline.md](./tasks/e0-baseline.md)。依赖见 §2。
+- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；最新集成 SHA：`2929d02a22e0144ae233a7034f56762e7e8425ca`（新增首批合同，尚无产品代码集成）。
+- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)。依赖见 §2。
+- 独立审阅资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review`；session `pi11-review-20261012`；agent `pi11-review` / `w9Y:p1`。只读审阅合同，不代写实现或维护另一份进度。
 
 | 任务 | 状态 | worktree / session | 基线 → 交付 → 集成 | 验收 / 阻塞与下一步 | 更新时间 |
 |---|---|---|---|---|---|
 | E0 基线与隔离环境 | 执行中 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-e0`；`pi11-e0-20261012`；agent `pi11-e0` / `w9X:p1` | `c7d251f` → — → — | 已确认 agent working；执行隔离 SDK/依赖/全包检查基线，尚未验收 | 2026-10-12 14:55 |
-| R1 终态/恢复/费用水位 | 未派发 | — | — | 待 E0 | — |
+| R1 终态/恢复/费用水位 | 未派发 | — | — | 合同审阅完成，已补身份/分支数值样本；待 E0 SDK 证据及实施前公开测试入口交接 | 2026-10-12 15:11 |
 | R2 会话授权边界 | 未派发 | — | — | 待 R1 | — |
 | R3 child 装配 | 未派发 | — | — | 待 R2＋K1 | — |
-| D1 renderer/语义保真 | 未派发 | — | — | 待 E0 | — |
+| D1 renderer/语义保真 | 未派发 | — | — | 合同审阅完成，已补 Write 可观察结果；待 E0 loader 证据及测试 fixture 接口交接 | 2026-10-12 15:11 |
 | D2 缓存/有界输出 | 未派发 | — | — | 待 D1 | — |
 | D3 nested 投影 | 未派发 | — | — | 待 D2 | — |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
-| K1 Context7 离线合同 | 未派发 | — | — | 待 E0；独立包队列优先 | — |
+| K1 Context7 离线合同 | 未派发 | — | — | 独立合同审阅无阻塞；待 E0，独立包队列优先 | 2026-10-12 15:11 |
 | C1 Consult 公开 SDK | 未派发 | — | — | 待 E0 | — |
 | F1 Todo＋Question | 未派发 | — | — | 待 E0 | — |
 | H1 Herdr 兼容 | 未派发 | — | — | 待 E0 | — |
