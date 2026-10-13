@@ -24,6 +24,21 @@
 
 交接简短，调度冻结后再实施。无需真实模型/MCP；原生codemode可离线合成provider/工具验证。明确实际与未验边界，不以扩大防御协议解决数据缺失。
 
+## 第二阶段冻结的最小接线与预算
+
+只读交接已确认原生进度无需重写。整个本包提供的nested展示遵守预算，不能只限制新增投影而让已知codemode展开列表继续无界：仅对已知原生codemode的details.calls提供有界只读展示副本，继续使用`next()`取得的原renderers及既有D1委托state/lastComponent。原结果、执行、model输入和usage不变；不泛化改写所有第三方renderer。副本省略时明确列表/显示费用仅为部分，不能让裁剪后求和看起来是完整费用。
+
+- 记录和展示最多256个调用、单参数8192/总32768 UTF-8 bytes（compact JSON计量）；先做有界快照再编码/布局。原生details.args仅为200 UTF-16字符预览，不冒充完整原参数；不同预算不能混用。
+- 公共context.toolCallId稳定，context.invalidate可刷新同一根；resolver阶段只有toolName，不能在那里猜调用身份。复用现有aggregate/owner清理，非UI/HTML也能取得保存的根元数据，不放入只有hasUI才有的全局指针。
+- execution start/update/end都带真实直接parentToolCallId。根execution_end没有nestedCalls，根toolResult message_start已附入，message_end/持久化随后发生。最终记录不能只在execution_end采集。
+- details.calls字段id/name/args/status/durationMs/error/cost只含脚本直接工具与models.*；running可能多个条目共享root/?，不得以占位ID、数组位置、名称或参数猜执行身份。自己的工具数/归根只用真实execution身份，模型调用不计工具数。
+- persisted nestedCalls为calls:[id,name,arguments?,argumentsBytes?,status:ok|error|unfinished,durationMs?,error?]及complete，包含后代工具、无结果正文/显式父字段/独立模型调用。恢复仅在完整root前缀与确实存在的父记录相符时恢复已知SDK层级；否则平铺/父关系未知，不造祖先。
+- codemode明确cancelled可显示；通用error/unfinished不能靠报错文字猜成取消。真实根成功可含失败子操作。个别或全部计时缺失不填零，HTML context.durationMs缺失不补造。
+
+独立作者公共入口：SDK根导出的`createCodemodeExtension({models?:boolean})`放入临时extensionFactories，配fauxProvider；faux ToolCall规范化参数是`{code:rawJavaScript}`，不代表改了grammar。工具通过第五参ctx.executeTool形成真实后代，session.subscribe观察；真实ToolExecutionComponent经updateResult/setExpanded/invalidate观察输出。可复用generic helpers/display-session.ts与AggregateTerminal；AggregateProjection/registerAggregateProjectionEvents及getView/getViewForGroup是现有可观察计数入口。独立作者不读取实施者探针或实现体。
+
+基线事实：三层并行1根+7子/孙，只有一根toolResult，而aggregate live计8、rebuild计1；258次真实调用时native details有258项、nestedCalls为256且complete:false。缺数据如实标注，不为这些正常限制增加另一套进度框架。
+
 ## Contract / Test Impact
 
 预留`packages/pi-tool-display-intent/tests/pi11-nested-display.contract.test.ts`，未来独立作者所有。覆盖多层并行归根/只算一次、部分失败/取消、真实保存后的reload/tree/compact/HTML、超限/不完整以及codemode不启用时普通路径。D1/D2独立52例继续保留；不复制已有renderer所有测试。
