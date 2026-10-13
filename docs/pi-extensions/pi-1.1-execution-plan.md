@@ -61,7 +61,7 @@
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
 | P1 Plan 授权 | 部分阻塞 | 实施`pi-1.1-plan`/wB2；独立`pi-1.1-plan-contract-tests`、`pi11-plan-tests-20261013`/wB3:p1 | 第一阶段`916405a`；P1-A基线`cae3680` → — → — | P1-A两处model-only及真实审批恢复独立合同已派，保留原sequential；P1-B缺当前有效连接/认证拥有者/原始工具绑定，区别于R3连接前过滤，不放宽K1。A通过也不算整个P1完成 | 2026-10-13 23:39 |
 | M1 Meter 账本 | 已集成 | 三环境已回收；原实施`pi-1.1-meter`/wA8、独立`pi-1.1-ledger-contract-tests`/wAC、审阅`pi-1.1-review-meter`/wAD | `deb347c` → 实现`f131b84`＋`3a983bc`；测试`5743f69`＋`eff107e5` → `7807d21` | 0bf84ef独立ACCEPT；集成态243/243（独立69）、类型/loader/pack17通过，旧字节/预算口径保留，无迁移框架或真实账本操作；m1-integrated-*.log | 2026-10-13 16:44 |
-| G1 Glance 用量/主题 | 执行中 | 实施wA0；独立wB1/`pi-1.1-glance-contract-tests` | `916405a` → 实现`a7e80fd`；独立待交 → — | 自报20文件、full54组/types/loader/pack通过，未验收。独立曾缺公开接口已补g1-public-fixture-interface.md及costUnknown可选声明；getEntries仍复制数组但仅解析增量，空闲usage等下个公开边界，不虚称实时无扫描 | 2026-10-13 23:34 |
+| G1 Glance 用量/主题 | 待审阅 | 实施wA0；独立wB1；审阅`pi-1.1-review-glance`、`pi11-review-glance-20261013`/wB4:p1 | `916405a` → `a7e80fd`＋独立`1ca4c6f`；组合`156fc66` → — | 独立基线3过11断言红，无初始化fixture失败、types过；runner仅追加test:dev且合并engines无冲突。固定组合审阅已派，核真实live而非openPane刷新假阳性；保留数组复制/公开边界刷新及终端未验限制 | 2026-10-13 23:43 |
 | M2 Go 额度 | 未派发 | — | — | M1已验收，待最小Go接入合同与槽位；Antigravity及既有registry/poller旧债仍不做 | 2026-10-13 16:46 |
 | I1 跨包/安装验收 | 未派发 | — | — | 待本轮实现集成与候选 SHA | — |
 | L1 授权环境验收 | 未派发 | — | — | 待适用候选、机器/账号操作授权 | — |
