@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   BashToolDetails,
   EditToolDetails,
@@ -40,6 +41,7 @@ import {
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { createCleanupScope, type CleanupScope } from "./disposable.js";
 import { createToolRendererComposer } from "./renderer-shell.js";
+import { displayPropertyOmitted, snapshotDisplayValue, DISPLAY_OMISSION } from "./display-budget.js";
 import {
   registerLiveToolCallEvents,
   shouldShowDeterministicFallback,
@@ -143,7 +145,7 @@ export interface WriteExecutionMeta {
 }
 
 interface PendingDiffPreviewState {
-  key?: string;
+  key?: unknown;
   data?: PendingDiffPreviewData;
 }
 
@@ -427,7 +429,7 @@ function getPendingDiffPreviewState(
 function resolvePendingDiffPreview(
   context: ToolRenderContextLike | undefined,
   stateKey: string,
-  previewKey: string | undefined,
+  previewKey: unknown,
   compute: () => PendingDiffPreviewData | undefined,
 ): PendingDiffPreviewData | undefined {
   const previewState = getPendingDiffPreviewState(context, stateKey);
@@ -435,7 +437,7 @@ function resolvePendingDiffPreview(
     return compute();
   }
 
-  if (previewState.key !== previewKey) {
+  if (!isDeepStrictEqual(previewState.key, previewKey)) {
     previewState.key = previewKey;
     previewState.data = previewKey ? compute() : undefined;
   }
@@ -755,7 +757,7 @@ function formatReadSummary(
   const lineCount = lines.length;
   let summary = theme.fg(
     "muted",
-    `↳ loaded ${lineCount} ${pluralize(lineCount, "line")}`,
+    lines.some(line => line.includes(DISPLAY_OMISSION)) ? "↳ read output (display truncated)" : `↳ loaded ${lineCount} ${pluralize(lineCount, "line")}`,
   );
   summary += theme.fg(
     "warning",
@@ -775,7 +777,7 @@ function formatSearchSummary(
   const count = countNonEmptyLines(lines);
   let summary = theme.fg(
     "muted",
-    `↳ ${count} ${pluralize(count, unitLabel, pluralLabel)} returned`,
+    lines.some(line => line.includes(DISPLAY_OMISSION)) ? "↳ search output (display truncated)" : `↳ ${count} ${pluralize(count, unitLabel, pluralLabel)} returned`,
   );
   summary += theme.fg(
     "warning",
@@ -793,7 +795,7 @@ function formatBashSummary(
   const lineCount = lines.length;
   return theme.fg(
     "muted",
-    `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
+    lines.some(line => line.includes(DISPLAY_OMISSION)) ? "↳ command output (display truncated)" : `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
   );
 }
 
@@ -1130,7 +1132,7 @@ function renderMcpResult(
       ? theme.fg("muted", `↳ ${presentation.summary}`)
       : theme.fg(
           "muted",
-          `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
+          outputLines.some(line => line.includes(DISPLAY_OMISSION)) ? "↳ output (display truncated)" : `↳ ${lineCount} ${pluralize(lineCount, "line")} returned`,
         );
     summary += formatExpandHint(theme);
     if (config.showTruncationHints && truncation.truncated) {
@@ -1400,12 +1402,13 @@ function renderEditDisplayCall(
     return summaryComponent;
   }
 
-  const previewKey = JSON.stringify({
+  // These values are already bounded display snapshots, compared only on SDK updates.
+  const previewKey = {
     path: getAdapterPath(args, adapter) ?? null,
     edits: toRecord(args).edits ?? null,
     oldText: getStringField(args, "oldText") ?? null,
     newText: getStringField(args, "newText") ?? null,
-  });
+  };
   const previewData = resolvePendingDiffPreview(
     context,
     EDIT_PENDING_PREVIEW_STATE_KEY,
@@ -1492,6 +1495,54 @@ function drainPendingToolDisplayDecorations(api: ToolDisplayApi, scope: CleanupS
   }
 }
 
+class DisplayOmissionNotice extends Container {
+  constructor(readonly body: Component) {
+    super();
+    this.addChild(body);
+    this.addChild(new Text(DISPLAY_OMISSION, 0, 0));
+  }
+}
+
+/** Bound only our display callbacks. Delegates keep their original SDK values. */
+function boundedOwnRenderers(toolName: string, own: ToolRenderers): ToolRenderers {
+  // Cooperative installation can replace callbacks on its input definition.
+  own = { ...own };
+  return {
+    ...own,
+    renderCall: own.renderCall ? (args, theme, context) => {
+      const view = snapshotDisplayValue(args);
+      const lastComponent = context?.lastComponent instanceof DisplayOmissionNotice ? context.lastComponent.body : context?.lastComponent;
+      if (view.truncated) {
+        if (toolName !== "bash") return new Text(`${toolName} — ${DISPLAY_OMISSION}`, 0, 0);
+        // A display omission must not skip Bash's partial/final spinner transition.
+        // Use a placeholder, not a clipped command with fabricated size/line stats.
+        const placeholder = { command: "…" };
+        const body = own.renderCall!(placeholder, theme, { ...context, lastComponent, args: placeholder });
+        return new DisplayOmissionNotice(body);
+      }
+      return own.renderCall!(view.value, theme, { ...context, lastComponent, args: view.value });
+    } : undefined,
+    renderResult: own.renderResult ? (result, options, theme, context) => {
+      // Result text takes precedence; args and result share one notification budget.
+      const view = snapshotDisplayValue({ result, args: context?.args });
+      const snapshot = toRecord(view.value);
+      const omitted = view.truncated || displayPropertyOmitted(result, "content") || displayPropertyOmitted(result, "details");
+      if (omitted && (toolName === "edit" || toolName === "write") && !context?.isError && !options.isPartial) {
+        return new Text(`↳ diff omitted — ${DISPLAY_OMISSION}`, 0, 0);
+      }
+      const displayedResult = toRecord(snapshot.result);
+      if (omitted) {
+        const content = Array.isArray(displayedResult.content) ? displayedResult.content : [];
+        content.push({ type: "text", text: DISPLAY_OMISSION });
+        displayedResult.content = content;
+      }
+      const lastComponent = context?.lastComponent instanceof DisplayOmissionNotice ? context.lastComponent.body : context?.lastComponent;
+      const body = own.renderResult!(displayedResult as never, options, theme, { ...context, lastComponent, args: snapshot.args });
+      return omitted ? new DisplayOmissionNotice(body) : body;
+    } : undefined,
+  };
+}
+
 function installToolDisplayApi(
   getConfig: ConfigGetter,
   scope: CleanupScope,
@@ -1574,7 +1625,7 @@ function installToolDisplayApi(
       }
 
       Object.assign(decorated, composeToolRenderers(
-        decorated as unknown as ToolRenderers,
+        boundedOwnRenderers(tool.name ?? "tool", decorated as unknown as ToolRenderers),
         tool as unknown as ToolRenderers,
         {
           style: getConfig().toolCallStyle, run: scope.run,
@@ -1831,7 +1882,7 @@ export function registerToolDisplayOverrides(
         return summaryComponent;
       }
 
-      const previewKey = JSON.stringify({ path: getToolPathArg(args) ?? null, content: content ?? null });
+      const previewKey = { path: getToolPathArg(args) ?? null, content: content ?? null };
       const previewData = resolvePendingDiffPreview(
         context,
         WRITE_PENDING_PREVIEW_STATE_KEY,
@@ -1995,7 +2046,7 @@ export function registerToolDisplayOverrides(
         return renderCustomToolResult(result, options, config, mode, theme, context, adapter);
       },
     };
-    const renderers = composeToolRenderers(own, delegate, {
+    const renderers = composeToolRenderers(boundedOwnRenderers(toolName, own), delegate, {
       style: config.toolCallStyle,
       native: isBuiltInToolName(toolName) ? bootstrapTools[toolName as BuiltInToolOverrideName] : undefined,
       connectRows: toolName === "bash",

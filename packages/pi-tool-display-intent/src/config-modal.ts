@@ -395,6 +395,9 @@ export async function openSettingsModal(ctx: ExtensionCommandContext, controller
 						}
 						const next = applySetting(controller.getConfig(), id, newValue);
 						controller.setConfig(next, ctx);
+						// We own the real TUI here; repaint alone would keep historical renderer snapshots.
+						tui.invalidate();
+						tui.requestRender();
 					},
 					onClose: () => done(),
 				},

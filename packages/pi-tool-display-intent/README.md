@@ -21,6 +21,7 @@ The current model writes `displaySummary` in the normal tool call. This extensio
 - Bash asks the current model for a `displaySummary` intent. Direct calls and codemode scripts that omit it receive a fallback; other invalid arguments still fail validation. Other built-ins keep their original schemas.
 - Unified rows for built-ins, custom tools, late-connected MCP tools, and saved tool history, while preserving tools' specialized content.
 - Claude-style rows: status mark, `Name(target)`, and indented results.
+- Faster redraws of completed text-tool histories while live output keeps updating.
 - Optional `aggregate` layout: one **Run** ledger per user request, including Agent and consult by default.
 - Fullscreen mouse support: click a collapsed Run block to expand that run, click its expanded summary to collapse it, and inspect individual call results without rerunning tools.
 - Optional context-growth receipts and per-turn badges to spot context-heavy steps.
@@ -49,7 +50,9 @@ Then restart Pi or run `/reload`.
 /tools individual
 ```
 
-Empty `/tools` opens the settings panel. Switching layout asks to reload this session, then saves and reloads. Bash intent language is available in both layouts and applies after `/reload`; layout-specific display knobs stay in the panel.
+Empty `/tools` opens the settings panel. Switching layout asks to reload this session, then saves and reloads. Bash intent language is available in both layouts and applies after `/reload`; layout-specific display knobs stay in the panel. Changing preview limits or result modes in the panel also refreshes existing history rows.
+
+Very large previews, diffs, and detail views may show an explicit display-omission notice, even when expanded-row limits are disabled. These safeguards do not change execution results, model input, or usage. An omitted diff is not presented as a complete comparison; full-output links are shown only when the tool provides a real artifact.
 
 ## Layouts
 
