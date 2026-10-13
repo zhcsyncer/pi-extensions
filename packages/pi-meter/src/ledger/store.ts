@@ -1,8 +1,8 @@
-import { appendFile, copyFile, unlink } from "node:fs/promises";
+import { appendFile, copyFile, stat } from "node:fs/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { ensurePrivateDir, isRecord, pathExists, readTextFile, withDirectoryLock, writeFileAtomically } from "../fs.ts";
 import { getMeterPaths, type MeterPaths } from "../paths.ts";
-import { collapseDuplicateRecords } from "./session-parser.ts";
+import { collapseDuplicateRecords, diffRecords, recordKey, type DiffOptions } from "./session-parser.ts";
 import { isSummaryKind, type BudgetLimit, type BudgetsConfig, type UsageRecord } from "./types.ts";
 
 export interface LedgerStore {
@@ -28,7 +28,8 @@ export function serializeUsageRecord(record: UsageRecord): unknown[] {
 		record.cost,
 		record.costKnown ? 1 : 0,
 		record.sourceId ?? null,
-		...(record.kind ? [record.kind] : []),
+		...(record.kind || record.entryId || record.usageKind ? [record.kind ?? null] : []),
+		...(record.entryId || record.usageKind ? [{ entryId: record.entryId, part: record.part, usageKind: record.usageKind }] : []),
 	];
 }
 
@@ -59,9 +60,10 @@ function parseArrayRecord(value: unknown[]): UsageRecord | undefined {
 		cW: asNumber(value[7]),
 		tot,
 		cost,
-		costKnown: value.length > 10 ? value[10] === 1 : cost > 0,
+		costKnown: validCost(value[9]) && (value.length > 10 ? value[10] === 1 : cost > 0),
 		...(typeof value[11] === "string" && value[11] ? { sourceId: value[11] } : {}),
 		...(isSummaryKind(value[12]) ? { kind: value[12] } : {}),
+		...identityFields(value[13]),
 	};
 }
 
@@ -78,10 +80,24 @@ function parseObjectRecord(value: Record<string, unknown>): UsageRecord | undefi
 		cW: asNumber(value.cW),
 		tot: asNumber(value.tot),
 		cost: asNumber(value.cost),
-		costKnown: value.costKnown === true || (value.costKnown !== false && asNumber(value.cost) > 0),
+		costKnown: validCost(value.cost) && (value.costKnown === true || (value.costKnown !== false && asNumber(value.cost) > 0)),
 		...(typeof value.sourceId === "string" && value.sourceId ? { sourceId: value.sourceId } : {}),
 		...(isSummaryKind(value.kind) ? { kind: value.kind } : {}),
+		...identityFields(value),
 	};
+}
+
+function identityFields(value: unknown): Pick<UsageRecord, "entryId" | "part" | "usageKind"> {
+	if (!isRecord(value)) return {};
+	return {
+		...(typeof value.entryId === "string" && value.entryId ? { entryId: value.entryId } : {}),
+		...(typeof value.part === "string" && value.part ? { part: value.part } : {}),
+		...(typeof value.usageKind === "string" ? { usageKind: value.usageKind } : {}),
+	};
+}
+
+function validCost(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function asNumber(value: unknown): number {
@@ -142,15 +158,13 @@ export async function migrateLegacyLedger(paths: MeterPaths): Promise<string | u
 	const notes: string[] = [];
 	await withDirectoryLock(paths.dataDir, ".ledger-migration.lock", async () => {
 		if (await copyIfMissing(paths.legacyUsageFile, paths.usageFile)) {
-			await unlink(paths.legacyUsageFile);
+			// Retain the original legacy file; adapting identities is not a destructive migration.
 			notes.push(`usage.jsonl ${paths.legacyUsageFile} → ${paths.usageFile}`);
 		}
 		if (await copyIfMissing(paths.legacyBudgetsFile, paths.budgetsFile)) {
-			await unlink(paths.legacyBudgetsFile);
 			notes.push(`budgets.json ${paths.legacyBudgetsFile} → ${paths.budgetsFile}`);
 		}
 		if (await copyIfMissing(paths.legacyWarnedFile, paths.warnedFile)) {
-			await unlink(paths.legacyWarnedFile);
 			notes.push(`warned.jsonl ${paths.legacyWarnedFile} → ${paths.warnedFile}`);
 		}
 	});
@@ -158,43 +172,105 @@ export async function migrateLegacyLedger(paths: MeterPaths): Promise<string | u
 }
 
 export class FileLedgerStore implements LedgerStore {
+	private stamp = "";
+	private cached: UsageRecord[] = [];
+	private keys = new Set<string>();
+	private sessionAliases = new Map<string, string>();
+	private queue: Promise<unknown> = Promise.resolve();
+
+	private serial<T>(action: () => Promise<T>): Promise<T> {
+		const next = this.queue.then(action);
+		this.queue = next.catch(() => {});
+		return next;
+	}
+
 	constructor(private readonly paths: MeterPaths) {}
+
+	private async fileStamp(): Promise<string> {
+		try {
+			const info = await stat(this.paths.usageFile);
+			return `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+		} catch (error) {
+			if (isRecord(error) && error.code === "ENOENT") return "missing";
+			throw error;
+		}
+	}
 
 	async append(record: UsageRecord): Promise<boolean> {
 		try {
-			await ensurePrivateDir(this.paths.dataDir);
-			await appendFile(this.paths.usageFile, `${JSON.stringify(serializeUsageRecord(record))}\n`, "utf8");
-			return true;
+			return (await this.appendRecords([record], { legacyMatching: false })).length > 0;
 		} catch {
 			return false;
 		}
 	}
 
-	async replaceAll(records: readonly UsageRecord[]): Promise<void> {
-		await withDirectoryLock(this.paths.dataDir, ".usage.lock", async () => {
-			const body = records.map((record) => `${JSON.stringify(serializeUsageRecord(record))}\n`).join("");
-			await writeFileAtomically(this.paths.usageFile, body);
-		});
+	/** One lock for live, import and other Meter instances sharing this ledger. */
+	async appendRecords(records: readonly UsageRecord[], options: DiffOptions = { legacyMatching: false }): Promise<UsageRecord[]> {
+		// Read-side aliases keep session budgets attached to the same actual session
+		// without rewriting old rows when live capture switches to header identity.
+		for (const [alias, sid] of options.sessionAliases ?? []) this.sessionAliases.set(alias, sid);
+		if (records.length === 0) return [];
+		return this.serial(() => withDirectoryLock(this.paths.dataDir, ".usage.lock", async () => {
+			await this.refresh();
+			const batch = new Set<string>();
+			const fresh = options.legacyMatching === false
+				? records.filter((record) => {
+					const key = recordKey(record);
+					if (this.keys.has(key) || batch.has(key)) return false;
+					batch.add(key);
+					return true;
+				})
+				: diffRecords(this.cached, records, options);
+			if (fresh.length === 0) return [];
+			await appendFile(this.paths.usageFile, fresh.map((record) => `${JSON.stringify(serializeUsageRecord(record))}\n`).join(""), "utf8");
+			if (fresh.every((record) => record.entryId)) {
+				this.cached.push(...fresh);
+				for (const record of fresh) this.keys.add(recordKey(record));
+			} else {
+				this.cached = collapseDuplicateRecords([...this.cached, ...fresh]);
+				this.keys = new Set(this.cached.map(recordKey));
+			}
+			this.stamp = await this.fileStamp();
+			return fresh;
+		}));
 	}
 
+	async replaceAll(records: readonly UsageRecord[]): Promise<void> {
+		await this.serial(() => withDirectoryLock(this.paths.dataDir, ".usage.lock", async () => {
+			const body = records.map((record) => `${JSON.stringify(serializeUsageRecord(record))}\n`).join("");
+			await writeFileAtomically(this.paths.usageFile, body);
+			this.stamp = "";
+		}));
+	}
+
+	/** Compatibility entrypoint: duplicate suppression is now read-side only. */
 	async compactDuplicates(): Promise<number> {
-		const records = await this.readAll();
-		const collapsed = collapseDuplicateRecords(records);
-		const removed = records.length - collapsed.length;
-		if (removed === 0) return 0;
-		await this.replaceAll(collapsed);
-		return removed;
+		await this.readAll();
+		return 0;
+	}
+
+	private async refresh(): Promise<void> {
+		const stamp = await this.fileStamp();
+		if (stamp !== this.stamp) {
+			const raw = await readTextFile(this.paths.usageFile);
+			const records: UsageRecord[] = [];
+			for (const line of (raw ?? "").split("\n")) {
+				const record = parseUsageLine(line);
+				if (record) records.push(record);
+			}
+			// Preserve old budget totals without rewriting or deleting legacy rows.
+			this.cached = collapseDuplicateRecords(records);
+			this.keys = new Set(this.cached.map(recordKey));
+			this.stamp = stamp;
+		}
 	}
 
 	async readAll(): Promise<UsageRecord[]> {
-		const raw = await readTextFile(this.paths.usageFile);
-		if (!raw) return [];
-		const records: UsageRecord[] = [];
-		for (const line of raw.split("\n")) {
-			const record = parseUsageLine(line);
-			if (record) records.push(record);
-		}
-		return records;
+		return this.serial(async () => {
+			await this.refresh();
+			return this.cached.map((record) => !record.entryId && this.sessionAliases.has(record.sid)
+				? { ...record, sid: this.sessionAliases.get(record.sid)! } : { ...record });
+		});
 	}
 
 	async loadBudgets(): Promise<BudgetsConfig> {
@@ -224,10 +300,5 @@ export async function createLedgerStore(agentDir = getAgentDir()): Promise<{ sto
 	const paths = getMeterPaths(agentDir);
 	const migration = await migrateLegacyLedger(paths);
 	const store = new FileLedgerStore(paths);
-	const removed = await store.compactDuplicates();
-	const notes = [
-		migration,
-		removed > 0 ? `Removed ${removed} duplicate usage records from the local ledger.` : undefined,
-	].filter((note): note is string => Boolean(note));
-	return { store, ...(notes.length > 0 ? { migration: notes.join(" ") } : {}) };
+	return { store, ...(migration ? { migration } : {}) };
 }
