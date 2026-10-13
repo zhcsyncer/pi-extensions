@@ -4,7 +4,7 @@
 
 ## Goal / Design
 
-`extensions/recap.ts:runRecap`当前通过resolveCompleteModel优先调用ctx.modelRegistry.complete，却仍传legacy compat的`context.systemPrompt`。Pi1.1 native请求的system指令应进入真实system message，不能在切到公共registry路径时悄悄丢失语言/JSON输出规则。
+`extensions/recap.ts:runRecap`基线通过resolveCompleteModel优先调用ctx.modelRegistry.complete，传legacy compat的`context.systemPrompt`。后续真实SDK基线验证确认指令已被正规化保留，未复现丢失；本轮是显式native消息/公开类型适配及移除0.x兼容依赖，不宣传为修复已证实的丢指令缺陷。独立合同仍验证实际system指令、语言/JSON规则与路由/取消行为，基线绿色合法，不人为制造红测。
 
 - 使用1.1公开物理模型完成接口和native Context；保留选定provider/model、订阅/OAuth/API-key路由、sessionId/maxTokens/signal及既有OpenCode会话headers。不把固定模型换成当前模型或同名的另一付费渠道。
 - 请求builder、类型和已有unit注入点相应适配；目标仅1.1+，不需保留0.x私有/compat兜底。注入completeModel可作为已有unit seam保留，但真实SDK合同不能靠注入函数自证。
