@@ -24,7 +24,7 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 - Footer line for the last 24 hours of local spend next to the current model's subscription window:
 
   ```text
-  · 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
+  · 24h 12.4k $0.18 recorded · xai week left ███░░ 49% (1d 23h)
   ```
 
   ![Meter footer](./assets/demo-meter-status.png)

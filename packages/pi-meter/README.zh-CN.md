@@ -24,7 +24,7 @@
 - 底栏同时显示过去 24 小时的本地花费和当前模型对应的订阅窗口：
 
   ```text
-  · 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
+  · 24h 12.4k $0.18 recorded · xai week left ███░░ 49% (1d 23h)
   ```
 
   ![Meter 底栏](./assets/demo-meter-status.png)

@@ -86,8 +86,8 @@ export function renderLocalFooter(
 			return stats.today.tokens > 0 ? `${when} ${fmtCompactTokens(stats.today.tokens)}` : undefined;
 		case "today-cost":
 			return stats.today.costKnown || stats.today.cost > 0
-				? `${when} ${fmtCompactCost(stats.today.cost) ?? fmtCost(stats.today.cost)}${stats.today.unknownCosts ? "+?" : ""}`
-				: stats.today.unknownCosts ? `${when} cost unknown` : undefined;
+				? `${when} ${fmtCompactCost(stats.today.cost) ?? fmtCost(stats.today.cost)}${stats.today.unknownCosts ? "+?" : ""} recorded`
+				: stats.today.unknownCosts ? `${when} cost unknown recorded` : undefined;
 		case "budget":
 			return stats.budget ? budgetLine(stats.budget) : undefined;
 		case "model":
@@ -98,7 +98,7 @@ export function renderLocalFooter(
 function todayLine(today: AggRow, when: string): string {
 	const tokens = fmtCompactTokens(today.tokens);
 	const cost = today.costKnown || today.cost > 0 ? fmtCompactCost(today.cost) ?? fmtCost(today.cost) : undefined;
-	return cost ? `${when} ${tokens} ${cost}${today.unknownCosts ? "+?" : ""}` : `${when} ${tokens}${today.unknownCosts ? " cost unknown" : ""}`;
+	return cost ? `${when} ${tokens} ${cost}${today.unknownCosts ? "+?" : ""} recorded` : `${when} ${tokens}${today.unknownCosts ? " cost unknown recorded" : ""}`;
 }
 
 function budgetLine(budget: NonNullable<FooterStats["budget"]>): string {
