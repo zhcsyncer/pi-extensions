@@ -239,7 +239,8 @@ and recap calling `pi.setSessionName(title)` when enabled by config. Recap does 
 
 ### Privacy and cost
 
-- Recap makes an extra model call.
+- Requires Pi 1.1 or later. Recap makes an extra model call using the selected provider's configured authentication (API key or subscription/OAuth); it does not substitute a different provider for the same model name.
+- This side call may incur charges or consume subscription quota. Using Pi's public completion API does not automatically add its usage to agent-loop/session totals; those totals may exclude Recap.
 - By default it uses the current Pi model: `recap.model = "current"`.
 - A cheaper dedicated recap model is recommended if you do not want to spend the session model on this side call.
 - Recent activity is sent to the current or configured provider.
