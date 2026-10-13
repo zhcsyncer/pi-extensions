@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1 也已通过组合审阅与集成态复验；R2 已进入实施并配独立权限测试，D2 正做只读性能接口交接，M1 仍待历史账本政策确认；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1 也已通过组合审阅与集成态复验；R2 已进入实施并配独立权限测试，D2 已进入实施并配独立缓存/预算测试，M1 仍待历史账本政策确认；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -32,16 +32,16 @@
 - 独立审阅资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review`；session `pi11-review-20261012`；agent `pi11-review` / `w9Y:p1`。只读审阅合同，不代写实现或维护另一份进度。
 - D1 独立审阅资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review-display`；session `pi11-review-display-20261012`；agent `pi11-review-display` / `wA4:p1`。C1 对应 `pi-1.1-review-consult`、session `pi11-review-consult-20261012`、agent `pi11-review-consult` / `wA5:p1`。
 - 独立测试资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-contract-tests`；session `pi11-tests-20261012`；agent `pi11-tests` / `wA2:p1`。不读取产品实现，仅写约定测试；各提交及组合结果见任务行，行为 red 不等于验收。
-- N1 独立测试资源：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast-contract-tests`；session `pi11-fast-tests-20261012`；agent `pi11-fast-tests` / `wA7:p1`。基于未修改 Fast 的75bb74a，不读取待测实现；占用空闲实施槽位，总活动worker仍不超过4。
+- 独立测试资源二：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast-contract-tests`；session `pi11-fast-tests-20261012`；agent `pi11-fast-tests` / `wA7:p1`。N1已交付后复用为D2，当前branch `test/pi-1.1-render-cache`、base35b5e95；不读取待测实现，总活动worker仍不超过4。
 
 | 任务 | 状态 | worktree / session | 基线 → 交付 → 集成 | 验收 / 阻塞与下一步 | 更新时间 |
 |---|---|---|---|---|---|
 | E0 基线与隔离环境 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-e0`；`pi11-e0-20261012`；agent `pi11-e0` / `w9X:p1` | `c7d251f` → `411d3f8`＋`d96b74f` → `71a7c2e` | 独立复审 ACCEPT；调度在集成态断网冻结安装、harness7/7、物理 SDK 图、pack17/17 全通过，锁不变树干净；证据 `/var/tmp/pi-1.1-dispatch-20261012/e0-integration-71a7c2e/` | 2026-10-12 16:17 |
 | R1 终态/恢复/费用水位 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-runtime`；`pi11-runtime-20261012`；agent `pi11-runtime` / `w9Z:p1` | `e1d3882` → 实现`0b2c885`＋`f7f12d1`；测试`bbb0af0`＋`7b8d9ad` → `7ad73bf` | 独立复审ACCEPT；集成态1072/1072、源码/测试类型零诊断、Review消费者类型通过；证据 `/var/tmp/pi-1.1-dispatch-20261012/r1-integrated-check.log`；4 live E2E未跑 | 2026-10-12 17:57 |
-| R2 会话授权边界 | 执行中 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-runtime`；新分支`upgrade/pi-1.1-runtime-r2`；session `pi11-runtime-20261012` / `w9Z:p1` | `9960842` → — → — | 实现进行中，尚无交付。独立R2草稿初始化缺口已补公开RunOptions/named/pins接线并继续；R1纯fixture bc127fa已核对，16例自报通过。既有restart fixture由实施者适配，不读recipe作授权 | 2026-10-13 10:49 |
+| R2 会话授权边界 | 执行中 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-runtime`；新分支`upgrade/pi-1.1-runtime-r2`；session `pi11-runtime-20261012` / `w9Z:p1` | `9960842` → — → — | 实现仍进行中。独立R2测试d89c4d0已交：旧基线8通过/17行为red、测试类型通过；R1 fixture bc127fa保持16例通过。正补静态disallowedTools的合法注册排除/零副作用对照，不强造gate | 2026-10-13 10:57 |
 | R3 child 装配 | 未派发 | — | — | 待 R2＋K1 | — |
 | D1 renderer/语义保真 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；`pi11-display-20261012`；agent `pi11-display` / `w90:p1` | `e1d3882` → 实现`95b7f22`＋`0d0dc95`；测试`603bbcf`＋`fd1cc55` → `b317aee` | 独立复审ACCEPT、21合同/1174全包通过；集成态1174/1174、类型、真实loader无告警/私有加载、pack17/17通过；证据 `/var/tmp/pi-1.1-dispatch-20261012/d1-integrated-check.log` | 2026-10-12 18:46 |
-| D2 缓存/有界输出 | 执行中 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；新分支`upgrade/pi-1.1-display-d2`；`pi11-display-20261012` / `w90:p1` | `86a8a71` → — → — | 第一阶段已交完整基准与接口，树干净；缓存失效、预算和Linux合成输入边界已冻结，待同步并解锁第二阶段，原D1分支保留 | 2026-10-13 10:49 |
+| D2 缓存/有界输出 | 执行中 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；新分支`upgrade/pi-1.1-display-d2`；`pi11-display-20261012` / `w90:p1` | `35b5e95` → — → — | 第二阶段实施已授权；独立pi11-fast-tests编写缓存/预算合同，不读实现。冻结每组件当前缓存/1m UTF16输入边界，真实CLI/PTY/Mac不冒称已测，D3/D4不进入 | 2026-10-13 10:49 |
 | D3 nested 投影 | 未派发 | — | — | 待 D2 | — |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
 | K1 Context7 离线合同 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-context7`；`pi11-context7-20261012`；agent `pi11-context7` / `wA1:p1` | `4975745` → `f0261015` → `6fa7613` | 完整独立审阅及集成态 typecheck＋24/24、真实 loader 无告警/私有加载、pack17/17 通过；消费者可信身份合同已写回接入规格，真实服务仍待 L1 | 2026-10-12 16:30 |
