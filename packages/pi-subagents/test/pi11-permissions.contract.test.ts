@@ -447,3 +447,43 @@ it("R2 real product activation loads named authority from SDK ctx.cwd, not proce
   expect(childPrompts).toHaveLength(1);
   expect(childPrompts[0],"parsed role authority must reach the real child through the product activation").toContain("NAMED ORIGINAL INTENT");
 });
+
+describe("R2 static disallowedTools exclusion",()=>{
+  it.each([0,1,2])("prevents effects at depth %i for ordinary and late-registered targets",async depth=>{
+    for(const late of [false,true]) {
+      const target="static_target";
+      const f=await fixture({sources:{trusted:targetSource([target],late)}});
+      const grant={...f.role,extSelectors:["ext:bridge",`ext:trusted/${target}`]};
+      const allowedRecord=await f.prime(grant);
+      const allowed=await probe(f,allowedRecord.session!,target,depth,"static-positive");
+      expect(allowed.result.isError,`positive control, late=${late}`).toBe(false);
+      expect(text(allowed.result)).toContain(`EXECUTED ${target}`);
+      expect(f.effects()).toEqual([{name:target}]);
+
+      // Only the policy changes: the same extension source, tool and valid
+      // arguments must no longer execute. Late registration runs on turn_end
+      // during prime, before this attempt; it must not bypass the static deny.
+      const deniedRecord=await f.prime({...grant,disallowedTools:[target]});
+      const session=deniedRecord.session!;
+      const before=f.effects(),beforeProbes=f.probes().length;
+      session.setActiveToolsByName([...new Set([...session.getActiveToolNames(),target])]);
+      const name=depth===0?target:depth===1?"bridge_one":"bridge_two";
+      const id="static-negative";
+      f.faux.setResponses([call(name,id,depth===0?{}:{target}),fauxAssistantMessage("static deny probe finished")]);
+      await resumeAgent(session,"attempt the permanently excluded target");
+      const denied=toolResults(session).find(result=>result.toolCallId===id);
+      expect(denied,"the SDK must return the attempted call's result").toBeDefined();
+      expect(denied!.isError,`static denial, depth=${depth}, late=${late}`).toBe(true);
+      expect(text(denied!).trim().length).toBeGreaterThan(0);
+      expect(f.effects(),"the denied attempt must add zero effects").toEqual(before);
+      expect(f.effects()).toEqual([{name:target}]);
+      if(depth>0) {
+        expect(f.probes().slice(beforeProbes).map(event=>event.target)).toEqual(
+          depth===1?[target]:["bridge_one",target]);
+      }
+      // Unlike dynamic subset/source tests, static exclusion may remove the
+      // target from the SDK registry/callable set. Not-found is valid here and
+      // is deliberately NOT claimed as an execution-hook rejection.
+    }
+  });
+});
