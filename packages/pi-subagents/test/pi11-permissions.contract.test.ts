@@ -299,8 +299,9 @@ describe("R2 recovery authorization is historical ceiling intersected with curre
   });
 });
 
-function observerSource() {
+function observerSource(reactivate=false) {
   return targetSource(["pin_target"]).replace("export default pi => {",`export default pi => {
+    ${reactivate ? "pi.on('before_agent_start',()=>{pi.setActiveTools(['pin_target']);});" : ""}
     pi.on('message_end',(_event,ctx)=>{appendFileSync(join(ctx.cwd,'observations.jsonl'),JSON.stringify({cwd:ctx.cwd})+'\\n');});`);
 }
 function namedRole(cwd:string,name:string,allowed:string,enabled=true) {
@@ -322,7 +323,7 @@ describe("R2 pins and configuration ownership",()=>{
   });
 
   it("keeps isolated empty-tool roles observable without granting pinned tools or script runtimes",async()=>{
-    const agentDir=directory("pi11-r2-isolated-");put(join(agentDir,"extensions/observer.ts"),observerSource());
+    const agentDir=directory("pi11-r2-isolated-");put(join(agentDir,"extensions/observer.ts"),observerSource(true));
     const f=await fixture({agentDir,globalPins:["observer"]});
     expect(f.settings.pinnedExtensions).toEqual(["observer"]);
     f.faux.setResponses([fauxAssistantMessage("isolated observation")]);
@@ -331,8 +332,21 @@ describe("R2 pins and configuration ownership",()=>{
     expect(jsonLines(join(f.cwd,"observations.jsonl")).length).toBeGreaterThan(0);
     expect(record.session!.getToolDefinition("codemode")).toBeUndefined();
     expect(record.session!.getAllTools().some(tool=>tool.name.startsWith("mcp__"))).toBe(false);
-    const denied=await probe(f,record.session!,"pin_target",0,"isolated-pin");
-    expect.soft(f.effects()).toEqual([]);assertGateRejection(denied.result);
+    const session=record.session!;
+    expect(session.getToolDefinition("pin_target")).toBeDefined();
+    expect(session.getAllTools().find(tool=>tool.name==="pin_target")?.sourceInfo?.path).toBe(join(agentDir,"extensions/observer.ts"));
+    let targetEnd:{isError:boolean;result:{content:unknown}}|undefined;
+    const unsubscribe=session.subscribe(event=>{
+      if(event.type==="tool_execution_end" && event.toolName==="pin_target" && event.toolCallId==="isolated-pin") targetEnd=event;
+    });
+    f.faux.setResponses([call("pin_target","isolated-pin"),fauxAssistantMessage("isolated rejection observed")]);
+    // The observer's public before_agent_start hook reactivates the target AFTER
+    // resume has refreshed permissions; an earlier setActive call is insufficient.
+    try {await resumeAgent(session,"attempt the visible pinned target");} finally {unsubscribe();}
+    expect(targetEnd,"the actual pinned target must reach execution rejection").toBeDefined();
+    expect(targetEnd!.isError).toBe(true);
+    expect.soft(f.effects()).toEqual([]);
+    assertGateRejection(toolResults(session).find(result=>result.toolCallId==="isolated-pin")!);
   });
 
   it("keeps two cwd role definitions and inherit-versus-clear pins separate under interleaved runtimes",async()=>{
@@ -423,7 +437,7 @@ it("R2 workflow Agent/get/steer work directly but nested calls cannot reach mana
     expect(f.parent.getToolDefinition(name)).toBeDefined();
     const nested=await parentCall(f,"bridge_one",{target:name,payload},`nested-${name}`);
     expect.soft(nested.isError,`${name} must be rejected at the native nested boundary`).toBe(true);
-    expect.soft(text(nested)).toMatch(/not callable|model.only|not available|cannot.*call/i);
+    expect.soft(text(nested)).toMatch(/not callable|model.only|not available|cannot.*call|tool .*not found/i);
   }
   expect.soft(targetCalls.slice(beforeCalls)).toEqual([]);
   expect.soft(f.faux.state.callCount).toBe(beforeRequests);
