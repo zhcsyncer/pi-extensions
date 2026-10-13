@@ -4,7 +4,7 @@ import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-age
 import { TuiMainScreen, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { PreviewText } from "../src/preview-text.ts";
 import { ClaudeToolResultComponent } from "../src/tool-call-style.ts";
-import { extractTextOutput } from "../src/render-utils.ts";
+import { extractTextOutput, splitLines } from "../src/render-utils.ts";
 import { renderEditDiffResult, renderWriteDiffResult } from "../src/diff-renderer.ts";
 import { buildInspectorSettings, openSettingsModal } from "../src/config-modal.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG as defaults } from "../src/types.ts";
@@ -61,6 +61,22 @@ test("result extraction bounds block traversal without invoking getters or mutat
   assert.match(extractTextOutput(accessor), /Truncated/);
   assert.equal(accessed, 0);
 });
+
+for (const [boundary, source] of [
+  ["UTF-16 units", "x".repeat(1_000_001)],
+  ["logical lines", "line\n".repeat(20_001)],
+] as const) {
+  test(`extraction includes its omission marker within downstream ${boundary} input limits`, () => {
+    const block = Object.freeze({ type: "text", text: source });
+    const result = Object.freeze({ content: Object.freeze([block]) });
+    const input = extractTextOutput(result);
+    assert.ok(input.length <= 1_000_000, `splitLines would receive ${input.length} UTF-16 units`);
+    const lines = splitLines(input);
+    assert.ok(lines.length <= 20_000, `received ${lines.length} logical lines`);
+    assert.match(lines.at(-1)!, /Truncated.*remaining content omitted/);
+    assert.equal(result.content[0].text, source);
+  });
+}
 
 test("own renderer snapshots omit getters and toJSON rather than falling through to unbounded formatting", async t => {
   const h = await createDisplaySession({ ...defaults, mcpOutputMode: "preview" });

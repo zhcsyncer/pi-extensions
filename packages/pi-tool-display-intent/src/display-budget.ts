@@ -89,8 +89,10 @@ export function extractDisplayText(result: unknown): string {
 	const length = displayField(raw, "length");
 	if (typeof length !== "number") return DISPLAY_OMISSION;
 	const parts: string[] = [];
-	let remaining = DISPLAY_LIMITS.units as number;
-	let lines = DISPLAY_LIMITS.lines as number;
+	// This text is input to later splitting/formatting, not final presentation.
+	// Reserve its possible notice before traversal; no second scan of the body.
+	let remaining = DISPLAY_LIMITS.units - DISPLAY_OMISSION.length - 1;
+	let lines = DISPLAY_LIMITS.lines - 1;
 	let truncated = length > DISPLAY_LIMITS.blocks;
 	for (let i = 0; i < Math.min(length, DISPLAY_LIMITS.blocks); i++) {
 		if (displayPropertyOmitted(raw, String(i))) { truncated = true; continue; }
