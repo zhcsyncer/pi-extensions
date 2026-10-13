@@ -1,4 +1,4 @@
-import { hasNativeCodemodeProgress, nativeView, NATIVE_NESTED_OMISSION } from "./native-nested-view.js";
+import { hasNativeCodemodeProgress, nativeView, nativeDetailView, NATIVE_NESTED_OMISSION } from "./native-nested-view.js";
 
 export type DetailRequest =
 	| { kind: "tool"; toolName: string; target?: string; args: unknown; result: unknown; status?: string; timing?: string }
@@ -442,7 +442,7 @@ export function buildDetailModel(request: DetailRequest): DetailModel {
 	}
 	const native = hasNativeCodemodeProgress(request.toolName, request.result) ? nativeView(request.result) : undefined;
 	// Only replace an omitted display projection; the request and in-budget values stay intact.
-	if (native?.omitted) request = { ...request, result: native.result };
+	if (native?.omitted) request = { ...request, result: nativeDetailView(native) };
 	const details = field(request.result, "details");
 	const hasDetails = nonempty(details);
 	let metadata = metadataReport(request.result, details, hasDetails);

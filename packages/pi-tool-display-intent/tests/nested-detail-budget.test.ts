@@ -30,14 +30,45 @@ for (const [name, count, args] of [
         assert.match(text, /partial list.*visible costs only/);
         const data = parse(text);
         assert.ok(data.calls.length <= 256);
-        assert.ok(data.calls.every(call => bytes(call.args) <= 8192));
-        assert.ok(data.calls.reduce((sum, call) => sum + bytes(call.args), 0) <= 32768);
+        const retained = data.calls.filter(call => Object.hasOwn(call, "args"));
+        assert.ok(retained.every(call => bytes(call.args) <= 8192));
+        assert.ok(retained.reduce((sum, call) => sum + bytes(call.args), 0) <= 32768);
+        for (const call of data.calls) {
+          if (Object.hasOwn(call, "args")) assert.equal(call.args, args);
+          else assert.equal(call.argsOmitted, true);
+        }
         assert.equal(data.keep, "native metadata");
       }
     }
     if (!empty) assert.equal(model.tabs[0].rawText, "original output");
     assert.deepEqual(request, before);
   }
+});
+
+test("structured details distinguish omitted arguments from genuine empty strings", () => {
+  const source = result(100, "界".repeat(200), true);
+  const original = Object.freeze({ ...source, details: Object.freeze({ ...source.details, calls: Object.freeze([
+    Object.freeze({ id: "root/0", name: "leaf", args: "", status: "ok" }), ...source.details.calls,
+  ]) }) });
+  const before = structuredClone(original);
+  const request: DetailRequest = Object.freeze({ kind: "tool", toolName: "codemode", args: Object.freeze({}), result: original });
+  const model = buildDetailModel(request);
+  for (const tab of model.tabs.filter(tab => tab.id !== "args")) {
+    assert.equal(tab.truncated, true);
+    for (const text of [tab.text, tab.rawText]) {
+      const calls = parse(text).calls;
+      assert.equal(calls.filter(call => call.args === "").length, 1, "only the actual empty argument may remain empty");
+      assert.equal(calls[0].args, "");
+      assert.equal(calls[0].argsOmitted, undefined);
+      assert.ok(calls.some(call => call.argsOmitted === true));
+      for (const call of calls.slice(1)) {
+        if (Object.hasOwn(call, "args")) assert.equal(call.args, "界".repeat(200));
+        else assert.equal(call.argsOmitted, true);
+      }
+    }
+  }
+  assert.equal(request.result, original);
+  assert.deepEqual(original, before);
 });
 
 test("in-budget native values and non-native metadata remain unchanged", () => {

@@ -14,6 +14,16 @@ interface NativeView {
   omitted: boolean;
 }
 
+/** Native rendering needs a string placeholder; structured details must not call it a retained value. */
+export function nativeDetailView(view: NativeView): Result {
+  const details = view.result.details as { calls: Array<Record<string, unknown>> };
+  return { ...view.result, details: { ...details, calls: details.calls.map((call, index) => {
+    if (view.rows[index].args !== undefined) return call;
+    const { args: _args, ...metadata } = call;
+    return { ...metadata, argsOmitted: true };
+  }) } };
+}
+
 /** Detail requests lack ToolInfo; recognize only codemode's known native-progress payload. */
 export function hasNativeCodemodeProgress(toolName: string, result: unknown): boolean {
   if (toolName !== "codemode") return false;
