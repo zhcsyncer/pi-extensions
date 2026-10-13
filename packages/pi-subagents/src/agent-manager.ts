@@ -24,11 +24,11 @@ import type {
 } from "./types.js";
 import { listArchivedAgents, recordFromArchive } from "./session-archive.js";
 import { shortModelLabel } from "./ui/agent-widget.js";
+import { loadRuntimeConfig, type AgentRuntimeConfig } from "./runtime-config.js";
 import { createLifetimeUsage, readSessionUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 import {
   cleanupWorktree,
   createWorktree,
-  isWorktreeIsolationEnabled,
   pruneWorktrees,
 } from "./worktree.js";
 
@@ -38,6 +38,8 @@ export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void
 export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
 
 export interface AgentManagerOptions {
+  /** Activation-owned config. Standalone managers resolve their caller's cwd per spawn. */
+  runtimeConfig?: AgentRuntimeConfig;
   /** Normal extension shutdown prunes worktree registrations; embedded callers can opt out. */
   pruneWorktreesOnDispose?: boolean;
   /** Persist admission before a new generation becomes visible or enters the queue. */
@@ -75,6 +77,7 @@ interface SpawnArgs {
   type: SubagentType;
   prompt: string;
   options: SpawnOptions;
+  runtimeConfig: AgentRuntimeConfig;
 }
 
 export interface SpawnOptions {
@@ -134,6 +137,7 @@ export interface SpawnOptions {
 
 export class AgentManager {
   private agents = new Map<string, AgentRecord>();
+  private inlineAuthority = new Map<string, InlineAgentConfig>();
   private cleanupInterval: ReturnType<typeof setInterval>;
   private onComplete?: OnAgentComplete;
   private onStart?: OnAgentStart;
@@ -215,11 +219,12 @@ export class AgentManager {
     // call, not minutes later at drain. Throw (not warn): programmatic callers
     // can fix and retry; the RPC layer converts throws into error envelopes.
     assertValidSpawnCwd(options.cwd);
+    const runtimeConfig = this.options.runtimeConfig ?? loadRuntimeConfig(ctx.cwd);
 
     // Enforce the repository capability below every caller boundary. Tool calls
     // are schema-gated too, but agent files, schedules, and RPC can bypass that
     // schema. `off` and disabled worktrees both become ordinary real-tree runs.
-    const isolation = options.isolation === "worktree" && isWorktreeIsolationEnabled()
+    const isolation = options.isolation === "worktree" && runtimeConfig.worktreeIsolation
       ? "worktree"
       : undefined;
     options = {
@@ -275,7 +280,8 @@ export class AgentManager {
     this.createSettlement(id);
     this.agents.set(id, record);
 
-    const args: SpawnArgs = { pi, ctx, type, prompt, options };
+    const args: SpawnArgs = { pi, ctx, type, prompt, options, runtimeConfig };
+    if (options.inlineAgentConfig) this.inlineAuthority.set(id, options.inlineAgentConfig);
     try {
       this.options.onAccepted?.(record);
     } catch (err) {
@@ -305,7 +311,7 @@ export class AgentManager {
   }
 
   /** Actually start an agent (called immediately or from queue drain). */
-  private startAgent(id: string, record: AgentRecord, { pi, ctx, type, prompt, options }: SpawnArgs) {
+  private startAgent(id: string, record: AgentRecord, { pi, ctx, type, prompt, options, runtimeConfig }: SpawnArgs) {
     // Re-validate a caller-supplied cwd: queued spawns can start minutes after
     // spawn()'s check, and the directory may be gone by then (TOCTOU). Same
     // curated errors; drainQueue parks a throw on the record as an error.
@@ -319,7 +325,7 @@ export class AgentManager {
     // fail loud if not possible (no silent fallback to main tree). Done
     // BEFORE state mutation so a throw doesn't leave the record half-running.
     let worktreeCwd: string | undefined;
-    const useWorktree = options.isolation === "worktree" && isWorktreeIsolationEnabled();
+    const useWorktree = options.isolation === "worktree" && runtimeConfig.worktreeIsolation;
     // The setting can turn off while a background spawn is queued. Keep the UI
     // snapshot honest if that accepted request is downgraded at queue drain.
     if (!useWorktree && record.invocation?.isolation) {
@@ -348,6 +354,7 @@ export class AgentManager {
     const current = () => record.runGeneration === generation && !this.isExecutionSettled(id);
     this.execute(record, options, () => runAgent(ctx, type, prompt, {
       pi,
+      runtimeConfig,
       agentId: id,
       model: options.model,
       maxTurns: options.maxTurns,
@@ -522,13 +529,14 @@ export class AgentManager {
     })();
   }
 
-  private async runContinuation(record: AgentRecord, prompt: string, options: Partial<SpawnOptions> = {}) {
+  private async runContinuation(record: AgentRecord, prompt: string, options: Partial<SpawnOptions> & { currentAgentConfig?: InlineAgentConfig } = {}) {
     const generation = record.runGeneration;
     const current = () => record.runGeneration === generation && !this.isExecutionSettled(record.id);
     const { text, failure, aborted, steered } = await resumeAgent(record.session!, prompt, {
       maxTurns: record.resumeSnapshot?.maxTurns ?? record.invocation?.maxTurns,
       graceTurns: record.resumeSnapshot?.graceTurns,
       signal: record.abortController!.signal,
+      currentAgentConfig: options.currentAgentConfig ?? this.inlineAuthority.get(record.id),
       onToolActivity: (activity) => {
         if (activity.type === "end") record.toolUses++;
         options.onToolActivity?.(activity);
@@ -656,7 +664,7 @@ export class AgentManager {
     id: string,
     prompt: string,
     signal?: AbortSignal,
-    options: Pick<SpawnOptions, "isBackground" | "onSessionCreated" | "onToolActivity" | "onTextDelta" | "onTurnEnd" | "onAssistantUsage" | "onSessionUsage" | "onCompaction"> & { pi?: ExtensionAPI; ctx?: ExtensionContext } = {},
+    options: Pick<SpawnOptions, "isBackground" | "onSessionCreated" | "onToolActivity" | "onTextDelta" | "onTurnEnd" | "onAssistantUsage" | "onSessionUsage" | "onCompaction"> & { pi?: ExtensionAPI; ctx?: ExtensionContext; currentAgentConfig?: InlineAgentConfig } = {},
   ): Promise<AgentRecord | undefined> {
     const record = options.ctx ? this.getRecordOrArchive(id, options.ctx) : this.agents.get(id);
     if (!record) return undefined;
@@ -668,6 +676,7 @@ export class AgentManager {
     }
     if (record.resumeSnapshot) assertValidSpawnCwd(record.resumeSnapshot.cwd);
     signal?.throwIfAborted();
+    if (options.currentAgentConfig) this.inlineAuthority.set(id, options.currentAgentConfig);
     const generation = (record.runGeneration ?? 1) + 1;
     this.options.onAccepted?.({ ...record, status: "queued", runGeneration: generation });
     if ((record.status === "completed" || record.status === "steered") && record.result?.trim()) {
@@ -691,7 +700,10 @@ export class AgentManager {
       // Queue admission and resource construction are separate cancellation points.
       if (record.resumeSnapshot) assertValidSpawnCwd(record.resumeSnapshot.cwd);
       if (!record.session) {
-        record.session = await restoreAgentSession(options.ctx!, record.sessionFile!, record.resumeSnapshot!, { pi: options.pi! });
+        record.session = await restoreAgentSession(options.ctx!, record.sessionFile!, record.resumeSnapshot!, {
+          pi: options.pi!, runtimeConfig: this.options.runtimeConfig,
+          currentAgentConfig: options.currentAgentConfig ?? this.inlineAuthority.get(id),
+        });
       }
       this.readEffectiveInvocation(record, record.session);
       options.onSessionCreated?.(record.session);
@@ -897,9 +909,10 @@ export class AgentManager {
       if (record.status === "queued") this.settleExecution(record.id);
     }
     this.agents.clear();
+    this.inlineAuthority.clear();
     if (this.options.pruneWorktreesOnDispose !== false) {
       // Prune any orphaned git worktrees (crash recovery).
-      try { pruneWorktrees(process.cwd()); } catch { /* ignore */ }
+      try { pruneWorktrees(this.options.runtimeConfig?.cwd ?? process.cwd()); } catch { /* ignore */ }
       // Also prune repos that caller-supplied cwds created worktrees in — a clean
       // exit with in-flight agents would otherwise leave stale registrations there.
       for (const repo of this.worktreeRepos) {

@@ -5,6 +5,7 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { LifetimeUsage } from "./usage.js";
+import type { AgentAuthorization } from "./authorization.js";
 
 /** Pi's full model thinking domain, including explicit `off`. */
 export type ThinkingLevel = ModelThinkingLevel;
@@ -73,6 +74,8 @@ export interface AgentConfig {
   enabled?: boolean;
   /** Where this agent was loaded from */
   source?: "default" | "project" | "global";
+  /** Canonical role file identity, not a tool/model parameter. */
+  sourcePath?: string;
 }
 
 /**
@@ -86,6 +89,7 @@ export type InlineAgentConfig = Omit<
   | "model"
   | "thinking"
   | "source"
+  | "sourcePath"
   | "isDefault"
   | "enabled"
   | "inheritContext"
@@ -122,6 +126,7 @@ export type WidgetMode = 'all' | 'background' | 'off';
 export interface AgentResumeSnapshot {
   version: 1;
   config: AgentConfig;
+  authorization?: AgentAuthorization;
   systemPrompt: string;
   cwd: string;
   configCwd: string;

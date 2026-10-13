@@ -6,14 +6,15 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
-import type { ExtensionContext, LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, LoadExtensionsResult, Extension } from "@earendil-works/pi-coding-agent";
+import { ChildAuthorization, AUTHORIZATION_EXTENSION_PATH, type AgentAuthorization, type AgentRoleIdentity, type AuthorizationScope } from "./authorization.js";
+import { loadRuntimeConfig, reloadRuntimeAgents, type AgentRuntimeConfig } from "./runtime-config.js";
 import {
   type AgentSession,
   type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
-  getAgentDir,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -198,32 +199,7 @@ export function parseExtSelectors(entries: string[]): {
   return { extNames, narrowing };
 }
 
-/**
- * Keep a subagent's tool scope correct as extensions register tools over time.
- *
- * Extensions may call `registerTool` long after load — pi-mcp from `session_start`,
- * context-mode from `before_agent_start` — so scope has to be re-derived rather than
- * snapshotted. `registerTool` writes into the very `extension.tools` maps this reads,
- * so `inScope()` sees late arrivals on the next call.
- *
- * Two enforcement points, because neither covers the whole picture:
- *
- *   - `turn_end` re-narrows the ACTIVE set. pi emits `turn_end` immediately before
- *     `prepareNextTurn` re-snapshots `agent.state.tools`, and session listeners run
- *     synchronously, so the narrow lands in time for turns 2..N.
- *   - `beforeToolCall` blocks out-of-scope calls. Turn 1 cannot be narrowed at all:
- *     `before_agent_start` fires INSIDE `prompt()` and may widen the tool set, but
- *     `createContextSnapshot()` freezes that turn's tools immediately after — there
- *     is no hook in between. A call-time check is the only correct guard there.
- *
- * Both are installed on the session and deliberately NOT unsubscribed: they must
- * outlive the `runAgent` call so resumed/steered turns stay scoped. pi's `dispose()`
- * clears `_eventListeners`, so they die with the session rather than leaking.
- *
- * Only meaningful when extensions are loaded — under `noExtensions`/`isolated`
- * with an empty pin set the static `allowedToolNames` allowlist already gates
- * the registry itself.
- */
+/** @deprecated Model-view compatibility helper, not an execution authorization gate. */
 export function installExtensionToolScope(
   session: AgentSession,
   ctx: {
@@ -284,16 +260,8 @@ export function installExtensionToolScope(
     if (event.type === "turn_end") renarrow();
   });
 
-  const priorBeforeToolCall = session.agent.beforeToolCall;
-  session.agent.beforeToolCall = async (context, signal) => {
-    if (!inScope().has(context.toolCall.name)) {
-      return {
-        block: true,
-        reason: `Tool "${context.toolCall.name}" is not available to this subagent.`,
-      };
-    }
-    return priorBeforeToolCall?.(context, signal);
-  };
+  // Execution authorization is installed by ChildAuthorization before binding.
+  // This compatibility helper only maintains the model view.
 }
 
 const EMPTY_PINNED: ReadonlySet<string> = new Set();
@@ -401,6 +369,10 @@ export interface ToolActivity {
 export interface RunOptions {
   /** ExtensionAPI instance — used for pi.exec() instead of execSync. */
   pi: ExtensionAPI;
+  /** Manager/activation-owned construction state; never a tool or RPC argument. */
+  runtimeConfig?: AgentRuntimeConfig;
+  /** Fresh caller authority for inline restoration/continuation, never a model argument. */
+  currentAgentConfig?: InlineAgentConfig;
   /** Manager-assigned id; suffixes session name to disambiguate parallel spawns (e.g. `Explore#a1b2c3d4`). */
   agentId?: string;
   model?: Model<any>;
@@ -573,8 +545,12 @@ export async function runAgent(
   prompt: string,
   options: RunOptions,
 ): Promise<RunResult> {
+  const runtime = options.runtimeConfig ?? loadRuntimeConfig(options.configCwd ?? options.cwd ?? ctx.cwd, {
+    defaultMaxTurns, graceTurns, rememberAgents, pinnedExtensions: getPinnedExtensions(),
+  });
+  options = { ...options, runtimeConfig: runtime };
   const inlineAgentConfig = options.inlineAgentConfig;
-  const agentConfig: AgentConfig | undefined = inlineAgentConfig ?? getAgentConfig(type);
+  const agentConfig: AgentConfig | undefined = inlineAgentConfig ?? getAgentConfig(type, runtime.agents);
   const config = inlineAgentConfig
     ? {
         displayName: inlineAgentConfig.displayName ?? inlineAgentConfig.name,
@@ -585,7 +561,7 @@ export async function runAgent(
         skills: inlineAgentConfig.skills,
         promptMode: inlineAgentConfig.promptMode,
       }
-    : getConfig(type);
+    : getConfig(type, runtime.agents);
 
   // Resolve working directory: worktree override > parent cwd
   const effectiveCwd = resolve(options.cwd ?? ctx.cwd);
@@ -613,7 +589,7 @@ export async function runAgent(
 
   let toolNames = inlineAgentConfig
     ? (inlineAgentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES])
-    : getToolNamesForType(type);
+    : getToolNamesForType(type, runtime.agents);
 
   // Persistent memory: detect write capability and branch accordingly.
   // Account for disallowedTools — a tool in the base set but on the denylist is not truly available.
@@ -653,8 +629,8 @@ export async function runAgent(
   resolvedConfig.extensions = config.extensions;
   resolvedConfig.excludeExtensions = config.excludeExtensions;
   resolvedConfig.skills = config.skills;
-  const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
-  const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? graceTurns;
+  const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? runtime.defaultMaxTurns);
+  const effectiveGraceTurns = normalizeGraceTurns(options.graceTurns) ?? runtime.graceTurns;
   const session = await constructAgentSession(ctx, resolvedConfig, systemPrompt, {
     ...options, cwd: effectiveCwd, configCwd,
   });
@@ -665,6 +641,7 @@ export async function runAgent(
       options.onResumeSnapshot({
         version: 1,
         config: structuredClone(resolvedConfig),
+        authorization: structuredClone(sessionAuthorities.get(session)!.historical),
         systemPrompt: session.systemPrompt,
         cwd: effectiveCwd,
         configCwd,
@@ -693,11 +670,11 @@ async function constructAgentSession(
   systemPrompt: string,
   options: RunOptions & { cwd: string; configCwd: string },
   restoredManager?: SessionManager,
+  historical?: AgentAuthorization,
 ): Promise<AgentSession> {
   const type = agentConfig.name;
   const effectiveCwd = options.cwd;
   const configCwd = options.configCwd;
-  const toolNames = agentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES];
   const extensions = options.isolated ? false : agentConfig.extensions;
   const excludeExtensions = options.isolated ? undefined : agentConfig.excludeExtensions;
   const skills = options.isolated ? false : agentConfig.skills;
@@ -709,7 +686,8 @@ async function constructAgentSession(
   }
   const noSkills = !!restoredManager || skills === false || Array.isArray(skills);
 
-  const agentDir = getAgentDir();
+  const runtime = options.runtimeConfig ?? loadRuntimeConfig(configCwd);
+  const agentDir = runtime.agentDir;
 
   // Extension loading:
   // - true  → all default-discovered extensions
@@ -728,18 +706,20 @@ async function constructAgentSession(
   // the LLM. They do NOT control loading — `extensions:` is the sole authority for
   // which extensions load. `ext:foo` against an extension that `extensions:` excluded
   // is an orphan and warns after reload. `isolated` means no extension tools at all.
-  const { extNames, narrowing } = parseExtSelectors(
+  const { extNames } = parseExtSelectors(
     options.isolated ? [] : (agentConfig?.extSelectors ?? []),
   );
   // Pinning is empty → identical to the historical noExtensions shortcut.
   // A non-empty pin must discover extensions so observers can bind handlers.
-  const pinned = pinnedExtensions;
+  const pinned = new Set(runtime.pinnedExtensions);
   const noExtensions = extensions === false && pinned.size === 0;
 
   const extensionsSpec = Array.isArray(extensions)
     ? parseExtensionsSpec(extensions, configCwd)
     : undefined;
   const keepNames = extensionsSpec?.names ?? new Set<string>();
+  const keepBareNames = new Set(Array.isArray(extensions)
+    ? extensions.filter((entry) => !entry.includes("/") && !entry.includes("\\") && !entry.startsWith("~")).map((entry) => entry.toLowerCase()) : []);
   // `exclude_extensions:` is a denylist applied AFTER the include set — exclude
   // wins on the tool surface. Load still keeps a pinned name (pin wins loading).
   // Plain canonical names only (case-insensitive). Note: excluded extensions'
@@ -764,16 +744,26 @@ async function constructAgentSession(
           return {
             ...base,
             extensions: base.extensions.filter((e) => {
+              if (e.path === AUTHORIZATION_EXTENSION_PATH) return true;
               const canons = extensionCanonicalNames(e.path);
               if (canons.some((n) => pinned.has(n))) return true; // pin wins loading
               if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins otherwise
-              return loadAll || canons.some((n) => keepNames.has(n));
+              return loadAll || canons.some((n) => keepBareNames.has(n)) ||
+                !!extensionsSpec?.paths.some((path) => resolve(path) === resolve(e.resolvedPath));
             }),
           };
         };
 
+  let authorization!: ChildAuthorization;
   const loader = new DefaultResourceLoader({
     cwd: configCwd,
+    extensionFactories: [{ name: "subagents-authorization", hidden: true,
+      factory: (pi) => {
+        const factory = authorization.extension;
+        if (typeof factory !== "function") return factory.factory(pi);
+        return factory(pi);
+      },
+    }],
     agentDir,
     noExtensions,
     additionalExtensionPaths,
@@ -785,7 +775,11 @@ async function constructAgentSession(
     systemPromptOverride: () => systemPrompt,
     appendSystemPromptOverride: () => [],
   });
+  authorization = new ChildAuthorization(loader);
   await loader.reload();
+  if (!loader.getExtensions().extensions.some((extension) => extension.path === AUTHORIZATION_EXTENSION_PATH && extension.handlers.has("tool_call"))) {
+    throw new Error("Subagent authorization gate was not loaded; refusing execution");
+  }
   if (restoredManager && loader.getExtensions().errors.length) {
     throw new Error(`Subagent restore resource loading failed: ${loader.getExtensions().errors.map((error) => error.path).join(", ")}`);
   }
@@ -876,63 +870,12 @@ async function constructAgentSession(
   // Resolve thinking level: explicit option > agent config > undefined (inherit)
   const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
 
-  const disallowedSet = agentConfig?.disallowedTools
-    ? new Set(agentConfig.disallowedTools)
-    : undefined;
-
-  // ─── Tool scoping ───────────────────────────────────────────────────────
-  //
-  // Some extensions register their tools ASYNCHRONOUSLY, long after the
-  // `loader.reload()` above: pi-mcp calls registerTool from `session_start`
-  // (once its MCP servers connect), context-mode from `before_agent_start`.
-  // That is deliberate on their part — eagerly spawning an MCP bridge during
-  // extension discovery orphans child processes on pi's non-agent code paths
-  // (--help, config, trust probing).
-  //
-  // So the tool set cannot be snapshotted here. pi's `allowedToolNames` gates
-  // tool *registration* (`_refreshToolRegistry`'s `isAllowedTool`), not merely
-  // the active set, and is frozen at construction — a name absent from the
-  // snapshot is dropped forever, even once the tool actually registers (#125).
-  //
-  // Whenever extensions are in play we therefore:
-  //   - leave `allowedToolNames` unset, so pi's live gate admits tools whenever
-  //     they register;
-  //   - express the name-stable, permanent part of the scope (our own
-  //     orchestration tools, built-ins the agent didn't ask for, and
-  //     `disallowedTools`) as `excludeTools`, which pi re-applies on every
-  //     registry refresh;
-  //   - enforce `ext:` narrowing on the ACTIVE set via the live `inScope()`
-  //     predicate installed after bind — the active set is what the LLM sees,
-  //     so a registry tool that is never activated is invisible and uncallable.
-  //
-  // `noExtensions` (extensions: false / isolated, and no pinned observers)
-  // keeps the historical static allowlist: nothing async can appear there, and
-  // a hard registry gate is the correct boundary. A non-empty pin takes the
-  // live-scoping path so observers can bind; their tools are hidden via pinnedOnly.
-  const builtinToolNameSet = new Set(toolNames);
-
-  let sessionTools: string[] | undefined;
-  let sessionExcludeTools: string[] | undefined;
-  if (noExtensions) {
-    sessionTools = toolNames.filter(
-      (t) => !EXCLUDED_TOOL_NAMES.includes(t) && !disallowedSet?.has(t),
-    );
-  } else {
-    const denyTools = new Set<string>(EXCLUDED_TOOL_NAMES);
-    // Keep only the built-ins the agent asked for — deny the rest.
-    for (const name of BUILTIN_TOOL_NAMES) {
-      if (!builtinToolNameSet.has(name)) denyTools.add(name);
-    }
-    if (disallowedSet) {
-      for (const name of disallowedSet) denyTools.add(name);
-    }
-    sessionExcludeTools = [...denyTools];
-  }
-
+  // Keep registrations intact for legitimate late tools. The public hook is
+  // authoritative even when another extension changes the model's active view.
   const settingsManager = SettingsManager.create(configCwd, agentDir);
   const configuredSessionDir = resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd);
   const defaultSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR ?? settingsManager.getSessionDir?.();
-  const persistSession = agentConfig?.persistSession ?? rememberAgents;
+  const persistSession = agentConfig?.persistSession ?? runtime.rememberAgents;
   const sessionManager = restoredManager ?? (persistSession
     ? SessionManager.create(effectiveCwd, configuredSessionDir ?? defaultSessionDir, {
         parentSession: ctx.sessionManager.getSessionFile(),
@@ -955,12 +898,11 @@ async function constructAgentSession(
     modelRegistry: ctx.modelRegistry,
     ...(parentModelRuntime != null ? { modelRuntime: parentModelRuntime as never } : {}),
     model,
-    tools: sessionTools,
+    // Modifiers keep late registrations open; a parent's defaultTools view is
+    // not this child's authorization ceiling.
+    tools: BUILTIN_TOOL_NAMES.map((name) => `+${name}`),
     resourceLoader: loader,
   };
-  if (sessionExcludeTools) {
-    sessionOpts.excludeTools = sessionExcludeTools;
-  }
   if (thinkingLevel) {
     sessionOpts.thinkingLevel = thinkingLevel;
   }
@@ -977,6 +919,13 @@ async function constructAgentSession(
     }
     let bindingFailure: string | undefined;
 
+    const role: AgentRoleIdentity = historical?.role ?? (options.inlineAgentConfig
+      ? { kind: "inline" }
+      : { kind: "named", name: agentConfig.name, builtin: agentConfig.isDefault === true, sourcePath: agentConfig.sourcePath });
+    const ceiling = authorization.update(authorizationScope(agentConfig, options.isolated ?? false, loader, role, configCwd), historical);
+    authorization.bind(session);
+    sessionAuthorities.set(session, { authorization, historical: historical ?? ceiling, configCwd, runtime,
+      inlineConfig: role.kind === "inline" ? (options.currentAgentConfig ?? options.inlineAgentConfig) : undefined });
     // session_start initializes extension state and may register more tools.
     await session.bindExtensions({
       onError: (err) => {
@@ -989,30 +938,7 @@ async function constructAgentSession(
     });
     if (bindingFailure) throw new Error(bindingFailure);
 
-    // The registry is scoped by excludeTools; the live active set still needs
-    // ext: narrowing, including tools registered during session_start and later.
-    if (!noExtensions) {
-      const pinnedOnly = new Set<string>();
-      if (pinned.size > 0) {
-        for (const extension of loader.getExtensions().extensions) {
-          const canons = extensionCanonicalNames(extension.path);
-          if (!canons.some((n) => pinned.has(n))) continue;
-          const excluded = canons.some((n) => excludeNames.has(n));
-          const keptByConfig = !excluded && (loadAll || canons.some((n) => keepNames.has(n)));
-          if (!keptByConfig) {
-            for (const c of canons) pinnedOnly.add(c);
-          }
-        }
-      }
-      installExtensionToolScope(session, {
-        loader,
-        toolNames,
-        disallowedSet,
-        extNames,
-        narrowing,
-        pinnedOnly,
-      });
-    }
+    authorization.narrowView();
 
     return session;
   } catch (error) {
@@ -1021,12 +947,103 @@ async function constructAgentSession(
   }
 }
 
+function authorizationScope(config: AgentConfig, isolated: boolean, loader: Pick<DefaultResourceLoader, "getExtensions">, role: AgentRoleIdentity, configCwd: string): AuthorizationScope {
+  const spec = Array.isArray(config.extensions) ? parseExtensionsSpec(config.extensions, configCwd) : undefined;
+  const bareNames = new Set(Array.isArray(config.extensions)
+    ? config.extensions.filter((entry) => !entry.includes("/") && !entry.includes("\\") && !entry.startsWith("~")).map((entry) => entry.toLowerCase()) : []);
+  const selectors = parseExtSelectors(config.extSelectors ?? []);
+  const excluded = new Set(config.excludeExtensions?.map((name) => name.toLowerCase()) ?? []);
+  const builtinTools = new Set(config.builtinToolNames ?? BUILTIN_TOOL_NAMES);
+  if (config.memory && !isolated) {
+    const memoryTools = builtinTools.has("write") || builtinTools.has("edit") ? getMemoryToolNames(builtinTools) : getReadOnlyMemoryToolNames(builtinTools);
+    for (const name of memoryTools) builtinTools.add(name);
+  }
+  const eligible = (extension: Extension): boolean => {
+    if (isolated || config.extensions === false || extension.path === AUTHORIZATION_EXTENSION_PATH) return false;
+    const names = extensionCanonicalNames(extension.path);
+    if (names.some((name) => excluded.has(name))) return false;
+    return config.extensions === true || spec?.wildcard === true ||
+      !!spec?.paths.some((path) => resolve(path) === resolve(extension.resolvedPath)) || names.some((name) => bareNames.has(name));
+  };
+  return {
+    role, isolated,
+    builtinTools: [...builtinTools],
+    deniedTools: [...EXCLUDED_TOOL_NAMES, ...(config.disallowedTools ?? [])],
+    grants(extension: Extension) {
+      if (!eligible(extension)) return undefined;
+      const names = extensionCanonicalNames(extension.path);
+      if (selectors.extNames.size && !names.some((name) => selectors.extNames.has(name))) return undefined;
+      for (const name of names) {
+        if (!bareNames.has(name) && !selectors.extNames.has(name)) continue;
+        const matches = loader.getExtensions().extensions.filter((item) => eligible(item) && extensionCanonicalNames(item.path).includes(name));
+        if (matches.length > 1) throw new Error(`Subagent authorization has an ambiguous extension name: ${name}`);
+      }
+      const narrowed = names.map((name) => selectors.narrowing.get(name)).filter((value): value is Set<string> => value !== undefined);
+      return narrowed.length ? [...narrowed[0]].filter((name) => narrowed.every((set) => set.has(name))) : "*";
+    },
+  };
+}
+
+type SessionAuthority = {
+  authorization: ChildAuthorization;
+  historical: AgentAuthorization;
+  configCwd: string;
+  runtime: AgentRuntimeConfig;
+  inlineConfig?: InlineAgentConfig;
+};
+const sessionAuthorities = new WeakMap<AgentSession, SessionAuthority>();
+
+function currentAuthority(history: AgentAuthorization, runtime: AgentRuntimeConfig, inline?: InlineAgentConfig): AgentConfig {
+  if (history.role.kind === "inline") {
+    if (!inline) throw new Error("Subagent authorization requires fresh trusted currentAgentConfig for inline recovery");
+    return structuredClone(inline);
+  }
+  reloadRuntimeAgents(runtime);
+  const config = getAgentConfig(history.role.name, runtime.agents);
+  if (!config || config.enabled === false ||
+      (history.role.builtin ? config.isDefault !== true : !history.role.sourcePath || config.sourcePath !== history.role.sourcePath)) {
+    throw new Error(`Subagent authorization cannot verify the current named role/source: ${history.role.name}`);
+  }
+  return structuredClone(config);
+}
+
+function historicalAuthority(snapshot: AgentResumeSnapshot): AgentAuthorization {
+  const history = snapshot.authorization;
+  if (history) {
+    const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((part) => typeof part === "string");
+    if (history.version !== 1 || !strings(history.builtinTools) || !strings(history.deniedTools) ||
+        typeof history.isolated !== "boolean" || !Array.isArray(history.extensions) ||
+        !history.extensions.every((entry) => entry && typeof entry.path === "string" && isAbsolute(entry.path) &&
+          typeof entry.scope === "string" && (entry.tools === "*" || strings(entry.tools))) ||
+        !history.role || !["inline", "named"].includes(history.role.kind) ||
+        (history.role.kind === "named" && (typeof history.role.name !== "string" || typeof history.role.builtin !== "boolean"))) {
+      throw new Error("Subagent authorization ceiling is invalid or unsupported");
+    }
+    return structuredClone(history);
+  }
+  if (!snapshot.isolated && snapshot.config.extensions !== false) {
+    throw new Error("Subagent authorization cannot verify historical extension authority; explicit recovery is unavailable");
+  }
+  if (snapshot.config.source && snapshot.config.source !== "default" && !snapshot.config.sourcePath) {
+    throw new Error("Subagent authorization cannot verify the historical named role source");
+  }
+  const role: AgentRoleIdentity = snapshot.config.isDefault || snapshot.config.source === "default"
+    ? { kind: "named", name: snapshot.config.name, builtin: true }
+    : snapshot.config.sourcePath
+      ? { kind: "named", name: snapshot.config.name, builtin: false, sourcePath: snapshot.config.sourcePath }
+      : { kind: "inline" };
+  return {
+    version: 1, role, builtinTools: [...(snapshot.config.builtinToolNames ?? BUILTIN_TOOL_NAMES)],
+    deniedTools: [...EXCLUDED_TOOL_NAMES, ...(snapshot.config.disallowedTools ?? [])], isolated: snapshot.isolated, extensions: [],
+  };
+}
+
 /** Restore only a known session file and its saved construction recipe; never create a replacement. */
 export async function restoreAgentSession(
   ctx: ExtensionContext,
   sessionFile: string,
   snapshot: AgentResumeSnapshot,
-  options: { pi: ExtensionAPI },
+  options: { pi: ExtensionAPI; currentAgentConfig?: InlineAgentConfig; runtimeConfig?: AgentRuntimeConfig },
 ): Promise<AgentSession> {
   validateResumeSnapshot(snapshot);
   for (const cwd of [snapshot.cwd, snapshot.configCwd]) {
@@ -1034,6 +1051,10 @@ export async function restoreAgentSession(
   }
   snapshot = structuredClone(snapshot);
   const validated = validateSessionFile(sessionFile, snapshot.cwd);
+  const runtime = options.runtimeConfig?.cwd === resolve(snapshot.configCwd)
+    ? options.runtimeConfig : loadRuntimeConfig(snapshot.configCwd);
+  const history = historicalAuthority(snapshot);
+  const currentConfig = currentAuthority(history, runtime, options.currentAgentConfig);
   const sessionManager = SessionManager.open(sessionFile);
   if (sessionManager.getSessionId() !== validated.id || sessionManager.getEntries().length !== validated.entryCount) {
     throw new Error("Subagent session changed while opening; refusing a replacement session");
@@ -1051,14 +1072,16 @@ export async function restoreAgentSession(
   const thinkingLevel = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change")
     ? context.thinkingLevel as ThinkingLevel : snapshot.thinkingLevel;
   if (!isThinkingLevel(thinkingLevel)) throw new Error("Invalid saved thinking level");
-  const session = await constructAgentSession(ctx, snapshot.config, snapshot.systemPrompt, {
+  const session = await constructAgentSession(ctx, currentConfig, snapshot.systemPrompt, {
     pi: options.pi,
+    runtimeConfig: runtime,
+    currentAgentConfig: options.currentAgentConfig,
     cwd: snapshot.cwd,
     configCwd: snapshot.configCwd,
     isolated: snapshot.isolated,
     model,
     thinkingLevel,
-  }, sessionManager);
+  }, sessionManager, history);
   try {
     if (session.model?.provider !== provider || session.model?.id !== modelId || session.thinkingLevel !== thinkingLevel) {
       throw new Error("Subagent session route changed during restoration; refusing fallback");
@@ -1186,7 +1209,7 @@ function validateSessionFile(sessionFile: string, cwd: string): { id: string; en
 
 export type ResumeOptions = Pick<RunOptions,
   "onToolActivity" | "onAssistantUsage" | "onSessionUsage" | "onCompaction" | "signal" |
-  "maxTurns" | "graceTurns" | "onTextDelta" | "onTurnEnd" | "onAborted"
+  "maxTurns" | "graceTurns" | "onTextDelta" | "onTurnEnd" | "onAborted" | "currentAgentConfig"
 >;
 
 const sessionExecutionLimits = new WeakMap<AgentSession, Pick<ResumeOptions, "maxTurns" | "graceTurns">>();
@@ -1339,6 +1362,14 @@ export async function resumeAgent(
   options: ResumeOptions = {},
 ): Promise<{ text: string; failure?: string; aborted?: boolean; steered?: boolean }> {
   const limits = sessionExecutionLimits.get(session);
+  const authority = sessionAuthorities.get(session);
+  if (authority && !options.signal?.aborted) {
+    const inline = options.currentAgentConfig ?? authority.inlineConfig;
+    const current = currentAuthority(authority.historical, authority.runtime, inline);
+    authority.authorization.update(authorizationScope(current, authority.historical.isolated,
+      session.resourceLoader, authority.historical.role, authority.configCwd), authority.historical);
+    if (options.currentAgentConfig) authority.inlineConfig = options.currentAgentConfig;
+  }
   const result = await executeAgentSession(session, prompt, {
     ...options,
     maxTurns: options.maxTurns ?? limits?.maxTurns,

@@ -19,18 +19,13 @@ import { AgentManager } from "./agent-manager.js";
 import { UsageReporter } from "./usage-reporting.js";
 import {
   getAgentConversation,
-  getDefaultMaxTurns,
-  getGraceTurns,
-  getPinnedExtensions,
-  getRememberAgents,
   normalizeMaxTurns,
-  setDefaultMaxTurns,
-  setGraceTurns,
-  setPinnedExtensions,
-  setRememberAgents,
+  normalizeGraceTurns,
   SUBAGENT_TOOL_NAMES,
 } from "./agent-runner.js";
-import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.js";
+import { BUILTIN_TOOL_NAMES } from "./agent-types.js";
+import * as agentTypes from "./agent-types.js";
+import { loadRuntimeConfig } from "./runtime-config.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { emitSubagentsConfigNotice, loadAgentToolDescriptionConfig } from "./config-storage.js";
@@ -97,8 +92,6 @@ import {
 } from "./ui/tool-render.js";
 import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, toLifetimeUsage, type LifetimeUsage, type SessionLike } from "./usage.js";
 import {
-  isWorktreeIsolationEnabled,
-  setWorktreeIsolationEnabled,
 } from "./worktree.js";
 
 // ---- Shared helpers ----
@@ -384,6 +377,24 @@ function buildNotificationDetails(record: AgentRecord, activity?: AgentActivity)
 }
 
 export default function (pi: ExtensionAPI) {
+  const runtimeConfig = loadRuntimeConfig(process.cwd());
+  const getAgentConfig = (name: string) => agentTypes.getAgentConfig(name, runtimeConfig.agents);
+  const getAllTypes = () => agentTypes.getAllTypes(runtimeConfig.agents);
+  const getAvailableTypes = () => agentTypes.getAvailableTypes(runtimeConfig.agents);
+  const resolveType = (name: string) => agentTypes.resolveType(name, runtimeConfig.agents);
+  const isDefaultsDisabled = () => runtimeConfig.disableDefaultAgents;
+  const setDefaultsDisabled = (disabled: boolean) => { runtimeConfig.disableDefaultAgents = disabled; };
+  const registerAgents = (agents: Map<string, AgentConfig>) => agentTypes.registerAgents(agents, runtimeConfig.agents, runtimeConfig.disableDefaultAgents);
+  const getDefaultMaxTurns = () => runtimeConfig.defaultMaxTurns;
+  const setDefaultMaxTurns = (value: number | undefined) => { runtimeConfig.defaultMaxTurns = normalizeMaxTurns(value); };
+  const getGraceTurns = () => runtimeConfig.graceTurns;
+  const setGraceTurns = (value: number) => { runtimeConfig.graceTurns = normalizeGraceTurns(value) ?? 5; };
+  const getRememberAgents = () => runtimeConfig.rememberAgents;
+  const setRememberAgents = (value: boolean) => { runtimeConfig.rememberAgents = value; };
+  const getPinnedExtensions = () => [...runtimeConfig.pinnedExtensions];
+  const setPinnedExtensions = (names: readonly string[]) => { runtimeConfig.pinnedExtensions = [...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean))]; };
+  const isWorktreeIsolationEnabled = () => runtimeConfig.worktreeIsolation;
+  const setWorktreeIsolationEnabled = (value: boolean) => { runtimeConfig.worktreeIsolation = value; };
   // Map structured failure details → Pi tool-result isError so the default shell
   // uses toolErrorBg (inner chrome already paints ✗). Keeps model-facing text.
   pi.on("tool_result", async (event) => {
@@ -413,7 +424,7 @@ export default function (pi: ExtensionAPI) {
 
   /** Reload agents from project/global custom agent dirs and merge with defaults (called on init and each Agent invocation). */
   const reloadCustomAgents = () => {
-    const userAgents = loadCustomAgents(process.cwd());
+    const userAgents = loadCustomAgents(runtimeConfig.cwd);
     registerAgents(userAgents);
   };
 
@@ -595,6 +606,7 @@ export default function (pi: ExtensionAPI) {
       compactionCount: record.compactionCount,
     });
   }, {
+    runtimeConfig,
     onAccepted: (record) => {
       // Admission, not model start: queued resumes invalidate old snapshots too.
       pi.appendEntry("subagents:active", { id: record.id, runGeneration: record.runGeneration });
@@ -659,6 +671,11 @@ export default function (pi: ExtensionAPI) {
   // This also wires the RPC handlers and broadcasts readiness — on the first
   // bound session_start, so a filtered-out activation never advertises (#142).
   pi.on("session_start", async (_event, ctx) => {
+    if (runtimeConfig.cwd !== ctx.cwd) {
+      Object.assign(runtimeConfig, loadRuntimeConfig(ctx.cwd));
+      projectClearsPinnedExtensions = loadPinnedExtensionsPolicy(ctx.cwd).projectClearsPinnedExtensions;
+      applyRuntimeSettings();
+    }
     currentCtx = ctx;
     manager.clearCompleted(true);
     // Guard mirrors the `!scheduler.isActive()` pattern below: session_start
@@ -895,14 +912,12 @@ export default function (pi: ExtensionAPI) {
     return name.replace(/-\d{8}$/, "");
   }
 
-  const initialPinPolicy = loadPinnedExtensionsPolicy();
+  const initialPinPolicy = loadPinnedExtensionsPolicy(runtimeConfig.cwd);
   const globalPinnedExtensions = initialPinPolicy.globalPinnedExtensions;
   let projectClearsPinnedExtensions = initialPinPolicy.projectClearsPinnedExtensions;
 
-  // Reset module-level defaults on every activation before applying this
-  // repository's settings. Pi can switch sessions without reloading modules;
-  // an omitted field must still mean this fork's defaults (remember on,
-  // worktrees off, no stale pins), not the previous repository's value.
+  // Reset only this activation's defaults; child activations must not mutate
+  // their parent's role registry, pins or execution choices.
   setRememberAgents(true);
   setWorktreeIsolationEnabled(false);
   setPinnedExtensions([]);
@@ -910,26 +925,41 @@ export default function (pi: ExtensionAPI) {
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
-  applyAndEmitLoaded(
-    {
-      setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
-      setDefaultMaxTurns,
-      setGraceTurns,
-      setDefaultJoinMode,
-      setSchedulingEnabled,
-      setScopeModels: setScopeModelsEnabled,
-      setReportUsage,
-      setDisableDefaultAgents: setDisableDefaultAgents,
-      setToolDescriptionMode: setToolDescriptionMode,
-      setFleetView: setFleetViewEnabled,
-      setRememberAgents,
-      setWidgetMode: setWidgetMode,
-      setOutputTranscript: setOutputTranscript,
-      setWorktreeIsolation: setWorktreeIsolationEnabled,
-      setPinnedExtensions,
-    },
-    (event, payload) => pi.events.emit(event, payload),
-  );
+  function applyRuntimeSettings() {
+    // The first real session_start may bind a different cwd from process.cwd().
+    // Missing settings there must not inherit the provisional discovery cwd.
+    manager.setMaxConcurrent(4);
+    defaultJoinMode = "smart";
+    schedulingEnabled = true;
+    scopeModelsEnabled = false;
+    reportUsage = true;
+    toolDescriptionMode = "full";
+    fleetViewEnabled = true;
+    widgetMode = "background";
+    outputTranscriptDefault = true;
+    applyAndEmitLoaded(
+      {
+        setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
+        setDefaultMaxTurns,
+        setGraceTurns,
+        setDefaultJoinMode,
+        setSchedulingEnabled,
+        setScopeModels: setScopeModelsEnabled,
+        setReportUsage,
+        setDisableDefaultAgents,
+        setToolDescriptionMode,
+        setFleetView: setFleetViewEnabled,
+        setRememberAgents,
+        setWidgetMode,
+        setOutputTranscript,
+        setWorktreeIsolation: setWorktreeIsolationEnabled,
+        setPinnedExtensions,
+      },
+      (event, payload) => pi.events.emit(event, payload),
+      runtimeConfig.cwd,
+    );
+  }
+  applyRuntimeSettings();
 
   // ---- Agent tool ----
 
@@ -1062,6 +1092,7 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.AGENT,
+    exposure: "model-only",
     label: "Agent",
     description: agentToolDescription,
     promptSnippet: "Launch autonomous sub-agents for complex multi-step tasks",
@@ -1571,6 +1602,7 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.GET_RESULT,
+    exposure: "model-only",
     label: "Get Agent Result",
     description:
       "Retrieve the complete final report by agent ID, including content truncated in automatic notifications. " +
@@ -1715,6 +1747,7 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.STEER,
+    exposure: "model-only",
     label: "Steer Agent",
     description:
       "Send a follow-up to an agent by ID. Running agents receive steering after current tool execution; " +

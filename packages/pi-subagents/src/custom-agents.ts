@@ -2,7 +2,7 @@
  * custom-agents.ts — Load user-defined agents from project (.pi/agents/, plus the shared .agents/agents/ workspace) and global ($PI_CODING_AGENT_DIR/agents/, default ~/.pi/agent/agents/) locations.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES } from "./agent-types.js";
@@ -82,6 +82,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       isolation: parseIsolation(fm.isolation),
       enabled: fm.enabled !== false,  // default true; explicitly false disables
       source,
+      sourcePath: realpathSync(join(dir, file)),
     });
   }
 }

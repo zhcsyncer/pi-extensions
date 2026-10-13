@@ -32,6 +32,16 @@ const [phase, root] = process.argv.slice(2);
 const cwd = join(root, "work");
 const configCwd = join(root, "config");
 const metadataFile = join(root, "metadata.json");
+// Caller-owned fixture authority, recreated from code in each process, not disk history.
+const usageConfig = {
+  name: "usage-test", description: "usage", builtinToolNames: [], extensions: false, skills: false,
+  promptMode: "replace", systemPrompt: "USAGE", persistSession: true, sessionDir: join(root, "sessions"),
+};
+const restartConfig = {
+  name: "restart-test", description: "restart contract", builtinToolNames: ["read"],
+  extensions: false, skills: true, promptMode: "append", systemPrompt: "ORIGINAL_ROLE",
+  persistSession: true, sessionDir: join(root, "sessions"),
+};
 const pi = { exec: async () => ({ code: 1, stdout: "", stderr: "" }) };
 const faux = fauxProvider({ provider: "restart-faux", models: [{ id: "original", contextWindow: 200_000 }], tokensPerSecond: 1_000_000 });
 const runtime = await ModelRuntime.create({ modelsPath: null });
@@ -58,10 +68,7 @@ try {
     faux.setResponses([fauxAssistantMessage("FIRST"), fauxAssistantMessage("RESUMED")]);
     const id = manager.spawn(pi, ctx, "usage-test", "first", {
       description: "usage", isBackground: true,
-      inlineAgentConfig: {
-        name: "usage-test", description: "usage", builtinToolNames: [], extensions: false, skills: false,
-        promptMode: "replace", systemPrompt: "USAGE", persistSession: true, sessionDir: join(root, "sessions"),
-      },
+      inlineAgentConfig: usageConfig,
       onSessionCreated: (created) => {
         session = created;
         const sm = session.sessionManager;
@@ -82,7 +89,7 @@ try {
     parent.appendCustomEntry("subagents:record", archive);
     manager.clearCompleted();
     const reloaded = manager.getRecordOrArchive(id, ctx).lifetimeUsage.cost;
-    await manager.resume(id, "continue", undefined, { pi, ctx,
+    await manager.resume(id, "continue", undefined, { pi, ctx, currentAgentConfig: usageConfig,
       onSessionCreated: (created) => {
         session = created;
         session.sessionManager.appendUsage("new-kind", "restart-faux", "original", spend(0.02));
@@ -120,11 +127,7 @@ try {
     faux.setResponses([fauxAssistantMessage("FIRST_ANSWER"), fauxAssistantMessage("RETAINED_ANSWER")]);
     const first = await runAgent(ctx, "restart-test", "ORIGINAL_TASK", {
       pi, cwd, configCwd, inheritContext: true, maxTurns: 2, graceTurns: 1,
-      inlineAgentConfig: {
-        name: "restart-test", description: "restart contract", builtinToolNames: ["read"],
-        extensions: false, skills: true, promptMode: "append", systemPrompt: "ORIGINAL_ROLE",
-        persistSession: true, sessionDir: join(root, "sessions"),
-      },
+      inlineAgentConfig: restartConfig,
       onResumeSnapshot: (saved) => { snapshot = saved; },
       onSessionCreated: (created) => { session = created; },
     });
@@ -146,7 +149,7 @@ try {
     setDefaultMaxTurns(99);
     setGraceTurns(99);
     if (phase === "unavailable") runtime.unregisterProvider("restart-faux");
-    session = await restoreAgentSession(ctx, saved.sessionFile, saved.snapshot, { pi });
+    session = await restoreAgentSession(ctx, saved.sessionFile, saved.snapshot, { pi, currentAgentConfig: restartConfig });
     const before = session.messages;
     const originalPrompt = session.systemPrompt;
     let request;

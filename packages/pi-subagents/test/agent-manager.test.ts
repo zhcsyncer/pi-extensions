@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentManager } from "../src/agent-manager.js";
+import { loadRuntimeConfig } from "../src/runtime-config.js";
 import type { AgentRecord } from "../src/types.js";
 
 vi.mock("../src/agent-runner.js", () => ({
@@ -656,7 +657,9 @@ describe("AgentManager — repository worktree switch", () => {
     vi.mocked(createWorktree).mockReturnValueOnce(undefined);
     vi.mocked(runAgent).mockClear();
 
-    manager = new AgentManager();
+    manager = new AgentManager(undefined, undefined, undefined, undefined, {
+      runtimeConfig: { ...loadRuntimeConfig(mockCtx.cwd), worktreeIsolation: true },
+    });
     expect(() => manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
       description: "test",
       isolation: "worktree",
@@ -724,7 +727,9 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
     });
     resolvedRun();
 
-    manager = new AgentManager();
+    manager = new AgentManager(undefined, undefined, undefined, undefined, {
+      runtimeConfig: { ...loadRuntimeConfig(mockCtx.cwd), worktreeIsolation: true },
+    });
     const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
       description: "test",
       cwd: "/",
@@ -753,7 +758,9 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
     vi.mocked(runAgent).mockClear();
     resolvedRun();
 
-    manager = new AgentManager();
+    manager = new AgentManager(undefined, undefined, undefined, undefined, {
+      runtimeConfig: { ...loadRuntimeConfig(mockCtx.cwd), worktreeIsolation: true },
+    });
     const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
       description: "test",
       isolation: "worktree",

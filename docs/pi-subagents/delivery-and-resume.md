@@ -83,9 +83,10 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 1. **当前父会话分支上的有效终态 archive**，证明该 ID 在这个分支的最后可恢复状态；
 2. **对应 child JSONL**，提供原对话；
-3. **受支持的新版本恢复配置（recovery recipe）**，保留原渲染后 system prompt、tool policy、cwd、model、thinking 与 limits，避免用今天的角色文件或父会话默认值重新解释旧任务。
+3. **受支持的恢复配置（recovery recipe）**，保留原渲染后 system prompt、权限历史上限、cwd、model、thinking 与 limits，不用今天的角色正文或父会话默认值替换旧任务；
+4. **当前可信授权**，限制历史上限中哪些能力仍可使用。
 
-父 archive 负责身份、分支与终态资格；child JSONL 负责对话；recipe 负责运行意图。三者缺一不能推断出安全的续跑环境。原渲染后 prompt 与工具策略的保存，不代表冻结扩展代码或外部世界。
+父 archive 负责身份、分支与终态资格；child JSONL 负责对话；recipe 负责运行意图和历史权限上限。它们不是新的授权凭证；保存原 prompt 与工具策略，也不代表冻结扩展代码或外部世界。
 
 - 旧 archive 没有 recipe：仍可查看历史，但不可通过 Agent/steer 工具恢复执行；不尝试猜配置。
 - 持久化的 error/aborted/stopped 终态可以在条件满足时显式 resume；普通 steering 不得自动重试。
@@ -93,6 +94,20 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 - 缺失、损坏或不支持的恢复资料，原 cwd 不可用（含已清理 worktree），原模型不可用：明确报错。
 - 恢复失败不得静默新建 session、换成父模型/其他模型，或改用当前 checkout。用户若决定从头开始，必须另发不带 `resume` 的新 Agent 请求。
 - 运行时重新加载当前安装的扩展、解析当前凭证。恢复不是进程/内存快照、不是环境复制，也不是沙箱；扩展 handlers 与外部副作用仍按当前环境执行。
+
+### 工具授权与当前调用方
+
+执行权限是显式的 builtin 集合、实际扩展来源与工具子集；active/visible 集合只是模型视图。首轮、后续轮、nested 调用和晚注册工具使用同一公开 `tool_call` 门槛。合法来源仍可晚注册声明范围内的工具；同名替换不能借用 builtin 或另一来源的权限。短名称有歧义时拒绝猜测。pins 只保留观察者加载，不能单独授予工具或服务连接。
+
+权限不是按 Explore/Plan 名称、提示词或 read-only hints 推断的语义写保护；允许 bash 也不等于审计 shell 行为。扩展仍是同进程可信代码，不是 OS 沙箱。Agent/get/steer 的真实定义是 model-only，不能通过 nested 工具调用；这不改变宿主原有 parallel 默认值或 manager 的并发语义，也不启用 MCP/codemode。
+
+恢复及 live continuation 的工具授权是**历史上限 ∩ 当前有效授权**：
+
+- named 角色从原 `configCwd` 重新读取当前定义并核对来源。删除、禁用或换来源都明确拒绝执行，不回退 general-purpose。正文改变不替换保存的 prompt，权限收窄仍立即生效。
+- live caller-owned activation 使用仍持有的 inline 配置；跨进程恢复必须由可信调用方重新提供 `currentAgentConfig`。该选项仅存在于内部恢复/续跑入口，不新增 Agent 工具、RPC 授权字段或 facade 方法。磁盘 recipe 不能充当当前调用方同意。
+- 缺少权限版本的旧 recipe，仅在历史明确为 builtin-only/isolated 且当前授权可验证时迁移。不能重建历史扩展来源时，报“授权无法验证”，不把合法 JSONL 标成损坏、不另建会话，也不阻止读取已完成报告。
+
+权限上限只保存版本及必要的非秘密来源身份，不保存凭据或连接配置。R3 的服务/factory 授权应在资源装配前接入，不能从 MCP 工具前缀或共享 loader 所有者推出服务权限。
 
 ### 为什么续跑前要作废旧终态
 

@@ -28,6 +28,7 @@ Requires Pi 1.1 or later. Remove any existing `@tintinweb/pi-subagents` installa
 - **Worktrees are opt-in:** selected upstream 0.17 session/isolation behavior, but `worktreeIsolation` defaults to `false` here rather than upstream's enabled default.
 - **Integrate with other extensions:** protocol-v3 in-process spawn with inline roles, caller-owned completion, route correlation, and concurrency discovery; an importable runtime without automatic UI/tool registration.
 - **Keep trusted observers active:** `pinnedExtensions` loads observers even in isolated agents without granting their tools.
+- **Enforce tool permissions:** explicit tool/source restrictions apply to direct, nested, and late-registered calls. Each runtime keeps its own role and pin configuration.
 
 The [upstream snapshot](./UPSTREAM_README.md) covers custom agents, schedules, and other baseline features. For delivery, continuation, persistence, configuration locations, and worktree defaults, use this fork's documentation instead.
 
@@ -73,7 +74,7 @@ A new Agent call without `resume` starts fresh; it does not inherit the old agen
 
 Ordinary runs persist by default. Set `persist_session: false` in an agent file for a live-only run, or `rememberAgents: false` in `/agents → Settings` for a memory-only default; explicit `persist_session: true` overrides that default. Live-only agents can continue while retained, but not reliably after eviction or restart.
 
-Recovery of saved terminal work requires eligible new-format history on the current parent-session branch and an intact child session. Older history remains viewable but cannot be resumed through these tools without recovery information. Failed/stopped saved runs still require explicit `Agent(resume=...)`.
+Recovery of saved terminal work requires eligible history on the current parent-session branch, an intact child session, and verifiable current authorization. Permissions cannot exceed both the saved ceiling and current role/caller permissions; removed or disabled named roles cannot resume. Older history with unverifiable extension permissions remains viewable but cannot execute. Failed/stopped saved runs still require explicit `Agent(resume=...)`.
 
 Valid compacted history can be resumed even when compaction retained none of the earlier messages. Missing or corrupt recovery files, an unavailable original working directory (including a cleaned-up worktree), or an unavailable original model cause an explicit error—never a fresh session or substitute model. Recovery uses currently installed extensions and current credentials; it is **not a process/memory snapshot or a sandbox**. In-flight work and queued follow-ups are not durably replayed after an unclean crash; no crash-exactly-once guarantee is provided.
 

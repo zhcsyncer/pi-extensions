@@ -233,7 +233,10 @@ describe("follow-up tool runtime wiring", () => {
     vi.mocked(resumeAgent).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const followUp = await h.call("steer_subagent", { agent_id: id, message: "new work" });
     expect(text(followUp)).toContain("resumed in background");
-    expect(restoreAgentSession).toHaveBeenCalledWith(h.ctx, expect.stringContaining("child.jsonl"), h.snapshot, { pi: h.pi });
+    expect(restoreAgentSession).toHaveBeenCalledWith(h.ctx, expect.stringContaining("child.jsonl"), h.snapshot, {
+      pi: h.pi, currentAgentConfig: undefined,
+      runtimeConfig: expect.objectContaining({ cwd: h.ctx.cwd }),
+    });
     const waiting = h.call("get_subagent_result", { agent_id: id, wait: true });
     finish({ text: "AFTER RESTORE" });
     expect(text(await waiting)).toContain("AFTER RESTORE");
