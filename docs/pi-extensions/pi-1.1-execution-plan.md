@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验；D4消息导航与N2 Search已各自派发实施和独立测试，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -47,13 +47,13 @@
 | D1 renderer/语义保真 | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；`pi11-display-20261012`；agent `pi11-display` / `w90:p1` | `e1d3882` → 实现`95b7f22`＋`0d0dc95`；测试`603bbcf`＋`fd1cc55` → `b317aee` | 独立复审ACCEPT、21合同/1174全包通过；集成态1174/1174、类型、真实loader无告警/私有加载、pack17/17通过；证据 `/var/tmp/pi-1.1-dispatch-20261012/d1-integrated-check.log` | 2026-10-12 18:46 |
 | D2 缓存/有界输出 | 已集成 | 已回收；原复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；新分支`upgrade/pi-1.1-display-d2`；`pi11-display-20261012` / `w90:p1` | `35b5e95` → 实现`54dd3c6`＋`a989ee2`；测试`7ca8279`＋`aa498db` → `f195faa` | b144f69独立ACCEPT；集成态1215/1215、类型、真实loader零告警/私有加载、pack17/17通过；独立31＋D1的21例全过，真实/tools与详情已覆盖；证据d2-integrated-*.log | 2026-10-13 15:52 |
 | D3 nested 投影 | 已集成 | 三环境已回收；原实施w90、独立wAF、审阅wAK；分支/证据保留 | `f97dea0` → `3d78473`＋`1673edf`＋`0be2c5b`＋`c34f0dc`＋`64ebddf`；ACCEPT`0a04a85` → `8f2b399` | 集成态1280/1280、类型、全部loader17零错误告警私有加载、pack17通过；独立53/D1D2的52/探针5均过。详情限额与省略参数保真已修复，原数据/usage不变；未验证真实服务/CLI/PTY/Mac | 2026-10-13 19:20 |
-| D4 消息样式/导航 | 未派发 | — | — | D3已验收；最小合同与公开fixture已冻结，准备消息开关/导航/owner实施及独立测试 | 2026-10-13 19:20 |
+| D4 消息样式/导航 | 执行中 | 实施`pi-1.1-display-d4`、`pi11-display-d4-20261013`/wAQ:p1；独立`pi-1.1-message-contract-tests`、`pi11-message-tests-20261013`/wAP:p1 | `307b8cd` → — → — | 最小合同和公开fixture已派；普通消息开关/steer先行、标记最终输出、owner清理及真实设置独立回归；两环境精确SDK/依赖验证通过 | 2026-10-13 21:05 |
 | K1 Context7 离线合同 | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-context7`；`pi11-context7-20261012`；agent `pi11-context7` / `wA1:p1` | `4975745` → `f0261015` → `6fa7613` | 完整独立审阅及集成态 typecheck＋24/24、真实 loader 无告警/私有加载、pack17/17 通过；消费者可信身份合同已写回接入规格，真实服务仍待 L1 | 2026-10-12 16:30 |
 | C1 Consult 公开 SDK | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-consult`；`pi11-consult-20261012`；agent `pi11-consult` / `wA3:p1` | `cc66a05` → 实现`60a6b59`＋文档`7caecc7`；测试`808f3bc`＋`6f20b05` → `7db1be2` | 独立组合ACCEPT，集成态111/111、typecheck、真实loader无告警/私有加载、pack17/17通过；调用预算语义不变，真实服务及人工tree/reload仍待验 | 2026-10-12 17:48 |
 | F1 Todo＋Question | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-workflow-tools`；`pi11-workflows-20261013` / `wAB:p1` | `7d1fb05` → `49bf8e5` → `b83ff07` | 主调度审阅：生产仅两处model-only，无新调度/权限逻辑；集成态Todo215/Question612、类型及两包真实loader全过。RPC/UI绑定非真实终端/子进程，已说明边界；证据f1-integrated-check.log | 2026-10-13 15:28 |
 | H1 Herdr 兼容 | 已集成 | 已回收；原`pi-1.1-herdr`、`pi11-herdr-20261013` / `wAE:p1` | `751a253` → `bf71747` → `5ef8540` | 主调度完整审阅单行生产声明与真实SDK测试；集成态201通过/1Windows跳过、类型/loader/pack17通过。CLI为fixture，保留v9；真实Herdr仲裁/BTW父子PTY仍留L1 | 2026-10-13 16:46 |
 | N1 Fast | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast`；`pi11-fast-20261012`；agent `pi11-fast` / `wA6:p1` | `75bb74a` → 实现`a3c8d42`＋测试`cb07b5e` → `ee51c41` | 独立审阅ACCEPT、35合同通过；集成态71/71与类型通过，真实loader无错误/告警/私有加载；真实priority授权及账单未验。证据 `/var/tmp/pi-1.1-dispatch-20261012/n1-integrated-check.log` | 2026-10-13 10:13 |
-| N2 Search | 未派发 | — | — | 已冻结direct/脚本结构化成功输出合同及HTTP fixture，准备实施/独立测试；原routing/认证/reader限额保留，三项旧债仍不做 | 2026-10-13 19:20 |
+| N2 Search | 执行中 | 实施`pi-1.1-search`、`pi11-search-20261013`/wAM:p1；独立`pi-1.1-search-contract-tests`、`pi11-search-tests-20261013`/wAN:p1 | `307b8cd` → — → — | 已派成功outputSchema/structuredContent与真实SDK直调/脚本独立测试；保留文本/routing/认证/reader10k限额和三项冻结旧债，禁止真实搜索/账号调用 | 2026-10-13 21:05 |
 | N3 Recap | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | N4 Volcengine | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | N5 Cursor | 已集成 | 三环境已回收；原实施wAH、独立wAG、审阅`pi-1.1-review-cursor`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；ACCEPT`858156d` → `62a362b` | 集成态44文件372/372（独立14）、完整check/loader零错误告警私有加载/pack17通过；仅共享SDK重放helpers，B02/B04/协议/认证不改，无真实账号/模型验证 | 2026-10-13 18:37 |
