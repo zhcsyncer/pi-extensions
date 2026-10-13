@@ -28,7 +28,7 @@
 
 只读交接已确认原生进度无需重写。整个本包提供的nested展示遵守预算，不能只限制新增投影而让已知codemode展开列表继续无界：仅对已知原生codemode的details.calls提供有界只读展示副本，继续使用`next()`取得的原renderers及既有D1委托state/lastComponent。原结果、执行、model输入和usage不变；不泛化改写所有第三方renderer。副本省略时明确列表/显示费用仅为部分，不能让裁剪后求和看起来是完整费用。
 
-- 记录和展示最多256个调用、单参数8192/总32768 UTF-8 bytes（compact JSON计量）；先做有界快照再编码/布局。原生details.args仅为200 UTF-16字符预览，不冒充完整原参数；不同预算不能混用。
+- 记录和展示最多256个调用、单参数8192/总32768 UTF-8 bytes（compact JSON计量）；先做有界快照再编码/布局。整个展示也包含详情Metadata及其Raw视图，不能用较宽D2通用详情限额绕过D3；超额用只读派生快照并明确省略，原输入/结果/usage不变。原生details.args仅为200 UTF-16字符预览，不冒充完整原参数；不同预算不能混用。
 - 公共context.toolCallId稳定，context.invalidate可刷新同一根；resolver阶段只有toolName，不能在那里猜调用身份。复用现有aggregate/owner清理，非UI/HTML也能取得保存的根元数据，不放入只有hasUI才有的全局指针。
 - execution start/update/end都带真实直接parentToolCallId。根execution_end没有nestedCalls，根toolResult message_start已附入，message_end/持久化随后发生。最终记录不能只在execution_end采集。
 - details.calls字段id/name/args/status/durationMs/error/cost只含脚本直接工具与models.*；running可能多个条目共享root/?，不得以占位ID、数组位置、名称或参数猜执行身份。自己的工具数/归根只用真实execution身份，模型调用不计工具数。
