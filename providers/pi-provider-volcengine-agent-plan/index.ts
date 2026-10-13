@@ -7,6 +7,8 @@ import {
 	type AuthInteraction,
 	type Credential,
 	type Model,
+	type OpenAICompletionsCompat,
+	type OpenAIResponsesCompat,
 } from "@earendil-works/pi-ai";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -18,27 +20,28 @@ const KEY_ENV_NAMES = ["ARK_AGENT_PLAN_API_KEY", "VOLCENGINE_ARK_PLAN_API_KEY"] 
 const KEY_VALIDATION_URL = `${BASE_URL}/responses`;
 const KEY_VALIDATION_TIMEOUT_MS = 12_000;
 
-const RESPONSES_COMPAT = {
+const RESPONSES_COMPAT: OpenAIResponsesCompat = {
 	supportsDeveloperRole: true,
 	supportsLongCacheRetention: true,
 };
 
-const KIMI_CHAT_COMPAT = {
+const KIMI_CHAT_COMPAT: OpenAICompletionsCompat = {
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: true,
 	supportsStore: true,
 	supportsUsageInStreaming: true,
 	supportsLongCacheRetention: false,
-	maxTokensField: "max_completion_tokens" as const,
+	maxTokensField: "max_completion_tokens",
 	requiresReasoningContentOnAssistantMessages: true,
 };
 
 type ArkApi = "openai-responses" | "openai-completions";
 type PlanTier = "small" | "medium" | "large" | "max";
 
-type CatalogEntry = Omit<Model<ArkApi>, "provider" | "baseUrl"> & {
-	minimumTier: PlanTier;
-};
+type CatalogEntry = (
+	| Omit<Model<"openai-responses">, "provider" | "baseUrl">
+	| Omit<Model<"openai-completions">, "provider" | "baseUrl">
+) & { minimumTier: PlanTier };
 
 type EstimatedApiCost = Model<ArkApi>["cost"];
 

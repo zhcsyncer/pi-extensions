@@ -16,7 +16,7 @@ Unlike the minimal configuration in [Volcengine's Pi guide](https://www.volcengi
 
 ## Requirements
 
-- Node.js 20 or newer and Pi 0.86 or later.
+- Node.js 20 or newer and Pi 0.86 or later. **With Pi 1.1, use Node.js 22.19.0 or newer**, as required by Pi itself.
 - A dedicated **Agent Plan API key**. Regular Ark and Coding Plan keys are not interchangeable with it.
 
 ## Install and log in
@@ -70,6 +70,8 @@ The retired Seed 2.0 Code/Pro, MiniMax M2.7, Kimi K2.6, and GLM 5.2 entries are 
 ## Cost estimates and limitations
 
 Pi displays estimated public API resource costs, **not the Agent Plan bill or AFP consumption**. For the three new models, CNY reference prices are converted using a fixed approximate 7 CNY/USD; DeepSeek V4.1 Flash uses peak-period rates. Hourly cache storage is not included. Actual subscription charges and quota remain controlled by Volcengine.
+
+Pi 1.1 compatibility is checked with offline HTTP fixtures, not live Agent Plan requests.
 
 The catalog is static and may lag console changes. Full context/output limits, concurrency, and quota reporting are not live-tested. Image/video/audio generation requires separate tools or MCP integration, not these chat model cards.
 
