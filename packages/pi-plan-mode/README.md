@@ -31,6 +31,7 @@ brew install umputun/apps/revdiff
 - A clean revdiff exit is not approval. Pi asks for an explicit `Approve Plan`, `Keep planning`, or `Cancel review` decision.
 - Every complete submission creates an immutable `rN` Markdown file and SHA-256 hash. Approved revisions are never overwritten.
 - Approval restores normal tools, removes the read-only mode bar, retains the Plan summary, enters `IMPLEMENTING`, and starts implementation through a displayed custom context message rather than a user-role turn. The transcript renders only a compact approval event while the full approved revision remains in model context.
+- On Pi 1.1, `submit_plan` and `complete_plan` are model-only: the outer model can call them directly, but codemode scripts and other nested tool calls cannot submit or complete a Plan.
 - `complete_plan` is active only for implementing or migrated legacy work. It requires the exact Plan ID/revision, an implementation summary, and successful verification checks; its result is terminating and must be the final tool call.
 - `/plan complete` is the user fallback when the agent did not close the work. `/plan abandon` closes it without claiming completion.
 - Re-entering Plan Mode while work is still implementing requires an explicit choice: revise it, mark it complete and start a new Plan, abandon it and start a new Plan, or cancel.

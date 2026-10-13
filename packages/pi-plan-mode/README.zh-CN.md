@@ -31,6 +31,7 @@ brew install umputun/apps/revdiff
 - revdiff 无批注退出不等于批准。Pi 会要求明确选择 `Approve Plan`、`Keep planning` 或 `Cancel review`。
 - 每次完整提交都会创建不可变的 `rN` Markdown 文件和 SHA-256 hash；获批 revision 永不覆盖。
 - 批准后恢复普通工具、移除只读模式条、保留 Plan 摘要、进入 `IMPLEMENTING`，并通过 displayed custom context message 开始实现，而不是创建 user-role turn。Transcript 只渲染紧凑批准事件，完整获批 revision 仍保留在模型上下文中。
+- 在 Pi 1.1 中，`submit_plan` 和 `complete_plan` 仅供外层模型直接调用（model-only）；codemode 脚本及其它嵌套工具调用不能提交或完成 Plan。
 - `complete_plan` 仅在实现中或迁移后的 legacy work 上启用。它要求精确 Plan ID/revision、实现摘要和成功验证项；结果会 terminate，且必须作为最后一个工具调用。
 - Agent 未关闭工作时，用户可用 `/plan complete` 兜底；`/plan abandon` 可关闭工作但不声称实现完成。
 - 实现尚未关闭时重新进入 Plan Mode，必须明确选择修订、标记完成后新建、放弃后新建或取消。
