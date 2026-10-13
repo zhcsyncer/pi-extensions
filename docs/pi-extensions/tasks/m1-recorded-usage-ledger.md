@@ -26,7 +26,15 @@
 
 明确sourceId及实际读取文件alias可以使用；不得把内容/金额相等当新身份。若沿用已有legacy兼容匹配，要限制在旧兼容路径并说明其既有局限，不能用于新ID之间或误抵扣只含新tail的live记录。正常fork来源与结构按实际SDK事实处理；不拿timestamp单独证明，也不为恶意手改、理论碰撞等额外场景设计新协议。不可确认的情况报告统计范围/局限，不冒充确认零或全历史已精确修复。
 
-先由作者交最小parser/capture/store方案，协调者据此冻结独立测试后再实施；当前仍未授权生产修改。历史重建/新的对账产品不纳入，不要求用户为了必要SDK适配先选迁移方案。
+作者简化方案已交，协调者采纳以下非破坏性默认行为。历史重建/新的对账产品不纳入，不要求用户为了必要SDK适配先选迁移方案；实际第二阶段开始以统一表派发为准。
+
+- 新记录使用真实header/getSessionId＋entry ID；Consult拆分用原始raw下标，不能用过滤后序号或payload作为身份。不同新ID即使其他字段相同也分别计入。
+- 启动读一次现有entries，之后在公开turn_end、agent_settled、compact/tree及必要命令/退出边界观察新增持久entries；不把message_end的中间值立即入账，不在render扫描或新增空闲轮询。父链/entry ID用于增量与分支切换，不依赖不存在的pi.on(entry_appended)。
+- 保留旧文件/行和原有预算口径；不为新身份做批量重写、压掉旧行或改变旧金额。若现有读侧有旧格式去重，保持其口径，不因取消磁盘重写反而把旧重复行计入预算。
+- 明确sourceId及实际已读文件的basename↔header alias用于旧兼容。legacy payload匹配若保留，仅在完整来源快照对无新身份旧行一对一兼容；新ID先精确匹配，已观察新身份供后续live使用，新增tail不反复消耗legacy抵扣额度。不要把旧兼容夸成完美迁移。
+- 正常fork/clone沿parentSession读实际源header，核对保留ID与复制分支结构（含label/父链重连），识别复制部分；canonical归属使用来源事实，不只改key却把旧消费归给新项目。普通Subagents父链接本身不算复制，无关session各自计入，来源缺失不猜。复用现有import/capture边界，不建全局证明库；纯内容parser不必承担隐式文件IO。
+- 子账本可加、父rollup不叠加，保留现有口径；仅有部分子记录不声称全覆盖。保留已知小计，费用未知不冒充确认零。
+- 不恢复旧逻辑已合并掉的行、不回填无法对应的旧捕获值，不承诺缺来源历史的精确归属；UI只表达已记录费用及必要局限，不另造分类账产品。
 
 ## 第一阶段：只读接口/身份交接
 
@@ -37,6 +45,14 @@
 3. parent/child/Consult记录的既有对应证据；列明子日志缺失、legacy无marker时能证明什么。不能仅凭token/cost相等关联父子，也不自行发明跨模型归属或fallback账本。
 4. 给独立作者稳定的公开测试入口与SDK fixture事实，然后停止，由协调者固定T0契约后再授权实施。若选中目标与冻结项硬耦合，先报告。
 
+## 独立测试公共入口
+
+既有接口保持可调用：`parseSession(content:string,sid:string):ParsedSession`返回`{cwd,sid,records,skipped}`；`usageRecordsFromMessage(message,{sid,cwd})`、`usageFromSessionSummaryEntry(entry,{sid,cwd})`；`recordKey`、`diffRecords(existing,incoming)`、`collapseDuplicateRecords(records)`。旧sid参数可作旧格式fallback/已读文件alias，新记录身份优先真实header。
+
+`src/ledger/store.ts`导出`createLedgerStore(agentDir?) -> Promise<{store,migration?}>`、`FileLedgerStore`、`serializeUsageRecord`、`parseUsageLine`；store的公共`append(record):Promise<boolean>`与`readAll():Promise<UsageRecord[]>`。`UsageRecord`从ledger/types.ts导出，现有cost/costKnown表达数值及是否已知；未知可保持数字占位但不能被当作确认零。新身份字段允许可选追加，先交精确类型而非让独立作者读实现。
+
+真实live/import测试加载`extensions/meter.ts`并通过真实SDK SessionManager/公开事件驱动；公开命令是`/usage import`（不是/meter），使用临时agentDir、空凭据/断网，不用真实账本。若需要新可选参数或初始化事实，先交协调者给独立作者，禁止私有测试开关。
+
 ## Contract / Test Impact
 
 独立测试预留 `packages/pi-meter/tests/pi11-ledger.contract.test.ts`（Vitest tests/**/*.test.ts），实现者不得修改。
@@ -45,6 +61,7 @@
 |---|---|
 | assistant0.01＋outer tool0.03＋独立usage0.02 | 已记录0.06；outer内部分解不再叠加 |
 | unknown usage.kind，同一个entry反复读取/live/import/reload | 仍计入且仅一次，不因未知kind丢弃 |
+| 两个正常store实例向同一临时账本追加同一新身份 | 复用现有写入锁，仅一次有效追加，不为此建分布式框架 |
 | 两条真实entry ID不同、其余payload完全相同 | 两次都计入；不能用相同内容去重 |
 | 相同session/entry经不同文件路径或导入顺序观察 | 不多记；legacy迁移须说明能验证的范围 |
 | 父分支A、B各有子累计0.06，子后来累计0.08 | 子实际总消耗仍0.08，不把互斥父分支rollup相加；仅有部分来源的策略先冻结 |

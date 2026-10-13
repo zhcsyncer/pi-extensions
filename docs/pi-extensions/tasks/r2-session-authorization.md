@@ -11,7 +11,7 @@
 3. pins 只保观察者加载，不授予工具/连接。isolated/reviewer 仍无 codemode/MCP；format-repair 仍空工具。实际 MCP 连接/factory/资源控制留 R3，R2 不以“以后有 gate”为由提前开启。
 4. 仅对影响权限/运行决策的配置消除现有跨 runtime/cwd 串用；两套配置及 pins 必须相互独立，不新造通用上下文框架，不修冻结的 Search 跨会话配置问题。
 5. recipe 记录策略版本和必要的非秘密身份；恢复授权不得超出“历史上限 ∩ 当前有效授权”。撤销权限后恢复不能获得旧能力，旧格式缺信息不能静默推断更大授权；明确旧 recipe 迁移/拒绝策略并先交接。
-6. Subagents 自己的 Agent/get/steer 实际 ToolDefinition 设置 model-only；保留顶层直接调用、sequential、终态、恢复和费用合同。不得为此改变 failed/aborted/stopped 必须显式 resume 的规则。
+6. Subagents 自己的 Agent/get/steer 实际 ToolDefinition 设置 model-only；保留顶层直接调用、原调度、终态、恢复和费用合同。不得为此改变 failed/aborted/stopped 必须显式 resume 的规则。
 
 ## 已定位的设计边界
 
@@ -49,6 +49,9 @@ T1 权限状态机、T2 真 SDK 执行链。独立测试保留路径 `packages/p
 - named 角色恢复时，从原 configCwd/记录的角色来源读取当前定义；角色删除、禁用或来源无法确认时明确拒绝执行，不回退general-purpose。授权收窄不替换R1保存的prompt/model/limits或历史结果。
 - 活着的caller-owned activation使用该调用方仍持有的当前inline授权；不能把磁盘recipe本身当新授权。从盘恢复inline角色而无法取得当前可信调用方配置时拒绝执行。允许给内部restore/resume选项新增`currentAgentConfig`传入当前inline配置，与历史上限相交；不增加Agent工具参数、RPC授权字段或caller-owned facade新方法。
 - 旧recipe仅在明确builtin-only/isolated历史上限、且当前授权可验证时迁移；无法重建历史扩展来源时说明“授权无法验证”，不冒充JSONL损坏、不创建新session，也不妨碍已有历史结果的只读查看。
+- 按用户不过度防御要求修订：旧project/global named recipe即使没有后来新增的sourcePath，只要历史明确builtin-only、原configCwd和当前相应角色可核对，就不得仅因缺新字段拒绝。保留原session/prompt/model/history，并与当前权限相交；不为此猜历史扩展授权，角色删除/禁用仍拒绝。
+- memory补齐必须基于已应用deny的有效builtin集合，不能因原始列表含write就间接补回edit。当前角色新增加的isolated限制必须同时进入live与cold续跑交集，历史isolated也不能被放宽。
+- runtime配置迁移须覆盖实际Agent声明/schema及返回的角色显示元数据，不能执行读ctx.cwd却声明仍读process.cwd。公共复现事实在`/var/tmp/pi-1.1-dispatch-20261012/r2-review-public-fixtures.md`。
 - 调度核对已确认0.87.1和1.1.0默认均parallel，任一sequential工具会使同批全部串行。因此本轮**不新增executionMode:sequential**，只加model-only与权限gate，保留既有manager并发与后台启动语义。文案中的foreground使用纪律不是宿主字段保证。
 - R1独立断言继续保留。如新的恢复授权边界要求合法恢复fixture显式提供当前inline配置，由独立作者做最小fixture适配、单独提交；实现者不得修改预留文件，更不能为旧fixture绕过新授权。
 
@@ -64,4 +67,4 @@ SDK/Jiti产品实例与Vitest直接import的manager可能不共享registry/pins�
 
 仅协调者解锁后写 Subagents 相关实现/既有测试、必要双语/包级文档和独立 changeset；不改依赖锁、统一进度、其他包或全局真实设置。B10/B11/B12、Plan relay 及其他冻结目标不实施；同文件内必要 API/类型调整不能借机完成冻结功能。
 
-沿用用户“仅支持1.1+”与隔离环境：指定 PATH、scripts/run-isolated.mjs、真实 SDK＋离线 provider/合成扩展，禁止真实模型/MCP/账号请求。读取全局 coding/仓库/Herdr/worktree 规则及相关 SDK 文档完整链接。交付本地 commit 和精确测试边界，不 push/main/release，不自行再派实施者。
+沿用用户“仅支持1.1+”与隔离环境：指定 PATH、scripts/run-isolated.mjs、真实 SDK＋离线 provider/合成扩展，本项确定性检查无需真实模型；确需后续真模型验证按统一授权优先cursor/grok-4.7，不扩展到MCP/账号配置操作。读取全局 coding/仓库/Herdr/worktree 规则及相关 SDK 文档完整链接。交付本地 commit 和精确测试边界，不 push/main/release，不自行再派实施者。
