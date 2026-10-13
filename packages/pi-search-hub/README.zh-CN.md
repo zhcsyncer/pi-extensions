@@ -41,6 +41,19 @@ pi install npm:@zhcsyncer/pi-extensions
 
 - `url` — 页面 URL。
 
+### 结构化结果（Pi 1.1）
+
+普通调用保留原有文本预览和工具行。如果你启用了 Pi 可选的 codemode，脚本可直接使用结果对象；Search Hub 不会替你启用 codemode 或 MCP：
+
+```js
+const search = await tools.web_search({ query: "Pi release notes", compact: true });
+console.log(search.results.map(result => result.url));
+const page = await tools.web_read({ url: search.results[0].url });
+console.log(page.reader, page.content, page.truncated);
+```
+
+搜索结果保留规范化后的顺序和来源，`compact: true` 不会删减结构化结果。读取正文最多返回前 10,000 个 UTF-16 码元，不包含展示用截断提示；`length` 是提取正文原长，`truncated` 表示是否裁剪。后端失败和取消仍是错误，不会伪装成空结果成功。
+
 ## 工具行
 
 Search Hub 自己画 Claude 风格的工具行，不再使用 `pi-tool-display-intent`。
@@ -62,7 +75,7 @@ Search Hub 自己画 Claude 风格的工具行，不再使用 `pi-tool-display-i
 | `web_search` | 实际 backend、结果数、fallback 状态，以及组合搜索中可用/已尝试 backend 健康度 |
 | `web_read` | 实际 reader、提取字符数，以及展示内容是否被截断到 1 万字符上限 |
 
-详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变工具结果本身，不只是 TUI 行。
+详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变给模型的文本，不只是 TUI 行；它不会删减结构化搜索结果。
 
 ## 配置
 

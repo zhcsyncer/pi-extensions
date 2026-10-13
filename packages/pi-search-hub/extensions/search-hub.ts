@@ -138,7 +138,28 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 		}),
+		outputSchema: Type.Object({
+			query: Type.String(),
+			backend: Type.String(),
+			resultCount: Type.Number(),
+			results: Type.Array(Type.Object({
+				title: Type.String(),
+				url: Type.String(),
+				snippet: Type.Optional(Type.String()),
+				content: Type.Optional(Type.String()),
+				backend: Type.Optional(Type.String()),
+			})),
+			warnings: Type.Optional(Type.Array(Type.String())),
+			errors: Type.Optional(Type.Array(Type.String())),
+			usableBackendCount: Type.Optional(Type.Number()),
+			backendStats: Type.Optional(Type.Record(Type.String(), Type.Object({
+				success: Type.Boolean(),
+				count: Type.Number(),
+				error: Type.Optional(Type.String()),
+			}))),
+		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			signal?.throwIfAborted();
 			const warnings: string[] = [];
 			const onNotice = diagnostics.sink(ctx, warnings);
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
@@ -212,6 +233,15 @@ export default function (pi: ExtensionAPI) {
 								: formatCombinedResults(params.query, combined, backendStats, BACKEND_DEFS),
 						},
 					],
+					structuredContent: {
+						query: params.query,
+						backend: "combined-targeted",
+						resultCount: combined.length,
+						results: combined.map((result) => ({ ...result })),
+						...(warnings.length ? { warnings } : {}),
+						usableBackendCount,
+						backendStats: Object.fromEntries(backendStats),
+					},
 					details: {
 						backend: "combined-targeted",
 						...(warnings.length ? { warnings } : {}),
@@ -224,10 +254,12 @@ export default function (pi: ExtensionAPI) {
 
 			const errors: string[] = [];
 			for (const backend of orderedBackends) {
+				signal?.throwIfAborted();
 				const backendLabel = BACKEND_DEFS[backend]?.label || backend;
 				updateActivity(`🔍 ${backendLabel}: searching...`);
 				try {
 					const results = withSource(backend, await runSearchBackend(backend, params.query, numResults, signal));
+					signal?.throwIfAborted();
 					updateActivity(`🔍 ${backendLabel}: ${results.length} results`);
 					return {
 						content: [
@@ -238,6 +270,14 @@ export default function (pi: ExtensionAPI) {
 									: (compact ? formatResultsCompact(results) : formatResults(params.query, backend, results)),
 							},
 						],
+						structuredContent: {
+							query: params.query,
+							backend,
+							resultCount: results.length,
+							results: results.map((result) => ({ ...result })),
+							...(warnings.length ? { warnings } : {}),
+							...(errors.length ? { errors } : {}),
+						},
 						details: {
 							backend: errors.length > 0 ? `${backend} (fallback)` : backend,
 							...(warnings.length ? { warnings } : {}),
@@ -246,6 +286,7 @@ export default function (pi: ExtensionAPI) {
 						},
 					};
 				} catch (err) {
+					signal?.throwIfAborted();
 					errors.push(`${backend}: ${(err as Error).message}`);
 					updateActivity(`❌ ${backendLabel}: failed, trying next...`);
 				}
@@ -274,7 +315,17 @@ export default function (pi: ExtensionAPI) {
 				description: "HTTP(S) URL or bare domain to fetch",
 			}),
 		}),
+		outputSchema: Type.Object({
+			url: Type.String(),
+			reader: Type.Union(READER_NAMES.map((name) => Type.Literal(name))),
+			content: Type.String(),
+			length: Type.Number(),
+			truncated: Type.Boolean(),
+			warnings: Type.Optional(Type.Array(Type.String())),
+			fallbackErrors: Type.Optional(Type.Array(Type.String())),
+		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			signal?.throwIfAborted();
 			const warnings: string[] = [];
 			const onNotice = diagnostics.sink(ctx, warnings);
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
@@ -332,11 +383,13 @@ export default function (pi: ExtensionAPI) {
 			let content: string | undefined;
 			let reader: ReaderName | undefined;
 			for (const [index, candidate] of readers.entries()) {
+				signal?.throwIfAborted();
 				const label = READER_LABELS[candidate];
 				updateActivity(`📄 ${label}: fetching...`, candidate);
 				const started = Date.now();
 				try {
 					content = await fetchWithReader(candidate);
+					signal?.throwIfAborted();
 					await reportEffectiveness({
 						backend: candidate,
 						label,
@@ -379,6 +432,15 @@ export default function (pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: truncated }],
+				structuredContent: {
+					url,
+					reader,
+					content: content.slice(0, WEB_READ_RESULT_MAX_CHARS),
+					length: content.length,
+					truncated: content.length > WEB_READ_RESULT_MAX_CHARS,
+					...(warnings.length ? { warnings } : {}),
+					...(errors.length ? { fallbackErrors: errors } : {}),
+				},
 				details: {
 					...(warnings.length ? { warnings } : {}),
 					url,
