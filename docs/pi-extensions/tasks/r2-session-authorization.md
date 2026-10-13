@@ -42,6 +42,17 @@ T1 权限状态机、T2 真 SDK 执行链。独立测试保留路径 `packages/p
 | nested Agent/get/steer | 宿主 model-only 门槛拒绝，实际 manager 操作零；顶层原行为仍通过 |
 | R1 已验收回归 | 生命周期16例、费用水位、源码与测试类型检查持续通过 |
 
+## 协调者冻结的权限含义
+
+- “只读”由显式工具/来源上限实现，不按 Explore/Plan 名称、提示词或 readOnlyHint 推断安全性；不新增语义分类或Plan relay。既有reviewer、isolated、format-repair由调用方明确提供的限制仍必须严格执行。
+- named 角色恢复时，从原 configCwd/记录的角色来源读取当前定义；角色删除、禁用或来源无法确认时明确拒绝执行，不回退general-purpose。授权收窄不替换R1保存的prompt/model/limits或历史结果。
+- 活着的caller-owned activation使用该调用方仍持有的当前inline授权；不能把磁盘recipe本身当新授权。从盘恢复inline角色而无法取得当前可信调用方配置时拒绝执行。允许给内部restore/resume选项新增`currentAgentConfig`传入当前inline配置，与历史上限相交；不增加Agent工具参数、RPC授权字段或caller-owned facade新方法。
+- 旧recipe仅在明确builtin-only/isolated历史上限、且当前授权可验证时迁移；无法重建历史扩展来源时说明“授权无法验证”，不冒充JSONL损坏、不创建新session，也不妨碍已有历史结果的只读查看。
+- 调度核对已确认0.87.1和1.1.0默认均parallel，任一sequential工具会使同批全部串行。因此本轮**不新增executionMode:sequential**，只加model-only与权限gate，保留既有manager并发与后台启动语义。文案中的foreground使用纪律不是宿主字段保证。
+- R1独立断言继续保留。如新的恢复授权边界要求合法恢复fixture显式提供当前inline配置，由独立作者做最小fixture适配、单独提交；实现者不得修改预留文件，更不能为旧fixture绕过新授权。
+
+公开探针事实：tool_call有toolName/toolCallId/input/parentToolCallId，但无来源；只读核对实际ToolInfo.sourceInfo及真实loader注册所有者。nested被block通常返回isError:true，不保证抛异常/终止agent；model-only则可在nested callable集合阶段拒绝，不能混为普通gate命中。18场景证据见`/var/tmp/pi-1.1-dispatch-20261012/r2-hook-probe.{mjs,log}`。独立作者沿用runAgent/restoreAgentSession/resumeAgent、manager与现有facade公开入口；使用真实已注册目标及两级ctx.executeTool bridge，不拿未知工具失败冒充gate。
+
 ## 第二阶段允许范围与交付
 
 仅协调者解锁后写 Subagents 相关实现/既有测试、必要双语/包级文档和独立 changeset；不改依赖锁、统一进度、其他包或全局真实设置。B10/B11/B12、Plan relay 及其他冻结目标不实施；同文件内必要 API/类型调整不能借机完成冻结功能。
