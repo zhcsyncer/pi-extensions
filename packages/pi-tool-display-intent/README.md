@@ -58,6 +58,10 @@ Very large previews, diffs, and detail views may show an explicit display-omissi
 
 `individual` is the default: each tool keeps its own row. A Write row can compare the content captured immediately before that write with the supplied new content, even if the file changes again afterward. Historical rows never reread the current file to invent an earlier version.
 
+Scripts and tools that call other tools keep one top-level entry. Native codemode keeps its script, progress, and output; recorded descendants appear under the root without repeating its direct native call rows. Aggregate counts the root once, not each child or model call. A successful root may still have failed, cancelled, or unfinished children.
+
+Nested views keep at most 256 calls, with argument limits of 8 KiB each and 32 KiB total (compact JSON, UTF-8). Native argument snippets remain previews, not full arguments. Partial lists and visible-only costs are labeled; nested rows do not add usage again. Missing historical arguments, parent links, timing, or child result bodies stay unavailable—no tool is rerun to fill them in.
+
 `aggregate` folds every registered built-in, custom, MCP, and late-loaded tool in one user request into one Run view:
 
 ![Collapsed Run ledger](./assets/demo-aggregate-1.png)

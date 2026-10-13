@@ -41,6 +41,8 @@ import {
 import { logToolDisplayDebug } from "./debug-logger.js";
 import { createCleanupScope, type CleanupScope } from "./disposable.js";
 import { createToolRendererComposer } from "./renderer-shell.js";
+import { NestedDisplayStore } from "./nested-display.js";
+import { prepareNestedCall, prepareNestedResult } from "./nested-renderer.js";
 import { displayPropertyOmitted, snapshotDisplayValue, DISPLAY_OMISSION } from "./display-budget.js";
 import {
   registerLiveToolCallEvents,
@@ -1543,10 +1545,30 @@ function boundedOwnRenderers(toolName: string, own: ToolRenderers): ToolRenderer
   };
 }
 
+function knownNativeCodemode(info: unknown): boolean {
+  return getTextField(info, "name") === "codemode" && getTextField(info, "exposure") === "model-only" &&
+    getTextField(toRecord(toRecord(toRecord(info).parameters).properties).code, "type") === "string";
+}
+
+function nestedRendererHooks(nested: NestedDisplayStore, getConfig: ConfigGetter, toolName: string, knownNative: boolean, includeFacts = true): Pick<Parameters<ReturnType<typeof createToolRendererComposer>>[2], "prepareCall" | "prepareResult"> {
+  return {
+    prepareCall: (theme, context) => {
+      if (context?.toolCallId && context.invalidate) nested.bind(context.toolCallId, context.invalidate, context.state);
+      return includeFacts && !knownNative ? prepareNestedCall(nested, theme, context,
+        context?.expanded ? getExpandedPreviewRowLimit(getConfig()) : getConfig().previewRows) : undefined;
+    },
+    prepareResult: (result, options, theme, context, delegated) => prepareNestedResult(
+      nested, toolName, knownNative, delegated, result, options.expanded, theme, context,
+      options.expanded ? getExpandedPreviewRowLimit(getConfig()) : getConfig().previewRows, includeFacts,
+    ),
+  };
+}
+
 function installToolDisplayApi(
   getConfig: ConfigGetter,
   scope: CleanupScope,
   composeToolRenderers: ReturnType<typeof createToolRendererComposer>,
+  nested: NestedDisplayStore,
 ) {
   const adapters = new Map<string, ToolDisplayAdapter>();
   const decoratedCallbacks = new Set<unknown>();
@@ -1629,6 +1651,7 @@ function installToolDisplayApi(
         tool as unknown as ToolRenderers,
         {
           style: getConfig().toolCallStyle, run: scope.run,
+          ...nestedRendererHooks(nested, getConfig, tool.name ?? "tool", knownNativeCodemode(tool)),
           native: overrideExisting ? {
             renderCall: decorated.renderCall !== tool.renderCall ? tool.renderCall : undefined,
             renderResult: decorated.renderResult !== tool.renderResult ? tool.renderResult : undefined,
@@ -1683,8 +1706,11 @@ export function registerToolDisplayOverrides(
 ): void {
   const scope = createCleanupScope();
   const composeToolRenderers = createToolRendererComposer();
+  const nested = new NestedDisplayStore();
+  nested.register(pi);
+  scope.register(() => nested.dispose());
   const clearLiveCalls = registerLiveToolCallEvents(pi);
-  const { api: toolDisplayApi, adapters, decoratedCallbacks } = installToolDisplayApi(getConfig, scope, composeToolRenderers);
+  const { api: toolDisplayApi, adapters, decoratedCallbacks } = installToolDisplayApi(getConfig, scope, composeToolRenderers, nested);
   scope.register(() => {
     clearLiveCalls();
     const globalWithApi = globalThis as GlobalWithToolDisplayApi;
@@ -1706,6 +1732,8 @@ export function registerToolDisplayOverrides(
             !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]),
         () => getConfig().expandedTimeline,
         () => getConfig().showContextGrowth,
+        nested,
+        (expanded) => expanded ? getExpandedPreviewRowLimit(getConfig()) : getConfig().previewRows,
       )
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void => {
@@ -2023,14 +2051,18 @@ export function registerToolDisplayOverrides(
     const config = getConfig();
     if ((delegate?.renderCall && decoratedCallbacks.has(delegate.renderCall)) ||
         (delegate?.renderResult && decoratedCallbacks.has(delegate.renderResult))) return delegate;
+    const metadata = tryGetAllTools(pi, "Tool display metadata unavailable.")?.find(tool => getTextField(tool, "name") === toolName);
+    const knownNative = knownNativeCodemode(metadata);
     if (config.passthroughToolNames.includes(toolName) ||
         (isBuiltInToolName(toolName) && !config.registerToolOverrides[toolName as BuiltInToolOverrideName])) {
-      return delegate;
+      // Passthrough keeps its renderer/style; known native progress still obeys the display budget.
+      return knownNative ? composeToolRenderers({}, delegate, {
+        style: "compact", run: scope.run, ...nestedRendererHooks(nested, getConfig, toolName, true, false),
+      }) : delegate;
     }
     const builtin = builtInDisplays.get(toolName);
     const custom = getRuntimeCustomToolOverride(toolName, config);
     const adapter = adapters.get(toolName) ?? {};
-    const metadata = tryGetAllTools(pi, "Tool display metadata unavailable.")?.find(tool => getTextField(tool, "name") === toolName);
     const isMcp = custom?.kind === "mcp" || adapter.kind === "mcp" || isMcpToolCandidate(metadata ?? { name: toolName });
     const own: ToolRenderers = builtin as unknown as ToolRenderers ?? {
       renderCall(args, theme, context) {
@@ -2051,14 +2083,14 @@ export function registerToolDisplayOverrides(
       native: isBuiltInToolName(toolName) ? bootstrapTools[toolName as BuiltInToolOverrideName] : undefined,
       connectRows: toolName === "bash",
       run: scope.run,
+      ...nestedRendererHooks(nested, getConfig, toolName, knownNative),
     });
-    if (aggregateProjection) {
-      const call = renderers.renderCall;
-      renderers.renderCall = (args, theme, context) => {
-        aggregateProjection.setRenderTheme(theme);
-        return call!(args, theme, context);
-      };
-    }
+    const call = renderers.renderCall;
+    renderers.renderCall = (args, theme, context) => {
+      if (context?.toolCallId && context.invalidate) nested.bind(context.toolCallId, context.invalidate, context.state);
+      aggregateProjection?.setRenderTheme(theme);
+      return call!(args, theme, context);
+    };
     return renderers;
   });
 

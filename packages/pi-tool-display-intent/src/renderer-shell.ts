@@ -1,5 +1,5 @@
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { Box, type Component } from "@earendil-works/pi-tui";
+import { Box, Container, type Component } from "@earendil-works/pi-tui";
 import { applyToolResultStyle } from "./tool-call-style.js";
 import type { ToolCallStyle } from "./types.js";
 
@@ -32,6 +32,14 @@ interface RendererOptions {
   native?: ToolRenderers;
   connectRows?: boolean;
   run?: <T>(fn: () => T) => T;
+  prepareCall?: (theme: Parameters<NonNullable<ToolRenderers["renderCall"]>>[1], context: RenderContext) => Component | undefined;
+  prepareResult?: (
+    result: Parameters<NonNullable<ToolRenderers["renderResult"]>>[0],
+    options: Parameters<NonNullable<ToolRenderers["renderResult"]>>[1],
+    theme: Parameters<NonNullable<ToolRenderers["renderResult"]>>[2],
+    context: RenderContext,
+    delegated: boolean,
+  ) => { result: Parameters<NonNullable<ToolRenderers["renderResult"]>>[0]; after?: Component };
 }
 
 /** One registration owner keeps row state across independent call/result resolutions (HTML). */
@@ -72,7 +80,7 @@ function composeToolRenderers(
     };
   }
 
-  function frame(row: Row, layer: Layer, slot: Slot, child: Component, context: RenderContext, delegated: boolean, theme: Parameters<NonNullable<ToolRenderers["renderCall"]>>[1]) {
+  function frame(row: Row, layer: Layer, slot: Slot, child: Component, context: RenderContext, delegated: boolean, theme: Parameters<NonNullable<ToolRenderers["renderCall"]>>[1], after?: Component) {
     layer[slot] = child;
     // A delegated self shell already owns outputPad. Default renderers leave it to their host.
     const selfPadded = delegated && delegate?.renderShell === "self";
@@ -82,7 +90,14 @@ function composeToolRenderers(
       ? applyToolResultStyle(child, options.style, { connectRows: options.connectRows, theme }) as Component
       : child;
     const component = row[slot] ??= new RendererSlot(row, rows);
-    component.update(styled, shell === "self" && !selfPadded ? context?.outputPad ?? 0 : 0);
+    let body = styled;
+    if (after) {
+      const group = new Container();
+      group.addChild(styled);
+      group.addChild(after);
+      body = group;
+    }
+    component.update(body, shell === "self" && !selfPadded ? context?.outputPad ?? 0 : 0);
     return component;
   }
 
@@ -92,13 +107,18 @@ function composeToolRenderers(
       const renderer = useCallDelegate ? delegate! : own;
       const { row, layer, context: inner } = prepare(context, "call", useCallDelegate);
       const child = renderer.renderCall!(args, theme, inner);
-      return frame(row, layer, "call", child, context, useCallDelegate, theme);
+      const pending = options.prepareCall?.(theme, context);
+      // A root that never publishes partial results still needs its live descendants.
+      // Once a result slot exists it owns the supplement, including the first result frame.
+      const after = pending ? { render: (width: number) => row.result ? [] : pending.render(width), invalidate: () => pending.invalidate() } : undefined;
+      return frame(row, layer, "call", child, context, useCallDelegate, theme, after);
     }) : undefined,
     renderResult: own.renderResult || delegate?.renderResult ? (result, renderOptions, theme, context) => run(() => {
       const renderer = useResultDelegate ? delegate! : own;
       const { row, layer, context: inner } = prepare(context, "result", useResultDelegate);
-      const child = renderer.renderResult!(result, renderOptions, theme, inner);
-      return frame(row, layer, "result", child, context, useResultDelegate, theme);
+      const view = options.prepareResult?.(result, renderOptions, theme, context, useResultDelegate);
+      const child = renderer.renderResult!(view?.result ?? result, renderOptions, theme, inner);
+      return frame(row, layer, "result", child, context, useResultDelegate, theme, view?.after);
     }) : undefined,
   };
 }

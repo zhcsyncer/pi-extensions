@@ -118,8 +118,9 @@ export function extractDisplayText(result: unknown): string {
 }
 
 /** A notification-time view snapshot. No getters, iterators, toJSON or whole-object serialization. */
-export function snapshotDisplayValue(input: unknown) {
-	let remaining = DISPLAY_LIMITS.units as number;
+export function snapshotDisplayValue(input: unknown, limits: { units?: number; nodes?: number } = {}) {
+	let remaining = Math.min(DISPLAY_LIMITS.units, Math.max(0, limits.units ?? DISPLAY_LIMITS.units));
+	const nodeLimit = Math.min(DISPLAY_LIMITS.nodes, Math.max(0, limits.nodes ?? DISPLAY_LIMITS.nodes));
 	let lines = DISPLAY_LIMITS.lines as number;
 	let nodes = 0;
 	let entries = 0;
@@ -132,7 +133,7 @@ export function snapshotDisplayValue(input: unknown) {
 		return DISPLAY_OMISSION;
 	};
 	const visit = (value: unknown, depth: number, content = false): any => {
-		if (++nodes > DISPLAY_LIMITS.nodes || depth > DISPLAY_LIMITS.depth || remaining <= 0 || lines <= 0) return omitted();
+		if (++nodes > nodeLimit || depth > DISPLAY_LIMITS.depth || remaining <= 0 || lines <= 0) return omitted();
 		if (typeof value === "string") {
 			const bounded = boundDisplayText(value, remaining, lines);
 			remaining -= bounded.text.length;
@@ -154,7 +155,7 @@ export function snapshotDisplayValue(input: unknown) {
 		const output: any = array ? [] : {};
 		const set = (key: string, value: unknown) => Object.defineProperty(output, key, { value, enumerable: true, configurable: true, writable: true });
 		const copy = (key: string) => {
-			if (++entries > DISPLAY_LIMITS.nodes || nodes >= DISPLAY_LIMITS.nodes || remaining <= 0 || lines <= 0) { omitted(); return false; }
+			if (++entries > nodeLimit || nodes >= nodeLimit || remaining <= 0 || lines <= 0) { omitted(); return false; }
 			if (key.length > remaining) { omitted(); return false; }
 			remaining -= key.length;
 			const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -167,13 +168,13 @@ export function snapshotDisplayValue(input: unknown) {
 				const length = displayField(value, "length");
 				if (typeof length !== "number") omitted();
 				else {
-					const limit = content ? DISPLAY_LIMITS.blocks : DISPLAY_LIMITS.nodes;
+					const limit = content ? Math.min(DISPLAY_LIMITS.blocks, nodeLimit) : nodeLimit;
 					for (let i = 0; i < Math.min(length, limit); i++) if (!copy(String(i))) break;
 					if (length > output.length) omitted();
 				}
 			} else {
 				for (const key in value) {
-					if (!Object.hasOwn(value, key)) { if (++entries > DISPLAY_LIMITS.nodes) { omitted(); break; } continue; }
+					if (!Object.hasOwn(value, key)) { if (++entries > nodeLimit) { omitted(); break; } continue; }
 					if (!copy(key)) break;
 				}
 			}
