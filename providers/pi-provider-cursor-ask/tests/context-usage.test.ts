@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createAssistantMessageEventStream,
+  Type,
   type Api,
   type Context,
   type Model,
@@ -10,7 +11,10 @@ import {
   estimateMessageTokens,
   type CursorAssistantMessage,
 } from "../src/stream/context-usage.js";
-import { createCursorAssistantMessage } from "../src/stream/pi-adapter.js";
+import {
+  contextToCursorChatCompletionRequest,
+  createCursorAssistantMessage,
+} from "../src/stream/pi-adapter.js";
 import { createNativeStreamWriter } from "../src/stream/stream-writer.js";
 
 const model: Model<Api> = {
@@ -38,6 +42,114 @@ function anchoredMessage(): CursorAssistantMessage {
   tracker.finish(output);
   return output;
 }
+
+describe("Cursor effective transcript replay", () => {
+  const config = {
+    getAccessToken: async (): Promise<string> => {
+      throw new Error("Request construction must not resolve auth");
+    },
+  };
+  const updated: Context = {
+    messages: [
+      { ...system, sections: { rules: "obsolete rules", temporary: "obsolete note" } },
+      user,
+      {
+        role: "system",
+        content: [{ type: "text", text: "Additional instruction" }],
+        sections: { rules: "Current rules", temporary: null },
+        timestamp: 2,
+      },
+    ],
+  };
+  const current: Context = {
+    messages: [
+      {
+        ...system,
+        content: `${system.content}\n\nAdditional instruction`,
+        sections: { rules: "Current rules" },
+      },
+      user,
+    ],
+  };
+
+  it("sends only current sections while retaining appended content", () => {
+    const request = contextToCursorChatCompletionRequest(model, updated, undefined, config);
+    expect(request.messages).toEqual([
+      {
+        role: "system",
+        content: `${system.content}\n\nAdditional instruction\n\nCurrent rules`,
+      },
+      { role: "user", content: user.content },
+    ]);
+  });
+
+  it("keeps estimates and anchors equivalent after superseded sections disappear", () => {
+    const first = createCursorContextTracker(model, updated, options);
+    const canonical = createCursorContextTracker(model, current, options);
+    expect(first.finish(createCursorAssistantMessage(model))).toEqual(
+      canonical.finish(createCursorAssistantMessage(model)),
+    );
+    const previous = createCursorAssistantMessage(model);
+    first.observe(80_000, previous);
+    first.finish(previous);
+    const resumed = createCursorContextTracker(
+      model,
+      { messages: [...current.messages, previous] },
+      options,
+    );
+    expect(resumed.finish(createCursorAssistantMessage(model)).tokens).toBe(
+      80_000 + estimateMessageTokens(createCursorAssistantMessage(model)),
+    );
+  });
+
+  it("sends redefined tools without removed schemas and permits an empty tool set", () => {
+    const oldTool = {
+      name: "read",
+      description: "Old",
+      parameters: Type.Object({ old: Type.String() }),
+    };
+    const newTool = {
+      name: "read",
+      description: "Current",
+      parameters: Type.Object({ path: Type.String() }),
+    };
+    const toolsContext: Context = {
+      messages: [
+        { ...system, toolsAdded: [oldTool, { ...oldTool, name: "temporary" }] },
+        user,
+        {
+          role: "system",
+          content: "",
+          toolsRemoved: [{ name: "temporary" }],
+          toolsAdded: [newTool],
+          timestamp: 2,
+        },
+      ],
+    };
+    expect(
+      contextToCursorChatCompletionRequest(model, toolsContext, undefined, config).tools,
+    ).toEqual([{ type: "function", function: newTool }]);
+    const canonical = { messages: [{ ...system, toolsAdded: [newTool] }, user] };
+    expect(
+      createCursorContextTracker(model, toolsContext, options).finish(
+        createCursorAssistantMessage(model),
+      ),
+    ).toEqual(
+      createCursorContextTracker(model, canonical, options).finish(
+        createCursorAssistantMessage(model),
+      ),
+    );
+    toolsContext.messages.push({
+      role: "system",
+      content: "",
+      toolsRemoved: [{ name: "read" }],
+      timestamp: 3,
+    });
+    expect(
+      contextToCursorChatCompletionRequest(model, toolsContext, undefined, config).tools,
+    ).toEqual([]);
+  });
+});
 
 describe("Cursor context independent of billing", () => {
   it("uses a positive local estimate when a huge bill arrives without a snapshot", async () => {

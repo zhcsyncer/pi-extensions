@@ -1,6 +1,14 @@
 /** Cursor-only context estimates. Billing totals must never become a context fallback. */
 import { createHash, type Hash } from "node:crypto";
-import type { Api, AssistantMessage, Context, Message, Model } from "@earendil-works/pi-ai";
+import {
+  getCurrentSystemPrompt,
+  getCurrentTools,
+  type Api,
+  type AssistantMessage,
+  type Context,
+  type Message,
+  type Model,
+} from "@earendil-works/pi-ai";
 import type { CursorBillingInfo } from "./run-usage.js";
 
 export interface CursorUsageMetadata {
@@ -27,46 +35,13 @@ function textTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
 }
 
-function systemMessageText(message: Message): string {
-  if (message.role !== "system") return "";
-  const parts: string[] = [];
-  if (typeof message.content === "string") parts.push(message.content);
-  else if (Array.isArray(message.content)) {
-    for (const block of message.content) {
-      if (block && typeof block === "object" && block.type === "text") parts.push(block.text);
-    }
-  }
-  if ("sections" in message && message.sections && typeof message.sections === "object") {
-    for (const value of Object.values(message.sections as Record<string, unknown>)) {
-      if (typeof value === "string") parts.push(value);
-    }
-  }
-  return parts.join("\n");
-}
-
-/** Pi 0.86 transcript system messages. */
+/** Share Pi's effective transcript state between requests and context anchors. */
 export function replayedSystemPrompt(context: Context): string {
-  const parts: string[] = [];
-  for (const message of context.messages ?? []) {
-    const text = systemMessageText(message);
-    if (text) parts.push(text);
-  }
-  return parts.join("\n");
+  return getCurrentSystemPrompt(context.messages);
 }
 
-/** Pi 0.86 `toolsAdded` / `toolsRemoved` on system messages. */
 export function replayedTools(context: Context): NonNullable<Context["tools"]> {
-  const tools = new Map<string, NonNullable<Context["tools"]>[number]>();
-  for (const message of context.messages ?? []) {
-    if (message.role !== "system") continue;
-    const record = message as Message & {
-      toolsRemoved?: Array<{ name: string }>;
-      toolsAdded?: NonNullable<Context["tools"]>;
-    };
-    for (const tool of record.toolsRemoved ?? []) tools.delete(tool.name);
-    for (const tool of record.toolsAdded ?? []) tools.set(tool.name, tool);
-  }
-  return [...tools.values()];
+  return getCurrentTools(context.messages);
 }
 
 /** A bounded image heuristic, not base64 length or an assertion of upstream tokenization. */
