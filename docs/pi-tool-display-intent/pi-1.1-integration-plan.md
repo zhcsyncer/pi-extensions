@@ -1,6 +1,6 @@
 # Tool Display：Pi 1.1.0 统一渲染实施规格
 
-状态：分阶段实施中，验收状态见[统一执行表](../pi-extensions/pi-1.1-execution-plan.md#0-统一进度表调度-session-唯一写入)。归属：[总计划](../pi-1.1-implementation-plan.md) W3/W4。依据：2026-10-10 21:59 的 main `f48a91b`、PR #149 `10ce0603`、PR #150 `3a84d176` 与精确 Pi 1.1.0 源码。
+状态：W3/W4实现已集成并通过离线组件验收；完整CLI/PTY/Mac与真实服务仍待L1，GitHub项目未关闭。证据见[统一执行表](../pi-extensions/pi-1.1-execution-plan.md#0-统一进度表调度-session-唯一写入)。归属：[总计划](../pi-1.1-implementation-plan.md) W3/W4。依据：2026-10-10 21:59 的 main `f48a91b`、PR #149 `10ce0603`、PR #150 `3a84d176` 与精确 Pi 1.1.0 源码。
 
 ## Goal
 
