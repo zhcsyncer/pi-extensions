@@ -1,6 +1,6 @@
 # Tool Display：Pi 1.1.0 统一渲染实施规格
 
-状态：待 review，未实施。归属：[总计划](../pi-1.1-implementation-plan.md) W3/W4。依据：2026-10-10 21:59 的 main `f48a91b`、PR #149 `10ce0603`、PR #150 `3a84d176` 与精确 Pi 1.1.0 源码。
+状态：分阶段实施中，验收状态见[统一执行表](../pi-extensions/pi-1.1-execution-plan.md#0-统一进度表调度-session-唯一写入)。归属：[总计划](../pi-1.1-implementation-plan.md) W3/W4。依据：2026-10-10 21:59 的 main `f48a91b`、PR #149 `10ce0603`、PR #150 `3a84d176` 与精确 Pi 1.1.0 源码。
 
 ## Goal
 
@@ -16,7 +16,7 @@
 
 原生 codemode 的 raw-JS schema/grammar 不变；不得为统一意图强加一个 JSON `displaySummary` 必填项。代码注释可作展示 fallback，但不作实际执行证据。
 
-Bash 的既有 displaySummary 契约另行保留：codemode 脚本无需额外填此字段，现有 prepareArguments 可补 fallback，没有已确认的缺字段故障。重构须保住这条预处理链；不扩大字段范围、不直接放宽 schema，也不让显示字段传入底层执行。精确 1.1 的真实 loader 与直接/nested 调用仍待集成验收，不能把 helper 单测视为完整链路已通过。
+Bash 的既有 displaySummary 契约另行保留：codemode 脚本无需额外填此字段，现有 prepareArguments 可补 fallback，没有已确认的缺字段故障。重构须保住这条预处理链；不扩大字段范围、不直接放宽 schema，也不让显示字段传入底层执行。D1 已通过精确1.1真实loader及离线直接/nested组合验收；不是仅凭helper单测，真实服务与全端验证仍留L1。
 
 ### renderer 组合契约
 
