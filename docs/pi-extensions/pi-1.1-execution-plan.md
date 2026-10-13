@@ -31,7 +31,7 @@
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
 - 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`f195faafbed84a0078619d7dd095c85203da8c24`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0、K1、C1、R1、D1、D2、N1、F1 已验收；R1/Review类型错误及Fast回归已消除，不表示整轮适配或真实服务已通过。
-- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)、[N1](./tasks/n1-fast-options.md)、[R2](./tasks/r2-session-authorization.md)、[M1](./tasks/m1-recorded-usage-ledger.md)、[D2](./tasks/d2-bounded-rendering.md)、[D3](./tasks/d3-nested-display.md)、[F1](./tasks/f1-workflow-tools.md)。依赖见 §2。
+- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)、[N1](./tasks/n1-fast-options.md)、[R2](./tasks/r2-session-authorization.md)、[M1](./tasks/m1-recorded-usage-ledger.md)、[D2](./tasks/d2-bounded-rendering.md)、[D3](./tasks/d3-nested-display.md)、[F1](./tasks/f1-workflow-tools.md)、[H1](./tasks/h1-herdr-compatibility.md)。依赖见 §2。
 - 已回收的审阅资源（2026-10-13 11:13）：`pi-1.1-review`（pi11-review/w9Y:p1，末次候选0838d8b）、`pi-1.1-review-display`（pi11-review-display/wA4:p1，e7a3050）、`pi-1.1-review-consult`（pi11-review-consult/wA5:p1，2a228a5）。Pi已正常退出，checkout/工作区已移除，分支与会话日志保留。后续审阅按固定候选重建环境，不再使用这些失效pane。
 - 当前新建R2审阅：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review-r2`，session `pi11-review-r2-20261013`，agent `pi11-review-r2` / `wA9:p1`，候选35e99db；D2审阅已验收并回收：原`pi-1.1-review-d2`，session `pi11-review-d2-20261013`，agent `pi11-review-d2` / `wAA:p1`，最终候选b144f69。审阅结束且无后续工作即回收。
 - 本次另回收E0、K1、C1、N1四个已验收实施环境，加上F1、D2复审及D2独立测试，共10组；显示实施环境立即承接D3，不留闲置；集成、R2及其独立测试、M1实施/独立测试仍保留。静态清理证据：`/var/tmp/pi-1.1-dispatch-20261012/completed-worktree-cleanup-evidence.json`；终端证据已保存同目录`*-closing-output.log`。
@@ -46,12 +46,12 @@
 | R3 child 装配 | 未派发 | — | — | 待 R2＋K1 | — |
 | D1 renderer/语义保真 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；`pi11-display-20261012`；agent `pi11-display` / `w90:p1` | `e1d3882` → 实现`95b7f22`＋`0d0dc95`；测试`603bbcf`＋`fd1cc55` → `b317aee` | 独立复审ACCEPT、21合同/1174全包通过；集成态1174/1174、类型、真实loader无告警/私有加载、pack17/17通过；证据 `/var/tmp/pi-1.1-dispatch-20261012/d1-integrated-check.log` | 2026-10-12 18:46 |
 | D2 缓存/有界输出 | 已集成 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；新分支`upgrade/pi-1.1-display-d2`；`pi11-display-20261012` / `w90:p1` | `35b5e95` → 实现`54dd3c6`＋`a989ee2`；测试`7ca8279`＋`aa498db` → `f195faa` | b144f69独立ACCEPT；集成态1215/1215、类型、真实loader零告警/私有加载、pack17/17通过；独立31＋D1的21例全过，真实/tools与详情已覆盖；证据d2-integrated-*.log | 2026-10-13 15:52 |
-| D3 nested 投影 | 未派发 | — | — | D2已验收，最小合同已备；先只读核对原生能力/真实事件与持久记录，不进入D4或另造进度系统 | 2026-10-13 15:52 |
+| D3 nested 投影 | 执行中 | 复用`pi-1.1-display`，branch `upgrade/pi-1.1-display-d3`；`pi11-display-20261012` / `w90:p1` | `3c87998` → — → — | 第一阶段只读核对原生能力/两三层真实事件与持久记录；无实现提交，不进入D4或另造进度系统 | 2026-10-13 16:06 |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
 | K1 Context7 离线合同 | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-context7`；`pi11-context7-20261012`；agent `pi11-context7` / `wA1:p1` | `4975745` → `f0261015` → `6fa7613` | 完整独立审阅及集成态 typecheck＋24/24、真实 loader 无告警/私有加载、pack17/17 通过；消费者可信身份合同已写回接入规格，真实服务仍待 L1 | 2026-10-12 16:30 |
 | C1 Consult 公开 SDK | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-consult`；`pi11-consult-20261012`；agent `pi11-consult` / `wA3:p1` | `cc66a05` → 实现`60a6b59`＋文档`7caecc7`；测试`808f3bc`＋`6f20b05` → `7db1be2` | 独立组合ACCEPT，集成态111/111、typecheck、真实loader无告警/私有加载、pack17/17通过；调用预算语义不变，真实服务及人工tree/reload仍待验 | 2026-10-12 17:48 |
 | F1 Todo＋Question | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-workflow-tools`；`pi11-workflows-20261013` / `wAB:p1` | `7d1fb05` → `49bf8e5` → `b83ff07` | 主调度审阅：生产仅两处model-only，无新调度/权限逻辑；集成态Todo215/Question612、类型及两包真实loader全过。RPC/UI绑定非真实终端/子进程，已说明边界；证据f1-integrated-check.log | 2026-10-13 15:28 |
-| H1 Herdr 兼容 | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
+| H1 Herdr 兼容 | 未派发 | — | — | 合同已备：实际process注册model-only、保留原sequential/no-op/归属/BTW/blocked；只读核对OSC，保留v9桥接，不启用worker或命令体验改造 | 2026-10-13 16:06 |
 | N1 Fast | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast`；`pi11-fast-20261012`；agent `pi11-fast` / `wA6:p1` | `75bb74a` → 实现`a3c8d42`＋测试`cb07b5e` → `ee51c41` | 独立审阅ACCEPT、35合同通过；集成态71/71与类型通过，真实loader无错误/告警/私有加载；真实priority授权及账单未验。证据 `/var/tmp/pi-1.1-dispatch-20261012/n1-integrated-check.log` | 2026-10-13 10:13 |
 | N2 Search | 未派发 | — | — | E0 已通过；待实施槽位与合同，三项旧债不做 | 2026-10-12 16:20 |
 | N3 Recap | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
@@ -60,7 +60,7 @@
 | X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
 | P1 Plan 授权 | 未派发 | — | — | 待R2；K1合同已就绪 | 2026-10-12 17:57 |
-| M1 Meter 账本 | 执行中 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-meter`；`pi11-meter-20261012` / `wA8:p1`；独立`pi-1.1-ledger-contract-tests`、`pi11-ledger-tests-20261013` / `wAC:p1` | `deb347c` → — → — | 最小方案第二阶段已授权＋独立T0作者已派；仅parser/capture/store必要适配，保留旧文件/预算意义及局限，不重建或造来源证明框架；独立不读实现 | 2026-10-13 15:43 |
+| M1 Meter 账本 | 待审阅 | 实施`pi-1.1-meter` / `wA8:p1`；测试`pi-1.1-ledger-contract-tests` / `wAC:p1`；审阅`pi-1.1-review-meter`、`pi11-review-meter-20261013` / `wAD:p1` | `deb347c` → 实现`f131b84`；测试`5743f69`＋`eff107e5` → — | 候选04bf70d组合独立69例（旧基线2fixture＋31合同通过/36red）；实现自报7文件170通过。独立审阅完整check/旧账保留及必要性，不把自报当验收 | 2026-10-13 16:11 |
 | G1 Glance 用量/主题 | 未派发 | — | — | R1费用合同已解锁，待任务合同与槽位 | 2026-10-12 17:57 |
 | M2 Go 额度 | 未派发 | — | — | 待 M1；Antigravity 不做 | — |
 | I1 跨包/安装验收 | 未派发 | — | — | 待本轮实现集成与候选 SHA | — |
