@@ -12,7 +12,10 @@ import {
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { TuiMainScreen, stripTerminalSequences } from "@earendil-works/pi-tui";
-import { AggregateProjection, registerAggregateProjectionEvents } from "../src/aggregate-activity.ts";
+import {
+  AggregateProjection, patchAggregateToolExecutions, registerAggregateProjectionEvents, restoreAggregateToolExecutions,
+} from "../src/aggregate-activity.ts";
+import { buildDetailModel } from "../src/detail-viewer-model.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { AggregateTerminal } from "./helpers/aggregate-terminal.ts";
@@ -550,3 +553,88 @@ test("D3 unloaded codemode: ordinary tool execution neither enables codemode nor
   assert.match(plain(h.component()), /ordinary/);
   assert.ok(!h.session.getActiveToolNames().some(name => name === "codemode" || name.startsWith("mcp__")));
 });
+
+// Read JSON string fields from the displayed text, not the request or a private
+// model cache. This also works when an explicitly marked Raw preview cuts JSON short.
+function displayedDetailStrings(text: string, field: "id" | "args") {
+  const pattern = new RegExp(`"${field}"\\s*:\\s*("(?:\\\\.|[^"\\\\])*")`, "g");
+  return Array.from(text.matchAll(pattern), match => JSON.parse(match[1]) as string);
+}
+
+for (const scenario of [
+  { label: "record count", calls: 258, name: "detail_count_child", args: {}, sourceArgs: "{}" },
+  { label: "multibyte arguments", calls: 100, name: "detail_bytes_child", args: { tag: "界".repeat(200) }, sourceArgs: '{tag:"界".repeat(200)}' },
+]) {
+  test(`D3 aggregate clicked Metadata/Raw: ${scenario.label}`, { timeout: 30_000 }, async t => {
+    const executed: unknown[] = [];
+    const h = await fixture(t, { layout: "aggregate", tools: [
+      tool(scenario.name, async (_id, args) => {
+        executed.push(structuredClone(args));
+        return textResult("nested result not retained");
+      }, scenario.name === "detail_bytes_child" ? Type.Object({ tag: Type.String() }) : Type.Object({})),
+    ] });
+    patchAggregateToolExecutions(h.projection);
+    t.after(() => restoreAggregateToolExecutions());
+    const opened: ReturnType<typeof buildDetailModel>[] = [];
+    const code = `for (let i = 0; i < ${scenario.calls}; i++) await tools.${scenario.name}(${scenario.sourceArgs}); return "DETAILS_DONE";`;
+    await h.run(code);
+    const root = h.root();
+    assert.equal(root.isError, false, "fixture: native script succeeds");
+    assert.equal(starts(h).filter(event => event.parentToolCallId === ROOT).length, scenario.calls);
+    assert.deepEqual(executed, Array.from({ length: scenario.calls }, () => scenario.args));
+    assert.equal(root.details?.calls.length, scenario.calls, "fixture: original native calls are not clipped");
+    if (scenario.calls === 258) {
+      assert.equal(root.nestedCalls?.calls.length, 256);
+      assert.equal(root.nestedCalls?.complete, false);
+    } else {
+      assert.ok(root.details!.calls.reduce((total, call) => total + utf8(call.args), 0) > 32768,
+        "fixture: compact-JSON UTF-8 argument bytes exceed the total budget");
+      assert.ok(root.details!.calls.reduce((total, call) => total + JSON.stringify(call.args).length, 0) < 32768,
+        "fixture: UTF-16 length alone would miss this regression");
+    }
+    const before = structuredClone({ root, executed, messages: h.session.messages,
+      branch: h.session.sessionManager.getBranch(), usage: h.session.getSessionStats() });
+    h.projection.rebuild(h.session.sessionManager.getBranch(), h.session.messages);
+    h.projection.setDetailOpener(async request => { opened.push(buildDetailModel(request)); });
+    const component = h.component();
+    component.setExpanded(true);
+    component.invalidate();
+    const width = 160;
+    const rendered = component.render(width).map(stripTerminalSequences);
+    // Select the executable root row, not the Run heading's tool-name summary.
+    const rootRow = rendered.findIndex(line => /\bcodemode\(/.test(line));
+    assert.ok(rootRow >= 0, "fixture: expanded aggregate exposes the actual codemode root row");
+    const handled = component.handleMouse({ type: "click", button: "left", x: 8, y: rootRow, screenX: 8, screenY: rootRow,
+      width, height: rendered.length, shift: false, alt: false, ctrl: false });
+    assert.equal(handled?.handled, true, "fixture: the real root click is handled");
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(opened.length, 1, "fixture: the real click opens one detail request");
+    const metadata = opened[0].tabs.find(tab => tab.id === "details");
+    assert.ok(metadata, "fixture: the real request provides a Metadata tab");
+    assert.deepEqual({ root, executed, messages: h.session.messages,
+      branch: h.session.sessionManager.getBranch(), usage: h.session.getSessionStats() }, before,
+    "opening details must not truncate execution arguments, original results, saved history or usage");
+
+    for (const [surface, text] of [["Metadata", metadata.text], ["Raw", metadata.rawText]] as const) {
+      const ids = displayedDetailStrings(text, "id");
+      const argumentsShown = displayedDetailStrings(text, "args")
+        .filter(value => !/^\[?(?:arguments?\s+omitted|参数(?:已)?省略)/i.test(value));
+      assert.ok(ids.length > 0, `fixture: ${surface} exposes real call records`);
+      assert.ok(ids.every(id => root.details!.calls.some(call => call.id === id)),
+        `${surface} must not fabricate call identities`);
+      assert.ok(argumentsShown.every(args => root.details!.calls.some(call => call.args === args)),
+        `${surface} retained argument previews stay faithful to actual native data`);
+      await t.test(`${surface}: record scope stays within 256 calls`, () => {
+        assert.ok(ids.length <= 256, `${surface} displays ${ids.length} call records`);
+      });
+      await t.test(`${surface}: compact-JSON UTF-8 arguments stay within 8192/32768 bytes`, () => {
+        assert.ok(argumentsShown.every(args => utf8(args) <= 8192), `${surface} exceeds the per-argument byte budget`);
+        const bytes = argumentsShown.reduce((total, args) => total + utf8(args), 0);
+        assert.ok(bytes <= 32768, `${surface} displays ${bytes} argument bytes`);
+      });
+      await t.test(`${surface}: omitted nested data is explicitly marked`, () => {
+        assert.ok(PARTIAL.test(text), `${surface} must label omitted nested data, including in Raw mode`);
+      });
+    }
+  });
+}
