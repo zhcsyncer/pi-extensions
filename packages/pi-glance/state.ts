@@ -44,7 +44,7 @@ function touch(state: GlanceState): void {
 }
 
 function usageTotalsEqual(a: UsageTotals, b: UsageTotals): boolean {
-	return a.input === b.input && a.output === b.output && a.cacheRead === b.cacheRead && a.cacheWrite === b.cacheWrite && a.cost === b.cost;
+	return a.input === b.input && a.output === b.output && a.cacheRead === b.cacheRead && a.cacheWrite === b.cacheWrite && a.cost === b.cost && !!a.costUnknown === !!b.costUnknown;
 }
 
 function turnThroughputEqual(a: TurnThroughput | null, b: TurnThroughput | null): boolean {
@@ -94,13 +94,14 @@ export function setUsageTotals(state: GlanceState, usage: UsageTotals): boolean 
 }
 
 export function addUsageTotals(state: GlanceState, delta: UsageTotals): boolean {
-	if (delta.input === 0 && delta.output === 0 && delta.cacheRead === 0 && delta.cacheWrite === 0 && delta.cost === 0) return false;
+	if (delta.input === 0 && delta.output === 0 && delta.cacheRead === 0 && delta.cacheWrite === 0 && delta.cost === 0 && !delta.costUnknown) return false;
 	state.usage = {
 		input: state.usage.input + delta.input,
 		output: state.usage.output + delta.output,
 		cacheRead: state.usage.cacheRead + delta.cacheRead,
 		cacheWrite: state.usage.cacheWrite + delta.cacheWrite,
 		cost: state.usage.cost + delta.cost,
+		...(state.usage.costUnknown || delta.costUnknown ? { costUnknown: true } : {}),
 	};
 	touch(state);
 	return true;

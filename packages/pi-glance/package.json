@@ -34,7 +34,7 @@
     "url": "https://github.com/zhcsyncer/pi-extensions/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "files": [
     "*.ts",

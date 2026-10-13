@@ -609,8 +609,8 @@ function assertRuntimeRefreshSessionSeam(files: SourceFile[]): void {
 	if (!session.text.includes("setGitSnapshot")) fail(`${session.path}: refresh session should own git snapshot state application`);
 	if (!session.text.includes("ThroughputRunTracker")) fail(`${session.path}: refresh session should own throughput run tracking after Slice 2C`);
 	if (!session.text.includes("setCurrentRunThroughput") || !session.text.includes("setLastTurnThroughput") || !session.text.includes("clearCurrentRunThroughput")) fail(`${session.path}: refresh session should own throughput state intent application after Slice 2C`);
-	if (!session.text.includes("appliedAssistantMessageObjects") || !session.text.includes("appliedAssistantMessageResponseIds")) fail(`${session.path}: refresh session should own assistant message dedupe accumulators after Slice 2C`);
-	if (!session.text.includes("usageTotalsFromSessionMessage") || !session.text.includes("addUsageTotals")) fail(`${session.path}: refresh session should own assistant and nested tool usage delta accumulation`);
+	if (!session.text.includes("appliedEntryIds") || !session.text.includes("entryCount")) fail(`${session.path}: refresh session should own durable entry dedupe and incremental position`);
+	if (!session.text.includes("usageTotalsFromEntries") || !session.text.includes("addUsageTotals")) fail(`${session.path}: refresh session should accumulate recorded entry usage`);
 	if (/GitRefresher|readPiUiTheme|resolveRuntimeRenderStyleContext|ctx\.ui\.theme|ctx\.ui\.setTheme|getAllThemes|getTheme\s*\(|setTheme\s*\(/.test(session.text)) {
 		fail(`${session.path}: refresh session must not depend on git implementation, UI, or Pi theme provider APIs`);
 	}

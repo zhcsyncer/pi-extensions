@@ -7,9 +7,9 @@ function onOff(value: boolean): string {
 }
 
 function collectCost(ctx: SegmentRenderContext): SegmentData | undefined {
-	if (ctx.config.cost.hideZero && (!Number.isFinite(ctx.state.usage.cost) || ctx.state.usage.cost <= 0)) return undefined;
+	if (ctx.config.cost.hideZero && !ctx.state.usage.costUnknown && (!Number.isFinite(ctx.state.usage.cost) || ctx.state.usage.cost <= 0)) return undefined;
 	return {
-		primary: formatCost(ctx.state.usage.cost),
+		primary: `${formatCost(ctx.state.usage.cost)}${ctx.state.usage.costUnknown ? "?" : ""}`,
 	};
 }
 

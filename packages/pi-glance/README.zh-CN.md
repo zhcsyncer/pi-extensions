@@ -22,7 +22,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 然后重启 Pi 或执行 `/reload`。
 
-需要 Pi 0.80.4 或更新。
+需要 Pi 0.80.4 或更新，以及 Node.js 22.19.0 或更新。独立用量与主题自动明暗跟随 Pi 1.1 的上报。
 
 ## 使用
 
@@ -69,6 +69,7 @@ Fullscreen 模式下，可点击 Git 状态栏或右下边框中末尾带强调�
 - **Working indicator** — 一级菜单只有一个 `Enabled: on/off`。`off` 恢复 Pi 默认 working row。
 - **Git** — `Enabled` 会停掉 Glance 的全部 git 读取、`fetch`、`/diff` 和 worktree 计数，不只是隐藏状态行。然后是 `Dirty marker`（文件计数可见时不亮灯，冲突保留）、`Ahead / behind`、`Behind main`、`SHA`、`Working tree`（`status` 或 `border right`）、`Polling`。
 - **Reply speed** — 默认开启。按输出 token 数 / 服务端推理时间（thinking 思考 + 正文生成）显示：`?` 未知，`~42 tok/s` 临时，`42 tok/s` 最终。排除本地工具执行和每段回复开始前的等待，慢工具不再拖低速度；同样的输出，思考越久，速度越低。在支持的 Pi 版本中，等待阻塞 UI 提示的时间也不计入。`Precision` 为 `auto`、1 位或 0 位。这是回复体验指标，不是性能基准（benchmark）。不发通知、不从文本估算 token。
+- **Cost** — 当前会话已记录的已知费用，包括缓存预热等独立用量及工具上报的汇总。尾部 `?` 表示某笔已记录用量缺少有效定价；已知小计会保留，即使开启 `Hide zero` 也可见。不推算未上报费用。切换分支仍保留整个会话的累计；独立用量不增加 Context 或 Reply speed。
 - **Tokens** — 可选的会话累计用量。`Display` 选择输入/输出或总数。`Cache` 可循环选择 `auto`（完整宽度才显示读写数量）、`show`（始终显示数量）、`hide` 和 `Hit rate`（命中率，配置值 `rate`）。命中率显示提示 token 中从缓存读取的比例，四舍五入为 `42%` 这样的百分比，不受输出 token 数影响。窄布局优先保留百分比；尚无提示 token 时不显示百分比。默认仍为 `auto`，已有设置不变。
 - **Context** — 百分比 / tokens 文本，可选右下角 `Progress bar`（`track` 或 `border`，`one third` 或 `remaining`）。未用部分细线 `─`，已用部分粗线 `━`。低于 70% 正常，70%（含）到 85%（不含）warning，85% 及以上 error。
 - **Bottom details** — 可隐藏自动压缩标记。Nerd Font 显示 `󰁄 auto`。
@@ -80,6 +81,8 @@ Git 保持安静：
 - 窄屏隐藏文件计数摘要时，已启用的 dirty marker 会恢复。冲突 `!` / `⚠` 始终独立保留。
 - 上游计数形如 `↑2 ↓1`。
 - 落后上次拿到的 `origin/main` 时显示高亮 `main↓N`。计数为 0、没有 `origin/main`、或上游 `↓N` 已经在报同一件事时不显示。
+
+明暗优先跟随 Pi 的主题 appearance，包括名称不变的 `system` 主题切换。旧主题没有 appearance 时，仍按精确的 `light` / `dark` 名称判断。
 
 `/diff` 是可选的。没有 revdiff 时，Glance 和 Working Tree 概要仍可用。
 
