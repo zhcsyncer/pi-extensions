@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
 	initTheme, Theme, ToolExecutionComponent, type ToolDefinition,
+	createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
 	TuiMainScreen, TuiAltScreen, Editor, stripTerminalSequences, visibleWidth, type Component,
@@ -11,6 +17,7 @@ import { ClaudeToolResultComponent } from "../src/tool-call-style.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 import { createDisplaySession } from "./helpers/display-session.ts";
 import { AggregateTerminal } from "./helpers/aggregate-terminal.ts";
+import { openDetailViewer } from "../src/detail-viewer.ts";
 
 const INPUT_UNITS = 1_000_000;
 const INPUT_LINES = 20_000;
@@ -408,3 +415,158 @@ for (const mode of ["regular", "fullscreen"] as const) {
 		} finally { ui.stop(); await h.close(); }
 	});
 }
+
+// Only the custom-dialog bridge is supplied here; focus, keys, overlays and
+// invalidation belong to the real TUI. No fake ctx.ui.invalidate or private state.
+async function mountDialog(session: Harness["session"], ui: TuiMainScreen, terminal: AggregateTerminal) {
+	// The SDK declares this UI factory parameter but does not re-export its class
+	// from the package root. Load the installed SDK class, not a lookalike stub.
+	const { KeybindingsManager } = await import(new URL("./core/keybindings.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
+	const keybindings = new KeybindingsManager();
+	const runner = session.extensionRunner;
+	const base = runner.getUIContext();
+	let component: Component & { dispose?(): void };
+	let close = () => {};
+	let mounted: (component: Component) => void;
+	const ready = new Promise<Component>((resolve) => { mounted = resolve; });
+	const context: typeof base = {
+		...base,
+		custom: (factory, options) => new Promise((resolve, reject) => {
+			let overlay: ReturnType<typeof ui.showOverlay>;
+			const done = (result) => { overlay?.hide(); component?.dispose?.(); resolve(result); };
+			close = () => done(undefined);
+			Promise.resolve(factory(ui, base.theme, keybindings, done)).then((created) => {
+				component = created;
+				const positioning = typeof options?.overlayOptions === "function" ? options.overlayOptions() : options?.overlayOptions;
+				overlay = ui.showOverlay(component, positioning);
+				options?.onHandle?.(overlay);
+				ui.renderNow(); mounted(component);
+			}, reject);
+		}),
+	};
+	runner.setUIContext(context, "tui");
+	return {
+		context, ready, close: () => close(),
+		view: () => plain(component.render(terminal.columns)),
+		key(data: string) { terminal.onInput!(data); ui.renderNow(); return plain(component.render(terminal.columns)); },
+	};
+}
+
+const toolsUiCase = "T2 /tools keys persist 8 to 12, refresh the same row and survive reload";
+test(toolsUiCase, async () => {
+	// A fresh process fixes the config root BEFORE any product module import.
+	// It inherits run-isolated's empty credentials and network namespace.
+	if (!process.env.PI_D2_TOOLS_UI_CHILD) {
+		const root = mkdtempSync(join(tmpdir(), "pi-d2-tools-ui-"));
+		try {
+			const { NODE_TEST_CONTEXT: _testWorker, ...environment } = process.env;
+			const child = spawnSync(process.execPath, ["--import", "tsx", "--test", `--test-name-pattern=^${toolsUiCase}$`, fileURLToPath(import.meta.url)], {
+				cwd: fileURLToPath(new URL("..", import.meta.url)), encoding: "utf8", timeout: 30_000,
+				env: { ...environment, PI_CODING_AGENT_DIR: root, PI_D2_TOOLS_UI_CHILD: "1" },
+			});
+			assert.ifError(child.error);
+			assert.equal(child.status, 0, child.stdout + child.stderr);
+			assert.match(child.stdout, /tests 1\b/, "the fresh process must execute its one UI contract");
+		} finally { rmSync(root, { recursive: true, force: true }); }
+		return;
+	}
+	initTheme("dark", false);
+	const agentDir = process.env.PI_CODING_AGENT_DIR!;
+	const configPath = join(agentDir, "extension-data/pi-tool-display-intent/config.json");
+	mkdirSync(dirname(configPath), { recursive: true });
+	writeFileSync(configPath, JSON.stringify({ version: 2, toolCalls: { layout: "individual" }, results: { mode: "preview", previewRows: 8 } }));
+	const settingsManager = SettingsManager.inMemory({ packages: [] });
+	const loader = new DefaultResourceLoader({
+		cwd: agentDir, agentDir, settingsManager, noExtensions: true, noSkills: true, noThemes: true,
+		noPromptTemplates: true, noContextFiles: true,
+		additionalExtensionPaths: [fileURLToPath(new URL("../extensions/tool-display-intent.ts", import.meta.url))],
+	});
+	await loader.reload();
+	assert.deepEqual(loader.getExtensions().errors, []);
+	const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+	const { session } = await createAgentSession({ cwd: agentDir, agentDir, settingsManager, modelRuntime, resourceLoader: loader, sessionManager: SessionManager.inMemory(agentDir) });
+	const terminal = new AggregateTerminal(); terminal.columns = 100; terminal.rows = 36;
+	const ui = new TuiMainScreen(terminal);
+	const dialog = await mountDialog(session, ui, terminal);
+	const errors: unknown[] = [];
+	let prompt: Promise<unknown> | undefined;
+	try {
+		await session.bindExtensions({ uiContext: dialog.context, mode: "tui", onError: (error) => errors.push(error) });
+		const result = textResult(Array.from({ length: 20 }, (_, i) => `HISTORY_ROW_${i}`).join("\n"));
+		const makeRow = () => {
+			const renderers = session.extensionRunner.resolveToolRenderers("bash", () => session.getToolDefinition("bash"));
+			const row = new ToolExecutionComponent("bash", "persisted-history", { command: "printf fixture" }, { outputPad: 0 }, renderers, ui, agentDir);
+			row.setArgsComplete(); row.markExecutionStarted(); row.updateResult(result, false);
+			return row;
+		};
+		const historicalRow = makeRow();
+		ui.addChild(historicalRow); ui.start(); ui.renderNow();
+		assert.match(plain(historicalRow.render(100)), /HISTORY_ROW_7\b/);
+		assert.doesNotMatch(plain(historicalRow.render(100)), /HISTORY_ROW_11\b/);
+		prompt = session.prompt("/tools");
+		await Promise.race([dialog.ready, prompt.then(() => { throw new Error("/tools completed without mounting its settings panel"); })]);
+		assert.match(dialog.view(), /Preview Rows/i);
+		for (let i = 0; i < 3; i++) dialog.key("\x1b[B");
+		dialog.key(" ");
+		assert.equal(JSON.parse(readFileSync(configPath, "utf8")).results.previewRows, 12);
+		// Deliberately no test-side invalidate/updateResult: the actual command owns the notification.
+		assert.match(plain(historicalRow.render(100)), /HISTORY_ROW_11\b/);
+		dialog.key("\x1b"); await prompt;
+		await session.reload();
+		assert.deepEqual(loader.getExtensions().errors, []);
+		assert.match(plain(makeRow().render(100)), /HISTORY_ROW_11\b/);
+		assert.equal(JSON.parse(readFileSync(configPath, "utf8")).results.previewRows, 12);
+		assert.deepEqual(errors, []);
+	} finally { dialog.close(); await prompt?.catch(() => {}); ui.stop(); session.dispose(); }
+});
+
+test("T2 detail viewer keys bound Result, Args, Metadata and Raw without touching original objects", async (t) => {
+	initTheme("dark", false);
+	const h = await createDisplaySession(config(), [], { display: false });
+	const terminal = new AggregateTerminal(); terminal.columns = 100; terminal.rows = 24;
+	const ui = new TuiMainScreen(terminal);
+	const dialog = await mountDialog(h.session, ui, terminal);
+	let sideEffects = 0;
+	const largeTail = "x".repeat(160 * 1024) + "FORBIDDEN_STRUCTURED_TAIL";
+	const args = Object.freeze({ head: "ARGS_HEAD", get accessor() { sideEffects++; return "FORBIDDEN_GETTER"; }, toJSON() { sideEffects++; return "FORBIDDEN_TOJSON"; }, tail: largeTail });
+	const details = Object.freeze({ note: "META_HEAD", get accessor() { sideEffects++; return "FORBIDDEN_GETTER"; }, toJSON() { sideEffects++; return "FORBIDDEN_TOJSON"; }, tail: largeTail });
+	const text = "RESULT_HEAD\n" + "result line\n".repeat(5000) + "FORBIDDEN_RESULT_TAIL";
+	const result = Object.freeze({ content: Object.freeze([Object.freeze({ type: "text", text })]), details });
+	const accessor = Object.getOwnPropertyDescriptor(args, "accessor")!.get;
+	let fullOriginalSerializations = 0;
+	const stringify = JSON.stringify;
+	t.mock.method(JSON, "stringify", function (value, ...rest) {
+		if (value === args || value === details || value === result || value === result.content || value === result.content[0] || value === largeTail || value === text) fullOriginalSerializations++;
+		return stringify.call(JSON, value, ...rest);
+	});
+	let viewing: Promise<void> | undefined;
+	try {
+		ui.start();
+		viewing = openDetailViewer(h.session.extensionRunner.createCommandContext(), { kind: "tool", toolName: "fixture", args, result });
+		await Promise.race([dialog.ready, viewing.then(() => { throw new Error("detail viewer closed without a popup"); })]);
+		assert.match(dialog.view(), /RESULT_HEAD/);
+		assert.match(dialog.key("\x1b[F"), omission);
+		assert.doesNotMatch(dialog.view(), /FORBIDDEN_RESULT_TAIL/);
+		dialog.key("\t"); dialog.key("\x1b[H");
+		assert.match(dialog.view(), /ARGS_HEAD/);
+		const argsFormatted = dialog.view();
+		assert.notEqual(dialog.key("r"), argsFormatted, "Raw must visibly switch the Args presentation");
+		dialog.key("\x1b[H");
+		assert.match(dialog.view(), /ARGS_HEAD/);
+		assert.match(dialog.key("\x1b[F"), omission);
+		assert.doesNotMatch(dialog.view(), /FORBIDDEN_STRUCTURED_TAIL/);
+		dialog.key("m"); dialog.key("\x1b[H");
+		assert.match(dialog.view(), /META_HEAD/);
+		const metadataFormatted = dialog.view();
+		assert.notEqual(dialog.key("r"), metadataFormatted, "Raw must visibly switch the Metadata presentation");
+		dialog.key("\x1b[H");
+		assert.match(dialog.view(), /META_HEAD/);
+		assert.match(dialog.key("\x1b[F"), omission);
+		assert.doesNotMatch(dialog.view(), /FORBIDDEN_STRUCTURED_TAIL/);
+		dialog.key("\x1b"); await viewing;
+		assert.equal(sideEffects, 0);
+		assert.equal(fullOriginalSerializations, 0, "serialize a bounded safe snapshot, never the original result/args");
+		assert.equal(args.tail, largeTail); assert.equal(details.tail, largeTail); assert.equal(result.content[0].text, text);
+		assert.equal(Object.getOwnPropertyDescriptor(args, "accessor")!.get, accessor);
+	} finally { dialog.close(); await viewing?.catch(() => {}); ui.stop(); await h.close(); }
+});
