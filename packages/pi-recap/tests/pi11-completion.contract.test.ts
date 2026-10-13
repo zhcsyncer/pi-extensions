@@ -4,7 +4,7 @@ import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import { syncBuiltinESMExports } from "node:module";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -24,6 +24,9 @@ const SUMMARY = "完成离线回顾合同验证";
 const TITLE = "离线回顾验证";
 const HISTORY = "N3-recent-history-marker: 检查原生模型请求，保留当前用户身份。";
 const REPLY = JSON.stringify({ recap: SUMMARY, title: TITLE });
+// Watchdogs remain real when the scheduler's public timers are advanced.
+const watchdogTimeout = globalThis.setTimeout;
+const clearWatchdog = globalThis.clearTimeout;
 
 function config(model = "current", policy: Config["title"]["applyPolicy"] = "off"): Config {
   return {
@@ -44,9 +47,9 @@ async function bounded<T>(promise: Promise<T>, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([promise, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Fixture did not reach ${label}`)), 3000);
+      timer = watchdogTimeout(() => reject(new Error(`Fixture did not reach ${label}`)), 3000);
     })]);
-  } finally { clearTimeout(timer); }
+  } finally { clearWatchdog(timer); }
 }
 
 async function fixture(t: TestContext, cfg = config(), oauth = false) {
@@ -143,8 +146,11 @@ async function fixture(t: TestContext, cfg = config(), oauth = false) {
   const current = runtime.getModel("n3-current", "same-model");
   assert.ok(current, "fixture physical current model exists");
   const manager = SessionManager.create(root, join(root, "sessions"));
-  manager.appendMessage({ role: "user", content: HISTORY, timestamp: Date.now() });
-  manager.appendMessage(fauxAssistantMessage("已检查最近请求，准备回顾。"));
+  // Automatic recap requires three actual user entries on the current branch.
+  for (const content of ["请检查离线模型身份。", "继续验证请求语言及 JSON 规则。", HISTORY]) {
+    manager.appendMessage({ role: "user", content, timestamp: Date.now() });
+    manager.appendMessage(fauxAssistantMessage("已检查最近请求，准备回顾。"));
+  }
   const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
   let pi!: ExtensionAPI;
   let ctx!: ExtensionContext;
@@ -167,12 +173,9 @@ async function fixture(t: TestContext, cfg = config(), oauth = false) {
   const notices: string[] = [];
   const widgets = new Map<string, unknown>();
   const errors: unknown[] = [];
-  let editedConfig: string | undefined;
-  let editorCalls = 0;
   const ui: ExtensionUIContext = {
     ...session.extensionRunner.getUIContext(),
     notify: (text) => { notices.push(text); },
-    editor: async () => { editorCalls++; return editedConfig; },
     setWidget: (key, content) => { widgets.set(key, content); },
   };
   await session.bindExtensions({ mode: "tui", uiContext: ui, onError: (error) => errors.push(error) });
@@ -194,18 +197,6 @@ async function fixture(t: TestContext, cfg = config(), oauth = false) {
   const state = createRecapState(cfg);
   return {
     pi, ctx, manager, session, cfg, state, calls, notices, widgets, denied, errors,
-    async enableAutomaticRecap() {
-      // Initial startup remains auto:false. Only this explicit lifecycle test
-      // enables the timer through the public command, inside the offline jail.
-      editedConfig = JSON.stringify({ ...cfg, recap: { ...cfg.recap, auto: true, idleAfterTurnMs: 1000 } });
-      assert.ok(session!.extensionRunner.getCommand("recap-config"));
-      await session!.prompt("/recap-config json");
-      assert.deepEqual(errors, [], "public config command succeeds");
-      assert.equal(editorCalls, 1, "public JSON config editor opened");
-      const saved = JSON.parse(readFileSync(configPath, "utf8"));
-      assert.equal(saved.recap.auto, true);
-      assert.equal(saved.recap.idleAfterTurnMs, 1000, "fixture timer agrees with saved public config");
-    },
     entries: () => manager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "recap"),
     run: (reason: "manual" | "auto" = "manual", signal?: AbortSignal) =>
       runRecap(pi, ctx, cfg, state, reason, { signal, showProgress: false, force: reason === "manual" }),
@@ -308,8 +299,10 @@ for (const fallback of [false, true]) {
 
 for (const reason of ["manual", "auto"] as const) {
   test(`${reason} abort: a non-cooperative late completion cannot append or overwrite title/widget`, async (t) => {
-    const f = await fixture(t, config("current", "always"));
-    assert.ok(await f.run(), "positive recap control before testing cancellation");
+    const cfg = config("current", "always");
+    cfg.recap.auto = reason === "auto";
+    const f = await fixture(t, cfg);
+    assert.ok(await f.run(reason), "same-path positive recap control before testing cancellation");
     f.manager.appendMessage({ role: "user", content: "new activity after positive control", timestamp: Date.now() });
     f.cfg.recap.auto = true;
     f.manager.appendMessage(fauxAssistantMessage("completed new activity"));
@@ -335,11 +328,33 @@ for (const reason of ["manual", "auto"] as const) {
 
 for (const event of ["input", "agent_start", "session_shutdown"] as const) {
   test(`automatic ${event} cancellation ignores a non-cooperative late result`, async (t) => {
-    const f = await fixture(t, config("current", "always"));
-    assert.ok(await f.run(), "successful recap control precedes lifecycle assertions");
-    await f.enableAutomaticRecap();
-    await f.session.prompt("new completed turn for automatic recap");
+    const cfg = config("current", "always");
+    cfg.recap.auto = true;
+    cfg.recap.idleAfterTurnMs = 10;
+    // Config is written before session_start. Both requests below belong to
+    // the real default extension's closure, not the separate runRecap seam.
+    const f = await fixture(t, cfg);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const schedule = async () => {
+      assert.equal(f.ctx.isIdle(), true);
+      assert.equal(f.ctx.hasPendingMessages(), false);
+      await f.session.extensionRunner.emit({ type: "agent_end", messages: f.session.messages });
+      t.mock.timers.tick(cfg.recap.idleAfterTurnMs);
+    };
+    const control = f.hold();
+    await schedule();
+    const controlCall = await control.arrived();
+    assert.equal(controlCall.model.provider, "n3-current");
+    control.release(REPLY);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(f.entries().length, 1, "uncancelled scheduler request must persist its recap");
+    assert.equal(f.manager.getSessionName(), TITLE);
+    assert.ok([...f.widgets.values()].some((widget) => widget !== undefined), "automatic result is displayed");
+
+    f.manager.appendMessage({ role: "user", content: "new activity for automatic cancellation", timestamp: Date.now() });
+    f.manager.appendMessage(fauxAssistantMessage("new completed activity"));
     const held = f.hold();
+    await schedule();
     const call = await held.arrived();
     assert.ok(call.options?.signal, "an automatic request is really in flight");
     if (event === "input") await f.session.extensionRunner.emitInput("new input", undefined, "interactive");
