@@ -69,7 +69,11 @@ async function fixture(extensionSource?: string) {
       thinkingLevel: "off", isBackground: true, inlineAgentConfig: role });
     return id;
   }
-  return { cwd, sessionDir, faux, parent, ctx, pi, manager, spawn };
+  // Cold restore needs a current caller grant, not authority inferred from the recipe.
+  const currentAuthorization: Parameters<typeof restoreAgentSession>[3] & { currentAgentConfig: InlineAgentConfig } = {
+    pi, currentAgentConfig: role,
+  };
+  return { cwd, sessionDir, faux, parent, ctx, pi, manager, spawn, currentAuthorization };
 }
 async function running(manager: AgentManager, id: string) {
   await expect.poll(() => {
@@ -270,7 +274,8 @@ describe("R1 public lifecycle contract (Pi 1.1)", () => {
     expect.soft(manager.getRecord(id)?.lifetimeUsage.cost).toBeCloseTo(0.06, 12);
     f.parent.appendCustomEntry("subagents:record", archiveAgentRecord(record));
     const restoredManager = f.manager();
-    await restoredManager.resume(id, "restore", undefined, {pi:f.pi,ctx:f.ctx,isBackground:true});
+    const resumeContext = { ...f.currentAuthorization, ctx: f.ctx, isBackground: true };
+    await restoredManager.resume(id, "restore", undefined, resumeContext);
     await restoredManager.waitForResult(id);
     const restored = restoredManager.getRecord(id)!;
     expect.soft(restored.lifetimeUsage.cost).toBeCloseTo(0.06, 12);
@@ -291,7 +296,7 @@ describe("R1 public lifecycle contract (Pi 1.1)", () => {
     expect(record?.resumeSnapshot).toBeDefined();
     const original = record!.session!;
     if (kind === "retain-none") original.sessionManager.appendCompaction("retained summary", null, 100);
-    const restored = await restoreAgentSession(f.ctx, record!.sessionFile!, record!.resumeSnapshot!, { pi: f.pi });
+    const restored = await restoreAgentSession(f.ctx, record!.sessionFile!, record!.resumeSnapshot!, f.currentAuthorization);
     cleanup.push(() => restored.dispose());
     expect(restored.sessionManager.getSessionId()).toBe(original.sessionManager.getSessionId());
     const result = await resumeAgent(restored, "continue");
@@ -315,7 +320,7 @@ describe("R1 public lifecycle contract (Pi 1.1)", () => {
     const raw = entries.map(e => JSON.stringify(e)).join("\n") + (fault === "json" ? "\n{broken-json\n" : "\n");
     writeFileSync(file, raw);
     const before = readdirSync(copyDir);
-    await expect(restoreAgentSession(f.ctx, file, record!.resumeSnapshot!, { pi: f.pi })).rejects.toThrow();
+    await expect(restoreAgentSession(f.ctx, file, record!.resumeSnapshot!, f.currentAuthorization)).rejects.toThrow();
     expect(readdirSync(copyDir)).toEqual(before);
     expect(readFileSync(file, "utf8")).toBe(raw);
   });
