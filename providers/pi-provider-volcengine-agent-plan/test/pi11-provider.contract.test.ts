@@ -13,7 +13,7 @@ import {
   createAgentSession, DefaultResourceLoader, ModelRuntime,
   SessionManager, SettingsManager, type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import { createProvider, InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { createProvider, InMemoryCredentialStore } from "@earendil-works/pi-ai/compat";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 
