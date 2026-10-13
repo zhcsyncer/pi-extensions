@@ -6,6 +6,8 @@ A Todo extension for Pi, maintained from `@juicesharp/rpiv-todo`. It registers t
 
 This fork intentionally does not integrate tool intent. Successful Todo calls render as zero rows in the TUI transcript by default because the persistent widget already shows current state. Press `Ctrl+O` to expand compact call and result summaries; execution errors always remain visible. Tool `content`, mutation checkpoints, and user-reset checkpoints remain in the session for model feedback and branch-aware restoration, while read-only queries use lightweight details that do not duplicate task state.
 
+Requires Pi 1.1 or later. The model calls `todo` directly; scripts and other tools cannot invoke it through nested tool calls to change tasks. Ordinary use does not require codemode.
+
 ## Install
 
 Install only the Todo extension:
