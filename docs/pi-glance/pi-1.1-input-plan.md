@@ -1,6 +1,6 @@
 # Glance：Pi 1.1.0 输入与显示适配
 
-状态：待 review，未实施。归属：[总计划](../pi-1.1-implementation-plan.md) W9；用户已冻结大粘贴 B01，以下 paste 设计与专项测试仅作后续参考。本轮只实施 theme.appearance、必要显示兼容及既有输入/stash 无新增回归；不改变大粘贴行为。用量接入见[Meter 规格](../pi-meter/pi-1.1-quota-plan.md)。
+状态：本轮用量/主题最小合同已冻结，实施进度见[执行表G1](../pi-extensions/pi-1.1-execution-plan.md)；尚未验收。归属：[总计划](../pi-1.1-implementation-plan.md) W9；用户已冻结大粘贴 B01，以下 paste 设计与专项测试仅作后续参考。本轮只实施 theme.appearance、必要显示兼容及既有输入/stash 无新增回归；不改变大粘贴行为。用量接入见[Meter 规格](../pi-meter/pi-1.1-quota-plan.md)。
 
 ## Goal
 

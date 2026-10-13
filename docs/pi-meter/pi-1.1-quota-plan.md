@@ -1,6 +1,6 @@
 # Meter：Pi 1.1.0 账本与额度实施规格
 
-状态：待 review，未实施。归属：[总计划](../pi-1.1-implementation-plan.md) W7/W8。本轮只做 SDK 账本适配与 B03 / issue #152 的 Go 部分；用户已暂缓 Antigravity，不调查、不实现、不阻塞本轮发布。B04/B05 已冻结，不修旧 guest 注册表或新增空闲重试。相关设计只留作参考；若 #152 对它们形成硬依赖，先报告冲突并暂缓受影响部分。Cursor 标准 usage 的 B02 也已冻结，见[其计划](../pi-provider-cursor-ask/pi-1.1-adaptation-plan.md)。
+状态：M1账本适配已验收并集成；Glance用量/主题与Go来源尚未验收，实际进度见[执行表](../pi-extensions/pi-1.1-execution-plan.md)。归属：[总计划](../pi-1.1-implementation-plan.md) W7/W8。本轮只做 SDK 账本适配与 B03 / issue #152 的 Go 部分；用户已暂缓 Antigravity，不调查、不实现、不阻塞本轮发布。B04/B05 已冻结，不修旧 guest 注册表或新增空闲重试。相关设计只留作参考；若 #152 对它们形成硬依赖，先报告冲突并暂缓受影响部分。Cursor 标准 usage 的 B02 也已冻结，见[其计划](../pi-provider-cursor-ask/pi-1.1-adaptation-plan.md)。
 
 ## Goal
 
