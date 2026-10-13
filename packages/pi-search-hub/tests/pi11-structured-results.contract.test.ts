@@ -25,7 +25,7 @@ const longBody = "reader body 🧪\n".repeat(900);
 const exaHit = (title: string, address: string, text: string) => ({ title, url: address, text, highlights: [] });
 const fireHit = (title: string, address: string, description: string) => ({ title, url: address, description });
 
-type Wire = { body?: unknown; status?: number; abort?: boolean };
+type Wire = { method?: "GET" | "POST"; body?: unknown; status?: number; abort?: boolean };
 type Call = { name: string; args: JsonObject };
 type Scenario = {
   enabled?: ("exa" | "firecrawl")[];
@@ -101,7 +101,7 @@ async function runChild(input: ChildInput): Promise<Observation> {
       const body = await request.text();
       observation.requests.push({ url: request.url, method: request.method, body: body ? JSON.parse(body) : undefined });
       const wire = input.wire[request.url];
-      if (!wire || request.method !== "POST") {
+      if (!wire || request.method !== (wire.method ?? "POST")) {
         observation.unknown.push(`${request.method} ${request.url}`);
         throw new Error(`Blocked unregistered offline HTTP fixture: ${request.method} ${request.url}`);
       }
@@ -198,7 +198,17 @@ async function runChild(input: ChildInput): Promise<Observation> {
 
 async function observe(scenario: Scenario): Promise<Observation> {
   const input: ChildInput = {
-    ...scenario, entry, sdk: import.meta.resolve("@earendil-works/pi-coding-agent"),
+    ...scenario,
+    wire: {
+      // Public coordinator fixture: retain existing quota reads without testing
+      // their implementation or treating them as search/scrape side effects.
+      "https://api.firecrawl.dev/v2/team/credit-usage": {
+        method: "GET", status: 200,
+        body: { success: true, data: { remainingCredits: 1000, planCredits: 1000 } },
+      },
+      ...scenario.wire,
+    },
+    entry, sdk: import.meta.resolve("@earendil-works/pi-coding-agent"),
     ai: import.meta.resolve("@earendil-works/pi-ai"), fs: "node:fs/promises", os: "node:os", path: "node:path",
   };
   const { stdout } = await executeFile(process.execPath, ["--eval",
@@ -409,7 +419,8 @@ it.each(["web_search", "web_read"] as const)("%s cancellation remains a failure 
       { results: [{ title: "Must not run", url, text: "forbidden" }], statuses: [] } },
   } });
   expect(observation.abortObserved, "AbortSignal must reach HTTP transport").toBe(true);
-  expect(observation.requests.map(request => request.url)).toEqual([first]);
+  const businessRequests = observation.requests.filter(request => Object.values(endpoints).includes(request.url));
+  expect(businessRequests.map(request => request.url)).toEqual([first]);
   expect(observation.ended).toContainEqual({ toolName: name, isError: true });
   expect(observation.results.filter(result => result.toolName === name && !result.isError)).toEqual([]);
 }, 40_000);
