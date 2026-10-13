@@ -501,3 +501,107 @@ describe("R2 static disallowedTools exclusion",()=>{
     }
   });
 });
+
+describe("R2 reviewed authorization regressions",()=>{
+  it.each([
+    {label:"explicit write authority positive control",tools:["read","write","edit"],deny:[],memory:"project" as const,writable:true},
+    {label:"denied write without memory",tools:["write"],deny:["write"],memory:undefined,writable:false},
+    {label:"denied write with project memory",tools:["write"],deny:["write"],memory:"project" as const,writable:false},
+  ])("memory capability boundary: $label",async scenario=>{
+    const f=await fixture();const path=join(f.cwd,"memory-permission.txt");put(path,"ORIGINAL");
+    const role:InlineAgentConfig={...f.role,builtinToolNames:scenario.tools,disallowedTools:scenario.deny,
+      extensions:false,extSelectors:[],skills:false,...(scenario.memory?{memory:scenario.memory}:{})};
+    f.faux.setResponses([call("edit","memory-edit",{path,oldText:"ORIGINAL",newText:"MUTATED"}),fauxAssistantMessage("memory probe finished")]);
+    const record=await f.run(role);
+    const result=toolResults(record.session).find(message=>message.toolCallId==="memory-edit");
+    expect(result,"the real SDK must settle the edit attempt").toBeDefined();
+    expect.soft(readFileSync(path,"utf8")).toBe(scenario.writable?"MUTATED":"ORIGINAL");
+    expect(result!.isError).toBe(!scenario.writable);
+  });
+
+  it.each(["live","cold"] as const)("current named isolated=true revokes extension execution on %s continuation",async mode=>{
+    const cwd=directory(`pi11-r2-isolation-${mode}-`),name="isolation_authority";
+    const rolePath=join(cwd,".pi/agents",`${name}.md`);
+    const writeRole=(isolated:boolean)=>put(rolePath,`---\ndescription: Named isolation authority\ntools: none\nextensions: [${JSON.stringify(join(cwd,".pi/extensions/trusted.ts"))}]\nskills: false\nisolated: ${isolated}\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwd,"sessions"))}\nprompt_mode: replace\n---\nNAMED ORIGINAL INTENT\n`);
+    writeRole(false);
+    const f=await fixture({cwd});
+    f.faux.setResponses([call("allowed","before-isolation"),fauxAssistantMessage("original extension authority exercised")]);
+    const original=await f.start(null,name);
+    expect(toolResults(original.session!).find(result=>result.toolCallId==="before-isolation")?.isError).toBe(false);
+    expect(f.effects()).toEqual([{name:"allowed"}]);
+    const sessionId=original.session!.sessionId;
+    writeRole(true); // Only this current authority field changes; no registry reset.
+    let session=original.session!;
+    if(mode==="cold") {session.dispose();session=await restore(f,original);}
+    expect(session.sessionId).toBe(sessionId);
+    f.faux.setResponses([call("allowed","after-isolation"),fauxAssistantMessage("isolation probe finished")]);
+    await resumeAgent(session,"continue under the current isolated role");
+    const result=toolResults(session).find(message=>message.toolCallId==="after-isolation");
+    expect(result,"continuation must settle the attempted tool call").toBeDefined();
+    expect.soft(f.effects(),"current isolation must prevent any additional marker").toEqual([{name:"allowed"}]);
+    expect(result!.isError).toBe(true);
+  });
+
+  it("restores a verifiable legacy builtin-only named recipe without new sourcePath or authorization fields",async()=>{
+    const cwd=directory("pi11-r2-legacy-named-"),name="legacy_reader";
+    put(join(cwd,".pi/agents",`${name}.md`),`---\ndescription: Existing project read-only role\ntools: read\nextensions: false\nskills: false\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwd,"sessions"))}\nprompt_mode: replace\n---\nNAMED ORIGINAL INTENT\nKeep the original read-only task.\n`);
+    const f=await fixture({cwd});
+    expect(f.agents.get(name)).toMatchObject({source:"project",builtinToolNames:["read"],extensions:false,skills:false});
+    f.faux.setResponses([fauxAssistantMessage("LEGACY SAVED RESPONSE")]);
+    const original=await f.start(null,name),snapshot=original.resumeSnapshot!;
+    const sessionId=original.session!.sessionId,history=original.session!.sessionManager.getEntries();
+    const assertPreserved=(session:AgentSession)=>{
+      expect(session.sessionId).toBe(sessionId);
+      expect(session.systemPrompt).toContain(snapshot.config.systemPrompt);
+      expect(session.model?.provider).toBe(snapshot.model.provider);expect(session.model?.id).toBe(snapshot.model.modelId);
+      expect(session.thinkingLevel).toBe(snapshot.thinkingLevel);
+      for(const entry of history) expect(session.sessionManager.getEntry(entry.id)).toEqual(entry);
+      expect(session.getActiveToolNames()).toEqual(["read"]);
+    };
+    original.session!.dispose();
+    // First prove the unchanged current recipe and JSONL are valid independently
+    // of the missing-new-fields regression below.
+    const control=await restore(f,original);assertPreserved(control);control.dispose();
+    const legacy:AgentResumeSnapshot={version:1,config:{name,source:"project",description:"Legacy project reader",
+      builtinToolNames:["read"],extensions:false,skills:false,systemPrompt:snapshot.config.systemPrompt,
+      promptMode:snapshot.config.promptMode,persistSession:true,sessionDir:join(cwd,"sessions")},
+      systemPrompt:snapshot.systemPrompt,cwd:snapshot.cwd,configCwd:snapshot.configCwd,model:snapshot.model,
+      thinkingLevel:snapshot.thinkingLevel,isolated:snapshot.isolated,
+      ...(snapshot.maxTurns===undefined?{}:{maxTurns:snapshot.maxTurns}),...(snapshot.graceTurns===undefined?{}:{graceTurns:snapshot.graceTurns})};
+    const restored=await restoreAgentSession(f.ctx,original.sessionFile!,legacy,{pi:f.pi});cleanup.push(()=>restored.dispose());
+    assertPreserved(restored);
+    const path=join(cwd,"legacy-readonly.txt");put(path,"LEGACY READ CONTROL");
+    const read=await probe(f,restored,"read",0,"legacy-named-read",{path});
+    expect(read.result.isError).toBe(false);expect(text(read.result)).toContain("LEGACY READ CONTROL");
+    f.faux.setResponses([call("write","legacy-named-write",{path,content:"UNAUTHORIZED MUTATION"}),fauxAssistantMessage("legacy write rejection observed")]);
+    await resumeAgent(restored,"attempt a write outside the legacy ceiling");
+    expect(readFileSync(path,"utf8")).toBe("LEGACY READ CONTROL");
+    expect(toolResults(restored).find(result=>result.toolCallId==="legacy-named-write")?.isError).toBe(true);
+    expect(restored.getToolDefinition("allowed")).toBeUndefined();
+  });
+
+  it("real SDK cwd B owns Agent declaration and result display metadata when process cwd is A",async()=>{
+    const cwdA=directory("pi11-r2-metadata-a-"),cwdB=directory("pi11-r2-metadata-b-");
+    const priorCwd=process.cwd();process.chdir(cwdA);cleanup.push(()=>process.chdir(priorCwd));
+    const name="sdk_b_authority",displayName="B Project Specialist";
+    put(join(cwdA,".pi/agents/wrong_a.md"),"---\ndescription: Wrong process directory role\ntools: none\nextensions: false\nskills: false\n---\nWrong A intent\n");
+    put(join(cwdA,".pi/extension-data/pi-subagents/config.json"),JSON.stringify({worktreeIsolation:false,schedulingEnabled:true}));
+    put(join(cwdB,".pi/agents",`${name}.md`),`---\ndescription: B local role metadata\ndisplay_name: ${JSON.stringify(displayName)}\ntools: none\nextensions: false\nskills: false\nprompt_mode: replace\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwdB,"sessions"))}\n---\nNAMED ORIGINAL INTENT\n`);
+    put(join(cwdB,".pi/extension-data/pi-subagents/config.json"),JSON.stringify({worktreeIsolation:true,schedulingEnabled:false}));
+    // Parsing controls are read-only. Do not register the parsed B role or reset
+    // runner pins to repair the real product activation under test.
+    const f=await fixture({cwd:cwdB,bootstrapRunner:false});
+    expect(f.agents.get(name)).toMatchObject({displayName,promptMode:"replace"});
+    expect(f.settings).toMatchObject({worktreeIsolation:true,schedulingEnabled:false});
+    const definition=f.parent.getToolDefinition("Agent");expect(definition).toBeDefined();
+    expect.soft(definition!.description).toContain(name);
+    const properties=(definition!.parameters as {properties:Record<string,unknown>}).properties;
+    expect.soft(properties).toHaveProperty("isolation");expect.soft(properties).not.toHaveProperty("schedule");
+    f.faux.setResponses([fauxAssistantMessage("SDK B CHILD RESULT")]);
+    const result=await parentCall(f,"Agent",{subagent_type:name,description:"B metadata contract",prompt:"perform the B role task"},"metadata-agent");
+    expect(result.isError).toBe(false);expect(text(result)).toContain("SDK B CHILD RESULT");
+    const metadata=result.details as {displayName?:unknown;tags?:unknown};
+    expect.soft(metadata.displayName).toBe(displayName);
+    expect(metadata.tags).toBeDefined();expect(JSON.stringify(metadata.tags)).not.toMatch(/twin/i);
+  });
+});
