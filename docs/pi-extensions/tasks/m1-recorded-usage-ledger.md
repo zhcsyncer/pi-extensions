@@ -20,6 +20,14 @@
 - `extensions/meter.ts`：captureMessage/captureSummaryEntry、message_end/compact/tree/agent_settled接线；importHistory传文件basename作为sid。`src/ledger/store.ts`是既有持久层，先复用，不另建账本服务。
 - R1代码真源在已验收 `packages/pi-subagents/src/usage.ts`、`usage-reporting.ts`；readSessionUsage是累计快照，UsageReporter按父当前分支claim增量并把marker与native usage一起存入toolResult。消费方不得把累计快照当增量相加。
 
+## 最新范围收敛：不为旧账建立新系统
+
+用户再次要求不要过度防御并继续推进。M1不以任意历史日志的完美对账为前置：保留既有子账本为准的口径和旧格式兼容能力，只补正常SDK1.1流程的最终持久值、独立usage、新entry身份及幂等捕获。不删除/重建旧账，不加provisional替换、复杂未决证据存储或全局来源证明框架。
+
+明确sourceId及实际读取文件alias可以使用；不得把内容/金额相等当新身份。若沿用已有legacy兼容匹配，要限制在旧兼容路径并说明其既有局限，不能用于新ID之间或误抵扣只含新tail的live记录。正常fork来源与结构按实际SDK事实处理；不拿timestamp单独证明，也不为恶意手改、理论碰撞等额外场景设计新协议。不可确认的情况报告统计范围/局限，不冒充确认零或全历史已精确修复。
+
+先由作者交最小parser/capture/store方案，协调者据此冻结独立测试后再实施；当前仍未授权生产修改。历史重建/新的对账产品不纳入，不要求用户为了必要SDK适配先选迁移方案。
+
 ## 第一阶段：只读接口/身份交接
 
 在实现前回报：
