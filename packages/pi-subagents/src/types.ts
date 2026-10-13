@@ -199,7 +199,7 @@ export interface AgentRecord {
   isBackground?: boolean;
   /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
   invocation?: AgentInvocation;
-  /** Inline role display metadata; absent for ordinary registry-backed agents. */
+  /** Spawn-owned role presentation (legacy field names also cover named roles). */
   inlineDisplayName?: string;
   inlinePromptMode?: "replace" | "append";
   /** Optional cross-extension correlation key, never sourced from model output. */

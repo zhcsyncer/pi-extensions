@@ -103,9 +103,9 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 恢复及 live continuation 的工具授权是**历史上限 ∩ 当前有效授权**：
 
-- named 角色从原 `configCwd` 重新读取当前定义并核对来源。删除、禁用或换来源都明确拒绝执行，不回退 general-purpose。正文改变不替换保存的 prompt，权限收窄仍立即生效。
+- named 角色从原 `configCwd` 重新读取当前定义并核对来源。删除、禁用或换来源都明确拒绝执行，不回退 general-purpose。正文改变不替换保存的 prompt，权限收窄仍立即生效；当前或历史任一要求 isolated，续跑就保留该限制。
 - live caller-owned activation 使用仍持有的 inline 配置；跨进程恢复必须由可信调用方重新提供 `currentAgentConfig`。该选项仅存在于内部恢复/续跑入口，不新增 Agent 工具、RPC 授权字段或 facade 方法。磁盘 recipe 不能充当当前调用方同意。
-- 缺少权限版本的旧 recipe，仅在历史明确为 builtin-only/isolated 且当前授权可验证时迁移。不能重建历史扩展来源时，报“授权无法验证”，不把合法 JSONL 标成损坏、不另建会话，也不阻止读取已完成报告。
+- 缺少权限版本的旧 recipe，仅在历史明确为 builtin-only/isolated 且当前授权可验证时迁移。旧 named 记录若只保存了 project/global 来源，按原 `configCwd`、角色名与同一来源范围验证当前定义，不要求旧格式不可能保存的新路径字段；旧 builtin 上限仍生效，不因此获得新扩展或写权限。不能重建历史扩展来源时，报“授权无法验证”，不把合法 JSONL 标成损坏、不另建会话，也不阻止读取已完成报告。
 
 权限上限只保存版本及必要的非秘密来源身份，不保存凭据或连接配置。R3 的服务/factory 授权应在资源装配前接入，不能从 MCP 工具前缀或共享 loader 所有者推出服务权限。
 

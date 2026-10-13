@@ -675,6 +675,9 @@ export default function (pi: ExtensionAPI) {
       Object.assign(runtimeConfig, loadRuntimeConfig(ctx.cwd));
       projectClearsPinnedExtensions = loadPinnedExtensionsPolicy(ctx.cwd).projectClearsPinnedExtensions;
       applyRuntimeSettings();
+      // Re-register the actual definition after binding, not a getAllTools copy.
+      // Pi preserves activation when the same owner updates an existing tool.
+      registerAgentTool();
     }
     currentCtx = ctx;
     manager.clearCompleted(true);
@@ -963,11 +966,10 @@ export default function (pi: ExtensionAPI) {
 
   // ---- Agent tool ----
 
-  // Schedule param + its guideline are gated on `schedulingEnabled` (read once
-  // at registration; flipping the setting later requires next pi session for
-  // the schema to update). Defining the shape once and spreading it via Partial
-  // preserves Type.Object's inference when present and produces a
-  // `schedule`-free schema when absent — zero LLM-context cost in disabled mode.
+  // Build again at the public registration boundary if session_start binds a
+  // different cwd. The handler/prose stay the same; only owned configuration
+  // determines the schema and role catalogue.
+  function registerAgentTool() {
   const scheduleParamShape = {
     schedule: Type.Optional(
       Type.String({
@@ -1075,7 +1077,7 @@ Terse command-style prompts produce shallow, generic work.
   };
 
   const loadCustomToolDescription = (): string | undefined => {
-    const template = loadAgentToolDescriptionConfig(process.cwd());
+    const template = loadAgentToolDescriptionConfig(runtimeConfig.cwd);
     return template === undefined ? undefined : renderToolDescriptionTemplate(template);
   };
 
@@ -1157,7 +1159,8 @@ Terse command-style prompts produce shallow, generic work.
     renderShell: "self",
 
     renderCall(args, theme, context) {
-      const displayName = args.subagent_type ? getDisplayName(args.subagent_type as string) : "Agent";
+      const displayName = args.subagent_type
+        ? agentTypes.getConfig(args.subagent_type as string, runtimeConfig.agents).displayName : "Agent";
       const desc = typeof args.description === "string" ? args.description : "";
       // Call-time chips use tool args (may be fuzzy model / unset = inherit).
       // Result clerk uses the resolved effective model from details.
@@ -1229,7 +1232,7 @@ Terse command-style prompts produce shallow, generic work.
       const subagentType = resolved ?? "general-purpose";
       const fellBack = resolved === undefined;
 
-      const displayName = getDisplayName(subagentType);
+      const displayName = agentTypes.getConfig(subagentType, runtimeConfig.agents).displayName;
 
       // Get agent config (if any)
       const customConfig = getAgentConfig(subagentType);
@@ -1319,7 +1322,7 @@ Terse command-style prompts produce shallow, generic work.
         isolation,
       };
       // Tool-result render shows the mode label too; viewer's header already does.
-      const modeLabel = getPromptModeLabel(subagentType);
+      const modeLabel = getPromptModeLabel(subagentType, agentTypes.getConfig(subagentType, runtimeConfig.agents).promptMode);
       const { tags: invocationTags } = buildInvocationTags(agentInvocation);
       const agentTags = modeLabel ? [modeLabel, ...invocationTags] : invocationTags;
       const detailBase: Pick<
@@ -1597,6 +1600,8 @@ Terse command-style prompts produce shallow, generic work.
       );
     },
   }));
+  }
+  registerAgentTool();
 
   // ---- get_subagent_result tool ----
 

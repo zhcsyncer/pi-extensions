@@ -539,6 +539,18 @@ function resolveConfiguredSessionDir(sessionDir: string | undefined, cwd: string
   return resolve(cwd, sessionDir);
 }
 
+// Share the initial run's deny-aware memory expansion with resume authorization.
+function resolveMemoryTools(toolNames: readonly string[], config?: AgentConfig) {
+  const denied = new Set(config?.disallowedTools ?? []);
+  const names = new Set(toolNames.filter((name) => !denied.has(name)));
+  const writable = names.has("write") || names.has("edit");
+  if (config?.memory) {
+    const extras = writable ? getMemoryToolNames(names) : getReadOnlyMemoryToolNames(names);
+    for (const name of extras) if (!denied.has(name)) names.add(name);
+  }
+  return { names: [...names], writable };
+}
+
 export async function runAgent(
   ctx: ExtensionContext,
   type: SubagentType,
@@ -587,29 +599,15 @@ export async function runAgent(
     }
   }
 
-  let toolNames = inlineAgentConfig
+  const baseToolNames = inlineAgentConfig
     ? (inlineAgentConfig.builtinToolNames ?? [...BUILTIN_TOOL_NAMES])
     : getToolNamesForType(type, runtime.agents);
-
-  // Persistent memory: detect write capability and branch accordingly.
-  // Account for disallowedTools — a tool in the base set but on the denylist is not truly available.
+  const memoryTools = resolveMemoryTools(baseToolNames, agentConfig);
+  const toolNames = memoryTools.names;
   if (agentConfig?.memory) {
-    const existingNames = new Set(toolNames);
-    const denied = agentConfig.disallowedTools ? new Set(agentConfig.disallowedTools) : undefined;
-    const effectivelyHas = (name: string) => existingNames.has(name) && !denied?.has(name);
-    const hasWriteTools = effectivelyHas("write") || effectivelyHas("edit");
-
-    if (hasWriteTools) {
-      // Read-write memory: add any missing memory tool names (read/write/edit)
-      const extraNames = getMemoryToolNames(existingNames);
-      if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildMemoryBlock(agentConfig.name, agentConfig.memory, configCwd);
-    } else {
-      // Read-only memory: only add read tool name, use read-only prompt
-      const extraNames = getReadOnlyMemoryToolNames(existingNames);
-      if (extraNames.length > 0) toolNames = [...toolNames, ...extraNames];
-      extras.memoryBlock = buildReadOnlyMemoryBlock(agentConfig.name, agentConfig.memory, configCwd);
-    }
+    extras.memoryBlock = memoryTools.writable
+      ? buildMemoryBlock(agentConfig.name, agentConfig.memory, configCwd)
+      : buildReadOnlyMemoryBlock(agentConfig.name, agentConfig.memory, configCwd);
   }
 
   // Build system prompt from agent config
@@ -681,8 +679,10 @@ async function constructAgentSession(
   // Restored prompts already contain the rendered skills catalogue. SDK always
   // appends cwd to custom prompts, so remove exactly that final suffix once.
   if (restoredManager) {
-    const suffix = `\nCurrent working directory: ${effectiveCwd.replace(/\\/g, "/")}`;
-    if (systemPrompt.endsWith(suffix)) systemPrompt = systemPrompt.slice(0, -suffix.length);
+    const cwd = effectiveCwd.replace(/\\/g, "/");
+    const suffix = [`\n\n<cwd>\n${cwd}\n</cwd>`, `\nCurrent working directory: ${cwd}`]
+      .find((value) => systemPrompt.endsWith(value));
+    if (suffix) systemPrompt = systemPrompt.slice(0, -suffix.length);
   }
   const noSkills = !!restoredManager || skills === false || Array.isArray(skills);
 
@@ -953,11 +953,7 @@ function authorizationScope(config: AgentConfig, isolated: boolean, loader: Pick
     ? config.extensions.filter((entry) => !entry.includes("/") && !entry.includes("\\") && !entry.startsWith("~")).map((entry) => entry.toLowerCase()) : []);
   const selectors = parseExtSelectors(config.extSelectors ?? []);
   const excluded = new Set(config.excludeExtensions?.map((name) => name.toLowerCase()) ?? []);
-  const builtinTools = new Set(config.builtinToolNames ?? BUILTIN_TOOL_NAMES);
-  if (config.memory && !isolated) {
-    const memoryTools = builtinTools.has("write") || builtinTools.has("edit") ? getMemoryToolNames(builtinTools) : getReadOnlyMemoryToolNames(builtinTools);
-    for (const name of memoryTools) builtinTools.add(name);
-  }
+  const builtinTools = resolveMemoryTools(config.builtinToolNames ?? BUILTIN_TOOL_NAMES, config).names;
   const eligible = (extension: Extension): boolean => {
     if (isolated || config.extensions === false || extension.path === AUTHORIZATION_EXTENSION_PATH) return false;
     const names = extensionCanonicalNames(extension.path);
@@ -967,7 +963,7 @@ function authorizationScope(config: AgentConfig, isolated: boolean, loader: Pick
   };
   return {
     role, isolated,
-    builtinTools: [...builtinTools],
+    builtinTools,
     deniedTools: [...EXCLUDED_TOOL_NAMES, ...(config.disallowedTools ?? [])],
     grants(extension: Extension) {
       if (!eligible(extension)) return undefined;
@@ -1007,7 +1003,7 @@ function currentAuthority(history: AgentAuthorization, runtime: AgentRuntimeConf
   return structuredClone(config);
 }
 
-function historicalAuthority(snapshot: AgentResumeSnapshot): AgentAuthorization {
+function historicalAuthority(snapshot: AgentResumeSnapshot, runtime: AgentRuntimeConfig): AgentAuthorization {
   const history = snapshot.authorization;
   if (history) {
     const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((part) => typeof part === "string");
@@ -1019,18 +1015,27 @@ function historicalAuthority(snapshot: AgentResumeSnapshot): AgentAuthorization 
         (history.role.kind === "named" && (typeof history.role.name !== "string" || typeof history.role.builtin !== "boolean"))) {
       throw new Error("Subagent authorization ceiling is invalid or unsupported");
     }
-    return structuredClone(history);
+    return { ...structuredClone(history), isolated: history.isolated || snapshot.isolated };
   }
   if (!snapshot.isolated && snapshot.config.extensions !== false) {
     throw new Error("Subagent authorization cannot verify historical extension authority; explicit recovery is unavailable");
   }
-  if (snapshot.config.source && snapshot.config.source !== "default" && !snapshot.config.sourcePath) {
-    throw new Error("Subagent authorization cannot verify the historical named role source");
+  let sourcePath = snapshot.config.sourcePath;
+  if (snapshot.config.source && snapshot.config.source !== "default" && !sourcePath) {
+    // Old builtin-only recipes recorded scope, not a canonical role file. There
+    // is no historical extension owner to reconstruct; verify the current role
+    // in that original scope and retain the old builtin ceiling below.
+    reloadRuntimeAgents(runtime);
+    const current = getAgentConfig(snapshot.config.name, runtime.agents);
+    if (!current || current.enabled === false || current.source !== snapshot.config.source || !current.sourcePath) {
+      throw new Error("Subagent authorization cannot verify the current named role/source in its original scope");
+    }
+    sourcePath = current.sourcePath;
   }
   const role: AgentRoleIdentity = snapshot.config.isDefault || snapshot.config.source === "default"
     ? { kind: "named", name: snapshot.config.name, builtin: true }
-    : snapshot.config.sourcePath
-      ? { kind: "named", name: snapshot.config.name, builtin: false, sourcePath: snapshot.config.sourcePath }
+    : sourcePath
+      ? { kind: "named", name: snapshot.config.name, builtin: false, sourcePath }
       : { kind: "inline" };
   return {
     version: 1, role, builtinTools: [...(snapshot.config.builtinToolNames ?? BUILTIN_TOOL_NAMES)],
@@ -1053,7 +1058,7 @@ export async function restoreAgentSession(
   const validated = validateSessionFile(sessionFile, snapshot.cwd);
   const runtime = options.runtimeConfig?.cwd === resolve(snapshot.configCwd)
     ? options.runtimeConfig : loadRuntimeConfig(snapshot.configCwd);
-  const history = historicalAuthority(snapshot);
+  const history = historicalAuthority(snapshot, runtime);
   const currentConfig = currentAuthority(history, runtime, options.currentAgentConfig);
   const sessionManager = SessionManager.open(sessionFile);
   if (sessionManager.getSessionId() !== validated.id || sessionManager.getEntries().length !== validated.entryCount) {
@@ -1078,7 +1083,7 @@ export async function restoreAgentSession(
     currentAgentConfig: options.currentAgentConfig,
     cwd: snapshot.cwd,
     configCwd: snapshot.configCwd,
-    isolated: snapshot.isolated,
+    isolated: snapshot.isolated || history.isolated || currentConfig.isolated === true,
     model,
     thinkingLevel,
   }, sessionManager, history);
@@ -1366,7 +1371,7 @@ export async function resumeAgent(
   if (authority && !options.signal?.aborted) {
     const inline = options.currentAgentConfig ?? authority.inlineConfig;
     const current = currentAuthority(authority.historical, authority.runtime, inline);
-    authority.authorization.update(authorizationScope(current, authority.historical.isolated,
+    authority.authorization.update(authorizationScope(current, authority.historical.isolated || current.isolated === true,
       session.resourceLoader, authority.historical.role, authority.configCwd), authority.historical);
     if (options.currentAgentConfig) authority.inlineConfig = options.currentAgentConfig;
   }

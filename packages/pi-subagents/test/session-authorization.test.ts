@@ -54,7 +54,7 @@ export default function(pi) {
     : await ctx.executeTool(args.target,args.target === "write" ? {path:${JSON.stringify(effects)},content:"OVERWRITE"} : {}, {signal});
    return {...outcome.result,isError:outcome.isError};
   }});
- pi.on("before_agent_start",()=>{leaf("late");pi.setActiveTools([...pi.getActiveTools(),"allowed","denied","late","write"]);});
+ pi.on("before_agent_start",()=>{leaf("late");pi.setActiveTools([...pi.getActiveTools(),"allowed","denied","late","write","edit"]);});
 }`);
   const faux = fauxProvider({ provider: "permission-local", models: [{ id: "model", contextWindow: 200000 }] });
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, allowModelNetwork: false });
@@ -68,7 +68,8 @@ export default function(pi) {
     extensions: [file], extSelectors: ["ext:fixture/allowed", "ext:fixture/late", "ext:fixture/between", "ext:fixture/bridge1", "ext:fixture/bridge2"],
     skills: false, promptMode: "replace", systemPrompt: "test", persistSession: true, sessionDir: join(cwd, "sessions") };
   const script = (target: string, depth: number) => faux.setResponses([
-    fauxAssistantMessage(fauxToolCall(depth ? "bridge1" : target, depth ? { target, depth } : target === "write" ? { path: effects, content: "OVERWRITE" } : {}), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall(depth ? "bridge1" : target, depth ? { target, depth } : target === "write" ? { path: effects, content: "OVERWRITE" }
+      : target === "edit" ? { path: effects, oldText: "ORIGINAL", newText: "MUTATED" } : {}), { stopReason: "toolUse" }),
     fauxAssistantMessage("DONE"),
   ]);
   return { cwd, file, effects, config, ctx, pi, faux, runtime, script };
@@ -119,6 +120,47 @@ describe("child public authorization boundary", () => {
     expect(readFileSync(f.effects, "utf8").trim()).toBe("allowed");
     expectDenied(restored);
   });
+
+  it.each([false, true])("resolves memory capability after deny (write denied=%s)", async denied => {
+    const f = await fixture();
+    writeFileSync(f.effects, "ORIGINAL");
+    f.script("edit", 0);
+    const result = await runAgent(f.ctx, "inline", "go", { pi: f.pi,
+      inlineAgentConfig: { ...f.config, builtinToolNames: ["write"], disallowedTools: denied ? ["write"] : [], memory: "project" },
+      onSessionCreated: session => sessions.push(session) });
+    expect(result.session.getAllTools().some(tool => tool.name === "edit")).toBe(true);
+    if (denied) expectDenied(result.session);
+    else expect(result.session.messages.filter(message => message.role === "toolResult").at(-1)?.isError).toBe(false);
+    expect(readFileSync(f.effects, "utf8")).toBe(denied ? "ORIGINAL" : "MUTATED");
+    expect(result.session.getActiveToolNames()).toContain("read");
+    expect(result.session.getActiveToolNames().includes("edit")).toBe(!denied);
+  });
+
+  it.each([[false, "live"], [false, "cold"], [true, "live"], [true, "cold"]] as const)(
+    "intersects current and historical isolation (historical=%s, %s resume)", async (historicalIsolated, kind) => {
+      const f = await fixture();
+      const role = join(f.cwd, ".pi/agents/isolation.md");
+      mkdirSync(dirname(role), { recursive: true });
+      const definition = (isolated: boolean) => `---\ntools: none\nextensions: ${f.file}\nskills: none\nisolated: ${isolated}\npersist_session: true\nsession_dir: ${join(f.cwd, "sessions")}\nprompt_mode: replace\n---\nISOLATION_ROLE`;
+      writeFileSync(role, definition(historicalIsolated));
+      // The observer really stays registered and reactivates itself each prompt;
+      // this is an execution denial, not an unknown-tool result.
+      writeSetting(join(getAgentDir(), "settings.json"), JSON.stringify({ extensions: [f.file] }));
+      writeSetting(join(getAgentDir(), "extension-data/pi-subagents/config.json"), JSON.stringify({ pinnedExtensions: ["fixture"] }));
+      let snapshot!: AgentResumeSnapshot;
+      f.faux.setResponses([fauxAssistantMessage("DONE")]);
+      const first = await runAgent(f.ctx, "isolation", "go", { pi: f.pi, isolated: historicalIsolated,
+        onResumeSnapshot: value => { snapshot = value; }, onSessionCreated: session => sessions.push(session) });
+      writeFileSync(role, definition(!historicalIsolated));
+      const session = kind === "live" ? first.session
+        : await restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi });
+      if (kind === "cold") sessions.push(session);
+      expect(session.getAllTools().some(tool => tool.name === "allowed")).toBe(true);
+      f.script("allowed", 0);
+      await resumeAgent(session, "try the extension");
+      expectDenied(session);
+      expect(readFileSync(f.effects, "utf8")).toBe("");
+    });
 
   it("does not mistake the parent's defaultTools view for child authorization", async () => {
     const f = await fixture();
@@ -225,6 +267,39 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     expect(readFileSync(f.effects, "utf8")).toBe("");
   });
 
+  it("restores a legacy named builtin-only recipe using its original project scope", async () => {
+    const f = await fixture();
+    const role = join(f.cwd, ".pi/agents/legacy.md");
+    mkdirSync(dirname(role), { recursive: true });
+    const base = `skills: none\npersist_session: true\nsession_dir: ${join(f.cwd, "sessions")}\nprompt_mode: replace`;
+    writeFileSync(role, `---\n${base}\ntools: read\nextensions: none\n---\nLEGACY_ORIGINAL`);
+    let snapshot!: AgentResumeSnapshot;
+    f.faux.setResponses([fauxAssistantMessage("DONE")]);
+    const first = await runAgent(f.ctx, "legacy", "go", { pi: f.pi,
+      onResumeSnapshot: value => { snapshot = value; }, onSessionCreated: session => sessions.push(session) });
+    expect(snapshot.config.source).toBe("project");
+    delete snapshot.authorization;
+    delete snapshot.config.sourcePath;
+    writeFileSync(role, `---\n${base}\ntools: read, write, ext:fixture/allowed\nextensions: ${f.file}\n---\nCURRENT_ROLE`);
+    const restored = await restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi });
+    sessions.push(restored);
+    expect(restored.sessionManager.getSessionId()).toBe(first.session.sessionManager.getSessionId());
+    expect(restored.systemPrompt).toBe(first.session.systemPrompt);
+    expect(restored.model?.id).toBe(first.session.model?.id);
+    expect(restored.getActiveToolNames()).toEqual(["read"]);
+    for (const target of ["write", "allowed"]) {
+      expect(restored.getAllTools().some(tool => tool.name === target)).toBe(true);
+      f.script(target, 0);
+      await resumeAgent(restored, "try to widen the legacy ceiling");
+      expectDenied(restored);
+    }
+    expect(readFileSync(f.effects, "utf8")).toBe("");
+    writeFileSync(role, `---\n${base}\ntools: read\nextensions: none\nenabled: false\n---\nDISABLED`);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    rmSync(role);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+  });
+
   it("rejects unverifiable legacy extension authority without changing valid history", async () => {
     const f = await fixture();
     let snapshot!: AgentResumeSnapshot;
@@ -243,7 +318,10 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     const f = await fixture();
     const role = join(f.cwd, ".pi/agents/actual.md");
     mkdirSync(dirname(role), { recursive: true });
-    writeFileSync(role, "---\ntools: none\nextensions: none\nskills: none\npersist_session: false\nprompt_mode: replace\n---\nACTUAL_CWD_ROLE");
+    writeFileSync(role, "---\ndisplay_name: Local Friendly\ndescription: LOCAL_ROLE_DESCRIPTION\ntools: none\nextensions: none\nskills: none\npersist_session: false\nprompt_mode: replace\n---\nACTUAL_CWD_ROLE");
+    writeSetting(join(f.cwd, ".pi/extension-data/pi-subagents/config.json"), JSON.stringify({
+      worktreeIsolation: true, schedulingEnabled: false, disableDefaultAgents: true,
+    }));
     expect(loadCustomAgents(f.cwd).get("actual")?.systemPrompt).toBe("ACTUAL_CWD_ROLE");
     const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
     const names = ["Agent", "get_subagent_result", "steer_subagent"];
@@ -269,20 +347,36 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     sessions.push(session);
     try {
       await session.bindExtensions({});
+      const agentTool = session.getToolDefinition("Agent")!;
+      expect(agentTool).toHaveProperty("parameters.properties.isolation");
+      expect(agentTool).not.toHaveProperty("parameters.properties.schedule");
+      expect(agentTool.parameters).toMatchObject({ properties: {
+        subagent_type: { description: expect.stringContaining("Available types: actual.") },
+      } });
+      expect(agentTool.description).toContain("LOCAL_ROLE_DESCRIPTION");
       for (const name of names) {
         expect(session.getToolDefinition(name)?.exposure).toBe("model-only");
         expect(session.getToolDefinition(name)?.executionMode).toBeUndefined();
         expect(session.getActiveToolNames()).toContain(name);
       }
       f.faux.setResponses([
-        fauxAssistantMessage(fauxToolCall("Agent", { prompt: "go", description: "probe", subagent_type: "actual" }), { stopReason: "toolUse" }),
+        context => {
+          const advertised = getCurrentTools(context.messages).find(tool => tool.name === "Agent");
+          expect(advertised).toHaveProperty("parameters.properties.isolation");
+          expect(advertised).not.toHaveProperty("parameters.properties.schedule");
+          expect(advertised?.description).toContain("LOCAL_ROLE_DESCRIPTION");
+          return fauxAssistantMessage(fauxToolCall("Agent", { prompt: "go", description: "probe", subagent_type: "actual", isolation: "off" }), { stopReason: "toolUse" });
+        },
         context => fauxAssistantMessage(getCurrentSystemPrompt(context.messages).includes("ACTUAL_CWD_ROLE") ? "CORRECT_CHILD" : "WRONG_CHILD"),
         fauxAssistantMessage("DONE"),
       ]);
       await session.prompt("Run the named role");
       const direct = session.messages.filter(message => message.role === "toolResult").at(-1)!;
       expect(JSON.stringify(direct)).toContain("CORRECT_CHILD");
-      agentId = (direct.details as { agentId: string }).agentId;
+      const details = direct.details as { agentId: string; displayName: string; tags?: string[] };
+      expect(details.displayName).toBe("Local Friendly");
+      expect(details.tags ?? []).not.toContain("twin");
+      agentId = details.agentId;
       expect(agentId).toBeTruthy();
       const before = f.faux.state.callCount;
       f.faux.setResponses([

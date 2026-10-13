@@ -25,6 +25,7 @@ import type {
 import { listArchivedAgents, recordFromArchive } from "./session-archive.js";
 import { shortModelLabel } from "./ui/agent-widget.js";
 import { loadRuntimeConfig, type AgentRuntimeConfig } from "./runtime-config.js";
+import { getConfig } from "./agent-types.js";
 import { createLifetimeUsage, readSessionUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 import {
   cleanupWorktree,
@@ -235,6 +236,9 @@ export class AgentManager {
         : {}),
     };
 
+    const presentation = options.inlineAgentConfig
+      ? { displayName: options.inlineAgentConfig.displayName ?? options.inlineAgentConfig.name, promptMode: options.inlineAgentConfig.promptMode }
+      : getConfig(type, runtimeConfig.agents);
     const id = randomUUID().slice(0, 17);
     const abortController = new AbortController();
     const record: AgentRecord = {
@@ -264,10 +268,8 @@ export class AgentManager {
         runInBackground: options.isBackground,
         isolation: options.isolation,
       },
-      ...(options.inlineAgentConfig ? {
-        inlineDisplayName: options.inlineAgentConfig.displayName ?? options.inlineAgentConfig.name,
-        inlinePromptMode: options.inlineAgentConfig.promptMode,
-      } : {}),
+      inlineDisplayName: presentation.displayName,
+      inlinePromptMode: presentation.promptMode,
       ...(options.correlationId ? { correlationId: options.correlationId } : {}),
       ...(options.completionOwner ? { completionOwner: options.completionOwner } : {}),
       ...(options.correlationId && options.model ? {
