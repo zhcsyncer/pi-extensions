@@ -1,14 +1,14 @@
 # Cursor Ask：Pi 1.1.0 适配与 usage 契约门槛
 
-状态：待 review，未实施。归属：[总计划](../pi-1.1-implementation-plan.md) W10；用户已冻结 B02，本轮只做本地重放与必要 1.1 兼容，不启动标准 usage 改造、专项回执研究或宿主提案。
+状态：本轮重放与必要兼容已验收并集成，未发布；在线推理另行验证。进度及证据见[执行表 N5](../pi-extensions/pi-1.1-execution-plan.md)。归属：[总计划](../pi-1.1-implementation-plan.md) W10；用户已冻结 B02，本轮只做本地重放与必要 1.1 兼容，不启动标准 usage 改造、专项回执研究或宿主提案。
 
 ## Goal
 
 继续使用 Cursor 专有协议与订阅渠道，正确重放 Pi 的系统/工具变化；保留当前上下文安全策略，不以 Meter 特判改动冻结的 B02。标准账单/上下文分离仅保留为后续参考。
 
-## 可以立即实施：重放与集成兼容
+## 已交付：重放与集成兼容
 
-当前 context-usage 将 sections 一直追加，未正确处理同名替换/删除。使用 1.1 的公开 transcript helpers，让请求构造与上下文锚点共享一致的 current system/tools 语义，而不是分别维护两套重放算法。
+使用 1.1 的公开 transcript helpers，让请求构造与上下文锚点共享一致的 current system/tools 语义，避免历史 sections 同名替换/删除后残留旧内容，也不再分别维护重放算法。
 
 - 测同名 section 替换、null 删除、content 追加；工具移除、同名重定义；压缩后有效状态与 scope 失效。
 - 保留原生 Cursor Connect/protobuf、认证、取消、重试与真实 Run 生命周期，不按通用 OpenAI endpoint 重写。

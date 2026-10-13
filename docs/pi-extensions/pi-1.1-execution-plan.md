@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；D3与N5的实现和独立测试均已交付、组合审阅中，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放已验收并集成，D3组合审阅中，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -30,11 +30,11 @@
 - 调度：当前 session `01a12e08-fb4e-7135-9f57-a5843fb8ce27`，Herdr pane `w3:p64`。
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
-- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`5ef8540c01e20db4a3024f18fe58671c1f0b6214`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0、K1、C1、R1、R2、D1、D2、N1、F1、M1、H1 已验收；R1/Review类型错误及Fast回归已消除，不表示整轮适配或真实服务已通过。
+- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`62a362b34893bf93b4cf6989598c8b4193d31e68`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0、K1、C1、R1、R2、D1、D2、N1、N5、F1、M1、H1 已验收；R1/Review类型错误及Fast回归已消除，不表示整轮适配或真实服务已通过。
 - 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)、[N1](./tasks/n1-fast-options.md)、[R2](./tasks/r2-session-authorization.md)、[R3](./tasks/r3-child-capabilities.md)、[M1](./tasks/m1-recorded-usage-ledger.md)、[D2](./tasks/d2-bounded-rendering.md)、[D3](./tasks/d3-nested-display.md)、[F1](./tasks/f1-workflow-tools.md)、[H1](./tasks/h1-herdr-compatibility.md)、[N5](./tasks/n5-cursor-replay.md)。依赖见 §2。
 - 已回收的审阅资源（2026-10-13 11:13）：`pi-1.1-review`（pi11-review/w9Y:p1，末次候选0838d8b）、`pi-1.1-review-display`（pi11-review-display/wA4:p1，e7a3050）、`pi-1.1-review-consult`（pi11-review-consult/wA5:p1，2a228a5）。Pi已正常退出，checkout/工作区已移除，分支与会话日志保留。后续审阅按固定候选重建环境，不再使用这些失效pane。
 - R2审阅已验收并回收：原`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review-r2`，`pi11-review-r2-20261013` / `wA9:p1`，最终候选c7e8c03；D2审阅已验收并回收：原`pi-1.1-review-d2`，session `pi11-review-d2-20261013`，agent `pi11-review-d2` / `wAA:p1`，最终候选b144f69。审阅结束且无后续工作即回收。
-- 本次另回收E0、K1、C1、N1四个已验收实施环境，加上F1、D2复审及D2独立测试，再加R2复审/独立测试、M1三环境及H1实施，加上用户确认暂停后回收的R3只读环境，共17组（回收不等于R3验收）。显示环境继续D3，集成环境保留；所有已回收分支/会话/证据保留。静态清理证据：`/var/tmp/pi-1.1-dispatch-20261012/completed-worktree-cleanup-evidence.json`；终端证据已保存同目录`*-closing-output.log`。
+- 本次另回收E0、K1、C1、N1四个已验收实施环境，加上F1、D2复审及D2独立测试，再加R2复审/独立测试、M1三环境及H1实施，加上用户确认暂停后回收的R3只读环境，以及N5验收后的实施/独立测试/审阅环境，共20组（回收不等于R3验收）。显示环境继续D3，集成环境保留；所有已回收分支/会话/证据保留。静态清理证据：`/var/tmp/pi-1.1-dispatch-20261012/completed-worktree-cleanup-evidence.json`；终端证据已保存同目录`*-closing-output.log`。
 - 原独立测试资源已回收：`pi-1.1-contract-tests`、`pi11-tests-20261012` / `wA2:p1`，最终a6ba5c7。其历次独立测试提交/分支和会话记录保留，不再使用已关闭pane。
 - 独立测试资源二已回收：原`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast-contract-tests`、`pi11-fast-tests-20261012` / `wA7:p1`；N1及D2测试均已验收，最后提交aa498db，分支/日志保留。M1独立作者的`pi-1.1-ledger-contract-tests`、`pi11-ledger-tests` / `wAC:p1`也已验收回收，最后eff107e5；总活动worker不超过4。
 
@@ -56,7 +56,7 @@
 | N2 Search | 未派发 | — | — | E0 已通过；待实施槽位与合同，三项旧债不做 | 2026-10-12 16:20 |
 | N3 Recap | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | N4 Volcengine | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
-| N5 Cursor | 待审阅 | 实施wAH、独立wAG；审阅`pi-1.1-review-cursor`、`pi11-review-cursor-20261013`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；组合`858156d` → — | 实现自报358/fullcheck/loader通过；独立基线10过4红、无fixture。固定组合审阅已派；生产仅复用SDK两helpers，不算已验收/真实模型可用 | 2026-10-13 18:32 |
+| N5 Cursor | 已集成 | 三环境已回收；原实施wAH、独立wAG、审阅`pi-1.1-review-cursor`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；ACCEPT`858156d` → `62a362b` | 集成态44文件372/372（独立14）、完整check/loader零错误告警私有加载/pack17通过；仅共享SDK重放helpers，B02/B04/协议/认证不改，无真实账号/模型验证 | 2026-10-13 18:37 |
 | X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
 | P1 Plan 授权 | 未派发 | — | — | R2/K1已验收，待最小工作流/Context7接线合同与槽位；不启用relay | 2026-10-13 16:46 |
