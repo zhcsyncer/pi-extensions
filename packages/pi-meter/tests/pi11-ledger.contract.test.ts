@@ -583,3 +583,126 @@ describe("[IO] legacy compatibility is bounded, not a historical reconstruction"
 		expectMoney(rows, 2, 0.05);
 	});
 });
+
+// UI follow-up: the original 66 cases above remain unchanged. Only the terminal
+// transport is synthetic; InteractiveMode owns custom(), focus and input routing.
+async function openRecordedUsageDashboard(includeUnknown: boolean) {
+	// Load generic transport at runtime: its sibling package uses a different TS
+	// configuration. Only the public Terminal contract and transport capture are used.
+	const transportURL = new URL("../../pi-tool-display-intent/tests/helpers/aggregate-terminal.ts", import.meta.url).href;
+	const { AggregateTerminal } = await import(transportURL) as {
+		AggregateTerminal: new () => import("@earendil-works/pi-tui").Terminal & {
+			columns: number; rows: number; writes: string[]; onInput?: (input: string) => void;
+		};
+	};
+	const { InteractiveMode, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } = await import("@earendil-works/pi-coding-agent");
+	const { stripTerminalSequences } = await import("@earendil-works/pi-tui");
+	const terminal = new AggregateTerminal();
+	terminal.columns = 120;
+	terminal.rows = 45;
+	const source = savedSession("ui-expenses", root);
+	const now = Date.now(); // The default footer's rolling window must include these expenses.
+	source.appendMessage({ ...assistant(0.07), provider: "fixture-provider", model: "priced", timestamp: now });
+	if (includeUnknown) {
+		const unpriced = { ...assistant(), provider: "fixture-provider", model: "unpriced", timestamp: now + 1 };
+		Reflect.deleteProperty(unpriced.usage, "cost");
+		source.appendMessage(unpriced);
+	}
+	// Import before opening the UI, so this tests presentation of recorded data,
+	// not a timer-dependent footer refresh after a separate history operation.
+	const importer = await openMeter(savedSession("ui-importer", root));
+	await importer.import();
+	await importer.close();
+	const imported = await ledgerRows();
+	expectMoney(imported, includeUnknown ? 2 : 1, 0.07);
+	expect(imported.filter((row) => !row.costKnown)).toHaveLength(includeUnknown ? 1 : 0);
+	const host = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
+		const modelRuntime = await ModelRuntime.create({
+			authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
+			modelsStorePath: join(agentDir, "model-cache"), allowModelNetwork: false, refreshOnCreate: false,
+		});
+		const services = await createAgentSessionServices({
+			cwd, agentDir, modelRuntime,
+			settingsManager: SettingsManager.inMemory({ quietStartup: true, compaction: { enabled: false }, retry: { enabled: false } }),
+			resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, extensionFactories: [meter] },
+		});
+		return { ...await createAgentSessionFromServices({ services, sessionManager, tools: [] }), services, diagnostics: services.diagnostics };
+	}, { cwd: root, agentDir, sessionManager: savedSession("ui-observer", root) });
+	const mode = new InteractiveMode(host, { terminal, tuiMode: "regular" });
+	let command: Promise<unknown> | undefined;
+	const errors: string[] = [];
+	cleanups.push(async () => {
+		try {
+			terminal.onInput?.("\x1b");
+			await command;
+			await host.dispose();
+		} finally { mode.stop(); }
+		expect(errors, "fixture: native UI extension errors").toEqual([]);
+	});
+	const runner = host.session.extensionRunner;
+	runner.onError((event) => errors.push(event.error));
+	const statuses = new Map<string, string>();
+	const surfaces: Array<{ component: import("@earendil-works/pi-tui").Component; tui: import("@earendil-works/pi-tui").TUI }> = [];
+	const bindUI = runner.setUIContext.bind(runner);
+	// Intercept the genuine binding before session_start can retain its context.
+	const binding = vi.spyOn(runner, "setUIContext").mockImplementation((nativeUI, mode) => {
+		if (!nativeUI) return bindUI(nativeUI, mode);
+		bindUI({
+			...nativeUI,
+			setStatus: (key, text) => {
+				if (text === undefined) statuses.delete(key); else statuses.set(key, text);
+				nativeUI.setStatus(key, text);
+			},
+			custom: (factory, options) => nativeUI.custom(async (...args) => {
+				const component = await factory(...args);
+				surfaces.push({ component, tui: args[0] });
+				return component;
+			}, options),
+		}, mode);
+	});
+	try { await mode.init(); } finally { binding.mockRestore(); }
+	command = host.session.prompt("/usage");
+	await vi.waitFor(() => expect(stripTerminalSequences(terminal.writes.join("")), "fixture: real /usage menu").toMatch(/dashboard/i));
+	const menuSurfaces = surfaces.length;
+	terminal.onInput?.("\r"); // Default selection, through the real terminal input handler.
+	await vi.waitFor(() => expect(surfaces.length, "fixture: Dashboard mounted after Enter").toBeGreaterThan(menuSurfaces));
+	const dashboard = surfaces.at(-1)!;
+
+	return {
+		dashboard,
+		manager: host.session.sessionManager,
+		footer: () => stripTerminalSequences([...statuses.values()].join("\n")),
+		visible: () => stripTerminalSequences(dashboard.component.render(terminal.columns).join("\n")),
+	};
+}
+
+describe("[IO UI follow-up] recorded scope and render work", () => {
+	it.each([false, true])("footer and real Dashboard express recorded .07, unknown cost present=%s", async (includeUnknown) => {
+		const view = await openRecordedUsageDashboard(includeUnknown);
+		for (const [surface, text] of [["footer", view.footer()], ["dashboard", view.visible()]] as const) {
+			expect.soft(text, `${surface}: keep the known subtotal`).toMatch(/\$\s*0\.070*\b/);
+			expect.soft(text, `${surface}: recorded scope, not a real-bill total`).toMatch(/recorded|logged|ledger|已记录|本地记录|账本/i);
+			if (includeUnknown) {
+				// Accept prose or compact money qualifiers, but not the unrelated
+				// "unknown" model/quota hint or an n/a on just one model row.
+				expect.soft(text, `${surface}: known subtotal is not a complete total`).toMatch(/unknown\s+(?:cost|price|fee)|(?:cost|price|fee).{0,15}unknown|incomplete|partial|lower[ -]bound|at least|未知费用|费用未知|不完整|下界|至少|≥|>=|[~?]\s*\$\s*0\.070*|\$\s*0\.070*[\s():-]*(?:unknown|[+?])|\+\s*\?/i);
+			}
+		}
+	});
+	it("opened real Dashboard repeats public renders and TUI frames without full session scans", async () => {
+		const view = await openRecordedUsageDashboard(true);
+		const fullEntries = vi.spyOn(view.manager, "getEntries");
+		const fullBranch = vi.spyOn(view.manager, "getBranch");
+		try {
+			for (let frame = 0; frame < 8; frame++) {
+				view.dashboard.component.render(frame % 2 ? 100 : 120);
+				view.dashboard.tui.renderNow();
+			}
+			expect(fullEntries).not.toHaveBeenCalled();
+			expect(fullBranch).not.toHaveBeenCalled();
+		} finally {
+			fullEntries.mockRestore();
+			fullBranch.mockRestore();
+		}
+	});
+});
