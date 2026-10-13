@@ -11,6 +11,14 @@
 - 首期无资源需求，拒绝三个MCP资源工具；不为它们新造资源权限产品。不改变RPC/tool调用参数或model/account语义，不进入Plan relay、B10–B12。
 - 已持有的当前能力与恢复上限一致；不在recipe存URL密钥/header等秘密。仅补实际需要的非秘密身份，不为理论攻击设计新协议。
 
+## 已确认的接入缺口与用户决定
+
+精确1.1公开factory的createTransport/loadConfig是完整替换，不提供调用默认实现后再过滤的委托参数。默认createDefaultTransport/loadMcpConfig及配置值解析器不在包的公共exports；不能把磁盘内可找到的模块当公开API。连接钩子可以拦截初始/晚注册server，但目前没有已确认的、保持默认配置合并/认证语义的无损过滤接线。
+
+用户已明确选择**保留逐服务连接限制**，不接受“允许MCP就连接全部启用服务、仅用gate限制工具”。因此MCP装配暂停，不升级SDK、不深层导入/复制其默认loader或认证实现，不降低原K1/R3边界，也不将此项标为完成。普通工具继续可用；codemode若单独推进需明确另行划定范围，不冒充完整R3完成。
+
+已确认的后续生命周期约束仍保留：MCP需等待session_shutdown处理完成才释放transport，不能只调用session.dispose，也不能越过R1 settlement；禁止资源工具不等于已经禁止原生初始化的资源枚举，必须诚实区分。
+
 ## 第一阶段：只读公共装配交接
 
 先读完整runtime计划及K1身份合同，暂不编辑/提交：
