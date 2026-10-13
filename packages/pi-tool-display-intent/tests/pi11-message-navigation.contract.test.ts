@@ -275,7 +275,7 @@ for (const layout of ["individual", "aggregate"] as const) {
     };
     const search = (panel: Component) => {
       assert.ok(panel.handleInput, "fixture: settings exposes public keyboard input");
-      for (const key of "user") panel.handleInput(key);
+      for (const key of "native") panel.handleInput(key);
     };
     try {
       assert.notDeepEqual(history.render(44), native, "default positive control");
