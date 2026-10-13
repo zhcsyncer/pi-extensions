@@ -105,7 +105,7 @@ export function buildInspectorSettings(
 					"Aggregate uses one bounded Run summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
 					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Run ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
-					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool settings are retained but inactive.",
+					"Agent keeps its original renderer by default. User prompts use a compact accent-gutter block when User message box is on. Individual-tool settings are retained but inactive.",
 				]
 				: [
 					"Individual preserves the existing per-tool calls, results, diffs, intent, and Ctrl+O expansion.",
@@ -312,6 +312,21 @@ export function buildInspectorSettings(
 			inspectorPath: configPath,
 			searchTerms: ["diff", "collapsed", "summary", "body", "fold", "compact", "ctrl+o"],
 		},
+		{
+			id: "enableNativeUserMessageBox",
+			label: "User message box",
+			currentValue: toOnOff(config.enableNativeUserMessageBox),
+			values: ["on", "off"],
+			inspectorTitle: "User Message Box",
+			inspectorSummary: [
+				"Styles ordinary user messages in both layouts. Off uses the native or downstream renderer.",
+				"Aggregate steer folding and grouping stay unchanged. Applies immediately and persists after /reload.",
+			],
+			inspectorOptions: ["on — styled user messages (default)", "off — native or downstream user messages"],
+			inspectorAdvanced: ["Manual JSON: transcript.userMessageBox (boolean)."],
+			inspectorPath: configPath,
+			searchTerms: ["user message box", "transcript", "native"],
+		},
 	];
 	return config.toolCallLayout === "aggregate"
 		? settings.filter((setting) => !INDIVIDUAL_ONLY_SETTING_IDS.has(setting.id))
@@ -330,6 +345,8 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 					language: value as ToolDisplayConfig["toolIntent"]["language"],
 				},
 			};
+		case "enableNativeUserMessageBox":
+			return { ...config, enableNativeUserMessageBox: value === "on" };
 		case "expandedTimeline":
 			return { ...config, expandedTimeline: value as ToolDisplayConfig["expandedTimeline"] };
 		case "showContextGrowth":

@@ -82,7 +82,7 @@ Nested views keep at most 256 calls, with argument limits of 8 KiB each and 32 K
 
 While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. Each visible call keeps its elapsed time right-aligned on the first row and may use one bounded continuation row. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Run ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, up to eight rows per call; failure details use an indented continuation row. The default `flat` timeline still shows one timed entry per call; set `toolCalls.expandedTimeline` to `turns` to group those entries under `↻ 1/3 · 3 calls` headers with indented calls. Long bash scripts show intent and size instead of the body. Agent and consult use the same compact call rows. Image reads stay in the Run ledger like other output. Switch back with `/tools individual`.
 
-User prompts always use the accent-gutter box.
+User prompts use the accent-gutter box by default. In either layout, open `/tools`, type `native` to find **User message box**, and press Space/Enter to turn it off for native/downstream user-message rendering. Changes apply to existing and new messages immediately and persist after `/reload`; aggregate steer folding and grouping are unchanged. Styled messages retain Pi's message-navigation boundaries.
 
 ### Agent and consult
 
@@ -136,6 +136,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | `toolCalls.layout` | `individual` or `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` per-call Ctrl+O rows, or `turns` grouped by agent turn (aggregate only; no reload) |
 | `toolCalls.showContextGrowth` | Show `ctx` run totals and turn badges; default `false` (aggregate only; no reload) |
+| `transcript.userMessageBox` | Style ordinary user messages; default `true`. Set `false` for native/downstream rendering; steers are unchanged |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
 | `diff.layout` / `diff.indicators` | Edit diff layout and shared Edit/Write markers; Write is always single-column |

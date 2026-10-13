@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import toolDisplayExtension from "../src/index.ts";
 import { renderBashCall } from "../src/bash-display.ts";
@@ -157,14 +157,16 @@ for (const boundary of ["quit", "reload"] as const) {
 }
 
 test("existing user-message prototype patch remains safe across entry-point reload", async t => {
+  initTheme("dark", false);
   const h = await createDisplaySession(undefined, [], { display: false, factories: [toolDisplayExtension] });
   t.after(() => h.close());
   const proto = UserMessageComponent.prototype as PatchableUserMessagePrototype;
-  assert.ok(proto.__piUserMessageNativePatched);
-  const original = proto.__piUserMessageOriginalRender;
+  const user = new UserMessageComponent("reload prompt");
+  const before = user.render(40);
+  assert.match(before.join("\n"), /╭.*user/);
   await h.session.reload();
-  assert.equal(proto.__piUserMessageOriginalRender, original);
-  assert.ok(proto.__piUserMessageNativePatched);
+  assert.deepEqual(user.render(40), before);
+  assert.equal(typeof proto.setExpanded, "function");
 });
 
 test("config fingerprint changes reload and saved modes preserve row budgets", () => {

@@ -339,7 +339,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		),
 		resultMode: resultResolution.mode,
 		...resultConfig,
-		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
+		enableNativeUserMessageBox: toBoolean(source.enableNativeUserMessageBox, DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox),
 		previewRows: clampNumber(
 			source.previewRows ?? source.previewLines,
 			2,
@@ -481,7 +481,8 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalBoolean(diff, "wordWrap", "diff.", errors);
 
 	const transcript = getV2Section(source, "transcript", errors);
-	validateKnownKeys(transcript, [], "transcript.", errors);
+	validateKnownKeys(transcript, ["userMessageBox"], "transcript.", errors);
+	validateOptionalBoolean(transcript, "userMessageBox", "transcript.", errors);
 
 	const tools = getV2Section(source, "tools", errors);
 	validateKnownKeys(tools, ["passthrough", "custom"], "tools.", errors);
@@ -587,7 +588,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		showContextGrowth: toolCalls.showContextGrowth,
 		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
-		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
+		enableNativeUserMessageBox: transcript.userMessageBox,
 		previewRows: results.previewRows,
 		expandedPreviewMaxRows: advanced.expandedRows,
 		diffViewMode: diff.layout,
@@ -641,6 +642,8 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 	if (config.diffCollapsedMode !== defaults.diffCollapsedMode) diff.collapsedMode = config.diffCollapsedMode;
 	if (config.diffWordWrap !== defaults.diffWordWrap) diff.wordWrap = config.diffWordWrap;
 	assignSection(output, "diff", diff);
+
+	if (!config.enableNativeUserMessageBox) output.transcript = { userMessageBox: false };
 
 	const tools: Record<string, unknown> = {};
 	const passthrough = new Set(config.passthroughToolNames);
