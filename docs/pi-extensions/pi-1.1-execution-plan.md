@@ -59,10 +59,10 @@
 | N5 Cursor | 已集成 | 三环境已回收；原实施wAH、独立wAG、审阅`pi-1.1-review-cursor`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；ACCEPT`858156d` → `62a362b` | 集成态44文件372/372（独立14）、完整check/loader零错误告警私有加载/pack17通过；仅共享SDK重放helpers，B02/B04/协议/认证不改，无真实账号/模型验证 | 2026-10-13 18:37 |
 | X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
-| P1 Plan 授权 | 部分阻塞 | 实施`pi-1.1-plan`/wB2；独立`pi-1.1-plan-contract-tests`、`pi11-plan-tests-20261013`/wB3:p1 | 第一阶段`916405a`；P1-A基线`cae3680` → — → — | P1-A两处model-only及真实审批恢复独立合同已派，保留原sequential；P1-B缺当前有效连接/认证拥有者/原始工具绑定，区别于R3连接前过滤，不放宽K1。A通过也不算整个P1完成 | 2026-10-13 23:39 |
+| P1 Plan 授权 | 部分阻塞 | 实施wB2；独立wB3/`pi-1.1-plan-contract-tests` | P1-A基线`cae3680` → 实现`7e37a07`；独立待交 → — | 主调度核生产仅两处model-only、原sequential不变；自报包62/62/types/loader/pack17通过，未验收。P1-B仍缺可信连接/认证/原始工具绑定，不放宽K1；A通过也不算整个P1完成 | 2026-10-13 23:46 |
 | M1 Meter 账本 | 已集成 | 三环境已回收；原实施`pi-1.1-meter`/wA8、独立`pi-1.1-ledger-contract-tests`/wAC、审阅`pi-1.1-review-meter`/wAD | `deb347c` → 实现`f131b84`＋`3a983bc`；测试`5743f69`＋`eff107e5` → `7807d21` | 0bf84ef独立ACCEPT；集成态243/243（独立69）、类型/loader/pack17通过，旧字节/预算口径保留，无迁移框架或真实账本操作；m1-integrated-*.log | 2026-10-13 16:44 |
 | G1 Glance 用量/主题 | 待审阅 | 实施wA0；独立wB1；审阅`pi-1.1-review-glance`、`pi11-review-glance-20261013`/wB4:p1 | `916405a` → `a7e80fd`＋独立`1ca4c6f`；组合`156fc66` → — | 独立基线3过11断言红，无初始化fixture失败、types过；runner仅追加test:dev且合并engines无冲突。固定组合审阅已派，核真实live而非openPane刷新假阳性；保留数组复制/公开边界刷新及终端未验限制 | 2026-10-13 23:43 |
-| M2 Go 额度 | 未派发 | — | — | M1已验收，待最小Go接入合同与槽位；Antigravity及既有registry/poller旧债仍不做 | 2026-10-13 16:46 |
+| M2 Go 额度 | 执行中 | 只读资料核验`38c0265e-d956-470`，无实施环境 | 已知旧schema → 第一方当前版本待核 → — | 仅核对公开route/窗口计算/直接fixture并固定SHA，不访问真实额度或凭据。实际响应门槛仍保留，未授权实施；Antigravity及B04/B05不做 | 2026-10-13 23:46 |
 | I1 跨包/安装验收 | 未派发 | — | — | 待本轮实现集成与候选 SHA | — |
 | L1 授权环境验收 | 未派发 | — | — | 待适用候选、机器/账号操作授权 | — |
 | I2 交付材料 | 未派发 | — | — | 待验收汇总；变更候选须复验 | — |
