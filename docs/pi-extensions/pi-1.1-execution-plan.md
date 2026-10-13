@@ -46,7 +46,7 @@
 | R3 child 装配 | 阻塞 | 已回收；原`pi-1.1-runtime`，branch `upgrade/pi-1.1-runtime-r3`；`pi11-runtime-20261012` / `w9Z:p1` | `8443e01` → 只读证据，无实施提交 → — | 公共createTransport/loadConfig为完整替换，默认实现未公开导出；用户明确保留逐服务连接限制，MCP接入暂停，不改全连接/工具gate降级、不升级/深导入SDK。探针已归档dispatch目录 | 2026-10-13 17:46 |
 | D1 renderer/语义保真 | 已集成 | `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；`pi11-display-20261012`；agent `pi11-display` / `w90:p1` | `e1d3882` → 实现`95b7f22`＋`0d0dc95`；测试`603bbcf`＋`fd1cc55` → `b317aee` | 独立复审ACCEPT、21合同/1174全包通过；集成态1174/1174、类型、真实loader无告警/私有加载、pack17/17通过；证据 `/var/tmp/pi-1.1-dispatch-20261012/d1-integrated-check.log` | 2026-10-12 18:46 |
 | D2 缓存/有界输出 | 已集成 | 复用 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-display`；新分支`upgrade/pi-1.1-display-d2`；`pi11-display-20261012` / `w90:p1` | `35b5e95` → 实现`54dd3c6`＋`a989ee2`；测试`7ca8279`＋`aa498db` → `f195faa` | b144f69独立ACCEPT；集成态1215/1215、类型、真实loader零告警/私有加载、pack17/17通过；独立31＋D1的21例全过，真实/tools与详情已覆盖；证据d2-integrated-*.log | 2026-10-13 15:52 |
-| D3 nested 投影 | 执行中 | 实施`pi-1.1-display`/`upgrade/pi-1.1-display-d3`/w90:p1；独立`pi-1.1-nested-contract-tests`、`pi11-nested-tests-20261013`/wAF:p1 | `f97dea0` → 独立测试`1673edf`；实现待交 → — | 独立已交、树干净：13通过，18产品断言red（含父连带共26失败），类型及D1/D2的52例通过。compact夹具阻塞清零且真实hook/持久化已过；实现未交，不算验收 | 2026-10-13 17:24 |
+| D3 nested 投影 | 执行中 | 实施`pi-1.1-display`/`upgrade/pi-1.1-display-d3`/w90:p1；独立`pi-1.1-nested-contract-tests`、`pi11-nested-tests-20261013`/wAF:p1 | `f97dea0` → 独立测试`1673edf`；实现待交 → — | 独立1673edf已冻结：13通过/18产品断言red（含父连带26失败），类型/D1D2的52例通过；fixture清零。实施checkpoint报告真实归根/预算已跑、最后检查中，未正式交付或验收 | 2026-10-13 18:20 |
 | D4 消息样式/导航 | 未派发 | — | — | 待 D3 交回写所有权 | — |
 | K1 Context7 离线合同 | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-context7`；`pi11-context7-20261012`；agent `pi11-context7` / `wA1:p1` | `4975745` → `f0261015` → `6fa7613` | 完整独立审阅及集成态 typecheck＋24/24、真实 loader 无告警/私有加载、pack17/17 通过；消费者可信身份合同已写回接入规格，真实服务仍待 L1 | 2026-10-12 16:30 |
 | C1 Consult 公开 SDK | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-consult`；`pi11-consult-20261012`；agent `pi11-consult` / `wA3:p1` | `cc66a05` → 实现`60a6b59`＋文档`7caecc7`；测试`808f3bc`＋`6f20b05` → `7db1be2` | 独立组合ACCEPT，集成态111/111、typecheck、真实loader无告警/私有加载、pack17/17通过；调用预算语义不变，真实服务及人工tree/reload仍待验 | 2026-10-12 17:48 |
@@ -56,7 +56,7 @@
 | N2 Search | 未派发 | — | — | E0 已通过；待实施槽位与合同，三项旧债不做 | 2026-10-12 16:20 |
 | N3 Recap | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
 | N4 Volcengine | 未派发 | — | — | E0 已通过；待实施槽位与任务合同 | 2026-10-12 16:20 |
-| N5 Cursor | 未派发 | — | — | 最小重放合同已备：现有共享wrapper改用SDK当前system/tools语义，请求/锚点一致；保留协议、认证与B02/B04冻结，准备并行实施/独立测试 | 2026-10-13 18:11 |
+| N5 Cursor | 执行中 | 实施`pi-1.1-cursor`、`pi11-cursor-20261013`/wAH:p1；独立`pi-1.1-cursor-contract-tests`、`pi11-cursor-tests-20261013`/wAG:p1 | `3b75a7d` → — → — | 已派发共享SDK重放helper最小修复＋独立T1测试；两树依赖/精确SDK通过。保留协议/认证/B02/B04，不运行真实账号请求 | 2026-10-13 18:19 |
 | X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
 | P1 Plan 授权 | 未派发 | — | — | R2/K1已验收，待最小工作流/Context7接线合同与槽位；不启用relay | 2026-10-13 16:46 |
