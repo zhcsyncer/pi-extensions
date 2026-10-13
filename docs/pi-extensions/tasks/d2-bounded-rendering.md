@@ -33,6 +33,22 @@ T1为失效、生命周期和有界工作量；纯配色/DOM结构不测。独�
 | live进度、partial→final、原生/专用委托 | 不冻结进度或复用错误state/lastComponent |
 | reload、HTML、普通模式 | D1语义保持，不启用新runtime/工具、不重执行历史 |
 
+## 冻结的接口、预算与测量边界
+
+第一阶段完整交接及可重跑基准命令在`/tmp/pi11-display-d2-phase-one-handoff.md`。以下已确认作为第二阶段合同：
+
+- `PreviewText`与`ClaudeToolResultComponent`各只保留一个当前布局；不缓存整个delegated renderer，外层仍让child.render产生最新内容，对预算内行字符串作比较，不能只比数组地址。A→B→A宽度需重新计算，不形成历史宽度缓存。
+- 既有公开入口是`new PreviewText({lines,maxRows,theme,expanded,...})`、`new ClaudeToolResultComponent(child,{connectRows,theme})`、render/invalidate，及真实ToolExecutionComponent.updateResult。经updateResult通知的同对象更新、invalidate通知的同数组更新必须生效；不承诺对未通知的任意静默修改做零扫描发现。
+- SDK无通用内容/theme.revision。使用实际受影响token的公开ANSI/appearance/color-mode形成常数规模签名；只提供fg的兼容主题须用能体现有效颜色的固定探针（不能假定空串一定带颜色）。不得覆盖SDK单一onThemeChange回调或仅靠对象身份。同appearance换颜色仍失效。
+- 配置变更必须使已存在的历史行看到新值。仅在确实拥有真实TUI的公开变更边界使用invalidate；不能发明ctx.ui方法或用带假方法的stub证明实际接线。
+- 展示输入最多1,000,000 UTF-16 code units、20,000逻辑行、1000 content blocks；内/外层各自当前格式化缓存最多1,000,000 units，省略提示额外有界。限制只针对本扩展拥有的派生处理，不是整个宿主内存上限；不得放大更严格的已有路径预算。
+- 收起默认8行/配置2–80、展开默认4000/上限20000、错误摘要240字符保持；详情沿用128×1024 units/4000行/8192单行/6000 nodes/深24/1000 blocks。diff沿用4000行/1,000,000矩阵格，但输入保护前移。超限不能用裁剪片段伪造完整diff或精确省略数量。
+- 限制在本扩展昂贵处理前，不能完整filter/map/join/stringify/parse/highlight后再截断；展示不得触发getter/toJSON，异常对象明确省略。任意恶意Proxy trap、第三方renderer内部及宿主前置处理不在硬限时保证内，不引入沙箱。
+- 基准固定100/300已完成文本工具、宽100、每工具32行（含ANSI/中文与22次word）、previewRows=8，warm3遍、测30遍。分别报告PreviewText、双层和真实ToolExecutionComponent；观察正文着色/前缀生成避免重复，签名探针单列，不用毫秒阈值作单测。
+- 原始真实组件重绘median/p95：100为49.03/51.73ms、300为133.33/139.46ms；Linux合成输入到Terminal.write约45–51ms与128–163ms。新结果用相同脚本、环境重跑对照，不拿不同负载声称收益。合成路径含原生Editor/TUI，不含完整CLI、PTY、IME或Mac，后者明确留L1。
+
+独立作者可用D1已验收的generic测试基础设施`helpers/display-session.ts`和`AggregateTerminal`，不读D2实现或作者新增测试；已有公开组件类型可以type-only提取。普通模式、HTML及D1独立21例继续保留。
+
 ## 写入与交付边界
 
 第二阶段仅Tool Display相关源码/测试、必要双语/包级文档、独立changeset；不改依赖锁、其他包、全局真实配置或统一进度。不得以缓存任务重做消息投影/导航，也不修改独立保留测试。读取全局coding、仓库/Herdr/worktree规则、测试方法论及目标SDK/TUI文档完整链接；隔离PATH/run-isolated，无真实服务。仅本地提交，push/main/release/关闭issue均未授权。

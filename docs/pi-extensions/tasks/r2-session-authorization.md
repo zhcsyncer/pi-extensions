@@ -53,6 +53,12 @@ T1 权限状态机、T2 真 SDK 执行链。独立测试保留路径 `packages/p
 
 公开探针事实：tool_call有toolName/toolCallId/input/parentToolCallId，但无来源；只读核对实际ToolInfo.sourceInfo及真实loader注册所有者。nested被block通常返回isError:true，不保证抛异常/终止agent；model-only则可在nested callable集合阶段拒绝，不能混为普通gate命中。18场景证据见`/var/tmp/pi-1.1-dispatch-20261012/r2-hook-probe.{mjs,log}`。独立作者沿用runAgent/restoreAgentSession/resumeAgent、manager与现有facade公开入口；使用真实已注册目标及两级ctx.executeTool bridge，不拿未知工具失败冒充gate。
 
+### 独立测试初始化补充
+
+完整type-only签名及公共bootstrap交接见`/var/tmp/pi-1.1-dispatch-20261012/r2-public-test-interface.md`。现有导出：`runAgent(ctx,type,prompt,RunOptions)`；`loadCustomAgents(cwd)`、`registerAgents(map)`、`getAgentConfig(name)`；`loadSettings(cwd)`、`setPinnedExtensions(names)`。RunOptions里的pi必填，cwd/configCwd分属执行/配置目录，onSessionCreated/onResumeSnapshot为同步观察回调。
+
+SDK/Jiti产品实例与Vitest直接import的manager可能不共享registry/pins。直接runner正控可用这些公开初始化入口，但只能每activation初始化一次，不能每次重置A来掩盖B污染。真实产品activation错误使用process.cwd而非ctx.cwd，则在文件/设置解析正控成立后属于行为red。预留独立文件仍不由实施者修改；既有`test/fixtures/agent-runner-restart.mjs`由实现者用fixture自身的固定当前inline配置适配，不能读取磁盘snapshot.config冒充授权。
+
 ## 第二阶段允许范围与交付
 
 仅协调者解锁后写 Subagents 相关实现/既有测试、必要双语/包级文档和独立 changeset；不改依赖锁、统一进度、其他包或全局真实设置。B10/B11/B12、Plan relay 及其他冻结目标不实施；同文件内必要 API/类型调整不能借机完成冻结功能。
