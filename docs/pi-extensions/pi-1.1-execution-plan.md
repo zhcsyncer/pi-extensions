@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验；N2 Search与D4消息导航也已验收并集成，准备N3 Recap与N4 Volcengine，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验；N2 Search与D4消息导航也已验收并集成，N3 Recap与N4 Volcengine实施及独立测试已并行派发，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -54,8 +54,8 @@
 | H1 Herdr 兼容 | 已集成 | 已回收；原`pi-1.1-herdr`、`pi11-herdr-20261013` / `wAE:p1` | `751a253` → `bf71747` → `5ef8540` | 主调度完整审阅单行生产声明与真实SDK测试；集成态201通过/1Windows跳过、类型/loader/pack17通过。CLI为fixture，保留v9；真实Herdr仲裁/BTW父子PTY仍留L1 | 2026-10-13 16:46 |
 | N1 Fast | 已集成 | 已回收；原 `/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast`；`pi11-fast-20261012`；agent `pi11-fast` / `wA6:p1` | `75bb74a` → 实现`a3c8d42`＋测试`cb07b5e` → `ee51c41` | 独立审阅ACCEPT、35合同通过；集成态71/71与类型通过，真实loader无错误/告警/私有加载；真实priority授权及账单未验。证据 `/var/tmp/pi-1.1-dispatch-20261012/n1-integrated-check.log` | 2026-10-13 10:13 |
 | N2 Search | 已集成 | 三环境已回收；原实施wAM、独立wAN、审阅wAR | `307b8cd` → `85447cd`＋`588e520`＋fixture`b64fb62`；ACCEPT`7f608ca` → `ef61a6f` | 集成态174/174（独立24）、types、真实SDK loader零错误告警私有加载、pack17通过。成功结构化输出/reader10k/取消退出已验收，原认证渠道与三项冻结旧债不变；无真实搜索或额度访问 | 2026-10-13 21:33 |
-| N3 Recap | 未派发 | — | — | 最小合同已备：native system message与公开物理模型完成路径，保持取消/标题/旁路费用边界；准备实施及独立测试 | 2026-10-13 21:53 |
-| N4 Volcengine | 未派发 | — | — | 最小合同已备：明确chat/responses兼容类型并验证真实adapter/tier/thinking/headers/取消，专用订阅渠道不变；准备实施及独立测试 | 2026-10-13 21:53 |
+| N3 Recap | 执行中 | 实施`pi-1.1-recap`、`pi11-recap-20261013`/wAW:p1；独立`pi-1.1-recap-contract-tests`、`pi11-recap-tests-20261013`/wAX:p1 | `a91216d` → — → — | 已派native system message/公开物理模型完成最小兼容与独立合同；取消/标题/会话headers/旁路费用边界不变，禁真实mux及账号操作 | 2026-10-13 22:07 |
+| N4 Volcengine | 执行中 | 实施`pi-1.1-volcengine`、`pi11-volcengine-20261013`/wAV:p1；独立`pi-1.1-volcengine-contract-tests`、`pi11-volcengine-tests-20261013`/wAT:p1 | `a91216d` → — → — | 已派chat/responses兼容类型及真实adapter独立验证；保留tier/thinking/headers/取消与专用订阅，不造新行为或更换付费渠道，无真实服务 | 2026-10-13 22:07 |
 | N5 Cursor | 已集成 | 三环境已回收；原实施wAH、独立wAG、审阅`pi-1.1-review-cursor`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；ACCEPT`858156d` → `62a362b` | 集成态44文件372/372（独立14）、完整check/loader零错误告警私有加载/pack17通过；仅共享SDK重放helpers，B02/B04/协议/认证不改，无真实账号/模型验证 | 2026-10-13 18:37 |
 | X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
