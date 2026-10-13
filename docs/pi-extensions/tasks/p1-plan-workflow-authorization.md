@@ -20,4 +20,17 @@
 - 同时列出原工作流和model-only的最小改点、真实SDK独立fixture接口；不编辑生产/测试、不提交代码。
 - 输出已确认事实、最小接线或明确缺少的公共数据，随后停止；不为所有边界穷尽证明继续扩读SDK。不能做到就报告，不静默交付仅旧REST并标整个P1完成。
 
-第二阶段须协调者基于事实冻结后另行派发实现与独立测试。预留未来`packages/pi-plan-mode/tests/pi11-authorization.contract.test.ts`；实施者不得读写。仍禁push/main/release、升级SDK/宿主、改账号或真实MCP连接。
+## 第一阶段结论与第二阶段冻结：仅P1-A工作流
+
+公开ToolInfo可给注册名/schema/namespace/sourceInfo，但无当前有效连接来源、认证拥有者与原始MCP工具的可信绑定。getMcpServers/mcp_servers_change不是合并文件配置与认证变化视图；工厂hooks替换默认实现而非观察默认实现。父Plan执行拦截可用，缺口不同于R3的连接前限制；没有新增探针，复用K1/R3实际证据。native Context7子范围P1-B暂停，未知native工具继续拒绝，整个P1不因P1-A通过而完成。
+
+P1-A现在授权实施与独立测试：
+- 生产改动原则上仅两个registerTool增加exposure:model-only。已有executionMode:sequential保留，不借本轮改调度；不修改policy/lifecycle以假装支持native身份。
+- 保持实际direct调用能提交完整plan、运行隔离revdiff、显式批准后完成精确revision；拒绝/取消不产生implementing或完成状态。
+- nested必须由SDK真实调用链拒绝，在审批UI/文件/状态副作用前；不能用工具不活跃或整个execute_script被Plan拒绝的假阳性证明model-only。要有相同流程的直接成功及nested载体实际可执行正控。
+- ordinary旧REST/只读工具、tool_call最终拦截、mode切换与reload/tree恢复不新增扩权；仍不注册任何nativeMCP允许项。
+- 允许必要自有回归、双语用法说明和独立changeset；不宣称P1-B完成。发现超出两处metadata的真实缺陷先报告，不拓展状态机或证明框架。
+
+本阶段独立预留`packages/pi-plan-mode/tests/pi11-workflow.contract.test.ts`，实施者不得读写。后续P1-B仍预留`tests/pi11-authorization.contract.test.ts`，当前不实施。独立基线允许metadata缺失/真实nested副作用红，但fixture缺口单列；固定组合审阅与集成复验只验收P1-A子范围。
+
+仍禁push/main/release、升级SDK/宿主、改账号或真实MCP连接。
