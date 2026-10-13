@@ -1,72 +1,13 @@
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { displayField as field, displayPropertyOmitted, DISPLAY_LIMITS } from "./display-budget.js";
+import { displayField as field } from "./display-budget.js";
 import { formatFlatArgumentPreview } from "./arg-preview.js";
 import { PreviewText, type PreviewTextOptions, type PreviewTextTheme } from "./preview-text.js";
-import { NESTED_LIMITS, nativeNestedCall, nestedArgument, nestedArrayLength, type NestedCall, type NestedDisplayStore, type NestedRoot } from "./nested-display.js";
+import { NESTED_LIMITS, nestedArrayLength, type NestedCall, type NestedDisplayStore, type NestedRoot } from "./nested-display.js";
+import { nativeView, NATIVE_NESTED_OMISSION } from "./native-nested-view.js";
 
 type Result = Parameters<NonNullable<ToolRenderers["renderResult"]>>[0];
 type Context = Parameters<NonNullable<ToolRenderers["renderResult"]>>[3];
-interface NativeView {
-  result: Result;
-  rows: NestedCall[];
-  ids: Set<string>;
-  pendingIdentity: boolean;
-  count: number;
-  bytes: number;
-  omitted: boolean;
-}
-
-// Preserve unrelated native fields by reference without invoking accessors or walking their values.
-function copyNativeFields(source: unknown, replaced: string): { fields: Record<string, unknown>; omitted: boolean } {
-  const fields: Record<string, unknown> = {};
-  let omitted = false, count = 0, units = 0;
-  if (!source || typeof source !== "object") return { fields, omitted };
-  try {
-    for (const key in source) {
-      if (++count > DISPLAY_LIMITS.nodes || (units += key.length) > DISPLAY_LIMITS.units) { omitted = true; break; }
-      if (key === replaced || !Object.hasOwn(source, key)) continue;
-      const descriptor = Object.getOwnPropertyDescriptor(source, key);
-      if (descriptor && "value" in descriptor) Object.defineProperty(fields, key, { value: descriptor.value, enumerable: true, configurable: true, writable: true });
-      else omitted = true;
-    }
-  } catch { omitted = true; }
-  return { fields, omitted };
-}
-
-/** Only the recognized codemode progress protocol goes through this adapter. */
-function nativeView(result: Result): NativeView {
-  const details = field(result, "details");
-  const source = field(details, "calls");
-  const length = nestedArrayLength(source);
-  const limit = Math.min(length, NESTED_LIMITS.calls);
-  const calls: Array<Record<string, unknown>> = [];
-  const rows: NestedCall[] = [];
-  const ids = new Set<string>();
-  let bytes = 0, omitted = length > limit || displayPropertyOmitted(result, "details") || displayPropertyOmitted(details, "calls"), pendingIdentity = false;
-  for (let i = 0; i < limit; i++) {
-    const raw = field(source, String(i));
-    const call = nativeNestedCall(raw);
-    if (!call) { omitted = true; continue; }
-    // Empty native args still encode as two JSON bytes. Reserve that floor for later rows.
-    const remaining = NESTED_LIMITS.totalArgumentBytes - bytes - (limit - i - 1) * 2;
-    const argument = nestedArgument(field(raw, "args"), remaining, true);
-    if (argument.text === undefined) omitted = true;
-    bytes += argument.text === undefined ? 2 : argument.bytes;
-    if (call.id.endsWith("/?")) pendingIdentity = true;
-    else ids.add(call.id);
-    rows.push({ ...call, args: argument.text, bytes: argument.text === undefined ? 0 : argument.bytes });
-    calls.push({ id: call.id, name: call.name, args: argument.text ?? "", status: call.status,
-      ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
-      ...(call.error === undefined ? {} : { error: call.error }),
-      ...(call.cost === undefined ? {} : { cost: call.cost }),
-    });
-  }
-  const otherDetails = copyNativeFields(details, "calls");
-  const otherResult = copyNativeFields(result, "details");
-  omitted ||= otherDetails.omitted || otherResult.omitted;
-  const view = { ...otherResult.fields, content: field(result, "content") ?? [], details: { ...otherDetails.fields, calls } } as Result;
-  return { result: view, rows, ids, pendingIdentity, count: calls.length, bytes, omitted };
-}
+type NativeView = ReturnType<typeof nativeView>;
 
 function callLine(call: NestedCall, root: NestedRoot, args: string | undefined): string {
   let parent = call.parentId, depth = 0;
@@ -120,7 +61,7 @@ function supplement(root: NestedRoot | undefined, native?: NativeView): string[]
     if (notice && root.history) lines.push("Nested result bodies are not stored; unavailable in history.");
   }
   if (native && (native.count || native.omitted)) lines.push("Native arguments above are previews, not full arguments.");
-  if (omitted) lines.unshift("Nested display incomplete (partial list); visible costs only, not full spend.");
+  if (omitted) lines.unshift(NATIVE_NESTED_OMISSION);
   return lines;
 }
 
