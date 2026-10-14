@@ -19,4 +19,21 @@
 - 真实安装来源需确认包依赖解析到目标tarball/适配runtime，不能仅靠workspace alias绿灯；可先给最小独立fixture/安装方案，不新增依赖或发布版本。
 - 输出目前可验证的范围、仍受R3约束的具体项、确切公开fixture接口。没有已复现缺陷不改代码；不自建调度或权限框架，不复制工具/SDK实现。
 
-当前仅授权只读产品核验和隔离临时探针，HEAD/源/tests/manifest/lock须保持clean。源仓SDK1.1.0/TypeBox1.3.27，禁真实模型/MCP/账号/仓库mutation/终端接管，只有临时Git fixture可写。禁止push/main/release/升级宿主；第二阶段须协调者另冻结。未来独立预留tests/pi11-runtime.contract.test.ts，当前不写。
+## 第一阶段事实与第二阶段：仅A1-A普通验证
+
+两真实facade的review/refuter四builtin执行上限、正常repair空可调用集合、强制激活后仍零执行、backend固定、provider-error不双跑及stop结算已有聚焦实证；既有Review337和R1/R2 51共388过，源未改。当前依赖只是workspace，完整命令/格式修复/发布及active-dispose仍需补测。
+
+R2原合同明确pins只保观察者加载，不授工具/连接。故不把可信pinned观察者运行或主动调用setActiveTools当成新授权，不为此重写pins机制；不能声称任意同进程扩展都不能改变声明。普通repair须模型实际工具声明/可调用集合为空，pins强制激活场景则验证实际执行全拒绝、工具副作用为零；registered内置库存无需为空。MCP factory/连接/枚举副作用不由tool_call gate证明，仍由R3负责。
+
+现在仅授权A1-A普通验证，不因它通过就把整个A1或R3完成：
+- 当前worker准备真实两tarball安装闭包与必要非独立检查，不改产品、manifest/lock或独立测试。验证仅当前候选Review+Subagents组合，不宣称公共registry旧版本已含R1/R2修复；发布依赖底线仍须I1/I2及version PR核对。
+- 独立作者仅新增`packages/pi-adversarial-review/tests/pi11-runtime.contract.test.ts`。真实SDK/RPC/embedded跑command→fleet→至多一次format-repair→publish、取消与active-dispose、异常后不换后端重复执行。公共pi/ctx必须真实bind，不能假RPC或复制工具执行器冒充。
+- repair输出格式/批准解析的fixture必须用公开类型/schema及可恢复内容的明确例子，不能为了触发分支猜输入；有缺口找协调者，不读产品执行体或现有作者测试。
+- 对执行上限/无父历史及普通发现资源继承验证，保留read成功正控和write/pin拒绝反例。不要把SDK原始status:error误写成上层route:errored，不把ACK/abort信号当terminal。
+- 包验证：两包实际pack，临时private ESM host依赖显式file:tgz，解析从安装后的Review根出发；字节/真实路径/版本图确认目标Subagents，无workspace alias/嵌套旧副本。原peer兼容别名须标明，不能冒充产品迁移。
+- 公共依赖cache不足时允许经env-i/空npm配置从public registry补齐精确8SDK1.1/typebox1.3.27；不读取凭据、不调用业务服务。pack/install/临时Git fixtures仅在/var/tmp或任务环境，不能写真实工作仓。
+- 若普通验证发现真实缺陷，停止并报告归属与最小修复，不自行扩展到Subagents/R3或改变生产策略。
+
+A1-B保留R3门槛：父既有MCP与child新连接的差值、逐服务连接前授权、资源枚举、晚注册、身份与shutdown transport清理均未联验；不隐瞒缺口或用A1-A替代。
+
+源仓SDK1.1.0/TypeBox1.3.27，禁止真实模型/MCP/账号/终端接管、push/main/release/升级宿主。A1-A候选需独立审阅和实际安装闭包验收；本阶段没有生产修改授权。

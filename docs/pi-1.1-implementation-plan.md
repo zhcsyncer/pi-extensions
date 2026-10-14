@@ -81,7 +81,7 @@ GitHub 清单仅针对本仓当前开放项目，含 draft（本次无 draft）�
 
 | 资源 | 本轮处置 |
 |---|---|
-| Ollama Cloud 当前安装 0.13.0（旧快照 0.12.2） | 开工复核来源为 `fgrehm/pi-ollama-cloud`；先对照 0.13.0 重验旧快照中的 ProviderModelConfig 类型问题是否仍在，不能照搬旧诊断。检查发现/思考档/额度/工具与 1.1；从受维护版本或明确 fork 交付，不直接手改 node_modules |
+| Ollama Cloud 当前安装 0.13.0（旧快照 0.12.2） | 官方`fgrehm/pi-ollama-cloud` v0.13.0已通过Pi1.1离线兼容验收：两矩阵194/194、实际归档安装通过，未复现旧类型阻断，无产品迁移。源码及安装字节匹配，不改全局node_modules；真实服务/TTY未验 |
 | Junie 1.3.2 + 用户修改 | 当前排除；保留工作副本。重新启用前在其独立仓验证 OAuth/Grazie/许可/余额；不能宣布已适配，也不阻塞未启用路径 |
 | 全局 `herdr-agent-state.ts` v9 | 保留 session identity/socket 及 custom blocked；核验 OSC 支持与双源优先级，等价证据不足不删除 |
 | worktree Plan | 默认不启用/不合入；若批准 relay，另审只读 ceiling、0.84 依赖及测试债务 |
@@ -238,7 +238,7 @@ T0 为预算/费用精确数值；T1 为授权/状态/恢复/缓存等规则；T
 | 显示 | individual/aggregate、实时/结束/历史/HTML、深层/不完整记录、outputPad0/1、旧 duration、错误/展开有界 |
 | 导航/性能 | 宿主 marker 保真，普通样式开关不改变 steer；100/300 历史成本与输入延迟分开测；resize/主题/cache失效 |
 | 编辑 | 已有输入/粘贴/stash、窄屏/补全/鼠标无新增回归，Home/End 与消息导航不混淆；不要求实现 B01 |
-| 配额 | 新来源的 401/403/429/5xx、未知/陈旧/确认零、共享池/账号隔离、used/remaining 与 reload 合同；不要求修 B04/B05，出现硬依赖另报 |
+| 配额 | 既有来源必要兼容回归（含Ollama已有usage）；Go/Antigravity按用户决定暂缓，不新增来源、不要求修B04/B05，也不以合成响应宣称真实额度已验 |
 | 真实授权集成 | Context7、实际使用 provider、Ollama/Herdr/BTW；隔离 profile、不读取无关凭据，不在 CI 调付费服务 |
 | 发布 | 全16包适用检查＋root check/pack；精确依赖图、双语/技能入口、无悬空旧工具、no-op factory 不算活动路径通过 |
 
