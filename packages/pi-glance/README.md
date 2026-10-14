@@ -26,7 +26,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 Then restart Pi or run `/reload`.
 
-Needs Pi 0.80.4 or newer and Node.js 22.19.0 or newer. Standalone usage and automatic theme appearance follow Pi 1.1's reporting.
+Needs Pi 1.1 or newer and Node.js 22.19.0 or newer. Standalone usage and automatic theme appearance follow Pi 1.1's reporting.
 
 ## Use
 

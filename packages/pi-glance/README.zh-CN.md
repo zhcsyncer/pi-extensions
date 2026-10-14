@@ -22,7 +22,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 然后重启 Pi 或执行 `/reload`。
 
-需要 Pi 0.80.4 或更新，以及 Node.js 22.19.0 或更新。独立用量与主题自动明暗跟随 Pi 1.1 的上报。
+需要 Pi 1.1 或更新，以及 Node.js 22.19.0 或更新。独立用量与主题自动明暗跟随 Pi 1.1 的上报。
 
 ## 使用
 
