@@ -1,10 +1,10 @@
 # Meter：Pi 1.1.0 账本与额度实施规格
 
-状态：M1账本适配已验收并集成；Glance用量/主题与Go来源尚未验收，实际进度见[执行表](../pi-extensions/pi-1.1-execution-plan.md)。归属：[总计划](../pi-1.1-implementation-plan.md) W7/W8。本轮只做 SDK 账本适配与 B03 / issue #152 的 Go 部分；用户已暂缓 Antigravity，不调查、不实现、不阻塞本轮发布。B04/B05 已冻结，不修旧 guest 注册表或新增空闲重试。相关设计只留作参考；若 #152 对它们形成硬依赖，先报告冲突并暂缓受影响部分。Cursor 标准 usage 的 B02 也已冻结，见[其计划](../pi-provider-cursor-ask/pi-1.1-adaptation-plan.md)。
+状态：M1账本适配已验收并集成；Glance用量/主题待验收。用户已明确暂缓本轮Go接入；Go与Antigravity均不实施、不作为本轮门槛，#152保留未完成。实际进度见[执行表](../pi-extensions/pi-1.1-execution-plan.md)。归属：[总计划](../pi-1.1-implementation-plan.md) W7/W8。本轮只做SDK账本/用量适配，以下额度协议留待后续重新授权参考。B04/B05 已冻结，不修旧 guest 注册表或新增空闲重试。相关设计只留作参考；若 #152 对它们形成硬依赖，先报告冲突并暂缓受影响部分。Cursor 标准 usage 的 B02 也已冻结，见[其计划](../pi-provider-cursor-ask/pi-1.1-adaptation-plan.md)。
 
 ## Goal
 
-适配 1.1 的已记录消耗与账号额度分账，接入 #152 的可验证新来源；未知/无权限不能伪装成零用量。新来源满足自己的 reload/错误合同，旧来源不引入新回归，但不承诺本轮修好既有 B04/B05。
+适配1.1的已记录消耗，保持与账号额度分账；#152新来源本轮暂缓，未知/无权限不能伪装成零用量。新来源满足自己的 reload/错误合同，旧来源不引入新回归，但不承诺本轮修好既有 B04/B05。
 
 ## W7-A：guest 注册生命周期（B04 冻结，仅参考）
 
@@ -32,11 +32,13 @@ Meter 与 Glance 补 `type: usage`，包括未知 kind；按稳定 entry ID 幂�
 
 没有上报的费用不得推定为确认零；标题和说明区分“已记录”与未知/不完整。Cursor 的 totalTokens/context 分离不能靠 Meter 专属特判宣称解决。
 
-## W8：issue #152 本轮仅 Go，Antigravity 暂缓
+## W8：issue #152 的 Go 与 Antigravity 本轮均暂缓
 
 沿用 `QuotaAdapter` 的来源、匹配、fetch 与 `QuotaSnapshot` 的窗口/错误/时间契约。不要新增模型执行 provider；不要从本地 token 总数推算订阅剩余。
 
-### OpenCode Go：可以进入实现，但先过 schema 门槛
+### OpenCode Go：本轮暂缓，后续重新授权须先过 schema 门槛
+
+已核源码快照`b9ca4d21b4f241154081143a6f5bef648f5ccfd0`的usage路由只转发请求，不定义响应体；当前schema未确认，找到的实际脱敏样本早于代理改造。用户选择暂缓，未授权真实额度查询。以下历史格式不能直接宣称当前服务已验证。
 
 精确 Pi 1.1.0 已验证：
 
@@ -87,7 +89,7 @@ Pi 1.1.0 无内置 Antigravity provider。issue 未说明具体社区包、认�
 
 单元和 SDK 集成使用脱敏/合成 fixture、假时钟及离线 transport；不在 CI 调真实额度。上线验收由有相应订阅且授权的账号执行；显示时间用本地格式。
 
-本轮 W7 仅实施 C；W8 仅接入 Go，Antigravity 暂缓，不能借机解冻 A/B。若现有机制无法满足新来源的 reload 合同，报告依赖冲突，不暗中修旧存量、不降低验收或另造平行注册机制规避确认。未启用 codemode 的普通账本/额度路径同样必验。
+本轮W7仅实施C；W8的Go与Antigravity均按用户决定暂缓，不能借机解冻A/B。若现有机制无法满足新来源的 reload 合同，报告依赖冲突，不暗中修旧存量、不降低验收或另造平行注册机制规避确认。未启用 codemode 的普通账本/额度路径同样必验。
 
 ## 证据
 

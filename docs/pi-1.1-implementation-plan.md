@@ -70,7 +70,7 @@ GitHub 清单仅针对本仓当前开放项目，含 draft（本次无 draft）�
 | `pi-fast-mode` | 0.2.1 | stream hook、官方采样优先级、3.5 字符/token 预算；缩小本地配方 | W6 |
 | `pi-recap` | 0.4.3 | 保留固定模型侧路回顾；公开物理模型路径/取消/加载回归；明确旁路费用边界 | W6 |
 | `pi-glance` | 0.9.2 | 独立 usage entry、theme.appearance；保留 working/Git/stash，不改大粘贴行为 | W7/W9 |
-| `pi-meter` | 0.4.4 | 独立 usage、去重；新增 Go 来源，Antigravity 本轮不做；不修旧 guest reload/空闲重试 | W7/W8 |
+| `pi-meter` | 0.4.4 | 独立 usage、去重；Go 与 Antigravity 均按用户决定暂缓；不修旧 guest reload/空闲重试 | W7/W8 |
 | `pi-herdr-companion` | 0.2.0 | model-only；保留会话/进程/BTW/blocked；检验 OSC 双源，不先删桥接 | W2/W11 |
 | `pi-provider-cursor-ask` | 0.1.5 | system/tools 重放、真实流/取消与必要兼容；B02 标准 usage 恢复冻结 | W10 |
 | `pi-provider-volcengine-agent-plan` | 0.4.1 | 正确 chat/compat 类型、tier/thinking/auth/错误回归；不因模型同名改计费渠道 | W6 |
@@ -100,7 +100,7 @@ GitHub 清单仅针对本仓当前开放项目，含 draft（本次无 draft）�
 | [#149](https://github.com/zhcsyncer/pi-extensions/pull/149) codemode 展示 | 不整包合入；保留意图，重做真实注册、三种数据来源、多层归属及预算 | 替代实现及 W3 联验通过，说明采纳范围、关联替代 PR 后再处置 |
 | [#150](https://github.com/zhcsyncer/pi-extensions/pull/150) 导航标记 | 核心方案适用；与 #151 的路由/ownership 联合接线 | W4 在 1.1 的标记/导航/缓存/两布局回归通过后合入或等价摘取 |
 | [#151](https://github.com/zhcsyncer/pi-extensions/issues/151) 普通用户框开关 | 保留默认样式，新增真正的 opt-out；steer 独立 | W4 开关两态、原生/其他 renderer 共存及 reload 通过 |
-| [#152](https://github.com/zhcsyncer/pi-extensions/issues/152) Go + Antigravity 额度 | 本轮仅推进 Go；用户已暂缓 Antigravity，不启动调查或实现 | Go 单独验收；Antigravity 保留未完成，不阻塞本轮，也不关闭整条 issue |
+| [#152](https://github.com/zhcsyncer/pi-extensions/issues/152) Go + Antigravity 额度 | 用户已暂缓 Go 与 Antigravity，本轮不实施 | 两者保留未完成，不作为本轮门槛，也不关闭整条 issue |
 
 PR head 固定为 #149 `10ce060373724518d35e2c1bd8ec863359625576`、#150 `3a84d176a2d78946f000cd39983d6ef44fe90334`。实施/合并前若 head 或 main 变化，重新审阅差异，不沿用旧“通过”结论。
 
@@ -112,7 +112,7 @@ B 编号仅用于追踪，不修改原 BACKLOG，也不重复创建 GitHub issue
 |---|---|---|
 | B01 | Glance 大粘贴展开 | **本轮冻结**；不实施输入展开改造 |
 | B02 | Cursor 标准 usage total | **本轮冻结**；不改标准总量合同、不启动上游能力工作 |
-| B03 | Meter Go/Antigravity | W8 本轮仅 Go；Antigravity 暂缓，关联 #152 保留未完成部分 |
+| B03 | Meter Go/Antigravity | W8 的 Go 与 Antigravity 均暂缓，关联 #152 保留未完成 |
 | B04 | guest adapter 跨 reload | **本轮冻结**；不重构旧 host/注册表 |
 | B05 | 失败 quota idle 重试 | **本轮冻结**；不新增空闲网络重试 |
 | B06 | Tool Display 历史布局性能 | W3，关联 #148 |
@@ -148,7 +148,7 @@ W0 基线/来源/测试环境
  ├─ W4 用户样式/导航 ───────────┘（同一显示整合负责人）
  ├─ W6 普通 provider/Fast/Search/Recap
  ├─ W7 新SDK用量记账
- ├─ W8 新额度来源（不顺带修旧注册/重试）
+ ├─ W8 新额度来源（用户暂缓，不作为本轮门槛）
  ├─ W9 主题与既有输入回归（不改大粘贴）
  └─ W10 Cursor本地重放/兼容（不改标准usage）
 W5 本地官方MCP接入可独立验证；child/Plan/显示联验依赖 W1/W2/W3
@@ -197,9 +197,9 @@ W2…W10各自验收 → W11 整合、发布review与宿主切换
 
 ### W7/W8：SDK 账本与新增额度来源 #152
 
-详见[Meter 规格](./pi-meter/pi-1.1-quota-plan.md)。本轮保留独立 usage 补账/去重和 #152 的 Go 部分；B04 注册表修复与 B05 空闲重试明确不做。Go 按现有可用的内置来源机制评估；**Antigravity 按用户决定暂缓，不调查、不实现、不作为本轮验收或发布门槛。** 若 Go 必须先修 B04/B05 才能满足验收，标记依赖冲突并报告，不自动解冻，也不重造平行机制绕开确认。
+详见[Meter 规格](./pi-meter/pi-1.1-quota-plan.md)。本轮保留独立usage补账/去重；B04注册表修复与B05空闲重试明确不做。**用户已暂缓Go与Antigravity，两者均不作为本轮验收或发布门槛。** Go当前schema尚未确认，未访问真实额度；不以历史格式猜测当前响应，也不为此解冻旧机制。
 
-**出口**：账本适配正确，新来源满足已承诺的数据/错误/reload 行为；旧来源没有新增回归，不承诺修复原有 reload/空闲重试缺陷。Go 验收不等于 #152 全部完成；Antigravity 保留未完成，不以未知/占位值冒充支持。
+**出口**：账本适配正确，旧来源没有新增回归，不承诺修复原有reload/空闲重试缺陷。#152整体保留未完成，不以未知/占位值冒充支持。
 
 ### W9：Glance 主题与既有输入回归
 
