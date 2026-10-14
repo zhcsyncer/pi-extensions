@@ -1,6 +1,6 @@
 # Pi 1.1：单调度 session 与 Herdr worktree 执行编排
 
-状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验；N2 Search与D4消息导航也已验收并集成，N3 Recap与N4 Volcengine也已通过独立审阅并集成复验；G1独立合同已绿，但正式检查接线与文档返修中；P1工作流子范围已进入审阅，原生身份子范围仍受公开数据缺口阻塞；Go额度按用户决定本轮暂缓，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
+状态：用户已授权开工及此前说明的本地提交/集成流程；当前 session 调度并集成，使用 Herdr worktree 实施，进度统一在本文 §0 更新。已建立集成 worktree 并提交计划快照，E0 已通过独立复审及集成态复验，K1 已独立审阅并集成复验通过；R1 与 C1 已通过独立审阅及集成态复验；D1 也已通过复审与集成态复验；N1、F1也已通过审阅与集成态复验；R2首轮五项问题已返修并通过独立复审与集成态复验；D2预算边界已返修并通过独立复审及集成态复验，M1与H1也已通过审阅及集成复验；N5 Cursor重放与D3嵌套展示也已通过独立审阅及集成复验；N2 Search与D4消息导航也已验收并集成，N3 Recap与N4 Volcengine也已通过独立审阅并集成复验；G1经接线/文档修正后已通过正式复验并集成；P1工作流子范围已验收集成，原生身份子范围仍受公开数据缺口阻塞；Go额度按用户决定本轮暂缓，R3 MCP接入因公开SDK缺口暂停，用户明确保留逐服务连接限制；未推送、未合 main、未发布或更改真实账号配置。范围以[总计划](../pi-1.1-implementation-plan.md)为准，不重新授权冻结项。
 
 ## Goal 与编排决定
 
@@ -30,11 +30,11 @@
 - 调度：当前 session `01a12e08-fb4e-7135-9f57-a5843fb8ce27`，Herdr pane `w3:p64`。
 - 集成 worktree：`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-integration`；分支 `upgrade/pi-1.1-integration`；Herdr workspace/pane `w9W` / `w9W:p1`。
 - 已复核代码基线：本地 main 与 origin/main 均为 `f48a91b8366174f2ece5d393e280641be87fbb70`；#149/#150 head 与总计划一致。执行宿主仍为 Pi 0.87.1，不原地升级。
-- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`41f4d5c596e3b1d282bd3260e685c17a419cae08`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0、K1、C1、R1、R2、D1、D2、D3、D4、N1、N2、N3、N4、N5、F1、M1、H1 已验收；R1/Review类型错误及Fast回归已消除，不表示整轮适配或真实服务已通过。
-- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)、[N1](./tasks/n1-fast-options.md)、[R2](./tasks/r2-session-authorization.md)、[R3](./tasks/r3-child-capabilities.md)、[M1](./tasks/m1-recorded-usage-ledger.md)、[D2](./tasks/d2-bounded-rendering.md)、[D3](./tasks/d3-nested-display.md)、[F1](./tasks/f1-workflow-tools.md)、[H1](./tasks/h1-herdr-compatibility.md)、[N5](./tasks/n5-cursor-replay.md)、[D4](./tasks/d4-message-style-navigation.md)、[N2](./tasks/n2-search-structured-results.md)、[N3](./tasks/n3-recap-public-completion.md)、[N4](./tasks/n4-volcengine-compat.md)、[G1](./tasks/g1-glance-usage-theme.md)、[P1](./tasks/p1-plan-workflow-authorization.md)。依赖见 §2。
+- 初始计划提交：`c7d251f0fc830b1587abd3cab95a3e40b47f82ce`；E0 验收代码基线：`71a7c2e085061220ac6fe0b7e61b4387d6282c1a`；最新已验收代码基线：`25f091b8b59a3339720adf908363a588e18fb5b1`；首批任务共同派发 SHA：`49757457ab9d96d91ddd6df3d6fead22b6566d09`（额外合同/进度快照，无新增代码）。E0、K1、C1、R1、R2、D1、D2、D3、D4、N1、N2、N3、N4、N5、F1、M1、H1、G1 已验收；另P1-A工作流子范围已验收集成，P1整体仍未完成；R1/Review类型错误及Fast回归已消除，不表示整轮适配或真实服务已通过。
+- 合同：[E0](./tasks/e0-baseline.md)、[R1](./tasks/r1-runtime-lifecycle.md)、[D1](./tasks/d1-renderer-semantics.md)、[K1](./tasks/k1-context7-offline.md)、[C1](./tasks/c1-consult-public-sdk.md)、[N1](./tasks/n1-fast-options.md)、[R2](./tasks/r2-session-authorization.md)、[R3](./tasks/r3-child-capabilities.md)、[M1](./tasks/m1-recorded-usage-ledger.md)、[D2](./tasks/d2-bounded-rendering.md)、[D3](./tasks/d3-nested-display.md)、[F1](./tasks/f1-workflow-tools.md)、[H1](./tasks/h1-herdr-compatibility.md)、[N5](./tasks/n5-cursor-replay.md)、[D4](./tasks/d4-message-style-navigation.md)、[N2](./tasks/n2-search-structured-results.md)、[N3](./tasks/n3-recap-public-completion.md)、[N4](./tasks/n4-volcengine-compat.md)、[G1](./tasks/g1-glance-usage-theme.md)、[P1](./tasks/p1-plan-workflow-authorization.md)、[X1](./tasks/x1-ollama-cloud-compat.md)。依赖见 §2。
 - 已回收的审阅资源（2026-10-13 11:13）：`pi-1.1-review`（pi11-review/w9Y:p1，末次候选0838d8b）、`pi-1.1-review-display`（pi11-review-display/wA4:p1，e7a3050）、`pi-1.1-review-consult`（pi11-review-consult/wA5:p1，2a228a5）。Pi已正常退出，checkout/工作区已移除，分支与会话日志保留。后续审阅按固定候选重建环境，不再使用这些失效pane。
 - R2审阅已验收并回收：原`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-review-r2`，`pi11-review-r2-20261013` / `wA9:p1`，最终候选c7e8c03；D2审阅已验收并回收：原`pi-1.1-review-d2`，session `pi11-review-d2-20261013`，agent `pi11-review-d2` / `wAA:p1`，最终候选b144f69。审阅结束且无后续工作即回收。
-- 本次另回收E0、K1、C1、N1四个已验收实施环境，加上F1、D2复审及D2独立测试，再加R2复审/独立测试、M1三环境及H1实施，加上用户确认暂停后回收的R3只读环境，以及N5验收后的实施/独立测试/审阅环境，再加D3验收后的实施/独立测试/审阅环境，以及N2验收后的三环境，及D4验收后的三环境，及N3/N4验收后的六环境，共35组（回收不等于R3验收）。集成环境保留，后继显示任务另行建立隔离环境；所有已回收分支/会话/证据保留。静态清理证据：`/var/tmp/pi-1.1-dispatch-20261012/completed-worktree-cleanup-evidence.json`；终端证据已保存同目录`*-closing-output.log`。
+- 本次另回收E0、K1、C1、N1四个已验收实施环境，加上F1、D2复审及D2独立测试，再加R2复审/独立测试、M1三环境及H1实施，加上用户确认暂停后回收的R3只读环境，以及N5验收后的实施/独立测试/审阅环境，再加D3验收后的实施/独立测试/审阅环境，以及N2验收后的三环境，及D4验收后的三环境，及N3/N4验收后的六环境，以及P1-A完成后的三环境，及G1验收后的三环境，共41组（回收不等于R3或整个P1验收）。集成环境保留，后继显示任务另行建立隔离环境；所有已回收分支/会话/证据保留。静态清理证据：`/var/tmp/pi-1.1-dispatch-20261012/completed-worktree-cleanup-evidence.json`；终端证据已保存同目录`*-closing-output.log`。
 - 原独立测试资源已回收：`pi-1.1-contract-tests`、`pi11-tests-20261012` / `wA2:p1`，最终a6ba5c7。其历次独立测试提交/分支和会话记录保留，不再使用已关闭pane。
 - 独立测试资源二已回收：原`/root/.herdr/worktrees/pi-agent-cases/pi-1.1-fast-contract-tests`、`pi11-fast-tests-20261012` / `wA7:p1`；N1及D2测试均已验收，最后提交aa498db，分支/日志保留。M1独立作者的`pi-1.1-ledger-contract-tests`、`pi11-ledger-tests` / `wAC:p1`也已验收回收，最后eff107e5；总活动worker不超过4。
 
@@ -57,11 +57,11 @@
 | N3 Recap | 已集成 | 三环境已回收；原实施wAW、独立wAX、审阅wAY | `a91216d` → `f989ac8`＋`7c54db5`＋fixture`6917876`；ACCEPT`c57dad6` → `9b6ca9e` | 集成态84过/1真实tmux跳过、types/loader/pack17通过；独立13与自有3真实SDK及默认auto取消/迟到保护已验。原基线指令正常，本轮native合同迁移；未验真实网络/账号/mux | 2026-10-13 22:44 |
 | N4 Volcengine | 已集成 | 三环境已回收；原实施wAV、独立wAT、审阅wAZ | `a91216d` → `88459cd`＋engines`da2b813`＋`e6bda60`＋fixture`2f2b6e9`；ACCEPT`eff46a1` → `41f4d5c` | 集成态51/51（独立16）、types/loader/pack17通过；双adapter/tier/thinking/身份/取消离线验证，原订阅渠道不变。Node最低声明22.19，实际测试24.21；未验真实订阅或最低Node | 2026-10-13 22:44 |
 | N5 Cursor | 已集成 | 三环境已回收；原实施wAH、独立wAG、审阅`pi-1.1-review-cursor`/wAJ:p1 | `3b75a7d` → 实现`8e74370`＋独立`6c094e8`；ACCEPT`858156d` → `62a362b` | 集成态44文件372/372（独立14）、完整check/loader零错误告警私有加载/pack17通过；仅共享SDK重放helpers，B02/B04/协议/认证不改，无真实账号/模型验证 | 2026-10-13 18:37 |
-| X1 外部 Ollama | 未派发 | — | — | E0 已通过；安装0.13.0、来源fgrehm/pi-ollama-cloud已复核，待槽位及源码树，须重验旧0.12.2诊断 | 2026-10-12 16:20 |
+| X1 外部 Ollama | 执行中 | 来源仓`/root/.herdr/worktrees/pi-ollama-cloud/pi-1.1-ollama-cloud`，`pi11-ollama-20261014`/wB7:p1 | 官方tagv0.13.0 `09c5d573` → 当前基线只读复现 → — | 来源已确认；派精确SDK1.1/TypeBox依赖与非写入类型/公开注册探针，产品manifest/lock保持clean。不沿用0.12.2诊断，不调真实服务或生成器；发现源仓规则冲突先报，第二阶段另冻结 | 2026-10-14 09:25 |
 | A1 Review 后端 | 未派发 | — | — | 待 R3 | — |
-| P1 Plan 授权 | 部分阻塞 | 实施wB2；独立wB3；审阅`pi-1.1-review-plan-workflow`、`pi11-review-plan-workflow-20261014`/wB5:p1 | `cae3680` → `7e37a07`＋独立`2d5af83`；组合`068971c` → — | P1-A已派固定组合审阅；独立基线8过4红含nested实际副作用、有效载体正控，复核direct完整链路/types。P1-B仍缺可信身份数据，不放宽K1；A通过也不算整个P1完成 | 2026-10-14 08:56 |
+| P1 Plan 授权 | 部分阻塞 | P1-A三环境已回收；原实施wB2、独立wB3、审阅wB5 | `cae3680` → `7e37a07`＋`2d5af83`；A验收`068971c` → `c986210` | P1-A集成复验74/74、types/loader/pack17过，独立12与direct批准完成/真实nested拒绝已验；保留sequential。P1-B仍缺可信身份数据，整体P1未完成；真实revdiff/MCP未验 | 2026-10-14 09:09 |
 | M1 Meter 账本 | 已集成 | 三环境已回收；原实施`pi-1.1-meter`/wA8、独立`pi-1.1-ledger-contract-tests`/wAC、审阅`pi-1.1-review-meter`/wAD | `deb347c` → 实现`f131b84`＋`3a983bc`；测试`5743f69`＋`eff107e5` → `7807d21` | 0bf84ef独立ACCEPT；集成态243/243（独立69）、类型/loader/pack17通过，旧字节/预算口径保留，无迁移框架或真实账本操作；m1-integrated-*.log | 2026-10-13 16:44 |
-| G1 Glance 用量/主题 | 返修中 | 实施wA0；独立wB1；审阅wB4 | `916405a` → `a7e80fd`＋`1ca4c6f`；NOTYET`156fc66` → — | 独立14及补充3、types/loader/pack17过，但正式check被guard漏登记独立测试拦住；双README仍0.80.4+。已派精确allowlist与README两独立commit，不改断言；53脚本模块诊断不替正式gate，也不称54测试 | 2026-10-14 08:56 |
+| G1 Glance 用量/主题 | 已集成 | 三环境已回收；原实施wA0、独立wB1、审阅wB4 | `a7e80fd`＋`1ca4c6f`＋`4a447ea`/`bc6444e`/`7719e9f`；ACCEPT`d1cbbd4` → `25f091b` | 集成正式check exit0，53脚本模块全链及独立14、types/loader/pack17过；审阅补充3过。持久身份/可见unknown/appearance已验；SDK仍全扫浅拷贝、解析增量，idle/drafts等公开边界，真PTY/Mac未验 | 2026-10-14 09:21 |
 | M2 Go 额度 | 用户暂缓 | 无实施环境；公开资料核验已停止 | 公开代理快照`b9ca4d2`；无交付 → — | 当前schema未确认，历史样本不能当当前协议；用户明确选择本轮暂缓Go，不查询额度/凭据、不实现、不计验收或当前门槛，#152保留未完成。证据m2-public-schema-report.md | 2026-10-14 08:56 |
 | I1 跨包/安装验收 | 未派发 | — | — | 待本轮实现集成与候选 SHA | — |
 | L1 授权环境验收 | 未派发 | — | — | 待适用候选、机器/账号操作授权 | — |
@@ -142,7 +142,7 @@ N1/N2/N3/N5 等任务派发前，把总计划要求的“必要兼容/已选能�
 ### 批次 3：独立联验与交付准备
 
 - **I1 跨包/安装验收**（W11）：由非原实现者的独立 Pi session 在专用验收 worktree 上，对冻结候选集成 SHA 执行完整 16 包/root 与安装矩阵；重点组合 R3＋K1＋P1＋D3、R1＋M1＋G1、R3＋A1、C1/N1/provider，保留未启用 codemode 的正式路径。E0 的已知失败到此必须清零，或报告未完成，不能带错关闭 I1。审阅若发现实现问题，仍回原任务返修，不由验收者顺手改实现。
-- **L1 授权环境验收**（W5/W11）：真实 Context7/Go/provider、Ollama、Herdr/BTW、Mac TUI 等验收按明确账号/机器授权执行；Context7 仅该 profile 切换、保留回退。可以提前做获得授权的独立验证，但最终结果必须对应候选 SHA/实际包版本。没有 Mac 或账号授权时记录未验收，不把 I1 离线通过称为全部完成。
+- **L1 授权环境验收**（W5/W11）：真实 Context7/provider、Ollama、Herdr/BTW、Mac TUI 等验收（Go已按用户决定暂缓）按明确账号/机器授权执行；Context7 仅该 profile 切换、保留回退。可以提前做获得授权的独立验证，但最终结果必须对应候选 SHA/实际包版本。没有 Mac 或账号授权时记录未验收，不把 I1 离线通过称为全部完成。
 - **I2 交付材料**（W11）：调度者汇总各任务语义独立的 changeset、双语说明、pack/入口、实际包版本计划和未完成 issue，交用户 review。纯汇总不改变候选；若补入文档、changeset、入口或打包修订，须重新固定候选 SHA 并重跑受影响的文档/pack/安装/运行检查，按明确影响判断复用既有真实环境证据，不能把旧 SHA 的全部结果直接盖到新候选。后续 push/main/version PR/发布/宿主切换保持各自授权门槛；不是 worker 收工就自动发布。
 
 **覆盖核对**：Subagents=R1–R3，Tool Display=D1–D4，Context7=K1，Consult=C1，Todo/Question=F1，Herdr=H1，Fast/Search/Recap/Volcengine=N1–N4，Cursor=N5，Review=A1，Plan=P1，Meter=M1/M2，Glance=G1；root=E0/I1/I2。外部 Ollama=X1；全局 bridge=H1 核验＋L1 联验，其他排除资源不启动。
@@ -199,7 +199,7 @@ N1/N2/N3/N5 等任务派发前，把总计划要求的“必要兼容/已选能�
 ## 7. 最终关口与非自动操作
 
 - **机器验收**：全部 16 子包/provider 与根 bundle 的适用检查、真实 loader/installed embedded、pack/全新及升级安装、普通模式与 codemode 混合调用。不能只跑根 check 或只在 workspace alias 下通过。
-- **外部与真实环境**：Ollama 在自己的来源仓库/任务环境交付，不手改 node_modules；全局 Herdr bridge 与实际安装树做专项回归。Mac 真实输入/导航、Context7 握手、Go 额度与 provider 认证等由明确授权的环境执行；未跑就标未验收。排除资源仍保持排除。
+- **外部与真实环境**：Ollama 在自己的来源仓库/任务环境交付，不手改 node_modules；全局 Herdr bridge 与实际安装树做专项回归。Mac 真实输入/导航、Context7握手与provider认证等由明确授权的环境执行；Go额度已按用户决定暂缓，不发真实查询；未跑就标未验收。排除资源仍保持排除。
 - **本地 Context7 切换**：离线集成不需要用户凭据；授权后单独执行真实握手与仅该 profile 的入口切换，保留旧扩展回退。不能让其他任务等待真实账号才能编译或跑离线合同。
 - **交付/发布分离**：编排完成不代表已授权推送、合 main 或升级用户宿主。用户可见变更附 changeset，根 bundle 按嵌入包联动；调度汇总实际更新包的当前/目标版本供 review，再走 Changesets version PR。Antigravity 和其他冻结诉求不因此关闭。
 
