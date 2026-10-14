@@ -9,9 +9,10 @@ import {
 } from "@earendil-works/pi-ai";
 import {
   AgentSession, createAgentSession, createEventBus, DefaultResourceLoader,
-  ModelRuntime, SessionManager, SettingsManager,
-  type ExtensionAPI, type ExtensionContext,
+  ModelRuntime, SessionManager, SettingsManager, initTheme,
+  type ExtensionAPI, type ExtensionContext, type ExtensionUIContext, type TerminalInputHandler,
 } from "@earendil-works/pi-coding-agent";
+import { TuiMainScreen, type Component, type Terminal } from "@earendil-works/pi-tui";
 import reviewExtension from "../extensions/adversarial-review.ts";
 import subagentsExtension from "../../pi-subagents/src/index.ts";
 import { resolveReviewRuntime } from "../src/runtime/resolve-runtime.ts";
@@ -44,7 +45,55 @@ async function exists(path: string) {
   try { await access(path); return true; } catch { return false; }
 }
 
-async function fixture(backend: Backend, pinned = false) {
+// Only the terminal adapter is inert: the extension supplies and owns the actual UI components.
+async function interactiveUI(parent: AgentSession) {
+  initTheme("dark", false);
+  const { KeybindingsManager } = await import(new URL("./core/keybindings.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
+  const { getEditorTheme } = await import(new URL("./modes/interactive/theme/theme.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
+  const terminal: Terminal = {
+    columns: 120, rows: 40, kittyProtocolActive: false,
+    start() {}, stop() {}, async drainInput() {}, write() {}, moveBy() {}, hideCursor() {}, showCursor() {},
+    clearLine() {}, clearFromCursor() {}, clearScreen() {}, setTitle() {}, setProgress() {}, setProgramStatus() {},
+  };
+  const tui = new TuiMainScreen(terminal);
+  const keybindings = new KeybindingsManager();
+  const base = parent.extensionRunner.getUIContext();
+  let editor: Component | undefined;
+  let dialog: (Component & { dispose?(): void }) | undefined;
+  let dialogReady = deferred();
+  const notices: string[] = [];
+  const inputHandlers = new Set<TerminalInputHandler>();
+  const uiContext: ExtensionUIContext = {
+    ...base,
+    notify(message) { notices.push(message); },
+    onTerminalInput(handler) { inputHandlers.add(handler); return () => { inputHandlers.delete(handler); }; },
+    async select(title, options) { throw new Error(`Unexpected selection: ${title}: ${options.join(", ")}`); },
+    async confirm(title, message) { throw new Error(`Unexpected confirmation: ${title}: ${message}`); },
+    setEditorComponent(factory) { editor = factory?.(tui, getEditorTheme(), keybindings); },
+    custom<T>(factory: Parameters<ExtensionUIContext["custom"]>[0]) {
+      return new Promise<T>((resolve, reject) => {
+        Promise.resolve().then(() => factory(tui, base.theme, keybindings, (value) => {
+          dialog?.dispose?.(); dialog = undefined; dialogReady = deferred(); resolve(value as T);
+        })).then((component) => { dialog = component; dialogReady.resolve(); }, (error) => {
+          notices.push(String(error)); reject(error);
+        });
+      });
+    },
+  };
+  return {
+    uiContext, notices,
+    escape() {
+      const active = editor ?? dialog;
+      for (const handler of inputHandlers) if (handler("\u001b")?.consume) return;
+      expect(active?.handleInput).toBeTypeOf("function"); active!.handleInput!("\u001b");
+    },
+    async dialog() { await bounded(dialogReady.promise); return dialog!; },
+    hasEditor() { return editor !== undefined || dialog !== undefined; },
+    dispose() { dialog?.dispose?.(); tui.stop(); },
+  };
+}
+
+async function fixture(backend: Backend, pinned = false, interactive = false) {
   const dir = await mkdtemp("/var/tmp/a1-review-contract-");
   const cwd = join(dir, "repo");
   const agentDir = join(dir, "agent");
@@ -65,7 +114,9 @@ async function fixture(backend: Backend, pinned = false) {
   const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(),
     modelsPath: null, modelsStorePath: join(agentDir, "models-cache.json"), refreshOnCreate: false, allowModelNetwork: false });
   const providers = ["a", "b"].map((id) => fauxProvider({ provider: `a1-contract-${id}`, models: [{ id: `review-${id}` }], tokensPerSecond: 0 }));
-  for (const provider of providers) modelRuntime.registerNativeProvider(provider.provider);
+  const parentProvider = fauxProvider({ provider: "a1-contract-parent", models: [{ id: "main" }], tokensPerSecond: 0 });
+  parentProvider.setResponses([fauxAssistantMessage("Unexpected parent handoff")]);
+  for (const provider of [...providers, parentProvider]) modelRuntime.registerNativeProvider(provider.provider);
   const models = providers.map((provider) => provider.getModel());
   const ordinaryPath = join(agentDir, "ordinary-discovery.js");
   const ordinaryEffect = join(dir, "ordinary-loaded");
@@ -106,10 +157,12 @@ export default (pi) => {
   expect(loader.getExtensions().errors).toEqual([]);
   const sessionManager = SessionManager.inMemory(cwd);
   sessionManager.appendMessage({ role: "user", content: parentSecret, timestamp: Date.now() });
-  const { session: parent } = await createAgentSession({ cwd, agentDir, modelRuntime, model: models[0],
+  const { session: parent } = await createAgentSession({ cwd, agentDir, modelRuntime, model: parentProvider.getModel(),
     scopedModels: models.map((model) => ({ model, thinkingLevel: "off" as const })),
     thinkingLevel: "off", settingsManager, sessionManager, resourceLoader: loader, tools: [] });
-  await parent.bindExtensions({ mode: "print" });
+  const ui = interactive ? await interactiveUI(parent) : undefined;
+  await parent.bindExtensions({ mode: interactive ? "tui" : "print", uiContext: ui?.uiContext,
+    onError(error) { ui?.notices.push(error.error); } });
   expect(ctx.scopedModels.map((entry) => entry.model.id)).toEqual(models.map((model) => model.id));
   expect(await readFile(ordinaryEffect, "utf8")).toBe("start\n");
   expect(parent.resourceLoader.getSkills().skills.map((skill) => skill.name)).toContain("ordinary-skill");
@@ -121,7 +174,7 @@ export default (pi) => {
   };
   let resolved: Awaited<ReturnType<typeof resolveReviewRuntime>> | undefined;
   return {
-    cwd, dir, agentDir, parent, providers, models, children, git, before, ordinaryPath, ordinaryEffect, pinnedLog, pinnedEffect,
+    cwd, dir, agentDir, parent, parentProvider, providers, models, children, git, before, ordinaryPath, ordinaryEffect, pinnedLog, pinnedEffect, ui,
     async runtime() {
       resolved = await resolveReviewRuntime({ pi, ctx, events, externalProbeTimeoutMs: 50 });
       expect(resolved.capabilities.backend).toBe(backend);
@@ -142,6 +195,8 @@ export default (pi) => {
         await parent.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       } finally {
         parent.dispose();
+        ui?.dispose();
+        for (const provider of [...providers, parentProvider]) modelRuntime.unregisterProvider(provider.provider.id);
         AgentSession.prototype.prompt = original;
         if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
         else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
@@ -220,8 +275,8 @@ describe.sequential.each<Backend>(["external-v3", "embedded"])("SDK 1.1 Review c
     } finally { await f.cleanup(); }
   }, 30_000);
 
-  test("command shutdown retains its Git snapshot until children settle, then cleans up and audits cancellation", async () => {
-    const f = await fixture(backend);
+  test.each([false, true])("command cancellation (user confirmation=%s) retains its Git snapshot until settlement", async (userCancellation) => {
+    const f = await fixture(backend, false, userCancellation);
     const bothEntered = deferred(); const aborted = deferred(); const release = deferred();
     let enteredCount = 0;
     let command: Promise<void> | undefined;
@@ -234,14 +289,34 @@ describe.sequential.each<Backend>(["external-v3", "embedded"])("SDK 1.1 Review c
       }]);
       let commandFinished = false;
       command = f.command().then(() => { commandFinished = true; });
-      await bounded(bothEntered.promise);
+      await bounded(Promise.race([bothEntered.promise, command.then(() => {
+        throw new Error(`Command ended before fleet entered: ${JSON.stringify(f.ui?.notices ?? f.parent.sessionManager.getEntries())}`);
+      })]));
       const workspaces = f.children.map((child) => child.sessionManager.getCwd());
       expect(workspaces).toHaveLength(2);
       expect(f.git("worktree", "list", "--porcelain")).not.toBe(f.before.worktrees);
-      const shutdown = f.parent.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      let shutdown: Promise<unknown> = Promise.resolve();
+      let shutdownFinished = false;
+      if (userCancellation) {
+        f.ui!.escape();
+        const continueDialog = await f.ui!.dialog();
+        expect(continueDialog.render(120).join("\n")).toContain("Continue review");
+        continueDialog.handleInput!("\r"); // The public default is Continue review, not cancellation.
+        await delay(30);
+        expect(f.children.every((child) => child.isStreaming)).toBe(true);
+        f.ui!.escape();
+        const confirmDialog = await f.ui!.dialog();
+        expect(confirmDialog.render(120).join("\n")).toContain("Confirm cancellation");
+        confirmDialog.handleInput!("\u001b[B");
+        confirmDialog.handleInput!("\r");
+      } else {
+        shutdown = f.parent.extensionRunner.emit({ type: "session_shutdown", reason: "quit" })
+          .then(() => { shutdownFinished = true; });
+      }
       await bounded(aborted.promise);
       await delay(30);
       expect(commandFinished).toBe(false);
+      if (!userCancellation) expect(shutdownFinished).toBe(false);
       for (const workspace of workspaces) expect(await exists(workspace)).toBe(true);
       expect(f.parent.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "adversarial-review-result")).toHaveLength(0);
       release.resolve();
@@ -250,11 +325,24 @@ describe.sequential.each<Backend>(["external-v3", "embedded"])("SDK 1.1 Review c
       for (const workspace of workspaces) expect(await exists(workspace)).toBe(false);
       await f.assertGitUnchanged();
       const auditDir = join(f.agentDir, "extension-data", "pi-adversarial-review", "audit");
-      const audits = await Promise.all((await readdir(auditDir)).filter((name) => name.endsWith(".json")).map(async (name) =>
-        JSON.parse(await readFile(join(auditDir, name), "utf8"))));
-      expect(audits).toHaveLength(1);
-      expect(findReport(audits[0])?.overall).toBe("cancelled");
-      expect(findReport(audits[0])?.runtime.backend).toBe(backend);
+      // Host shutdown suppresses final publication; confirmed cancellation keeps the host alive.
+      await delay(30);
+      const results = f.parent.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "adversarial-review-result");
+      const audits = await exists(auditDir) ? await Promise.all((await readdir(auditDir)).filter((name) => name.endsWith(".json")).map(async (name) =>
+        JSON.parse(await readFile(join(auditDir, name), "utf8")))) : [];
+      if (userCancellation) {
+        expect(results).toHaveLength(1);
+        expect(findReport(results[0])?.overall).toBe("cancelled");
+        expect(findReport(results[0])?.runtime.backend).toBe(backend);
+        expect(f.ui!.hasEditor()).toBe(false);
+        // TUI retains the partial audit in its durable result entry; standalone audits are non-TUI only.
+        expect(findReport(results[0])?.routeResults.map((route) => route.status)).toEqual(["cancelled", "cancelled"]);
+      } else {
+        expect(results).toEqual([]);
+        expect(audits).toEqual([]);
+      }
+      expect(f.parentProvider.state.callCount).toBe(0);
+      expect(f.parent.messages.filter((message) => message.role === "custom" && message.customType === "adversarial-review-report")).toEqual([]);
     } finally {
       release.resolve();
       try { await command; } finally { await f.cleanup(); }
