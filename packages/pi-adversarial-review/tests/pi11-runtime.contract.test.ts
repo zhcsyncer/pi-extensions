@@ -257,6 +257,78 @@ describe.sequential.each<Backend>(["external-v3", "embedded"])("SDK 1.1 Review c
     } finally { await f.cleanup(); }
   }, 30_000);
 
+  test.each([true, false])("real command performs at most one tool-free format repair (corrected=%s) before publication", async (corrected) => {
+    const f = await fixture(backend);
+    // Public packaged black-box fixture: complete valid report plus disallowed trailing framing.
+    // The expected report is literal, never derived by a product parser/normalizer.
+    const original = 'Review output follows.\n{"verdict":"approve","summary":"Fixture review completed.","findings":[]}\nEnd of review.';
+    const repaired = '{"verdict":"approve","summary":"Fixture review completed.","findings":[]}';
+    let repairChild: AgentSession | undefined;
+    const calls: string[] = [];
+    try {
+      f.providers[0]!.setResponses([
+        (context) => {
+          calls.push("review");
+          expect(getCurrentTools(context.messages).map((tool) => tool.name).sort()).toEqual(builtins);
+          return fauxAssistantMessage(original);
+        },
+        (context) => {
+          calls.push("repair");
+          expect(getCurrentTools(context.messages)).toEqual([]);
+          expect(JSON.stringify(context)).not.toContain(parentSecret);
+          repairChild = f.children.at(-1)!;
+          expect(repairChild.model?.id).toBe(f.models[0]!.id);
+          expect(repairChild.model?.provider).toBe(f.models[0]!.provider);
+          expect(repairChild.thinkingLevel).toBe("off");
+          expect(repairChild.getCallableToolNames()).toEqual([]);
+          expect(repairChild.getActiveToolNames()).toEqual([]);
+          expect(repairChild.resourceLoader.getSkills().skills).toEqual([]);
+          expect(repairChild.resourceLoader.getExtensions().extensions.map((extension) => extension.resolvedPath)).not.toContain(f.ordinaryPath);
+          expect(f.parent.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "adversarial-review-result")).toEqual([]);
+          return fauxAssistantMessage(corrected ? repaired : original);
+        },
+      ]);
+      f.providers[1]!.setResponses([fauxAssistantMessage(repaired)]);
+      await bounded(f.command());
+      const results = f.parent.sessionManager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === "adversarial-review-result");
+      expect(results).toHaveLength(1);
+      const published = findReport(results[0])!;
+      expect(published.runtime.backend).toBe(backend);
+      expect(published.runtime.formatRepairAttempts).toBe(1);
+      expect(published.overall).toBe(corrected ? "candidate-approve" : "inconclusive");
+      const route = published.routeResults.find((result) => result.route.modelId === f.models[0]!.id)!;
+      expect(route.status).toBe(corrected ? "completed" : "invalid-output");
+      expect(route.report).toEqual(corrected ? report : undefined);
+      expect(route.formatRepair).toMatchObject({ attempted: true,
+        original: { status: "invalid-output", rawOutput: original },
+        retry: { status: corrected ? "completed" : "invalid-output", rawOutput: corrected ? repaired : original },
+      });
+      if (route.formatRepair?.attempted) {
+        expect(route.formatRepair.original.agentId).toBeTruthy();
+        expect(route.formatRepair.retry.agentId).toBeTruthy();
+        expect(route.formatRepair.retry.agentId).not.toBe(route.formatRepair.original.agentId);
+      }
+      expect(published.routeResults.find((result) => result.route.modelId === f.models[1]!.id)?.report).toEqual(report);
+      expect(calls).toEqual(["review", "repair"]);
+      expect(f.providers.map((provider) => provider.state.callCount)).toEqual([2, 1]);
+      expect(f.parentProvider.state.callCount).toBe(0);
+      expect(f.children).toHaveLength(3);
+      expect(repairChild).toBeDefined();
+      expect(repairChild!.messages.filter((message) => message.role === "toolResult")).toEqual([]);
+      const auditDir = join(f.agentDir, "extension-data", "pi-adversarial-review", "audit");
+      const files = (await readdir(auditDir)).filter((name) => name.endsWith(".json"));
+      expect(files).toHaveLength(1);
+      const audit = findReport(JSON.parse(await readFile(join(auditDir, files[0]!), "utf8")));
+      expect(audit).toEqual(published);
+      for (const child of f.children) {
+        expect(child.sessionManager.getSessionFile()).toBeUndefined();
+        const childCwd = child.sessionManager.getCwd();
+        if (childCwd !== f.cwd) expect(await exists(childCwd)).toBe(false);
+      }
+      await f.assertGitUnchanged();
+    } finally { await f.cleanup(); }
+  }, 30_000);
+
   test("provider failure stays on the selected backend without another execution", async () => {
     const f = await fixture(backend);
     try {
