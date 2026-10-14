@@ -20,4 +20,21 @@
 - 输出最小接线方案、确切SDK公开声明、普通请求/推理/工具/已有usage入口的公共独立fixture接口，以及源仓规则冲突（如TypeBox包名、生成文件、API语义）需确认之处。不要复制SDK provider/auth实现或造适配框架，不穷举网络服务矩阵。
 - 报告后停止，生产源/测试/manifest/lock保持clean；第二阶段由协调者根据当前证据另行冻结，再派独立作者。
 
+## 第二阶段冻结：验证交付，不进行产品迁移
+
+第一阶段未复现0.13.0的阻断性1.1兼容问题。双参数registerProvider、ProviderModelConfig派生、legacy refresh返回列表仍受公共SDK支持；无outputSchema的web工具返回文本是合法边界。不重写provider，不增加结构化输出或改现有功能。
+
+协调者已核八个Pi包（含agent-core/telemetry/codemode/mcp/chord）全部1.1.0，且官方tag与已安装包15个声明文件字节一致。第一阶段TypeBox验证用了ignored npm别名：@sinclair/typebox→typebox@1.3.27；它不是已提交的依赖迁移。第二阶段必须增加原声明peer的忠实对照，不能用临时别名掩盖原包问题。
+
+- 当前worker只补源仓全套离线check/test与精确环境证据，不改产品/manifest/lock/生成文件；源仓check包含--write，先确保固定Biome2.5.4的只读lint通过；若它改动既有tracked文件立即报告，不能顺手提交或隐藏。
+- 独立作者仅新增`test/pi11-sdk.contract.test.ts`，进入原vitest机制；本地测试提交用于目标SDK验收，不声称已更改上游开发锁或形成发布。上游package-lock仍旧版本，重建目标环境的精确no-save命令必须记录在证据中，不偷偷升级默认依赖。
+- 主矩阵为Pi1.1.0/typebox1.3.27。额外对照保留源码声明的@sinclair/typebox原版peer，核types及官方loader；随后可重建原别名验证树。明确区分类型结果、真实SDK loader官方映射与原包实际行为，失败时先报告，不主动迁移包名。
+- 独立合同以真实SDK loader/session/registry、合成HTTP及临时持久store驱动，不调用产品assembly生成期望，不复制工具定义。保留普通请求/系统与工具/推理off/high和off-null限制、实际usage桶、cloud与credential/env边界。
+- 覆盖web工具direct与合法nested/codemode文本返回、缓存、越界及401/429/取消；以SDK真实参数转换为准，2.5转2不是产品缺陷，越界11必须拒绝。
+- 补catalog的成功/最后良好目录、部分失败、预取消及中途取消、cooldown/force与真实store恢复；不要求改成native Provider.refreshModels的void合同。错误集合是Map；modelsPath:null不构成文件恢复证据。
+- 既有usage命令、显式启用的TUI状态开关/关闭/切模型或shutdown后迟到结果不写旧UI，需要真实生命周期或公共UI正控。可用假时钟，不运行真实账号/定时轮询。生成费用仍是等价参考价，不称真实收费。
+- buildCompat少显式列出十个可选键属于维护约定缺项，尚无请求异常；当前不改清单/默认或生成文件，也不把可选字段缺项写成协议失败。出现真实wire差异再由协调者冻结最小修复。
+
+独立作者不得读取产品实现体或现有实现者测试，只读公开SDK声明、用户README和协调者公开fixture交接。收到提交后固定候选审阅，完整check/types/test/真实loader及pack确认通过才能把X1标为已验收（官方0.13.0无产品变更）；真实Ollama服务和终端仍另列未验。
+
 所有阶段禁止push/upstream PR/main merge/release/tag；源仓发布规则不构成授权。当前仅本地源码与验证，未决定将任何外包版本发布到npm或替换用户安装。
