@@ -306,6 +306,7 @@ function assertPiThemeResolverAdapterOnly(files: SourceFile[]): void {
 		RENDER_STYLE_CONTEXT_MODULE,
 		GUARD_SCRIPT,
 		join("scripts", "test-themes.ts"),
+		join("scripts", "test-pi11-usage-theme.ts"),
 		join("scripts", "test-input-surface-frame.ts"),
 		join("scripts", "test-surface-parity.ts"),
 		join("scripts", "test-worktree-summary.ts"),
