@@ -72,6 +72,12 @@ Empty `/tools` opens the settings panel. Switching layout asks to reload this se
 
 While a turn is running, the latest assistant note stays under the header as Markdown, up to three lines. Each visible call keeps its elapsed time right-aligned on the first row and may use one bounded continuation row. After it settles, notes hide and a muted receipt shows duration, tokens, cache, and local time. Collapsed failures are `N failed` only. Mid-turn steers stay on the same Run ledger: first lines pin under the header while it runs, then one `↳ N steers` line remains. `Ctrl+O` expands the original timeline, with each `↳` in place, up to eight rows per call; failure details use an indented continuation row. The default `flat` timeline still shows one timed entry per call; set `toolCalls.expandedTimeline` to `turns` to group those entries under `↻ 1/3 · 3 calls` headers with indented calls. Long bash scripts show intent and size instead of the body. Agent and consult use the same compact call rows. Image reads stay in the Run ledger like other output. Switch back with `/tools individual`.
 
+### Keep assistant text visible
+
+A tool-use message can contain a direct answer as well as progress notes. Aggregate folds this text by default. To keep **all assistant text visible outside Run**, open `/tools`, set **Fold assistant narration → off**, then run `/reload`. Tools stay grouped; hidden thinking stays hidden. This also applies to existing conversation history. Individual layout is unchanged.
+
+For JSON configuration, set `toolCalls.foldAssistantNarration` to `false` (default: `true`).
+
 User prompts always use the accent-gutter box.
 
 ### Agent and consult
@@ -126,6 +132,7 @@ Open `/tools` or edit the example at [`config/config.example.json`](./config/con
 | `toolCalls.layout` | `individual` or `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` per-call Ctrl+O rows, or `turns` grouped by agent turn (aggregate only; no reload) |
 | `toolCalls.showContextGrowth` | Show `ctx` run totals and turn badges; default `false` (aggregate only; no reload) |
+| `toolCalls.foldAssistantNarration` | Default `true`; set `false` to keep assistant answers and progress text visible outside Run (aggregate only; applies after `/reload`) |
 | `results.mode` | `compact`, `summary`, or `preview` |
 | `intent.language` | Bash intent language: best-effort request following, Simplified Chinese, or English (applies after `/reload`) |
 | `diff.layout` / `diff.indicators` | Edit diff layout and shared Edit/Write markers; Write is always single-column |

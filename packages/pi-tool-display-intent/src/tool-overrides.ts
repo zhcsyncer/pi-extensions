@@ -1948,6 +1948,8 @@ export function registerToolDisplayOverrides(
   const clonedParameters = createLazyClonedParameters(bootstrapTools);
   const writeExecutionMetaByToolCallId = new Map<string, WriteExecutionMeta>();
   const registeredBuiltInToolOverrides = new Set<BuiltInToolOverrideName>();
+  // Framed transcript items must be rebuilt together after /reload.
+  const foldAssistantNarration = getConfig().foldAssistantNarration;
   const aggregateProjection = getConfig().toolCallLayout === "aggregate"
     ? new AggregateProjection(
         (toolName) =>
@@ -1956,6 +1958,7 @@ export function registerToolDisplayOverrides(
             !getConfig().registerToolOverrides[toolName as BuiltInToolOverrideName]),
         () => getConfig().expandedTimeline,
         () => getConfig().showContextGrowth,
+        () => foldAssistantNarration,
       )
     : undefined;
   const registerOwnedTool = (tool: RuntimeToolDefinition): void =>

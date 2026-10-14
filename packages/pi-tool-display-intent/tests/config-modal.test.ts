@@ -244,7 +244,7 @@ test("aggregate modal exposes global diff settings and hides individual-only set
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth", "diffViewMode", "diffIndicatorMode"],
+		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "foldAssistantNarration", "showContextGrowth", "diffViewMode", "diffIndicatorMode"],
 	);
 	assert.deepEqual(retained, original);
 	assert.equal(aggregateSettings.find((setting) => setting.id === "diffViewMode")?.currentValue, "split");
@@ -278,6 +278,7 @@ test("aggregate modal exposes global diff settings and hides individual-only set
 	assert.ok(individualSettings.some((setting) => setting.id === "toolIntentLanguage"));
 	assert.equal(individualSettings.some((setting) => setting.id === "expandedTimeline"), false);
 	assert.equal(individualSettings.some((setting) => setting.id === "showContextGrowth"), false);
+	assert.equal(individualSettings.some((setting) => setting.id === "foldAssistantNarration"), false);
 });
 
 test("diff preferences selected in aggregate stay global across layout switches without resetting advanced or hidden settings", () => {
@@ -347,6 +348,20 @@ for (const expandedTimeline of ["flat", "turns"] as const) {
 		assert.equal(enabled.showContextGrowth, true);
 	});
 }
+
+test("narration folding toggle preserves unrelated settings and requires reload", () => {
+	const config = { ...DEFAULT_TOOL_DISPLAY_CONFIG, toolCallLayout: "aggregate" as const };
+	const capabilities = { hasMcpTooling: false, hasRtkOptimizer: false };
+	const setting = buildInspectorSettings(config, capabilities).find((item) => item.id === "foldAssistantNarration");
+	assert.equal(setting?.currentValue, "on");
+	assert.deepEqual(setting?.values, ["on", "off"]);
+	assert.match(setting?.inspectorSummary.join(" ") ?? "", /after \/reload/);
+	const visible = applySetting(config, "foldAssistantNarration", "off");
+	assert.deepEqual(visible, { ...config, foldAssistantNarration: false });
+	assert.equal(config.foldAssistantNarration, true);
+	assert.equal(buildInspectorSettings(visible, capabilities).find((item) => item.id === "foldAssistantNarration")?.currentValue, "off");
+	assert.deepEqual(applySetting(visible, "foldAssistantNarration", "on"), config);
+});
 
 test("empty args opens the modal in TUI mode", async () => {
 	const { api, getHandler } = createPiStub();

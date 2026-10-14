@@ -21,6 +21,7 @@ test("bundled config example is valid simple v2", () => {
 		assert.equal(loaded.error, undefined);
 		assert.equal(loaded.notice, undefined);
 		assert.equal(loaded.config.showContextGrowth, false);
+		assert.equal(loaded.config.foldAssistantNarration, true);
 		assert.equal(loaded.config.resultMode, "summary");
 		assert.equal(loaded.config.toolIntent.language, "zh-CN");
 		assert.equal(loaded.config.toolCallLayout, "individual");
@@ -70,6 +71,10 @@ test("bundled JSON Schema exposes only the reviewed public field names", () => {
 	assert.equal(showContextGrowth?.type, "boolean");
 	assert.equal(showContextGrowth?.default, false);
 	assert.equal(schema.properties?.showContextGrowth, undefined);
+	const foldAssistantNarration = schema.properties?.toolCalls?.properties?.foldAssistantNarration as { type?: string; default?: boolean } | undefined;
+	assert.equal(foldAssistantNarration?.type, "boolean");
+	assert.equal(foldAssistantNarration?.default, true);
+	assert.equal(schema.properties?.foldAssistantNarration, undefined);
 	assert.equal(schema.properties?.toolCalls?.properties?.frame, undefined);
 	assert.ok(schema.properties?.tools?.properties?.passthrough);
 	assert.equal(schema.properties?.tools?.properties?.disabled, undefined);

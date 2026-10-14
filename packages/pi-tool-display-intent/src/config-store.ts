@@ -330,6 +330,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 		toolCallLayout: toToolCallLayout(source.toolCallLayout),
 		expandedTimeline: toExpandedTimeline(source.expandedTimeline),
 		showContextGrowth: toBoolean(source.showContextGrowth, DEFAULT_TOOL_DISPLAY_CONFIG.showContextGrowth),
+		foldAssistantNarration: toBoolean(source.foldAssistantNarration, DEFAULT_TOOL_DISPLAY_CONFIG.foldAssistantNarration),
 		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: clampNumber(
 			source.bashCommandPreviewRows,
@@ -458,11 +459,12 @@ function validateToolDisplayConfigV2(raw: unknown): string[] {
 	validateOptionalInteger(intent, "maxLength", 16, 256, "intent.", errors);
 
 	const toolCalls = getV2Section(source, "toolCalls", errors);
-	validateKnownKeys(toolCalls, ["layout", "bashCommandPreviewRows", "expandedTimeline", "showContextGrowth"], "toolCalls.", errors);
+	validateKnownKeys(toolCalls, ["layout", "bashCommandPreviewRows", "expandedTimeline", "showContextGrowth", "foldAssistantNarration"], "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "layout", TOOL_CALL_LAYOUTS, "toolCalls.", errors);
 	validateOptionalInteger(toolCalls, "bashCommandPreviewRows", 1, 8, "toolCalls.", errors);
 	validateOptionalEnum(toolCalls, "expandedTimeline", EXPANDED_TIMELINES, "toolCalls.", errors);
 	validateOptionalBoolean(toolCalls, "showContextGrowth", "toolCalls.", errors);
+	validateOptionalBoolean(toolCalls, "foldAssistantNarration", "toolCalls.", errors);
 
 	if (!hasOwn(source, "results")) errors.push("results: required section");
 	const results = getV2Section(source, "results", errors);
@@ -585,6 +587,7 @@ function normalizeToolDisplayConfigV2(raw: unknown): ToolDisplayConfig {
 		toolCallLayout: toolCalls.layout,
 		expandedTimeline: toolCalls.expandedTimeline,
 		showContextGrowth: toolCalls.showContextGrowth,
+		foldAssistantNarration: toolCalls.foldAssistantNarration,
 		toolCallStyle: DEFAULT_TOOL_DISPLAY_CONFIG.toolCallStyle,
 		bashCommandPreviewRows: toolCalls.bashCommandPreviewRows,
 		enableNativeUserMessageBox: DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
@@ -624,6 +627,9 @@ export function serializeToolDisplayConfigV2(rawConfig: ToolDisplayConfig): Reco
 		toolCalls.expandedTimeline = config.expandedTimeline;
 	}
 	if (config.showContextGrowth) toolCalls.showContextGrowth = true;
+	if (config.foldAssistantNarration !== defaults.foldAssistantNarration) {
+		toolCalls.foldAssistantNarration = config.foldAssistantNarration;
+	}
 	if (config.bashCommandPreviewRows !== defaults.bashCommandPreviewRows) {
 		toolCalls.bashCommandPreviewRows = config.bashCommandPreviewRows;
 	}
@@ -695,7 +701,7 @@ function writeConfigAtomically(configFile: string, serialized: Record<string, un
 
 const LEGACY_CONFIG_KEYS = new Set([
 	"version", "enabled", "debug", "displaySummary", "toolIntent", "registerToolOverrides", "registerReadToolOverride",
-	"customToolOverrides", "toolCallLayout", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
+	"customToolOverrides", "toolCallLayout", "foldAssistantNarration", "toolCallStyle", "bashCommandPreviewRows", "resultMode", "resultProfile", "readOutputMode",
 	"searchOutputMode", "mcpOutputMode", "bashOutputMode", "enableNativeUserMessageBox", "previewRows",
 	"previewLines", "expandedPreviewMaxRows", "expandedPreviewMaxLines", "diffViewMode", "diffIndicatorMode", "diffSplitMinWidth",
 	"diffCollapsedRows", "diffCollapsedLines", "diffCollapsedMode", "diffWordWrap", "showTruncationHints", "showRtkCompactionHints",
