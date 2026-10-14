@@ -393,6 +393,55 @@ for (const invalid of ["true", "false", 1, 0, null, [], {}]) {
 	});
 }
 
+test("narration folding defaults on and false round-trips sparsely", () => {
+	assert.equal(DEFAULT_TOOL_DISPLAY_CONFIG.foldAssistantNarration, true);
+	assert.equal(normalizeToolDisplayConfig({}).foldAssistantNarration, true);
+	assert.equal(serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG).toolCalls, undefined);
+	withTempDir("pi-tool-display-narration-", (dir) => {
+		const configFile = join(dir, "config.json");
+		assert.equal(loadToolDisplayConfig(configFile).config.foldAssistantNarration, true);
+		writeFileSync(configFile, '{"version":2,"results":{"mode":"compact"}}\n', "utf8");
+		assert.equal(loadToolDisplayConfig(configFile).config.foldAssistantNarration, true);
+		const visible = normalizeToolDisplayConfig({
+			toolCallLayout: "aggregate", expandedTimeline: "turns",
+			foldAssistantNarration: false, resultMode: "preview", previewRows: 16,
+		});
+		assert.equal(saveToolDisplayConfig(visible, configFile).success, true);
+		assert.deepEqual(JSON.parse(readFileSync(configFile, "utf8")).toolCalls, {
+			layout: "aggregate", expandedTimeline: "turns", foldAssistantNarration: false,
+		});
+		assert.deepEqual(loadToolDisplayConfig(configFile).config, visible);
+		const folded = { ...visible, foldAssistantNarration: true };
+		assert.equal(saveToolDisplayConfig(folded, configFile).success, true);
+		assert.deepEqual(JSON.parse(readFileSync(configFile, "utf8")).toolCalls, {
+			layout: "aggregate", expandedTimeline: "turns",
+		});
+		assert.deepEqual(loadToolDisplayConfig(configFile).config, folded);
+	});
+});
+
+for (const invalid of ["true", "false", 1, 0, null, [], {}]) {
+	test(`invalid narration folding ${JSON.stringify(invalid)} defaults on without losing valid settings`, () => {
+		assert.equal(normalizeToolDisplayConfig({ foldAssistantNarration: invalid }).foldAssistantNarration, true);
+		withTempDir("pi-tool-display-narration-invalid-", (dir) => {
+			const configFile = join(dir, "config.json");
+			writeFileSync(configFile, JSON.stringify({
+				version: 2,
+				toolCalls: { layout: "aggregate", foldAssistantNarration: invalid },
+				results: { mode: "preview", previewRows: 16 },
+			}), "utf8");
+			const loaded = loadToolDisplayConfig(configFile);
+			assert.equal(loaded.error, undefined);
+			assert.match(loaded.notice ?? "", /toolCalls\.foldAssistantNarration: expected boolean/);
+			assert.equal(loaded.config.foldAssistantNarration, true);
+			assert.equal(loaded.config.toolCallLayout, "aggregate");
+			assert.equal(loaded.config.previewRows, 16);
+			assert.deepEqual(JSON.parse(readFileSync(configFile, "utf8")).toolCalls, { layout: "aggregate" });
+			assert.equal(loadToolDisplayConfig(configFile).notice, undefined);
+		});
+	});
+}
+
 test("default individual layout stays sparse and old v2 configs remain compatible", () => {
 	const serialized = serializeToolDisplayConfigV2(DEFAULT_TOOL_DISPLAY_CONFIG);
 	assert.equal(serialized.toolCalls, undefined);

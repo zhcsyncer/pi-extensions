@@ -193,6 +193,40 @@ test("a turn with aggregate tools still folds narration into the Run frame", () 
 	}
 });
 
+test("disabling narration folding keeps answers visible while tools stay aggregated", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection(() => false, () => "flat", () => false, () => false);
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const message = assistant([
+			{ type: "thinking", thinking: "private reasoning" },
+			{ type: "text", text: "Skills load through Read. This answers your question." },
+			{ type: "toolCall", id: "answer-bash", name: "bash", arguments: { command: "true" } },
+		], { id: "answer-with-tool" });
+		projection.startUserGroup("visible-answer");
+		projection.ingestAssistantMessage(message);
+		const component = createComponent(message, true);
+		assert.equal(isInterimAssistantNarration(component), false);
+		const expandable = component as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		for (const expanded of [false, true, false]) {
+			expandable.setExpanded(expanded);
+			const rendered = component.render(100).join("\n");
+			assert.match(rendered, /Skills load through Read/);
+			assert.doesNotMatch(rendered, /private reasoning|Thinking\.\.\.|[›│└]/);
+		}
+		assert.equal(projection.getGroups()[0]?.members.length, 1);
+		assert.equal(projection.getView("answer-bash")?.latestNarration, undefined);
+		projection.rebuild([{ type: "message", id: "entry-answer", message }], [message]);
+		assert.equal(isInterimAssistantNarration(component), false);
+		assert.match(component.render(100).join("\n"), /Skills load through Read/);
+		assert.equal(projection.getView("answer-bash")?.latestNarration, undefined);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("aggregate hides interim narration until Ctrl+O restores it in place", () => {
 	initTheme("dark", false);
 	const projection = new AggregateProjection((toolName) =>

@@ -49,6 +49,11 @@
           "default": "flat",
           "description": "Controls the Ctrl+O aggregate timeline. flat keeps one target/status row per call. turns groups those rows by agent turn with a ↻ 1/N header and indented calls. Collapsed Tools is unchanged. Changing this does not reload the session."
         },
+        "foldAssistantNarration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Folds interim assistant text into the aggregate Run ledger. Set false to keep answers and progress text visible outside the Run while tools remain aggregated. Applies after /reload; individual layout is unchanged."
+        },
         "showContextGrowth": {
           "type": "boolean",
           "default": false,

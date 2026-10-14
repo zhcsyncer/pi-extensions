@@ -957,6 +957,7 @@ export class AggregateProjection {
 		private readonly isPassthroughTool: (toolName: string) => boolean = () => false,
 		private readonly getExpandedTimeline: () => ExpandedTimeline = () => "flat",
 		private readonly showContextGrowth: () => boolean = () => false,
+		private readonly foldAssistantNarration: () => boolean = () => true,
 	) {}
 
 	private customSequence = 0;
@@ -1180,6 +1181,7 @@ export class AggregateProjection {
 	}
 
 	shouldFrameAssistantNarration(message?: unknown): boolean {
+		if (!this.foldAssistantNarration()) return false;
 		if (this.isPassthroughOnlyAssistantMessage(message)) return false;
 		if (this.hasPaintedToolsLedger(message)) return true;
 		if (!message) return false;
@@ -1606,6 +1608,7 @@ export class AggregateProjection {
 		const calls = toolCallsFromMessage(message);
 		if (calls.length > 0) this.markGroupSawToolBatch();
 		if (
+			this.foldAssistantNarration() &&
 			isInterimAssistantMessage(message) &&
 			!this.isPassthroughOnlyAssistantMessage(message)
 		) {

@@ -72,6 +72,12 @@ pi install npm:@zhcsyncer/pi-extensions
 
 进行中时，最新一条 assistant 旁白按 Markdown 停在标题下，最多三行。每条可见调用把耗时靠右放在首行，目标过长时最多再占一行。结束后旁白收起，mute 收据显示耗时、token、cache 和本地时间。收起时失败只显示 `N failed`。中途 steer 仍是同一本 Run：进行中钉各条首行，结束后留一行 `↳ N steers`。`Ctrl+O` 展开原时间线，每条 `↳` 留在当时的位置，每条调用最多 8 行；失败详情另起缩进行。默认 `flat` 仍是逐条带时间；把 `toolCalls.expandedTimeline` 调成 `turns` 后，按拍显示 `↻ 1/3 · 3 calls` 拍头，调用行缩进，不用 reload。多行 bash 只显示 intent 和体积，不倒脚本。Agent 和 consult 使用同样的紧凑调用行。图片 read 像其它 output 一样收进 Run 账本。切回：`/tools individual`。
 
+### 保持 assistant 正文可见
+
+带工具调用的消息也可能包含直接回答，而不只是进度旁白。aggregate 默认折叠这些正文。若要让**所有 assistant 正文始终显示在 Run 外**，打开 `/tools`，将 **Fold assistant narration → off**，再执行 `/reload`。工具仍聚合，隐藏的 thinking 仍隐藏；已有会话历史也会应用此设置。individual 布局不受影响。
+
+手动编辑 JSON 时，将 `toolCalls.foldAssistantNarration` 设为 `false`（默认 `true`）。
+
 用户行固定用左侧强调色细杠。
 
 ### Agent 与 consult
@@ -126,6 +132,7 @@ took 18s · ctx ≈+3.2k · tok ↑… ↓…
 | `toolCalls.layout` | `individual` 或 `aggregate` |
 | `toolCalls.expandedTimeline` | `flat` 展开逐条，或 `turns` 按 agent turn 分组（仅 aggregate，不用 reload） |
 | `toolCalls.showContextGrowth` | 显示 `ctx` run 总计与逐拍标记；默认 `false`（仅 aggregate，不用 reload） |
+| `toolCalls.foldAssistantNarration` | 默认 `true`；设为 `false` 后回答和进度正文始终显示在 Run 外（仅 aggregate，经 `/reload` 生效） |
 | `results.mode` | `compact`、`summary` 或 `preview` |
 | `intent.language` | bash intent 语言：尽量跟随请求、固定简体中文或固定英文（经 `/reload` 生效） |
 | `diff.layout` / `diff.indicators` | Edit 的 diff 布局及 Edit/Write 共用的标记；Write 固定单栏 |

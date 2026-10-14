@@ -50,6 +50,7 @@ function toolRegistrationChanged(
     previous.toolIntent.language !== next.toolIntent.language ||
     previous.toolIntent.maxLength !== next.toolIntent.maxLength ||
     previous.toolCallLayout !== next.toolCallLayout ||
+    previous.foldAssistantNarration !== next.foldAssistantNarration ||
     previous.toolCallStyle !== next.toolCallStyle;
   return ownershipChanged || intentSchemaChanged;
 }
@@ -97,7 +98,7 @@ export default function toolDisplayExtension(pi: ExtensionAPI): void {
 
     if (requiresReload && !options?.skipReloadHint) {
       ctx.ui.notify(
-        "Tool ownership or intent schema updates apply after /reload.",
+        "Tool ownership, narration folding, or intent schema updates apply after /reload.",
         "warning",
       );
     }

@@ -70,12 +70,12 @@ function transcript(id: string) {
 	return { id, calls, messages, branch };
 }
 
-function lifecycle(m: Modules, ctx: ExtensionContext) {
+function lifecycle(m: Modules, ctx: ExtensionContext, foldAssistantNarration = true) {
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
 	const pi = { on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) {
 		handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 	} } as ExtensionAPI;
-	const projection = new m.activity.AggregateProjection(() => false, () => "turns");
+	const projection = new m.activity.AggregateProjection(() => false, () => "turns", () => false, () => foldAssistantNarration);
 	m.activity.registerAggregateProjectionEvents(pi, projection);
 	m.thinking.registerAggregateThinkingPlaceholderSuppression(pi, () => true);
 	return { projection, async emit(name: string, reason?: string) {
@@ -190,6 +190,34 @@ test("clean reload preserves native title migration and the fixed collapse widge
 	const B = await load(); const data = transcript("reloaded"); const uiB = lifecycle(B, f.context(data));
 	await uiB.emit("session_start", "reload");
 	exercise(t, f, B, uiB.projection, data);
+});
+
+test("reload rebuilds existing narration outside Run when folding is disabled, and restores default folding", async (t) => {
+	const load = await loader(t); const A = await load(); const f = host(t, A);
+	const data = transcript("visibility");
+	const old = lifecycle(A, f.context(data));
+	await old.emit("session_start", "startup");
+	const component = new sdk.AssistantMessageComponent(data.messages[0] as never, true);
+	assert.deepEqual(component.render(90), []);
+	await old.emit("session_shutdown", "reload");
+
+	const B = await load(); const visible = lifecycle(B, f.context(data), false);
+	await visible.emit("session_start", "reload");
+	assert.equal(visible.projection.getGroups()[0]?.members.length, 2);
+	assert.equal(visible.projection.getView(data.calls[0].id)?.latestNarration, undefined);
+	for (const expanded of [false, true, false]) {
+		visible.projection.noteTimelineExpansion(expanded);
+		const text = component.render(90).join("\n");
+		assert.match(text, /visibility narration 0/);
+		assert.match(text, /visibility narration 44/);
+		assert.doesNotMatch(text, /│|›/);
+	}
+	await visible.emit("session_shutdown", "reload");
+
+	const C = await load(); const restored = lifecycle(C, f.context(data));
+	await restored.emit("session_start", "reload");
+	assert.deepEqual(component.render(90), []);
+	assert.equal(restored.projection.getGroups()[0]?.members.length, 2);
 });
 
 for (const reason of ["quit", "new", "resume", "fork", "still-live"] as const) {

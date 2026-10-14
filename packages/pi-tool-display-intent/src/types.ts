@@ -73,6 +73,7 @@ export interface ToolDisplayConfig {
 	toolCallLayout: ToolCallLayout;
 	expandedTimeline: ExpandedTimeline;
 	showContextGrowth: boolean;
+	foldAssistantNarration: boolean;
 	toolCallStyle: ToolCallStyle;
 	bashCommandPreviewRows: number;
 	resultMode: ResultDisplayMode;
@@ -113,6 +114,7 @@ export const DEFAULT_TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
 	toolCallLayout: "individual",
 	expandedTimeline: "flat",
 	showContextGrowth: false,
+	foldAssistantNarration: true,
 	toolCallStyle: "claude",
 	bashCommandPreviewRows: 1,
 	resultMode: "compact",

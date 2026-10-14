@@ -8,6 +8,7 @@
   "toolCalls": {
     "layout": "individual",
     "showContextGrowth": false,
+    "foldAssistantNarration": true,
     "bashCommandPreviewRows": 1
   },
   "results": {

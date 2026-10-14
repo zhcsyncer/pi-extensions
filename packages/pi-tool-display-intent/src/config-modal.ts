@@ -59,7 +59,7 @@ const INDIVIDUAL_ONLY_SETTING_IDS = new Set([
 	"bashCommandPreviewRows",
 	"diffCollapsedMode",
 ]);
-const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline", "showContextGrowth"]);
+const AGGREGATE_ONLY_SETTING_IDS = new Set(["expandedTimeline", "showContextGrowth", "foldAssistantNarration"]);
 
 function toOnOff(value: boolean): string {
 	return value ? "on" : "off";
@@ -103,7 +103,7 @@ export function buildInspectorSettings(
 			inspectorSummary: config.toolCallLayout === "aggregate"
 				? [
 					"Aggregate uses one bounded Run summary for every registered tool; successful rows stay done until replacement or the final delayed fold.",
-					"Collapsed errors stay as a failed count. While the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
+					"Collapsed errors stay as a failed count. With narration folding on (default), while the turn is running, the latest assistant note stays pinned under the header, above the tool rows, without using a tool slot. After the turn settles, every assistant note hides and a muted receipt under the header shows duration, tokens, cache, and completion time.",
 					"Ctrl+O leaves the Run ledger, restores mid-turn narration in place, and shows one target/status summary per call.",
 					"Agent keeps its original renderer by default. User prompts always use a compact accent-gutter block with vertical padding. Individual-tool settings are retained but inactive.",
 				]
@@ -113,7 +113,7 @@ export function buildInspectorSettings(
 				],
 			inspectorOptions: [
 				"individual — preserve the complete existing per-tool display (default)",
-				"aggregate — summarize tools and hide mid-turn narration; Ctrl+O restores the timeline",
+				"aggregate — summarize tools; narration folding is optional; Ctrl+O restores the timeline",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
 				"Changing the layout confirms a session reload, then rebuilds tool schemas and renderer shells for the whole current branch.",
@@ -164,6 +164,27 @@ export function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["timeline", "turn", "expand", "ctrl+o", "group", "flat", "aggregate"],
+		},
+		{
+			id: "foldAssistantNarration",
+			label: "Fold assistant narration",
+			currentValue: toOnOff(config.foldAssistantNarration),
+			values: ["on", "off"],
+			inspectorTitle: "Fold Assistant Narration",
+			inspectorSummary: [
+				"Tool-use messages can contain direct answers, not only progress notes.",
+				"Turn folding off to keep all assistant text visible outside Run while tools stay aggregated.",
+				"Changing this setting applies to the current transcript after /reload.",
+			],
+			inspectorOptions: [
+				"on — fold interim assistant text into Run (default)",
+				"off — keep assistant answers and progress text visible",
+			],
+			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
+				"Manual JSON tuning exposes toolCalls.foldAssistantNarration. Individual layout is unchanged.",
+			]),
+			inspectorPath: configPath,
+			searchTerms: ["assistant", "narration", "answer", "fold", "visible", "aggregate"],
 		},
 		{
 			id: "showContextGrowth",
@@ -334,6 +355,8 @@ export function applySetting(config: ToolDisplayConfig, id: string, value: strin
 			return { ...config, expandedTimeline: value as ToolDisplayConfig["expandedTimeline"] };
 		case "showContextGrowth":
 			return { ...config, showContextGrowth: value === "on" };
+		case "foldAssistantNarration":
+			return { ...config, foldAssistantNarration: value === "on" };
 		case "resultMode": {
 			const mode = parseToolDisplayMode(value);
 			return mode ? applyToolDisplayMode(config, mode) : config;
