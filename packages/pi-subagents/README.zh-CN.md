@@ -34,6 +34,8 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ## 委派与接收结果
 
+`Agent`、`get_subagent_result` 和 `steer_subagent` 是 model-only 工具：模型仍可直接调用，但另一工具或脚本不能经工具层嵌套调用它们。此限制仅针对这三个工具，不禁止公开 runtime API；集成仍可在既有授权规则下使用该 API。
+
 结果若是下一次 read、edit 或 decision 的前置条件，使用 **foreground**（默认）。只有确实存在互不重叠的并行工作时，才用 `run_in_background: true`。运行期间不要轮询、sleep 或重复子 agent 的证据收集。主 agent 仍负责综合与最终验证；应定向抽查高风险结论，而不是重跑整轮调查。
 
 后台通知在**每条发出消息总计 16 KiB UTF-8** 的预算内携带完整最终报告；元数据和转义开销也计算在内。成组报告共享总预算，不是每个 agent 各有一份预算。超长报告会明确标注截断，并提示通过 `get_subagent_result(agent_id)` 获取完整结果。加上 `verbose: true` 可读取包含工具输出的对话。

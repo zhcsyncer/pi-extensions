@@ -42,6 +42,8 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 
 ## Install
 
+This version requires Pi 1.1 or later.
+
 Standalone:
 
 ```bash

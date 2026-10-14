@@ -40,9 +40,9 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 说明
 
-Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
+Search Hub 可单独安装，也随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
-需要 Pi 0.86 或更高。本 bundle 里的 Fast Mode、Consult、Subagents，以及仓库里独立的 Cursor 与火山 provider，按 0.86 transcript（系统说明和工具在对话里）工作。
+本版本需要 Pi 1.1 或更高。
 
 ## 独立 Providers
 
@@ -73,7 +73,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、Subagents、Fast Mode、Meter、Consult、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Plan Mode、Context7、Subagents、Fast Mode、Meter、Consult、结构化用户问答，以及 Search Hub 的完整 bundle：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -107,6 +107,12 @@ pi install npm:@zhcsyncer/pi-glance
 
 ```bash
 pi install npm:@zhcsyncer/pi-plan-mode
+```
+
+仅安装 Search Hub：
+
+```bash
+pi install npm:@zhcsyncer/pi-search-hub
 ```
 
 仅安装 Context7 文档工具：

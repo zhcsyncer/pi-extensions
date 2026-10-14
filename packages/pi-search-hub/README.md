@@ -8,6 +8,8 @@ This package is also included in `@zhcsyncer/pi-extensions`.
 
 ## Install
 
+This version requires Pi 1.1 or later.
+
 ```bash
 pi install npm:@zhcsyncer/pi-search-hub
 ```

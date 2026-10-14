@@ -40,9 +40,9 @@ A collection of Pi extensions by zhcsyncer.
 
 ## Notes
 
-Search Hub ships only in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
+Search Hub is available standalone and in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
-Requires Pi 0.86 or later. Fast Mode, Consult, Subagents, and the standalone Cursor and Volcengine providers in this repo follow the 0.86 transcript (system text and tools live on the conversation).
+This version requires Pi 1.1 or later.
 
 ## Standalone providers
 
@@ -73,7 +73,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, Fast Mode, Meter, Consult, structured user questions, and the private Search Hub fork:
+Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, Fast Mode, Meter, Consult, structured user questions, and Search Hub:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -107,6 +107,12 @@ Install only strict Plan Mode:
 
 ```bash
 pi install npm:@zhcsyncer/pi-plan-mode
+```
+
+Install only Search Hub:
+
+```bash
+pi install npm:@zhcsyncer/pi-search-hub
 ```
 
 Install only Context7 documentation tools:

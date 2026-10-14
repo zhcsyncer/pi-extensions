@@ -8,6 +8,8 @@ Pi 用的 Search Hub fork。通过多个搜索和内容读取 backend 提供统�
 
 ## 安装
 
+本版本需要 Pi 1.1 或更高。
+
 ```bash
 pi install npm:@zhcsyncer/pi-search-hub
 ```

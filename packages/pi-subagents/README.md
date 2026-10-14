@@ -34,6 +34,8 @@ The [upstream snapshot](./UPSTREAM_README.md) covers custom agents, schedules, a
 
 ## Delegate and receive results
 
+`Agent`, `get_subagent_result`, and `steer_subagent` are model-only tools: the model can call them directly, but another tool or a script cannot invoke them through nested tool calls. This restriction applies to these three tools, not the public runtime API, which remains available for integrations under its existing authorization rules.
+
 Use **foreground** (default) when the result is a prerequisite for your next read, edit, or decision. Use `run_in_background: true` only when you have genuinely disjoint work to do. Do not poll, sleep, or duplicate the subagent's evidence collection while it runs. You still own synthesis and final verification; check high-risk claims rather than repeating the whole investigation.
 
 Background notifications include the **complete final report when it fits within 16 KiB of UTF-8 per emitted message**, including metadata and escaping. Grouped reports share that total budget, not one budget per agent. Oversized reports are explicitly marked as truncated and direct you to `get_subagent_result(agent_id)` for the full result. Add `verbose: true` for the conversation, including tool outputs.

@@ -9,7 +9,7 @@ Plan document review and implementation work are tracked independently. Approval
 ## Requirements
 
 - Node.js 22.19 or newer
-- Pi 0.81 or newer
+- Pi 1.1 or newer
 - `revdiff` available in `PATH`, or `REVDIFF_BIN` pointing to an executable binary
 - Pi TUI mode
 
