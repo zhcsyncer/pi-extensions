@@ -2,9 +2,11 @@
 
 [简体中文](./README.zh-CN.md)
 
-Context7 documentation tools for the [Pi coding agent](https://pi.dev), supporting Pi 1.1+. Forked from [`@upstash/context7-pi`](https://github.com/upstash/context7), with compact result previews, config-file authentication, and a `context7-docs` skill that supports either this package's REST tools or a user-configured native Context7 MCP server.
+> **Unmaintained.** Pi's native MCP support can connect to Context7, so this duplicate REST integration will no longer be maintained. You must configure the Context7 MCP service separately; this package does not configure it for you. Historical source and usage documentation are retained below, without a commitment to further updates or Pi compatibility work.
 
-The REST extension remains the default, including in the `@zhcsyncer/pi-extensions` bundle. It does not require MCP or codemode.
+Context7 documentation tools for the [Pi coding agent](https://pi.dev). Registers `resolve-library-id` and `query-docs`, and ships the full upstream `context7-docs` skill.
+
+This package is also embedded in the aggregate `@zhcsyncer/pi-extensions` bundle.
 
 ## Install
 
@@ -26,49 +28,57 @@ Try without installing:
 pi -e npm:@zhcsyncer/pi-context7
 ```
 
-## Tools and skill
+## Tools
 
-- `resolve-library-id` finds a Context7 library ID and ranked candidates. Call it first unless the user supplies `/org/project` or `/org/project/version`.
-- `query-docs` retrieves documentation and examples for that ID. Keep each call focused on one concept.
-- `context7-docs` guides lookups using the actual available legacy or verified native MCP tools. It keeps the resolve-before-query workflow, a limit of three calls per operation per question, and the rule against sending sensitive information.
+### `resolve-library-id`
 
-Results have compact previews; expand to read the full returned text. Errors are reported as tool errors.
+Resolves a package or product name to a Context7-compatible library ID and returns ranked candidates with reputation and snippet metadata. Call this first unless the user already provides an ID in `/org/project` or `/org/project/version` form.
 
-## REST authentication
+### `query-docs`
 
-The REST tools support keyless requests subject to IP-based rate limits. For higher quotas, obtain a key at [context7.com/dashboard](https://context7.com/dashboard) and save it as `apiKey`:
+Fetches up-to-date documentation and code examples for a resolved library ID. Scope each call to a single concept.
+
+## Skill
+
+The `context7-docs` skill teaches the agent when to reach for these tools instead of relying on training data. The full upstream skill text is retained.
+
+## Authentication
+
+The tools work without setup at IP-based rate limits. For higher quotas, create a free key at [context7.com/dashboard](https://context7.com/dashboard) and put it in the extension config file:
 
 ```bash
-agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-mkdir -p "$agent_dir/extension-data/pi-context7"
-cat > "$agent_dir/extension-data/pi-context7/config.json" <<'EOF'
+mkdir -p "$PI_CODING_AGENT_DIR/extension-data/pi-context7"
+cat > "$PI_CODING_AGENT_DIR/extension-data/pi-context7/config.json" <<'EOF'
 {
   "apiKey": "ctx7sk_..."
 }
 EOF
 ```
 
-`CONTEXT7_API_KEY` is an optional fallback; the config file wins when both are set. Native MCP authentication is configured separately in Pi; it does not automatically reuse this file.
+Default location when `PI_CODING_AGENT_DIR` is unset: `~/.pi/agent/extension-data/pi-context7/config.json`.
 
-## Optional native MCP entry point
+`CONTEXT7_API_KEY` remains an optional fallback for scripts/CI. The config file wins when both are set.
 
-1. In your chosen Pi profile (agent directory), configure the official Context7 server using its [current setup instructions](https://github.com/upstash/context7#installation) and Pi's [MCP guide](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/mcp.md). Keep personal credentials in user configuration. Stop for confirmation if an existing same-name server has a different URL, configuration source, or authentication owner; do not overwrite it or move keys into a project.
-2. Verify the connection and the actual library-resolution/query tool names and schemas. Use `direct` exposure for those two verified tools; keep any unapproved tools hidden. Native MCP direct works without codemode. Scripts are optional; this package does not enable codemode/tool_search or change mode/defaultTools.
-3. Once verified, disable **only the legacy Context7 extension entry** in that profile with `pi config`. Keep its skill enabled. Do not disable the whole bundle or delete the package, REST config, or credentials.
+## Display
 
-Alternatively, edit the existing package entry in that profile's settings, preserving any version pin and unrelated filters. For a standalone install, exclude `extensions/context7.ts`; for the bundle, exclude `packages/pi-context7/extensions/context7.ts`. For example, a bundle package entry can be:
+Both tools implement their own compact TUI rendering:
 
-```json
-{
-  "source": "npm:@zhcsyncer/pi-extensions",
-  "extensions": ["!packages/pi-context7/extensions/context7.ts"]
-}
+- call lines show `Context7 Resolve <libraryName>` or `Context7 Query <libraryId>`;
+- collapsed result lines show success status plus a short summary;
+- resolve summaries include candidate count and the top library ID;
+- query summaries include UTF-8 size, line count, and an expand hint that respects the active keybinding;
+- expand reveals the full model-facing content via Pi's native Markdown renderer;
+- HTTP and execution errors use error styling and are marked as tool errors.
+
+Tool-result `details` store only the small render metadata above. The text sent to the model stays aligned with upstream Context7 output.
+
+## Local development
+
+```bash
+pnpm --filter @zhcsyncer/pi-context7 check
+pi --no-extensions -e ./packages/pi-context7 --list-models nope
 ```
-
-Omit `skills` to keep the package's skills enabled. Run `/reload` after the change. Use a single active query entry point; if both remain visible, check for another explicit extension load before querying.
-
-To roll back, disable the new server in the same profile, restore the legacy extension entry, and reload. No package removal or credential deletion is needed. These are opt-in instructions, not a claim that your server's connection, tools, or account have already been verified.
 
 ## License
 
-MIT. See [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md), [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE), and [`LICENSE`](./LICENSE).
+MIT. Forked from [`@upstash/context7-pi`](https://github.com/upstash/context7). See [`UPSTREAM_SOURCE.md`](./UPSTREAM_SOURCE.md), [`UPSTREAM_LICENSE`](./UPSTREAM_LICENSE), and [`LICENSE`](./LICENSE).

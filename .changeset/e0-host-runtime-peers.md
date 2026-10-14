@@ -3,12 +3,10 @@
 "@zhcsyncer/pi-adversarial-review": patch
 "@zhcsyncer/pi-ask-user-question": patch
 "@zhcsyncer/pi-consult": patch
-"@zhcsyncer/pi-context7": patch
 "@zhcsyncer/pi-fast-mode": patch
 "@zhcsyncer/pi-glance": patch
 "@zhcsyncer/pi-herdr-companion": patch
 "@zhcsyncer/pi-meter": patch
-"@zhcsyncer/pi-plan-mode": patch
 "@zhcsyncer/pi-search-hub": patch
 "@zhcsyncer/pi-subagents": patch
 "@zhcsyncer/pi-todo": patch

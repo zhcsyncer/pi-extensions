@@ -486,7 +486,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
 		pi.registerTool({
 			name: SUBMIT_PLAN_TOOL,
-			exposure: "model-only",
 			label: "Submit Plan",
 			description: "Persist a complete Plan revision and open revdiff for explicit user review. Re-submit the full Plan after feedback.",
 			promptSnippet: "Submit a complete Plan revision for terminal review",
@@ -701,7 +700,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
 		pi.registerTool({
 			name: COMPLETE_PLAN_TOOL,
-			exposure: "model-only",
 			label: "Complete Plan",
 			description: "Close the exact approved Plan work only after all approved scope is implemented and necessary verification passes. Never use while work is partial, checks fail, or unresolved errors remain.",
 			promptSnippet: "Mark the current approved Plan implementation complete after successful verification",
