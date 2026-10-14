@@ -24,6 +24,8 @@ function inspect(name, from) {
 	}
 }
 for (const path of [".", ...["packages", "providers"].flatMap((group) => readdirSync(join(root, group)).map((name) => `${group}/${name}`))]) {
+	// The user discontinued maintenance of these packages; exclude them from Pi 1.1 devDependency checks.
+	if (path === "packages/pi-context7" || path === "packages/pi-plan-mode") continue;
 	const file = resolve(root, path, "package.json");
 	const manifest = JSON.parse(readFileSync(file, "utf8"));
 	for (const dependency of Object.keys(manifest.devDependencies ?? {})) {
