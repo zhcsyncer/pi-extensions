@@ -56,6 +56,8 @@ describe("UsageReporter", () => {
       cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0, total: 0.30000000000000004 },
     });
     expect(next.subagentUsageRollup.cumulative).toEqual(agent.lifetimeUsage);
+    expect(next.subagentUsageRollup.reportedUsage).toEqual(next.usage);
+    expect(next.subagentUsageRollup.reportedUsage?.totalTokens).toBe(101);
     expect(reporter.claim(agent, parent)).toBeUndefined();
   });
 
@@ -160,6 +162,11 @@ describe("UsageReporter", () => {
     const parent = emptyParent();
     const agent = record();
     const result = reporter.claim(agent, parent)!;
+    expect(result.subagentUsageRollup.reportedUsage).toEqual(result.usage);
+    result.usage.input = 0;
+    result.usage.cost.total = 0;
+    expect(result.subagentUsageRollup.reportedUsage?.input).toBe(10);
+    expect(result.subagentUsageRollup.reportedUsage?.cost.total).toBe(0.5);
     result.subagentUsageRollup.cumulative.input = 0;
     agent.lifetimeUsage.input += 2;
     expect(reporter.claim(agent, parent)?.usage.input).toBe(2);

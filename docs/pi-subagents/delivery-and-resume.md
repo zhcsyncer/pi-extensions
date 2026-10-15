@@ -126,4 +126,6 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 `onAssistantUsage` 保留为 assistant 事件观察入口，但其发生在持久化前且不涵盖所有消费，不能作为完整子账本。内部 `onSessionUsage` 是累计快照而不是增量；对外查询的 `AgentRecord.lifetimeUsage` 保留同一含义。旧 archive 与新快照按累计水位对齐，不能相加重计，也不能让旧快照降低水位。
 
-父工具只报告尚未消费的增量，native `usage` 与收据必须在同一父条目持久化。直接 Agent/get 使用 `details.subagentUsageRollup`。Pi 1.2 原生 codemode 仅保存嵌套调用摘要，不保留子结果 details；公开 `tool_result` 事件沿 parentToolCallId 传递收据，在外层 `message_end` 已有 SDK 自动汇总的 usage 时一起写入 `details.subagentUsageRollups`。不自行叠加嵌套 usage、不提前另写已报账记录；脚本失败也以实际持久化的父用量为准。`UsageReporter.claim` 同步保留并发查询的本次份额，但切树后只以当前分支的持久报告重建已确认水位，不能携带被离开分支的内存 reservation。也覆盖“claim 后报告已写入，尚未再次查询便切树”的情况。互斥父分支的报告不能相加当作 child lifetime；读取 child 原账的消费者应忽略相应父 rollup，避免双计。
+父工具只报告尚未消费的增量，native `usage` 与收据必须在同一父条目持久化。直接 Agent/get 使用 `details.subagentUsageRollup`。Pi 1.2 原生 codemode 仅保存嵌套调用摘要，不保留子结果 details；公开 `tool_result` 事件沿 parentToolCallId 传递收据，在外层 `message_end` 已有 SDK 自动汇总的 usage 时一起写入 `details.subagentUsageRollups`。不自行叠加嵌套 usage、不提前另写已报账记录；脚本失败也以实际持久化的父用量为准。`UsageReporter.claim` 同步保留并发查询的本次份额，但切树后只以当前分支的持久报告重建已确认水位，不能携带被离开分支的内存 reservation。也覆盖“claim 后报告已写入，尚未再次查询便切树”的情况。互斥父分支的报告不能相加当作 child lifetime。
+
+收据的 `cumulative` 是重取去重水位；`reportedUsage` 是本条真正返回的 native Usage 增量副本，两者不可互换。当前生产者始终写入后者，外层只传播，不再累加 usage。Meter 的共享 session-parser 从有效的混合父结果中仅扣除这些子份额，保留普通父工具自己的 tokens 与费用；entry 身份及 SDK 原始消息、JSONL 不变，实时和 backfill 共用同一读取逻辑。旧收据缺失或格式无效、父定价不完整、份额超出父值时不猜测，不拿累计水位相减，不制造负数或将未知成本转成已知零。该配套不迁移既有账本、不调整配额/计价，也不代表 Meter 其它功能已经逐包确认。

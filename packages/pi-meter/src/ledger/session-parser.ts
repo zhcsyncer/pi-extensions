@@ -97,6 +97,37 @@ function isSubagentUsageRollup(message: Record<string, unknown>): boolean {
 	return isRecord(rollup) && rollup.version === 1 && typeof rollup.agentId === "string";
 }
 
+const tokenFields = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
+const costFields = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
+
+function nativeRollupUsage(value: unknown): value is Record<string, unknown> & { cost: Record<string, number> } {
+	return isRecord(value) && tokenFields.every(key => validCost(value[key])) &&
+		isRecord(value.cost) && costFields.every(key => validCost((value.cost as Record<string, unknown>)[key]));
+}
+
+/** Deduct only this entry's reported child shares, never cumulative watermarks. */
+function withoutSubagentShares(message: Record<string, unknown>, usage: Record<string, unknown>): Record<string, unknown> {
+	const receipts = isRecord(message.details) ? message.details.subagentUsageRollups : undefined;
+	if (!Array.isArray(receipts) || !nativeRollupUsage(usage)) return usage;
+	const shares = receipts.flatMap(receipt =>
+		isRecord(receipt) && receipt.version === 1 && typeof receipt.agentId === "string" && receipt.agentId.length > 0 &&
+		nativeRollupUsage(receipt.reportedUsage) ? [receipt.reportedUsage] : [],
+	);
+	if (!shares.length) return usage;
+	const tokens = Object.fromEntries(tokenFields.map(key => [key, shares.reduce((sum, share) => sum + (share[key] as number), 0)]));
+	if (tokenFields.some(key => !Number.isFinite(tokens[key]) || tokens[key] > (usage[key] as number))) return usage;
+
+	const costs = Object.fromEntries(costFields.map(key => [key, shares.reduce((sum, share) => sum + share.cost[key], 0)]));
+	if (costFields.some(key => !Number.isFinite(costs[key]))) return usage;
+	// Unknown/partial parent pricing was rejected above: never infer missing
+	// components or manufacture a known zero. Tolerate only floating-point dust.
+	const exceeds = costFields.some(key => costs[key] > usage.cost[key] &&
+		costs[key] - usage.cost[key] > Number.EPSILON * 4 * Math.max(1, costs[key], usage.cost[key]));
+	if (exceeds) return usage;
+	const cost = { ...usage.cost, ...Object.fromEntries(costFields.map(key => [key, Math.max(0, usage.cost[key] - costs[key])])) };
+	return { ...usage, ...Object.fromEntries(tokenFields.map(key => [key, (usage[key] as number) - tokens[key]])), cost };
+}
+
 export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): UsageRecord[] {
 	if (!isRecord(message) || message.role !== "toolResult" || isSubagentUsageRollup(message)) return [];
 	const ts = messageTimestamp(message);
@@ -109,7 +140,7 @@ export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): 
 		);
 	}
 	if (!isRecord(message.usage)) return [];
-	return [recordFromUsage(message.usage, meta, ts, toolResultModel(message), toolCallId)];
+	return [recordFromUsage(withoutSubagentShares(message, message.usage), meta, ts, toolResultModel(message), toolCallId)];
 }
 
 export function usageRecordsFromMessage(message: unknown, meta: RecordMeta): UsageRecord[] {

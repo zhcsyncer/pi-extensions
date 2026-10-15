@@ -8,6 +8,8 @@ export type SubagentUsageRollup = {
   version: 1;
   agentId: string;
   cumulative: LifetimeUsage;
+  /** Native usage returned by this claim, not the lifetime watermark. */
+  reportedUsage?: Pick<Usage, keyof Usage>;
 };
 
 type ParentSession = {
@@ -131,6 +133,6 @@ export class UsageReporter {
     this.claimed.set(record.id, toLifetimeUsage(cumulative));
     const usage = toReportedUsage(delta);
     if (usage.totalTokens === 0 && Object.values(usage.cost).every((part) => part === 0)) return undefined;
-    return { usage, subagentUsageRollup: { version: 1, agentId: record.id, cumulative } };
+    return { usage, subagentUsageRollup: { version: 1, agentId: record.id, cumulative, reportedUsage: structuredClone(usage) } };
   }
 }
