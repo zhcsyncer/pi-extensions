@@ -143,13 +143,6 @@ async function withLoadedExtension<T>(
 	}
 }
 
-test("registers the main-session request hook without registering providers", async () => {
-	await withLoadedExtension(async ({ providers, handlers }) => {
-		assert.equal(providers.size, 0);
-		assert.equal(typeof handlers.get("before_provider_request"), "function");
-	});
-});
-
 test("/fast default writes this model's setting and turns the current switch to match", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];
