@@ -52,7 +52,19 @@ export default pi => { for (const name of ['old_tool','new_tool','charged_tool']
   });
   cleanup.push(() => observer.mockRestore());
   const parents: AgentSession[] = [];
-  cleanup.push(async () => { for (const s of [...parents, ...children]) { await s.abort(); s.dispose(); } });
+  const closedParents = new Set<AgentSession>();
+  async function closeParent(session: AgentSession) {
+    if (closedParents.has(session)) return;
+    closedParents.add(session);
+    try {
+      await session.abort();
+      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    } finally { session.dispose(); }
+  }
+  cleanup.push(async () => {
+    for (const session of parents) await closeParent(session);
+    for (const session of children) { await session.abort(); session.dispose(); }
+  });
   async function parent(file?: string) {
     const settingsManager = SettingsManager.inMemory({ packages: [], defaultTools: ["+codemode"], compaction: { enabled: false }, retry: { enabled: false } });
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager,
@@ -85,7 +97,7 @@ export default pi => { for (const name of ['old_tool','new_tool','charged_tool']
       .map(e => (e as { data: { id: string; status: string; sessionFile?: string } }).data);
   }
   const effects = () => { try { return readFileSync(join(cwd, "effects.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)); } catch { return []; } };
-  return { cwd, faux, role, parent, children, prepare, invoke, script, input, archives, effects };
+  return { cwd, faux, role, parent, closeParent, children, prepare, invoke, script, input, archives, effects };
 }
 
 describe("Pi 1.2 native codemode orchestration", () => {
@@ -101,7 +113,7 @@ describe("Pi 1.2 native codemode orchestration", () => {
     for (const id of ids) expect(text(launch)).toContain(id);
     const collected = await f.script(parent, `text(await Promise.all(${JSON.stringify(ids)}.map(agent_id=>tools.get_subagent_result({agent_id,wait:true}))));`, "collect");
     expect(collected.isError).toBe(false); expect(text(collected)).toContain("FIRST CHILD"); expect(text(collected)).toContain("SECOND CHILD");
-    const path = parent.sessionFile!; parent.dispose(); const reopened = await f.parent(path);
+    const path = parent.sessionFile!; await f.closeParent(parent); const reopened = await f.parent(path);
     const stored = await f.script(reopened, "text(load('launches'));", "stored-ids");
     for (const id of ids) expect(text(stored)).toContain(id);
     f.faux.setResponses([fauxAssistantMessage("FOLLOWUP SAME CHILD")]);
@@ -208,7 +220,7 @@ describe("Pi 1.2 native codemode orchestration", () => {
     expect(original.getToolDefinition("new_tool"), "new authority changes no resource loading").toBeDefined();
     expect(original.getAllTools().find(t => t.name === "read")?.sourceInfo?.path).toBe("builtin:read");
     f.role("read, ext:effects/new_tool");
-    if (mode === "cold") { const file = parent.sessionFile!; parent.dispose(); original.dispose(); parent = await f.parent(file); }
+    if (mode === "cold") { const file = parent.sessionFile!; await f.closeParent(parent); original.dispose(); parent = await f.parent(file); }
     f.faux.setResponses([call("new_tool", "new-positive", {}), call("read", "new-builtin", { path: "read.txt" }),
       call("old_tool", "revoked", {}), fauxAssistantMessage("current authority done")]);
     const resumed = await f.invoke(parent, "Agent", { ...f.input("continue current role"), resume: id }, "resume");
@@ -227,9 +239,11 @@ describe("Pi 1.2 native codemode orchestration", () => {
   it.each(["direct", "native"] as const)("%s reports persisted child toolResult and standalone usage once, including parent restore", async path => {
     const f = await fixture(); f.role("ext:effects/charged_tool"); let parent = await f.parent();
     const entered = gate(), release = gate();
+    const initialTotal = path === "native" ? 0.07 : 0.05;
+    const finalTotal = path === "native" ? 0.09 : 0.07;
     f.faux.setResponses([call("charged_tool", "charged", {}), async () => { entered.resolve(); await release.promise; return fauxAssistantMessage("ACCOUNTED CHILD"); }]);
     const pending = path === "native"
-      ? f.script(parent, `text(await tools.Agent(${JSON.stringify(f.input("charged child"))}));`, "charged-root")
+      ? f.script(parent, `text(await tools.charged_tool({})); text(await tools.Agent(${JSON.stringify(f.input("charged child"))}));`, "charged-root")
       : f.invoke(parent, "Agent", f.input("charged child"), "charged-root");
     let first: ToolResultMessage;
     try {
@@ -242,19 +256,22 @@ describe("Pi 1.2 native codemode orchestration", () => {
       expect(entries.some(e => e.type === "usage" && e.usage.cost.total === 0.03)).toBe(true);
       expect(results(child).find(r => r.toolCallId === "charged")?.usage?.cost.total).toBeCloseTo(0.02, 12);
     } finally { release.resolve(); }
-    first = await pending; expect(first.isError).toBe(false); expect(first.usage?.cost.total).toBeCloseTo(0.05, 12);
+    first = await pending; expect(first.isError).toBe(false); expect(first.usage?.cost.total).toBeCloseTo(initialTotal, 12);
     const rootReceipts = results(parent).filter(r => (r.usage?.cost.total ?? 0) > 0);
     expect(rootReceipts).toHaveLength(1); expect(rootReceipts[0].toolName).toBe(path === "native" ? "codemode" : "Agent");
     const id = f.archives(parent).at(-1)!.id;
-    const total = () => parent.sessionManager.getEntries().reduce((sum, entry) => sum +
-      (entry.type === "message" && entry.message.role === "toolResult" ? entry.message.usage?.cost.total ?? 0 : 0), 0);
+    // Public stats include standalone usage as well as message receipts. A mixed
+    // codemode receipt must retain its parent-owned cost, without an extra charge.
+    const total = () => parent.getSessionStats().cost;
+    expect(total()).toBeCloseTo(initialTotal, 12);
     for (const phase of ["live", "restored"] as const) {
-      if (phase === "restored") { const file = parent.sessionFile!; parent.dispose(); parent = await f.parent(file); }
+      if (phase === "restored") { const file = parent.sessionFile!; await f.closeParent(parent); parent = await f.parent(file); }
+      expect(total()).toBeCloseTo(initialTotal, 12);
       const get = path === "native"
         ? await f.script(parent, `text(await tools.get_subagent_result({agent_id:${JSON.stringify(id)},wait:true}));`, `repeat-${phase}`)
         : await f.invoke(parent, "get_subagent_result", { agent_id: id, wait: true }, `repeat-${phase}`);
       expect(get.isError).toBe(false); expect(text(get)).toContain("ACCOUNTED CHILD");
-      expect(get.usage?.cost.total ?? 0).toBe(0); expect(total()).toBeCloseTo(0.05, 12);
+      expect(get.usage?.cost.total ?? 0).toBe(0); expect(total()).toBeCloseTo(initialTotal, 12);
     }
     // A later same-version continuation adds a real tool receipt, not an old cumulative snapshot.
     f.faux.setResponses([call("charged_tool", "charged-again", {}), fauxAssistantMessage("NEW DELTA")]);
@@ -262,6 +279,6 @@ describe("Pi 1.2 native codemode orchestration", () => {
     const next = path === "native"
       ? await f.script(parent, `text(await tools.Agent(${JSON.stringify(resume)}));`, "new-delta")
       : await f.invoke(parent, "Agent", resume, "new-delta");
-    expect(next.isError).toBe(false); expect(next.usage?.cost.total).toBeCloseTo(0.02, 12); expect(total()).toBeCloseTo(0.07, 12);
+    expect(next.isError).toBe(false); expect(next.usage?.cost.total).toBeCloseTo(0.02, 12); expect(total()).toBeCloseTo(finalTotal, 12);
   });
 });
