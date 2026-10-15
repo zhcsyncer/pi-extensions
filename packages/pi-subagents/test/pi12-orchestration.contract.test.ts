@@ -297,6 +297,19 @@ describe("Pi 1.2 native codemode orchestration", () => {
       expect(results(child).find(r => r.toolCallId === "charged")?.usage?.cost.total).toBeCloseTo(0.02, 12);
     } finally { release.resolve(); }
     first = await pending; expect(first.isError).toBe(false); expect(first.usage?.cost.total).toBeCloseTo(initialTotal, 12);
+    function persistedReceipts(toolCallId: string) {
+      const entry = parent.sessionManager.getEntries().find(e => e.type === "message" &&
+        e.message.role === "toolResult" && e.message.toolCallId === toolCallId);
+      expect(entry?.type).toBe("message");
+      return entry?.type === "message" && entry.message.role === "toolResult"
+        ? (entry.message.details as { subagentUsageRollups?: unknown[] }).subagentUsageRollups : undefined;
+    }
+    if (path === "native") {
+      expect.soft(persistedReceipts("charged-root")).toEqual([expect.objectContaining({
+        version: 1, reportedUsage: expect.objectContaining({ cost: expect.objectContaining({ total: 0.05 }) }),
+        cumulative: expect.objectContaining({ cost: 0.05 }),
+      })]);
+    }
     const rootReceipts = results(parent).filter(r => (r.usage?.cost.total ?? 0) > 0);
     expect(rootReceipts).toHaveLength(1); expect(rootReceipts[0].toolName).toBe(path === "native" ? "codemode" : "Agent");
     const id = f.archives(parent).at(-1)!.id;
@@ -319,6 +332,13 @@ describe("Pi 1.2 native codemode orchestration", () => {
     const next = path === "native"
       ? await f.script(parent, `text(await tools.Agent(${JSON.stringify(resume)}));`, "new-delta")
       : await f.invoke(parent, "Agent", resume, "new-delta");
+    if (path === "native") {
+      expect.soft(persistedReceipts("new-delta")).toEqual([expect.objectContaining({
+        version: 1, agentId: id,
+        reportedUsage: expect.objectContaining({ cost: expect.objectContaining({ total: 0.02 }) }),
+        cumulative: expect.objectContaining({ cost: 0.07 }),
+      })]);
+    }
     expect(next.isError).toBe(false); expect(next.usage?.cost.total).toBeCloseTo(0.02, 12); expect(total()).toBeCloseTo(finalTotal, 12);
   });
 });
