@@ -335,7 +335,7 @@ describe("Pi 1.2 native codemode orchestration", () => {
     if (path === "native") {
       expect.soft(persistedReceipts("new-delta")).toEqual([expect.objectContaining({
         version: 1, agentId: id,
-        reportedUsage: expect.objectContaining({ cost: expect.objectContaining({ total: 0.02 }) }),
+        reportedUsage: expect.objectContaining({ cost: expect.objectContaining({ total: expect.closeTo(0.02, 12) }) }),
         cumulative: expect.objectContaining({ cost: 0.07 }),
       })]);
     }
