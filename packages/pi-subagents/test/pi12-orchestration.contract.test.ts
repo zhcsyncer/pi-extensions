@@ -23,7 +23,7 @@ const results = (session: AgentSession) => session.messages.filter((m): m is Too
 const cost = (value: number): Usage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
   cost: { input: value, output: 0, cacheRead: 0, cacheWrite: 0, total: value } });
 
-async function fixture() {
+async function fixture(onBlockedCodemodeResult?: () => void) {
   const cwd = mkdtempSync(join(tmpdir(), "pi12-orchestration-")), agentDir = join(cwd, "agent");
   cleanup.push(() => rmSync(cwd, { recursive: true, force: true }));
   mkdirSync(agentDir);
@@ -68,7 +68,13 @@ export default pi => { for (const name of ['old_tool','new_tool','charged_tool']
   async function parent(file?: string) {
     const settingsManager = SettingsManager.inMemory({ packages: [], defaultTools: ["+codemode"], compaction: { enabled: false }, retry: { enabled: false } });
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager,
-      extensionFactories: [subagents, createCodemodeExtension({ mode: "on", models: false })], noSkills: true, noThemes: true,
+      extensionFactories: [api => {
+        // Observe VM completion before Subagents can hold the root result for
+        // unfinished host calls. This hook neither changes nor delays results.
+        api.on("tool_result", event => {
+          if (event.toolName === "codemode" && event.toolCallId === "blocked") onBlockedCodemodeResult?.();
+        });
+      }, subagents, createCodemodeExtension({ mode: "on", models: false })], noSkills: true, noThemes: true,
       noPromptTemplates: true, noContextFiles: true });
     await loader.reload(); expect(loader.getExtensions().errors).toEqual([]);
     const { session } = await createAgentSession({ cwd, agentDir, settingsManager, resourceLoader: loader, modelRuntime: runtime,
@@ -123,9 +129,17 @@ describe("Pi 1.2 native codemode orchestration", () => {
   });
 
   it.each(["direct", "native"] as const)("%s foreground cancellation waits for the controlled child to settle", async path => {
-    const f = await fixture(), parent = await f.parent(), entered = gate(), aborted = gate(), release = gate();
+    const entered = gate(), aborted = gate(), release = gate(), vmEnded = gate();
+    const phases: string[] = [];
+    const f = await fixture(() => { phases.push("root-codemode-tool_result"); vmEnded.resolve(); });
+    const parent = await f.parent();
+    const unsubscribe = parent.subscribe(event => {
+      if (event.type === "tool_execution_end") phases.push(`tool_execution_end:${event.toolName}:${event.toolCallId}`);
+    });
     f.faux.setResponses([async (_context, options) => {
-      options?.signal?.addEventListener("abort", aborted.resolve, { once: true }); entered.resolve(); await release.promise;
+      options?.signal?.addEventListener("abort", () => { phases.push("child-abort"); aborted.resolve(); }, { once: true });
+      phases.push("child-entered"); entered.resolve(); await release.promise;
+      phases.push("child-provider-settled");
       return fauxAssistantMessage("late output must not be called successful");
     }]);
     const input = f.input("blocked foreground");
@@ -138,12 +152,17 @@ describe("Pi 1.2 native codemode orchestration", () => {
       })]);
       expect(f.children.size).toBe(1);
       let stopped = false;
-      stop = parent.abort().then(() => { stopped = true; });
+      stop = parent.abort().then(() => { phases.push("parent-abort-resolved"); stopped = true; });
       await expect.poll(() => [...f.children][0].agent.state.isStreaming).toBe(true);
-      await Promise.race([aborted.promise, stop]); await tick();
-      expect(stopped, "do not settle the outer foreground call while the child provider is blocked").toBe(false);
+      if (path === "native") await Promise.all([vmEnded.promise, aborted.promise]);
+      else await Promise.race([aborted.promise, stop]);
+      await tick();
+      expect(stopped, `do not settle the outer foreground call while the child provider is blocked; phases=${JSON.stringify(phases)}`).toBe(false);
       expect(f.archives(parent).some(r => r.status === "completed")).toBe(false);
-    } finally { release.resolve(); await stop; await pending; }
+    } finally {
+      phases.push("child-release"); release.resolve(); await stop; await pending;
+      unsubscribe(); console.log("PUBLIC_CANCELLATION_PHASES", JSON.stringify({ path, phases }));
+    }
     expect([...f.children].every(s => !s.agent.state.isStreaming)).toBe(true);
     expect(new Set(f.archives(parent).map(r => r.id)).size, "cancelled child must remain tracked").toBe(1);
     expect(f.archives(parent).at(-1)!.status).toMatch(/stopped|aborted/);
