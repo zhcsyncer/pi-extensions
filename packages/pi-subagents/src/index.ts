@@ -17,6 +17,7 @@ import { Container, Key, matchesKey, type SettingItem, SettingsList, Spacer, Tex
 import { Type } from "@sinclair/typebox";
 import { AgentManager } from "./agent-manager.js";
 import { UsageReporter } from "./usage-reporting.js";
+import { NestedAgentSettlement } from "./nested-agent-settlement.js";
 import {
   getAgentConversation,
   normalizeMaxTurns,
@@ -758,6 +759,10 @@ export default function (pi: ExtensionAPI) {
   // agent's `output_transcript` frontmatter overrides this per spawn; when the
   // frontmatter is silent, this default applies. Read live at spawn time.
   let reportUsage = true;
+  const nestedAgents = new NestedAgentSettlement(SUBAGENT_TOOL_NAMES.AGENT);
+  pi.on("tool_execution_start", event => { nestedAgents.start(event); });
+  pi.on("tool_execution_end", event => { nestedAgents.end(event.toolCallId); });
+  pi.on("tool_result", event => nestedAgents.waitForRoot(event));
   const usageReporter = new UsageReporter();
   pi.on("tool_result", (event) => { usageReporter.observeToolResult(event); });
   pi.on("message_end", (event) => usageReporter.finalizeMessage(event));
