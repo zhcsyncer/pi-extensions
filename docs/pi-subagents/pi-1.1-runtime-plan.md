@@ -1,5 +1,7 @@
 # Pi 1.1.0：子会话、工作流与权限实施规格
 
+> **历史设计记录，非当前完整授权范围。** Pi 1.2+ 已确认的 Subagents 行为以 [R2 当前合同](../pi-extensions/tasks/r2-session-authorization.md)和[投递与恢复](./delivery-and-resume.md)为准：Agent/get/steer 可由 codemode 调用，恢复按当前配置而非历史交集；旧版本任务迁移不作要求。下文的 model-only、历史上限及 native MCP/Plan 接入计划不能覆盖当前决定，其它包仍须逐项确认。
+
 状态：分阶段实施中，验收状态见[统一执行表](../pi-extensions/pi-1.1-execution-plan.md#0-统一进度表调度-session-唯一写入)。归属：[总计划](../pi-1.1-implementation-plan.md) W1/W2；用户已冻结 B10–B12，本轮不实现或专项复核这三项，以下对应段落仅留作参考。
 
 ## Goal

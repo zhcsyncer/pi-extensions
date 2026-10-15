@@ -1,6 +1,6 @@
 # Pi 1.2+：逐包确认与既有适配记录
 
-> **当前范围（2026-10-15 16:40，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast 主会话请求钩子方案已实现并通过离线验收，本轮确认完成；本机全局配置已只将 Fast 指向该分支本地子包，旧根包 Fast 入口已排除，当前会话未强制重载。** 其余扩展仍待逐个确认，不因整体检查通过而自动通过；不合 main、不发版、不改认证或其他全局扩展。
+> **当前范围（2026-10-15 20:31，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast 与 Subagents 已按用户确认范围完成本轮实施及离线验收。** 本机全局只切换了 Fast；本次 Subagents/Meter 配套未改变全局加载、认证或 Fast。其余12个维护子包仍待整包逐项确认（Meter仅验收本轮必要去重配套），根包组成未整体批准；不合 main、不发版。
 
 > **2026-10-14 16:38 用户范围收缩（覆盖下文旧范围/验收快照）**：Context7、Plan 的本轮变更回撤至 f48a91b，仅双语 README 标记不再维护及理由；不删包、不动真实安装。K1/P1及其原生组合不再作为本轮开发/验收门槛。外部 Ollama 非自有扩展，完全排除处理与发布门槛，已有验证仅保留历史证据。旧17包版本计划与验收计数须在回撤后重算，未批准发布。Subagents变更已区分必要适配与附带修复，未授权继续修改。用户另明确确认：仅从Pi1.1专项依赖检查精确排除这两个停维护包，其余SDK断言保留，加载入口/CI不变。
 
@@ -26,7 +26,9 @@
 | 范围 | 用户确认 | 实施／验证 |
 |---|---|---|
 | Fast | **本轮确认完成**：仅主会话请求钩子；接受费用估算差异，不要求第三方直接调用跟随 | 代码候选 `c700228`；37/37（含独立8）与类型、真实loader、pack17/policy通过。provider包装和预算已删除，开关/默认设置保持。全局旧入口已排除，仅本地子包生效于后续加载 |
-| Consult、Subagents、Tool Display、Meter、Glance、Search、Recap、Todo、Question、Herdr、Review、Cursor、Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
+| Subagents | **本轮确认完成**：直接调用和codemode编排并存；同版本恢复按当前配置授权，不保留历史权限上限；不做旧版本任务迁移 | 最终代码/合同 `fdf9a43`；1164/1164（独立62）、源码与测试类型通过。保留执行门禁、宽限提示、生命周期/配置隔离/计量修复；追加按root等待未结束nested Agent的公开事件屏障，不影响已返回后台任务/get waiter。不切全局；见 [R2合同](./tasks/r2-session-authorization.md) |
+| Meter | **仍待整包确认**；仅本轮 Subagents 编排消费端配套已验收 | SDK/Meter真实离线记录均0.07→重开仍0.07→续跑0.09；267/267（独立4）通过。只补reportedUsage增量与共享parser扣重复份额，保留父工具自有费用；不改存储/计价/配额或历史记录，不据此批准其它Meter改造 |
+| Consult、Tool Display、Glance、Search、Recap、Todo、Question、Herdr、Review、Cursor、Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
 | 根聚合包 | 待上述逐包确认与组成审阅 | 暂不整体合并／发布；Context7/Plan 的历史入口尚未移除 |
 | Context7、Plan | 已明确退出／不维护 | 已完整回撤，包目录相对 f48a91b 仅双语 README 停维护说明；不列入本轮发布计划 |
 | 外部 Ollama | 排除 | 不开发、不作本仓发布门槛、不动安装 |
@@ -34,6 +36,12 @@
 当前分支：`upgrade/pi-1.2-compat`，工作树 `/root/.herdr/worktrees/pi-agent-cases/pi-1.2-compat`，PR #155。此前1.2.0工具链核验基线 `5068286` 完整检查44/44、冻结及新装/升级34/34、远端CI通过；本次Fast改动引用局部37项/类型/loader/pack/policy的新验证，不冒称重跑全量44或34安装。实现 `a957593`、独立合同 `4ae80c4`→集成 `c747da7`，清理过时自有注册测试及根最低版本说明后为 `c700228`；源码之外的计划同步不改变运行内容。证据 `/var/tmp/pi-1.2-review/fast-main-session/`；未执行真实模型、priority授权、账单或TTY验证。
 
 全局配置保留 npm 根包其它扩展，只排除 `packages/pi-fast-mode/extensions/fast-mode.ts` 并引用上述工作树的 `packages/pi-fast-mode`。官方资源发现已验证只有一个Fast入口，其余根包资源选择不变；原配置私有备份在证据目录。**该工作树已被本机全局 Fast 引用，不得作为临时验证环境自动回收。** 当前会话需用户 `/reload` 或重启才切换已加载实现，未自动开启Fast。合同见 [N1](./tasks/n1-fast-options.md)。
+
+Subagents 本轮基线 `fbb57cd`，产品 `8a2ae49`、隔离来源 `6e7b12b`、测试类型 `4ee8c18`、Meter配套 `b1c8a7f`、公开结算屏障 `923045a`，与冻结独立合同集成为 **`fdf9a43`**。独立组合 `1a5fb64` 与主候选文件树完全一致，62+4合同及类型通过；主会话完整复验 Subagents1164、Meter267、Review363、两包真实loader、pack17和policy通过。未重跑全仓44/安装34，也未使用真实服务或账单。
+
+代码审阅与独立合同作者隔离保留；旧基线红灯、浮点严格比较误差及native取消红灯均留在 `/var/tmp/pi-1.2-review/subagents-orchestration/`。原生VM取消确实早于宿主Agent结算，现用公共tool_execution_start/end与root tool_result局部等待修复；没有修改SDK或等待整个manager。Meter先前0.12/0.16是合成记录的本地重复统计，不是服务商重复扣款；最终真实FileLedgerStore为0.07/0.07/0.09。合法后台、取消get waiter、子任务禁递归与权限正负控均保留。
+
+恢复范围：已注册工具的授权变化可热续跑；新增扩展加载面需冷恢复或新任务，不重建动态loader。任务显式隔离与角色旧默认已区分。上述静态加固与本轮新增路径修复不反推旧main所有普通任务都失败；原native MCP/R3、连接前权限及冻结债务不扩展。独立测试环境验收后可回收，实施树因全局Fast引用继续保留。
 
 以下 1.1 编排、验收计数和任务表属于历史记录；其中的“已集成／已验收”不表示已经完成本轮 1.2+ 逐包确认。旧 SDK 图八项、未推送等快照不再描述当前状态；当前 1.2.0 图为七项，TypeBox 1.3.27。
 
