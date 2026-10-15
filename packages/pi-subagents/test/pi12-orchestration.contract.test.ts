@@ -34,8 +34,8 @@ export default pi => { for (const name of ['old_tool','new_tool','charged_tool']
  parameters:{type:'object',properties:{}},execute:async(_id,_args,_signal,_update,ctx)=>{
  appendFileSync(join(ctx.cwd,'effects.jsonl'),JSON.stringify({name})+'\\n');
  return {content:[{type:'text',text:'EXECUTED '+name}],details:{},...(name==='charged_tool'?{usage:${JSON.stringify(cost(0.02))}}:{})};}}); };`);
-  function role(tools = "ext:effects/old_tool") {
-    put(join(cwd, ".pi/agents/worker.md"), `---\ndescription: Current named worker\ntools: "${tools}"\nextensions: [effects]\nskills: false\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwd, "children"))}\nprompt_mode: replace\n---\nORIGINAL TASK INTENT\n`);
+  function role(tools = "ext:effects/old_tool", isolated?: boolean) {
+    put(join(cwd, ".pi/agents/worker.md"), `---\ndescription: Current named worker\ntools: "${tools}"\nextensions: [effects]\n${isolated === undefined ? "" : `isolated: ${isolated}\n`}skills: false\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwd, "children"))}\nprompt_mode: replace\n---\nORIGINAL TASK INTENT\n`);
   }
   role(); put(join(cwd, "read.txt"), "NEW BUILTIN AUTHORITY");
   const faux = fauxProvider({ provider: "r2-native-offline", models: [{ id: "contract", contextWindow: 128000, maxTokens: 4096 }] });
@@ -234,6 +234,46 @@ describe("Pi 1.2 native codemode orchestration", () => {
     expect(results(child).find(r => r.toolCallId === "revoked")?.isError).toBe(true);
     expect.soft(f.effects()).toEqual([{ name: "old_tool" }, { name: "new_tool" }]);
     for (const name of ["Agent", "get_subagent_result", "steer_subagent"]) expect(child.getCallableToolNames()).not.toContain(name);
+  });
+
+  it.each(["role-default", "explicit-task"] as const)("cold resume distinguishes %s isolation from current named authority", async isolation => {
+    const f = await fixture(); f.role("ext:effects/old_tool", true);
+    let parent = await f.parent();
+    f.faux.setResponses([call("old_tool", "initial-isolation", {}), fauxAssistantMessage("ISOLATED ORIGINAL")]);
+    const initialInput = { ...f.input("preserve original task"), ...(isolation === "explicit-task" ? { isolated: true } : {}) };
+    const first = await f.invoke(parent, "Agent", initialInput, "isolated-start");
+    expect(first.isError).toBe(false);
+    expect(f.children.size).toBe(1);
+    const original = [...f.children][0];
+    expect(results(original).find(r => r.toolCallId === "initial-isolation")?.isError).toBe(true);
+    expect(original.getToolDefinition("old_tool")).toBeUndefined();
+    expect(f.effects()).toEqual([]);
+    const id = f.archives(parent).at(-1)!.id;
+    const identity = original.sessionId, cwd = original.sessionManager.getCwd(), prompt = original.systemPrompt;
+    const model = { provider: original.model!.provider, id: original.model!.id };
+    const file = parent.sessionFile!;
+    await f.closeParent(parent); original.dispose();
+    // Cold reconstruction may load a newly permitted extension. This does not
+    // require hot resource loading or change the first-call isolation priority.
+    f.role("ext:effects/old_tool", false);
+    parent = await f.parent(file);
+    f.faux.setResponses([call("old_tool", "after-isolation-change", {}), fauxAssistantMessage("CURRENT ROLE CHECKED")]);
+    // Deliberately omit isolated here: an explicit task constraint must survive
+    // persistence, while the old role default must not become such a constraint.
+    const resumed = await f.invoke(parent, "Agent", { ...f.input("continue saved task"), resume: id }, "isolated-resume");
+    expect(resumed.isError).toBe(false);
+    const child = [...f.children].at(-1)!;
+    expect(child).not.toBe(original); expect(child.sessionId).toBe(identity);
+    expect(child.sessionManager.getCwd()).toBe(cwd); expect(cwd).toBe(f.cwd);
+    expect(child.systemPrompt).toBe(prompt);
+    expect({ provider: child.model!.provider, id: child.model!.id }).toEqual(model);
+    expect(new Set(f.archives(parent).map(r => r.id))).toEqual(new Set([id]));
+    const attempted = results(child).find(r => r.toolCallId === "after-isolation-change");
+    expect(attempted).toBeDefined();
+    const remainsIsolated = isolation === "explicit-task";
+    expect.soft(attempted!.isError).toBe(remainsIsolated);
+    expect(f.effects()).toEqual(remainsIsolated ? [] : [{ name: "old_tool" }]);
+    if (!remainsIsolated) expect(text(attempted!)).toContain("EXECUTED old_tool");
   });
 
   it.each(["direct", "native"] as const)("%s reports persisted child toolResult and standalone usage once, including parent restore", async path => {
