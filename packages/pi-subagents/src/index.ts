@@ -1287,6 +1287,9 @@ Terse command-style prompts produce shallow, generic work.
       const inheritContext = resolvedConfig.inheritContext;
       const runInBackground = resolvedConfig.runInBackground;
       const isolated = resolvedConfig.isolated;
+      // Preserve initial role/request precedence, but only an effective explicit
+      // request remains a task constraint when the role changes on resume.
+      const taskIsolated = params.isolated === true && isolated;
       const isolation = resolvedConfig.isolation;
       // Whether this spawn writes its .output transcript. Per-agent
       // frontmatter (`output_transcript`) wins; otherwise the project/global
@@ -1406,6 +1409,7 @@ Terse command-style prompts produce shallow, generic work.
             model,
             maxTurns: effectiveMaxTurns,
             isolated,
+            taskIsolated,
             inheritContext,
             thinkingLevel: thinking,
             isBackground: true,
@@ -1550,6 +1554,7 @@ Terse command-style prompts produce shallow, generic work.
           model,
           maxTurns: effectiveMaxTurns,
           isolated,
+          taskIsolated,
           inheritContext,
           thinkingLevel: thinking,
           isolation,

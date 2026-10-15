@@ -391,6 +391,62 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     }
   });
 
+  it.each([false, true])("distinguishes role-default isolation from an effective explicit Agent request across cold recovery (%s)", async explicit => {
+    const f = await fixture();
+    const role = join(f.cwd, ".pi/agents/public-isolation.md");
+    mkdirSync(dirname(role), { recursive: true });
+    const definition = (isolated: boolean) => `---\ntools: ext:fixture/allowed\nextensions: ${f.file}\nskills: none\nisolated: ${isolated}\npersist_session: true\nsession_dir: ${join(f.cwd, "children")}\nprompt_mode: replace\n---\nPUBLIC_ROLE`;
+    writeFileSync(role, definition(true));
+    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+    const open = async (file?: string) => {
+      const loader = new DefaultResourceLoader({ cwd: f.cwd, agentDir: getAgentDir(), settingsManager: settings,
+        noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
+        additionalExtensionPaths: [fileURLToPath(new URL("../src/index.ts", import.meta.url))] });
+      await loader.reload();
+      expect(loader.getExtensions().errors).toEqual([]);
+      const { session } = await createAgentSession({ cwd: f.cwd, agentDir: getAgentDir(), modelRuntime: f.runtime,
+        model: f.faux.getModel(), resourceLoader: loader, settingsManager: settings,
+        sessionManager: file ? SessionManager.open(file) : SessionManager.create(f.cwd, join(f.cwd, "parents")) });
+      await session.bindExtensions({});
+      return session;
+    };
+    const close = async (session: AgentSession) => {
+      await session.waitForIdle();
+      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      session.dispose();
+    };
+    let parent = await open();
+    try {
+      f.faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("Agent", { prompt: "first", description: "isolation source", subagent_type: "public-isolation", ...(explicit ? { isolated: true } : {}) }), { stopReason: "toolUse" }),
+        context => {
+          expect(getCurrentTools(context.messages).some(tool => tool.name === "allowed")).toBe(false);
+          return fauxAssistantMessage("FIRST_DONE");
+        },
+        fauxAssistantMessage("PARENT_DONE"),
+      ]);
+      await parent.prompt("start named isolated role");
+      const first = parent.messages.filter(message => message.role === "toolResult").at(-1)!;
+      expect(first.isError).toBe(false);
+      const id = (first.details as { agentId: string }).agentId;
+      expect(id).toBeTruthy();
+      const file = parent.sessionFile!;
+      await close(parent);
+      writeFileSync(role, definition(false));
+      parent = await open(file);
+      f.faux.setResponses([
+        fauxAssistantMessage(fauxToolCall("Agent", { resume: id, prompt: "use current extension", description: "cold resume", subagent_type: "public-isolation" }), { stopReason: "toolUse" }),
+        context => {
+          expect(getCurrentTools(context.messages).some(tool => tool.name === "allowed")).toBe(!explicit);
+          return fauxAssistantMessage(fauxToolCall("allowed", {}), { stopReason: "toolUse" });
+        },
+        fauxAssistantMessage("RESUMED"), fauxAssistantMessage("PARENT_DONE"),
+      ]);
+      await parent.prompt("resume after changing the role");
+      expect(readFileSync(f.effects, "utf8")).toBe(explicit ? "" : "allowed\n");
+    } finally { await close(parent); }
+  });
+
   it("keeps named roles and pin observers independent across interleaved cwd activations", async () => {
     const a = await fixture();
     const b = await fixture();

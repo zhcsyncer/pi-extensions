@@ -381,6 +381,8 @@ export interface RunOptions {
   graceTurns?: number;
   signal?: AbortSignal;
   isolated?: boolean;
+  /** Effective explicit task constraint, separate from the role's initial default. */
+  taskIsolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
   /**
@@ -645,7 +647,7 @@ export async function runAgent(
         configCwd,
         model: { provider: session.model.provider, modelId: session.model.id },
         thinkingLevel: session.thinkingLevel,
-        isolated: options.isolated ?? false,
+        isolated: options.taskIsolated ?? options.isolated ?? false,
         maxTurns,
         graceTurns: effectiveGraceTurns,
       });
@@ -926,7 +928,7 @@ async function constructAgentSession(
     const snapshot = authorization.update(authorizationScope(agentConfig, isolated, loader, role, configCwd));
     authorization.bind(session);
     sessionAuthorities.set(session, { authorization, snapshot, configCwd, runtime,
-      explicitIsolated: options.isolated ?? false,
+      explicitIsolated: options.taskIsolated ?? options.isolated ?? false,
       loadedAllExtensions: loadAll && !isolated,
       excludedExtensions: [...excludeNames],
       inlineConfig: role.kind === "inline" ? (options.currentAgentConfig ?? options.inlineAgentConfig ?? agentConfig) : undefined });

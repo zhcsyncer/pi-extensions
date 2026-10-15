@@ -88,6 +88,8 @@ export interface SpawnOptions {
   /** Extra wrap-up turns after the soft maxTurns steer. Defaults to the global setting. */
   graceTurns?: number;
   isolated?: boolean;
+  /** Internal provenance when a caller already resolved role/request precedence. */
+  taskIsolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
   /** Optional role definition supplied directly by another extension. */
@@ -362,6 +364,7 @@ export class AgentManager {
       maxTurns: options.maxTurns,
       ...(options.graceTurns !== undefined ? { graceTurns: options.graceTurns } : {}),
       isolated: options.isolated,
+      taskIsolated: options.taskIsolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
       ...(options.inlineAgentConfig ? { inlineAgentConfig: options.inlineAgentConfig } : {}),
