@@ -16,7 +16,7 @@ function inspect(name, from) {
 	const directory = dirname(entry);
 	const manifest = JSON.parse(readFileSync(entry, "utf8"));
 	assert.equal(manifest.name, name === "@sinclair/typebox" ? "typebox" : name);
-	const expected = sdkNames.has(name) ? "1.1.0" : "1.3.27";
+	const expected = sdkNames.has(name) ? "1.2.0" : "1.3.27";
 	assert.equal(manifest.version, expected, `${name}: wrong physical SDK resolved from ${from}`);
 	versions.set(name, manifest.version);
 	for (const dependency of Object.keys(manifest.dependencies ?? {})) {

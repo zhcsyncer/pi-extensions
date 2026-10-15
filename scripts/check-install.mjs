@@ -63,7 +63,7 @@ function verifyContent(installed, packed) {
 async function worker(output, previousRef) {
 	const { DefaultPackageManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 	const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")), "utf8")).version;
-	assert.equal(version, "1.1.0");
+	assert.equal(version, "1.2.0");
 	const paths = [".", ...["packages", "providers"].flatMap((group) => readdirSync(join(root, group)).map((name) => `${group}/${name}`))];
 	const oldTree = join(output, "previous-source");
 	mkdirSync(oldTree);

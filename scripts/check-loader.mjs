@@ -47,7 +47,7 @@ export async function checkPackageLoad(packagePath) {
 	const provenance = observeNativeHostModules();
 	const { DefaultResourceLoader, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 	const sdkManifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")), "utf8"));
-	assert.equal(sdkManifest.version, "1.1.0", "Do not substitute the executing host or another target SDK");
+	assert.equal(sdkManifest.version, "1.2.0", "Do not substitute the executing host or another target SDK");
 	const manifest = JSON.parse(readFileSync(resolve(packagePath, "package.json"), "utf8"));
 	const loader = new DefaultResourceLoader({
 		cwd: process.env.HOME,
