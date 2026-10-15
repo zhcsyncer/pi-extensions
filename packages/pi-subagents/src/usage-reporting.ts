@@ -1,13 +1,14 @@
 import type { Usage } from "@earendil-works/pi-ai";
+import type { MessageEndEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentRecord } from "./types.js";
 import { createLifetimeUsage, toLifetimeUsage, toReportedUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 
 /** Persist inside the actual parent toolResult.details alongside native usage. */
-export interface SubagentUsageRollup {
+export type SubagentUsageRollup = {
   version: 1;
   agentId: string;
   cumulative: LifetimeUsage;
-}
+};
 
 type ParentSession = {
   getBranch(): readonly unknown[];
@@ -23,6 +24,18 @@ function object(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined;
 }
 
+function receipts(message: Record<string, unknown> | undefined): SubagentUsageRollup[] {
+  if (message?.role !== "toolResult" || !object(message.usage)) return [];
+  const details = object(message.details);
+  const candidates = message.toolName === "Agent" || message.toolName === "get_subagent_result"
+    ? [details?.subagentUsageRollup]
+    : Array.isArray(details?.subagentUsageRollups) ? details.subagentUsageRollups : [];
+  return candidates.filter((value): value is SubagentUsageRollup => {
+    const marker = object(value);
+    return marker?.version === 1 && typeof marker.agentId === "string" && !!object(marker.cumulative);
+  });
+}
+
 /**
  * Claims settled foreground Agent/get_subagent_result usage, never background
  * acknowledgments, running queries or steering. The caller owns that boundary.
@@ -35,6 +48,31 @@ export class UsageReporter {
   private sessionId: string | undefined;
   private leafId: string | null | undefined;
   private entryCount = 0;
+  private nested = new Map<string, SubagentUsageRollup[]>();
+
+  /** Nested results are not transcript entries. Carry receipts, never their usage. */
+  observeToolResult(event: ToolResultEvent): void {
+    const children = this.nested.get(event.toolCallId) ?? [];
+    if (!event.parentToolCallId) return;
+    this.nested.delete(event.toolCallId);
+    const own = receipts({ ...event, role: "toolResult" });
+    if (children.length || own.length) {
+      const parent = this.nested.get(event.parentToolCallId) ?? [];
+      this.nested.set(event.parentToolCallId, [...parent, ...children, ...own]);
+    }
+  }
+
+  /** SDK has now aggregated nested usage; persist receipts in that same message. */
+  finalizeMessage(event: MessageEndEvent): { message: MessageEndEvent["message"] } | undefined {
+    const message = event.message;
+    if (message.role !== "toolResult") return;
+    const markers = this.nested.get(message.toolCallId);
+    this.nested.delete(message.toolCallId);
+    if (!markers?.length || !message.usage) return;
+    return { message: { ...message, details: { ...object(message.details), subagentUsageRollups: markers } } };
+  }
+
+  clearPending(): void { this.nested.clear(); }
 
   claim(record: AgentRecord, sessionManager: ParentSession): {
     usage: Usage;
@@ -62,13 +100,7 @@ export class UsageReporter {
       for (const entry of entries.slice(this.entryCount)) {
         const node = object(entry);
         if (node?.type !== "message" || branchIds.has(node.id)) continue;
-        const message = object(node.message);
-        if (message?.role !== "toolResult" || !object(message.usage) ||
-            (message.toolName !== "Agent" && message.toolName !== "get_subagent_result")) continue;
-        const marker = object(object(message.details)?.subagentUsageRollup);
-        if (marker?.version === 1 && typeof marker.agentId === "string" && object(marker.cumulative)) {
-          this.claimed.delete(marker.agentId);
-        }
+        for (const marker of receipts(object(node.message))) this.claimed.delete(marker.agentId);
       }
     }
     this.entryCount = entries?.length ?? 0;
@@ -80,12 +112,9 @@ export class UsageReporter {
     for (const entry of branch) {
       const node = object(entry);
       if (node?.type !== "message") continue;
-      const message = object(node.message);
-      if (message?.role !== "toolResult" || !object(message.usage)
-        || (message.toolName !== "Agent" && message.toolName !== "get_subagent_result")) continue;
-      const marker = object(object(message.details)?.subagentUsageRollup);
-      if (marker?.version !== 1 || marker.agentId !== record.id || !object(marker.cumulative)) continue;
-      previous = usageWatermark(previous, toLifetimeUsage(marker.cumulative));
+      for (const marker of receipts(object(node.message))) {
+        if (marker.agentId === record.id) previous = usageWatermark(previous, toLifetimeUsage(marker.cumulative));
+      }
     }
 
     const cumulative = usageWatermark(previous, toLifetimeUsage(record.lifetimeUsage));

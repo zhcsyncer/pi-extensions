@@ -75,6 +75,36 @@ describe("UsageReporter", () => {
     expect(restarted.claim(agent, parent)?.usage.totalTokens).toBe(2);
   });
 
+  it("carries nested receipts only with the parent's native usage and restores cost watermarks", () => {
+    const parent = SessionManager.inMemory();
+    const agent = record();
+    const reporter = new UsageReporter();
+    const claimed = reporter.claim(agent, parent)!;
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1/1", parentToolCallId: "root/1",
+      toolName: "Agent", input: {}, content: [], isError: false, usage: claimed.usage,
+      details: { subagentUsageRollup: claimed.subagentUsageRollup } });
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1", parentToolCallId: "root",
+      toolName: "bridge", input: {}, content: [], isError: false, details: {} });
+    const root = { ...message(claimed, "codemode"), toolCallId: "root", details: { calls: [] } };
+    const finalized = reporter.finalizeMessage({ type: "message_end", message: root })!;
+    expect(finalized.message).toMatchObject({ usage: claimed.usage,
+      details: { calls: [], subagentUsageRollups: [claimed.subagentUsageRollup] } });
+    parent.appendMessage(finalized.message);
+    expect(new UsageReporter().claim(agent, parent)).toBeUndefined();
+    addUsage(agent.lifetimeUsage, toLifetimeUsage({ cost: 0.25 }));
+    expect(new UsageReporter().claim(agent, parent)?.usage.cost.total).toBe(0.25);
+  });
+
+  it("does not attach nested receipts to a message without persisted native usage", () => {
+    const reporter = new UsageReporter();
+    const claimed = reporter.claim(record(), emptyParent())!;
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1", parentToolCallId: "root",
+      toolName: "Agent", input: {}, content: [], isError: false, usage: claimed.usage,
+      details: { subagentUsageRollup: claimed.subagentUsageRollup } });
+    expect(reporter.finalizeMessage({ type: "message_end",
+      message: { ...message(claimed, "codemode"), toolCallId: "root", usage: undefined } })).toBeUndefined();
+  });
+
   it("keeps agents independent in memory and in persisted claims", () => {
     const reporter = new UsageReporter();
     const parent = SessionManager.inMemory();

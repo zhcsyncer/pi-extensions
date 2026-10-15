@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-需要 Pi 1.1 或更高。加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
+需要 Pi 1.2 或更高（实测版本为 1.2.0）。加载本 fork 前，请先从 Pi 设置中移除已有的 `@tintinweb/pi-subagents`：两者会注册相同的工具和 FleetView。
 
 ## 核心功能与上游差异
 
@@ -34,7 +34,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 ## 委派与接收结果
 
-`Agent`、`get_subagent_result` 和 `steer_subagent` 是 model-only 工具：模型仍可直接调用，但另一工具或脚本不能经工具层嵌套调用它们。此限制仅针对这三个工具，不禁止公开 runtime API；集成仍可在既有授权规则下使用该 API。
+`Agent`、`get_subagent_result` 和 `steer_subagent` 同时支持模型直接调用与 codemode 脚本。Codemode 可选，不会自动开启；child 仍不能递归调用这三个工具。脚本沿用直接调用的前台/后台取消语义：已返回 ID 的后台任务仍由 manager 管理，不因脚本随后失败而自动停止。
 
 结果若是下一次 read、edit 或 decision 的前置条件，使用 **foreground**（默认）。只有确实存在互不重叠的并行工作时，才用 `run_in_background: true`。运行期间不要轮询、sleep 或重复子 agent 的证据收集。主 agent 仍负责综合与最终验证；应定向抽查高风险结论，而不是重跑整轮调查。
 
@@ -48,7 +48,7 @@ pi install npm:@zhcsyncer/pi-extensions
 
 本 fork 的 `reportUsage` 默认**开启**（不同于上游 0.18）。Pi 会将已收集的子代理花费计入原生会话统计和 Glance：
 
-- 前台：盖在返回最终结果的 `Agent` 工具结果上。
+- 前台：盖在返回最终结果的 `Agent` 工具结果上。经 codemode 调用时由 Pi 汇入外层结果，重复查询与重启不会再次计入这份用量。
 - 后台：启动回执不盖 usage；完成后的 `get_subagent_result` 结算一次。只收到通知、没有收集结果时，父会话统计暂不增加。
 - 重复查询和续跑只补尚未上报的 lifetime 增量，包含 cacheRead 和 provider 已报告的费用。已记录的 assistant 回复、外层工具结果、独立 usage 和摘要生成都计入，nested 调用不重复叠加。
 - 父会话结算跟随所选对话分支；切换分支不会把互斥分支的报告相加。缺少费用信息不代表已确认免费。
@@ -76,7 +76,9 @@ pi install npm:@zhcsyncer/pi-extensions
 
 普通运行默认持久化。可在 agent 文件中设置 `persist_session: false` 改为仅内存运行，或在 `/agents → Settings` 中用 `rememberAgents: false` 修改默认值；显式 `persist_session: true` 可以覆盖该默认值。仅内存 agent 在记录仍保留时可以续跑，但回收或重启后不保证可用。
 
-恢复已保存的终态任务，需要当前父会话分支上符合条件的历史、完整的子会话，以及可验证的当前授权。权限不得超过保存上限与当前角色/调用方权限的交集；角色删除或禁用后不能续跑。无法验证历史扩展权限的旧任务仍可查看，但不能执行。已保存的失败/停止任务仍须显式 `Agent(resume=...)`。
+恢复已保存的终态任务，需要当前父会话分支上符合条件的历史、完整的子会话，以及当前授权。Named 角色从原配置目录按名称重新读取；删除或禁用后不能续跑。当前允许与禁止项替代旧权限，不改变任务的 prompt、模型、cwd、历史与轮次限额；显式隔离仍保留。Inline 任务优先使用调用方提供的当前定义，否则使用仍持有或保存的任务定义。不支持跨版本任务迁移。已保存的失败/停止任务仍须显式 `Agent(resume=...)`。
+
+对已注册工具新增授权可在热续跑中生效。若当前权限要求此前未加载的扩展，热续跑会明确报错；在新 session 中恢复保存的任务才能加载当前资源，不用历史权限上限静默掩盖变化。
 
 合法压缩历史即使未保留任何压缩前消息，也可以恢复。恢复文件缺失或损坏、原工作目录不可用（包括已清理的 worktree）、原模型不可用，都会明确报错，绝不悄悄新建 session 或替换模型。恢复会使用当前安装的扩展和当前凭证；它**不是进程/内存快照，也不是沙箱**。异常崩溃后不持久重放执行中的工作或排队的后续消息，也不保证跨崩溃恰好执行一次。
 

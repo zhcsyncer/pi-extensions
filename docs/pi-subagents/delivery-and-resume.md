@@ -83,10 +83,10 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 1. **当前父会话分支上的有效终态 archive**，证明该 ID 在这个分支的最后可恢复状态；
 2. **对应 child JSONL**，提供原对话；
-3. **受支持的恢复配置（recovery recipe）**，保留原渲染后 system prompt、权限历史上限、cwd、model、thinking 与 limits，不用今天的角色正文或父会话默认值替换旧任务；
-4. **当前可信授权**，限制历史上限中哪些能力仍可使用。
+3. **受支持的恢复配置（recovery recipe）**，保留原渲染后 system prompt、cwd、model、thinking、显式隔离与 limits，不用今天的角色正文或父会话默认值替换旧任务；
+4. **当前配置授权**，决定现在允许的工具与来源，不与历史授权清单求交集。
 
-父 archive 负责身份、分支与终态资格；child JSONL 负责对话；recipe 负责运行意图和历史权限上限。它们不是新的授权凭证；保存原 prompt 与工具策略，也不代表冻结扩展代码或外部世界。
+父 archive 负责身份、分支与终态资格；child JSONL 负责对话；recipe 负责运行意图。保存的角色身份用于重新定位当前定义，不冻结其旧工具权限、来源文件路径或扩展代码。
 
 - 旧 archive 没有 recipe：仍可查看历史，但不可通过 Agent/steer 工具恢复执行；不尝试猜配置。
 - 持久化的 error/aborted/stopped 终态可以在条件满足时显式 resume；普通 steering 不得自动重试。
@@ -99,15 +99,16 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 执行权限是显式的 builtin 集合、实际扩展来源与工具子集；active/visible 集合只是模型视图。首轮、后续轮、nested 调用和晚注册工具使用同一公开 `tool_call` 门槛。合法来源仍可晚注册声明范围内的工具；同名替换不能借用 builtin 或另一来源的权限。短名称有歧义时拒绝猜测。pins 只保留观察者加载，不能单独授予工具或服务连接。
 
-权限不是按 Explore/Plan 名称、提示词或 read-only hints 推断的语义写保护；允许 bash 也不等于审计 shell 行为。扩展仍是同进程可信代码，不是 OS 沙箱。Agent/get/steer 的真实定义是 model-only，不能通过 nested 工具调用；这不改变宿主原有 parallel 默认值或 manager 的并发语义，也不启用 MCP/codemode。
+权限不是按 Explore/Plan 名称、提示词或 read-only hints 推断的语义写保护；允许 bash 也不等于审计 shell 行为。扩展仍是同进程可信代码，不是 OS 沙箱。Agent/get/steer 支持直接调用与 codemode 编排，但 child 的三工具排除项不变；不改变 manager 并发、任务归属或直接路径的前台/后台取消语义，不自动启用 codemode/MCP。脚本结束会取消尚未完成的工具调用，不代表撤销已返回 ID 的受管理后台任务，也不引入失败事务回滚。
 
-恢复及 live continuation 的工具授权是**历史上限 ∩ 当前有效授权**：
+恢复及 live continuation 的工具授权由**当前配置**决定：
 
-- named 角色从原 `configCwd` 重新读取当前定义并核对来源。删除、禁用或换来源都明确拒绝执行，不回退 general-purpose。正文改变不替换保存的 prompt，权限收窄仍立即生效；当前或历史任一要求 isolated，续跑就保留该限制。
-- live caller-owned activation 使用仍持有的 inline 配置；跨进程恢复必须由可信调用方重新提供 `currentAgentConfig`。该选项仅存在于内部恢复/续跑入口，不新增 Agent 工具、RPC 授权字段或 facade 方法。磁盘 recipe 不能充当当前调用方同意。
-- 缺少权限版本的旧 recipe，仅在历史明确为 builtin-only/isolated 且当前授权可验证时迁移。旧 named 记录若只保存了 project/global 来源，按原 `configCwd`、角色名与同一来源范围验证当前定义，不要求旧格式不可能保存的新路径字段；旧 builtin 上限仍生效，不因此获得新扩展或写权限。不能重建历史扩展来源时，报“授权无法验证”，不把合法 JSONL 标成损坏、不另建会话，也不阻止读取已完成报告。
+- named 角色从原 `configCwd` 按名称重新读取当前定义。删除或禁用时明确拒绝，不回退 general-purpose；来源路径改变不是历史上限。正文改变不替换保存的 prompt，当前允许与禁止项均生效。任务显式隔离与当前角色隔离仍保留，不继承历史授权快照中的隔离标志。
+- inline 角色优先使用调用方提供的 `currentAgentConfig`，否则复用活实例持有或 recipe 保存的任务定义；不是复用旧授权清单，也不凭空构造全工具角色。不新增 Agent 工具、RPC 授权字段或 facade 方法。
+- 对已注册工具的放宽和收窄可以即时生效；资源加载变化是另一边界。Pi 1.2 loader 的扩展路径及过滤选项在构造时固定，热续跑不自行替换 loader。需要未加载扩展或扩大未完整发现的资源集合时明确拒绝，提示以保存的任务冷恢复；冷恢复按当前配置装配资源。不会悄悄求历史交集，也不新建动态加载框架。
+- 不迁移旧版本任务或猜测旧扩展所有者。缺少受支持角色身份时明确报错；当前版本的 JSONL 完整性、原路由、cwd 和 fallback 防护继续保留，不转换或删除真实旧记录。
 
-权限上限只保存版本及必要的非秘密来源身份，不保存凭据或连接配置。R3 的服务/factory 授权应在资源装配前接入，不能从 MCP 工具前缀或共享 loader 所有者推出服务权限。
+授权快照只保留非秘密诊断信息，不保存凭据或连接配置，也不是恢复时的权限上限。Inline 角色与 inline 扩展不是同一概念：公开 child 构造路径接受角色定义和文件扩展，不因此放开无法验证的 factory 来源。R3 的服务/factory 授权仍不在范围内。
 
 ### 为什么续跑前要作废旧终态
 
@@ -125,4 +126,4 @@ SDK 内部取消显示为 `aborted`，外部停止保持 `stopped`。这些显�
 
 `onAssistantUsage` 保留为 assistant 事件观察入口，但其发生在持久化前且不涵盖所有消费，不能作为完整子账本。内部 `onSessionUsage` 是累计快照而不是增量；对外查询的 `AgentRecord.lifetimeUsage` 保留同一含义。旧 archive 与新快照按累计水位对齐，不能相加重计，也不能让旧快照降低水位。
 
-父工具只报告尚未消费的增量，native `usage` 与 `details.subagentUsageRollup` 必须一起持久化。`UsageReporter.claim` 同步保留并发查询的本次份额，但切树后只以当前分支的持久报告重建已确认水位，不能携带被离开分支的内存 reservation。也覆盖“claim 后报告已写入，尚未再次查询便切树”的情况。互斥父分支的报告不能相加当作 child lifetime；读取 child 原账的消费者应忽略相应父 rollup，避免双计。
+父工具只报告尚未消费的增量，native `usage` 与收据必须在同一父条目持久化。直接 Agent/get 使用 `details.subagentUsageRollup`。Pi 1.2 原生 codemode 仅保存嵌套调用摘要，不保留子结果 details；公开 `tool_result` 事件沿 parentToolCallId 传递收据，在外层 `message_end` 已有 SDK 自动汇总的 usage 时一起写入 `details.subagentUsageRollups`。不自行叠加嵌套 usage、不提前另写已报账记录；脚本失败也以实际持久化的父用量为准。`UsageReporter.claim` 同步保留并发查询的本次份额，但切树后只以当前分支的持久报告重建已确认水位，不能携带被离开分支的内存 reservation。也覆盖“claim 后报告已写入，尚未再次查询便切树”的情况。互斥父分支的报告不能相加当作 child lifetime；读取 child 原账的消费者应忽略相应父 rollup，避免双计。

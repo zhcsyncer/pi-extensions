@@ -639,7 +639,7 @@ export async function runAgent(
       options.onResumeSnapshot({
         version: 1,
         config: structuredClone(resolvedConfig),
-        authorization: structuredClone(sessionAuthorities.get(session)!.historical),
+        authorization: structuredClone(sessionAuthorities.get(session)!.snapshot),
         systemPrompt: session.systemPrompt,
         cwd: effectiveCwd,
         configCwd,
@@ -668,14 +668,15 @@ async function constructAgentSession(
   systemPrompt: string,
   options: RunOptions & { cwd: string; configCwd: string },
   restoredManager?: SessionManager,
-  historical?: AgentAuthorization,
+  roleIdentity?: AgentRoleIdentity,
 ): Promise<AgentSession> {
   const type = agentConfig.name;
   const effectiveCwd = options.cwd;
   const configCwd = options.configCwd;
-  const extensions = options.isolated ? false : agentConfig.extensions;
-  const excludeExtensions = options.isolated ? undefined : agentConfig.excludeExtensions;
-  const skills = options.isolated ? false : agentConfig.skills;
+  const isolated = options.isolated === true || agentConfig.isolated === true;
+  const extensions = isolated ? false : agentConfig.extensions;
+  const excludeExtensions = isolated ? undefined : agentConfig.excludeExtensions;
+  const skills = isolated ? false : agentConfig.skills;
   // Restored prompts already contain the rendered skills catalogue. SDK always
   // appends cwd to custom prompts, so remove exactly that final suffix once.
   if (restoredManager) {
@@ -707,7 +708,7 @@ async function constructAgentSession(
   // which extensions load. `ext:foo` against an extension that `extensions:` excluded
   // is an orphan and warns after reload. `isolated` means no extension tools at all.
   const { extNames } = parseExtSelectors(
-    options.isolated ? [] : (agentConfig?.extSelectors ?? []),
+    isolated ? [] : (agentConfig?.extSelectors ?? []),
   );
   // Pinning is empty → identical to the historical noExtensions shortcut.
   // A non-empty pin must discover extensions so observers can bind handlers.
@@ -919,13 +920,16 @@ async function constructAgentSession(
     }
     let bindingFailure: string | undefined;
 
-    const role: AgentRoleIdentity = historical?.role ?? (options.inlineAgentConfig
+    const role: AgentRoleIdentity = roleIdentity ?? (options.inlineAgentConfig
       ? { kind: "inline" }
       : { kind: "named", name: agentConfig.name, builtin: agentConfig.isDefault === true, sourcePath: agentConfig.sourcePath });
-    const ceiling = authorization.update(authorizationScope(agentConfig, options.isolated ?? false, loader, role, configCwd), historical);
+    const snapshot = authorization.update(authorizationScope(agentConfig, isolated, loader, role, configCwd));
     authorization.bind(session);
-    sessionAuthorities.set(session, { authorization, historical: historical ?? ceiling, configCwd, runtime,
-      inlineConfig: role.kind === "inline" ? (options.currentAgentConfig ?? options.inlineAgentConfig) : undefined });
+    sessionAuthorities.set(session, { authorization, snapshot, configCwd, runtime,
+      explicitIsolated: options.isolated ?? false,
+      loadedAllExtensions: loadAll && !isolated,
+      excludedExtensions: [...excludeNames],
+      inlineConfig: role.kind === "inline" ? (options.currentAgentConfig ?? options.inlineAgentConfig ?? agentConfig) : undefined });
     // session_start initializes extension state and may register more tools.
     await session.bindExtensions({
       onError: (err) => {
@@ -982,65 +986,38 @@ function authorizationScope(config: AgentConfig, isolated: boolean, loader: Pick
 
 type SessionAuthority = {
   authorization: ChildAuthorization;
-  historical: AgentAuthorization;
+  snapshot: AgentAuthorization;
+  explicitIsolated: boolean;
+  loadedAllExtensions: boolean;
+  excludedExtensions: string[];
   configCwd: string;
   runtime: AgentRuntimeConfig;
   inlineConfig?: InlineAgentConfig;
 };
 const sessionAuthorities = new WeakMap<AgentSession, SessionAuthority>();
 
-function currentAuthority(history: AgentAuthorization, runtime: AgentRuntimeConfig, inline?: InlineAgentConfig): AgentConfig {
-  if (history.role.kind === "inline") {
-    if (!inline) throw new Error("Subagent authorization requires fresh trusted currentAgentConfig for inline recovery");
+function currentAuthority(role: AgentRoleIdentity, runtime: AgentRuntimeConfig, inline?: InlineAgentConfig): AgentConfig {
+  if (role.kind === "inline") {
+    if (!inline) throw new Error("Subagent authorization requires an inline task definition");
     return structuredClone(inline);
   }
   reloadRuntimeAgents(runtime);
-  const config = getAgentConfig(history.role.name, runtime.agents);
-  if (!config || config.enabled === false ||
-      (history.role.builtin ? config.isDefault !== true : !history.role.sourcePath || config.sourcePath !== history.role.sourcePath)) {
-    throw new Error(`Subagent authorization cannot verify the current named role/source: ${history.role.name}`);
+  const config = getAgentConfig(role.name, runtime.agents);
+  if (!config || config.enabled === false) {
+    throw new Error(`Subagent authorization cannot find an enabled current named role: ${role.name}`);
   }
   return structuredClone(config);
 }
 
-function historicalAuthority(snapshot: AgentResumeSnapshot, runtime: AgentRuntimeConfig): AgentAuthorization {
-  const history = snapshot.authorization;
-  if (history) {
-    const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((part) => typeof part === "string");
-    if (history.version !== 1 || !strings(history.builtinTools) || !strings(history.deniedTools) ||
-        typeof history.isolated !== "boolean" || !Array.isArray(history.extensions) ||
-        !history.extensions.every((entry) => entry && typeof entry.path === "string" && isAbsolute(entry.path) &&
-          typeof entry.scope === "string" && (entry.tools === "*" || strings(entry.tools))) ||
-        !history.role || !["inline", "named"].includes(history.role.kind) ||
-        (history.role.kind === "named" && (typeof history.role.name !== "string" || typeof history.role.builtin !== "boolean"))) {
-      throw new Error("Subagent authorization ceiling is invalid or unsupported");
-    }
-    return { ...structuredClone(history), isolated: history.isolated || snapshot.isolated };
+function savedRole(snapshot: AgentResumeSnapshot): AgentRoleIdentity {
+  // Current-version snapshots carry identity, not an authorization ceiling.
+  // Missing identity is not a request to guess an old extension owner or role.
+  const role = snapshot.authorization?.role;
+  if (role?.kind === "inline") return { kind: "inline" };
+  if (role?.kind === "named" && typeof role.name === "string" && role.name.length > 0) {
+    return structuredClone(role);
   }
-  if (!snapshot.isolated && snapshot.config.extensions !== false) {
-    throw new Error("Subagent authorization cannot verify historical extension authority; explicit recovery is unavailable");
-  }
-  let sourcePath = snapshot.config.sourcePath;
-  if (snapshot.config.source && snapshot.config.source !== "default" && !sourcePath) {
-    // Old builtin-only recipes recorded scope, not a canonical role file. There
-    // is no historical extension owner to reconstruct; verify the current role
-    // in that original scope and retain the old builtin ceiling below.
-    reloadRuntimeAgents(runtime);
-    const current = getAgentConfig(snapshot.config.name, runtime.agents);
-    if (!current || current.enabled === false || current.source !== snapshot.config.source || !current.sourcePath) {
-      throw new Error("Subagent authorization cannot verify the current named role/source in its original scope");
-    }
-    sourcePath = current.sourcePath;
-  }
-  const role: AgentRoleIdentity = snapshot.config.isDefault || snapshot.config.source === "default"
-    ? { kind: "named", name: snapshot.config.name, builtin: true }
-    : sourcePath
-      ? { kind: "named", name: snapshot.config.name, builtin: false, sourcePath }
-      : { kind: "inline" };
-  return {
-    version: 1, role, builtinTools: [...(snapshot.config.builtinToolNames ?? BUILTIN_TOOL_NAMES)],
-    deniedTools: [...EXCLUDED_TOOL_NAMES, ...(snapshot.config.disallowedTools ?? [])], isolated: snapshot.isolated, extensions: [],
-  };
+  throw new Error("Subagent resume snapshot has no supported role identity");
 }
 
 /** Restore only a known session file and its saved construction recipe; never create a replacement. */
@@ -1058,8 +1035,8 @@ export async function restoreAgentSession(
   const validated = validateSessionFile(sessionFile, snapshot.cwd);
   const runtime = options.runtimeConfig?.cwd === resolve(snapshot.configCwd)
     ? options.runtimeConfig : loadRuntimeConfig(snapshot.configCwd);
-  const history = historicalAuthority(snapshot, runtime);
-  const currentConfig = currentAuthority(history, runtime, options.currentAgentConfig);
+  const role = savedRole(snapshot);
+  const currentConfig = currentAuthority(role, runtime, options.currentAgentConfig ?? snapshot.config);
   const sessionManager = SessionManager.open(sessionFile);
   if (sessionManager.getSessionId() !== validated.id || sessionManager.getEntries().length !== validated.entryCount) {
     throw new Error("Subagent session changed while opening; refusing a replacement session");
@@ -1083,10 +1060,10 @@ export async function restoreAgentSession(
     currentAgentConfig: options.currentAgentConfig,
     cwd: snapshot.cwd,
     configCwd: snapshot.configCwd,
-    isolated: snapshot.isolated || history.isolated || currentConfig.isolated === true,
+    isolated: snapshot.isolated,
     model,
     thinkingLevel,
-  }, sessionManager, history);
+  }, sessionManager, role);
   try {
     if (session.model?.provider !== provider || session.model?.id !== modelId || session.thinkingLevel !== thinkingLevel) {
       throw new Error("Subagent session route changed during restoration; refusing fallback");
@@ -1370,9 +1347,25 @@ export async function resumeAgent(
   const authority = sessionAuthorities.get(session);
   if (authority && !options.signal?.aborted) {
     const inline = options.currentAgentConfig ?? authority.inlineConfig;
-    const current = currentAuthority(authority.historical, authority.runtime, inline);
-    authority.authorization.update(authorizationScope(current, authority.historical.isolated || current.isolated === true,
-      session.resourceLoader, authority.historical.role, authority.configCwd), authority.historical);
+    const current = currentAuthority(authority.snapshot.role, authority.runtime, inline);
+    if (!authority.explicitIsolated && !current.isolated && current.extensions !== false) {
+      const spec = Array.isArray(current.extensions) ? parseExtensionsSpec(current.extensions, authority.configCwd) : undefined;
+      const loaded = session.resourceLoader.getExtensions().extensions;
+      const names = new Set(loaded.flatMap(extension => extensionCanonicalNames(extension.path)));
+      const excluded = new Set(current.excludeExtensions?.map(name => name.toLowerCase()) ?? []);
+      const missingPath = spec?.paths.some(path => !extensionCanonicalNames(path).some(name => excluded.has(name)) &&
+        !loaded.some(extension => resolve(extension.resolvedPath) === resolve(path)));
+      const missingName = Array.isArray(current.extensions) && current.extensions.some(name =>
+        name !== "*" && !name.includes("/") && !name.includes("\\") && !name.startsWith("~") &&
+        !excluded.has(name.toLowerCase()) && !names.has(name.toLowerCase()));
+      const broadenedDiscovery = (current.extensions === true || spec?.wildcard) &&
+        (!authority.loadedAllExtensions || authority.excludedExtensions.some(name => !excluded.has(name) && !names.has(name)));
+      if (missingPath || missingName || broadenedDiscovery) {
+        throw new Error("Subagent current permissions require extensions not loaded in this live session; restore the saved task in a fresh session to load current resources");
+      }
+    }
+    authority.snapshot = authority.authorization.update(authorizationScope(current, authority.explicitIsolated || current.isolated === true,
+      session.resourceLoader, authority.snapshot.role, authority.configCwd));
     if (options.currentAgentConfig) authority.inlineConfig = options.currentAgentConfig;
   }
   const result = await executeAgentSession(session, prompt, {

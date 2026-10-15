@@ -34,12 +34,6 @@ function sourcePath(extension: Extension): string {
   return normalize(extension.resolvedPath);
 }
 
-function intersectTools(a: "*" | string[], b: "*" | string[]): "*" | string[] {
-  if (a === "*") return b === "*" ? "*" : [...b];
-  if (b === "*") return [...a];
-  return a.filter((name) => b.includes(name));
-}
-
 /** A child-local public hook; never replaces SDK Agent execution hooks. */
 export class ChildAuthorization {
   private session?: AgentSession;
@@ -60,14 +54,13 @@ export class ChildAuthorization {
     },
   };
 
-  update(scope: AuthorizationScope, historical?: AgentAuthorization): AgentAuthorization {
-    const deniedTools = [...new Set([...scope.deniedTools, ...(historical?.deniedTools ?? [])])];
+  update(scope: AuthorizationScope): AgentAuthorization {
+    const deniedTools = [...new Set(scope.deniedTools)];
     const policy: AgentAuthorization = {
       version: 1, role: scope.role,
-      builtinTools: scope.builtinTools.filter((name) => !deniedTools.includes(name) &&
-        (!historical || historical.builtinTools.includes(name))),
+      builtinTools: scope.builtinTools.filter((name) => !deniedTools.includes(name)),
       deniedTools,
-      isolated: scope.isolated || historical?.isolated === true,
+      isolated: scope.isolated,
       extensions: [],
     };
     if (!policy.isolated) {
@@ -77,9 +70,7 @@ export class ChildAuthorization {
         if (tools === undefined) continue;
         const path = sourcePath(extension);
         const scopeName = extension.sourceInfo.scope;
-        const previous = historical?.extensions.find((entry) => entry.path === path && entry.scope === scopeName);
-        if (historical && !previous) continue;
-        policy.extensions.push({ path, scope: scopeName, tools: previous ? intersectTools(tools, previous.tools) : tools });
+        policy.extensions.push({ path, scope: scopeName, tools });
       }
     }
     this.policy = policy;

@@ -366,6 +366,7 @@ describe("agent-runner restore failure cleanup", () => {
     writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: "original", timestamp: new Date().toISOString(), cwd: dir }));
     snapshot = {
       version: 1, config: makeAgentConfig({ extensions: false }), cwd: dir, configCwd: dir,
+      authorization: { version: 1, role: { kind: "inline" }, builtinTools: [], deniedTools: [], isolated: false, extensions: [] },
       systemPrompt: `original prompt\nCurrent working directory: ${dir}`,
       model: { provider: "test", modelId: "test-model" }, thinkingLevel: "off", isolated: false,
     };

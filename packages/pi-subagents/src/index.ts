@@ -671,6 +671,7 @@ export default function (pi: ExtensionAPI) {
   // This also wires the RPC handlers and broadcasts readiness — on the first
   // bound session_start, so a filtered-out activation never advertises (#142).
   pi.on("session_start", async (_event, ctx) => {
+    usageReporter.clearPending();
     if (runtimeConfig.cwd !== ctx.cwd) {
       Object.assign(runtimeConfig, loadRuntimeConfig(ctx.cwd));
       projectClearsPinnedExtensions = loadPinnedExtensionsPolicy(ctx.cwd).projectClearsPinnedExtensions;
@@ -758,6 +759,9 @@ export default function (pi: ExtensionAPI) {
   // frontmatter is silent, this default applies. Read live at spawn time.
   let reportUsage = true;
   const usageReporter = new UsageReporter();
+  pi.on("tool_result", (event) => { usageReporter.observeToolResult(event); });
+  pi.on("message_end", (event) => usageReporter.finalizeMessage(event));
+  pi.on("agent_settled", () => { usageReporter.clearPending(); });
   function setReportUsage(enabled: boolean): void { reportUsage = enabled; }
   function collectedResult(msg: string, details: AgentDetails, record: AgentRecord, ctx: ExtensionContext) {
     const reported = reportUsage && manager.isResultReady(record.id)
@@ -1094,7 +1098,6 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.AGENT,
-    exposure: "model-only",
     label: "Agent",
     description: agentToolDescription,
     promptSnippet: "Launch autonomous sub-agents for complex multi-step tasks",
@@ -1607,7 +1610,6 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.GET_RESULT,
-    exposure: "model-only",
     label: "Get Agent Result",
     description:
       "Retrieve the complete final report by agent ID, including content truncated in automatic notifications. " +
@@ -1752,7 +1754,6 @@ Terse command-style prompts produce shallow, generic work.
 
   pi.registerTool(defineTool({
     name: SUBAGENT_TOOL_NAMES.STEER,
-    exposure: "model-only",
     label: "Steer Agent",
     description:
       "Send a follow-up to an agent by ID. Running agents receive steering after current tool execution; " +

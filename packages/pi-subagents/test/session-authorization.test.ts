@@ -5,7 +5,6 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPromp
 import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRegistry, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { Type } from "@sinclair/typebox";
 import { runAgent, restoreAgentSession, resumeAgent, setPinnedExtensions } from "../src/agent-runner.js";
 import type { AgentResumeSnapshot, InlineAgentConfig } from "../src/types.js";
 import { loadCustomAgents } from "../src/custom-agents.js";
@@ -104,13 +103,15 @@ describe("child public authorization boundary", () => {
     expect(readFileSync(f.effects, "utf8").trim().split("\n")).toEqual(["allowed", "between"]);
   });
 
-  it("requires fresh inline authority on cold recovery and intersects its tool subset", async () => {
+  it("restores a saved inline definition and prefers a supplied current definition", async () => {
     const f = await fixture();
     let snapshot: AgentResumeSnapshot | undefined;
     f.script("allowed", 0);
     const original = await runAgent(f.ctx, "permission-role", "go", { pi: f.pi, inlineAgentConfig: f.config,
       onResumeSnapshot: saved => { snapshot = saved; }, onSessionCreated: session => sessions.push(session) });
-    await expect(restoreAgentSession(f.ctx, original.session.sessionFile!, snapshot!, { pi: f.pi })).rejects.toThrow(/authorization.*currentAgentConfig/);
+    const saved = await restoreAgentSession(f.ctx, original.session.sessionFile!, snapshot!, { pi: f.pi });
+    sessions.push(saved);
+    expect(saved.getActiveToolNames()).toContain("allowed");
     const restored = await restoreAgentSession(f.ctx, original.session.sessionFile!, snapshot!, {
       pi: f.pi, currentAgentConfig: { ...f.config, disallowedTools: ["allowed"] },
     });
@@ -119,6 +120,24 @@ describe("child public authorization boundary", () => {
     await resumeAgent(restored, "continue");
     expect(readFileSync(f.effects, "utf8").trim()).toBe("allowed");
     expectDenied(restored);
+  });
+
+  it.each(["live", "cold"])("applies newly allowed registered tools without inheriting old denies (%s)", async kind => {
+    const f = await fixture();
+    let snapshot!: AgentResumeSnapshot;
+    const config = { ...f.config, disallowedTools: ["allowed"] };
+    f.faux.setResponses([fauxAssistantMessage("DONE")]);
+    const first = await runAgent(f.ctx, "inline", "go", { pi: f.pi, inlineAgentConfig: config,
+      onResumeSnapshot: value => { snapshot = value; }, onSessionCreated: session => sessions.push(session) });
+    const current = { ...config, disallowedTools: [], extSelectors: ["ext:fixture/allowed", "ext:fixture/denied"] };
+    const session = kind === "live" ? first.session
+      : await restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi, currentAgentConfig: current });
+    if (kind === "cold") sessions.push(session);
+    for (const target of ["allowed", "denied"]) {
+      f.script(target, 0);
+      await resumeAgent(session, "use the current grant", { currentAgentConfig: current });
+    }
+    expect(readFileSync(f.effects, "utf8").trim().split("\n")).toEqual(["allowed", "denied"]);
   });
 
   it.each([false, true])("resolves memory capability after deny (write denied=%s)", async denied => {
@@ -137,7 +156,7 @@ describe("child public authorization boundary", () => {
   });
 
   it.each([[false, "live"], [false, "cold"], [true, "live"], [true, "cold"]] as const)(
-    "intersects current and historical isolation (historical=%s, %s resume)", async (historicalIsolated, kind) => {
+    "preserves the explicit isolated request and applies current isolation (explicit=%s, %s resume)", async (historicalIsolated, kind) => {
       const f = await fixture();
       const role = join(f.cwd, ".pi/agents/isolation.md");
       mkdirSync(dirname(role), { recursive: true });
@@ -213,7 +232,7 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     expect(readFileSync(f.effects, "utf8").trim()).toBe("allowed");
   });
 
-  it("reloads the current named role at its original source without changing the saved prompt", async () => {
+  it("reloads the current named role by name without changing the saved prompt", async () => {
     const f = await fixture();
     const role = join(f.cwd, ".pi/agents/named.md");
     mkdirSync(dirname(role), { recursive: true });
@@ -236,38 +255,38 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     expect(readFileSync(f.effects, "utf8").trim()).toBe("allowed");
     writeFileSync(role, `---\n${frontmatter}\nenabled: false\n---\nDISABLED`);
     expect(loadCustomAgents(f.cwd).get("named")?.enabled).toBe(false);
-    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role/);
     rmSync(role);
-    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role/);
     const replacement = join(f.cwd, ".agents/agents/named.md");
     mkdirSync(dirname(replacement), { recursive: true });
     writeFileSync(replacement, `---\n${frontmatter}\ntools: ext:fixture/allowed\n---\nREPLACEMENT`);
-    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    const moved = await restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi });
+    sessions.push(moved);
+    f.script("allowed", 0);
+    await resumeAgent(moved, "use the current role");
+    expect(readFileSync(f.effects, "utf8").trim().split("\n")).toEqual(["allowed", "allowed"]);
   });
 
-  it("migrates a builtin-only legacy recipe only with fresh authority and never widens it", async () => {
+  it("widens a current-version inline task using its supplied current definition", async () => {
     const f = await fixture();
     const config: InlineAgentConfig = { ...f.config, builtinToolNames: ["read"], extensions: false, extSelectors: [] };
     let snapshot!: AgentResumeSnapshot;
     f.faux.setResponses([fauxAssistantMessage("DONE")]);
     const original = await runAgent(f.ctx, "inline", "go", { pi: f.pi, inlineAgentConfig: config,
       onResumeSnapshot: value => { snapshot = value; }, onSessionCreated: session => sessions.push(session) });
-    delete snapshot.authorization;
-    await expect(restoreAgentSession(f.ctx, original.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/currentAgentConfig/);
     const restored = await restoreAgentSession(f.ctx, original.session.sessionFile!, snapshot, {
       pi: f.pi, currentAgentConfig: { ...config, builtinToolNames: ["read", "write"] },
     });
     sessions.push(restored);
     expect(restored.sessionManager.getSessionId()).toBe(original.session.sessionManager.getSessionId());
-    expect(restored.getActiveToolNames()).toEqual(["read"]);
-    restored.setActiveToolsByName(["write"]);
+    expect(restored.getActiveToolNames()).toEqual(["read", "write"]);
     f.script("write", 0);
-    await restored.prompt("try to exceed the historical ceiling");
-    expectDenied(restored);
-    expect(readFileSync(f.effects, "utf8")).toBe("");
+    await resumeAgent(restored, "use the new grant");
+    expect(readFileSync(f.effects, "utf8")).toBe("OVERWRITE");
   });
 
-  it("restores a legacy named builtin-only recipe using its original project scope", async () => {
+  it("loads newly permitted extensions on current-version named cold recovery", async () => {
     const f = await fixture();
     const role = join(f.cwd, ".pi/agents/legacy.md");
     mkdirSync(dirname(role), { recursive: true });
@@ -278,29 +297,30 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     const first = await runAgent(f.ctx, "legacy", "go", { pi: f.pi,
       onResumeSnapshot: value => { snapshot = value; }, onSessionCreated: session => sessions.push(session) });
     expect(snapshot.config.source).toBe("project");
-    delete snapshot.authorization;
-    delete snapshot.config.sourcePath;
     writeFileSync(role, `---\n${base}\ntools: read, write, ext:fixture/allowed\nextensions: ${f.file}\n---\nCURRENT_ROLE`);
+    const calls = f.faux.state.callCount;
+    await expect(resumeAgent(first.session, "load new extension live")).rejects.toThrow(/not loaded in this live session/);
+    expect(f.faux.state.callCount).toBe(calls);
     const restored = await restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi });
     sessions.push(restored);
     expect(restored.sessionManager.getSessionId()).toBe(first.session.sessionManager.getSessionId());
     expect(restored.systemPrompt).toBe(first.session.systemPrompt);
     expect(restored.model?.id).toBe(first.session.model?.id);
-    expect(restored.getActiveToolNames()).toEqual(["read"]);
+    expect(restored.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "write", "allowed"]));
     for (const target of ["write", "allowed"]) {
       expect(restored.getAllTools().some(tool => tool.name === target)).toBe(true);
       f.script(target, 0);
-      await resumeAgent(restored, "try to widen the legacy ceiling");
-      expectDenied(restored);
+      await resumeAgent(restored, "use the current permissions");
+      expect(restored.messages.filter(message => message.role === "toolResult").at(-1)?.isError).toBe(false);
     }
-    expect(readFileSync(f.effects, "utf8")).toBe("");
+    expect(readFileSync(f.effects, "utf8")).toBe("OVERWRITEallowed\n");
     writeFileSync(role, `---\n${base}\ntools: read\nextensions: none\nenabled: false\n---\nDISABLED`);
-    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role/);
     rmSync(role);
-    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role\/source/);
+    await expect(restoreAgentSession(f.ctx, first.session.sessionFile!, snapshot, { pi: f.pi })).rejects.toThrow(/authorization.*named role/);
   });
 
-  it("rejects unverifiable legacy extension authority without changing valid history", async () => {
+  it("rejects missing role identity without guessing authority or changing valid history", async () => {
     const f = await fixture();
     let snapshot!: AgentResumeSnapshot;
     f.script("allowed", 0);
@@ -309,12 +329,12 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     delete snapshot.authorization;
     const before = readFileSync(result.session.sessionFile!, "utf8");
     await expect(restoreAgentSession(f.ctx, result.session.sessionFile!, snapshot, { pi: f.pi, currentAgentConfig: f.config }))
-      .rejects.toThrow(/authorization cannot verify historical extension authority/);
+      .rejects.toThrow(/no supported role identity/);
     expect(readFileSync(result.session.sessionFile!, "utf8")).toBe(before);
     expect(JSON.stringify(result.session.messages)).toContain("DONE");
   });
 
-  it("binds the real activation to ctx.cwd and registers model-only workflow definitions", async () => {
+  it("binds the real activation to ctx.cwd and keeps workflow tools directly callable", async () => {
     const f = await fixture();
     const role = join(f.cwd, ".pi/agents/actual.md");
     mkdirSync(dirname(role), { recursive: true });
@@ -325,20 +345,9 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
     expect(loadCustomAgents(f.cwd).get("actual")?.systemPrompt).toBe("ACTUAL_CWD_ROLE");
     const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
     const names = ["Agent", "get_subagent_result", "steer_subagent"];
-    let agentId = "";
     const loader = new DefaultResourceLoader({ cwd: f.cwd, agentDir: getAgentDir(), settingsManager: settings,
       noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
       additionalExtensionPaths: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      extensionFactories: [{ name: "workflow-probe", factory(pi) {
-        pi.registerTool({ name: "workflow_probe", label: "probe", description: "probe", parameters: Type.Object({}),
-          async execute(_id, _args, _signal, _update, ctx) {
-            const outcomes = [];
-            for (const name of names) outcomes.push(await ctx.executeTool(name, name === "Agent"
-              ? { prompt: "go", description: "nested probe", subagent_type: "actual" }
-              : name === "get_subagent_result" ? { agent_id: agentId } : { agent_id: agentId, message: "go" }));
-            return { content: [{ type: "text", text: JSON.stringify(outcomes) }], details: {} };
-          } });
-      } }],
     });
     await loader.reload();
     expect(loader.getExtensions().errors).toEqual([]);
@@ -355,7 +364,7 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
       } });
       expect(agentTool.description).toContain("LOCAL_ROLE_DESCRIPTION");
       for (const name of names) {
-        expect(session.getToolDefinition(name)?.exposure).toBe("model-only");
+        expect(session.getToolDefinition(name)?.exposure ?? "direct").toBe("direct");
         expect(session.getToolDefinition(name)?.executionMode).toBeUndefined();
         expect(session.getActiveToolNames()).toContain(name);
       }
@@ -376,18 +385,7 @@ export default pi => pi.registerTool({name:"write",label:"write",description:"fo
       const details = direct.details as { agentId: string; displayName: string; tags?: string[] };
       expect(details.displayName).toBe("Local Friendly");
       expect(details.tags ?? []).not.toContain("twin");
-      agentId = details.agentId;
-      expect(agentId).toBeTruthy();
-      const before = f.faux.state.callCount;
-      f.faux.setResponses([
-        fauxAssistantMessage(fauxToolCall("workflow_probe", {}), { stopReason: "toolUse" }), fauxAssistantMessage("DONE"),
-      ]);
-      await session.prompt("Try nested workflow calls");
-      const result = session.messages.filter(message => message.role === "toolResult").at(-1)!;
-      const outcomes = JSON.parse(result.content.filter(part => part.type === "text").map(part => part.text).join(""));
-      expect(outcomes.map((outcome: { isError: boolean }) => outcome.isError)).toEqual([true, true, true]);
-      for (const name of names) expect(JSON.stringify(outcomes)).toContain(`Tool ${name} not found`);
-      expect(f.faux.state.callCount - before).toBe(2);
+      expect(details.agentId).toBeTruthy();
     } finally {
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     }
