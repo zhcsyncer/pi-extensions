@@ -42,7 +42,7 @@ zhcsyncer 维护的一组 Pi extensions。
 
 Search Hub 可单独安装，也随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
-本版本需要 Pi 1.1 或更高。
+本版本需要 Pi 1.2 或更高。
 
 ## 独立 Providers
 

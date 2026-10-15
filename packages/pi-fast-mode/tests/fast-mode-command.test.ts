@@ -143,11 +143,10 @@ async function withLoadedExtension<T>(
 	}
 }
 
-test("registers built-in xAI on the Responses wrapper", async () => {
-	await withLoadedExtension(async ({ providers }) => {
-		const xai = providers.get("xai");
-		assert.equal(xai?.api, "openai-responses");
-		assert.equal(typeof xai?.streamSimple, "function");
+test("registers the main-session request hook without registering providers", async () => {
+	await withLoadedExtension(async ({ providers, handlers }) => {
+		assert.equal(providers.size, 0);
+		assert.equal(typeof handlers.get("before_provider_request"), "function");
 	});
 });
 

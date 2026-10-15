@@ -42,7 +42,7 @@ A collection of Pi extensions by zhcsyncer.
 
 Search Hub is available standalone and in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
-This version requires Pi 1.1 or later.
+This version requires Pi 1.2 or later.
 
 ## Standalone providers
 
