@@ -12,7 +12,6 @@ overrides:
   '@earendil-works/pi-codemode': 1.2.0
   '@earendil-works/pi-mcp': 1.2.0
   '@earendil-works/pi-telemetry': 1.2.0
-  '@earendil-works/chord': 1.2.0
 
 importers:
 

@@ -14,7 +14,6 @@ overrides:
   "@earendil-works/pi-codemode": 1.2.0
   "@earendil-works/pi-mcp": 1.2.0
   "@earendil-works/pi-telemetry": 1.2.0
-  "@earendil-works/chord": 1.2.0
 
 allowBuilds:
   "@bufbuild/buf": true
@@ -28,6 +27,5 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-coding-agent@1.2.0'
   - '@earendil-works/pi-telemetry@1.2.0'
   - '@earendil-works/pi-tui@1.2.0'
-  - '@earendil-works/chord@1.2.0'
   - '@earendil-works/pi-codemode@1.2.0'
   - '@earendil-works/pi-mcp@1.2.0'

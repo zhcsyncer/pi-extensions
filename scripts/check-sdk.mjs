@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sdkNames = new Set(["pi-coding-agent", "pi-ai", "pi-agent-core", "pi-tui", "pi-codemode", "pi-mcp", "pi-telemetry", "chord"].map((name) => `@earendil-works/${name}`));
+const sdkNames = new Set(["pi-coding-agent", "pi-ai", "pi-agent-core", "pi-tui", "pi-codemode", "pi-mcp", "pi-telemetry"].map((name) => `@earendil-works/${name}`));
 const visited = new Set();
 const versions = new Map();
 function inspect(name, from) {
@@ -32,5 +32,5 @@ for (const path of [".", ...["packages", "providers"].flatMap((group) => readdir
 		if (sdkNames.has(dependency) || dependency === "typebox" || dependency === "@sinclair/typebox") inspect(dependency, file);
 	}
 }
-assert.ok([...sdkNames].every((name) => versions.has(name)), "All eight target SDK packages must be reached through the installed graph");
+assert.ok([...sdkNames].every((name) => versions.has(name)), "All seven target SDK packages must be reached through the installed graph");
 console.log(JSON.stringify(Object.fromEntries(versions), null, 2));
