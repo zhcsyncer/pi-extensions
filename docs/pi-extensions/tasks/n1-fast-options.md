@@ -1,54 +1,31 @@
-# N1：Fast 的 Pi 1.1 options 与预算适配
+# N1：Fast 的 Pi 1.2+ 主会话请求控制
 
-执行合同；依赖 E0 已验收。进度仅在执行编排 §0 更新。
+**方案已获用户确认，实施验收状态见执行编排 §0。** 本合同替代此前的 provider 包装／预算一致性方案；旧实现与验证记录可从 Git 恢复，不再作为新实现的要求。
 
-## Goal / AC
+## Goal 与决定
 
-Fast 仍只为同一模型选择服务优先级，不应因包一层 provider 就丢掉宿主的选项、采样规则或上下文安全预算。沿用用户已有开关/计费渠道，收缩重复底层配方。
+Fast 只控制 Pi 主会话正常模型请求的服务优先级，不拥有模型协议、预算、采样或费用算法。用户接受官方 SDK 本地费用估算与原请求选项路径之间的差异，不要求 Consult、Recap 等第三方扩展的直接 SDK 调用跟随开关。
 
-1. 保留目标 SDK 的完整 stream options，尤其 E0 已复现缺失的 `onProviderStreamEvent`；signal、认证/headers/env、payload/response、telemetry、session、timeout/retry 等原行为无新增丢失。
-2. 采样遵循“模型默认 < 当前思考档默认 < 请求显式设置”；不能把模型默认提前复制成请求 override，从而覆盖思考档。off 与缺省字段按官方合同处理。
-3. 上下文预算与精确 1.1 官方算法一致，包括 3.5 字符/token 的估算；不得用旧 4 字符配方放大输出空间。只计算真实适用的 transcript 范围，不额外发 tokenizer/模型请求。
-4. 先验证官方 helper 是否可由真实 Pi 1.1 extension loader 安全导入。可复用则复用；确实无公开 loader-safe 入口才保留一份最薄本地配方并用真实 SDK 对照，不使用脆弱绝对安装路径作为产品 import。
-5. OpenAI/Codex/内置 xAI Responses 的官方序列化、service tier 与费用语义保留；自定义 xAI Completions 的现有 payload 补位不扩散到其他 provider。不开 Fast 时不加入 priority，不换模型/账号/渠道。
+采用公开 `before_provider_request` 钩子：保留官方请求处理链，只在符合开关条件时向请求正文注入 `service_tier: "priority"`。删除 provider 流包装与本地预算配方，不改 `models.json`。
 
-## Design / 已定位边界
+## 行为边界
 
-`packages/pi-fast-mode/extensions/stream-options.ts` 是本地 buildBaseOptions/估算配方：当前 CHARS_PER_TOKEN=4，手动枚举 option 字段，且提前合并 model.samplingParams 与 options.samplingParams。`extensions/fast-mode.ts` 的公开 buildStreamOptions(model,context,options,serviceTier) 把其结果交给官方 Responses stream，并从 reasoning 得到 reasoningEffort。围绕这些边界核验官方 helper 与采样层次，不重写 provider 或 tokenizer。
+- 保留 `/fast`、`Ctrl+F`、按 `provider + model` 的内存开关，以及已有 `settings.json` 启动默认、模型切换和重载行为；不新增全局所有模型开关。
+- 保留既有支持范围：OpenAI Responses、Codex Responses、xAI Responses 与自定义 xAI Completions。不更换模型、认证、URL 或计费渠道。
+- 仅在已支持且开启、模型和请求正文有效时，返回带 priority 的正文浅拷贝；不原地修改输入。关闭或不适用时不注入，也不删除用户原本配置的字段。
+- 不注册或接管 provider，不维护 token 估算、输出预算、采样、思考转换或费用倍率。
+- 费用由官方 SDK 按其响应与选项规则估算；正文注入不回填 SDK 的请求档位，缺失响应档位及 Codex 特例可能与原包装的估算不同。此边界已获用户接受，不以改模型基础价格补偿。
+- 控制范围是当前 Pi 主会话的正常 Agent 请求，不承诺覆盖第三方扩展直接调用 `ctx.modelRegistry` 的请求，也不为此修改其他扩展。
 
-现有文档关于 0.86 loader 深路径限制仅是旧基线事实；用目标 1.1 真实加载验证决定保留/删除配方。没有验证前不能以“官方已有”删代码，也不能以旧结论继续复制所有内部实现。目标仅 1.1+，不添加双版本分支。
+## 验证合同
 
-只写 Fast 包相关实现/测试、必要双语说明、包级架构说明与独立 changeset；不改依赖锁或其他包。不开虚拟模型路由，不做命令 UX、套餐额度、旧内存设置生命周期口径重构，也不借 raw options 保真实施 Search 的三项冻结旧债。
+重点测试自有行为，不复制官方 SDK 的预算、采样或计价测试：
 
-## Contract / Test Impact
+- 实际 Pi 1.2.0 loader／session 与离线传输中，支持路径主请求 on/off 的 priority 字段符合开关；保持模型、渠道及无关请求内容。
+- 开关按 provider/model 隔离，不支持或无模型时不注入；既有快捷键、默认设置和重载合同保留。
+- 公开注册边界没有新增 provider 包装；在无额外用户 tier 配置的夹具中，主会话 Fast 开关不因 provider 覆盖而改变扩展直接 SDK 调用。
+- 类型检查、真实 loader 和发布文件完整性通过。真实服务是否兑现 priority、真实账单不在离线验收中。
 
-T0 为精确预算和采样优先级，T2 为真实 loader/provider 接线。以公开 buildStreamOptions 与实际发送给离线 provider/transport 的请求为观察面，不用可变元数据假对象证明注册生效。
+实现者维护自有测试，不读写独立合同。独立作者以公开契约／SDK 编写 `packages/pi-fast-mode/tests/pi12-main-session.contract.test.ts`，替换已退出范围的 `pi11-options.contract.test.ts`；不读取实现体或实现者测试。旧预算文件被删除后，不为旧测试保留死代码。
 
-| 场景 | 预期 |
-|---|---|
-| 单条 user 含32000字符，contextWindow=20000，maxTokens=16000，无已上报 usage | 与官方 1.1 一致，输出预算 6761；不是旧配方结果 |
-| 模型默认 temperature=1，high 档默认 temperature=0.3/top_k=20，无显式请求覆盖 | 实际采用0.3/20，不被模型默认1盖掉 |
-| 上述条件＋请求显式 temperature=0.2 | 请求值胜出为0.2，未覆盖的档位参数保留 |
-| off、无模型默认、无档位参数、显式采样设置 | 遵循真实官方合并/省略规则，不捏造值或把undefined当强制覆盖 |
-| 已有可靠 assistant usage＋后续 transcript、取消/error usage、边界context | 与官方预算一致，保留安全余量与最小合法输出，不双算或使用无效回执 |
-| 输入 onProviderStreamEvent 与其他真实 stream 选项 | 实际 provider 路径仍收到相应能力/回调，Fast 不截断宿主处理链 |
-| Fast on/off，Responses 与自定义 xAI Completions | 仅获支持且开启的渠道加优先级，原通道、thinking、取消、错误行为保真 |
-| 真实1.1 loader 加载当前 package | 被选官方 helper/本地薄配方确实可用；不靠测试进程能 deep-import 就判定扩展 loader 可用 |
-
-独立测试作者后续按本合同编写 `packages/pi-fast-mode/tests/pi11-options.contract.test.ts`（已核对包 test 脚本为 `tsx --test tests/*.test.ts`，该路径可直接收集，使用 node:test，不改配置）。实现者不写该文件，可维护既有测试；代码交付后须与独立测试组合通过才能验收。保持测试预算集中在分支/数值合同，不复制全套框架测试。
-
-## 独立测试公开接口交接
-
-- 观察入口保持 `buildStreamOptions(model, context, options, serviceTier)`；预算案例仍应直接得到 maxTokens=6761。最终采样优先级在官方 `streamOpenAIResponses` 的离线 wire payload 观察，不能要求 builder 提前合并模型/档位默认值。
-- 最小模型采用 provider=openai、api=openai-responses、id=offline-fixture、baseUrl=https://responses.invalid/v1、reasoning=true、input=[text]、全零 cost、contextWindow=20000/maxTokens=16000。模型默认为 `samplingParams:{temperature:1}`；档位为 `samplingParamsByThinkingLevel:{high:{temperature:0.3,top_k:20},off:{temperature:0.7}}`。thinkingLevelMap 是能力/映射，不放采样默认。
-- 显式请求覆盖使用 `options:{reasoning:"high",samplingParams:{temperature:0.2}}`；wire 高档无覆盖应0.3/20，有覆盖应0.2/20。顶层 temperature 与任意 samplingParams 的冲突优先级按官方规则，不自行假定两种载体等价。
-- 目标 `SimpleStreamOptions.reasoning` 不含 off，typed fixture 省略 reasoning 表示关闭；builder.reasoningEffort 应undefined。上述模型的 off 档 wire temperature=0.7，top_k 省略；无 off 默认时再按模型/官方规则处理。
-- `streamOpenAIResponses`、`normalizeContext` 来自 loader-safe compat；注入离线 fetch 捕获 JSON body，返回合成 Responses SSE，消费流至终态。至少一例核验真实扩展注册后的 provider 路径与 callback，不用仅对函数属性相等的断言代替功能链路。
-- Codex 官方适配器忽略任意 samplingParams，不把 Responses 的任意字段断言强加给 Codex。
-- N1 交接的真实1.1 loader 证据：`@earendil-works/pi-ai/api/simple-options` 与 `@earendil-works/pi-ai/utils/estimate` 分别解析到错误的 compat.js/api/simple-options、compat.js/utils/estimate，extensions=0/errors=1；compat 未导出这两个 helper，而 getSystemMessageText 可加载。因此可以保留最薄本地配方，不能改产品为绝对路径导入。独立验证无需重复下载 SDK。
-
-## 派发与交付
-
-读取全局 `/root/.agent-vm-state/pi/agent/AGENTS.md`、`/root/.agent-vm-state/pi/agent/rules/coding.md`、`/root/develop/AGENTS.md`，Herdr/worktree 和任务树 AGENTS；完整阅读本合同、总范围及目标 Pi/AI 官方 docs/相关链接。先回报 cwd/origin/base/允许写范围，再说明选用 helper 的真实 loader 证据及独立测试所需模型/档位 fixture 形状。
-
-使用已装 E0 依赖、指定 pnpm PATH 与 scripts/run-isolated.mjs，不访问真实模型、账号或额度服务。交付本地 commit、精确测试结果、已选公开接口与失败边界；不 push/main/release，不改统一进度或自派实施者。
+仅调整 Fast、必要双语说明、同一功能的 root/Fast changeset 与删除文件的打包清单。共享计划由协调者维护；不修改其他包或真实认证配置。目标实测版本为 1.2.0，不把它扩称为所有未来版本均已验证。
