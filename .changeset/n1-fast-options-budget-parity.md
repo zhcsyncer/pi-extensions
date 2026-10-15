@@ -3,4 +3,4 @@
 "@zhcsyncer/pi-extensions": patch
 ---
 
-Align Fast Mode with Pi 1.1: preserve request options and provider stream hooks, let the official Responses adapter apply model/thinking/request sampling precedence, and use the SDK's context-safe output budget. Fast still changes only same-model service priority, without switching accounts or billing channels. Requires Pi 1.1 or later.
+Simplify Fast Mode for Pi 1.2+: request same-model priority through the main-session request hook instead of replacing providers or maintaining a local output-budget implementation. Keep per-model switches, settings defaults and Ctrl+F repeat protection. Turning Fast off leaves user-supplied tiers untouched. Direct SDK calls from extensions such as Consult and Recap are outside this scope, and local cost estimates may differ from provider billing.

@@ -12,7 +12,7 @@
 - 没配过的模型默认关闭。没有「所有模型」默认。
 - 在支持的模型上显示 footer 状态。不支持的模型隐藏状态，并且不改请求。
 
-需要 Pi 1.1 或更高。Fast 保留 Pi 的请求钩子、思考档采样默认值和上下文安全输出预算，不改变模型、账号或计费渠道。
+需要 Pi 1.2 或更高。Fast 只作用于当前 Pi 主会话中的正常 Agent 请求，不覆盖 Consult、Recap 等扩展直接发起的 SDK 调用。请求钩子、采样和输出预算继续由 Pi 控制；Fast 不改变模型、认证、endpoint 或价格配置。
 
 ## 安装
 
@@ -80,15 +80,15 @@ pi install git:github.com/zhcsyncer/pi-extensions
 - Pi 内置 xAI 模型已全部使用 Responses，并在 Fast Mode 开启时请求 `priority`。
 - `models.json` 里的自定义 xAI Completions 模型仍受支持。
 
-不支持的模型隐藏底栏状态，并且不改请求。
+不支持的模型隐藏底栏状态，并且不改请求。关闭 Fast 只停止覆盖 `service_tier`，不会删除用户配置原本提供的 tier。Fast 不会写入 `models.json`。
 
 ## 价格与计费
 
 不要假设每个模型都会被授予 priority。
 
 - OpenAI Fast / priority 官方定价面向 GPT-5.6 系列。更旧的模型可能拒绝或忽略该请求。
-- 对 Responses 模型，Pi 会按响应里的 `service_tier` 计算本地 `usage.cost`：`priority` 通常约为 2 倍，`default` 仍为 1 倍。
-- 自定义 xAI Completions 模型可以请求 priority，但本地费用不会获得 Responses 专属的调整。
+- Fast 请求 `priority`，但不调整 Pi 的本地费用估算。估算可能与提供商实际收取的 priority 费用不同，以提供商账单为准。
+- 自定义 xAI Completions 模型也一样。Fast 底栏标记表示请求的模式，不代表已获该优先级或确认价格。
 
 ## Session 生命周期
 

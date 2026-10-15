@@ -2,8 +2,8 @@
  * Fast / Priority mode for Pi.
  *
  * Same model, higher scheduling priority:
- * - openai / openai-codex / xAI Responses via options.serviceTier
- * - custom xAI Completions models via a payload service_tier fallback
+ * Main-session provider requests only: OpenAI / Codex / xAI Responses
+ * and custom xAI Completions receive service_tier via the payload hook.
  *
  * Toggle until you toggle that model again, /reload, or quit: /fast  or  Ctrl+F
  * Startup default for the current model: /fast default on|off
@@ -13,22 +13,12 @@
  * Settings: fast-mode.models is a list of "provider/id" that start Fast.
  * Current switches are in-memory per model; they are not stored in the session.
  */
-import {
-	clampThinkingLevel,
-	normalizeContext,
-	streamOpenAICodexResponses,
-	streamOpenAIResponses,
-	type Api,
-	type Context,
-	type Model,
-	type SimpleStreamOptions,
-} from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, matchesKey } from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buildBaseOptions } from "./stream-options.ts";
 
 export const STATUS_KEY = "fast-mode";
 export const STATUS_ON = "⚡ FAST";
@@ -37,12 +27,6 @@ export const SETTINGS_FIELD = "fast-mode";
 export const SERVICE_TIER = "priority" as const;
 export const SHORTCUT = "ctrl+f";
 export const SHORTCUT_REPEAT_GUARD_MS = 800;
-
-export type ServiceTierOptions = ReturnType<typeof buildBaseOptions> & {
-	serviceTier?: typeof SERVICE_TIER;
-	reasoningEffort?: SimpleStreamOptions["reasoning"];
-	toolChoice?: SimpleStreamOptions["toolChoice"];
-};
 
 export type FastModeModel = Pick<Model<Api>, "provider" | "api"> & {
 	id?: string;
@@ -197,33 +181,6 @@ export function supportsApi(model: FastModeModel | undefined): boolean {
 	return false;
 }
 
-export function buildStreamOptions(
-	model: Model<Api>,
-	context: Context,
-	options: SimpleStreamOptions | undefined,
-	serviceTier: typeof SERVICE_TIER | undefined,
-): ServiceTierOptions {
-	const base = {
-		...buildBaseOptions(model, normalizeContext(context), options, options?.apiKey),
-		toolChoice: options?.toolChoice,
-	};
-	const clamped = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
-	const reasoningEffort = clamped === "off" ? undefined : clamped;
-	return {
-		...base,
-		reasoningEffort,
-		...(serviceTier ? { serviceTier } : {}),
-	};
-}
-
-export function resolveServiceTier(
-	enabled: boolean,
-	model: Model<Api> | FastModeModel | undefined,
-): typeof SERVICE_TIER | undefined {
-	if (!enabled || !model || !supportsApi(model)) return undefined;
-	return SERVICE_TIER;
-}
-
 export function footerStatusLabel(enabled: boolean, supported: boolean): string | undefined {
 	if (!supported) return undefined;
 	return enabled ? STATUS_ON : STATUS_OFF;
@@ -233,13 +190,12 @@ export function shouldReloadEnabledFromSettings(reason: unknown): boolean {
 	return reason === "startup" || reason === "reload";
 }
 
-export function applyXaiPriorityPayload(input: {
+export function applyPriorityPayload(input: {
 	enabled: boolean;
 	model: FastModeModel | undefined;
 	payload: unknown;
 }): Record<string, unknown> | undefined {
-	if (!input.enabled || input.model?.provider !== "xai") return undefined;
-	if (input.model.api !== "openai-completions") return undefined;
+	if (!input.enabled || !supportsApi(input.model)) return undefined;
 	if (!isRecord(input.payload)) return undefined;
 	return { ...input.payload, service_tier: SERVICE_TIER };
 }
@@ -263,10 +219,6 @@ export default function fastMode(pi: ExtensionAPI): void {
 		const fromSettings = loadDefaultEnabled(key);
 		remembered.set(key, fromSettings);
 		return fromSettings;
-	}
-
-	function resolveTier(model: Model<Api> | undefined): typeof SERVICE_TIER | undefined {
-		return resolveServiceTier(enabledFor(model), model);
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
@@ -321,49 +273,10 @@ export default function fastMode(pi: ExtensionAPI): void {
 		);
 	}
 
-	pi.registerProvider("openai-codex", {
-		api: "openai-codex-responses",
-		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
-			const tier = resolveTier(model);
-			const transcript = normalizeContext(context);
-			return streamOpenAICodexResponses(
-				model as Model<"openai-codex-responses">,
-				transcript,
-				buildStreamOptions(model, context, options, tier) as never,
-			);
-		},
-	});
-
-	pi.registerProvider("openai", {
-		api: "openai-responses",
-		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
-			const tier = resolveTier(model);
-			const transcript = normalizeContext(context);
-			return streamOpenAIResponses(
-				model as Model<"openai-responses">,
-				transcript,
-				buildStreamOptions(model, context, options, tier) as never,
-			);
-		},
-	});
-
-	pi.registerProvider("xai", {
-		api: "openai-responses",
-		streamSimple(model, context: Context, options?: SimpleStreamOptions) {
-			const tier = resolveTier(model);
-			const transcript = normalizeContext(context);
-			return streamOpenAIResponses(
-				model as Model<"openai-responses">,
-				transcript,
-				buildStreamOptions(model, context, options, tier) as never,
-			);
-		},
-	});
-
-	// Pi's built-in xAI catalog is entirely Responses. Keep the serialized
-	// payload hook only for custom xAI Completions models from models.json.
+	// Only Pi's main-session request path emits this hook. Direct SDK calls
+	// from other extensions keep their own request and service-tier policy.
 	pi.on("before_provider_request", (event, ctx) => {
-		return applyXaiPriorityPayload({
+		return applyPriorityPayload({
 			enabled: enabledFor(ctx.model),
 			model: ctx.model,
 			payload: event.payload,

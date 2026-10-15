@@ -12,7 +12,7 @@
 - Unconfigured models start off. There is no all-models default.
 - Show a footer status on supported models. Hide it on unsupported models and leave the request unchanged.
 
-Requires Pi 1.1 or later. Fast preserves Pi's request hooks, thinking-level sampling defaults, and context-safe output budget; it does not change your model, account, or billing channel.
+Requires Pi 1.2 or later. Fast applies only to normal Agent requests in the current Pi main session, not direct SDK calls made by extensions such as Consult or Recap. Pi retains control of request hooks, sampling and output budgets; Fast does not change your model, authentication, endpoint, or pricing configuration.
 
 ## Install
 
@@ -80,15 +80,15 @@ The provider list is fixed. There is no user allowlist.
 - Pi's built-in xAI models all use Responses and request `priority` when Fast Mode is on.
 - Custom xAI Completions models in `models.json` remain supported.
 
-Unsupported models hide the footer and leave the request unchanged.
+Unsupported models hide the footer and leave the request unchanged. Turning Fast off stops overriding `service_tier`; it does not remove a tier supplied by your own configuration. Fast does not write `models.json`.
 
 ## Pricing and billing
 
 Do not assume every model is granted priority.
 
 - OpenAI Fast / priority is officially priced for the GPT-5.6 family. Older models may reject or ignore the request.
-- On Responses models, Pi uses the returned `service_tier` for local `usage.cost`: `priority` is typically about 2×, while `default` stays at 1×.
-- Custom xAI Completions models can request priority, but their local cost does not receive the Responses-specific adjustment.
+- Fast requests `priority` but does not adjust Pi's local cost estimates. Those estimates may differ from the provider's actual priority charges; the provider's bill is authoritative.
+- This also applies to custom xAI Completions models. A Fast footer badge indicates the requested mode, not confirmation of the granted tier or price.
 
 ## Session lifetime
 
