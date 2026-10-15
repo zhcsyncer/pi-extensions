@@ -89,6 +89,7 @@ describe("UsageReporter", () => {
     const finalized = reporter.finalizeMessage({ type: "message_end", message: root })!;
     expect(finalized.message).toMatchObject({ usage: claimed.usage,
       details: { calls: [], subagentUsageRollups: [claimed.subagentUsageRollup] } });
+    if (finalized.message.role !== "toolResult") throw new Error("Expected the finalized tool result");
     parent.appendMessage(finalized.message);
     expect(new UsageReporter().claim(agent, parent)).toBeUndefined();
     addUsage(agent.lifetimeUsage, toLifetimeUsage({ cost: 0.25 }));
