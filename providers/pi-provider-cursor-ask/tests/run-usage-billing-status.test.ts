@@ -62,7 +62,10 @@ function writer() {
   };
 }
 
-async function readLifecycleEvents(file: string): Promise<Array<Record<string, unknown>>> {
+async function readLifecycleEvents(
+  file: string,
+  expectedEvent: string,
+): Promise<Array<Record<string, unknown>>> {
   return vi.waitFor(async () => {
     const text = await readFile(file, "utf8").catch(() => "");
     const lines = text
@@ -70,7 +73,7 @@ async function readLifecycleEvents(file: string): Promise<Array<Record<string, u
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((event) => event.event === expectedEvent)).toBe(true);
     return lines;
   });
 }
@@ -103,7 +106,7 @@ describe("Cursor billing status surface", () => {
   it("logs a missing receipt at a run boundary without footer status or chat notify", async () => {
     reportRunUsageBoundary({}, "transport_close");
 
-    const events = await readLifecycleEvents(logFile);
+    const events = await readLifecycleEvents(logFile, "usage_run_unsettled");
     expect(events.some((event) => event.event === "usage_run_unsettled")).toBe(true);
     expect(events.find((event) => event.event === "usage_run_unsettled")).toMatchObject({
       reason: "transport_close",
@@ -116,7 +119,7 @@ describe("Cursor billing status surface", () => {
   it("logs an unconsumed receipt without footer status or chat notify", async () => {
     reportRunUsageBoundary({ billedUsage: bill }, "stream_end");
 
-    const events = await readLifecycleEvents(logFile);
+    const events = await readLifecycleEvents(logFile, "usage_incomplete");
     expect(events.find((event) => event.event === "usage_incomplete")).toMatchObject({
       reason: "stream_end",
       status: "receipt_unreported",
@@ -155,7 +158,7 @@ describe("Cursor billing status surface", () => {
     partial.writer.done("stop", partialState);
     await partial.stream.result();
 
-    const events = await readLifecycleEvents(logFile);
+    const events = await readLifecycleEvents(logFile, "usage_incomplete");
     expect(events.some((event) => event.event === "usage_incomplete")).toBe(true);
     expect(status).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
