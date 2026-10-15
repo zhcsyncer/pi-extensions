@@ -237,15 +237,17 @@ async function restore(f:Awaited<ReturnType<typeof fixture>>,record:AgentRecord,
   cleanup.push(()=>session.dispose());return session;
 }
 
-describe("R2 recovery authorization is historical ceiling intersected with current authority",()=>{
-  it("refuses a cold inline recipe without a current caller grant and creates no replacement session",async()=>{
+describe("R2 same-version recovery uses current authority without a historical ceiling",()=>{
+  it("continues a saved same-version inline definition without obsolete history grants",async()=>{
     const f=await fixture();const record=await f.prime();const files=readdirSync(join(f.cwd,"sessions"));
-    record.session!.dispose();
-    // A new parent/API identity has never been given this inline role. The old
-    // activation's retained record cannot authorize the new caller by itself.
+    const id=record.session!.sessionId;record.session!.dispose();
     const cold=await fixture({cwd:f.cwd,agentDir:f.agentDir});
-    await expect(restore(cold,record).then(session=>session.sessionId)).rejects.toThrow(/authoriz|current|inline|verif/i);
-    expect(readdirSync(join(f.cwd,"sessions"))).toEqual(files);expect(f.effects()).toEqual([]);
+    const session=await restore(cold,record);
+    expect(session.sessionId).toBe(id);
+    const allowed=await probe(cold,session,"allowed",2,"saved-inline");
+    expect(allowed.result.isError).toBe(false);
+    const excluded=await probe(cold,session,"denied",2,"saved-inline-exclusion");assertGateRejection(excluded.result);
+    expect(readdirSync(join(f.cwd,"sessions"))).toEqual(files);expect(f.effects()).toEqual([{name:"allowed"}]);
   });
 
   it("applies current revocation without replacing the saved prompt, model, session or history",async()=>{
@@ -262,41 +264,16 @@ describe("R2 recovery authorization is historical ceiling intersected with curre
     expect.soft(f.effects()).toEqual([]);assertGateRejection(denied.result);
   });
 
-  it("does not expand a historical ceiling when current inline permission becomes broader",async()=>{
+  it("executes newly granted registered tools from the current inline definition",async()=>{
     const f=await fixture();const record=await f.prime();
     const current={...f.role,extSelectors:["ext:bridge","ext:trusted"]};
     const session=await restore(f,record,current);
-    const allowed=await probe(f,session,"allowed",1,"intersection-positive");expect(allowed.result.isError).toBe(false);
-    const denied=await probe(f,session,"denied",2,"historical-ceiling");
-    expect.soft(f.effects()).toEqual([{name:"allowed"}]);assertGateRejection(denied.result);
+    const allowed=await probe(f,session,"allowed",1,"retained-grant");expect(allowed.result.isError).toBe(false);
+    const newlyAllowed=await probe(f,session,"denied",2,"new-current-grant");
+    expect(newlyAllowed.result.isError).toBe(false);
+    expect(f.effects()).toEqual([{name:"allowed"},{name:"denied"}]);
   });
 
-  it("rejects a legacy extension recipe as unverifiable authorization, not corrupt JSONL",async()=>{
-    const f=await fixture();const record=await f.prime();const snapshot=record.resumeSnapshot!;
-    // Explicit old public recipe shape; do not depend on any new policy fields.
-    const legacy:AgentResumeSnapshot={version:1,config:snapshot.config,systemPrompt:snapshot.systemPrompt,cwd:snapshot.cwd,
-      configCwd:snapshot.configCwd,model:snapshot.model,thinkingLevel:snapshot.thinkingLevel,isolated:snapshot.isolated};
-    const options:RestoreOptions={pi:f.pi,currentAgentConfig:f.role};
-    const restored=restoreAgentSession(f.ctx,record.sessionFile!,legacy,options).then(session=>{
-      cleanup.push(()=>session.dispose());return session.sessionId;
-    });
-    await expect(restored).rejects.toThrow(/authoriz|verif/i);
-    expect(f.effects()).toEqual([]);
-  });
-
-  it("can migrate an explicit legacy builtin-only ceiling with a current verified grant",async()=>{
-    const f=await fixture();const current={...f.role,builtinToolNames:["read"],extensions:false as const,extSelectors:[]};
-    const record=await f.prime(current);const snapshot=record.resumeSnapshot!;
-    const legacy:AgentResumeSnapshot={version:1,config:snapshot.config,systemPrompt:snapshot.systemPrompt,cwd:snapshot.cwd,
-      configCwd:snapshot.configCwd,model:snapshot.model,thinkingLevel:snapshot.thinkingLevel,isolated:snapshot.isolated};
-    const options:RestoreOptions={pi:f.pi,currentAgentConfig:current};
-    const session=await restoreAgentSession(f.ctx,record.sessionFile!,legacy,options);cleanup.push(()=>session.dispose());
-    expect(session.sessionId).toBe(record.session!.sessionId);
-    expect(session.getActiveToolNames()).toEqual(["read"]);
-    put(join(f.cwd,"legacy.txt"),"MIGRATED BUILTIN CONTROL");
-    const allowed=await probe(f,session,"read",0,"legacy-builtin",{path:"legacy.txt"});
-    expect(allowed.result.isError).toBe(false);expect(text(allowed.result)).toContain("MIGRATED BUILTIN CONTROL");
-  });
 });
 
 function observerSource(reactivate=false) {
@@ -408,11 +385,10 @@ async function parentCall(f:Awaited<ReturnType<typeof fixture>>,name:string,args
   const result=toolResults(f.parent).find(result=>result.toolCallId===id)!;expect(result).toBeDefined();return result;
 }
 
-it("R2 workflow Agent/get/steer work directly but nested calls cannot reach manager operations",async()=>{
+it("R2 workflow Agent/get/steer work directly and through nested execution",async()=>{
   const f=await fixture();
   const targetCalls:string[]=[];
-  // Real target hook notifications are observable for direct calls. Native
-  // model-only rejection happens before this boundary for nested calls.
+  // Both paths must reach real registered tools, not only visibility metadata.
   f.pi.on("tool_call",event=>{if(["Agent","get_subagent_result","steer_subagent"].includes(event.toolName)) targetCalls.push(event.toolName);});
   f.faux.setResponses([fauxAssistantMessage("WORKFLOW CHILD RESULT")]);
   const input={subagent_type:"general-purpose",description:"public workflow positive",prompt:"return fixture result",isolated:true};
@@ -428,20 +404,19 @@ it("R2 workflow Agent/get/steer work directly but nested calls cannot reach mana
   expect(steer.isError).toBe(false);
   await parentCall(f,"get_subagent_result",{agent_id:childId,wait:true},"wait-steer");
   expect(targetCalls).toEqual(expect.arrayContaining(["Agent","get_subagent_result","steer_subagent"]));
-  const beforeCalls=targetCalls.length,beforeRequests=f.faux.state.callCount;
-  const beforeArchives=f.parent.sessionManager.getEntries().filter(e=>e.type==="custom" && e.customType==="subagents:record").length;
-  f.faux.setResponses([fauxAssistantMessage("UNEXPECTED NESTED CHILD"),fauxAssistantMessage("UNEXPECTED NESTED STEER")]);
+  const beforeCalls=targetCalls.length;
+  f.faux.setResponses([fauxAssistantMessage("NESTED CHILD"),fauxAssistantMessage("NESTED STEER")]);
   const attempts:[string,JsonObject][]=[["Agent",input],["get_subagent_result",{agent_id:childId,wait:true}],
-    ["steer_subagent",{agent_id:childId,message:"must not resume from nested execution"}]];
+    ["steer_subagent",{agent_id:childId,message:"continue from nested execution"}]];
   for(const [name,payload] of attempts) {
     expect(f.parent.getToolDefinition(name)).toBeDefined();
     const nested=await parentCall(f,"bridge_one",{target:name,payload},`nested-${name}`);
-    expect.soft(nested.isError,`${name} must be rejected at the native nested boundary`).toBe(true);
-    expect.soft(text(nested)).toMatch(/not callable|model.only|not available|cannot.*call|tool .*not found/i);
+    expect(nested.isError,`${name} must reach the manager through nested execution`).toBe(false);
+    if(name==="Agent") expect(text(nested)).toContain("NESTED CHILD");
   }
-  expect.soft(targetCalls.slice(beforeCalls)).toEqual([]);
-  expect.soft(f.faux.state.callCount).toBe(beforeRequests);
-  expect(f.parent.sessionManager.getEntries().filter(e=>e.type==="custom" && e.customType==="subagents:record")).toHaveLength(beforeArchives);
+  const final=await parentCall(f,"get_subagent_result",{agent_id:childId,wait:true},"nested-steer-settled");
+  expect(text(final)).toContain("NESTED STEER");
+  expect(targetCalls.slice(beforeCalls)).toEqual(expect.arrayContaining(["Agent","get_subagent_result","steer_subagent"]));
 });
 
 it("R2 real product activation loads named authority from SDK ctx.cwd, not process.cwd",async()=>{
@@ -542,7 +517,7 @@ describe("R2 reviewed authorization regressions",()=>{
     expect(result!.isError).toBe(true);
   });
 
-  it("restores a verifiable legacy builtin-only named recipe without new sourcePath or authorization fields",async()=>{
+  it("restores a same-version builtin-only named task and preserves its read-only boundary",async()=>{
     const cwd=directory("pi11-r2-legacy-named-"),name="legacy_reader";
     put(join(cwd,".pi/agents",`${name}.md`),`---\ndescription: Existing project read-only role\ntools: read\nextensions: false\nskills: false\npersist_session: true\nsession_dir: ${JSON.stringify(join(cwd,"sessions"))}\nprompt_mode: replace\n---\nNAMED ORIGINAL INTENT\nKeep the original read-only task.\n`);
     const f=await fixture({cwd});
@@ -559,22 +534,13 @@ describe("R2 reviewed authorization regressions",()=>{
       expect(session.getActiveToolNames()).toEqual(["read"]);
     };
     original.session!.dispose();
-    // First prove the unchanged current recipe and JSONL are valid independently
-    // of the missing-new-fields regression below.
-    const control=await restore(f,original);assertPreserved(control);control.dispose();
-    const legacy:AgentResumeSnapshot={version:1,config:{name,source:"project",description:"Legacy project reader",
-      builtinToolNames:["read"],extensions:false,skills:false,systemPrompt:snapshot.config.systemPrompt,
-      promptMode:snapshot.config.promptMode,persistSession:true,sessionDir:join(cwd,"sessions")},
-      systemPrompt:snapshot.systemPrompt,cwd:snapshot.cwd,configCwd:snapshot.configCwd,model:snapshot.model,
-      thinkingLevel:snapshot.thinkingLevel,isolated:snapshot.isolated,
-      ...(snapshot.maxTurns===undefined?{}:{maxTurns:snapshot.maxTurns}),...(snapshot.graceTurns===undefined?{}:{graceTurns:snapshot.graceTurns})};
-    const restored=await restoreAgentSession(f.ctx,original.sessionFile!,legacy,{pi:f.pi});cleanup.push(()=>restored.dispose());
+    const restored=await restore(f,original);
     assertPreserved(restored);
     const path=join(cwd,"legacy-readonly.txt");put(path,"LEGACY READ CONTROL");
     const read=await probe(f,restored,"read",0,"legacy-named-read",{path});
     expect(read.result.isError).toBe(false);expect(text(read.result)).toContain("LEGACY READ CONTROL");
     f.faux.setResponses([call("write","legacy-named-write",{path,content:"UNAUTHORIZED MUTATION"}),fauxAssistantMessage("legacy write rejection observed")]);
-    await resumeAgent(restored,"attempt a write outside the legacy ceiling");
+    await resumeAgent(restored,"attempt a write outside current read-only authority");
     expect(readFileSync(path,"utf8")).toBe("LEGACY READ CONTROL");
     expect(toolResults(restored).find(result=>result.toolCallId==="legacy-named-write")?.isError).toBe(true);
     expect(restored.getToolDefinition("allowed")).toBeUndefined();
