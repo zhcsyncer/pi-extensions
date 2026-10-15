@@ -15,4 +15,4 @@
 "pi-provider-volcengine-agent-plan": patch
 ---
 
-Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.1.0 SDK graph; installing the package does not enable codemode or MCP.
+Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
