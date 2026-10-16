@@ -28,13 +28,6 @@ export const costSegmentFeature = {
 				config.cost.hideZero = !config.cost.hideZero;
 			},
 		},
-		{
-			id: "cost.display",
-			label: "Display",
-			hint: "Compact session cost.",
-			kind: "info",
-			value: () => "compact USD",
-		},
 	],
 	collect: collectCost,
 } as const satisfies SegmentFeature;
