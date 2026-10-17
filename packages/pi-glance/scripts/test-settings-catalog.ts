@@ -403,13 +403,6 @@ const costRows = assertRows(config, "cost", [
 		hint: "Hide until cost is non-zero.",
 		kind: "toggle",
 	},
-	{
-		id: "cost.display",
-		label: "Display",
-		value: "compact USD",
-		hint: "Compact session cost.",
-		kind: "info",
-	},
 ]);
 
 const tokensRows = assertRows(config, "tokens", [
@@ -531,10 +524,6 @@ assert.equal(rowById(progressContextRows, "context.progressWidth").apply!(progre
 
 assert.equal(rowById(costRows, "cost.enabled").apply!(config).segments.find((segment) => segment.id === "cost")?.enabled, false, "cost enabled should toggle off");
 assert.equal(rowById(costRows, "cost.hideZero").apply!(config).cost.hideZero, true, "cost hide zero should toggle on");
-const infoBefore = clone(config);
-const costInfo = rowById(costRows, "cost.display");
-assert.equal(costInfo.apply, undefined, "cost display info row should not expose apply");
-assertConfigUnchanged(infoBefore, config, "reading an info row should not dirty config");
 
 assert.equal(rowById(tokensRows, "tokens.enabled").apply!(config).segments.find((segment) => segment.id === "tokens")?.enabled, true, "tokens enabled should toggle on");
 assert.equal(rowById(tokensRows, "tokens.display").apply!(config).tokens.display, "total", "tokens display should cycle input-output -> total");

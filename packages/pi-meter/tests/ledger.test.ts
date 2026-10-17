@@ -456,6 +456,7 @@ describe("session import", () => {
 				cost: 0.2,
 				costKnown: true,
 				sourceId: "compaction:cmp-1",
+				entryId: "cmp-1",
 				kind: "compaction",
 			},
 			{
@@ -471,6 +472,7 @@ describe("session import", () => {
 				cost: 0.05,
 				costKnown: true,
 				sourceId: "branch_summary:br-1",
+				entryId: "br-1",
 				kind: "branch_summary",
 			},
 		]);
@@ -577,6 +579,44 @@ describe("config parsing", () => {
 		expect(parseMeterConfig({}).ledger.windowMode).toBe("rolling");
 		expect(parseMeterConfig({ ledger: { windowMode: "calendar" } }).ledger.windowMode).toBe("calendar");
 		expect(parseMeterConfig({ ledger: { windowMode: "sideways" } }).ledger.windowMode).toBe("rolling");
+	});
+});
+
+describe("finalized entry identity", () => {
+	it("keeps identical payloads with distinct IDs and ignores filenames when a header exists", () => {
+		const message = { role: "assistant", provider: "p", model: "m", timestamp: 10, usage: { input: 1, totalTokens: 1, cost: { total: 0.01 } } };
+		const content = [{ type: "session", id: "real-sid", cwd: "/repo" }, ...["a", "b"].map((id) => ({ type: "message", id, message }))].map((entry) => JSON.stringify(entry)).join("\n");
+		const parsed = parseSession(content, "filename");
+		expect(parsed.sid).toBe("real-sid");
+		expect(parsed.records.map((r) => r.entryId)).toEqual(["a", "b"]);
+		expect(collapseDuplicateRecords(parsed.records)).toHaveLength(2);
+		expect(diffRecords(parsed.records, parseSession(content, "renamed-file").records)).toEqual([]);
+	});
+
+	it("never spends a legacy payload allowance on a new tail", () => {
+		const legacy = rec({ sid: "old-file" });
+		const a = rec({ sid: "actual", sourceId: "assistant:a", entryId: "a" });
+		const b = { ...a, entryId: "b", sourceId: "assistant:b" };
+		const sessionAliases = new Map([["old-file", "actual"]]);
+		expect(diffRecords([legacy], [a, b], { sessionAliases })).toEqual([b]);
+		expect(diffRecords([legacy], [b], { sessionAliases, legacyMatching: false })).toEqual([b]);
+		expect(diffRecords([a], [b])).toEqual([b]);
+	});
+
+	it("preserves Consult's original raw indices around unusable items", () => {
+		const parsed = parseSession(JSON.stringify({ type: "message", id: "tool", message: { role: "toolResult", toolName: "consult", toolCallId: "call", timestamp: 1,
+			usage: { cost: { total: 0.3 } }, details: { envelope: { raw: [null, { model: "advisor", usage: { cost: { total: 0.1 } } }, {}, { model: "advisor", usage: { cost: { total: 0.2 } } }] } } } }), "s");
+		expect(parsed.records.map((r) => r.part)).toEqual(["raw:1", "raw:3"]);
+		expect(parsed.records.reduce((sum, r) => sum + r.cost, 0)).toBeCloseTo(0.3);
+	});
+
+	it.each([undefined, -1, null, "0"])("does not present invalid standalone cost %s as zero", (total) => {
+		const parsed = parseSession(JSON.stringify({ type: "usage", id: "u", timestamp: "2026-01-01T00:00:00Z", kind: "future", provider: "p", model: "m", usage: { cost: { total, input: 0.01 } } }), "s");
+		expect(parsed.records[0]).toMatchObject({ entryId: "u", usageKind: "future", cost: 0.01, costKnown: false });
+		const zero = usageFromAssistantMessage({ role: "assistant", timestamp: 1, usage: { cost: { total: 0 } } }, { sid: "s", cwd: "" })!;
+		expect(zero.costKnown).toBe(true);
+		const totalRow = sumRows(aggregate([...parsed.records, zero], "all", "model"));
+		expect(totalRow).toMatchObject({ cost: 0.01, unknownCosts: 1 });
 	});
 });
 

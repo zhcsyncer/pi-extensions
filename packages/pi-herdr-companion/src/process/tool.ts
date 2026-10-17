@@ -85,6 +85,7 @@ export function registerHerdrProcessTool(pi: ExtensionAPI, manager: ProcessManag
 			"Use herdr_process stop only for panes returned by herdr_process; it cannot close caller or user-owned panes.",
 		],
 		parameters: herdrProcessSchema,
+		exposure: "model-only",
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			switch (params.action) {

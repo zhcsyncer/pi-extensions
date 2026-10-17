@@ -93,7 +93,6 @@ const requiredPackFiles = new Map([
 		"packages/pi-subagents/README.zh-CN.md",
 		"packages/pi-subagents/UPSTREAM_SOURCE.md",
 		"packages/pi-fast-mode/extensions/fast-mode.ts",
-		"packages/pi-fast-mode/extensions/stream-options.ts",
 		"packages/pi-fast-mode/assets/demo-fast-mode-status.png",
 		"packages/pi-fast-mode/README.md",
 		"packages/pi-fast-mode/README.zh-CN.md",
@@ -230,7 +229,6 @@ const requiredPackFiles = new Map([
 	]],
 	["./packages/pi-fast-mode", [
 		"extensions/fast-mode.ts",
-		"extensions/stream-options.ts",
 		"assets/demo-fast-mode-status.png",
 		"README.md",
 		"README.zh-CN.md",
@@ -424,6 +422,15 @@ for (const readmePath of maintainedReadmes) {
 }
 
 for (const packagePath of packagePaths) {
+	const packageManifest = JSON.parse(await readFile(resolve(repositoryRoot, packagePath, "package.json"), "utf8"));
+	for (const hostModule of ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@sinclair/typebox", "typebox"]) {
+		assert.equal(packageManifest.dependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must come from Pi, not runtime dependencies`);
+		assert.equal(packageManifest.optionalDependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must not be an optional runtime copy`);
+		// Unmaintained packages retain legacy peer ranges; all other host and packaging checks still apply.
+		if (packagePath !== "./packages/pi-context7" && packagePath !== "./packages/pi-plan-mode" && packageManifest.peerDependencies?.[hostModule] !== undefined) {
+			assert.equal(packageManifest.peerDependencies[hostModule], "*", `${packagePath}: host peers must use *`);
+		}
+	}
 	const result = spawnSync(
 		"npm",
 		["pack", "--dry-run", "--json", packagePath],

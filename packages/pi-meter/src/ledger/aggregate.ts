@@ -24,6 +24,7 @@ function emptyRow(key: string, label: string): AggRow {
 		cacheWrite: 0,
 		cost: 0,
 		costKnown: false,
+		unknownCosts: 0,
 		turns: 0,
 	};
 }
@@ -52,6 +53,7 @@ export function aggregate(
 		row.cacheWrite += rec.cW;
 		row.cost += rec.cost;
 		if (rec.costKnown) row.costKnown = true;
+		else row.unknownCosts = (row.unknownCosts ?? 0) + 1;
 		row.turns += 1;
 	}
 	return [...map.values()].sort((a, b) => b.tokens - a.tokens);
@@ -67,6 +69,7 @@ export function sumRows(rows: readonly AggRow[]): AggRow {
 			acc.cacheWrite += row.cacheWrite;
 			acc.cost += row.cost;
 			if (row.costKnown) acc.costKnown = true;
+			acc.unknownCosts = (acc.unknownCosts ?? 0) + (row.unknownCosts ?? 0);
 			acc.turns += row.turns;
 			return acc;
 		},

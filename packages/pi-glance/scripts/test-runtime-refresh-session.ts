@@ -186,15 +186,19 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	});
 
 	await harness.session.messageEnd(assistant, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 3, output: 4, cacheRead: 5, cacheWrite: 6, cost: 0.9 }, "assistant messageEnd should apply responseId usage delta once");
-	await harness.session.messageEnd({ ...assistant }, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 3, output: 4, cacheRead: 5, cacheWrite: 6, cost: 0.9 }, "assistant messageEnd should dedupe cloned messages by responseId");
-	assert.equal(ctx.getEntryReads(), entryBaseline, "assistant messageEnd should not scan entries");
-	assert.equal(ctx.getBranchReads(), branchBaseline, "assistant messageEnd should not scan branch");
+	assert.equal(state.usage.cost, 0, "message_end precedes persistence");
+	assert.equal(ctx.getEntryReads(), entryBaseline, "early message_end must not scan entries");
+	ctx.appendMessage(assistant);
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 3, output: 4, cacheRead: 5, cacheWrite: 6, cost: 0.9 }, "durable boundary counts persisted usage");
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 3, output: 4, cacheRead: 5, cacheWrite: 6, cost: 0.9 }, "same entry is counted once");
+	assert.equal(ctx.getBranchReads(), branchBaseline, "incremental boundaries do not scan branch");
 
-	harness.session.resetAccumulators();
 	await harness.session.messageEnd({ ...assistant }, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 6, output: 8, cacheRead: 10, cacheWrite: 12, cost: 1.8 }, "resetAccumulators should clear responseId usage dedupe");
+	ctx.appendMessage({ ...assistant });
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 6, output: 8, cacheRead: 10, cacheWrite: 12, cost: 1.8 }, "distinct entries with the same responseId count separately");
 }
 
 {
@@ -206,9 +210,11 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	});
 
 	await harness.session.messageEnd(assistant, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.7 }, "assistant messageEnd should apply no-responseId usage delta once");
-	await harness.session.messageEnd(assistant, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.7 }, "assistant messageEnd should dedupe no-responseId messages by object identity");
+	ctx.appendMessage(assistant);
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.7 }, "persisted message without responseId counts once");
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.7 }, "same durable entry counts once without responseId");
 }
 
 {
@@ -223,10 +229,13 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	});
 
 	await harness.session.messageEnd(toolResult, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 7, output: 8, cacheRead: 9, cacheWrite: 10, cost: 1.25 }, "tool-result messageEnd should add nested LLM usage");
+	assert.equal(state.usage.cost, 0, "tool message_end also precedes persistence");
 	assert.equal(harness.getRenderCount(), renderBaseline + 1, "tool-result usage should request a render");
 	assert.equal(ctx.getEntryReads(), entryBaseline, "tool-result messageEnd should not scan entries");
 	assert.equal(ctx.getBranchReads(), branchBaseline, "tool-result messageEnd should not scan branch");
+	ctx.appendMessage(toolResult);
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 7, output: 8, cacheRead: 9, cacheWrite: 10, cost: 1.25 }, "durable outer tool result counts nested rollup once");
 }
 
 {
@@ -286,7 +295,7 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	await harness.session.turnEnd({ turnIndex: 1, message: eventMessage("assistant", { usage: { output: 10, totalTokens: 10 } }) }, ctx.ctx);
 	harness.setOnRender(undefined);
 	assert.ok(state.throughput.currentRun, "turnEnd should leave current-run throughput visible after render");
-	assert.equal(ctx.getEntryReads(), entryBaseline, "turnEnd should not scan entries after baseline");
+	assert.equal(ctx.getEntryReads(), entryBaseline + 1, "turnEnd reads durable entries once");
 	assert.equal(ctx.getBranchReads(), branchBaseline, "turnEnd should not scan branch after baseline");
 
 	const renderAfterTurnEnd = harness.getRenderCount();
@@ -315,7 +324,7 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	harness.setOnRender(undefined);
 	assert.ok(state.throughput.lastTurn, "agentEnd should leave last-turn throughput visible after render");
 	assert.equal(state.throughput.currentRun, null, "agentEnd should leave current-run throughput cleared");
-	assert.equal(ctx.getEntryReads(), entryBaseline, "agentEnd should not scan entries after baseline");
+	assert.equal(ctx.getEntryReads(), entryBaseline + 2, "turnEnd and agentEnd each synchronize durable entries once");
 	assert.equal(ctx.getBranchReads(), branchBaseline, "agentEnd should not scan branch after baseline");
 }
 
@@ -325,12 +334,15 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	const state = harness.session.ensureState(ctx.ctx);
 	const assistant = eventMessage("assistant", { responseId: "reset-me", usage: { input: 1, output: 1, totalTokens: 2, cost: { total: 0.1 } } });
 	await harness.session.messageEnd(assistant, ctx.ctx);
-	await harness.session.messageEnd({ ...assistant }, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0.1 }, "setup should confirm assistant responseId dedupe is active");
+	ctx.appendMessage(assistant);
+	await harness.session.turnEnd({}, ctx.ctx);
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: 0.1 }, "repeated durable boundaries count an entry once");
 
-	harness.session.resetAccumulators();
 	await harness.session.messageEnd({ ...assistant }, ctx.ctx);
-	assert.deepEqual(state.usage, { input: 2, output: 2, cacheRead: 0, cacheWrite: 0, cost: 0.2 }, "resetAccumulators should clear assistant responseId dedupe");
+	ctx.appendMessage({ ...assistant });
+	await harness.session.turnEnd({}, ctx.ctx);
+	assert.deepEqual(state.usage, { input: 2, output: 2, cacheRead: 0, cacheWrite: 0, cost: 0.2 }, "new durable entry is not suppressed by reused responseId");
 
 	harness.session.agentStart();
 	harness.setNowMs(2000);
@@ -359,11 +371,13 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	assert.equal(state.throughput.currentRun?.elapsedMs, 5000, "refresh session includes thinking, not pre-delta waiting or 28s tools");
 	assert.equal(state.throughput.currentRun?.tokensPerSecond, 10);
 	harness.setNowMs(40000);
-	harness.session.agentSettled();
+	harness.session.agentSettled(ctx.ctx);
 	assert.equal(state.throughput.lastTurn?.tokensPerSecond, 10, "settled finalizes the same inference-only checkpoint");
 	assert.equal(state.throughput.currentRun, null);
-	assert.equal(ctx.getEntryReads(), entryBaseline, "stream/tool timing never rescans session entries");
+	assert.equal(ctx.getEntryReads(), entryBaseline + 2, "only turn and settled boundaries read durable entries");
 	assert.equal(ctx.getBranchReads(), branchBaseline, "stream/tool timing never rescans session branch");
 }
 
 console.log("✓ runtime refresh session checks passed");
+await import("./test-recorded-usage.js");
+await import("./test-appearance-refresh.js");

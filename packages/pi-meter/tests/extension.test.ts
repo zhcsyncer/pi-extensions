@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { findConflictingUsageCommand } from "../src/conflict.ts";
 import { createLedgerStore, parseUsageLine, serializeUsageRecord } from "../src/ledger/store.ts";
 import { getMeterPaths } from "../src/paths.ts";
@@ -43,6 +43,7 @@ function harness(options: {
 	hasUI?: boolean;
 	mode?: "tui" | "print";
 	sessionFile?: string;
+	manager?: SessionManager;
 	model?: { provider?: string; id?: string };
 	getApiKeyForProvider?: (provider: string) => Promise<string | undefined>;
 	customInputs?: string[];
@@ -75,10 +76,7 @@ function harness(options: {
 		modelRegistry: {
 			getApiKeyForProvider: options.getApiKeyForProvider ?? (async () => undefined),
 		},
-		sessionManager: {
-			getSessionFile: () => options.sessionFile,
-			getSessionId: () => "sess",
-		},
+		sessionManager: options.manager ?? SessionManager.inMemory("/work", { id: options.sessionFile ? basename(options.sessionFile, ".jsonl") : "sess" }),
 		ui: {
 			notify: (message: string, type?: string) => notifications.push({ message, type }),
 			theme,
@@ -100,6 +98,22 @@ function harness(options: {
 		},
 	} as unknown as ExtensionContext;
 	return { pi, ctx, handlers, commands, widgets, statuses, notifications, customComponents };
+}
+
+// Legacy wiring tests load finalized JSONL fixtures through the public SDK. They
+// do not model pre-persistence message_end; the separate SDK integration drives that ordering.
+async function observeFixture(handlers: Map<string, Handler[]>, event: any, ctx: ExtensionContext): Promise<unknown> {
+	const manager = ctx.sessionManager;
+	const entry = event.message ? {
+		type: "message", id: `entry-${event.message.timestamp}`, parentId: manager.getLeafId(),
+		timestamp: new Date(event.message.timestamp).toISOString(), message: event.message,
+	} : event.compactionEntry ?? event.summaryEntry;
+	if (entry && !manager.getEntry(entry.id)) {
+		const header = manager.getHeader()!;
+		const next = SessionManager.inMemory(ctx.cwd, undefined, [header, ...manager.getEntries(), { parentId: manager.getLeafId(), ...entry }]);
+		Object.assign(ctx, { sessionManager: next });
+	}
+	return handlers.get(event.message ? "turn_end" : event.type)?.[0]?.(event, ctx);
 }
 
 describe("conflict detection", () => {
@@ -154,13 +168,13 @@ describe("extension runtime", () => {
 		}
 	});
 
-	it("appends a local ledger row on message_end even without a session file", async () => {
+	it("appends finalized usage at turn_end even without a session file", async () => {
 		const { default: piMeter } = await import("../extensions/meter.ts");
 		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("message_end")?.[0]?.({
-			type: "message_end",
+		await observeFixture(handlers, {
+			type: "turn_end",
 			message: {
 				role: "assistant",
 				provider: "xai",
@@ -171,7 +185,7 @@ describe("extension runtime", () => {
 		}, ctx);
 		const raw = readFileSync(getMeterPaths(agentDir).usageFile, "utf8");
 		expect(raw).toContain("xai/grok-4");
-		expect(raw).toContain("ephemeral");
+		expect(raw).toContain("sess");
 		expect(raw).toContain("11");
 		expect(raw).not.toContain("creditUsagePercent");
 	});
@@ -181,7 +195,7 @@ describe("extension runtime", () => {
 		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("session_compact")?.[0]?.({
+		await observeFixture(handlers, {
 			type: "session_compact",
 			compactionEntry: {
 				type: "compaction",
@@ -194,9 +208,9 @@ describe("extension runtime", () => {
 		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
 		expect(rows).toEqual([{
 			ts: Date.parse("2026-08-15T12:10:00.000Z"),
-			sid: "ephemeral",
+			sid: "sess",
 			cwd: "/work",
-			model: "xai/grok-4",
+			model: "unknown/unknown",
 			in: 800,
 			out: 40,
 			cR: 0,
@@ -205,6 +219,7 @@ describe("extension runtime", () => {
 			cost: 0.2,
 			costKnown: true,
 			sourceId: "compaction:cmp-live",
+			entryId: "cmp-live",
 			kind: "compaction",
 		}]);
 	});
@@ -220,7 +235,7 @@ describe("extension runtime", () => {
 			oldLeafId: "old",
 		}, ctx);
 		expect(() => readFileSync(getMeterPaths(agentDir).usageFile, "utf8")).toThrow();
-		await handlers.get("session_tree")?.[0]?.({
+		await observeFixture(handlers, {
 			type: "session_tree",
 			newLeafId: "leaf",
 			oldLeafId: "old",
@@ -236,7 +251,7 @@ describe("extension runtime", () => {
 		const rows = readFileSync(getMeterPaths(agentDir).usageFile, "utf8").trim().split("\n").map(parseUsageLine);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({
-			model: "xai/grok-4",
+			model: "unknown/unknown",
 			tot: 120,
 			sourceId: "branch_summary:br-live",
 			kind: "branch_summary",
@@ -263,7 +278,7 @@ describe("extension runtime", () => {
 		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("session_compact")?.[0]?.({
+		await observeFixture(handlers, {
 			type: "session_compact",
 			compactionEntry: {
 				type: "compaction",
@@ -288,8 +303,8 @@ describe("extension runtime", () => {
 		const { pi, ctx, handlers } = harness({ hasUI: false, mode: "print" });
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("message_end")?.[0]?.({
-			type: "message_end",
+		await observeFixture(handlers, {
+			type: "turn_end",
 			message: {
 				role: "toolResult",
 				toolCallId: "consult-1",
@@ -356,9 +371,9 @@ describe("extension runtime", () => {
 		const makeSession = (sid: string, messages: unknown[]) => {
 			const sessionFile = join(agentDir, "sessions", `${sid}.jsonl`);
 			writeFileSync(sessionFile, [
-				JSON.stringify({ type: "session", cwd: "/work" }),
-				...messages.map((message) => JSON.stringify({
-					type: "message", timestamp: new Date(messageTs + 30_000).toISOString(), message,
+				JSON.stringify({ type: "session", id: sid, version: 3, cwd: "/work" }),
+				...messages.map((message: any) => JSON.stringify({
+					type: "message", id: `entry-${message.timestamp}`, timestamp: new Date(messageTs + 30_000).toISOString(), message,
 				})),
 			].join("\n"));
 			const session = harness({ hasUI: true, mode: "print", sessionFile });
@@ -370,7 +385,7 @@ describe("extension runtime", () => {
 		const capture = async () => {
 			for (const [session, messages] of [[parent, parentMessages], [child, childMessages]] as const) {
 				for (const message of messages) {
-					const result = await session.handlers.get("message_end")![0]!({ type: "message_end", message }, session.ctx);
+					const result = await observeFixture(session.handlers, { type: "turn_end", message }, session.ctx);
 					expect(result).toBeUndefined(); // No message replacement that could alter Pi's stats.
 				}
 			}
@@ -383,7 +398,7 @@ describe("extension runtime", () => {
 			expect(rows).toEqual(childMessages.map((message) => ({
 				ts: message.timestamp, sid: "child", cwd: "/work", model: "xai/grok-4",
 				in: 11, out: 2, cR: 3, cW: 4, tot: 20, cost: 0.01, costKnown: true,
-				sourceId: `assistant:${message.timestamp}`,
+				sourceId: `assistant:${message.timestamp}`, entryId: `entry-${message.timestamp}`,
 			})));
 		};
 		if (order === "live-first") await capture();
@@ -408,7 +423,7 @@ describe("extension runtime", () => {
 		const sessionFile = join(agentDir, "sessions", `${sid}.jsonl`);
 		mkdirSync(join(agentDir, "sessions"), { recursive: true });
 		writeFileSync(sessionFile, `${JSON.stringify({
-			type: "message",
+			type: "message", id: `entry-${messageTs}`,
 			timestamp: new Date(messageTs + 30_000).toISOString(),
 			message: {
 				role: "assistant",
@@ -426,8 +441,8 @@ describe("extension runtime", () => {
 		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("message_end")?.[0]?.({
-			type: "message_end",
+		await observeFixture(handlers, {
+			type: "turn_end",
 			message: {
 				role: "assistant",
 				provider: "xai",
@@ -498,7 +513,7 @@ describe("extension runtime", () => {
 		expect(summaries.at(-1)?.message).toContain("ledger unchanged");
 	});
 
-	it("collapses already-written live/import duplicates when the ledger opens", async () => {
+	it("keeps duplicate legacy bytes while preserving read-side budget totals", async () => {
 		const messageTs = 1_700_000_000_000;
 		const live: UsageRecord = {
 			ts: messageTs,
@@ -522,9 +537,10 @@ describe("extension runtime", () => {
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		const rows = readFileSync(paths.usageFile, "utf8").trim().split("\n").map(parseUsageLine);
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.ts).toBe(messageTs);
-		expect(notifications.some((item) => item.message.includes("duplicate usage records"))).toBe(true);
+		expect(rows).toHaveLength(2);
+		const { store } = await createLedgerStore(agentDir);
+		expect(await store.readAll()).toEqual([live]);
+		expect(notifications.some((item) => item.message.includes("duplicate usage records"))).toBe(false);
 	});
 
 	it("publishes one footer status instead of a widget row", async () => {
@@ -546,8 +562,8 @@ describe("extension runtime", () => {
 		});
 		piMeter(pi);
 		await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
-		await handlers.get("message_end")?.[0]?.({
-			type: "message_end",
+		await observeFixture(handlers, {
+			type: "turn_end",
 			message: {
 				role: "assistant",
 				provider: "xai",
@@ -616,7 +632,7 @@ describe("extension runtime", () => {
 		expect(migration).toContain("usage.jsonl");
 		const records = await store.readAll();
 		expect(records[0]).toMatchObject({ model: "xai/grok", in: 1, out: 2, cR: 3, cW: 4 });
-		expect(() => readFileSync(join(legacy, "usage.jsonl"))).toThrow();
+		expect(readFileSync(join(legacy, "usage.jsonl"), "utf8")).toBe(readFileSync(getMeterPaths(agentDir).usageFile, "utf8"));
 		const { loadMeterConfig } = await import("../src/config.ts");
 		const loaded = await loadMeterConfig(agentDir);
 		expect(loaded.config.footer.local).toBe("today-tokens");

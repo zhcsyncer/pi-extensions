@@ -51,6 +51,7 @@ export default function consultExtension(pi: ExtensionAPI): void {
 	const guidance = resolveGuidance(loaded.config);
 	pi.registerTool({
 		name: CONSULT_TOOL_NAME,
+		exposure: "model-only",
 		label: TOOL_LABEL,
 		description: CONSULT_DESCRIPTION,
 		promptSnippet: guidance.promptSnippet,
@@ -118,10 +119,12 @@ export default function consultExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_execution_start", async (event) => {
+		if (event.parentToolCallId !== undefined) return;
 		tracker.onToolStart(event.toolCallId, event.toolName, event.args);
 	});
 
 	pi.on("tool_execution_end", async (event, ctx) => {
+		if (event.parentToolCallId !== undefined) return;
 		tracker.onToolEnd(event.toolCallId, event.toolName, event.isError, event.result);
 		if (event.toolName === CONSULT_TOOL_NAME) return;
 		const decision = tracker.evaluateWatchdog(loaded.config.gates.watchdog, loaded.config.budget);

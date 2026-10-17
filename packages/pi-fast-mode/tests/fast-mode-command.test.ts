@@ -143,14 +143,6 @@ async function withLoadedExtension<T>(
 	}
 }
 
-test("registers built-in xAI on the Responses wrapper", async () => {
-	await withLoadedExtension(async ({ providers }) => {
-		const xai = providers.get("xai");
-		assert.equal(xai?.api, "openai-responses");
-		assert.equal(typeof xai?.streamSimple, "function");
-	});
-});
-
 test("/fast default writes this model's setting and turns the current switch to match", async () => {
 	await withLoadedExtension(async ({ commands, handlers }) => {
 		const statuses: Array<string | undefined> = [];

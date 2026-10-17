@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+> **不再维护。** 本扩展的现有定位不再继续投入，后续不再迭代功能或进行兼容性适配。下方保留历史源码的用法说明；这不表示替代方案已经完成。
+
 严格、仅 TUI 启用的 Pi 规划与审批工作流。它组合 fail-closed 只读工具、[revdiff](https://github.com/umputun/revdiff) 终端评审、不可变 Plan revision、显式批准、branch-aware 实现生命周期和紧凑 Plan Widget。
 
 Plan 文档评审与实现工作彼此独立。批准后立即恢复进入规划前的工具、在新的 Agent turn 中开始普通实现，并启用 `complete_plan`。完成操作只关闭精确获批 revision，之后再次 `/plan on` 会默认开始一份新 Plan。

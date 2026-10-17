@@ -1,8 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { applyRuntimeRefreshPlan } from "./runtime-plan-executor.js";
 import { runtimePlanFor, type RuntimeEventFacts, type RuntimeEventKind } from "./runtime-policy.js";
-import { assistantMessageHasKnownContextUsage, stateInputsFromContext, usageTotalsFromSessionMessage, type StateInputs, type StateMessageInputs } from "./runtime-snapshot.js";
-import { addUsageTotals, clearCurrentRunThroughput, createInitialState, setCurrentRunThroughput, setGitSnapshot, setLastTurnThroughput } from "./state.js";
+import { assistantMessageHasKnownContextUsage, stateInputsFromContext, usageTotalsFromEntries, type StateInputs, type StateMessageInputs } from "./runtime-snapshot.js";
+import { addUsageTotals, clearCurrentRunThroughput, createInitialState, setCurrentRunThroughput, setGitSnapshot, setLastTurnThroughput, setUsageTotals } from "./state.js";
 import { ThroughputRunTracker, type ThroughputRunStateIntent } from "./throughput-run-tracker.js";
 import type { GitSnapshot, GlanceConfig, GlanceState } from "./types.js";
 
@@ -51,8 +51,8 @@ function applyThroughputIntent(state: GlanceState, intent: ThroughputRunStateInt
 export class RuntimeRefreshSession {
 	private state?: GlanceState;
 	private unknownContextAfterLatestCompaction = false;
-	private appliedAssistantMessageObjects = new WeakSet<object>();
-	private appliedAssistantMessageResponseIds = new Set<string>();
+	private entryCount = 0;
+	private appliedEntryIds = new Set<string>();
 	private readonly throughputTracker = new ThroughputRunTracker();
 
 	constructor(private readonly host: RuntimeRefreshSessionHost) {}
@@ -66,14 +66,17 @@ export class RuntimeRefreshSession {
 	}
 
 	private readStateInputs(ctx: ExtensionContext): StateInputs {
-		const inputs = stateInputsFromContext(ctx, this.host.getThinkingLevel(), this.host.getAutoCompactionEnabled(ctx));
+		const entries = ctx.sessionManager.getEntries();
+		this.entryCount = entries.length;
+		this.appliedEntryIds = new Set(entries.map((entry) => entry.id));
+		const inputs = stateInputsFromContext(ctx, this.host.getThinkingLevel(), this.host.getAutoCompactionEnabled(ctx), usageTotalsFromEntries(entries));
 		this.setUnknownContextAfterLatestCompaction(inputs.unknownContextAfterLatestCompaction);
 		return inputs;
 	}
 
 	resetAccumulators(): void {
-		this.appliedAssistantMessageObjects = new WeakSet<object>();
-		this.appliedAssistantMessageResponseIds = new Set<string>();
+		this.entryCount = 0;
+		this.appliedEntryIds.clear();
 		this.throughputTracker.reset();
 	}
 
@@ -102,22 +105,23 @@ export class RuntimeRefreshSession {
 		}
 	}
 
-	private usageTotalsAreZero(delta: ReturnType<typeof usageTotalsFromSessionMessage>): boolean {
-		return delta.input === 0 && delta.output === 0 && delta.cacheRead === 0 && delta.cacheWrite === 0 && delta.cost === 0;
-	}
-
-	private applyMessageUsageDelta(message: RuntimeMessageEndInput): boolean {
-		if (!this.state || (message.role !== "assistant" && message.role !== "toolResult")) return false;
-		const delta = usageTotalsFromSessionMessage(message);
-		if (this.usageTotalsAreZero(delta)) return false;
-		if (typeof message.responseId === "string" && message.responseId) {
-			if (this.appliedAssistantMessageResponseIds.has(message.responseId)) return false;
-			this.appliedAssistantMessageResponseIds.add(message.responseId);
-		} else if (typeof message === "object" && message !== null) {
-			if (this.appliedAssistantMessageObjects.has(message)) return false;
-			this.appliedAssistantMessageObjects.add(message);
+	private syncRecordedUsage(ctx: ExtensionContext, rebuild = false): void {
+		if (!this.state) return;
+		// The readonly SDK exposes a copy, not an indexed entries API. Only visit
+		// the new suffix at durable boundaries, never from the render path.
+		const entries = ctx.sessionManager.getEntries();
+		if (rebuild || entries.length < this.entryCount) {
+			this.appliedEntryIds = new Set(entries.map((entry) => entry.id));
+			setUsageTotals(this.state, usageTotalsFromEntries(entries));
+		} else {
+			const added = entries.slice(this.entryCount).filter((entry) => {
+				if (this.appliedEntryIds.has(entry.id)) return false;
+				this.appliedEntryIds.add(entry.id);
+				return true;
+			});
+			addUsageTotals(this.state, usageTotalsFromEntries(added));
 		}
-		return addUsageTotals(this.state, delta);
+		this.entryCount = entries.length;
 	}
 
 	async execute(kind: RuntimeEventKind, ctx: ExtensionContext, options: RuntimeRefreshExecuteOptions = {}): Promise<void> {
@@ -125,7 +129,11 @@ export class RuntimeRefreshSession {
 		if (plan.ensureConfig) await this.host.ensureConfig();
 		if (plan.ensureState) this.ensureState(ctx);
 		if (this.state) {
+			if (kind !== "message_end" && kind !== "tool_execution_end" && kind !== "editor_thinking_cycle" && kind !== "thinking_level_select") {
+				this.syncRecordedUsage(ctx, kind === "session_tree" || kind === "session_compact");
+			}
 			applyRuntimeRefreshPlan({
+				usage: this.state.usage,
 				state: this.state,
 				config: this.host.getConfig(),
 				ctx,
@@ -161,9 +169,14 @@ export class RuntimeRefreshSession {
 		this.throughputTracker.uiPromptEnd();
 	}
 
-	agentSettled(): void {
+	agentSettled(ctx: ExtensionContext): void {
+		const version = this.state?.version;
+		this.syncRecordedUsage(ctx);
 		const intent = this.throughputTracker.settle(() => this.host.nowMs());
-		if (this.state && applyThroughputIntent(this.state, intent)) this.host.requestRender();
+		if (this.state) {
+			applyThroughputIntent(this.state, intent);
+			if (this.state.version !== version) this.host.requestRender();
+		}
 	}
 
 	async messageEnd(message: RuntimeMessageEndInput, ctx: ExtensionContext): Promise<void> {
@@ -173,9 +186,6 @@ export class RuntimeRefreshSession {
 		}
 		await this.execute("message_end", ctx, {
 			facts: { messageRole: message.role },
-			beforeRender: () => {
-				this.applyMessageUsageDelta(message);
-			},
 		});
 	}
 

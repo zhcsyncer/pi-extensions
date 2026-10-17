@@ -9,6 +9,7 @@ import {
   openArchivedAgent,
 } from "../src/session-archive.js";
 import type { AgentRecord } from "../src/types.js";
+import { getDisplayName, getPromptModeLabel } from "../src/ui/agent-widget.js";
 
 function record(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -63,6 +64,22 @@ describe("subagent session archive", () => {
     const archives = listArchivedAgents(sessionManager);
     expect(archives.map((archive) => archive.id)).toEqual(["agent-12345678", "agent-other"]);
     expect(archives[0].result).toBe("second");
+  });
+
+  it("uses saved named-role presentation when legacy archives have no inline display fields", () => {
+    const parent = SessionManager.inMemory("/repo");
+    parent.appendCustomEntry("subagents:record", archiveAgentRecord(record({
+      type: "local-role",
+      resumeSnapshot: {
+        version: 1, cwd: "/repo", configCwd: "/repo", systemPrompt: "original", isolated: true,
+        model: { provider: "test", modelId: "test-model" }, thinkingLevel: "off",
+        config: { name: "local-role", displayName: "Saved Friendly", description: "local", systemPrompt: "original",
+          builtinToolNames: ["read"], extensions: false, skills: false, promptMode: "replace" },
+      },
+    })));
+    const [saved] = listArchivedAgents(parent);
+    expect(getDisplayName(saved.type, saved.inlineDisplayName)).toBe("Saved Friendly");
+    expect(getPromptModeLabel(saved.type, saved.inlinePromptMode)).toBeUndefined();
   });
 
   it("does not restore an older completion when a newer execution was interrupted", () => {

@@ -11,10 +11,8 @@
 import type {
 	AssistantMessage,
 	AssistantMessageEvent,
-	AssistantMessageEventStream,
 	Message,
 	TextContent,
-	ThinkingLevel,
 } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
@@ -48,13 +46,10 @@ import {
 	errCallFailed,
 	errCallThrew,
 	errMisconfigured,
-	errNoApiKey,
-	errNoApiKeyDetail,
 	msgConsulting,
 } from "./messages.ts";
 import { sessionIdFrom } from "./paths.ts";
 import { resolvePanelMembers, selectPanel, type ResolvedPanelMember } from "./panel.ts";
-import { getRuntimeStreamSimple, loadStreamSimple } from "./pi-compat.ts";
 import { CONSULT_SYSTEM_PROMPT } from "./prompt.ts";
 import type { ConsultTracker } from "./tracker.ts";
 import type {
@@ -68,11 +63,7 @@ import type {
 	UsageSnapshot,
 } from "./types.ts";
 
-export type StreamSimpleFn = (
-	model: ResolvedPanelMember["model"],
-	context: { systemPrompt: string; messages: Message[]; tools: [] },
-	options: { signal?: AbortSignal; reasoning?: ThinkingLevel; apiKey?: string; headers?: unknown },
-) => AssistantMessageEventStream;
+export type StreamSimpleFn = ExtensionContext["modelRegistry"]["streamSimple"];
 
 function advisorTextFromResponse(response: AssistantMessage): string {
 	return response.content
@@ -107,14 +98,11 @@ async function callAdvisorMember(opts: {
 	messages: Message[];
 	streamSimple: StreamSimpleFn;
 	signal?: AbortSignal;
-	apiKey?: string;
-	headers?: unknown;
-	useRuntimeFacade: boolean;
 	onProgress?: (label: string, progress: MemberProgress) => void;
 }): Promise<AdvisorOutcome> {
-	const requestOptions = opts.useRuntimeFacade
-		? { signal: opts.signal, reasoning: opts.member.effort }
-		: { apiKey: opts.apiKey, headers: opts.headers, signal: opts.signal, reasoning: opts.member.effort };
+	// Let the registry resolve request-time auth, including OAuth endpoint/headers.
+	// Passing a preflight key here would override the configured credential channel.
+	const requestOptions = { signal: opts.signal, reasoning: opts.member.effort };
 
 	const startedAt = Date.now();
 	let accumulatedUsage: ReturnType<typeof usageSnapshotFrom>;
@@ -126,6 +114,7 @@ async function callAdvisorMember(opts: {
 		attempts: attempt,
 	});
 	const call = async (): Promise<AssistantMessage> => {
+		if (opts.signal?.aborted) throw new Error(ERR_CALL_ABORTED);
 		attempt += 1;
 		let phase: ConsultLivePhase = "connecting";
 		let currentApprox = 0;
@@ -246,7 +235,7 @@ async function callAdvisorMember(opts: {
 		return {
 			ok: false,
 			label: opts.member.label,
-			error: errCallThrew(message),
+			error: opts.signal?.aborted ? ERR_CALL_ABORTED : errCallThrew(message),
 			...(accumulatedUsage ? { usage: accumulatedUsage } : {}),
 			...metadata(),
 		};
@@ -259,57 +248,14 @@ export async function runConsultPanel(opts: {
 	streamSimple: StreamSimpleFn;
 	signal?: AbortSignal;
 	onProgress?: (label: string, progress: MemberProgress) => void;
-	authFor?: (member: ResolvedPanelMember) => Promise<{
-		ok: boolean;
-		error?: string;
-		apiKey?: string;
-		headers?: unknown;
-	}>;
-	useRuntimeFacade: boolean;
 }): Promise<AdvisorOutcome[]> {
-	const runMember = async (member: ResolvedPanelMember): Promise<AdvisorOutcome> => {
-		if (opts.authFor) {
-			const auth = await opts.authFor(member);
-			if (!auth.ok) {
-				return {
-					ok: false,
-					label: member.label,
-					error: errMisconfigured(member.label, auth.error ?? ERR_NO_MODEL_DETAIL),
-					...(member.effort ? { effort: member.effort } : {}),
-					durationMs: 0,
-					attempts: 0,
-				};
-			}
-			if (!auth.apiKey && !opts.useRuntimeFacade) {
-				return {
-					ok: false,
-					label: member.label,
-					error: errNoApiKey(member.label),
-					...(member.effort ? { effort: member.effort } : {}),
-					durationMs: 0,
-					attempts: 0,
-				};
-			}
-			return callAdvisorMember({
-				member,
-				messages: opts.messages,
-				streamSimple: opts.streamSimple,
-				signal: opts.signal,
-				apiKey: auth.apiKey,
-				headers: auth.headers,
-				useRuntimeFacade: opts.useRuntimeFacade,
-				onProgress: opts.onProgress,
-			});
-		}
-		return callAdvisorMember({
-			member,
-			messages: opts.messages,
-			streamSimple: opts.streamSimple,
-			signal: opts.signal,
-			useRuntimeFacade: opts.useRuntimeFacade,
-			onProgress: opts.onProgress,
-		});
-	};
+	const runMember = (member: ResolvedPanelMember): Promise<AdvisorOutcome> => callAdvisorMember({
+		member,
+		messages: opts.messages,
+		streamSimple: opts.streamSimple,
+		signal: opts.signal,
+		onProgress: opts.onProgress,
+	});
 
 	if (opts.members.length <= 1) {
 		const member = opts.members[0];
@@ -393,31 +339,15 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 		return fail(trigger, ERR_NO_MODEL, ERR_NO_MODEL_DETAIL, selected.map((member) => member.model));
 	}
 
-	const runtimeStreamSimple = getRuntimeStreamSimple(opts.ctx.modelRegistry);
-	let streamSimple = opts.streamSimple ?? runtimeStreamSimple;
-	if (!streamSimple) {
-		try {
-			streamSimple = await loadStreamSimple();
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return fail(trigger, errCallThrew(message), message, members.map((member) => member.label), "failed");
-		}
-	}
-
-	const authByLabel = new Map<
-		string,
-		Awaited<ReturnType<typeof opts.ctx.modelRegistry.getApiKeyAndHeaders>>
-	>();
+	const models = members.map((member) => member.label);
 	for (const member of members) {
+		if (opts.signal?.aborted) return fail(trigger, ERR_CALL_ABORTED, ERR_CALL_ABORTED, models, "cancelled");
 		const auth = await opts.ctx.modelRegistry.getApiKeyAndHeaders(member.model);
-		authByLabel.set(member.label, auth);
 		if (!auth.ok) {
-			return fail(trigger, errMisconfigured(member.label, auth.error), auth.error, members.map((item) => item.label));
-		}
-		if (!auth.apiKey && !runtimeStreamSimple && !opts.streamSimple) {
-			return fail(trigger, errNoApiKey(member.label), errNoApiKeyDetail(member.model.provider), members.map((item) => item.label));
+			return fail(trigger, errMisconfigured(member.label, auth.error), auth.error, models);
 		}
 	}
+	const streamSimple = opts.streamSimple ?? opts.ctx.modelRegistry.streamSimple.bind(opts.ctx.modelRegistry);
 
 	const { messages: sessionMessages } = buildSessionContext(
 		opts.ctx.sessionManager.getEntries(),
@@ -429,11 +359,11 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 
 	// Authentication can yield while another consult reserves the same budget.
 	// Re-check and increment synchronously immediately before the paid request.
+	if (opts.signal?.aborted) return fail(trigger, ERR_CALL_ABORTED, ERR_CALL_ABORTED, models, "cancelled");
 	const reservationError = budgetBlockReason(opts.config.budget, opts.tracker.runCount, opts.tracker.sessionCount);
 	if (reservationError) return fail(trigger, reservationError);
 	opts.tracker.recordConsult();
 
-	const models = members.map((member) => member.label);
 	const live = new Map<string, ConsultLiveMember>(
 		members.map((member) => [
 			member.label,
@@ -468,9 +398,8 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 	const outcomes = await runConsultPanel({
 		members,
 		messages,
-		streamSimple: streamSimple as StreamSimpleFn,
+		streamSimple,
 		signal: opts.signal,
-		useRuntimeFacade: Boolean(runtimeStreamSimple) && !opts.streamSimple,
 		onProgress: (model, progress) => {
 			const previous = live.get(model);
 			if (
@@ -483,8 +412,6 @@ export async function executeConsult(opts: ExecuteConsultOptions): Promise<Agent
 			live.set(model, { model, ...(previous?.effort ? { effort: previous.effort } : {}), ...progress });
 			publishProgress();
 		},
-		authFor: async (member) =>
-			authByLabel.get(member.label) ?? { ok: false, error: `missing cached auth for ${member.label}` },
 	});
 
 	const envelope = mergeAdvisorOutcomes(outcomes);

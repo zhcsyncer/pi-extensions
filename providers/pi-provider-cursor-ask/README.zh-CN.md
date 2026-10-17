@@ -39,7 +39,7 @@
 ## 要求
 
 - Node.js 22.19 或更高版本。
-- Pi 0.86 或更高。
+- Pi 1.1.0。
 - 有权使用所选模型的 Cursor 账号。
 
 ## 安装
@@ -70,6 +70,8 @@ pi --list-models cursor
 
 - `/cursor usage` — 打开 Cursor 套餐用量面板。
 - `/cursor doctor` — 打开脱敏后的 provider 诊断面板。
+
+请求使用 Pi 当前生效的系统指令与工具：已替换或删除的提示段和工具定义不会再次发送，追加的系统指令仍会保留。
 
 若 Cursor 请求的历史在本地已缺失，本轮生成会以 `Refusing to answer empty` 明确失败，而不是发送残缺历史。重试即可从 Pi 对话历史重建。
 

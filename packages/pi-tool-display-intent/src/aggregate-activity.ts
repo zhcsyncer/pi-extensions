@@ -22,7 +22,8 @@ import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from 
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
-import { registerTimer } from "./disposable.js";
+import { NestedDisplayStore, nestedNumber, type NestedRoot } from "./nested-display.js";
+import { nestedNotice, renderNestedActivity } from "./nested-renderer.js";
 
 const RUN_BREATHE_MS = 2400;
 const RUN_BREATHE_TICK_MS = 80;
@@ -82,6 +83,8 @@ export interface AggregateMember {
 	agentTurnId?: string;
 	/** Immutable interpretation of the Agent tool receipt, not live task progress. */
 	agentReceipt?: AgentCallReceipt;
+	durationMs?: number;
+	nested?: NestedRoot;
 }
 
 export interface AggregateUsageTotals {
@@ -149,6 +152,7 @@ export interface AggregateActivityView {
 	steerCount: number;
 	pinnedSteers: Array<{ id: string; firstLine: string }>;
 	toolSummaries: AggregateToolSummary[];
+	nestedNotices?: string[];
 }
 
 export interface AggregateRenderTheme {
@@ -486,12 +490,16 @@ export function formatExpandedTurnHeader(
 }
 
 export function formatMemberTiming(
-	member: Pick<AggregateMember, "state" | "startedAtMs" | "endedAtMs">,
+	member: Pick<AggregateMember, "state" | "startedAtMs" | "endedAtMs" | "durationMs">,
 	theme: AggregateRenderTheme,
 	nowMs = Date.now(),
 ): string {
-	if (member.startedAtMs === undefined) return "";
 	const running = member.state === "pending" || member.state === "running";
+	if (!running && member.durationMs !== undefined) {
+		const duration = formatAggregateCallDuration(member.durationMs);
+		return theme.fg("muted", member.endedAtMs === undefined ? duration : `${padDurationSlot(duration)}  ${formatAggregateClockHms(member.endedAtMs)}`);
+	}
+	if (member.startedAtMs === undefined || (!running && member.endedAtMs === undefined)) return "";
 	const endedAtMs = running ? undefined : member.endedAtMs;
 	const durationMs = Math.max(0, (endedAtMs ?? nowMs) - member.startedAtMs);
 	const duration = formatAggregateCallDuration(durationMs);
@@ -944,6 +952,7 @@ export class AggregateProjection {
 	private renderTheme: AggregateRenderTheme | undefined;
 	private readonly contextGrowth = new ContextGrowthLedger();
 	private pulseTimer: ReturnType<typeof setInterval> | undefined;
+	private disposed = false;
 	private readonly contextInvalidators = new Map<string, () => void>();
 	private readonly turnIdsByMessage = new WeakMap<object, string>();
 	private timelineExpanded = false;
@@ -957,6 +966,8 @@ export class AggregateProjection {
 		private readonly isPassthroughTool: (toolName: string) => boolean = () => false,
 		private readonly getExpandedTimeline: () => ExpandedTimeline = () => "flat",
 		private readonly showContextGrowth: () => boolean = () => false,
+		readonly nested = new NestedDisplayStore(),
+		private readonly nestedMaxRows: (expanded: boolean) => number = expanded => expanded ? 4000 : 8,
 	) {}
 
 	private customSequence = 0;
@@ -1193,7 +1204,9 @@ export class AggregateProjection {
 	}
 
 	getMember(toolCallId: string): AggregateMember | undefined {
-		return this.membersById.get(toolCallId);
+		const member = this.membersById.get(toolCallId);
+		if (member) member.nested = this.nested.get(toolCallId);
+		return member;
 	}
 
 	renderExpandedToolRow(toolCallId: string, width: number, nowMs = Date.now()): string[] {
@@ -1205,12 +1218,13 @@ export class AggregateProjection {
 		if (!member) return { lines: [], callStart: 0 };
 		const theme = this.getRenderTheme();
 		const edge = this.getFrameEdge(toolCallId) ?? "only";
+		const children = renderNestedActivity(member.nested, Math.max(1, width - 4), theme, true, this.nestedMaxRows(true)).map(line => `  │ ${line}`);
 		if (this.getExpandedTimeline() !== "turns") {
-			return { lines: renderAggregateMemberRow(member, width, theme, edge, nowMs), callStart: 0 };
+			return { lines: [...renderAggregateMemberRow(member, width, theme, edge, nowMs), ...children], callStart: 0 };
 		}
 		const turn = this.getExpandedTurnPresentation(member, edge, nowMs);
 		return {
-			lines: renderExpandedAggregateMember(member, width, theme, edge, nowMs, turn),
+			lines: [...renderExpandedAggregateMember(member, width, theme, edge, nowMs, turn), ...children],
 			callStart: (turn.leadingBlank ? 1 : 0) + (turn.header ? 1 : 0),
 		};
 	}
@@ -1439,7 +1453,17 @@ export class AggregateProjection {
 		this.syncRunPulse();
 	}
 
+	/** The pulse is created by later events, so its owner is this projection, not a render scope. */
+	dispose(): void {
+		this.disposed = true;
+		this.nested.dispose();
+		this.stopRunPulse();
+		this.clearViewportState();
+		this.setDetailOpener(undefined);
+	}
+
 	private syncRunPulse(): void {
+		if (this.disposed) return;
 		const live = this.groups.some((group) => !group.settled);
 		if (live && !this.pulseTimer) {
 			this.pulseTimer = setInterval(() => {
@@ -1449,7 +1473,6 @@ export class AggregateProjection {
 				if (!this.groups.some((group) => !group.settled)) this.stopRunPulse();
 			}, RUN_BREATHE_TICK_MS);
 			this.pulseTimer.unref?.();
-			registerTimer(this.pulseTimer);
 			return;
 		}
 		if (!live) this.stopRunPulse();
@@ -1580,6 +1603,7 @@ export class AggregateProjection {
 		args: unknown,
 		invalidate: (() => void) | undefined,
 	): void {
+		if (invalidate) this.nested.bind(toolCallId, invalidate);
 		if (!this.initialized) {
 			if (invalidate) this.invalidators.set(toolCallId, invalidate);
 			return;
@@ -1642,6 +1666,7 @@ export class AggregateProjection {
 		options: { retainDone?: boolean; fallbackTimestamp?: unknown } = {},
 	): void {
 		if (messageRole(message) !== "toolResult") return;
+		this.nested.ingest(message);
 		const record = toRecord(message);
 		if (typeof record.toolCallId === "string") {
 			const member = this.membersById.get(record.toolCallId);
@@ -1686,10 +1711,11 @@ export class AggregateProjection {
 		toolCallId: string,
 		result: unknown,
 		isError: boolean,
-		options: { retainDone?: boolean; endedAtMs?: number; stampNow?: boolean } = {},
+		options: { retainDone?: boolean; endedAtMs?: number; stampNow?: boolean; durationMs?: number } = {},
 	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
+		member.durationMs = nestedNumber(options.durationMs) ?? nestedNumber(toRecord(result).durationMs) ?? member.durationMs;
 		if (isError) {
 			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."), options);
 			return;
@@ -1773,6 +1799,7 @@ export class AggregateProjection {
 	}
 
 	rebuild(branchEntries: unknown[], visibleMessages?: unknown[]): void {
+		this.nested.rebuild(branchEntries);
 		this.stopRunPulse();
 		this.clearViewportState();
 		const visibleIds = collectVisibleToolCallIds(visibleMessages);
@@ -1965,6 +1992,7 @@ export class AggregateProjection {
 
 	private buildGroupView(group: AggregateGroup, hostId: string): AggregateActivityView {
 		const grouped = group.members;
+		for (const member of grouped) member.nested = this.nested.get(member.toolCallId);
 		const aggregateMembers = grouped.filter(
 			(entry) => entry.state !== "needsAttention" && !this.isPassthrough(entry.toolName),
 		);
@@ -2022,6 +2050,7 @@ export class AggregateProjection {
 				? []
 				: group.steers.map((steer) => ({ id: steer.id, firstLine: steer.firstLine })),
 			toolSummaries: [...summaries.values()],
+			nestedNotices: grouped.map(member => nestedNotice(member.nested)).filter((text): text is string => !!text).slice(-ACTIVE_ROW_LIMIT),
 		};
 	}
 
@@ -2397,6 +2426,7 @@ export function renderAggregateActivity(
 			includeFailureDetail: false,
 		}));
 	}
+	for (const notice of view.nestedNotices ?? []) lines.push(truncateToWidth(theme.fg("muted", `  ↳ ${notice}`), safeWidth, "…"));
 	if (view.activeOverflow > 0) {
 		lines.push(
 			truncateToWidth(theme.fg("muted", `  … ${view.activeOverflow} more active`), safeWidth, "…"),
@@ -2674,8 +2704,7 @@ export function registerAggregateProjectionEvents(
 	pi.on("session_shutdown", async () => {
 		clearSettleTimer();
 		collapseWidget.dispose();
-		projection.clearViewportState();
-		projection.setDetailOpener(undefined);
+		projection.dispose();
 		const wasHost = hostAggregateProjection === projection;
 		forgetProjection(pi, projection);
 		// The UI host owns shared rendering, not the last lingering child session.
@@ -2716,11 +2745,11 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("tool_execution_start", async (event) => {
 		clearSettleTimer();
-		projection.markStarted(event.toolCallId, event.toolName, event.args);
+		if (!event.parentToolCallId) projection.markStarted(event.toolCallId, event.toolName, event.args);
 	});
-	pi.on("tool_execution_update", async (event) => projection.markUpdated(event.toolCallId, event.args));
+	pi.on("tool_execution_update", async (event) => { if (!event.parentToolCallId) projection.markUpdated(event.toolCallId, event.args); });
 	pi.on("tool_execution_end", async (event) => {
-		projection.markComplete(event.toolCallId, event.result, event.isError === true);
+		if (!event.parentToolCallId) projection.markComplete(event.toolCallId, event.result, event.isError === true, { durationMs: event.durationMs });
 	});
 	pi.on("agent_settled", async () => {
 		projection.markUnsettledInterrupted();
@@ -2732,4 +2761,5 @@ export function registerAggregateProjectionEvents(
 		}, doneSettleDelayMs);
 		settleTimer.unref?.();
 	});
+	projection.nested.register(pi);
 }

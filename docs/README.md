@@ -2,25 +2,33 @@
 
 这里只放代码、测试、git 恢复不了的东西：Why、产品意图、心智模型、约定红线、非显然外部事实。用户可见的安装与用法仍在各包 `README.md` / `README.zh-CN.md`。
 
-横切方案放根下；包或 provider 特有方案按目录切片。
+既有横切方案保留原路径；新方案按包或 provider 目录切片，根 bundle 的执行方案放 `pi-extensions/`。
 
 | 文档 | 状态 | 讲什么 |
 |---|---|---|
 | [upstream-forks.md](./upstream-forks.md) | 外部跟踪 | 有来源的 fork/改编：pin、已评估头 `last_seen`、锁定的跟/不跟；下次只打开比 last_seen 新的版本 |
 | [extension-data-layout.md](./extension-data-layout.md) | 已落地 | 扩展配置与内部状态的统一路径、trust 边界 |
 | [pi-0.86-extension-adapt.md](./pi-0.86-extension-adapt.md) | 已落地 | Pi 0.86.1：MUST 包已改；peer ≥0.86.0；测试钉 0.86.1 |
+| [pi-1.1-implementation-plan.md](./pi-1.1-implementation-plan.md) | 实施进行中，进度见统一表 | 仅支持 Pi 1.1+；Consult 公开 SDK 适配纳入；七项存量、Antigravity、Herdr 命令体验及 Search 三项旧债暂缓 |
+| [pi-extensions/pi-1.1-execution-plan.md](./pi-extensions/pi-1.1-execution-plan.md) | 当前 session 调度，已开工 | §0 为唯一进度表；独立 Herdr worktree/session、共同基线、三队列滚动派发与独立验收 |
+| [pi-1.0-upgrade-review.md](./pi-1.0-upgrade-review.md) | 审计记录，更新至 1.1.0，未实施 | 版本差异与分版本验证；实际实施范围和新环境快照以上述计划为准 |
 | [tui-design-system.md](./tui-design-system.md) | 参考 | Claude Code 风格 TUI 色板与 chrome |
+| [pi-glance/pi-1.1-input-plan.md](./pi-glance/pi-1.1-input-plan.md) | 主题适配待 review，大粘贴冻结 | 本轮只做主题/兼容；paste 增强设计留作后续参考 |
 | [pi-glance/input-stash.md](./pi-glance/input-stash.md) | 已落地 | 输入框单槽暂存：快捷键、边框提示、按 session 覆盖写 |
 | [pi-glance/working-indicator.md](./pi-glance/working-indicator.md) | 已落地 | Glance working row 的显示边界与主题跟随 |
+| [pi-meter/pi-1.1-quota-plan.md](./pi-meter/pi-1.1-quota-plan.md) | 待 review，旧注册/重试与 Antigravity 暂缓 | 本轮 SDK 记账与 #152 的 Go 部分；与冻结存量的依赖冲突须另报 |
+| [pi-context7/native-mcp-migration.md](./pi-context7/native-mcp-migration.md) | 本地接入计划，旧扩展保留，未实施 | 官方 MCP 由 Pi 连接；只在选定 profile 停旧入口，保留 REST/包/skill，不强制所有用户迁移 |
 | [pi-meter/extension.md](./pi-meter/extension.md) | 已落地 | 本地账本与订阅剩余两套账 |
 | [pi-meter/quota-status.md](./pi-meter/quota-status.md) | 已落地 | 底栏只画当前模型套餐；本地滚动/日历窗口 |
 | [pi-consult/extension.md](./pi-consult/extension.md) | 已落地 | 主会话侧路顾问：consult / watchdog / 可选双路；配置走 extension-data |
 | [pi-consult/executor-context-proposal.md](./pi-consult/executor-context-proposal.md) | 待观察，未实施 | 候选环境背景块的边界与预算；先用 events 联查 transcript 验证必要性 |
 | [pi-fast-mode/extension.md](./pi-fast-mode/extension.md) | 已落地 | 同模型 Fast / Priority：按模型内存开关、loader 红线 |
 | [pi-herdr-companion/extension.md](./pi-herdr-companion/extension.md) | 已落地 | Herdr 可见进程、临时 `/btw`、blocked、当前 linked worktree 的确定性 cleanup；worker 实现保留但不注册 |
+| [pi-tool-display-intent/pi-1.1-integration-plan.md](./pi-tool-display-intent/pi-1.1-integration-plan.md) | 待 review，未实施 | 官方 renderer＋语义装饰；#148/#149/#150/#151 联合方案与合同 |
 | [pi-tool-display-intent/aggregate-layout.md](./pi-tool-display-intent/aggregate-layout.md) | 已落地 | aggregate Tools 账本：按请求汇总、不改执行与历史 |
 | [pi-tool-display-intent/aggregate-steer.md](./pi-tool-display-intent/aggregate-steer.md) | 已落地 | steer 留在同一轮：钉顶首行、结束后留一行、展开后时间线高亮 |
 | [pi-todo/active-plan-lifecycle.md](./pi-todo/active-plan-lifecycle.md) | 已落地 | Todo 有界周期与 checkpoint 收缩 |
+| [pi-subagents/pi-1.1-runtime-plan.md](./pi-subagents/pi-1.1-runtime-plan.md) | 待 review，未实施 | child 权限/MCP、回执/恢复/账本；Review 与轻量工作流接入 |
 | [pi-subagents/background-duplication.md](./pi-subagents/background-duplication.md) | 已落地 | 后台委派重复工作的根因与修复边界 |
 | [pi-subagents/delivery-and-resume.md](./pi-subagents/delivery-and-resume.md) | 契约 | 完整报告预算、投递时机、运行代次与终态恢复边界 |
 | [pi-subagents/configuration-and-integrations.md](./pi-subagents/configuration-and-integrations.md) | 已落地 | 配置位置与授权、进程内编排及运行时复用 |
@@ -32,6 +40,7 @@
 | [pi-plan-mode/submit-plan-tool-display.md](./pi-plan-mode/submit-plan-tool-display.md) | 已落地 | `submit_plan` 的 TUI 投影 |
 | [providers/pi-provider-volcengine-agent-plan/model-compatibility.md](./providers/pi-provider-volcengine-agent-plan/model-compatibility.md) | 已落地 | 静态模型来源、个人版权限、网关兼容与费用估算边界 |
 | [providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md](./providers/pi-provider-volcengine-agent-plan/quota-auto-refresh.md) | 未实现 | 火山套餐余量与 tier 自动刷新 |
+| [pi-provider-cursor-ask/pi-1.1-adaptation-plan.md](./pi-provider-cursor-ask/pi-1.1-adaptation-plan.md) | 重放/兼容待 review，标准 usage 冻结 | 本轮不启动标准账单/上下文协议改造或上游提案 |
 | [pi-provider-cursor-ask/upstream-protocol.md](./pi-provider-cursor-ask/upstream-protocol.md) | 上游参考 | Cursor 原生 Connect/protobuf 协议与传输心智模型 |
 
 包内 `packages/*/docs/` 只保留用户可见说明（如 Ask User Question 的配置/键盘文档）。方案不再散落在仓库根或包 `docs/`。

@@ -13,7 +13,13 @@ export interface UsageRecord {
 	tot: number;
 	cost: number;
 	costKnown: boolean;
-	/** Stable assistant-message, tool-call, or session-entry identity for live/import dedupe. */
+	/** Finalized SDK entry identity, scoped by sid. Legacy rows omit this. */
+	entryId?: string;
+	/** Consult's original raw index (`raw:0`, etc.); absent on whole-entry records. */
+	part?: string;
+	/** Arbitrary category of an independent SDK usage entry. */
+	usageKind?: string;
+	/** Legacy message/tool identity, retained for old-format compatibility only. */
 	sourceId?: string;
 	/** Compaction / branch-summary LLM calls. Absent on ordinary turns. */
 	kind?: SummaryKind;
@@ -40,6 +46,8 @@ export interface AggRow {
 	cacheWrite: number;
 	cost: number;
 	costKnown: boolean;
+	/** Records whose complete cost was not reported. */
+	unknownCosts?: number;
 	turns: number;
 }
 

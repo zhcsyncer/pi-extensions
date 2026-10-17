@@ -2,6 +2,8 @@
 
 [简体中文](./README.zh-CN.md)
 
+> **Unmaintained.** We are no longer investing in this extension's current product direction and will not continue feature development or compatibility work. Historical source and usage documentation are retained below; this does not mean a replacement has been completed.
+
 A strict, TUI-only planning and approval workflow for Pi. It combines fail-closed read-only tools, terminal review through [revdiff](https://github.com/umputun/revdiff), immutable Plan revisions, explicit approval, a branch-aware implementation lifecycle, and compact Plan widgets.
 
 Plan document review and implementation work are tracked independently. Approval restores the tools that were active before planning, starts ordinary implementation in a fresh agent turn, and activates `complete_plan`. Completion closes only the exact approved revision and makes the next `/plan on` start a new Plan by default.

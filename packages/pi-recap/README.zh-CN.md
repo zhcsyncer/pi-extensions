@@ -239,7 +239,8 @@ pi --name "auth refresh"
 
 ### 隐私与费用
 
-- recap 会额外调用模型。
+- 需要 Pi 1.1 或更高版本。recap 会额外调用模型，沿用所选 provider 配置的认证（API key 或订阅/OAuth），不会因模型同名而改用另一 provider。
+- 这次旁路调用可能产生费用或消耗订阅额度。使用 Pi 公开完成 API 不代表用量会自动计入 agent loop／会话总计；这些总计可能不包含 Recap。
 - 默认使用当前 Pi 模型：`recap.model = "current"`。
 - 如果不想把会话模型花在这次出环调用上，建议另配一个更便宜的 recap 模型。
 - 最近活动内容会发送给当前或配置的 provider。

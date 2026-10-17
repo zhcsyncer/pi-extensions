@@ -551,36 +551,31 @@ test("patchRenderPrototype skips when already patched with same version", () => 
   const originalRender = (width: number) => [`orig:${width}`];
   const prototype: PatchableUserMessagePrototype = {
     render: originalRender,
-    __piUserMessageOriginalRender: originalRender,
-    __piUserMessageNativePatched: true,
-    __piUserMessagePatchVersion: 7,
   };
+  patchUserMessageRenderPrototype(prototype, 7, (orig) => orig);
   patchUserMessageRenderPrototype(prototype, 7, (_orig) => {
     buildCallCount++;
     return (width) => [`patched:${width}`];
   });
   assert.equal(buildCallCount, 0);
-  assert.equal(prototype.render, originalRender);
+  assert.deepEqual(prototype.render(10), ["orig:10"]);
 });
 
 test("patchRenderPrototype reapplies when version is different (upgrade)", () => {
   const originalRender = (width: number) => [`orig:${width}`];
   const prototype: PatchableUserMessagePrototype = {
-    render: (width: number) => [`stale:${width}`],
-    __piUserMessageOriginalRender: originalRender,
-    __piUserMessageNativePatched: true,
-    __piUserMessagePatchVersion: 1,
+    render: originalRender,
   };
+  patchUserMessageRenderPrototype(prototype, 1, () => (width) => [`stale:${width}`]);
   patchUserMessageRenderPrototype(prototype, 7, (baseRender) => {
     return function (this: unknown, width: number) {
       return [`v7:${baseRender.call(this, width)}`];
     };
   });
   assert.deepEqual(prototype.render(42), ["v7:orig:42"]);
-  assert.equal(prototype.__piUserMessagePatchVersion, 7);
 });
 
-test("patchRenderPrototype saves original render when __piUserMessageOriginalRender is absent", () => {
+test("patchRenderPrototype delegates to the original render",  () => {
   const originalRender = (width: number) => [`orig:${width}`];
   const prototype: PatchableUserMessagePrototype = {
     render: originalRender,
@@ -590,7 +585,6 @@ test("patchRenderPrototype saves original render when __piUserMessageOriginalRen
       return [`patched:${baseRender.call(this, width)}`];
     };
   });
-  assert.equal(prototype.__piUserMessageOriginalRender, originalRender);
   assert.notEqual(prototype.render, originalRender);
   assert.deepEqual(prototype.render(10), ["patched:orig:10"]);
 });
@@ -599,40 +593,26 @@ test("patchRenderPrototype saves original and patches when same version but orig
   const originalRender = (width: number) => [`r:${width}`];
   const prototype: PatchableUserMessagePrototype = {
     render: originalRender,
-    __piUserMessageOriginalRender: undefined,
-    __piUserMessageNativePatched: true,
-    __piUserMessagePatchVersion: 5,
   };
-  // Guard requires all three: patched + same version + original IS function.
-  // Since original is undefined, the function saves it and applies patch.
   patchUserMessageRenderPrototype(prototype, 5, (baseRender) => {
     return function (this: unknown, width: number) {
       return [`patched:${baseRender.call(this, width)}`];
     };
   });
-  assert.equal(prototype.__piUserMessageOriginalRender, originalRender);
   assert.deepEqual(prototype.render(10), ["patched:r:10"]);
-  assert.equal(prototype.__piUserMessagePatchVersion, 5);
 });
 
 test("patchRenderPrototype saves original and patches when version differs and original undefined", () => {
   const originalRender = (width: number) => [`r:${width}`];
   const prototype: PatchableUserMessagePrototype = {
     render: originalRender,
-    __piUserMessageOriginalRender: undefined,
-    __piUserMessageNativePatched: true,
-    __piUserMessagePatchVersion: 5,
   };
-  // Version differs (5 !== 7) so guard doesn't skip.
-  // Original is undefined, so the function saves it and applies patch.
   patchUserMessageRenderPrototype(prototype, 7, (baseRender) => {
     return function (this: unknown, width: number) {
       return [`v7:${baseRender.call(this, width)}`];
     };
   });
-  assert.equal(prototype.__piUserMessageOriginalRender, originalRender);
   assert.deepEqual(prototype.render(10), ["v7:r:10"]);
-  assert.equal(prototype.__piUserMessagePatchVersion, 7);
 });
 
 // ===========================================================================
@@ -721,7 +701,7 @@ test("nativeRender produces top margin spacer and border when enabled and width 
   };
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
   const rendered = prototype.render(40);
-  assert.equal(rendered[0], "", "first line is top margin spacer");
+  assert.equal(normalizeUserMessageContentLine(rendered[0]!), "", "first line is a navigable top margin spacer");
   assert.ok(rendered[1]?.includes("╭"), "second line has top border");
   assert.ok(rendered.some((l) => l.includes("│")), "has content border lines");
   assert.ok(rendered.some((l) => l.includes("╰")), "has bottom border");

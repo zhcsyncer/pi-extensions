@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { defaultConfig } from "../config.js";
 import type { StateSessionEntry } from "../runtime-snapshot.js";
@@ -30,6 +31,7 @@ export interface RuntimeRefreshContextHarness {
 	getBranchReads(): number;
 	setCwd(cwd: string): void;
 	setEntries(entries: readonly StateSessionEntry[]): void;
+	appendMessage(message: NonNullable<StateSessionEntry["message"]>): void;
 	setBranch(branch: readonly StateSessionEntry[]): void;
 	setContextUsage(contextUsage: MutableContextUsage | undefined): void;
 	setModel(model: MutableModelInfo | undefined): void;
@@ -48,13 +50,14 @@ export function message(role: string, options: { usage?: Record<string, unknown>
 	};
 	if (options.responseId !== undefined) entryMessage.responseId = options.responseId;
 	return {
+		id: randomUUID(),
 		type: "message",
 		message: entryMessage,
 	};
 }
 
 export function compaction(): StateSessionEntry {
-	return { type: "compaction" };
+	return { id: randomUUID(), type: "compaction" };
 }
 
 export function gitSnapshot(branch?: string, updatedAt?: number): GitSnapshot;
@@ -132,6 +135,9 @@ export function createRuntimeRefreshContext(options: RuntimeRefreshContextOption
 		getBranchReads: () => branchReads,
 		setCwd: (nextCwd) => {
 			cwd = nextCwd;
+		},
+		appendMessage: (message) => {
+			entries = [...entries, { id: randomUUID(), type: "message", message }];
 		},
 		setEntries: (nextEntries) => {
 			entries = nextEntries;

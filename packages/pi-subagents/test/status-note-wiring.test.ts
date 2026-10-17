@@ -2,7 +2,7 @@
  * status-note-wiring.test.ts — proves the status note actually reaches the
  * PARENT through the real tool handlers, not just that getStatusNote() returns
  * a string. Drives the registered `Agent` / `get_subagent_result` tools and
- * inspects the text delivered back, for a turn-limit abort and a user stop.
+ * inspects the text delivered back, for cancellation and a user stop.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -62,11 +62,11 @@ const textOf = (r: any): string => r.content[0].text;
 describe("status note reaches the parent through the real handlers", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("foreground turn-limit abort → the Agent result flags an incomplete outcome", async () => {
+  it("foreground cancellation → the Agent result flags an incomplete outcome without inventing a cause", async () => {
     vi.mocked(runAgent).mockResolvedValue({
       responseText: "partial work so far",
       session: { dispose: vi.fn() } as any,
-      aborted: true, // hard turn-limit abort
+      aborted: true, // cancellation without an explicit cause
       steered: false,
     });
     const { pi, tools } = makePi();
@@ -79,7 +79,8 @@ describe("status note reaches the parent through the real handlers", () => {
     );
 
     const out = textOf(res);
-    expect(out).toContain("hit the turn limit");      // getStatusNote("aborted") is wired in
+    expect(out).toContain("aborted before completion");
+    expect(out).not.toMatch(/turn limit|max turns/i);
     expect(out).toContain("partial work so far");     // partial result still delivered
     expect(out).not.toContain("STOPPED BY THE USER"); // not mislabelled as a user stop
   });

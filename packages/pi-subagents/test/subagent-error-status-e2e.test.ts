@@ -19,9 +19,10 @@ import {
 /** Text of the parent's Agent tool result — what the orchestrator LLM sees. */
 function agentToolResult(session: AgentSession): string {
   const msg = [...session.messages].reverse().find(
-    (m) => m.role === "toolResult" && (m as { toolName?: string }).toolName === "Agent",
+    (m) => m.role === "toolResult" && m.toolName === "Agent",
   );
-  return ((msg?.content ?? []) as Array<{ text?: string }>).map((b) => b.text ?? "").join("");
+  if (msg?.role !== "toolResult") return "";
+  return msg.content.map((block) => block.type === "text" ? block.text : "").join("");
 }
 
 vi.setConfig({ testTimeout: 30_000 });

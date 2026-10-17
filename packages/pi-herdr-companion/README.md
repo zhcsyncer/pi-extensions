@@ -22,7 +22,7 @@ The extension stays silent when Pi is outside Herdr or Herdr cannot identify the
 
 ## Install
 
-Needs Node.js 22.19+, Pi 0.84+, and Herdr 0.7.5+ (developed against 0.8.0). Also install Herdr's Pi integration:
+Needs Node.js 22.19+, Pi 1.1+, and Herdr 0.7.5+ (developed against 0.8.0). Also install Herdr's Pi integration:
 
 ```bash
 herdr integration install pi
@@ -46,7 +46,7 @@ pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 
 ## Processes
 
-Use `herdr_process` for dev servers, previews, and watchers:
+Use `herdr_process` for dev servers, previews, and watchers. The model calls it directly; nested calls from other tools (including codemode) are not allowed:
 
 ```json
 {"action":"start","label":"dev","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}

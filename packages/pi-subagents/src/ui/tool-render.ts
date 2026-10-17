@@ -269,7 +269,7 @@ function withClerksAndMarkdown(clerkLines: string[], markdownBody: string): Comp
 function outcomeStatusLabel(d: AgentDetails, resultText: string): { text: string; color: string } {
   if (d.status === "steered") return { text: "Wrapped up (turn limit)", color: "warning" };
   if (d.status === "stopped") return { text: "Stopped", color: "dim" };
-  if (d.status === "aborted") return { text: "Aborted (max turns exceeded)", color: "warning" };
+  if (d.status === "aborted") return { text: "Aborted", color: "warning" };
   if (d.status === "error") {
     const err =
       d.error?.trim() ||
