@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { Check } from "typebox/value";
 import type { TSchema } from "typebox";
 import type { JsonObject } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -21,7 +20,9 @@ const endpoints = {
 const query = "offline N2 fixture";
 const url = "https://fixture.example/article";
 const longSnippet = "normalized snippet 🧪 ".repeat(40);
-const longBody = "reader body 🧪\n".repeat(900);
+// The UTF-16 prefix intentionally ends inside a surrogate pair: do not silently
+// turn the existing code-unit contract into a different Unicode clipping policy.
+const longBody = "x".repeat(9_999) + "🧪" + "reader tail ".repeat(100);
 const exaHit = (title: string, address: string, text: string) => ({ title, url: address, text, highlights: [] });
 const fireHit = (title: string, address: string, description: string) => ({ title, url: address, description });
 
@@ -32,6 +33,7 @@ type Scenario = {
   calls: Call[];
   wire: Record<string, Wire>;
   codemode?: boolean;
+  preAborted?: boolean;
 };
 type Result = {
   toolName: string;
@@ -56,6 +58,7 @@ type Observation = {
   requests: { url: string; method: string; body: unknown }[];
   unknown: string[];
   abortObserved: boolean;
+  shutdownObserved: boolean;
 };
 type ChildInput = Scenario & { entry: string; sdk: string; ai: string; fs: string; os: string; path: string };
 
@@ -92,7 +95,7 @@ async function runChild(input: ChildInput): Promise<Observation> {
       }])),
     }));
     const observation: Observation = {
-      tools: {}, active: [], results: [], ended: [], requests: [], unknown: [], abortObserved: false,
+      tools: {}, active: [], results: [], ended: [], requests: [], unknown: [], abortObserved: false, shutdownObserved: false,
     };
     let requestStarted!: () => void;
     const started = new Promise<void>(resolve => { requestStarted = resolve; });
@@ -133,6 +136,7 @@ async function runChild(input: ChildInput): Promise<Observation> {
     const settingsManager = sdk.SettingsManager.inMemory({
       compaction: { enabled: false }, retry: { enabled: false },
     });
+    const definitions = new Map<string, ToolDefinition>();
     const loader = new sdk.DefaultResourceLoader({
       cwd: root, agentDir, settingsManager,
       additionalExtensionPaths: [input.entry],
@@ -140,6 +144,21 @@ async function runChild(input: ChildInput): Promise<Observation> {
       extensionFactories: [
         ...(input.codemode ? [sdk.createCodemodeExtension({ mode: "on" })] : []),
         pi => {
+          pi.on("session_shutdown", () => { observation.shutdownObserved = true; });
+          if (input.preAborted) {
+            // Invoke the actual loaded definition with an already-aborted signal.
+            // Going through executeTool here could test only the SDK's early guard.
+            pi.registerTool({
+              name: "n2_preaborted", label: "Pre-aborted contract call", description: "Offline cancellation entry fixture",
+              parameters: { type: "object", properties: {} } as TSchema,
+              async execute(id, _args, _signal, update, ctx) {
+                const controller = new AbortController();
+                controller.abort();
+                const call = input.calls[0]!;
+                return await definitions.get(call.name)!.execute(id, call.args, controller.signal, update, ctx);
+              },
+            });
+          }
           // Read-only SDK observation, not a replacement registry/tool/formatter.
           pi.on("tool_result", event => {
             observation.results.push(JSON.parse(JSON.stringify(event)) as Result);
@@ -153,6 +172,7 @@ async function runChild(input: ChildInput): Promise<Observation> {
     for (const extension of loaded.extensions) {
       for (const [name, { definition }] of extension.tools) {
         if (name !== "web_search" && name !== "web_read") continue;
+        definitions.set(name, definition);
         observation.tools[name] = {
           outputSchema: definition.outputSchema, parameters: definition.parameters,
           exposure: definition.exposure, executionMode: definition.executionMode,
@@ -176,7 +196,7 @@ async function runChild(input: ChildInput): Promise<Observation> {
     });
     for (const [index, call] of input.calls.entries()) {
       faux.setResponses([
-        ai.fauxAssistantMessage(ai.fauxToolCall(call.name, call.args, { id: `n2-${index}` }), { stopReason: "toolUse" }),
+        ai.fauxAssistantMessage(ai.fauxToolCall(input.preAborted ? "n2_preaborted" : call.name, input.preAborted ? {} : call.args, { id: `n2-${index}` }), { stopReason: "toolUse" }),
         ai.fauxAssistantMessage("Offline fixture complete."),
       ]);
       const prompt = session.prompt("Execute the scripted offline contract call.");
@@ -189,10 +209,14 @@ async function runChild(input: ChildInput): Promise<Observation> {
     }
     return observation;
   } finally {
-    session?.dispose();
-    globalThis.fetch = originalFetch;
-    process.chdir(previousCwd);
-    await fs.rm(root, { recursive: true, force: true });
+    try {
+      if (session) await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    } finally {
+      session?.dispose();
+      globalThis.fetch = originalFetch;
+      process.chdir(previousCwd);
+      await fs.rm(root, { recursive: true, force: true });
+    }
   }
 }
 
@@ -221,6 +245,7 @@ async function observe(scenario: Scenario): Promise<Observation> {
   const line = stdout.split("\n").find(value => value.startsWith("N2_RESULT:"));
   if (!line) throw new Error(`Fixture child returned no observation: ${stdout}`);
   const result = JSON.parse(line.slice("N2_RESULT:".length)) as Observation;
+  expect(result.shutdownObserved, "Real session_shutdown must complete before disposal").toBe(true);
   expect(result.unknown, "No unregistered HTTP traffic is permitted").toEqual([]);
   expect(Object.keys(result.tools).sort(), "Both real tool registrations must load").toEqual(["web_read", "web_search"]);
   return result;
@@ -234,16 +259,14 @@ function final(observation: Observation, name: string, index = 0): Result {
 function text(result: Result): string {
   return result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
 }
-function structured(observation: Observation, name: string, index = 0): Record<string, unknown> {
+function expectTextContract(observation: Observation, name: string, index = 0): void {
   const result = final(observation, name, index);
   expect(result.isError).toBe(false);
-  const schema = observation.tools[name]!.outputSchema;
-  expect(schema, `${name} must expose outputSchema through the real wrapper/registry`).toBeDefined();
-  expect(result.structuredContent, "Successful final results must carry structuredContent").toBeDefined();
-  expect(Check(schema!, result.structuredContent), "The actual success must satisfy its published schema").toBe(true);
-  expect(JSON.stringify(result.structuredContent)).not.toContain("fixture-exa-key");
-  expect(JSON.stringify(result.structuredContent)).not.toContain("fixture-firecrawl-key");
-  return result.structuredContent as Record<string, unknown>;
+  expect(observation.tools[name]!.outputSchema, "Withdrawn object-output policy must not remain registered").toBeUndefined();
+  expect(result.structuredContent, "Existing consumers receive text, not a parallel object result").toBeUndefined();
+  expect(text(result).length).toBeGreaterThan(0);
+  expect(JSON.stringify(result)).not.toContain("fixture-exa-key");
+  expect(JSON.stringify(result)).not.toContain("fixture-firecrawl-key");
 }
 
 const searchCases = [
@@ -306,38 +329,37 @@ for (const fixture of searchCases) {
       for (const title of fixture.titles) expect(text(result)).toContain(title);
       for (const address of fixture.urls) expect(text(result)).toContain(address);
     });
-    it("publishes the normalized ranked results, not raw provider payloads", () => {
-      const data = structured(observation, "web_search");
-      expect(data).toMatchObject({ query, backend: fixture.backend, resultCount: fixture.urls.length });
-      const results = data.results as { title: string; url: string; snippet?: string; backend?: string }[];
-      expect(results.map(result => result.url)).toEqual(fixture.urls);
-      expect(results.map(result => result.title)).toEqual(fixture.titles);
-      if (fixture.label === "direct") expect(results[0]!.snippet).toBe(longSnippet.slice(0, 500));
-      if (fixture.combine) {
-        expect(results.every(result => typeof result.backend === "string" && /exa|firecrawl/i.test(result.backend))).toBe(true);
+    it("preserves ranked, deduplicated text and source diagnostics", () => {
+      const result = final(observation, "web_search");
+      const output = text(result);
+      expect(result.details).toMatchObject({ backend: fixture.label === "fallback" ? "firecrawl (fallback)" : fixture.backend });
+      // URLs share prefixes, so compare whole URL tokens rather than substring counts.
+      const addresses = output.match(/https:\/\/fixture\.example[^\s)\]>"}]*/g) ?? [];
+      expect(addresses).toEqual(fixture.urls);
+      const titlePositions = fixture.titles.map(title => output.indexOf(title));
+      expect(titlePositions.every(position => position >= 0)).toBe(true);
+      expect(titlePositions).toEqual([...titlePositions].sort((a, b) => a - b));
+      if (fixture.label === "direct") {
+        expect(output).toContain(longSnippet.slice(0, 500));
+        expect(output).not.toContain(longSnippet);
       }
-      if (fixture.label === "combined partial failure") {
-        // Structured diagnostics are optional; existing text/details diagnostics
-        // must still identify the failed source rather than silently hiding it.
-        expect(JSON.stringify(final(observation, "web_search"))).toMatch(/exa/i);
+      if (fixture.combine) expect(output).toMatch(/firecrawl/i);
+      if (fixture.label === "combined RRF" || fixture.label === "combined partial failure") {
+        expect(JSON.stringify(result)).toMatch(/exa/i);
       }
-      expect(JSON.stringify(data)).not.toMatch(/"highlights"|"statuses"/);
-      if (results.length) {
-        for (const key of ["title", "url"]) {
-          const invalidItem: Record<string, unknown> = { ...results[0] }; delete invalidItem[key];
-          expect(Check(observation.tools.web_search!.outputSchema!, { ...data, results: [invalidItem] }), key).toBe(false);
-        }
-      }
-      // Required output fields cannot be weakened to optional declarations.
-      for (const key of ["query", "backend", "resultCount", "results"]) {
-        const invalid = { ...data }; delete invalid[key];
-        expect(Check(observation.tools.web_search!.outputSchema!, invalid), key).toBe(false);
-      }
+      expect(output).not.toMatch(/"highlights"|"statuses"/);
+      const businessRequests = observation.requests.filter(request => Object.values(endpoints).includes(request.url));
+      expect(businessRequests.map(request => request.url)).toEqual(
+        fixture.enabled ? [endpoints.exaSearch] : [endpoints.exaSearch, endpoints.fireSearch],
+      );
+    });
+    it("keeps the restored text-only return policy", () => {
+      expectTextContract(observation, "web_search");
     });
   });
 }
 
-it("compact changes only the text, retaining normalized object fields", async () => {
+it("compact preserves title and URL while omitting the verbose snippet", async () => {
   const observation = await observe({ enabled: ["exa"],
     wire: { [endpoints.exaSearch]: { body: { results: [exaHit("Compact title", url, "distinctive verbose snippet")] } } },
     calls: [false, true].map(compact => ({ name: "web_search", args: { query, compact } })),
@@ -348,7 +370,9 @@ it("compact changes only the text, retaining normalized object fields", async ()
   expect(text(compact)).not.toContain("distinctive verbose snippet");
   expect(text(compact)).toContain("Compact title");
   expect(text(compact)).toContain(url);
-  expect(structured(observation, "web_search", 1)).toEqual(structured(observation, "web_search", 0));
+  expect(verbose.isError).toBe(false);
+  expect(compact.isError).toBe(false);
+  expect(compact.details).toEqual(verbose.details);
 }, 40_000);
 
 it.each(["empty", "failed"] as const)("combine with every backend %s is a real SDK failure, not successful []", async kind => {
@@ -395,19 +419,32 @@ for (const fixture of [
       }
     });
     it("returns the actual URL, selected reader, original UTF-16 length and capped prefix", () => {
-      const data = structured(observation, "web_read");
-      expect(data).toMatchObject({ url: normalizedUrl, reader: fixture.reader,
-        content: fixture.body.slice(0, 10_000), length: fixture.body.length, truncated: fixture.body.length > 10_000,
+      const result = final(observation, "web_read");
+      expect(result.details).toMatchObject({ url: normalizedUrl, reader: fixture.reader,
+        length: fixture.body.length, truncated: fixture.body.length > 10_000,
       });
-      expect(JSON.stringify(observation.requests.at(-1)?.body)).toContain(normalizedUrl);
-      for (const key of ["url", "reader", "content", "length", "truncated"]) {
-        const invalid = { ...data }; delete invalid[key];
-        expect(Check(observation.tools.web_read!.outputSchema!, invalid), key).toBe(false);
-      }
-      expect(Check(observation.tools.web_read!.outputSchema!, { ...data, reader: "invented" })).toBe(false);
+      const requests = observation.requests.filter(request => [endpoints.fireRead, endpoints.exaRead].includes(request.url));
+      expect(requests.map(request => request.url)).toEqual(fixture.fallback ? [endpoints.fireRead, endpoints.exaRead] : [endpoints.fireRead]);
+      for (const request of requests) expect(JSON.stringify(request.body)).toContain(normalizedUrl);
+    });
+    it("keeps the restored text-only return policy", () => {
+      expectTextContract(observation, "web_read");
     });
   });
 }
+
+it.each(["web_search", "web_read"] as const)("%s already cancelled at entry makes no business request", async name => {
+  const observation = await observe({ preAborted: true,
+    calls: [{ name, args: name === "web_search" ? { query } : { url } }], wire: {
+      [endpoints.exaSearch]: { body: { results: [exaHit("Must not run", url, "forbidden")] } },
+      [endpoints.fireSearch]: { body: { data: { web: [fireHit("Must not run", url, "forbidden")] } } },
+      [endpoints.fireRead]: { body: { data: { markdown: "forbidden", metadata: { sourceURL: url } } } },
+      [endpoints.exaRead]: { body: { results: [{ title: "Must not run", url, text: "forbidden" }], statuses: [] } },
+    },
+  });
+  expect(observation.requests.filter(request => Object.values(endpoints).includes(request.url))).toEqual([]);
+  expect(final(observation, "n2_preaborted").isError).toBe(true);
+}, 40_000);
 
 it.each(["web_search", "web_read"] as const)("%s cancellation remains a failure and never starts the next provider", async name => {
   const first = name === "web_search" ? endpoints.exaSearch : endpoints.fireRead;
@@ -425,14 +462,30 @@ it.each(["web_search", "web_read"] as const)("%s cancellation remains a failure 
   expect(observation.results.filter(result => result.toolName === name && !result.isError)).toEqual([]);
 }, 40_000);
 
-it("native optional codemode actually receives search/read objects without parsing tool text", async () => {
+it("combine cancellation cannot turn an available sibling result into final success", async () => {
+  const observation = await observe({ calls: [{ name: "web_search", args: { query, combine: true } }], wire: {
+    [endpoints.exaSearch]: { abort: true },
+    [endpoints.fireSearch]: { body: { data: { web: [fireHit("Available sibling", url, "not a final success after cancellation")] } } },
+  } });
+  expect(observation.abortObserved).toBe(true);
+  const business = observation.requests.filter(request => Object.values(endpoints).includes(request.url));
+  expect(business.map(request => request.url)).toContain(endpoints.exaSearch);
+  // Already-started siblings are allowed; no retries or later requests are.
+  expect(new Set(business.map(request => request.url)).size).toBe(business.length);
+  expect(business.every(request => [endpoints.exaSearch, endpoints.fireSearch].includes(request.url))).toBe(true);
+  expect(observation.ended).toContainEqual({ toolName: "web_search", isError: true });
+  expect(observation.results.filter(result => result.toolName === "web_search" && !result.isError)).toEqual([]);
+}, 40_000);
+
+it("native optional codemode receives strings and can process the original search/read text", async () => {
   const observation = await observe({ codemode: true, calls: [{ name: "codemode", args: { code: `
     const search = await tools.web_search({query: ${JSON.stringify(query)}});
     const page = await tools.web_read({url: ${JSON.stringify(url)}});
-    if (typeof search !== "object" || typeof page !== "object") throw new Error("N2 requires objects, not text");
-    text(JSON.stringify({query: search.query, backend: search.backend, count: search.resultCount,
-      first: search.results[0].url, reader: page.reader, url: page.url,
-      body: page.content, length: page.length, truncated: page.truncated}));
+    if (typeof search !== "string" || typeof page !== "string") throw new Error("Search Hub must preserve string returns");
+    text(JSON.stringify({searchType: typeof search, pageType: typeof page,
+      foundTitle: search.split("\\n").some(line => line.includes("Script hit")),
+      foundUrl: search.includes(${JSON.stringify(url)}),
+      foundBody: page.includes("script body"), processedBody: page.toUpperCase().includes("SCRIPT BODY")}));
   ` } }], wire: {
     [endpoints.exaSearch]: { body: { results: [exaHit("Script hit", url, "script snippet")] } },
     [endpoints.fireRead]: { body: { data: { markdown: "script body", metadata: { sourceURL: url } } } },
@@ -442,12 +495,13 @@ it("native optional codemode actually receives search/read objects without parsi
   const output = text(result);
   expect(output).toContain("Script completed");
   // Match the script's projection, not an echo of input or a formatter-produced string.
-  const projection = output.split("\n").find(line => line.trim().startsWith('{"query"'));
+  const projection = output.split("\n").find(line => line.trim().startsWith('{"searchType"'));
   expect(projection, output).toBeDefined();
-  expect(JSON.parse(projection!)).toEqual({ query, backend: "exa", count: 1, first: url,
-    reader: "firecrawl", url, body: "script body", length: 11, truncated: false,
+  expect(JSON.parse(projection!)).toEqual({ searchType: "string", pageType: "string",
+    foundTitle: true, foundUrl: true, foundBody: true, processedBody: true,
   });
   expect(final(observation, "web_search").parentToolCallId).toBeDefined();
   expect(final(observation, "web_read").parentToolCallId).toBeDefined();
-  expect(structured(observation, "web_read")).not.toHaveProperty("title");
+  expectTextContract(observation, "web_search");
+  expectTextContract(observation, "web_read");
 }, 40_000);
