@@ -43,19 +43,6 @@ Important call options include:
 
 - `url` — page URL.
 
-### Structured results (Pi 1.1)
-
-Ordinary calls keep their text previews and tool rows. If you enable Pi's optional codemode, scripts can use result objects directly—Search Hub does not enable codemode or MCP for you:
-
-```js
-const search = await tools.web_search({ query: "Pi release notes", compact: true });
-console.log(search.results.map(result => result.url));
-const page = await tools.web_read({ url: search.results[0].url });
-console.log(page.reader, page.content, page.truncated);
-```
-
-Search results retain their normalized order and sources, even with `compact: true`. Read content is limited to the first 10,000 UTF-16 code units, without the display truncation notice; `length` reports the original extracted length and `truncated` indicates clipping. Backend failures and cancellation remain errors, not empty successful results.
-
 ## Tool rows
 
 Search Hub draws its own Claude-style rows. It does not use `pi-tool-display-intent`.
@@ -79,7 +66,7 @@ Search and read progress is emitted through the active tool call rather than a p
 
 Verbose search output still begins with a raw `## Search Results:` header in the model-facing result.
 
-Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. The `web_search.compact` argument changes the model-facing text, not only the TUI row; it does not remove structured search results.
+Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. The `web_search.compact` argument changes the model-facing text, not only the TUI row.
 
 ## Configuration
 

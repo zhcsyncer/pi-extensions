@@ -138,26 +138,6 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		outputSchema: Type.Object({
-			query: Type.String(),
-			backend: Type.String(),
-			resultCount: Type.Number(),
-			results: Type.Array(Type.Object({
-				title: Type.String(),
-				url: Type.String(),
-				snippet: Type.Optional(Type.String()),
-				content: Type.Optional(Type.String()),
-				backend: Type.Optional(Type.String()),
-			})),
-			warnings: Type.Optional(Type.Array(Type.String())),
-			errors: Type.Optional(Type.Array(Type.String())),
-			usableBackendCount: Type.Optional(Type.Number()),
-			backendStats: Type.Optional(Type.Record(Type.String(), Type.Object({
-				success: Type.Boolean(),
-				count: Type.Number(),
-				error: Type.Optional(Type.String()),
-			}))),
-		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			signal?.throwIfAborted();
 			const warnings: string[] = [];
@@ -233,15 +213,6 @@ export default function (pi: ExtensionAPI) {
 								: formatCombinedResults(params.query, combined, backendStats, BACKEND_DEFS),
 						},
 					],
-					structuredContent: {
-						query: params.query,
-						backend: "combined-targeted",
-						resultCount: combined.length,
-						results: combined.map((result) => ({ ...result })),
-						...(warnings.length ? { warnings } : {}),
-						usableBackendCount,
-						backendStats: Object.fromEntries(backendStats),
-					},
 					details: {
 						backend: "combined-targeted",
 						...(warnings.length ? { warnings } : {}),
@@ -270,14 +241,6 @@ export default function (pi: ExtensionAPI) {
 									: (compact ? formatResultsCompact(results) : formatResults(params.query, backend, results)),
 							},
 						],
-						structuredContent: {
-							query: params.query,
-							backend,
-							resultCount: results.length,
-							results: results.map((result) => ({ ...result })),
-							...(warnings.length ? { warnings } : {}),
-							...(errors.length ? { errors } : {}),
-						},
 						details: {
 							backend: errors.length > 0 ? `${backend} (fallback)` : backend,
 							...(warnings.length ? { warnings } : {}),
@@ -314,15 +277,6 @@ export default function (pi: ExtensionAPI) {
 			url: Type.String({
 				description: "HTTP(S) URL or bare domain to fetch",
 			}),
-		}),
-		outputSchema: Type.Object({
-			url: Type.String(),
-			reader: Type.Union(READER_NAMES.map((name) => Type.Literal(name))),
-			content: Type.String(),
-			length: Type.Number(),
-			truncated: Type.Boolean(),
-			warnings: Type.Optional(Type.Array(Type.String())),
-			fallbackErrors: Type.Optional(Type.Array(Type.String())),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			signal?.throwIfAborted();
@@ -432,15 +386,6 @@ export default function (pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: truncated }],
-				structuredContent: {
-					url,
-					reader,
-					content: content.slice(0, WEB_READ_RESULT_MAX_CHARS),
-					length: content.length,
-					truncated: content.length > WEB_READ_RESULT_MAX_CHARS,
-					...(warnings.length ? { warnings } : {}),
-					...(errors.length ? { fallbackErrors: errors } : {}),
-				},
 				details: {
 					...(warnings.length ? { warnings } : {}),
 					url,
