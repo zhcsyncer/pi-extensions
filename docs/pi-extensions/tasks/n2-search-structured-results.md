@@ -1,46 +1,52 @@
-# N2：Search Hub 普通调用与脚本结构化结果
+# N2：Search Hub 文本结果与取消边界
 
-依赖E0。只做Pi1.1必要兼容及已批准的outputSchema/structuredContent；保持现有routing/combine/RRF/reader、认证和计费路径。登录识别/认证分流、hosted usage补报、跨会话配置串用三项旧债冻结，不顺带处理。无真实搜索服务/额度/账号授权。
+## 当前决定（覆盖原结构化合同）
+
+用户于2026-10-18确认：开放式研究由主模型或已有web-research子代理负责；本轮撤回Search Hub的outputSchema/structuredContent增强，只保留取消修正。不是禁止脚本使用搜索工具，也不改子代理命名、提示词或权限。
+
+原结构化输出合同及通过/失败记录属于历史证据，不能继续作为产品验收要求；删除相应断言是用户撤销功能，不应描述为修复产品错误或放宽现行合同。
 
 ## Goal / Design
 
-`extensions/search-hub.ts`真实注册的web_search/web_read既保留当前文本预览，也返回成功结果的结构化数据，让可选codemode脚本无需解析文本。默认direct路径继续可用，不自动开启codemode/MCP、不设model-only、不增加displaySummary或强制sequential。
-
-复用已有规范化结果和details信息，不新增backend或重新抓取网页。`withClaudeRows`包裹必须保留新增outputSchema；现有文本formatter、专用renderer和进度消息不改语义。outputSchema只描述成功终值；异常/取消仍按SDK错误路径，不包装成成功数据或返回假的空结果。
-
-## 冻结成功输出合同
-
-两工具均在真实ToolDefinition声明outputSchema，所有成功final return带对应structuredContent。以TypeBox/JSON Schema描述可序列化数据，不暴露原始Response、凭据、内部registry对象或未规范化backend payload。
-
-- `web_search`：必有`query:string`、`backend:string`（真实后端ID，combine为`combined-targeted`）、`resultCount:number`、`results:Array<{title:string,url:string,snippet?:string,content?:string,backend?:string}>`。结果来自已有路由/RRF规范化列表，次序/去重/来源不变；compact只改变文本，不删除结构化结果。可带既有`warnings:string[]`、`errors:string[]`、`usableBackendCount:number`、`backendStats`诊断，但只用现有信息、不新建统计系统；缺值省略、不伪造。
-- `web_read`：必有`url:string`（实际规范化请求URL）、`reader:'firecrawl'|'exa'|'parallel'`、`content:string`、`length:number`、`truncated:boolean`。content是已有10000 UTF-16 units正文上限内的前缀，不掺文本截断提示；length保留原content.length口径，truncated指示正文裁剪。可带既有warnings/fallbackErrors字符串数组。模型文本保持原来的正文及截断提示，不能为了脚本返回悄悄绕开原限额。没有取得title就不捏造title。
+- web_search/web_read保持原来的文本结果，普通调用和可选codemode均可用；脚本收到字符串，不自动改成对象。
+- 去掉两个工具的outputSchema与三个成功分支的structuredContent。保留原content、details、专用renderer和进度信息。不设model-only，不强制sequential，不新增displaySummary或打开codemode/MCP。
+- 保留新增signal检查：调用前已取消则不发请求；已取消后不再启动下一搜索来源、reader或下一批组合搜索；取消仍是失败/中止，不把它当普通失败继续fallback，也不把部分成功伪装成最后成功。
+- 已开始的请求未必立即结束，已产生费用无法由此撤销。保留现有并行批次的等待和归属，不新增调度或取消框架。
+- routing/combine/RRF、结果排序/去重/来源、认证/订阅/计费、quota副作用、compact和正文限制不变。web_read仍按原10000 UTF-16码元前缀及原文本截断提示返回，details中的URL/reader/length/truncated保持；不顺带改Unicode裁剪策略。
+- 登录识别/认证分流、hosted usage补报、跨会话配置串用三项旧债冻结，无真实服务/额度/账号操作授权。
 
 ## Contract / Test Impact
 
-独立预留`packages/pi-search-hub/tests/pi11-structured-results.contract.test.ts`，Vitest。
+T1取消与fallback分支、T2真实SDK接线；复用现有独立合同，删除仅服务于已撤销结构输出的断言，不另堆覆盖率。
 
 | 场景 | 预期 |
 |---|---|
-| 真实注册及普通direct成功 | schema可见，structuredContent符合schema，原文本/details/renderers仍在 |
-| 同结果compact开关 | 文本按原选项变化，结构化数据不受格式开关影响 |
-| 单路fallback及combine/RRF | 选择/次序/去重/来源不变，已有失败诊断不丢；不串换认证渠道 |
-| 单路0结果、combine无可用结果 | 前者保持既有成功空列表；后者保持失败，不伪装成功 |
-| reader正常、fallback、bare domain、超过正文限额 | reader/URL/原长/截断标记真实，正文前缀与文本体验一致 |
-| 后端错误与取消 | SDK真实失败/终止；不把部分进度当final成功，不引入额外付费请求或取消后的下一路调用 |
-| 可选codemode真实执行 | `await tools.web_search/read(...)`收到可访问字段的结构化对象，而不是需要解析的文本；普通模式无需codemode |
+| 普通搜索成功/compact开关 | 原文本及details/renderers保持；compact仍改变文本，不新增机器对象返回 |
+| fallback、RRF、多源部分失败 | 来源、结果顺序、去重与既有诊断保持，不串换认证 |
+| 单路0结果/组合全部空或失败 | 单路空结果仍正常，组合不可用仍失败 |
+| 普通读取/bare domain/reader fallback/长正文 | 请求URL规范化、实际reader、原长、前缀与原截断提示保持 |
+| 已取消入口/请求中取消/批次间取消 | 不新增后续业务请求，不伪装成功；正在执行的请求不承诺撤销账单 |
+| 真实codemode搜索和读取 | 工具仍可调用，返回字符串；旧式文本处理可继续。不要增加model-only限制 |
+| 生命周期收尾 | 实际发送session_shutdown后再dispose，不假定dispose会清理扩展激活 |
 
-必要取消缺陷如基线确实存在可最小修正signal传播/退出，不借机重构认证、key rotation或旧统计。其余冻结旧债不当验收门槛。
+## 独立测试所有权
 
-## 独立公共夹具入口
+独立作者维护原 `packages/pi-search-hub/tests/pi11-structured-results.contract.test.ts`，可重命名为 `search-text-cancellation.contract.test.ts`。新旧两路径均为保留独立文件，实现者不得读写。必须保留普通调用、顺序/去重、fallback、正常空结果、错误、reader、正文限制和取消的有效正负控；原结构化断言中的有效行为移到文本/details或实际HTTP请求观察，不随schema断言一起丢掉。
 
-真实入口default export来自`extensions/search-hub.ts`，经DefaultResourceLoader加载；使用createAgentSession/faux provider和可选createCodemodeExtension，执行真实tool pipeline。SDK1.1 outputSchema描述成功structuredContent，脚本收到该对象；不能mock注册定义/execute返回来证明自己。
+独立作者仅可读本合同、原独立文件、公开SDK文档/声明及通用fixture，不读实现者源码或 `structured-runtime.test.ts` 等自有测试。实现者可以改/重命名自己的runtime测试，但不得借此替代独立验收。协调者唯一串行集成，原红灯保留。
 
-临时配置：`$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json`或可信临时project的`.pi/extension-data/pi-search-hub/config.json`。形状`{routing:'priority',priority:['exa','firecrawl'],backends:{exa:{enabled:true,apiKeys:['fixture-key']},firecrawl:{enabled:true}}}`；其他后端显式禁用，宿主模型faux、凭据空白。允许拦截HTTP传输边界，不mock产品路由/formatter/registry。所有请求必须命中离线fixture，未知地址直接失败，不放行网络。
+## 独立公共夹具
 
-HTTP公开边界：POST `https://api.exa.ai/search`响应`{results:[{title,url,text,highlights:[]}]}`；POST `https://api.exa.ai/contents`响应`{results:[{title,url,text}],statuses:[]}`；POST `https://api.firecrawl.dev/v2/search`响应`{data:{web:[{title,url,description}]}}`；POST `https://api.firecrawl.dev/v2/scrape`响应`{data:{markdown,metadata:{title,sourceURL}}}`。现有Exa text/Firecrawl description成为最多500 UTF-16 units的snippet；本轮保留该规范化，不能把原始响应全文重新塞回结果。需要额外响应形状/公共入口时向协调者列出缺口，不读取待测实现、实施者测试或真实profile。
+真实入口是 `extensions/search-hub.ts` default export，经DefaultResourceLoader和createAgentSession执行。faux模型与HTTP边界可替换；不得mock产品路由、formatter、注册器或结果来证明自身。
 
-独立作者只读合同、SDK公开文档/声明及通用fixture。实现者不可读写预留测试。保留源码/测试路径限制，真实网络/登录/额度操作禁止；若后来真模型验证必要，优先用户指定的Cursor grok-4.7并另交最小验证方案。
+临时 `$PI_CODING_AGENT_DIR/extension-data/pi-search-hub/config.json` 使用priority/exa、firecrawl和合成凭据，其余后端禁用。每场景独立进程，不能把冻结的模块配置旧债纳入本次隔离承诺。
 
-## 交付
+公开HTTP响应：Exa search为 `{results:[{title,url,text,highlights:[]}]}`；contents为 `{results:[{title,url,text}],statuses:[]}`。Firecrawl search为 `{data:{web:[{title,url,description}]}}`；scrape为 `{data:{markdown,metadata:{title,sourceURL}}}`。保留已定义的GET `/v2/team/credit-usage`合成响应，不测试或改变既有quota逻辑。未登记请求直接失败，真实网络不可放行。
 
-只修改本包必要源码、自有测试、双语README、包级docs及单独changeset；不改其它包/manifest/lock或总进度。精确SDK1.1/TypeBox1.3.27，目标PATH/run-isolated下package check、真实loader和必要pack通过。独立作者交baseline pass/red/fixture分类，组合后审阅、集成态复验才算完成；本地commit可，push/main/release不可。
+## 交付边界
+
+实现只改Search Hub必要源码、自有测试、双语README及原Search changeset；原changeset改为取消修复的patch说明，不能仍宣传结构化增强。不改包自身版本、依赖、锁、Fast、全局配置或其它包。总计划与本文由协调者维护。
+
+主候选继续用现有精确SDK1.2.0；独立验证可在专用树应用已归档的1.3审计目标a3c806e，仅作验证，不合入PR。真实版本/路径须核实；所有执行通过run-isolated空profile与断网。若需要依赖获取，先ignore-scripts，必要lifecycle单独隔离，不重演联网安装脚本偏差。
+
+最终验收Search Hub自身check/类型、独立合同、真实loader及必要pack/release policy；不跑全仓44/34，不做真实搜索或账户操作。旧输入与新的文本合同先红后绿，政策红、fixture问题和产品回归分开记录。独立测试环境交付后归档清理；全局Fast引用的实施树必须保留。

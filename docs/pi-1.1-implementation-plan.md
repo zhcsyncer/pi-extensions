@@ -1,6 +1,6 @@
 # Pi 1.2+ 逐包确认与原适配范围
 
-> **当前决定（2026-10-16 16:34）**：候选以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 逐包审阅，不能用测试通过替代必要性与范围确认。**Fast、Subagents、Consult 本轮确认完成。** Subagents 已允许codemode编排、同版本恢复按当前授权，保留显式任务隔离及结算屏障；Meter仅必要去重配套通过。Consult保留公开SDK简化、取消保护、外层watchdog和model-only，既存补全缺口不扩入本轮。Tool Display暂保留候选、待用户本地试用后确认，未切本机来源；Glance仅完成用户要求的Cost只读Display说明行删除（b781256），未改金额格式或费用逻辑，整包仍待确认。其它11个维护子包仍待整包确认，根包组成未整体批准。现有代码已在独立环境通过实际Pi1.3.0复验，生产源码零改动；审计配置归档于本地a3c806e，未合入PR。**不创建第二套精简实现、不全量合并或发布。** 全局仅Fast在此前切到本地候选；其余加载/认证未改，全局Fast引用树继续保留。实时状态见[执行编排 §0](./pi-extensions/pi-1.1-execution-plan.md)；以下旧范围和验收快照不能覆盖此决定。
+> **当前决定（2026-10-18 01:14）**：候选以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 逐包审阅，不能用测试通过替代必要性与范围确认。**Fast、Subagents、Consult、Search Hub 本轮确认完成。** Subagents允许codemode编排和当前授权恢复，保留任务隔离及结算屏障；Consult保留公开SDK简化、取消保护、外层watchdog和model-only；Search Hub撤回结构化增强，仅保留取消修正，文本及脚本调用保持。Meter仅必要去重配套通过，Tool Display待本地试用，Glance仅完成Display说明行删除，另7包待审，共10个子包尚未整包确认。409e617曾在1.3作冻结源码复验；Search Hub新候选8a317a8又分别通过SDK1.2/1.3的186项（独立36）及类型/loader/pack/policy。审计SDK1.3依赖配置不合入PR，不冒称本次重跑全仓。**不创建第二套精简实现、不全量合并或发布。** 全局仅此前切换Fast，原工作树继续保留；其余加载/认证及研究子代理配置未改。实时状态见[执行编排 §0](./pi-extensions/pi-1.1-execution-plan.md)；以下旧范围和验收快照不能覆盖此决定。
 
 > **最新范围覆盖（2026-10-14 16:38）**：用户要求回撤 Context7、Plan 本轮变更，仅双语 README 标记停止维护并说明理由；不再迭代两包，不将其原生能力/真实接入作为本轮门槛。Ollama 非自有扩展，排除处理范围。下文相关 W5/P1/X1、17包版本及验收快照仅为历史，不能继续作为现行要求。执行编排 §0 记录回撤，真实安装、main和发布仍不操作。
 
