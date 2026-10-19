@@ -10,7 +10,7 @@
 - 请求builder、类型和已有unit注入点相应适配；目标仅1.1+，不需保留0.x私有/compat兜底。注入completeModel可作为已有unit seam保留，但真实SDK合同不能靠注入函数自证。
 - model='current'、显式provider/model、缺失时fallbackToCurrentModel true/false的既有行为保留。未选虚拟模型能力不扩展；不为此新建路由/拒绝框架。
 - 自动/手动取消、旧完成被忽略、标题applyPolicy、已有recap entry/source水位和reload行为不回归；不重写整个1400行入口。必要小的职责拆分可以，不为行数机械拆分。
-- 旁路请求可能产生费用。公开registry调用不等于宿主agent loop自动累计；双语说明保留此边界，不伪造usage/session_summary或修改Meter/账单数值。
+- 用户确认当前不补记Recap费用。Recap未把旁路调用的token用量和费用登记进Pi会话记录，因此会话累计不包含这笔调用；provider仍可能收费或消耗订阅额度。双语README必须明确说明，不能只写“可能不包含”或让人误以为免费。SDK1.3离线探针确认complete加custom条目不自动入账；底层appendUsage可登记，但普通扩展的只读会话接口未开放该方法。本轮不强转绕过、不把费用挂到其它回复/工具、不伪造usage/session_summary、不改Meter；以后官方接口开放再另议。
 
 ## 独立合同 / Test Impact
 
