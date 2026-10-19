@@ -639,3 +639,47 @@ test("overlapping thinking and final text keep the final text", () => {
 		restoreAggregateThinkingPlaceholders();
 	}
 });
+
+test("a quoted prompt-zone sequence does not invent an assistant boundary", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const quoted = "quoting \x1b]133;A\x07 not a real boundary";
+		const lines = render(assistant([
+			{ type: "text", text: quoted },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { stopReason: "toolUse" }), true);
+		assert.match(lines.join("\n"), /not a real boundary/);
+		assert.deepEqual(lines.filter((line) => /^\x1b\]133;A/.test(line)), [], "no row becomes a prompt boundary");
+		assert.doesNotMatch(lines.join("\n"), /\x1b\]133;[BC]/, "host left this tool-call reply unmarked");
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+	}
+});
+
+test("a downstream blank row does not cost the assistant its boundary", () => {
+	initTheme("dark", false);
+	const prototype = AssistantMessageComponent.prototype as unknown as {
+		render(width: number): string[];
+	};
+	const core = prototype.render;
+	// A foreign renderer installed before the patch legitimately shifts pi's own
+	// rows behind a leading blank, so the marker no longer sits on row 0.
+	prototype.render = function shifted(this: unknown, width: number): string[] {
+		return ["", ...core.call(this, width)];
+	};
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const lines = render(assistant([
+			{ type: "thinking", thinking: "reasoning" },
+			{ type: "text", text: "Shifted boundary" },
+		], { stopReason: "stop" }), true);
+		assert.match(lines.join("\n"), /Shifted boundary/);
+		const boundaries = lines.filter((line) => /^\x1b\]133;A/.test(line));
+		assert.equal(boundaries.length, 1, "the host boundary survives a shifted first row");
+		assert.match(lines.at(-1)!, /\x1b\]133;B\x07\x1b\]133;C\x07/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		prototype.render = core;
+	}
+});

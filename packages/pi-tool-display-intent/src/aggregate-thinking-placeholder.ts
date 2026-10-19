@@ -14,6 +14,7 @@ import {
 } from "./aggregate-activity.js";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { stripOscPromptControlSequences, withMessageNavigation } from "./user-message-box-utils.js";
+import { hasPromptZoneMarker } from "./prompt-zone-markers.js";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
@@ -278,7 +279,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			: state.originalRender.call(this, narrationWidth);
 		// Preserve only boundaries the downstream assistant actually emitted.
 		// Trimming its blank spacer must not erase A or move it inside a frame.
-		const hasNavigation = lines.some((line) => /\x1b\]133;A(?:;[^\x07\x1b]*)?(?:\x07|\x1b\\)/.test(line));
+		const hasNavigation = hasPromptZoneMarker(lines);
 		const finish = (output: string[]) => hasNavigation ? withMessageNavigation(output) : output;
 		const next = stripCollapsedThinkingPlaceholderLines(
 			hasNavigation ? lines.map(stripOscPromptControlSequences) : lines,
@@ -313,7 +314,9 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			});
 			projection?.markFrameContentVisible(frameId, true);
 		}
-		if (trimmed.length === 0) return contextLines.length > 0 ? ["", ...contextLines] : [];
+		// Latent guard: context lines require tool calls, which the host never marks,
+		// so every painted exit stays behind the same gate the host rows came through.
+		if (trimmed.length === 0) return contextLines.length > 0 ? finish(["", ...contextLines]) : [];
 		if (!interim) {
 			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
 			// Put that gap back after the user prompt or a passthrough tool.
