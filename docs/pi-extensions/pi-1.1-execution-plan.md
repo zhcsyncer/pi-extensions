@@ -1,6 +1,6 @@
 # Pi 1.2+：逐包确认与既有适配记录
 
-> **当前范围（2026-10-19 10:54，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast、Subagents、Consult、Search Hub、Recap 本轮确认完成。** Search Hub恢复文本返回，仅保留取消修正；Recap保留小幅兼容整理，当前不补记旁路费用，双语文档已明确。全局只切换过Fast，其余加载与认证未改。其余9个维护子包仍待整包逐项确认（Meter仅必要配套通过，Tool Display待本地试用，Glance仅完成Display说明行删除）；根包组成未整体批准，不合main、不发版。
+> **当前范围（2026-10-19 14:55，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast、Subagents、Consult、Search Hub、Recap、Todo 本轮确认完成。** Todo保留model-only，不扩展嵌套调用的保存/恢复；Search恢复文本且仅保留取消修正；Recap当前不补记旁路费用，文档已明确。全局只切换过Fast，其余加载与认证未改。其余8个维护子包仍待整包逐项确认（Meter仅必要配套通过，Tool Display待本地试用，Glance仅完成Display说明行删除）；根包组成未整体批准，不合main、不发版。
 
 > **2026-10-14 16:38 用户范围收缩（覆盖下文旧范围/验收快照）**：Context7、Plan 的本轮变更回撤至 f48a91b，仅双语 README 标记不再维护及理由；不删包、不动真实安装。K1/P1及其原生组合不再作为本轮开发/验收门槛。外部 Ollama 非自有扩展，完全排除处理与发布门槛，已有验证仅保留历史证据。旧17包版本计划与验收计数须在回撤后重算，未批准发布。Subagents变更已区分必要适配与附带修复，未授权继续修改。用户另明确确认：仅从Pi1.1专项依赖检查精确排除这两个停维护包，其余SDK断言保留，加载入口/CI不变。
 
@@ -33,7 +33,8 @@
 | Glance | **整包待确认；Cost只读说明行已删除** | 用户认可补独立费用记录的理由；不据此把累计状态/去重都当SDK必需。旧版已有Pi费用记录求和，1.3普通扩展拿不到当前会话总额getter。`b781256`仅删除Cost→Display→compact USD，未挪到说明；金额格式、费用逻辑、主题/刷新不变。四份关联旧测试同步、独立合同不变；Glance类型/脚本检查及发布策略33/33通过，真实TTY/原生revdiff未测。未切全局，不等整包确认 |
 | Search Hub | **本轮确认完成（2026-10-18）** | 产品eb08b6d＋独立合同cd13c5d集成为8a317a8；SDK1.2主候选与SDK1.3独立组合3270e68均186/186（独立36），类型、loader、pack17/policy通过。撤回结构化输出，普通及codemode恢复文本，不加model-only；生产对f48a91b仅9行取消检查。原文本/details、routing/RRF/reader/认证/计费/1万UTF-16上限保持；不改研究代理/全局或冻结旧债。旧结构化政策红保留，测试树已归档回收，证据/var/tmp/pi-search-cancellation-review/REPORT.md |
 | Recap | **本轮确认完成（2026-10-19）** | 用户接受目前不入账，6f10f6f仅澄清双语README与既有changeset：token用量/费用不计入Pi会话累计，provider仍可能收费/扣额度。不补账、不绕只读接口、不改源码/模型/认证/触发；release policy33/33通过。保留原兼容整理，但1.3仍转换旧systemPrompt，不宣传丢指令修复。既有84通过/1tmux跳过（独立13）为历史证据；新增离线接口探针只核实complete不记账与宿主appendUsage正控。未切全局 |
-| Todo、Question、Herdr、Review、Cursor、Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
+| Todo | **本轮确认完成（2026-10-19）** | 用户确认无必要脚本场景，保留model-only（含list/get），不另做嵌套保存/恢复。生产仍仅该一行，任务规则不变。实际SDK1.3六组离线探针：仅撤限制后，codemode或包装工具可改live状态，但reload丢任务并复用ID；直接调用正控恢复/ID递增正常，当前限制拒绝嵌套无副作用。证据/var/tmp/pi-todo-review/REPORT.md；既有215通过为历史证据，tree/compact仅静态核对。本次只同步确认记录，未改产品/全局 |
+| Question、Herdr、Review、Cursor、Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
 | 根聚合包 | 待上述逐包确认与组成审阅 | 暂不整体合并／发布；Context7/Plan 的历史入口尚未移除 |
 | Context7、Plan | 已明确退出／不维护 | 已完整回撤，包目录相对 f48a91b 仅双语 README 停维护说明；不列入本轮发布计划 |
 | 外部 Ollama | 排除 | 不开发、不作本仓发布门槛、不动安装 |
