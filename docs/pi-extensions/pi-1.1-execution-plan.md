@@ -1,6 +1,6 @@
 # Pi 1.2+：逐包确认与既有适配记录
 
-> **当前范围（2026-10-19 16:05，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast、Subagents、Consult、Search Hub、Recap、Todo、Question 本轮确认完成。** Todo与Question保留model-only，不扩展脚本调用；Search恢复文本且仅保留取消修正；Recap当前不补记旁路费用，文档已明确。全局只切换过Fast，其余加载与认证未改。其余7个维护子包仍待整包逐项确认（Meter仅必要配套通过，Tool Display待本地试用，Glance仅完成Display说明行删除）；根包组成未整体批准，不合main、不发版。
+> **当前范围（2026-10-20，覆盖下文历史）**：完整改造以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 供审阅，不代表所有改动均为升级必要或已获逐包确认。**Fast、Subagents、Consult、Search Hub、Recap、Todo、Question 本轮确认完成。** Cursor仅回撤本轮改造至f48a91b，未宣布停止维护、不删包或改本机安装。当前剩余6包待确认：Meter仅必要配套通过、Tool Display待本地试用、Glance仅完成Display说明行删除、Herdr定位待确认、Review普通范围待确认、Volcengine待审。全局只切换过Fast，其余加载与认证未改；根包组成未整体批准，不合main、不发版。
 
 > **2026-10-14 16:38 用户范围收缩（覆盖下文旧范围/验收快照）**：Context7、Plan 的本轮变更回撤至 f48a91b，仅双语 README 标记不再维护及理由；不删包、不动真实安装。K1/P1及其原生组合不再作为本轮开发/验收门槛。外部 Ollama 非自有扩展，完全排除处理与发布门槛，已有验证仅保留历史证据。旧17包版本计划与验收计数须在回撤后重算，未批准发布。Subagents变更已区分必要适配与附带修复，未授权继续修改。用户另明确确认：仅从Pi1.1专项依赖检查精确排除这两个停维护包，其余SDK断言保留，加载入口/CI不变。
 
@@ -35,7 +35,10 @@
 | Recap | **本轮确认完成（2026-10-19）** | 用户接受目前不入账，6f10f6f仅澄清双语README与既有changeset：token用量/费用不计入Pi会话累计，provider仍可能收费/扣额度。不补账、不绕只读接口、不改源码/模型/认证/触发；release policy33/33通过。保留原兼容整理，但1.3仍转换旧systemPrompt，不宣传丢指令修复。既有84通过/1tmux跳过（独立13）为历史证据；新增离线接口探针只核实complete不记账与宿主appendUsage正控。未切全局 |
 | Todo | **本轮确认完成（2026-10-19）** | 用户确认无必要脚本场景，保留model-only（含list/get），不另做嵌套保存/恢复。生产仍仅该一行，任务规则不变。实际SDK1.3六组离线探针：仅撤限制后，codemode或包装工具可改live状态，但reload丢任务并复用ID；直接调用正控恢复/ID递增正常，当前限制拒绝嵌套无副作用。证据/var/tmp/pi-todo-review/REPORT.md；既有215通过为历史证据，tree/compact仅静态核对。本次只同步确认记录，未改产品/全局 |
 | Question | **本轮确认完成（2026-10-19）** | 用户确认保留model-only：模型直接问答，脚本/工具嵌套不弹表单，不另扩展脚本问答。属于交互入口策略，不能套用Todo实测恢复缺陷或称SDK通用必需。TUI/RPC、预览、多选/自定义回答、取消/加载失败和blocked逻辑均未改。既有1.3检查612/612为历史证据；本次只同步确认记录，未改产品/运行问卷/切全局 |
-| Herdr、Review、Cursor、Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
+| Herdr Companion | **顾问后建议保留当前入口，待用户确认** | 撤回仅凭可脚本编排就倾向撤限的建议：herdr_process定位为可见、可跨步骤保留/接管的进程；归属可追踪不等于脚本退出必回收。现有session/persistent不是脚本/任务级生命周期，取消也不能只靠脚本finally或bash trap保证收尾。倾向保留model-only，不新增临时服务框架；未实测证明Herdr必然遗留，也不是SDK通用必需。生产仍仅新增该一行，sequential/owner/持久化/cleanup原有不变；既有1.3检查201通过/1Windows跳过，本轮只读、未操作真实pane或切全局 |
+| Review | **只读初审完成，待用户确认普通范围** | 对f48a91b无生产源码改动，仅统一SDK依赖声明、双语兼容说明及新增独立合同。已核验普通external/embedded路径、至多一次格式修补、执行后不换后端重跑、取消/shutdown；既有1.3检查363/363（含独立26），本轮未重跑。协议3不等于兼容当前Pi；配对候选安装证据不能代替发布时依赖底线核对，原^0.2.0声明未在本轮改。A1-B/R3原生MCP连接/资源授权仍未验，不能随普通范围确认。未改产品/全局 |
+| Cursor Provider | **本轮回撤完成，未停止维护（2026-10-20）** | 6f574b8使整个包与f48a91b逐字一致，取消本轮专用changeset及共享条目，不加停维护说明或删包/加载入口。隔离原包355项、类型/构建、17包loader/pack、policy33及frozen install通过；锁字节未变。仅check-pack精确允许Cursor旧peer范围，check-sdk原样保留含Cursor的物理SDK验证及全部运行副本检查。原372项仅历史证据；未改真实安装/账号，Fast树未安装依赖。 |
+| Volcengine | **待逐项确认** | 现有改造及 1.2.0 离线通过只是候选证据，不等于批准保留全部变更 |
 | 根聚合包 | 待上述逐包确认与组成审阅 | 暂不整体合并／发布；Context7/Plan 的历史入口尚未移除 |
 | Context7、Plan | 已明确退出／不维护 | 已完整回撤，包目录相对 f48a91b 仅双语 README 停维护说明；不列入本轮发布计划 |
 | 外部 Ollama | 排除 | 不开发、不作本仓发布门槛、不动安装 |
