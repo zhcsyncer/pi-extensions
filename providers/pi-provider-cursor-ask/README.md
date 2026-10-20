@@ -39,7 +39,8 @@ The six Claude rows do not offer Pi's thinking `off` level. Depending on Cursor'
 ## Requirements
 
 - Node.js 22.19 or newer.
-- Pi 1.1.0.
+- Pi 0.86 or later.
+- Pi 0.80 or a compatible newer release.
 - A Cursor account entitled to use the selected model.
 
 ## Install
@@ -70,8 +71,6 @@ Available command:
 
 - `/cursor usage` — open a dashboard of Cursor plan usage.
 - `/cursor doctor` — open a dashboard of sanitized provider diagnostics.
-
-Requests use Pi's current system instructions and tools: replaced or removed prompt sections and tool definitions are not sent again; additional system instructions are retained.
 
 If Cursor requests history that is no longer available locally, the current generation fails with `Refusing to answer empty` instead of sending incomplete history. Retry to rebuild from Pi's conversation history.
 

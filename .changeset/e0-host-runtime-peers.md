@@ -11,7 +11,6 @@
 "@zhcsyncer/pi-subagents": patch
 "@zhcsyncer/pi-todo": patch
 "@zhcsyncer/pi-tool-display-intent": patch
-"pi-provider-cursor-ask": patch
 "pi-provider-volcengine-agent-plan": patch
 ---
 

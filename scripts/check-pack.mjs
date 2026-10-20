@@ -426,8 +426,9 @@ for (const packagePath of packagePaths) {
 	for (const hostModule of ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@sinclair/typebox", "typebox"]) {
 		assert.equal(packageManifest.dependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must come from Pi, not runtime dependencies`);
 		assert.equal(packageManifest.optionalDependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must not be an optional runtime copy`);
-		// Unmaintained packages retain legacy peer ranges; all other host and packaging checks still apply.
-		if (packagePath !== "./packages/pi-context7" && packagePath !== "./packages/pi-plan-mode" && packageManifest.peerDependencies?.[hostModule] !== undefined) {
+		// Context7 and Plan Mode are unmaintained; Cursor only opts out of this migration round.
+		// They retain legacy peer ranges; runtime-copy and packaging checks still apply to all packages.
+		if (packagePath !== "./packages/pi-context7" && packagePath !== "./packages/pi-plan-mode" && packagePath !== "./providers/pi-provider-cursor-ask" && packageManifest.peerDependencies?.[hostModule] !== undefined) {
 			assert.equal(packageManifest.peerDependencies[hostModule], "*", `${packagePath}: host peers must use *`);
 		}
 	}
