@@ -1,6 +1,6 @@
 # Pi 1.2+ 逐包确认与原适配范围
 
-> **当前决定（2026-10-20）**：候选以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 逐包审阅，不能用测试通过替代必要性与范围确认。**Fast、Subagents、Consult、Search Hub、Recap、Todo、Question 本轮确认完成。** Cursor按用户选择仅回撤本轮改造：6f574b8后整个包与f48a91b一致，退出此轮适配/单独发版，但未宣布停止维护、不删包/历史入口或改本机安装。只为check-pack保留旧peer范围作精确例外，物理SDK检查、锁及Fast依赖不变；隔离355项、构建、17包加载/打包、policy及frozen install通过。本轮还剩Meter、Tool Display、Glance、Herdr、Review、Volcengine六包待确认；前三包分别仅必要配套通过、待本地试用、仅删Display说明行。各包既有1.3测试和全仓矩阵保留历史属性，不冒称重新执行；审计1.3依赖配置不合入PR。**不创建第二套精简实现、不全量合并或发布。** 全局仅此前切换Fast，其引用树继续保留；其余加载/认证及研究子代理未改。实时状态见[执行编排 §0](./pi-extensions/pi-1.1-execution-plan.md)；以下旧范围和验收快照不能覆盖此决定。
+> **当前决定（2026-10-21）**：候选以 [Draft PR #155](https://github.com/zhcsyncer/pi-extensions/pull/155) 逐包审阅，不能用测试通过替代必要性与范围确认。**Fast、Subagents、Consult、Search Hub、Recap、Todo、Question 本轮确认完成。** Cursor仅回撤至f48a91b，未停止维护，不删包/入口、不改本机安装。Meter经三模型和顾问收敛后，6be878c完成用户授权的负费用读侧处理与缺计数接口的补读回退；保留统一捕获，不改原账本或其它展示/计费策略。独立4红/7绿→11/11，实际1.2及同字节1.3各278项通过，源码与新合同类型均过。Meter、Tool Display、Glance、Herdr、Review、Volcengine六包仍待整包确认；Tool Display待试用、Glance仅删除说明行，其余已初审或讨论。旧全仓矩阵不冒称重跑，正式依赖/锁仍为原1.2目标；1.3仅隔离验证，不合入审计配置。**不创建第二套产品实现、不全量合并或发布。** 全局仅此前切换Fast，其引用树继续保留；其余加载/认证及研究子代理未改。实时状态见[执行编排 §0](./pi-extensions/pi-1.1-execution-plan.md)；以下旧范围和验收快照不能覆盖此决定。
 
 > **最新范围覆盖（2026-10-14 16:38）**：用户要求回撤 Context7、Plan 本轮变更，仅双语 README 标记停止维护并说明理由；不再迭代两包，不将其原生能力/真实接入作为本轮门槛。Ollama 非自有扩展，排除处理范围。下文相关 W5/P1/X1、17包版本及验收快照仅为历史，不能继续作为现行要求。执行编排 §0 记录回撤，真实安装、main和发布仍不操作。
 
