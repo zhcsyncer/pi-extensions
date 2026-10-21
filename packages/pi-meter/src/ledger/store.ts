@@ -48,7 +48,7 @@ export function parseUsageLine(line: string): UsageRecord | undefined {
 function parseArrayRecord(value: unknown[]): UsageRecord | undefined {
 	if (value.length < 10) return undefined;
 	const tot = asNumber(value[8]);
-	const cost = asNumber(value[9]);
+	const cost = validCost(value[9]) ? value[9] : 0;
 	return {
 		ts: asNumber(value[0]),
 		sid: String(value[1] ?? ""),
@@ -79,7 +79,7 @@ function parseObjectRecord(value: Record<string, unknown>): UsageRecord | undefi
 		cR: asNumber(value.cR),
 		cW: asNumber(value.cW),
 		tot: asNumber(value.tot),
-		cost: asNumber(value.cost),
+		cost: validCost(value.cost) ? value.cost : 0,
 		costKnown: validCost(value.cost) && (value.costKnown === true || (value.costKnown !== false && asNumber(value.cost) > 0)),
 		...(typeof value.sourceId === "string" && value.sourceId ? { sourceId: value.sourceId } : {}),
 		...(isSummaryKind(value.kind) ? { kind: value.kind } : {}),
