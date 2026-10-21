@@ -41,6 +41,9 @@ export class SessionUsageCapture {
 				const parent = parentFile ? await readSessionSource(parentFile, this.aliases) : undefined;
 				if (parent) this.origins = copiedOrigins(entries.map((entry) => ({ ...entry })), parent);
 			}
+		} else if (count === undefined) {
+			// Without a count, even the same leaf can hide additions on another branch.
+			entries = manager.getEntries().filter((entry) => !this.seen.has(entry.id));
 		} else {
 			entries = [];
 			let id = manager.getLeafId();
