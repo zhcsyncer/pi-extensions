@@ -349,6 +349,10 @@ function createSessionHarness(initialConfig: GlanceConfig = cloneConfig()): Sess
 	harness.session.sessionShutdown();
 	await harness.session.agentEnd({ messages: [eventMessage("assistant", { usage: { output: 10, totalTokens: 10 } })] }, ctx.ctx);
 	assert.equal(state.throughput.lastTurn, null, "sessionShutdown should reset throughput tracker so a later agentEnd cannot create last-turn throughput");
+	assert.deepEqual(state.usage, { input: 2, output: 2, cacheRead: 0, cacheWrite: 0, cost: 0.2 }, "late agentEnd after shutdown must not accumulate recorded usage again");
+	harness.session.agentSettled(ctx.ctx);
+	assert.deepEqual(state.usage, { input: 2, output: 2, cacheRead: 0, cacheWrite: 0, cost: 0.2 }, "subsequent agentSettled must leave recorded usage unchanged");
+	assert.equal(state.throughput.lastTurn, null, "late agentSettled should leave shutdown throughput reset");
 }
 
 {

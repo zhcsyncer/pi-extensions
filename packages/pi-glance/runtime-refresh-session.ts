@@ -110,7 +110,7 @@ export class RuntimeRefreshSession {
 		// The readonly SDK exposes a copy, not an indexed entries API. Only visit
 		// the new suffix at durable boundaries, never from the render path.
 		const entries = ctx.sessionManager.getEntries();
-		if (rebuild || entries.length < this.entryCount) {
+		if (rebuild || this.entryCount === 0 || entries.length < this.entryCount) {
 			this.appliedEntryIds = new Set(entries.map((entry) => entry.id));
 			setUsageTotals(this.state, usageTotalsFromEntries(entries));
 		} else {
