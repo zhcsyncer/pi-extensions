@@ -99,7 +99,7 @@ function strong(styler: TextStyler, bold?: (text: string) => string): TextStyler
 }
 
 function piThemeCacheKey(theme: PiThemeLike, options: PiThemeStyleOptions): string {
-	if (options.cacheKey !== undefined) return `pi:${options.cacheKey}${theme.appearance ? `:${theme.appearance}` : ""}`;
+	if (options.cacheKey !== undefined) return `pi:${options.cacheKey}`;
 	return `pi:${JSON.stringify([theme.name ?? "", theme.getColorMode?.() ?? "", theme.sourcePath ?? "", ...(theme.appearance ? [theme.appearance] : [])])}`;
 }
 
