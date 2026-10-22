@@ -21,8 +21,10 @@ export const BUILTIN_TOOL_NAMES: string[] = [
   ...new Set([...createCodingTools("."), ...createReadOnlyTools(".")].map((t) => t.name)),
 ];
 
-/** Unified runtime registry of all agents (defaults + user-defined). */
-const agents = new Map<string, AgentConfig>();
+/** Standalone compatibility registry; owned runtimes pass their own registry. */
+const agents = new Map<string, AgentConfig>(
+  [...DEFAULT_AGENTS].map(([name, config]) => [name, structuredClone(config)]),
+);
 
 /** When true, DEFAULT_AGENTS are skipped during registration. */
 let disableDefaults = false;
@@ -38,24 +40,26 @@ export function setDefaultsDisabled(b: boolean): void { disableDefaults = b; }
  * Starts with DEFAULT_AGENTS, then overlays user agents (overrides defaults with same name).
  * Disabled agents (enabled === false) are kept in the registry but excluded from spawning.
  */
-export function registerAgents(userAgents: Map<string, AgentConfig>): void {
+export function registerAgents(userAgents: Map<string, AgentConfig>, registry = agents, defaultsDisabled = disableDefaults): void {
+  const agents = registry;
   agents.clear();
 
   // Start with defaults (unless disabled via settings)
-  if (!disableDefaults) {
+  if (!defaultsDisabled) {
     for (const [name, config] of DEFAULT_AGENTS) {
-      agents.set(name, config);
+      agents.set(name, structuredClone(config));
     }
   }
 
   // Overlay user agents (overrides defaults with same name)
   for (const [name, config] of userAgents) {
-    agents.set(name, config);
+    agents.set(name, structuredClone(config));
   }
 }
 
 /** Case-insensitive key resolution. */
-function resolveKey(name: string): string | undefined {
+function resolveKey(name: string, registry = agents): string | undefined {
+  const agents = registry;
   if (agents.has(name)) return name;
   const lower = name.toLowerCase();
   for (const key of agents.keys()) {
@@ -65,47 +69,47 @@ function resolveKey(name: string): string | undefined {
 }
 
 /** Resolve a type name case-insensitively. Returns the canonical key or undefined. */
-export function resolveType(name: string): string | undefined {
-  return resolveKey(name);
+export function resolveType(name: string, registry = agents): string | undefined {
+  return resolveKey(name, registry);
 }
 
 /** Get the agent config for a type (case-insensitive). */
-export function getAgentConfig(name: string): AgentConfig | undefined {
-  const key = resolveKey(name);
-  return key ? agents.get(key) : undefined;
+export function getAgentConfig(name: string, registry = agents): AgentConfig | undefined {
+  const key = resolveKey(name, registry);
+  return key ? registry.get(key) : undefined;
 }
 
 /** Get all enabled type names (for spawning and tool descriptions). */
-export function getAvailableTypes(): string[] {
-  return [...agents.entries()]
+export function getAvailableTypes(registry = agents): string[] {
+  return [...registry.entries()]
     .filter(([_, config]) => config.enabled !== false)
     .map(([name]) => name);
 }
 
 /** Get all type names including disabled (for UI listing). */
-export function getAllTypes(): string[] {
-  return [...agents.keys()];
+export function getAllTypes(registry = agents): string[] {
+  return [...registry.keys()];
 }
 
 /** Get names of default agents currently in the registry. */
-export function getDefaultAgentNames(): string[] {
-  return [...agents.entries()]
+export function getDefaultAgentNames(registry = agents): string[] {
+  return [...registry.entries()]
     .filter(([_, config]) => config.isDefault === true)
     .map(([name]) => name);
 }
 
 /** Get names of user-defined agents (non-defaults) currently in the registry. */
-export function getUserAgentNames(): string[] {
-  return [...agents.entries()]
+export function getUserAgentNames(registry = agents): string[] {
+  return [...registry.entries()]
     .filter(([_, config]) => config.isDefault !== true)
     .map(([name]) => name);
 }
 
 /** Check if a type is valid and enabled (case-insensitive). */
-export function isValidType(type: string): boolean {
-  const key = resolveKey(type);
+export function isValidType(type: string, registry = agents): boolean {
+  const key = resolveKey(type, registry);
   if (!key) return false;
-  return agents.get(key)?.enabled !== false;
+  return registry.get(key)?.enabled !== false;
 }
 
 /** Tool names required for memory management. */
@@ -129,9 +133,9 @@ export function getReadOnlyMemoryToolNames(existingToolNames: Set<string>): stri
 }
 
 /** Get built-in tool names for a type (case-insensitive). */
-export function getToolNamesForType(type: string): string[] {
-  const key = resolveKey(type);
-  const raw = key ? agents.get(key) : undefined;
+export function getToolNamesForType(type: string, registry = agents): string[] {
+  const key = resolveKey(type, registry);
+  const raw = key ? registry.get(key) : undefined;
   const config = raw?.enabled !== false ? raw : undefined;
   // `undefined` (definition omitted the field) → all built-ins; an explicit `[]`
   // (`tools: none` or a `tools:` with only `ext:` entries) → zero built-ins.
@@ -139,7 +143,7 @@ export function getToolNamesForType(type: string): string[] {
 }
 
 /** Get config for a type (case-insensitive, returns a SubagentTypeConfig-compatible object). Falls back to general-purpose. */
-export function getConfig(type: string): {
+export function getConfig(type: string, registry = agents): {
   displayName: string;
   description: string;
   builtinToolNames: string[];
@@ -148,8 +152,8 @@ export function getConfig(type: string): {
   skills: true | string[] | false;
   promptMode: "replace" | "append";
 } {
-  const key = resolveKey(type);
-  const config = key ? agents.get(key) : undefined;
+  const key = resolveKey(type, registry);
+  const config = key ? registry.get(key) : undefined;
   if (config && config.enabled !== false) {
     return {
       displayName: config.displayName ?? config.name,
@@ -163,7 +167,7 @@ export function getConfig(type: string): {
   }
 
   // Fallback for unknown/disabled types — general-purpose config
-  const gp = agents.get("general-purpose");
+  const gp = registry.get("general-purpose");
   if (gp && gp.enabled !== false) {
     return {
       displayName: gp.displayName ?? gp.name,

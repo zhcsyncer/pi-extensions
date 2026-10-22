@@ -428,9 +428,9 @@ export function createGlanceRuntime(adapters: GlanceRuntimeAdapters): GlanceRunt
 			agentEnd: async (event, ctx) => {
 				await refreshSession.agentEnd(event, ctx);
 			},
-			agentSettled: (_event, _ctx) => {
+			agentSettled: (_event, ctx) => {
 				workingIndicator.agentSettled();
-				refreshSession.agentSettled();
+				refreshSession.agentSettled(ctx);
 				scheduleGitRefresh(true);
 			},
 		},

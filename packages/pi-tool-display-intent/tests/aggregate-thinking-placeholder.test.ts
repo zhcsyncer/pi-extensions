@@ -6,7 +6,7 @@ import {
 	UserMessageComponent,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Text, visibleWidth, stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
 	AggregateProjection,
 	DEFAULT_AGGREGATE_RENDER_PASSTHROUGH,
@@ -75,7 +75,7 @@ test("aggregate strips collapsed Thinking placeholders but keeps final assistant
 		const withText = withTextLines.join("\n");
 		assert.doesNotMatch(withText, /Thinking\.\.\./);
 		assert.match(withText, /Visible answer/);
-		assert.equal(withTextLines[0], "");
+		assert.equal(stripTerminalSequences(withTextLines[0]!), "");
 
 		const revealed = render(assistant([
 			{ type: "thinking", thinking: "reasoning" },
@@ -381,7 +381,7 @@ test("a direct final answer keeps a blank row under the user prompt", () => {
 		], { id: "assistant-direct-final", stopReason: "stop" });
 		projection.ingestAssistantMessage(message);
 		const rendered = createComponent(message, true).render(100);
-		assert.equal(rendered[0], "");
+		assert.equal(stripTerminalSequences(rendered[0]!), "");
 		assert.match(rendered.join("\n"), /换地方画 Run/);
 	} finally {
 		restoreAggregateThinkingPlaceholders();

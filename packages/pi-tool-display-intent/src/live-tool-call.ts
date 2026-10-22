@@ -6,7 +6,7 @@ interface ToolRenderContextLike {
 	argsComplete?: boolean;
 }
 
-const liveToolCallIds = new Set<string>();
+const liveToolCallIds = new Map<string, Set<symbol>>();
 
 function toolCallIdFromEvent(event: unknown): string | undefined {
 	if (!event || typeof event !== "object") return undefined;
@@ -14,17 +14,30 @@ function toolCallIdFromEvent(event: unknown): string | undefined {
 	return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined;
 }
 
-export function registerLiveToolCallEvents(pi: ExtensionAPI): void {
-	liveToolCallIds.clear();
-	pi.on("session_start", async () => liveToolCallIds.clear());
-	pi.on("tool_execution_start", async (event) => {
-		const toolCallId = toolCallIdFromEvent(event);
-		if (toolCallId) liveToolCallIds.add(toolCallId);
+export function registerLiveToolCallEvents(pi: ExtensionAPI): () => void {
+	const owner = Symbol();
+	const owned = new Set<string>();
+	const release = (id: string) => {
+		const owners = liveToolCallIds.get(id);
+		owners?.delete(owner);
+		if (owners?.size === 0) liveToolCallIds.delete(id);
+		owned.delete(id);
+	};
+	const clear = () => { for (const id of owned) release(id); };
+	pi.on("session_start", clear);
+	pi.on("tool_execution_start", (event) => {
+		const id = toolCallIdFromEvent(event);
+		if (!id) return;
+		const owners = liveToolCallIds.get(id) ?? new Set<symbol>();
+		owners.add(owner);
+		liveToolCallIds.set(id, owners);
+		owned.add(id);
 	});
-	pi.on("tool_execution_end", async (event) => {
-		const toolCallId = toolCallIdFromEvent(event);
-		if (toolCallId) liveToolCallIds.delete(toolCallId);
+	pi.on("tool_execution_end", (event) => {
+		const id = toolCallIdFromEvent(event);
+		if (id) release(id);
 	});
+	return clear;
 }
 
 export function clearLiveToolCalls(): void {

@@ -735,6 +735,18 @@ describe("ConversationViewer failed terminal result", () => {
     expect(midIdx).toBeGreaterThan(errIdx);
   });
 
+  it("aborted shows cancellation without guessing a turn-limit cause", () => {
+    const viewer = new ConversationViewer(
+      mockTui(40, W), mockSession([]),
+      mockRecord({ status: "aborted", result: "partial work" }),
+      undefined, ansiTheme(), vi.fn(),
+    );
+    const out = viewer.render(W).join("\n");
+    expect(out).toContain("Aborted");
+    expect(out).toContain("partial work");
+    expect(out).not.toMatch(/turn limit|max turns/i);
+  });
+
   it("steered shows turn-limit notice instead of silent Done", () => {
     const messages = [
       { role: "user", content: "long task" },

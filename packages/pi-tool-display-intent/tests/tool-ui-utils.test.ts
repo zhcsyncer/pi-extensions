@@ -132,11 +132,9 @@ test("write content size uses utf-8 bytes", () => {
 test("user message patch reapplies on reload when an older patch version is already present", () => {
   const originalRender = (width: number): string[] => [`original:${width}`];
   const prototype: PatchableUserMessagePrototype = {
-    render: (width: number): string[] => [`stale:${width}`],
-    __piUserMessageOriginalRender: originalRender,
-    __piUserMessageNativePatched: true,
-    __piUserMessagePatchVersion: 1,
+    render: originalRender,
   };
+  patchUserMessageRenderPrototype(prototype, 1, () => (width) => [`stale:${width}`]);
 
   patchUserMessageRenderPrototype(prototype, 5, (baseRender) => {
     return function patched(width: number): string[] {
@@ -145,8 +143,8 @@ test("user message patch reapplies on reload when an older patch version is alre
   });
 
   assert.deepEqual(prototype.render(14), ["patched:original:14"]);
-  assert.equal(prototype.__piUserMessagePatchVersion, 5);
-  assert.equal(prototype.__piUserMessageNativePatched, true);
+  patchUserMessageRenderPrototype(prototype, 5, () => () => ["duplicate"]);
+  assert.deepEqual(prototype.render(14), ["patched:original:14"]);
 });
 
 test("user message markdown extraction removes nested background styling", () => {
@@ -273,7 +271,7 @@ test("native user message renderer inserts one blank spacer line before the box"
 
   const rendered = prototype.render(24);
 
-  assert.equal(rendered[0], "");
+  assert.equal(normalizeUserMessageContentLine(rendered[0]!), "");
   assert.match(rendered[1] ?? "", /^╭/);
 });
 
@@ -285,9 +283,9 @@ test("aggregate native user message renderer uses a guttered prompt with vertica
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true, () => true);
   const rendered = prototype.render(40);
   assert.equal(rendered.length, 3);
-  assert.match(rendered[0] ?? "", /^▎\s*$/);
+  assert.match(normalizeUserMessageContentLine(rendered[0] ?? ""), /^▎\s*$/);
   assert.match(rendered[1] ?? "", /^▎ Original user content/);
-  assert.match(rendered[2] ?? "", /^▎\s*$/);
+  assert.match(normalizeUserMessageContentLine(rendered[2] ?? ""), /^▎\s*$/);
   assert.doesNotMatch(rendered.join("\n"), /╭|╰|│|>/);
 });
 

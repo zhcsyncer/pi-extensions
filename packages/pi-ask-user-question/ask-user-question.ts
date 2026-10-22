@@ -124,6 +124,7 @@ export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
 	const guidance = validateGuidanceFields(loadConfig().guidance);
 	pi.registerTool({
 		name: ASK_USER_QUESTION_TOOL_NAME,
+		exposure: "model-only",
 		label: "Ask User Question",
 		description: `Ask the user one or more structured questions during execution. Use when you need to:
 1. Gather user preferences or requirements

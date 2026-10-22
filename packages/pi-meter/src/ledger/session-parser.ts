@@ -8,9 +8,21 @@ export interface ParsedSession {
 	skipped: number;
 }
 
-interface RecordMeta {
+export interface SessionOrigin {
 	sid: string;
 	cwd: string;
+}
+
+type RecordMeta = SessionOrigin;
+
+export interface ParseSessionOptions {
+	origins?: ReadonlyMap<string, SessionOrigin>;
+}
+
+export interface DiffOptions {
+	/** Only a complete source snapshot may match unidentified legacy rows. */
+	legacyMatching?: boolean;
+	sessionAliases?: ReadonlyMap<string, string>;
 }
 
 function recordFromUsage(
@@ -22,12 +34,13 @@ function recordFromUsage(
 	kind?: SummaryKind,
 ): UsageRecord {
 	const costValue = usage.cost;
-	const cost = isRecord(costValue) && typeof costValue.total === "number"
-		? costValue.total
-		: typeof costValue === "number"
-			? costValue
-			: 0;
-	const costKnown = (isRecord(costValue) && typeof costValue.total === "number") || typeof costValue === "number";
+	const total = isRecord(costValue) ? costValue.total : costValue;
+	const costKnown = validCost(total);
+	// Partial reported components remain a subtotal, never a confirmed complete cost.
+	const cost = costKnown ? total : isRecord(costValue)
+		? [costValue.input, costValue.output, costValue.cacheRead, costValue.cacheWrite]
+			.reduce<number>((sum, part) => sum + (validCost(part) ? part : 0), 0)
+		: 0;
 	return {
 		ts,
 		sid: meta.sid,
@@ -55,13 +68,13 @@ export function usageFromAssistantMessage(message: unknown, meta: RecordMeta): U
 	return recordFromUsage(message.usage, meta, ts, `${provider}/${model}`, `assistant:${ts}${responseId}`);
 }
 
-function toolResultRawUsage(message: Record<string, unknown>): Array<{ model: string; usage: Record<string, unknown> }> {
+function toolResultRawUsage(message: Record<string, unknown>): Array<{ model: string; usage: Record<string, unknown>; index: number }> {
 	if (!isRecord(message.details) || !isRecord(message.details.envelope) || !Array.isArray(message.details.envelope.raw)) {
 		return [];
 	}
-	return message.details.envelope.raw.flatMap((entry) =>
+	return message.details.envelope.raw.flatMap((entry, index) =>
 		isRecord(entry) && typeof entry.model === "string" && isRecord(entry.usage)
-			? [{ model: entry.model, usage: entry.usage }]
+			? [{ model: entry.model, usage: entry.usage, index }]
 			: [],
 	);
 }
@@ -84,6 +97,37 @@ function isSubagentUsageRollup(message: Record<string, unknown>): boolean {
 	return isRecord(rollup) && rollup.version === 1 && typeof rollup.agentId === "string";
 }
 
+const tokenFields = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
+const costFields = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
+
+function nativeRollupUsage(value: unknown): value is Record<string, unknown> & { cost: Record<string, number> } {
+	return isRecord(value) && tokenFields.every(key => validCost(value[key])) &&
+		isRecord(value.cost) && costFields.every(key => validCost((value.cost as Record<string, unknown>)[key]));
+}
+
+/** Deduct only this entry's reported child shares, never cumulative watermarks. */
+function withoutSubagentShares(message: Record<string, unknown>, usage: Record<string, unknown>): Record<string, unknown> {
+	const receipts = isRecord(message.details) ? message.details.subagentUsageRollups : undefined;
+	if (!Array.isArray(receipts) || !nativeRollupUsage(usage)) return usage;
+	const shares = receipts.flatMap(receipt =>
+		isRecord(receipt) && receipt.version === 1 && typeof receipt.agentId === "string" && receipt.agentId.length > 0 &&
+		nativeRollupUsage(receipt.reportedUsage) ? [receipt.reportedUsage] : [],
+	);
+	if (!shares.length) return usage;
+	const tokens = Object.fromEntries(tokenFields.map(key => [key, shares.reduce((sum, share) => sum + (share[key] as number), 0)]));
+	if (tokenFields.some(key => !Number.isFinite(tokens[key]) || tokens[key] > (usage[key] as number))) return usage;
+
+	const costs = Object.fromEntries(costFields.map(key => [key, shares.reduce((sum, share) => sum + share.cost[key], 0)]));
+	if (costFields.some(key => !Number.isFinite(costs[key]))) return usage;
+	// Unknown/partial parent pricing was rejected above: never infer missing
+	// components or manufacture a known zero. Tolerate only floating-point dust.
+	const exceeds = costFields.some(key => costs[key] > usage.cost[key] &&
+		costs[key] - usage.cost[key] > Number.EPSILON * 4 * Math.max(1, costs[key], usage.cost[key]));
+	if (exceeds) return usage;
+	const cost = { ...usage.cost, ...Object.fromEntries(costFields.map(key => [key, Math.max(0, usage.cost[key] - costs[key])])) };
+	return { ...usage, ...Object.fromEntries(tokenFields.map(key => [key, (usage[key] as number) - tokens[key]])), cost };
+}
+
 export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): UsageRecord[] {
 	if (!isRecord(message) || message.role !== "toolResult" || isSubagentUsageRollup(message)) return [];
 	const ts = messageTimestamp(message);
@@ -91,12 +135,12 @@ export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): 
 	const toolCallId = typeof message.toolCallId === "string" && message.toolCallId ? message.toolCallId : undefined;
 	const raw = message.toolName === "consult" ? toolResultRawUsage(message) : [];
 	if (raw.length > 0) {
-		return raw.map((entry, index) =>
-			recordFromUsage(entry.usage, meta, ts, entry.model, toolCallId ? `${toolCallId}:${index}` : undefined),
+		return raw.map((entry) =>
+			recordFromUsage(entry.usage, meta, ts, entry.model, toolCallId ? `${toolCallId}:${entry.index}` : undefined),
 		);
 	}
 	if (!isRecord(message.usage)) return [];
-	return [recordFromUsage(message.usage, meta, ts, toolResultModel(message), toolCallId)];
+	return [recordFromUsage(withoutSubagentShares(message, message.usage), meta, ts, toolResultModel(message), toolCallId)];
 }
 
 export function usageRecordsFromMessage(message: unknown, meta: RecordMeta): UsageRecord[] {
@@ -119,7 +163,7 @@ export function assistantUsageWithoutTimestamp(message: unknown): boolean {
 export function usageFromSessionSummaryEntry(
 	entry: unknown,
 	meta: RecordMeta,
-	model: string,
+	model = "unknown/unknown",
 ): UsageRecord | undefined {
 	if (!isRecord(entry) || !isSummaryKind(entry.type) || !isRecord(entry.usage)) return undefined;
 	const ts = sessionEntryTimestamp(entry);
@@ -134,12 +178,8 @@ export function summaryUsageWithoutTimestamp(entry: unknown): boolean {
 	return isRecord(entry) && isSummaryKind(entry.type) && isRecord(entry.usage) && sessionEntryTimestamp(entry) === undefined;
 }
 
-export function parseSession(content: string, sid: string): ParsedSession {
-	let cwd: string | null = null;
-	let skipped = 0;
-	let lastModel = "unknown/unknown";
-	const records: UsageRecord[] = [];
-
+export function parseSession(content: string, sid: string, options: ParseSessionOptions = {}): ParsedSession {
+	const entries: Record<string, unknown>[] = [];
 	for (const line of content.split("\n")) {
 		if (!line.trim()) continue;
 		let entry: unknown;
@@ -148,51 +188,64 @@ export function parseSession(content: string, sid: string): ParsedSession {
 		} catch {
 			continue;
 		}
-		if (!isRecord(entry)) continue;
-		if (entry.type === "session" && typeof entry.cwd === "string" && !cwd) {
-			cwd = entry.cwd;
-			continue;
-		}
-		const changed = modelChangeLabel(entry);
-		if (changed) {
-			lastModel = changed;
-			continue;
-		}
-		const meta = { sid, cwd: cwd ?? "" };
-		if (entry.type === "message") {
-			const assistantModel = assistantModelLabel(entry.message);
-			if (assistantModel) lastModel = assistantModel;
-			const parsed = usageRecordsFromMessage(entry.message, meta);
-			if (parsed.length > 0) {
-				records.push(...parsed);
-				continue;
-			}
-			if (usageMessageWithoutTimestamp(entry.message)) skipped += 1;
-			continue;
-		}
-		const summary = usageFromSessionSummaryEntry(entry, meta, lastModel);
-		if (summary) {
-			records.push(summary);
-			continue;
-		}
-		if (summaryUsageWithoutTimestamp(entry)) skipped += 1;
+		if (isRecord(entry)) entries.push(entry);
 	}
-
+	const header = entries.find((entry) => entry.type === "session");
+	const cwd = typeof header?.cwd === "string" ? header.cwd : null;
+	if (typeof header?.id === "string" && header.id) sid = header.id;
+	const records: UsageRecord[] = [];
+	let skipped = 0;
+	let lastModel = "unknown/unknown";
+	const models = new Map<string, string>();
+	for (const entry of entries) {
+		const parentModel = typeof entry.parentId === "string" ? models.get(entry.parentId) : undefined;
+		lastModel = modelChangeLabel(entry) ?? assistantModelLabel(entry.message) ?? parentModel ?? (entry.parentId === null ? "unknown/unknown" : lastModel);
+		if (typeof entry.id === "string") models.set(entry.id, lastModel);
+		const meta = (typeof entry.id === "string" ? options.origins?.get(entry.id) : undefined) ?? { sid, cwd: cwd ?? "" };
+		const parsed = usageRecordsFromSessionEntry(entry, meta, lastModel);
+		records.push(...parsed);
+		if (parsed.length === 0 && (entry.type === "message" ? usageMessageWithoutTimestamp(entry.message)
+			: summaryUsageWithoutTimestamp(entry) || (entry.type === "usage" && isRecord(entry.usage) && sessionEntryTimestamp(entry) === undefined))) skipped++;
+	}
 	return { cwd, sid, records, skipped };
 }
 
-/** Live capture and import identity; tool results add their stable tool-call source id. */
-export function recordKey(record: UsageRecord): string {
-	return `${record.ts}|${record.sid}|${record.model}${record.sourceId ? `|${record.sourceId}` : ""}`;
+/** Read finalized entries only. Execution events and context projections are not expenses. */
+export function usageRecordsFromSessionEntry(entry: unknown, meta: SessionOrigin, model = "unknown/unknown"): UsageRecord[] {
+	if (!isRecord(entry)) return [];
+	let records: UsageRecord[] = [];
+	if (entry.type === "message") {
+		records = usageRecordsFromMessage(entry.message, meta);
+		if (isRecord(entry.message) && entry.message.toolName === "consult") {
+			const raw = toolResultRawUsage(entry.message);
+			if (raw.length > 0) records = records.map((record, index) => ({ ...record, part: `raw:${raw[index].index}` }));
+		}
+	} else if (entry.type === "usage" && isRecord(entry.usage)) {
+		const ts = sessionEntryTimestamp(entry);
+		if (ts !== undefined) records = [{
+			...recordFromUsage(entry.usage, meta, ts, `${typeof entry.provider === "string" ? entry.provider : "unknown"}/${typeof entry.model === "string" ? entry.model : "unknown"}`),
+			...(typeof entry.kind === "string" ? { usageKind: entry.kind } : {}),
+		}];
+	} else {
+		const summary = usageFromSessionSummaryEntry(entry, meta, model);
+		if (summary) records = [summary];
+	}
+	return records.map((record) => ({ ...record, ...(typeof entry.id === "string" && entry.id ? { entryId: entry.id } : {}) }));
 }
 
-/** Same usage when live capture and history import observe the same underlying message. */
+/** New records use finalized entry identity; the old key remains a legacy compatibility rule. */
+export function recordKey(record: UsageRecord): string {
+	return record.entryId ? JSON.stringify([record.sid, record.entryId, record.part ?? "whole"])
+		: `${record.ts}|${record.sid}|${record.model}${record.sourceId ? `|${record.sourceId}` : ""}`;
+}
+
+/** Old-format compatibility only; equal payloads are not evidence of equal new entries. */
 function legacyPayloadKey(record: UsageRecord): string {
 	return `${record.sid}|${record.model}|${record.in}|${record.out}|${record.cR}|${record.cW}|${record.tot}`;
 }
 
 export function payloadKey(record: UsageRecord): string {
-	return `${legacyPayloadKey(record)}${record.sourceId ? `|${record.sourceId}` : ""}`;
+	return record.entryId ? recordKey(record) : `${legacyPayloadKey(record)}${record.sourceId ? `|${record.sourceId}` : ""}`;
 }
 
 export function collapseDuplicateRecords(records: readonly UsageRecord[]): UsageRecord[] {
@@ -213,41 +266,36 @@ function sourceIdentity(record: UsageRecord): string | undefined {
 	return record.sourceId ? `${record.sid}|${record.sourceId}` : undefined;
 }
 
-export function diffRecords(existing: readonly UsageRecord[], incoming: readonly UsageRecord[]): UsageRecord[] {
-	const seenExact = new Set(existing.map(recordKey));
-	const seenSource = new Set(
-		existing.flatMap((record) => {
-			const identity = sourceIdentity(record);
-			return identity ? [identity] : [];
-		}),
-	);
-	const legacyPayloads = new Map<string, number>();
-	for (const record of existing) {
-		if (record.sourceId) continue;
-		const key = legacyPayloadKey(record);
-		legacyPayloads.set(key, (legacyPayloads.get(key) ?? 0) + 1);
+export function diffRecords(existing: readonly UsageRecord[], incoming: readonly UsageRecord[], options: DiffOptions = {}): UsageRecord[] {
+	const normalize = (record: UsageRecord): UsageRecord => record.entryId ? record : {
+		...record, sid: options.sessionAliases?.get(record.sid) ?? record.sid,
+	};
+	const old = existing.map(normalize);
+	const seenExact = new Set(old.map(recordKey));
+	const legacy = options.legacyMatching === false ? [] : old.filter((record) => !record.entryId);
+	const used = new Set<number>();
+	const unique = new Map<string, UsageRecord>();
+	for (const value of incoming) {
+		const record = normalize(value);
+		if (!unique.has(recordKey(record))) unique.set(recordKey(record), record);
 	}
-	const fresh: UsageRecord[] = [];
-	for (const record of incoming) {
-		const exact = recordKey(record);
-		if (seenExact.has(exact)) continue;
-		const identity = sourceIdentity(record);
-		if (identity && seenSource.has(identity)) continue;
+	const pending = [...unique.values()].filter((record) => !seenExact.has(recordKey(record)));
+	// Reserve explicit source matches before spending any old no-ID payload allowance.
+	const matched = new Set<UsageRecord>();
+	for (const record of pending) {
+		const source = sourceIdentity(record);
+		if (!source) continue;
+		const index = legacy.findIndex((candidate, i) => !used.has(i) && sourceIdentity(candidate) === source);
+		if (index >= 0) { used.add(index); matched.add(record); }
+	}
+	return pending.filter((record) => {
+		if (matched.has(record)) return false;
 		if (record.sourceId) {
-			const legacy = legacyPayloadKey(record);
-			const remaining = legacyPayloads.get(legacy) ?? 0;
-			if (remaining > 0) {
-				legacyPayloads.set(legacy, remaining - 1);
-				seenExact.add(exact);
-				if (identity) seenSource.add(identity);
-				continue;
-			}
+			const index = legacy.findIndex((candidate, i) => !used.has(i) && !candidate.sourceId && legacyPayloadKey(candidate) === legacyPayloadKey(record));
+			if (index >= 0) { used.add(index); return false; }
 		}
-		seenExact.add(exact);
-		if (identity) seenSource.add(identity);
-		fresh.push(record);
-	}
-	return fresh;
+		return true;
+	});
 }
 
 function isAssistantUsage(message: unknown): message is Record<string, unknown> & { usage: Record<string, unknown> } {
@@ -279,6 +327,10 @@ function assistantModelLabel(message: unknown): string | undefined {
 	const model = typeof message.model === "string" ? message.model : undefined;
 	if (!provider && !model) return undefined;
 	return `${provider ?? "unknown"}/${model ?? "unknown"}`;
+}
+
+function validCost(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function num(value: unknown): number {

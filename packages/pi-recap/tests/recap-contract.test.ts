@@ -306,6 +306,8 @@ function createRunHarness(spec: CompletionSpec, harnessOptions: HarnessOptions =
 	} as unknown as ExtensionContext;
 	const config = structuredClone(DEFAULT_CONFIG) as RecapConfig;
 	config.title.applyPolicy = "always";
+	config.recap.auto = false;
+	config.multiplexer.enabled = false;
 	const state = createRecapState(config);
 	const completeModel: NonNullable<RunRecapOptions["completeModel"]> = async () =>
 		({
@@ -415,7 +417,7 @@ test("session_start restores a persisted fallback warning into the widget", asyn
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	try {
 		await mkdir(path.dirname(configPath), { recursive: true });
-		await writeFile(configPath, `${JSON.stringify({ multiplexer: { enabled: false } })}\n`, "utf8");
+		await writeFile(configPath, `${JSON.stringify({ recap: { auto: false }, multiplexer: { enabled: false } })}\n`, "utf8");
 
 		const fallbackData: RecapEntryData = {
 			recap: "Reloaded recap",
@@ -561,12 +563,14 @@ test("recap keeps the JSON task in the system prompt and the activity in the use
 		force: true,
 		showProgress: false,
 		completeModel: async (model, context, opts) => {
-			const recapContext = context as {
-				systemPrompt?: string;
-				messages?: Array<{ content?: Array<{ text?: string }> }>;
-			};
-			systemPrompt = recapContext.systemPrompt ?? "";
-			userText = recapContext.messages?.[0]?.content?.[0]?.text ?? "";
+			const system = context.messages[0];
+			assert.equal(system?.role, "system");
+			systemPrompt = typeof system?.content === "string" ? system.content : "";
+			const user = context.messages[1];
+			assert.equal(user?.role, "user");
+			userText = Array.isArray(user?.content)
+				? user.content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
+				: "";
 			return harness.completeModel(model, context, opts);
 		},
 	});

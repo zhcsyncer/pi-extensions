@@ -164,7 +164,7 @@ test("legacy config migrates to simple v2 and reports discarded bash rows throug
 		assert.deepEqual(persisted.intent, { language: "zh-CN" });
 		assert.equal(persisted.toolCalls, undefined);
 		assert.deepEqual(persisted.results, { mode: "compact", previewRows: 10 });
-		assert.equal(persisted.transcript, undefined);
+		assert.deepEqual(persisted.transcript, { userMessageBox: false });
 		assert.deepEqual(persisted.tools, {
 			passthrough: ["grep"],
 			custom: {

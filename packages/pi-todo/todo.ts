@@ -77,6 +77,7 @@ export function registerTodoTool(pi: ExtensionAPI, store: TodoStore, config: Tod
 	const guidance = validateGuidanceFields(config.guidance);
 	pi.registerTool({
 		name: TOOL_NAME,
+		exposure: "model-only",
 		label: TOOL_LABEL,
 		description:
 			"Manage a multi-item execution plan for meaningful multi-stage work. Actions: create, update, list, get, delete, and batch. Never start a one-task Todo cycle, regardless of risk, duration, or importance. A fresh or terminal cycle rejects top-level create and one-create batches; start with an atomic batch of at least two independently valuable create operations. Use top-level create only to add a newly discovered milestone to an active plan. Batch operations run in order and roll back atomically. When the current cycle is terminal, a qualifying batch rolls it over automatically.",

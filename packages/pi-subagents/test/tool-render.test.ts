@@ -355,6 +355,7 @@ describe("terminal chrome variants", () => {
     );
     expect(aborted).not.toMatch(/✗/);
     expect(aborted).toMatch(/Aborted/);
+    expect(aborted).not.toMatch(/turn limit|max turns/i);
   });
 });
 

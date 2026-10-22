@@ -32,6 +32,16 @@ const [phase, root] = process.argv.slice(2);
 const cwd = join(root, "work");
 const configCwd = join(root, "config");
 const metadataFile = join(root, "metadata.json");
+// Caller-owned fixture authority, recreated from code in each process, not disk history.
+const usageConfig = {
+  name: "usage-test", description: "usage", builtinToolNames: [], extensions: false, skills: false,
+  promptMode: "replace", systemPrompt: "USAGE", persistSession: true, sessionDir: join(root, "sessions"),
+};
+const restartConfig = {
+  name: "restart-test", description: "restart contract", builtinToolNames: ["read"],
+  extensions: false, skills: true, promptMode: "append", systemPrompt: "ORIGINAL_ROLE",
+  persistSession: true, sessionDir: join(root, "sessions"),
+};
 const pi = { exec: async () => ({ code: 1, stdout: "", stderr: "" }) };
 const faux = fauxProvider({ provider: "restart-faux", models: [{ id: "original", contextWindow: 200_000 }], tokensPerSecond: 1_000_000 });
 const runtime = await ModelRuntime.create({ modelsPath: null });
@@ -47,8 +57,46 @@ const ctx = {
   getSystemPrompt: () => "ORIGINAL_PARENT_SYSTEM",
 };
 let session;
+let manager;
 try {
-  if (phase === "limit") {
+  if (phase === "usage") {
+    const { AgentManager } = await jiti.import(fileURLToPath(new URL("../../src/agent-manager.ts", import.meta.url)));
+    const { archiveAgentRecord } = await jiti.import(fileURLToPath(new URL("../../src/session-archive.ts", import.meta.url)));
+    const spend = (cost) => ({ input: 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1,
+      cost: { input: cost, output: 0, cacheRead: 0, cacheWrite: 0, total: cost } });
+    manager = new AgentManager(undefined, 1, undefined, undefined, { pruneWorktreesOnDispose: false });
+    faux.setResponses([fauxAssistantMessage("FIRST"), fauxAssistantMessage("RESUMED")]);
+    const id = manager.spawn(pi, ctx, "usage-test", "first", {
+      description: "usage", isBackground: true,
+      inlineAgentConfig: usageConfig,
+      onSessionCreated: (created) => {
+        session = created;
+        const sm = session.sessionManager;
+        sm.appendMessage({ role: "assistant", api: faux.api, provider: "restart-faux", model: "original",
+          content: [{ type: "toolCall", id: "outer", name: "outer", arguments: {} }],
+          timestamp: 1, stopReason: "toolUse", usage: spend(0.01) });
+        sm.appendMessage({ role: "toolResult", toolCallId: "outer", toolName: "outer", content: [],
+          timestamp: 2, isError: false, usage: spend(0.03),
+          nestedCalls: { calls: [{ id: "outer/1", name: "inner", status: "ok" }], complete: true } });
+        sm.appendUsage("unrecognized-kind", "restart-faux", "original", spend(0.02));
+        sm.appendCompaction("prior work", null, 100, { cumulativeCost: 0.06 });
+      },
+    });
+    const record = await manager.waitForResult(id);
+    const first = record.lifetimeUsage.cost;
+    const repeated = manager.getRecord(id).lifetimeUsage.cost;
+    const archive = archiveAgentRecord(record);
+    parent.appendCustomEntry("subagents:record", archive);
+    manager.clearCompleted();
+    const reloaded = manager.getRecordOrArchive(id, ctx).lifetimeUsage.cost;
+    await manager.resume(id, "continue", undefined, { pi, ctx, currentAgentConfig: usageConfig,
+      onSessionCreated: (created) => {
+        session = created;
+        session.sessionManager.appendUsage("new-kind", "restart-faux", "original", spend(0.02));
+      },
+    });
+    console.log(JSON.stringify({ first, repeated, reloaded, resumed: manager.getRecord(id).lifetimeUsage.cost }));
+  } else if (phase === "limit") {
     faux.setResponses([fauxAssistantMessage("TERMINAL_ON_TURN_ONE")]);
     const first = await runAgent(ctx, "limit-test", "Answer immediately", {
       pi, maxTurns: 1, graceTurns: 2,
@@ -74,16 +122,12 @@ try {
     console.log(JSON.stringify({ first, firstCalls, firstQueues, resumed, queues,
       preservedQueues: [session.getSteeringMessages(), session.getFollowUpMessages()],
     }, (key, value) => key === "session" ? undefined : value));
-  } else if (phase === "create") {
+  } else if (phase === "create" || phase === "create-none") {
     let snapshot;
     faux.setResponses([fauxAssistantMessage("FIRST_ANSWER"), fauxAssistantMessage("RETAINED_ANSWER")]);
     const first = await runAgent(ctx, "restart-test", "ORIGINAL_TASK", {
       pi, cwd, configCwd, inheritContext: true, maxTurns: 2, graceTurns: 1,
-      inlineAgentConfig: {
-        name: "restart-test", description: "restart contract", builtinToolNames: ["read"],
-        extensions: false, skills: true, promptMode: "append", systemPrompt: "ORIGINAL_ROLE",
-        persistSession: true, sessionDir: join(root, "sessions"),
-      },
+      inlineAgentConfig: restartConfig,
       onResumeSnapshot: (saved) => { snapshot = saved; },
       onSessionCreated: (created) => { session = created; },
     });
@@ -93,7 +137,7 @@ try {
     const sm = session.sessionManager;
     const kept = sm.getBranch().find((entry) => entry.type === "message" && entry.message.role === "user" && JSON.stringify(entry.message.content).includes("RETAINED_TASK"));
     if (!kept) throw new Error("No retained user turn");
-    sm.appendCompaction("COMPACTED_ORIGINAL_CONTEXT", kept.id, 20_000);
+    sm.appendCompaction("COMPACTED_ORIGINAL_CONTEXT", phase === "create-none" ? null : kept.id, 20_000);
     sm.appendCustomEntry("restart-proof", { original: true });
     writeFileSync(metadataFile, JSON.stringify({ snapshot, sessionFile: session.sessionFile }));
     console.log(JSON.stringify({ pid: process.pid, snapshot, sessionFile: session.sessionFile }));
@@ -105,7 +149,7 @@ try {
     setDefaultMaxTurns(99);
     setGraceTurns(99);
     if (phase === "unavailable") runtime.unregisterProvider("restart-faux");
-    session = await restoreAgentSession(ctx, saved.sessionFile, saved.snapshot, { pi });
+    session = await restoreAgentSession(ctx, saved.sessionFile, saved.snapshot, { pi, currentAgentConfig: restartConfig });
     const before = session.messages;
     const originalPrompt = session.systemPrompt;
     let request;
@@ -124,4 +168,5 @@ try {
   console.log(JSON.stringify({ pid: process.pid, error: error.message }));
 } finally {
   session?.dispose();
+  manager?.dispose();
 }

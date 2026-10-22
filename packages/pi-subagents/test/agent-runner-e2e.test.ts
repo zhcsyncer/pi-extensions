@@ -1,37 +1,26 @@
 /**
  * agent-runner-e2e.test.ts — End-to-end test against the REAL pi-mono runtime.
  *
- * Every other agent-runner test mocks `@earendil-works/pi-coding-agent`: it
- * asserts that `runAgent` hands the right `tools:` allowlist to a *simulated*
- * `createAgentSession`. That proves our allowlist math, but not the assumption
- * the math rests on — that real pi-mono actually gates a session to that
- * allowlist, admitting extension-registered tools (the #47 fix) and dropping
- * the rest.
- *
- * This test closes that loop with NO pi-mono mock:
+ * Tests the constructed model tool VIEW with NO pi-mono mock:
  *   - a real extension fixture (`fixtures/e2e-probe-ext.mjs`) registers a tool,
  *   - the real `DefaultResourceLoader` loads it via `additionalExtensionPaths`,
  *   - the real `createAgentSession` builds the session,
  *   - we read the real `session.getActiveToolNames()` at `onSessionCreated`
- *     (fires after construction, before any prompt) and assert what the LLM
- *     would actually be allowed to call.
+ *     (fires after construction, before any prompt) and assert model visibility.
  *
- * No network/LLM: a faux Model object satisfies `createAgentSession`'s `model`
- * param, and we never depend on a turn completing — the assertion is on the
- * gated tool set, which is fixed at construction. (Driving a live faux model
- * through `session.prompt()` is intentionally avoided: under Vite the faux
- * provider registers in a different `pi-ai` module instance than the one
- * pi-coding-agent streams through, which is brittle and orthogonal to gating.)
+ * No network/LLM: an explicit in-memory runtime supplies only a faux response.
+ * Observations are captured before prompting; a completed provider turn and
+ * execution authority are NOT this suite's contract. Visibility is not authority.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage, fauxProvider, InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { type AgentSession, ModelRegistry, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extensionCanonicalName, runAgent } from "../src/agent-runner.js";
-import { registerAgents } from "../src/agent-types.js";
 import type { AgentConfig } from "../src/types.js";
-import { registerFauxProvider } from "./helpers/pi-ai.js";
 
 // These tests spin up the REAL pi-mono runtime (loader + dynamic extension
 // import + session construction), so a cold first run under full-suite CPU
@@ -51,70 +40,70 @@ function makePi() {
 
 describe("agent-runner end-to-end (real pi-mono session + real extension)", () => {
   let cwd: string;
-  let faux: ReturnType<typeof registerFauxProvider>;
+  let faux: ReturnType<typeof fauxProvider>;
+  let modelRegistry: ModelRegistry;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cwd = mkdtempSync(join(tmpdir(), "subagents-e2e-"));
-    // Only used as a valid Model object for createAgentSession; we never rely
-    // on it actually streaming (we assert on the pre-prompt gated tool set).
-    faux = registerFauxProvider({ provider: "faux", models: [{ id: "faux-1", contextWindow: 200_000 }] });
+    faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", contextWindow: 200_000 }] });
+    const runtime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(), modelsPath: null, allowModelNetwork: false,
+    });
+    runtime.registerNativeProvider(faux.provider);
+    await runtime.setRuntimeApiKey("faux", "fixture-only");
+    modelRegistry = new ModelRegistry(runtime);
   });
   afterEach(() => {
-    faux.unregister();
     rmSync(cwd, { recursive: true, force: true });
   });
 
   /**
-   * Register `cfg` as agent type "e2e", run it through the REAL runAgent, and
+   * Pass constructed `cfg` through runAgent's public inline configuration and
    * return the real session's active tool names captured at construction time.
    */
   async function activeToolsFor(cfg: Partial<AgentConfig>): Promise<string[]> {
-    registerAgents(
-      new Map([
-        [
-          "e2e",
-          {
-            name: "e2e",
-            description: "e2e",
-            builtinToolNames: BUILTINS,
-            skills: false,
-            systemPrompt: "You are e2e.",
-            promptMode: "replace",
-            inheritContext: false,
-            runInBackground: false,
-            isolated: false,
-            ...cfg,
-          } as AgentConfig,
-        ],
-      ]),
-    );
-    const model = faux.getModel();
-    const modelRegistry: any = {
-      find: () => model,
-      getAll: () => [model],
-      getAvailable: () => [model],
-      hasConfiguredAuth: () => true,
-      isUsingOAuth: () => false,
-      getApiKeyAndHeaders: async () => ({ apiKey: "faux", headers: {} }),
-      registerProvider: () => {},
-      unregisterProvider: () => {},
+    const inlineAgentConfig: AgentConfig = {
+      name: "e2e",
+      description: "e2e",
+      builtinToolNames: BUILTINS,
+      extensions: false,
+      skills: false,
+      systemPrompt: "You are e2e.",
+      promptMode: "replace",
+      inheritContext: false,
+      runInBackground: false,
+      isolated: false,
+      ...cfg,
     };
-    const ctx: any = { cwd, getSystemPrompt: () => "PARENT", model, modelRegistry };
+    const model = faux.getModel();
+    faux.setResponses([fauxAssistantMessage("done")]);
+    const ctx: any = {
+      cwd, getSystemPrompt: () => "PARENT", model, modelRegistry,
+      sessionManager: SessionManager.inMemory(cwd),
+    };
 
-    let active: string[] = [];
+    let session: AgentSession | undefined;
+    let active: string[] | undefined;
     try {
       await runAgent(ctx, "e2e", "go", {
         pi: makePi(),
         model,
+        configCwd: cwd,
+        inlineAgentConfig,
         onSessionCreated: (s) => {
+          session = s;
           active = s.getActiveToolNames();
         },
       });
-    } catch {
-      // A no-op/erroring prompt turn is fine — the gated tool set is fixed at
-      // construction, which `onSessionCreated` already captured.
+    } catch (error) {
+      // Only a post-capture prompt failure is outside this view-only contract.
+      // Initialization/observation failures must never masquerade as empty views.
+      if (active === undefined) throw error;
+    } finally {
+      session?.dispose();
     }
-    return active;
+    expect(active, "onSessionCreated must capture the constructed model tool view").toBeDefined();
+    return active!;
   }
 
   it("real pi-mono admits an extension-registered tool when it's in the allowlist (#47)", async () => {
@@ -132,7 +121,7 @@ describe("agent-runner end-to-end (real pi-mono session + real extension)", () =
 
   it("disallowedTools removes a real extension tool from the live session", async () => {
     const active = await activeToolsFor({ extensions: [FIXTURE], disallowedTools: [EXT_TOOL] });
-    expect(active).not.toContain(EXT_TOOL); // loaded, then denied at construction
+    expect(active).not.toContain(EXT_TOOL); // loaded, then hidden from the model view
     expect(active).toContain("read");
   });
 

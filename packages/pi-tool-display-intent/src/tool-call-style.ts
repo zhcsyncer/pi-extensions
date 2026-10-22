@@ -1,6 +1,8 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ToolCallStyle } from "./types.js";
+import { boundDisplayLines, capFormattedRows, displayOmissionRows, DISPLAY_LIMITS } from "./display-budget.js";
+import { displayThemeSignature } from "./display-theme.js";
 
 export interface ToolCallStyleTheme {
 	fg(color: string, text: string): string;
@@ -75,44 +77,75 @@ export interface ClaudeToolResultStyleOptions {
 	theme?: Pick<ToolCallStyleTheme, "fg">;
 }
 
+// Every result prefix below occupies four terminal columns.
+const RESULT_PREFIX_COLUMNS = 4;
+
 export class ClaudeToolResultComponent implements Component {
+	private cachedWidth?: number;
+	private cachedTheme?: string;
+	private cachedConnect?: boolean;
+	private cachedInput?: string[];
+	private cachedTruncated?: boolean;
+	private cachedOutput?: string[];
+
 	constructor(
 		private readonly child: Component,
 		private readonly options: ClaudeToolResultStyleOptions = {},
 	) {}
 
 	render(width: number): string[] {
-		if (width <= 0) {
+		if (width <= 0 || !Number.isFinite(width)) {
+			this.invalidate();
 			return [];
+		}
+		width = Math.min(DISPLAY_LIMITS.units, Math.floor(width));
+		const budget = Math.floor(DISPLAY_LIMITS.units / 2);
+		// Keep calling the child: a live or in-place-updated component can return new
+		// strings in the same array. Snapshot before measuring, never trust identity.
+		const bounded = boundDisplayLines(this.child.render(Math.max(1, width - RESULT_PREFIX_COLUMNS)), budget, DISPLAY_LIMITS.lines, false);
+		const childLines = bounded.rows;
+		const themeKey = displayThemeSignature(this.options.theme, ["muted"]);
+		if (this.cachedOutput && this.cachedWidth === width && this.cachedTheme === themeKey &&
+			this.cachedConnect === this.options.connectRows && this.cachedTruncated === bounded.truncated &&
+			this.cachedInput?.length === childLines.length && childLines.every((line, index) => line === this.cachedInput![index])) {
+			return this.cachedOutput;
 		}
 
 		const firstPrefix = this.options.connectRows ? "  │ " : "  ⎿ ";
 		const continuationPrefix = this.options.connectRows ? "  │ " : "    ";
 		const lastPrefix = this.options.connectRows ? "  └ " : continuationPrefix;
-		const prefixWidth = Math.max(
-			visibleWidth(firstPrefix),
-			visibleWidth(continuationPrefix),
-			visibleWidth(lastPrefix),
-		);
-		const contentWidth = Math.max(1, width - prefixWidth);
-		const childLines = this.child.render(contentWidth);
 		const firstContentLine = childLines.findIndex((line) => visibleWidth(line) > 0);
-		if (firstContentLine < 0) {
-			return [];
-		}
-
 		const lastContentLine = childLines.length - 1;
-		return childLines.map((rawLine, index) => {
+		const output: string[] = [];
+		let units = 0;
+		let truncated = bounded.truncated;
+		for (let index = 0; firstContentLine >= 0 && index < childLines.length; index++) {
+			const rawLine = childLines[index];
+			if (units >= budget) { truncated = true; break; }
 			const plainPrefix = index === firstContentLine
 				? (this.options.connectRows && firstContentLine === lastContentLine ? lastPrefix : firstPrefix)
 				: (index === lastContentLine ? lastPrefix : continuationPrefix);
 			const prefix = this.options.theme?.fg("muted", plainPrefix) ?? plainPrefix;
 			const line = index === firstContentLine ? stripLegacyResultMarker(rawLine) : rawLine;
-			return truncateToWidth(`${prefix}${line}`, width, "");
-		});
+			const row = truncateToWidth(`${prefix}${line}`, width, "");
+			output.push(row);
+			units += row.length;
+		}
+		this.cachedOutput = capFormattedRows(output, budget, width);
+		if (truncated) this.cachedOutput.push(...displayOmissionRows(width));
+		this.cachedInput = childLines;
+		this.cachedWidth = width;
+		this.cachedTheme = themeKey;
+		this.cachedConnect = this.options.connectRows;
+		this.cachedTruncated = bounded.truncated;
+		return this.cachedOutput;
 	}
 
 	invalidate(): void {
+		this.cachedOutput = undefined;
+		this.cachedInput = undefined;
+		this.cachedWidth = undefined;
+		this.cachedTheme = undefined;
 		this.child.invalidate();
 	}
 }

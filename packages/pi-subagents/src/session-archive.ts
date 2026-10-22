@@ -86,6 +86,11 @@ function parseArchive(value: unknown): ArchivedAgentRecord | undefined {
     return undefined;
   }
 
+  // Presentation is historical data, not permission to resume. Reading a report
+  // must not depend on whichever runtime most recently loaded the role registry.
+  const config = (data.resumeSnapshot as AgentResumeSnapshot | undefined)?.config;
+  const savedName = typeof config?.displayName === "string" ? config.displayName : config?.name;
+  const savedMode = config?.promptMode;
   return {
     id: data.id,
     type: data.type,
@@ -103,10 +108,11 @@ function parseArchive(value: unknown): ArchivedAgentRecord | undefined {
     invocation: data.invocation && typeof data.invocation === "object"
       ? data.invocation as AgentInvocation
       : undefined,
-    inlineDisplayName: typeof data.inlineDisplayName === "string" ? data.inlineDisplayName : undefined,
+    inlineDisplayName: typeof data.inlineDisplayName === "string" ? data.inlineDisplayName
+      : typeof savedName === "string" ? savedName : undefined,
     inlinePromptMode: data.inlinePromptMode === "replace" || data.inlinePromptMode === "append"
       ? data.inlinePromptMode
-      : undefined,
+      : savedMode === "replace" || savedMode === "append" ? savedMode : undefined,
     isBackground: typeof data.isBackground === "boolean" ? data.isBackground : undefined,
     resumeSnapshot: data.resumeSnapshot as AgentResumeSnapshot | undefined,
     runGeneration: typeof data.runGeneration === "number" ? data.runGeneration : undefined,

@@ -41,6 +41,7 @@ export type RpcSpawnOptions = Omit<
   | "onSessionCreated"
   | "onTurnEnd"
   | "onAssistantUsage"
+  | "onSessionUsage"
   | "onCompaction"
   | "completionDelivery"
 > & {
