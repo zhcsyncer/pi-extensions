@@ -9,6 +9,8 @@
 | [upstream-forks.md](./upstream-forks.md) | 外部跟踪 | 有来源的 fork/改编：pin、已评估头 `last_seen`、锁定的跟/不跟；下次只打开比 last_seen 新的版本 |
 | [extension-data-layout.md](./extension-data-layout.md) | 已落地 | 扩展配置与内部状态的统一路径、trust 边界 |
 | [pi-0.86-extension-adapt.md](./pi-0.86-extension-adapt.md) | 已落地 | Pi 0.86.1：MUST 包已改；peer ≥0.86.0；测试钉 0.86.1 |
+| [pi-extensions/integration-independent-review.md](./pi-extensions/integration-independent-review.md) | 三模型独立复核，建议未实施 | 保留/撤回的实际收益、追问后的修订，以及新确认的Meter旧槽位匹配缺口 |
+| [pi-extensions/pi-1.4-upstream-review.md](./pi-extensions/pi-1.4-upstream-review.md) | 官方1.4已核查，未升级或实跑 | 相对1.3的具体变化、破坏点实际命中与高收益宿主修复 |
 | [pi-extensions/integration-change-review.md](./pi-extensions/integration-change-review.md) | 当前集成变更审计，固定24ac1da对f48a91b | 14个维护中子包及根设施：改什么、为何改、是否必要、用户影响与证据限制；排除已停维护包 |
 | [pi-1.1-implementation-plan.md](./pi-1.1-implementation-plan.md) | 实施进行中，进度见统一表 | 仅支持 Pi 1.1+；Consult 公开 SDK 适配纳入；七项存量、Antigravity、Herdr 命令体验及 Search 三项旧债暂缓 |
 | [pi-extensions/pi-1.1-execution-plan.md](./pi-extensions/pi-1.1-execution-plan.md) | 当前 session 调度，已开工 | §0 为唯一进度表；独立 Herdr worktree/session、共同基线、三队列滚动派发与独立验收 |
