@@ -4,6 +4,8 @@
 >
 > **覆盖14个仍维护的子包，以及根包/共享验证设施。** 只排除已明确停止维护的Context7、Plan；Cursor没有停止维护，必须列明其零差异。外部Ollama不属于本仓产品差异，不在本清单。这里不是发布许可、全局切换许可或新修复授权。
 
+> **验证口径**：以下“本次未重跑”指本地文档审阅阶段；推送自动触发的CI另列文末。首次CI有Cursor断言失败，不能把历史绿测当成本次整体通过。
+
 ## 先读结论
 
 - 不是所有包都改了运行行为：Review无生产源码差异，Cursor包整体已回撤，Volcengine只改运行源码中的类型；Todo、Question、Herdr各只有一行调用范围限制；Search Hub最终只加9处取消检查。
@@ -928,7 +930,7 @@ Subagents另有两层：子累计来自整个子会话journal；父侧已报告�
 
 ## 已有验证证据索引与未测边界
 
-**本次文档工作只做差异/源码/既有证据审阅，没有重新执行产品测试。** 下表是已保存的相关结果，不是新增一轮总验收；测试实现一致，不代表需求或必要性已被证明。
+**本地文档审阅只核对差异、源码和既有证据，未手动重新执行产品测试。推送触发的自动CI见末节。** 下表是已保存的相关结果，不是新增一轮总验收；测试实现一致，不代表需求或必要性已被证明。
 
 | 范围 | 已有相关证据 | 不能外推 |
 |---|---|---|
@@ -949,3 +951,11 @@ Subagents另有两层：子累计来自整个子会话journal；父侧已报告�
 | 根验证 | 历史1.2的44组合合同/34安装矩阵、后续若干局部loader/pack/policy；输入快照各自固定 | 对所有后续改动都重新跑过完整44/34；registration-only loader等于真实工具/MCP执行 |
 
 临时证据路径用于本机追溯；必要的结果、条件和限制已经写入本文，不能要求读者仅凭外部临时日志理解判断。源码与既有仓库合同可按固定Git提交恢复。单独1.3审计没有改正式1.2依赖；历史曾出现的安装/lifecycle隔离偏差和夹具错误不能被后续绿测抹去，本审计没有重新制造或隐去这些运行记录。
+
+## 文档首次推送后的CI失败记录
+
+文档提交`10cd5a33de81ee56912e4723b1fdb426f6a2d83a`触发[CI 40280521950](https://github.com/zhcsyncer/pi-extensions/actions/runs/40280521950)，结果失败。Cursor包为354通过/1失败；失败位置是`tests/run-usage-billing-status.test.ts:120`的“logs an unconsumed receipt without footer status or chat notify”，期望找到`usage_incomplete`且状态为`receipt_unreported`，实际find结果undefined。
+
+此次提交只改本文和文档导航；Cursor源码/测试、正式依赖均未改变。源码核查发现：夹具`readLifecycleEvents`只等“至少一条日志”，而该路径先后异步追加`usage_run_unsettled`和`usage_incomplete`，存在在目标事件落盘前读取的可能。**这只是失败机制线索，不是重新复现后的根因定论，也不是真实计费丢失证据。** 本轮没有修改Cursor、放宽断言或手动重跑来消除红灯。
+
+原失败日志保存在`/var/tmp/pi-integration-change-audit/ci-first-failure.log`及GitHub run。这里固定保留首次失败事实；后续纯文档推送即使自动检查变绿，也不表示这个等待边界已修复。最新整体状态另看PR，不滚动覆盖本记录。
