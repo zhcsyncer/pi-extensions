@@ -23,7 +23,7 @@
     "url": "https://github.com/zhcsyncer/pi-extensions/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -46,12 +46,12 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.86.0",
-    "@earendil-works/pi-coding-agent": ">=0.86.0"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.86.1",
-    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
     "@types/node": "25.6.0",
     "jiti": "2.7.0",
     "tsx": "4.22.4",

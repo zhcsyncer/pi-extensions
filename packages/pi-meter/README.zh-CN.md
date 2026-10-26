@@ -24,23 +24,25 @@
 - 底栏同时显示过去 24 小时的本地花费和当前模型对应的订阅窗口：
 
   ```text
-  · 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
+  · 24h 12.4k $0.18 recorded · xai week left ███░░ 49% (1d 23h)
   ```
 
   ![Meter 底栏](./assets/demo-meter-status.png)
 
-- 按模型、项目或 session 看本地看板，含 cache write。带 usage 的 tool result 也会计入；Consult fanout 按各顾问模型归属，不会算到主模型。compaction 和 `/tree` 分支摘要在带 usage 时计入；看板只在占比非零时显示一行摘要。
+- 按模型、项目或 session 查看已记录用量，含 cache write。计入最终 assistant 消息、外层工具用量、独立 usage（包括新增操作种类）及已上报的压缩／分支摘要用量。Consult fanout 仍归各顾问；嵌套工具不会重复叠加，未知或不完整费用会明确标出，不冒充确认零。
 - `/login` 对应账号后，可看 Claude、Codex、SuperGrok、Ollama Cloud 剩余。Codex 若有可攒的周限额重置额度，看板会多一块；底栏只在当前模型是 Codex 时追加 `N resets …`。
 - `/usage quota` 打开临时看板。未登录的提供商收在底部一条淡提示。当前模型没有窗口、没登录或这次没拉到时，底栏只给短提示，不会画别家额度。快照标题写年龄（`12m ago`），不再出现单词 stale。
 - 其他扩展可以登记配额源。底栏仍然只跟当前模型走。
 - 可选本地 budget。只会提醒，从不拦请求。
-- 可选从旧 session 文件回填。可重复执行：已经记过的回合不会再计一次；每次都会明确报告扫描文件、解析记录、新增、已知重复、跳过项以及账本是否变化。
+- `/usage import` 回填已保存会话。Pi 1.1 entry 在实时捕获、回填、重命名副本及 reload 之间只计一次。已有账本行保留；旧身份兼容不承诺修复所有历史重复或漏记。
 
   ![套餐看板](./assets/demo-quota-dashboard.png)
 
-`--no-session` 仍会记本地账。子代理用量按子会话逐消息计入，忽略父会话的 `Agent` 结果及带汇总标记的 `get_subagent_result` 用量；Pi 原生会话统计不变。要可靠地实时覆盖子代理（包括隔离子代理），请在用户级 `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json` 中加入 `"pinnedExtensions": ["pi-meter"]`。子会话未加载 pi-meter 时，可用 `/usage import` 回填已保存的子会话。
+`--no-session` 仍会记本地账。子代理用量按子会话逐消息计入，忽略父会话的 `Agent` 结果及带汇总标记的 `get_subagent_result` 用量；Pi 原生会话统计不变。要可靠地实时覆盖子代理（包括隔离子代理），请在用户级 `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json` 中加入 `"pinnedExtensions": ["pi-meter"]`。子会话未加载 pi-meter 时，可用 `/usage import` 回填已保存的子会话。子日志缺失可能导致覆盖不完整，找到部分子用量不代表已覆盖全部。账本展示已记录消耗，不是精确账单或订阅余额；空闲期间新增用量会在下一生命周期边界或 `/usage` 命令时显示。
 
 ## 安装
+
+本版本需要 Pi 1.1 或更高。
 
 单独安装：
 

@@ -9,7 +9,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(new URL("../package.json", import.meta.url));
 const tsxCli = require.resolve("tsx/cli");
 
-test("HTML export keeps aggregate history target/result without fallback intent", () => {
+test("actual HTML export preserves history and delegated state across resolver invocations", () => {
 	const result = spawnSync(process.execPath, [tsxCli, "tests/html-export-probe.ts"], {
 		cwd: packageRoot,
 		env: process.env,
@@ -22,4 +22,5 @@ test("HTML export keeps aggregate history target/result without fallback intent"
 		`HTML export probe failed:\n${result.stdout}\n${result.stderr}`,
 	);
 	assert.match(result.stdout, /HTML_EXPORT_OK/);
+	assert.match(result.stdout, /HTML_STATE_OK/);
 });

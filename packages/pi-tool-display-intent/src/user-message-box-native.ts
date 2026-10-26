@@ -10,7 +10,7 @@ import {
   type UserMessageSteerPresentation,
   type UserMessageTheme,
 } from "./user-message-box-renderer.js";
-import { unregisterUserMessageRenderPrototypePatch } from "./user-message-box-patch.js";
+import { unregisterUserMessageRenderPrototypePatch, type UserMessagePatchOwner } from "./user-message-box-patch.js";
 import { extractUserMessageMarkdownState } from "./user-message-box-markdown.js";
 import {
   getActiveAggregateProjection,
@@ -20,19 +20,22 @@ import {
   resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import type { ToolDisplayConfig } from "./types.js";
-import { onReloadShutdown } from "./extension-lifecycle.js";
+import { stripOscPromptControlSequences } from "./user-message-box-utils.js";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling, type AggregateClickRegion } from "./aggregate-interaction.js";
 
 const registeredNativeUserMessageApis = new WeakSet<ExtensionAPI>();
 const CONTAINER_STEER_SPACER_KEY = Symbol.for(
   "pi-tool-display-intent.steer-user-spacer.v1",
 );
+const SPACER_OWNER: UserMessagePatchOwner = { retired: false };
 const pendingSpacerByContainer = new WeakMap<object, Spacer>();
 const spacerBeforeUser = new WeakMap<object, Spacer>();
 
 interface PatchableContainerPrototype {
   addChild(component: unknown): void;
   [CONTAINER_STEER_SPACER_KEY]?: {
+    owner: UserMessagePatchOwner;
+    active: boolean;
     originalAddChild: (component: unknown) => void;
     patchedAddChild: (component: unknown) => void;
   };
@@ -52,15 +55,19 @@ function getContainerPrototype(): PatchableContainerPrototype {
   return Container.prototype as unknown as PatchableContainerPrototype;
 }
 
-export function patchSteerUserLeadingSpacer(): void {
+export function patchSteerUserLeadingSpacer(owner: UserMessagePatchOwner = SPACER_OWNER): void {
+  if (owner.retired) return;
   const prototype = getContainerPrototype();
-  if (prototype[CONTAINER_STEER_SPACER_KEY]) return;
+  const previous = prototype[CONTAINER_STEER_SPACER_KEY];
+  if (previous?.owner === owner) return;
+  if (previous) restoreSteerUserLeadingSpacer(previous.owner);
   const originalAddChild = prototype.addChild;
   const patchedAddChild = function addChildTrackingSteerSpacer(
     this: object,
     component: unknown,
   ): void {
     originalAddChild.call(this, component);
+    if (!state.active) return;
     if (component instanceof Spacer) {
       pendingSpacerByContainer.set(this, component);
       return;
@@ -72,14 +79,16 @@ export function patchSteerUserLeadingSpacer(): void {
     }
     pendingSpacerByContainer.delete(this);
   };
+  const state = { owner, active: true, originalAddChild, patchedAddChild };
   prototype.addChild = patchedAddChild;
-  prototype[CONTAINER_STEER_SPACER_KEY] = { originalAddChild, patchedAddChild };
+  prototype[CONTAINER_STEER_SPACER_KEY] = state;
 }
 
-export function restoreSteerUserLeadingSpacer(): void {
+export function restoreSteerUserLeadingSpacer(owner: UserMessagePatchOwner = SPACER_OWNER): void {
   const prototype = getContainerPrototype();
   const state = prototype[CONTAINER_STEER_SPACER_KEY];
-  if (!state) return;
+  if (!state || state.owner !== owner) return;
+  state.active = false;
   if (prototype.addChild === state.patchedAddChild) {
     prototype.addChild = state.originalAddChild;
   }
@@ -121,7 +130,7 @@ export function resolveAggregateSteerUserPresentation(
   }
   projection.markFrameContentVisible(steer.id, true);
   const theme = resolveAggregateRenderTheme(projection);
-  const layout = renderExpandedAggregateSteerLayout(steer.text, width, theme, projection.getFrameEdge(steer.id) ?? "only");
+  const layout = renderExpandedAggregateSteerLayout(stripOscPromptControlSequences(steer.text), width, theme, projection.getFrameEdge(steer.id) ?? "only");
   let lines = layout.lines;
   let offset = 0;
   const regions: AggregateClickRegion[] = [];
@@ -147,22 +156,25 @@ function patchUserMessageRender(
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
   isCompact: () => boolean,
+  owner: UserMessagePatchOwner,
 ): void {
-  patchSteerUserLeadingSpacer();
+  if (owner.retired) return;
+  patchSteerUserLeadingSpacer(owner);
   patchNativeUserMessagePrototype(
     getUserMessagePrototype(),
     getTheme,
     isEnabled,
     isCompact,
     (instance, width) => isCompact() ? resolveAggregateSteerUserPresentation(instance, width) : undefined,
+    owner,
   );
-  patchAggregateMouseHandling(getUserMessagePrototype());
+  patchAggregateMouseHandling(getUserMessagePrototype(), owner);
 }
 
-function restoreUserMessageRender(): void {
-  restoreAggregateMouseHandling(getUserMessagePrototype());
-  restoreSteerUserLeadingSpacer();
-  unregisterUserMessageRenderPrototypePatch(getUserMessagePrototype());
+function restoreUserMessageRender(owner: UserMessagePatchOwner): void {
+  restoreAggregateMouseHandling(getUserMessagePrototype(), owner);
+  restoreSteerUserLeadingSpacer(owner);
+  unregisterUserMessageRenderPrototypePatch(getUserMessagePrototype(), owner);
 }
 
 export default function registerNativeUserMessageBox(
@@ -175,27 +187,30 @@ export default function registerNativeUserMessageBox(
   registeredNativeUserMessageApis.add(pi);
 
   let activeTheme: UserMessageTheme | undefined;
+  const owner: UserMessagePatchOwner = { retired: false };
 
   const getTheme = (): UserMessageTheme | undefined => activeTheme;
   const isAggregate = (): boolean => getConfig().toolCallLayout === "aggregate";
-  const isEnabled = (): boolean => true;
+  const isEnabled = (): boolean => getConfig().enableNativeUserMessageBox;
   const isCompact = (): boolean => isAggregate();
 
-  patchUserMessageRender(getTheme, isEnabled, isCompact);
+  patchUserMessageRender(getTheme, isEnabled, isCompact, owner);
 
-  onReloadShutdown(pi, () => {
-    restoreUserMessageRender();
+  pi.on("session_shutdown", async () => {
+    owner.retired = true;
+    restoreUserMessageRender(owner);
     activeTheme = undefined;
     registeredNativeUserMessageApis.delete(pi);
   });
 
   pi.on("before_agent_start", async () => {
-    patchUserMessageRender(getTheme, isEnabled, isCompact);
+    patchUserMessageRender(getTheme, isEnabled, isCompact, owner);
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    if (owner.retired) return;
     activeTheme = ctx?.ui?.theme as unknown as UserMessageTheme;
-    patchUserMessageRender(getTheme, isEnabled, isCompact);
+    patchUserMessageRender(getTheme, isEnabled, isCompact, owner);
   });
 
 }

@@ -17,20 +17,16 @@ import { Container, Key, matchesKey, type SettingItem, SettingsList, Spacer, Tex
 import { Type } from "@sinclair/typebox";
 import { AgentManager } from "./agent-manager.js";
 import { UsageReporter } from "./usage-reporting.js";
+import { NestedAgentSettlement } from "./nested-agent-settlement.js";
 import {
   getAgentConversation,
-  getDefaultMaxTurns,
-  getGraceTurns,
-  getPinnedExtensions,
-  getRememberAgents,
   normalizeMaxTurns,
-  setDefaultMaxTurns,
-  setGraceTurns,
-  setPinnedExtensions,
-  setRememberAgents,
+  normalizeGraceTurns,
   SUBAGENT_TOOL_NAMES,
 } from "./agent-runner.js";
-import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.js";
+import { BUILTIN_TOOL_NAMES } from "./agent-types.js";
+import * as agentTypes from "./agent-types.js";
+import { loadRuntimeConfig } from "./runtime-config.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { emitSubagentsConfigNotice, loadAgentToolDescriptionConfig } from "./config-storage.js";
@@ -95,10 +91,8 @@ import {
   renderUndetailedResult,
   toolResultText,
 } from "./ui/tool-render.js";
-import { addUsage, createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "./usage.js";
+import { createLifetimeUsage, getLifetimeTotal, getSessionContextPercent, toLifetimeUsage, type LifetimeUsage, type SessionLike } from "./usage.js";
 import {
-  isWorktreeIsolationEnabled,
-  setWorktreeIsolationEnabled,
 } from "./worktree.js";
 
 // ---- Shared helpers ----
@@ -271,8 +265,8 @@ function createActivityTracker(maxTurns?: number, onStreamUpdate?: () => void) {
     onSessionCreated: (session: any) => {
       state.session = session;
     },
-    onAssistantUsage: (usage: LifetimeUsage) => {
-      addUsage(state.lifetimeUsage, usage);
+    onSessionUsage: (usage: LifetimeUsage) => {
+      state.lifetimeUsage = toLifetimeUsage(usage);
       onStreamUpdate?.();
     },
   };
@@ -384,6 +378,24 @@ function buildNotificationDetails(record: AgentRecord, activity?: AgentActivity)
 }
 
 export default function (pi: ExtensionAPI) {
+  const runtimeConfig = loadRuntimeConfig(process.cwd());
+  const getAgentConfig = (name: string) => agentTypes.getAgentConfig(name, runtimeConfig.agents);
+  const getAllTypes = () => agentTypes.getAllTypes(runtimeConfig.agents);
+  const getAvailableTypes = () => agentTypes.getAvailableTypes(runtimeConfig.agents);
+  const resolveType = (name: string) => agentTypes.resolveType(name, runtimeConfig.agents);
+  const isDefaultsDisabled = () => runtimeConfig.disableDefaultAgents;
+  const setDefaultsDisabled = (disabled: boolean) => { runtimeConfig.disableDefaultAgents = disabled; };
+  const registerAgents = (agents: Map<string, AgentConfig>) => agentTypes.registerAgents(agents, runtimeConfig.agents, runtimeConfig.disableDefaultAgents);
+  const getDefaultMaxTurns = () => runtimeConfig.defaultMaxTurns;
+  const setDefaultMaxTurns = (value: number | undefined) => { runtimeConfig.defaultMaxTurns = normalizeMaxTurns(value); };
+  const getGraceTurns = () => runtimeConfig.graceTurns;
+  const setGraceTurns = (value: number) => { runtimeConfig.graceTurns = normalizeGraceTurns(value) ?? 5; };
+  const getRememberAgents = () => runtimeConfig.rememberAgents;
+  const setRememberAgents = (value: boolean) => { runtimeConfig.rememberAgents = value; };
+  const getPinnedExtensions = () => [...runtimeConfig.pinnedExtensions];
+  const setPinnedExtensions = (names: readonly string[]) => { runtimeConfig.pinnedExtensions = [...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean))]; };
+  const isWorktreeIsolationEnabled = () => runtimeConfig.worktreeIsolation;
+  const setWorktreeIsolationEnabled = (value: boolean) => { runtimeConfig.worktreeIsolation = value; };
   // Map structured failure details → Pi tool-result isError so the default shell
   // uses toolErrorBg (inner chrome already paints ✗). Keeps model-facing text.
   pi.on("tool_result", async (event) => {
@@ -413,7 +425,7 @@ export default function (pi: ExtensionAPI) {
 
   /** Reload agents from project/global custom agent dirs and merge with defaults (called on init and each Agent invocation). */
   const reloadCustomAgents = () => {
-    const userAgents = loadCustomAgents(process.cwd());
+    const userAgents = loadCustomAgents(runtimeConfig.cwd);
     registerAgents(userAgents);
   };
 
@@ -595,6 +607,7 @@ export default function (pi: ExtensionAPI) {
       compactionCount: record.compactionCount,
     });
   }, {
+    runtimeConfig,
     onAccepted: (record) => {
       // Admission, not model start: queued resumes invalidate old snapshots too.
       pi.appendEntry("subagents:active", { id: record.id, runGeneration: record.runGeneration });
@@ -659,6 +672,15 @@ export default function (pi: ExtensionAPI) {
   // This also wires the RPC handlers and broadcasts readiness — on the first
   // bound session_start, so a filtered-out activation never advertises (#142).
   pi.on("session_start", async (_event, ctx) => {
+    usageReporter.clearPending();
+    if (runtimeConfig.cwd !== ctx.cwd) {
+      Object.assign(runtimeConfig, loadRuntimeConfig(ctx.cwd));
+      projectClearsPinnedExtensions = loadPinnedExtensionsPolicy(ctx.cwd).projectClearsPinnedExtensions;
+      applyRuntimeSettings();
+      // Re-register the actual definition after binding, not a getAllTools copy.
+      // Pi preserves activation when the same owner updates an existing tool.
+      registerAgentTool();
+    }
     currentCtx = ctx;
     manager.clearCompleted(true);
     // Guard mirrors the `!scheduler.isActive()` pattern below: session_start
@@ -713,6 +735,7 @@ export default function (pi: ExtensionAPI) {
     for (const timer of pendingNudges.values()) clearTimeout(timer);
     pendingNudges.clear();
     fleet.dispose();
+    await manager.waitForAll();
     manager.dispose();
   });
 
@@ -736,7 +759,14 @@ export default function (pi: ExtensionAPI) {
   // agent's `output_transcript` frontmatter overrides this per spawn; when the
   // frontmatter is silent, this default applies. Read live at spawn time.
   let reportUsage = true;
+  const nestedAgents = new NestedAgentSettlement(SUBAGENT_TOOL_NAMES.AGENT);
+  pi.on("tool_execution_start", event => { nestedAgents.start(event); });
+  pi.on("tool_execution_end", event => { nestedAgents.end(event.toolCallId); });
+  pi.on("tool_result", event => nestedAgents.waitForRoot(event));
   const usageReporter = new UsageReporter();
+  pi.on("tool_result", (event) => { usageReporter.observeToolResult(event); });
+  pi.on("message_end", (event) => usageReporter.finalizeMessage(event));
+  pi.on("agent_settled", () => { usageReporter.clearPending(); });
   function setReportUsage(enabled: boolean): void { reportUsage = enabled; }
   function collectedResult(msg: string, details: AgentDetails, record: AgentRecord, ctx: ExtensionContext) {
     const reported = reportUsage && manager.isResultReady(record.id)
@@ -894,14 +924,12 @@ export default function (pi: ExtensionAPI) {
     return name.replace(/-\d{8}$/, "");
   }
 
-  const initialPinPolicy = loadPinnedExtensionsPolicy();
+  const initialPinPolicy = loadPinnedExtensionsPolicy(runtimeConfig.cwd);
   const globalPinnedExtensions = initialPinPolicy.globalPinnedExtensions;
   let projectClearsPinnedExtensions = initialPinPolicy.projectClearsPinnedExtensions;
 
-  // Reset module-level defaults on every activation before applying this
-  // repository's settings. Pi can switch sessions without reloading modules;
-  // an omitted field must still mean this fork's defaults (remember on,
-  // worktrees off, no stale pins), not the previous repository's value.
+  // Reset only this activation's defaults; child activations must not mutate
+  // their parent's role registry, pins or execution choices.
   setRememberAgents(true);
   setWorktreeIsolationEnabled(false);
   setPinnedExtensions([]);
@@ -909,34 +937,48 @@ export default function (pi: ExtensionAPI) {
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
-  applyAndEmitLoaded(
-    {
-      setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
-      setDefaultMaxTurns,
-      setGraceTurns,
-      setDefaultJoinMode,
-      setSchedulingEnabled,
-      setScopeModels: setScopeModelsEnabled,
-      setReportUsage,
-      setDisableDefaultAgents: setDisableDefaultAgents,
-      setToolDescriptionMode: setToolDescriptionMode,
-      setFleetView: setFleetViewEnabled,
-      setRememberAgents,
-      setWidgetMode: setWidgetMode,
-      setOutputTranscript: setOutputTranscript,
-      setWorktreeIsolation: setWorktreeIsolationEnabled,
-      setPinnedExtensions,
-    },
-    (event, payload) => pi.events.emit(event, payload),
-  );
+  function applyRuntimeSettings() {
+    // The first real session_start may bind a different cwd from process.cwd().
+    // Missing settings there must not inherit the provisional discovery cwd.
+    manager.setMaxConcurrent(4);
+    defaultJoinMode = "smart";
+    schedulingEnabled = true;
+    scopeModelsEnabled = false;
+    reportUsage = true;
+    toolDescriptionMode = "full";
+    fleetViewEnabled = true;
+    widgetMode = "background";
+    outputTranscriptDefault = true;
+    applyAndEmitLoaded(
+      {
+        setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
+        setDefaultMaxTurns,
+        setGraceTurns,
+        setDefaultJoinMode,
+        setSchedulingEnabled,
+        setScopeModels: setScopeModelsEnabled,
+        setReportUsage,
+        setDisableDefaultAgents,
+        setToolDescriptionMode,
+        setFleetView: setFleetViewEnabled,
+        setRememberAgents,
+        setWidgetMode,
+        setOutputTranscript,
+        setWorktreeIsolation: setWorktreeIsolationEnabled,
+        setPinnedExtensions,
+      },
+      (event, payload) => pi.events.emit(event, payload),
+      runtimeConfig.cwd,
+    );
+  }
+  applyRuntimeSettings();
 
   // ---- Agent tool ----
 
-  // Schedule param + its guideline are gated on `schedulingEnabled` (read once
-  // at registration; flipping the setting later requires next pi session for
-  // the schema to update). Defining the shape once and spreading it via Partial
-  // preserves Type.Object's inference when present and produces a
-  // `schedule`-free schema when absent — zero LLM-context cost in disabled mode.
+  // Build again at the public registration boundary if session_start binds a
+  // different cwd. The handler/prose stay the same; only owned configuration
+  // determines the schema and role catalogue.
+  function registerAgentTool() {
   const scheduleParamShape = {
     schedule: Type.Optional(
       Type.String({
@@ -1044,7 +1086,7 @@ Terse command-style prompts produce shallow, generic work.
   };
 
   const loadCustomToolDescription = (): string | undefined => {
-    const template = loadAgentToolDescriptionConfig(process.cwd());
+    const template = loadAgentToolDescriptionConfig(runtimeConfig.cwd);
     return template === undefined ? undefined : renderToolDescriptionTemplate(template);
   };
 
@@ -1125,7 +1167,8 @@ Terse command-style prompts produce shallow, generic work.
     renderShell: "self",
 
     renderCall(args, theme, context) {
-      const displayName = args.subagent_type ? getDisplayName(args.subagent_type as string) : "Agent";
+      const displayName = args.subagent_type
+        ? agentTypes.getConfig(args.subagent_type as string, runtimeConfig.agents).displayName : "Agent";
       const desc = typeof args.description === "string" ? args.description : "";
       // Call-time chips use tool args (may be fuzzy model / unset = inherit).
       // Result clerk uses the resolved effective model from details.
@@ -1197,7 +1240,7 @@ Terse command-style prompts produce shallow, generic work.
       const subagentType = resolved ?? "general-purpose";
       const fellBack = resolved === undefined;
 
-      const displayName = getDisplayName(subagentType);
+      const displayName = agentTypes.getConfig(subagentType, runtimeConfig.agents).displayName;
 
       // Get agent config (if any)
       const customConfig = getAgentConfig(subagentType);
@@ -1249,6 +1292,9 @@ Terse command-style prompts produce shallow, generic work.
       const inheritContext = resolvedConfig.inheritContext;
       const runInBackground = resolvedConfig.runInBackground;
       const isolated = resolvedConfig.isolated;
+      // Preserve initial role/request precedence, but only an effective explicit
+      // request remains a task constraint when the role changes on resume.
+      const taskIsolated = params.isolated === true && isolated;
       const isolation = resolvedConfig.isolation;
       // Whether this spawn writes its .output transcript. Per-agent
       // frontmatter (`output_transcript`) wins; otherwise the project/global
@@ -1287,7 +1333,7 @@ Terse command-style prompts produce shallow, generic work.
         isolation,
       };
       // Tool-result render shows the mode label too; viewer's header already does.
-      const modeLabel = getPromptModeLabel(subagentType);
+      const modeLabel = getPromptModeLabel(subagentType, agentTypes.getConfig(subagentType, runtimeConfig.agents).promptMode);
       const { tags: invocationTags } = buildInvocationTags(agentInvocation);
       const agentTags = modeLabel ? [modeLabel, ...invocationTags] : invocationTags;
       const detailBase: Pick<
@@ -1368,6 +1414,7 @@ Terse command-style prompts produce shallow, generic work.
             model,
             maxTurns: effectiveMaxTurns,
             isolated,
+            taskIsolated,
             inheritContext,
             thinkingLevel: thinking,
             isBackground: true,
@@ -1512,6 +1559,7 @@ Terse command-style prompts produce shallow, generic work.
           model,
           maxTurns: effectiveMaxTurns,
           isolated,
+          taskIsolated,
           inheritContext,
           thinkingLevel: thinking,
           isolation,
@@ -1565,6 +1613,8 @@ Terse command-style prompts produce shallow, generic work.
       );
     },
   }));
+  }
+  registerAgentTool();
 
   // ---- get_subagent_result tool ----
 
@@ -1753,16 +1803,18 @@ Terse command-style prompts produce shallow, generic work.
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       try {
         const disposition = await manager.sendMessage(params.agent_id, params.message, { pi, ctx });
-        pi.events.emit("subagents:steered", { id: params.agent_id, message: params.message });
+        pi.events.emit("subagents:steered", { id: params.agent_id, message: params.message, disposition });
         widget.ensureTimer();
         widget.update();
         fleet.ensureTimer();
         fleet.update();
         return textResult(disposition === "resumed"
           ? `Agent ${params.agent_id} resumed in background with your follow-up. Completion will be delivered automatically.`
-          : disposition === "queued"
-            ? `Follow-up message queued for agent ${params.agent_id}; it will be processed when the session is ready.`
-            : `Follow-up message sent to agent ${params.agent_id}; it will be processed after the current tool execution.`);
+          : disposition === "handled"
+            ? `Follow-up message handled by an extension in agent ${params.agent_id}; it was not queued for the model.`
+            : disposition === "queued"
+              ? `Follow-up message queued for agent ${params.agent_id}; it will be processed when the session is ready.`
+              : `Follow-up message queued in agent ${params.agent_id} after the current assistant turn and its tool calls.`);
       } catch (err) {
         return errorTextResult(err instanceof Error ? err.message : String(err));
       }

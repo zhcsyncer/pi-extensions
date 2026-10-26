@@ -13,6 +13,7 @@ import {
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { stripOscPromptControlSequences, withMessageNavigation } from "./user-message-box-utils.js";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
@@ -275,7 +276,14 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		const lines = stripThinkingBody
 			? renderWithoutThinkingBlocks(this, state.originalRender, narrationWidth)
 			: state.originalRender.call(this, narrationWidth);
-		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
+		// Preserve only boundaries the downstream assistant actually emitted.
+		// Trimming its blank spacer must not erase A or move it inside a frame.
+		const hasNavigation = lines.some((line) => /\x1b\]133;A(?:;[^\x07\x1b]*)?(?:\x07|\x1b\\)/.test(line));
+		const finish = (output: string[]) => hasNavigation ? withMessageNavigation(output) : output;
+		const next = stripCollapsedThinkingPlaceholderLines(
+			hasNavigation ? lines.map(stripOscPromptControlSequences) : lines,
+			resolveHiddenThinkingLabel(this),
+		);
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
 		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
@@ -313,7 +321,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			// tools in the same user turn cannot steal the blank from earlier text.
 			const stackedOnTools = projection?.assistantFollowsAggregateLedger(this.lastMessage) === true;
 			const body = stackedOnTools || visibleText(next[0] ?? "") === "" ? next : ["", ...next];
-			return [...body, ...contextLines];
+			return finish([...body, ...contextLines]);
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
@@ -327,11 +335,11 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 				const header = renderExpandedAggregateSummary(headerView, width, theme);
 				const lines = attachExpandedAggregateSummary(header, framed);
 				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansionFromComponent(frameId, this) }], run ? { run, titleRow: 1 } : undefined);
-				return lines;
+				return finish(lines);
 			}
 		}
 		recordAggregateClickRegions(this, width, framed.length, [], run ? { run } : undefined);
-		return framed;
+		return finish(framed);
 	};
 	Object.defineProperty(prototype, AGGREGATE_THINKING_PATCH_KEY, {
 		configurable: true,

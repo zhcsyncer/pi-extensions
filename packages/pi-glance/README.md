@@ -26,7 +26,7 @@ pi install npm:@zhcsyncer/pi-glance
 
 Then restart Pi or run `/reload`.
 
-Needs Pi 0.80.4 or newer.
+Needs Pi 1.1 or newer and Node.js 22.19.0 or newer. Standalone usage and automatic theme appearance follow Pi 1.1's reporting.
 
 ## Use
 
@@ -75,6 +75,7 @@ Open `/glance`:
 - **Working indicator** — one `Enabled: on/off` switch in the first-level menu. `off` restores Pi's default working row.
 - **Git** — `Enabled` stops all Glance git reads, `fetch`, `/diff`, and worktree counts, not just the status segment. Then `Dirty marker` (hidden while file counts are visible; conflicts stay), `Ahead / behind`, `Behind main`, `SHA`, `Working tree` (`status` or `border right`), and `Polling`.
 - **Reply speed** — enabled by default. Shows output tokens per second of server inference (thinking + writing): `?` unknown, `~42 tok/s` provisional, `42 tok/s` final. It excludes local tool execution and waiting before each response starts, so a slow tool no longer drags the speed down. Longer thinking lowers the speed for the same output. On supported Pi versions, time spent waiting in blocking UI prompts is excluded too. `Precision` is `auto`, `1 digit`, or `0 digits`. This is a reply-experience indicator, not a benchmark. It sends no notifications and does not estimate tokens from text.
+- **Cost** — known costs recorded in the current session, including standalone usage such as cache warming and tool-reported totals. A trailing `?` means a recorded usage has missing or invalid pricing; the known subtotal stays visible even with `Hide zero`. Unreported charges are not estimated. Branch navigation keeps the session-wide total; standalone usage does not increase Context or Reply speed.
 - **Tokens** — optional session totals. `Display` chooses input/output or total. `Cache` cycles through `auto` (read/write counts at full width), `show` (always show counts), `hide`, and `Hit rate` (`rate`). Hit rate shows a rounded percentage such as `42%` of prompt tokens served from cache; output tokens do not affect it. Narrow layouts keep the percentage first, and no percentage appears before there are prompt tokens. The default remains `auto`; existing settings stay unchanged.
 - **Context** — text as percent / tokens, plus an optional bottom-right `Progress bar` (`track` or `border`, `one third` or `remaining`). Unused border cells stay light `─`, used cells become heavy `━`. Below 70% is normal, 70% to below 85% is warning, 85% or higher is error.
 - **Bottom details** — hide the auto-compaction marker if you want. Nerd Font mode shows `󰁄 auto`.
@@ -86,6 +87,8 @@ Git stays quiet:
 - If a narrow layout hides the file-count summary, the enabled dirty marker returns. Conflicts add `!` / `⚠` independently of the summary.
 - Upstream counts look like `↑2 ↓1`.
 - Behind the last local `origin/main` adds highlighted `main↓N`. It stays hidden when the count is 0, `origin/main` is missing, or upstream `↓N` is already showing that same lag.
+
+Pi's light/dark appearance takes priority over its theme name, including when the `system` theme changes without being renamed. Older themes without appearance keep the exact `light` / `dark` name fallback.
 
 `/diff` is optional. Glance and the working-tree summary stay available without revdiff.
 

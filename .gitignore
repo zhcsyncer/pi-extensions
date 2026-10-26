@@ -1,6 +1,11 @@
 # Local Pi project/runtime files
 .pi/
 
+# Versioned subagent template fixtures only; keep every other .pi path private.
+!/packages/pi-subagents/test/fixtures/.pi/
+/packages/pi-subagents/test/fixtures/.pi/*
+!/packages/pi-subagents/test/fixtures/.pi/agents/
+
 # Local notes not part of the package repo
 pi-onboarding-cases.md
 recap-extension-design.md

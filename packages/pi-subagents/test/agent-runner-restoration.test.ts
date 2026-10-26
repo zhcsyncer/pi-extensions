@@ -68,6 +68,51 @@ describe("runner restoration across process restart (real SDK, local faux provid
     expect(restored.custom.data).toEqual({ original: true });
   }, 60_000);
 
+  it("reconciles child journal usage across eviction and resume without adding its archive again", async () => {
+    const result = await phase("usage");
+    expect(result.error).toBeUndefined();
+    expect(result.first).toBeCloseTo(0.06);
+    expect(result.repeated).toBeCloseTo(0.06);
+    expect(result.reloaded).toBeCloseTo(0.06);
+    expect(result.resumed).toBeCloseTo(0.08);
+  }, 30_000);
+
+  it("restores a retain-none compaction without retaining pre-compaction messages", async () => {
+    const original = await phase("create-none");
+    expect(original.error).toBeUndefined();
+    const entries = readFileSync(original.sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const compaction = entries.find((entry) => entry.type === "compaction");
+    expect(compaction.firstKeptEntryId).toBe(compaction.id);
+    const restored = await phase("restore");
+    expect(restored.error).toBeUndefined();
+    expect(restored.sessionFile).toBe(original.sessionFile);
+    expect(JSON.stringify(restored.before)).toContain("COMPACTED_ORIGINAL_CONTEXT");
+    expect(JSON.stringify(restored.before)).not.toContain("RETAINED_TASK");
+    expect(restored.result.text).toBe("RESTORED_ANSWER");
+  }, 60_000);
+
+  it("lets the SDK persist stable IDs when restoring valid legacy compaction indexes", async () => {
+    const original = await phase("create");
+    const entries = readFileSync(original.sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const positions = new Map(entries.map((entry, index) => [entry.id, index]));
+    entries[0].version = 1;
+    for (const entry of entries.slice(1)) {
+      if (entry.type === "compaction") {
+        entry.firstKeptEntryIndex = positions.get(entry.firstKeptEntryId);
+        delete entry.firstKeptEntryId;
+      }
+      delete entry.id;
+      delete entry.parentId;
+    }
+    writeFileSync(original.sessionFile, entries.map((entry) => JSON.stringify(entry)).join("\n"));
+    const restored = await phase("restore");
+    expect(restored.error).toBeUndefined();
+    expect(restored.result.text).toBe("RESTORED_ANSWER");
+    const migrated = readFileSync(original.sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(migrated[0].version).toBe(3);
+    expect(migrated.slice(1).every((entry) => typeof entry.id === "string")).toBe(true);
+  }, 60_000);
+
   it("rejects missing, empty, corrupt files and unavailable models without creating fresh sessions", async () => {
     const original = await phase("create");
     expect(original.error).toBeUndefined();

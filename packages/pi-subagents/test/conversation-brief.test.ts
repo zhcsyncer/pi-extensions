@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildConversationBrief,
+  type BriefStep,
   formatStepLine,
   settleDanglingBriefSteps,
   summarizeToolArgs,
@@ -249,7 +250,7 @@ describe("truncatePromptLines", () => {
 
 describe("settleDanglingBriefSteps", () => {
   it("marks unmatched running steps as error when record is stopped", () => {
-    const steps = [
+    const steps: BriefStep[] = [
       {
         id: "1",
         toolName: "bash",

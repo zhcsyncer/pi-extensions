@@ -1,14 +1,15 @@
 /** usage.ts — Token usage: shapes, accumulator operators, session-stats readers. */
 
 import type { Usage } from "@earendil-works/pi-ai";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 type CostBreakdown = Pick<Usage["cost"], "input" | "output" | "cacheRead" | "cacheWrite">;
 const components = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
 /**
- * Lifetime usage components, accumulated via assistant `message_end` events.
- * Survives compaction (which replaces session.state.messages and would reset
- * any stats-derived sum). `cacheRead` is retained for an honest breakdown, but
+ * Lifetime usage components from finalized child session entries, including
+ * assistant/tool messages and explicit usage/summary records. Compaction does
+ * not erase the underlying journal. `cacheRead` is retained for an honest breakdown, but
  * remains excluded from the legacy compact total returned by
  * `getLifetimeTotal()` — summing each call's cumulative cached prefix into that
  * total would reintroduce issue #38's inflated semantics.
@@ -125,6 +126,53 @@ export function addUsage(into: LifetimeUsage, delta: LifetimeUsage): void {
       into.costBreakdown[key] = finiteSum(previous?.[key] ?? 0, normalized.costBreakdown[key]);
     }
   }
+}
+
+/** Component-wise maxima fence stale archive snapshots and regressing counters. */
+export function usageWatermark(a: LifetimeUsage, b: LifetimeUsage): LifetimeUsage {
+  const result = createLifetimeUsage();
+  for (const key of components) result[key] = Math.max(a[key], b[key]);
+  if (a.cost !== undefined || b.cost !== undefined) result.cost = Math.max(a.cost ?? 0, b.cost ?? 0);
+  if (a.costBreakdown || b.costBreakdown) {
+    result.costBreakdown = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    for (const key of components) {
+      result.costBreakdown[key] = Math.max(a.costBreakdown?.[key] ?? 0, b.costBreakdown?.[key] ?? 0);
+    }
+  }
+  return result;
+}
+
+type UsageSession = Pick<SessionManager, "getSessionId" | "getEntries" | "getEntryCount">;
+const sessionUsage = new WeakMap<UsageSession, { sessionId: string; count: number; usage: LifetimeUsage }>();
+
+/**
+ * Rebuild from the append-only journal, never from model context or raw events.
+ * Identity is (child session ID, entry ID); reopening/importing the same entries
+ * produces the same cumulative snapshot, not a new set of billable deltas.
+ * SDK migration persists legacy IDs before this reader sees them.
+ */
+export function readSessionUsage(manager: UsageSession): LifetimeUsage {
+  const sessionId = manager.getSessionId();
+  const count = manager.getEntryCount();
+  const previous = sessionUsage.get(manager);
+  if (previous?.sessionId === sessionId && previous.count === count) return toLifetimeUsage(previous.usage);
+  const usage = createLifetimeUsage();
+  const seen = new Set<string>();
+  for (const entry of manager.getEntries()) {
+    if (!entry.id || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    if (entry.type === "message") {
+      if (entry.message.role === "assistant" || entry.message.role === "toolResult") {
+        addUsage(usage, toLifetimeUsage(entry.message.usage));
+      }
+    } else if (entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary") {
+      // A summary's explicit usage is its generation cost, not a snapshot of
+      // earlier spend. Unknown standalone usage kinds remain ordinary usage.
+      addUsage(usage, toLifetimeUsage(entry.usage));
+    }
+  }
+  sessionUsage.set(manager, { sessionId, count, usage });
+  return toLifetimeUsage(usage);
 }
 
 /** Minimal shape we read from upstream `getSessionStats()`. */

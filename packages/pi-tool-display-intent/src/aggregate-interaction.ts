@@ -83,22 +83,22 @@ function dispatch(instance: object, event: TuiMouseEvent, original?: MouseHandle
 	});
 }
 
-export function patchAggregateMouseHandling(prototypeValue: object): void {
-	if (MODULE_OWNER.retired) return;
+export function patchAggregateMouseHandling(prototypeValue: object, owner = MODULE_OWNER): void {
+	if (owner.retired) return;
 	const prototype = prototypeValue as MousePrototype;
 	const legacy = (prototypeValue as Record<symbol, { enabled: boolean } | undefined>)[LEGACY_MOUSE_PATCH];
 	if (legacy) legacy.enabled = false;
 	const existing = prototype[MOUSE_PATCH];
 	if (existing) {
-		if (existing.owner !== MODULE_OWNER) existing.owner.retired = true;
-		existing.owner = MODULE_OWNER;
+		if (existing.owner !== owner) existing.owner.retired = true;
+		existing.owner = owner;
 		existing.dispatch = dispatch;
 		existing.owns = (instance) => hitMaps.has(instance);
 		existing.enabled = true;
 		return;
 	}
 	const state: MousePatch = {
-		owner: MODULE_OWNER,
+		owner,
 		original: prototype.handleMouse,
 		patched(event) {
 			if (state.enabled && state.owns(this)) return state.dispatch(this, event, state.original);
@@ -112,10 +112,10 @@ export function patchAggregateMouseHandling(prototypeValue: object): void {
 	prototype.handleMouse = state.patched;
 }
 
-export function restoreAggregateMouseHandling(prototypeValue: object): void {
+export function restoreAggregateMouseHandling(prototypeValue: object, owner = MODULE_OWNER): void {
 	const prototype = prototypeValue as MousePrototype;
 	const state = prototype[MOUSE_PATCH];
-	if (!state || state.owner !== MODULE_OWNER) return;
+	if (!state || state.owner !== owner) return;
 	if (prototype.handleMouse === state.patched) {
 		if (state.original) prototype.handleMouse = state.original;
 		else delete prototype.handleMouse;

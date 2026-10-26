@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+> **不再维护。** Pi 原生 MCP 已可连接 Context7，因此不再维护这套重复的 REST 接入。用户需要另行配置 Context7 MCP 服务；本包不会替你完成配置。下方保留历史源码的用法说明，不再承诺后续更新或 Pi 兼容性适配。
+
 面向 [Pi coding agent](https://pi.dev) 的 Context7 文档工具。注册 `resolve-library-id` 与 `query-docs`，并附带完整上游 `context7-docs` Skill。
 
 本包也会嵌入聚合包 `@zhcsyncer/pi-extensions`。

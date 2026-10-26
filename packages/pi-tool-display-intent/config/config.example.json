@@ -22,6 +22,9 @@
     "collapsedMode": "body",
     "wordWrap": true
   },
+  "transcript": {
+    "userMessageBox": true
+  },
   "tools": {
     "passthrough": [],
     "custom": {
