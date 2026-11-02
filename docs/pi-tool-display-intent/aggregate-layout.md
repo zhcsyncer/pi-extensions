@@ -80,6 +80,8 @@ pending / running / success / failed / needsAttention
 
 计数包含 pending、running、success、failed 和 needsAttention，不把 `×N` 伪装成“成功次数”。
 
+调用成员以原生 transcript 为边界。Pi 的 `ctx.executeTool()`（例如 codemode 内部调用）会发送带 `parentToolCallId` 的执行事件，但不创建独立的 transcript call/result 或 `ToolExecutionComponent`，只由父工具报告结果。因此这些嵌套 start/update/end 事件不单独入账、不参与摘要宿主选举；否则最新成员没有承载组件，所有已有组件都会返回零行，整本 Run 会在后续思考阶段消失，直到下一条直接工具调用出现。内部调用仍正常执行，其结果与进度由父工具承载。
+
 ### 聚合渲染成员
 
 默认所有工具的 transcript renderer 都被 Run 投影接管。`tools.passthrough` 中的工具仍进入账本，但不成为聚合 leader，也不生成 active/done 行。
