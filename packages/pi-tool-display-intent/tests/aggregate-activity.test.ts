@@ -811,6 +811,66 @@ test("agent settled folds done rows after grace while failures remain", async ()
 	}
 });
 
+test("nested codemode events never steal the Run host during execution or subsequent thinking", async () => {
+	initTheme("dark", false);
+	const projection = createProjection();
+	const handlers = new Map<string, (event: any) => unknown>();
+	const api = {
+		on(event: string, handler: (event: any) => unknown) { handlers.set(event, handler); },
+	} as unknown as ExtensionAPI;
+	registerAggregateProjectionEvents(api, projection);
+	patchAggregateToolExecutions(projection);
+	const emit = async (type: string, event: any) => {
+		assert.ok(handlers.has(type));
+		await handlers.get(type)!({ type, ...event });
+	};
+	const result = { content: [{ type: "text", text: "ok" }] };
+	try {
+		projection.startUserGroup("nested-codemode");
+		const parent = { toolCallId: "code-1", toolName: "codemode", args: { code: "await tools.read({ path: 'a.ts' })" } };
+		await emit("tool_execution_start", parent);
+		const component = createComponent(parent.toolName, parent.toolCallId, parent.args);
+		const assertVisible = () => {
+			assert.match(visibleText(component.render(120).join("\n")), /Run \(1 call/);
+			assert.equal(projection.getView(parent.toolCallId)?.callCount, 1);
+		};
+		assertVisible();
+		// Pi emits these events but deliberately creates no transcript component
+		// for nested calls, including deeper nesting and parallel siblings.
+		for (const child of [
+			{ toolCallId: "code-1/1", parentToolCallId: "code-1", toolName: "read", args: { path: "a.ts" } },
+			{ toolCallId: "code-1/2", parentToolCallId: "code-1", toolName: "bash", args: { command: "true" } },
+			{ toolCallId: "code-1/1/1", parentToolCallId: "code-1/1", toolName: "read", args: { path: "b.ts" } },
+		]) {
+			await emit("tool_execution_start", child);
+			assertVisible();
+			await emit("tool_execution_update", { ...child, partialResult: result });
+			assertVisible();
+			await emit("tool_execution_end", { ...child, result, isError: true });
+			assertVisible();
+			assert.equal(projection.getMember(child.toolCallId), undefined);
+		}
+		await emit("tool_execution_end", { ...parent, result, isError: false });
+		await emit("message_start", { message: { role: "assistant", timestamp: 10, content: [] } });
+		await emit("message_update", { message: { role: "assistant", timestamp: 10, content: [{ type: "thinking", thinking: "Next step" }] } });
+		assertVisible();
+		assert.equal(projection.getMember(parent.toolCallId)?.state, "success");
+		assert.equal(projection.getView(parent.toolCallId)?.failedCount, 0);
+		// A later direct call must still take over normally.
+		const next = { toolCallId: "read-direct", toolName: "read", args: { path: "c.ts" } };
+		await emit("tool_execution_start", next);
+		const nextComponent = createComponent(next.toolName, next.toolCallId, next.args);
+		assert.deepEqual(component.render(120), []);
+		assert.match(visibleText(nextComponent.render(120).join("\n")), /Run \(2 calls/);
+		await emit("tool_execution_update", { ...next, partialResult: result });
+		await emit("tool_execution_end", { ...next, result, isError: false });
+		assert.equal(projection.getMember(next.toolCallId)?.state, "success");
+	} finally {
+		await emit("session_shutdown", { reason: "reload" });
+		restoreAggregateToolExecutions();
+	}
+});
+
 test("event registration never appends file or diff statistics to the Session", async () => {
 	const projection = createProjection();
 	const handlers = new Map<string, Array<(event: any, ctx?: any) => unknown>>();

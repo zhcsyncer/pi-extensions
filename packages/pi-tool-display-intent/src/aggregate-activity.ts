@@ -2714,14 +2714,23 @@ export function registerAggregateProjectionEvents(
 	pi.on("turn_end", async (event, ctx) => {
 		projection.finishContextTurn(event.message, event.toolResults, ctx?.sessionManager?.getBranch());
 	});
+	// Nested calls have no transcript component: Pi renders them through their
+	// parent. They must never become a Run member or steal its summary host.
+	// Use an in-guard to keep compatibility with pre-nesting Pi event types.
 	pi.on("tool_execution_start", async (event) => {
+		if ("parentToolCallId" in event && event.parentToolCallId) return;
 		clearSettleTimer();
 		projection.markStarted(event.toolCallId, event.toolName, event.args);
 	});
-	pi.on("tool_execution_update", async (event) => projection.markUpdated(event.toolCallId, event.args));
+	pi.on("tool_execution_update", async (event) => {
+		if ("parentToolCallId" in event && event.parentToolCallId) return;
+		projection.markUpdated(event.toolCallId, event.args);
+	});
 	pi.on("tool_execution_end", async (event) => {
+		if ("parentToolCallId" in event && event.parentToolCallId) return;
 		projection.markComplete(event.toolCallId, event.result, event.isError === true);
 	});
+
 	pi.on("agent_settled", async () => {
 		projection.markUnsettledInterrupted();
 		projection.markGroupSettled();
