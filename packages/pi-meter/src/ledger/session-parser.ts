@@ -135,8 +135,9 @@ export function usageFromToolResultMessage(message: unknown, meta: RecordMeta): 
 	const toolCallId = typeof message.toolCallId === "string" && message.toolCallId ? message.toolCallId : undefined;
 	const raw = message.toolName === "consult" ? toolResultRawUsage(message) : [];
 	if (raw.length > 0) {
-		return raw.map((entry) =>
-			recordFromUsage(entry.usage, meta, ts, entry.model, toolCallId ? `${toolCallId}:${entry.index}` : undefined),
+		// Legacy ledgers numbered only advisors with usage; original slots belong in part, not sourceId.
+		return raw.map((entry, legacyIndex) =>
+			recordFromUsage(entry.usage, meta, ts, entry.model, toolCallId ? `${toolCallId}:${legacyIndex}` : undefined),
 		);
 	}
 	if (!isRecord(message.usage)) return [];
