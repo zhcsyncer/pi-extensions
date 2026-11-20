@@ -27,6 +27,8 @@ export class AggregateTerminal implements Terminal {
 	clearScreen() {}
 	setTitle() {}
 	setProgress() {}
+	// OSC status transport is outside these native layout/mouse fixtures.
+	setProgramStatus(_status: Parameters<Terminal["setProgramStatus"]>[0]) {}
 	resize(columns: number, rows: number) { this.columns = columns; this.rows = rows; this.onResize?.(); }
 	mouse(button: number, x: number, y: number, release = false) {
 		this.onInput?.(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);

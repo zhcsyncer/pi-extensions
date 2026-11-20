@@ -9,17 +9,17 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxText, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { streamToOutputFile, writeInitialEntry } from "../src/output-file.js";
-import { registerFauxProvider } from "./helpers/pi-ai.js";
 
 const TURNS_BEFORE_COMPACT = 6;
 
@@ -41,7 +41,7 @@ describe("output-file streaming across a real compaction (#145)", () => {
 
   it("keeps writing post-compaction messages to the output file", async () => {
     const cwd = tmp;
-    const faux = registerFauxProvider({
+    const faux = fauxProvider({
       provider: "faux",
       models: [{ id: "faux-1", contextWindow: 200_000 }],
     });
@@ -84,20 +84,17 @@ describe("output-file streaming across a real compaction (#145)", () => {
     });
     await loader.reload();
 
+    const modelRuntime = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(), modelsPath: null, allowModelNetwork: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    await modelRuntime.setRuntimeApiKey("faux", "local-test-only");
+    await modelRuntime.getAvailable();
     const { session } = await createAgentSession({
       cwd,
       agentDir,
       model,
-      modelRegistry: {
-        find: () => model,
-        getAll: () => [model],
-        getAvailable: () => [model],
-        hasConfiguredAuth: () => true,
-        isUsingOAuth: () => false,
-        getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "faux", headers: {} }),
-        registerProvider: () => {},
-        unregisterProvider: () => {},
-      } as never,
+      modelRuntime,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(cwd),
       settingsManager: SettingsManager.inMemory({
@@ -147,5 +144,6 @@ describe("output-file streaming across a real compaction (#145)", () => {
       expect(all.split(`answer-${i} `).length - 1).toBe(1);
     }
     expect(entries.length).toBe(writtenBeforeCompact + 2); // + final question + its answer
+    session.dispose();
   }, 30_000);
 });

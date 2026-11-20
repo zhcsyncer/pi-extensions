@@ -176,7 +176,7 @@ export class Dashboard {
 		const rows = this.computeRows();
 		const total = sumRows(rows);
 		const lines: string[] = [];
-		lines.push(t.fg("accent", t.bold(`pi-meter — ${dim.label} usage`)));
+		lines.push(t.fg("accent", t.bold(`pi-meter — recorded ${dim.label} usage`)));
 		const crumb = this.filters.length > 0 ? this.filters.map((filter) => filter.label).join(" ▸ ") : "—";
 		lines.push(t.fg("muted", `window: ${windowDisplayLabel(win.key, this.windowMode)}  •  ${fmtNum(rows.length)} ${dim.label.toLowerCase()}(s)  •  filter: ${crumb}`));
 		lines.push("");
@@ -187,7 +187,7 @@ export class Dashboard {
 			return this.cache(width, lines);
 		}
 
-		const costCell = (row: AggRow): string => (row.costKnown ? fmtCost(row.cost) : "n/a");
+		const costCell = (row: AggRow): string => (row.costKnown || row.cost > 0 ? `${fmtCost(row.cost)}${row.unknownCosts ? "+?" : ""}` : "unknown");
 		const maxLabel = Math.max(visibleWidth(dim.label), ...rows.map((row) => visibleWidth(row.label)));
 		const layout = dashLayout(width, maxLabel);
 		const { nameW, barW, numW, gap, showBar } = layout;
@@ -269,6 +269,7 @@ export class Dashboard {
 		}
 
 		lines.push("");
+		lines.push(t.fg("dim", total.unknownCosts ? `Recorded subtotal; ${total.unknownCosts} record(s) have unknown/partial cost.` : "Recorded usage, not a complete bill; parent subagent rollups are excluded."));
 		lines.push(t.fg("dim", this.helpLine()));
 		return this.cache(width, lines);
 	}

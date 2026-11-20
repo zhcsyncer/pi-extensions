@@ -62,6 +62,7 @@ export async function runTargetedCombine({
 	let cursor = 0;
 
 	while (usableBackends.length < targetUsableBackends && cursor < orderedBackends.length) {
+		signal?.throwIfAborted();
 		const needed = targetUsableBackends - usableBackends.length;
 		const remaining = orderedBackends.length - cursor;
 		const batchSize = Math.min(needed, remaining);
@@ -88,6 +89,7 @@ export async function runTargetedCombine({
 			}),
 		);
 
+		signal?.throwIfAborted();
 		for (const { backend, results, success, error } of batchResults) {
 			backendStats.set(backend, {
 				success,

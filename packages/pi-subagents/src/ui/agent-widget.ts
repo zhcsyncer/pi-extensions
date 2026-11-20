@@ -7,7 +7,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentManager } from "../agent-manager.js";
-import { getConfig } from "../agent-types.js";
+import { DEFAULT_AGENTS } from "../default-agents.js";
 import type { AgentInvocation, AgentRecord, SubagentType, WidgetMode } from "../types.js";
 import { getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, type SessionLike } from "../usage.js";
 import { sanitizeDisplayText } from "./display-safety.js";
@@ -277,9 +277,13 @@ function styleStatsWithDuration(parts: string[], duration: string, theme: Theme)
   ].join(" " + theme.fg("dim", "·") + " ");
 }
 
-/** Get display name for any agent type (built-in or custom). */
+function defaultPresentation(type: SubagentType) {
+  return DEFAULT_AGENTS.get(type) ?? [...DEFAULT_AGENTS.values()].find(config => config.name.toLowerCase() === type.toLowerCase());
+}
+
+/** Prefer the owning record/runtime; never consult another activation's registry. */
 export function getDisplayName(type: SubagentType, inlineDisplayName?: string): string {
-  return inlineDisplayName ?? getConfig(type).displayName;
+  return inlineDisplayName ?? defaultPresentation(type)?.displayName ?? type;
 }
 
 /** Short label for prompt mode: "twin" for append, nothing for replace (the default). */
@@ -287,7 +291,7 @@ export function getPromptModeLabel(
   type: SubagentType,
   inlinePromptMode?: "replace" | "append",
 ): string | undefined {
-  const promptMode = inlinePromptMode ?? getConfig(type).promptMode;
+  const promptMode = inlinePromptMode ?? defaultPresentation(type)?.promptMode;
   return promptMode === "append" ? "twin" : undefined;
 }
 

@@ -83,17 +83,17 @@ test("requires the root package when Glance releases", () => {
 	]);
 });
 
-test("requires the root package when Plan Mode releases", () => {
-	assert.deepEqual(validateReleasePolicy(releases([PLAN_MODE, "minor"])), [
-		`${PLAN_MODE} has a minor release, but ${ROOT} is missing from the release plan.`,
-	]);
-});
+for (const standalonePackage of [PLAN_MODE, CONTEXT7]) {
+	test(`allows standalone ${standalonePackage} to release without the root`, () => {
+		assert.deepEqual(validateReleasePolicy(releases([standalonePackage, "major"])), []);
+		const script = readFileSync(new URL("./reconcile-release.sh", import.meta.url), "utf8");
+		assert.ok(script.includes(`${standalonePackage}|`));
+	});
 
-test("requires the root package when Context7 releases", () => {
-	assert.deepEqual(validateReleasePolicy(releases([CONTEXT7, "minor"])), [
-		`${CONTEXT7} has a minor release, but ${ROOT} is missing from the release plan.`,
-	]);
-});
+	test(`does not bind the root bump to standalone ${standalonePackage}`, () => {
+		assert.deepEqual(validateReleasePolicy(releases([ROOT, "patch"], [standalonePackage, "major"])), []);
+	});
+}
 
 test("requires the root package when Ask User Question releases", () => {
 	assert.deepEqual(validateReleasePolicy(releases([ASK_USER_QUESTION, "minor"])), [
@@ -163,7 +163,7 @@ test("rejects a root bump lower than a child bump", () => {
 test("compares the root against every changed child", () => {
 	assert.deepEqual(
 		validateReleasePolicy(
-			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"], [TODO, "minor"], [PLAN_MODE, "patch"]),
+			releases([ROOT, "minor"], [RECAP, "patch"], [INTENT, "major"], [TODO, "minor"], [CONSULT, "patch"]),
 		),
 		[
 			`${ROOT} has a minor release, which is lower than ${INTENT}'s major release.`,

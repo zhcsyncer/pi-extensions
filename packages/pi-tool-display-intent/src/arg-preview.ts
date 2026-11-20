@@ -1,4 +1,5 @@
 import { normalizeDisplaySummary, stripDisplaySummary } from "./display-summary.js";
+import { snapshotDisplayValue } from "./display-budget.js";
 
 export const CUSTOM_ARGUMENT_PREVIEW_MAX_LENGTH = 120;
 const ARGUMENT_VALUE_MAX_LENGTH = 48;
@@ -62,13 +63,15 @@ export function formatFlatArgumentPreview(
 	args: unknown,
 	maxLength = CUSTOM_ARGUMENT_PREVIEW_MAX_LENGTH,
 ): string {
-	const stripped = stripDisplaySummary(args);
+	const snapshot = snapshotDisplayValue(args);
+	const stripped = stripDisplaySummary(snapshot.value);
 	const record = isRecord(stripped) ? stripped : {};
 	const entries = Object.entries(record);
-	if (entries.length === 0) return "no args";
+	if (entries.length === 0) return snapshot.truncated ? "… (display omitted)" : "no args";
 	const preview = entries.map(([key, value]) => formatEntry(key, value)).join(" · ");
 	const limit = Number.isFinite(maxLength)
 		? Math.max(1, Math.floor(maxLength))
 		: CUSTOM_ARGUMENT_PREVIEW_MAX_LENGTH;
-	return truncateCharacters(preview, limit);
+	const notice = snapshot.truncated ? " · … (display omitted)" : "";
+	return truncateCharacters(preview, Math.max(1, limit - notice.length)) + notice.slice(0, Math.max(0, limit - 1));
 }

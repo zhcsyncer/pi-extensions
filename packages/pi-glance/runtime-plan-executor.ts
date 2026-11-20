@@ -2,9 +2,10 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RuntimeRefreshPlan } from "./runtime-policy.js";
 import { compactInputsFromContext, lifecycleInputsFromContext, stateInputsFromContext, thinkingInputsFromContext } from "./runtime-snapshot.js";
 import { clearContextUsage, refreshContextUsage, refreshModel, refreshRuntimeFacts, refreshWorkspace, setProviderCount, setUsageTotals } from "./state.js";
-import type { GlanceConfig, GlanceState } from "./types.js";
+import type { GlanceConfig, GlanceState, UsageTotals } from "./types.js";
 
 export interface RuntimePlanExecutionInput {
+	usage?: UsageTotals;
 	state: GlanceState;
 	config: GlanceConfig;
 	ctx: ExtensionContext;
@@ -53,7 +54,7 @@ export function applyRuntimeRefreshPlan(input: RuntimePlanExecutionInput): void 
 
 	if (plan.snapshot === "compact") {
 		setUnknownContextAfterLatestCompaction(true);
-		const inputs = compactInputsFromContext(ctx, input.getThinkingLevel(), input.getAutoCompactionEnabled(ctx));
+		const inputs = compactInputsFromContext(ctx, input.getThinkingLevel(), input.getAutoCompactionEnabled(ctx), input.usage);
 		const workspaceChanged = plan.refreshWorkspace ? refreshWorkspace(state, inputs) : false;
 		setProviderCount(state, inputs.availableProviderCount);
 		refreshRuntimeFacts(state, inputs);
@@ -66,7 +67,7 @@ export function applyRuntimeRefreshPlan(input: RuntimePlanExecutionInput): void 
 	}
 
 	if (plan.snapshot === "reliable") {
-		const inputs = stateInputsFromContext(ctx, input.getThinkingLevel(), input.getAutoCompactionEnabled(ctx));
+		const inputs = stateInputsFromContext(ctx, input.getThinkingLevel(), input.getAutoCompactionEnabled(ctx), input.usage);
 		setUnknownContextAfterLatestCompaction(inputs.unknownContextAfterLatestCompaction);
 		const workspaceChanged = plan.refreshWorkspace ? refreshWorkspace(state, inputs) : false;
 		setProviderCount(state, inputs.availableProviderCount);

@@ -14,6 +14,7 @@ import {
 } from "./diff-presentation.js";
 import { pluralize, sanitizeAnsiForThemedOutput } from "./render-utils.js";
 import { splitWriteContentLines } from "./write-display-utils.js";
+import { displayField, displayPropertyOmitted, displayTextFits, DISPLAY_OMISSION } from "./display-budget.js";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type DiffIndicatorMode, type ToolDisplayConfig } from "./types.js";
 
 interface DiffTheme {
@@ -2038,8 +2039,8 @@ function safeGetDiff(details: unknown): string {
 	if (!details || typeof details !== "object") {
 		return "";
 	}
-	const typed = details as Partial<EditToolDetails>;
-	return typeof typed.diff === "string" ? typed.diff : "";
+	const diff = displayField(details, "diff");
+	return typeof diff === "string" ? diff : "";
 }
 
 function createDiffRenderCache() {
@@ -2079,6 +2080,9 @@ export function renderEditDiffResult(
 	fallbackText: string,
 ): Component {
 	const diffText = safeGetDiff(details);
+	if (displayPropertyOmitted(details, "diff") || !displayTextFits(diffText) || !displayTextFits(fallbackText)) {
+		return new Text(theme.fg("warning", `↳ diff omitted — ${DISPLAY_OMISSION}`), 0, 0);
+	}
 	if (!diffText.trim()) {
 		if (!fallbackText.trim()) {
 			return new Text(theme.fg("muted", "↳ edit completed (no diff payload)"), 0, 0);
@@ -2410,6 +2414,10 @@ export function renderWriteDiffResult(
 	theme: DiffTheme,
 	fallbackText: string,
 ): Component {
+	if ((typeof content === "string" && !displayTextFits(content)) ||
+		(typeof options.previousContent === "string" && !displayTextFits(options.previousContent)) || !displayTextFits(fallbackText)) {
+		return new Text(theme.fg("warning", `↳ overwrite diff omitted — ${DISPLAY_OMISSION}`), 0, 0);
+	}
 	if (typeof content !== "string") {
 		if (!fallbackText.trim()) {
 			return new Text(theme.fg("muted", "↳ write completed"), 0, 0);

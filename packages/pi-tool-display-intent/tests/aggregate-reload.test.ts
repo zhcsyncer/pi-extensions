@@ -217,6 +217,9 @@ test("fresh module takes over active tool, assistant and viewport hooks through 
 	const load = await loader(t); const A = await load(); const f = host(t, A);
 	const uiA = lifecycle(A, f.context(transcript("old"))); await uiA.emit("session_start", "startup");
 	exercise(t, f, A, uiA.projection, transcript("old"));
+	uiA.projection.nested.start({ toolCallId: "old-0/1", parentToolCallId: "old-0", toolName: "read", args: { path: "child.ts" } });
+	uiA.projection.toggleNestedExpansion("old-0");
+	assert.equal(uiA.projection.isNestedExpanded("old-0"), true);
 	const counts = [0, 0, 0];
 	for (const [index, [prototype, key]] of [
 		[sdk.ToolExecutionComponent.prototype, "render"], [sdk.AssistantMessageComponent.prototype, "render"],
@@ -229,8 +232,12 @@ test("fresh module takes over active tool, assistant and viewport hooks through 
 	await uiB.emit("session_start", "reload");
 	exercise(t, f, B, uiB.projection, data);
 	assert.ok(counts.every((count) => count > 0), "takeover must retain unrelated outer render wrappers");
+	assert.equal(uiA.projection.isNestedExpanded("old-0"), false, "retired owner releases its local nested choices");
+	uiB.projection.nested.start({ toolCallId: "new-0/1", parentToolCallId: "new-0", toolName: "read", args: { path: "child.ts" } });
+	uiB.projection.toggleNestedExpansion("new-0");
 	await uiA.emit("session_shutdown", "reload");
 	A.thinking.restoreAggregateThinkingPlaceholders(); A.activity.restoreAggregateToolExecutions(); A.viewport.restoreAggregateViewport();
+	assert.equal(uiB.projection.isNestedExpanded("new-0"), true, "late old cleanup must not reset the new owner's nested choices");
 	const before = [...counts];
 	exercise(t, f, B, uiB.projection, data);
 	assert.ok(counts.every((count, index) => count > before[index]), "late old cleanup must preserve foreign wrappers and the new host");

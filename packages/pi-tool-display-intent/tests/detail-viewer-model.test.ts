@@ -176,6 +176,53 @@ test("only a string Bash command carries a language hint from the same sanitized
 	}
 });
 
+test("Codemode code keeps source whitespace and Raw while selecting JavaScript only for its string code field", () => {
+	for (const code of [
+		"text(2 + 3);",
+		'// @options: {"max_output_tokens": 2000}\nconst values=[2,3];\n\nfor (const value of values) {\n\t  text(value);\n}\n',
+		'const value = await tools.read({\n  path: "unfinished',
+		Array.from({ length: 400 }, (_, index) => `  text(${index}); // original source`).join("\n"),
+	]) {
+		const input = Object.freeze({ code, note: "ordinary string", nested: { code: "text(0);" } });
+		const page = argsPage(input, "codemode");
+		assert.equal(page.presentation, "fields");
+		assert.deepEqual(page.fields?.[0], { key: "code", kind: "string", value: code, language: "javascript" });
+		assert.ok(page.fields?.slice(1).every((field) => field.language === undefined));
+		assert.equal(page.rawText, JSON.stringify(input, null, 2));
+		assert.equal(page.text, page.rawText);
+		assert.equal(page.truncated, false);
+		assert.equal(input.code, code);
+	}
+	for (const toolName of ["custom_tool", "bash", "read", "write"]) {
+		assert.equal(argsPage({ code: "text(2 + 3);" }, toolName).fields?.[0].language, undefined);
+		assert.equal(argsPage("text(2 + 3);", toolName).presentation, "json");
+	}
+	for (const code of [null, false, 123, { text: "text(2 + 3);" }, ["text(2 + 3);"]]) {
+		assert.equal(argsPage({ code }, "codemode").fields?.[0].language, undefined);
+	}
+});
+
+test("Codemode uses the sanitized snapshot and retains the existing oversized-source JSON fallback", () => {
+	const code = 'text("visible");\x1b]52;c;hidden\x07\r\n';
+	const page = argsPage({ code }, "codemode");
+	assert.equal(page.fields?.[0].value, sanitizeDetailText(code, false));
+	assert.equal(JSON.parse(page.rawText).code, page.fields?.[0].value);
+	for (const code of [
+		"x".repeat(DETAIL_LIMITS.characters * 2),
+		"text(1);\n".repeat(DETAIL_LIMITS.lines + 1),
+		"x".repeat(DETAIL_LIMITS.lineCharacters + 1),
+	]) {
+		const input = { code };
+		const page = argsPage(input, "codemode");
+		const fallback = argsPage(input);
+		assert.equal(page.presentation, "json");
+		assert.equal(page.fields, undefined);
+		assert.equal(page.rawText, fallback.rawText);
+		assert.equal(page.text, fallback.text);
+		assert.equal(page.truncated, fallback.truncated);
+	}
+});
+
 test("a large multiline Bash command remains typed source instead of a clipped JSON string", () => {
 	const command = Array.from({ length: 400 }, (_, index) => `echo "line ${index}" # shell command`).join("\n");
 	assert.ok(command.length > DETAIL_LIMITS.lineCharacters);

@@ -18,7 +18,7 @@ function record(id = "agent-a", lifetimeUsage = toLifetimeUsage({ input: 10, out
 function message(report: NonNullable<ReturnType<UsageReporter["claim"]>>, toolName = "Agent"): ToolResultMessage {
   return {
     role: "toolResult", toolName, toolCallId: "call-1", content: [{ type: "text", text: "done" }],
-    usage: report.usage, details: { subagentUsageRollup: report.subagentUsageRollup },
+    usage: report.usage, details: { subagentUsageRollup: { ...report.subagentUsageRollup } },
     isError: false, timestamp: 1,
   };
 }
@@ -56,6 +56,8 @@ describe("UsageReporter", () => {
       cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0, total: 0.30000000000000004 },
     });
     expect(next.subagentUsageRollup.cumulative).toEqual(agent.lifetimeUsage);
+    expect(next.subagentUsageRollup.reportedUsage).toEqual(next.usage);
+    expect(next.subagentUsageRollup.reportedUsage?.totalTokens).toBe(101);
     expect(reporter.claim(agent, parent)).toBeUndefined();
   });
 
@@ -73,6 +75,37 @@ describe("UsageReporter", () => {
     expect(restarted.claim(agent, parent)).toBeUndefined();
     addUsage(agent.lifetimeUsage, toLifetimeUsage({ output: 2 }));
     expect(restarted.claim(agent, parent)?.usage.totalTokens).toBe(2);
+  });
+
+  it("carries nested receipts only with the parent's native usage and restores cost watermarks", () => {
+    const parent = SessionManager.inMemory();
+    const agent = record();
+    const reporter = new UsageReporter();
+    const claimed = reporter.claim(agent, parent)!;
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1/1", parentToolCallId: "root/1",
+      toolName: "Agent", input: {}, content: [], isError: false, usage: claimed.usage,
+      details: { subagentUsageRollup: claimed.subagentUsageRollup } });
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1", parentToolCallId: "root",
+      toolName: "bridge", input: {}, content: [], isError: false, details: {} });
+    const root = { ...message(claimed, "codemode"), toolCallId: "root", details: { calls: [] } };
+    const finalized = reporter.finalizeMessage({ type: "message_end", message: root })!;
+    expect(finalized.message).toMatchObject({ usage: claimed.usage,
+      details: { calls: [], subagentUsageRollups: [claimed.subagentUsageRollup] } });
+    if (finalized.message.role !== "toolResult") throw new Error("Expected the finalized tool result");
+    parent.appendMessage(finalized.message);
+    expect(new UsageReporter().claim(agent, parent)).toBeUndefined();
+    addUsage(agent.lifetimeUsage, toLifetimeUsage({ cost: 0.25 }));
+    expect(new UsageReporter().claim(agent, parent)?.usage.cost.total).toBe(0.25);
+  });
+
+  it("does not attach nested receipts to a message without persisted native usage", () => {
+    const reporter = new UsageReporter();
+    const claimed = reporter.claim(record(), emptyParent())!;
+    reporter.observeToolResult({ type: "tool_result", toolCallId: "root/1", parentToolCallId: "root",
+      toolName: "Agent", input: {}, content: [], isError: false, usage: claimed.usage,
+      details: { subagentUsageRollup: claimed.subagentUsageRollup } });
+    expect(reporter.finalizeMessage({ type: "message_end",
+      message: { ...message(claimed, "codemode"), toolCallId: "root", usage: undefined } })).toBeUndefined();
   });
 
   it("keeps agents independent in memory and in persisted claims", () => {
@@ -129,6 +162,11 @@ describe("UsageReporter", () => {
     const parent = emptyParent();
     const agent = record();
     const result = reporter.claim(agent, parent)!;
+    expect(result.subagentUsageRollup.reportedUsage).toEqual(result.usage);
+    result.usage.input = 0;
+    result.usage.cost.total = 0;
+    expect(result.subagentUsageRollup.reportedUsage?.input).toBe(10);
+    expect(result.subagentUsageRollup.reportedUsage?.cost.total).toBe(0.5);
     result.subagentUsageRollup.cumulative.input = 0;
     agent.lifetimeUsage.input += 2;
     expect(reporter.claim(agent, parent)?.usage.input).toBe(2);
@@ -165,6 +203,26 @@ describe("UsageReporter", () => {
     parent.branch(root);
     parent.appendMessage({ role: "user", content: "new path", timestamp: 3 });
     expect(reporter.claim(record(), parent)?.usage.totalTokens).toBe(47);
+  });
+
+  it("drops a reservation whose receipt was branched away before another claim observed it", () => {
+    const parent = SessionManager.inMemory();
+    const root = parent.appendMessage({ role: "user", content: "root", timestamp: 0 });
+    const reporter = new UsageReporter();
+    const agent = record("child", toLifetimeUsage({ cost: 0.06 }));
+    const a = parent.appendMessage(message(reporter.claim(agent, parent)!));
+    // No intermediate claim at A's receipt: the reporter last saw the shared root.
+    parent.branch(root);
+    parent.appendMessage({ role: "user", content: "B", timestamp: 1 });
+    const b = reporter.claim(agent, parent)!;
+    expect(b.usage.cost.total).toBe(0.06);
+    parent.appendMessage(message(b));
+    agent.lifetimeUsage = toLifetimeUsage({ cost: 0.08 });
+    parent.branch(a);
+    const growth = reporter.claim(agent, parent)!;
+    expect(growth.usage.cost.total).toBeCloseTo(0.02);
+    parent.appendMessage(message(growth));
+    expect(reporter.claim(agent, parent)).toBeUndefined();
   });
 
   it("rebuilds shared-ancestor claims after branching instead of carrying abandoned growth", () => {

@@ -1,325 +1,75 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import toolDisplayExtension, { publishToolDisplayMigrationNotice } from "../src/index.ts";
+import { createDisplaySession } from "./helpers/display-session.ts";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface CapturedHandler {
-  event: string;
-  handler: (...args: unknown[]) => unknown;
-}
-
-interface CapturedCommand {
-  name: string;
-  description?: string;
-  handler?: (...args: unknown[]) => unknown;
-}
-
-function createApiStub(
-  overrides: Partial<{
-    registerTool: (tool: unknown) => void;
-    registerCommand: (name: string, cmd: unknown) => void;
-    on: (event: string, handler: (...args: unknown[]) => unknown) => void;
-    getAllTools: () => unknown[];
-    getCommands: () => Array<{ name: string }>;
-  }> = {},
-): {
-  api: ExtensionAPI;
-  capturedTools: Array<{ name: string } & Record<string, unknown>>;
-  capturedCommands: CapturedCommand[];
-  capturedHandlers: CapturedHandler[];
-} {
-  const capturedTools: Array<{ name: string } & Record<string, unknown>> = [];
-  const capturedCommands: CapturedCommand[] = [];
-  const capturedHandlers: CapturedHandler[] = [];
-
-  const api = {
-    registerTool(tool: unknown): void {
-      capturedTools.push(tool as { name: string } & Record<string, unknown>);
-      overrides.registerTool?.(tool);
-    },
-    registerCommand(name: string, cmd: unknown): void {
-      capturedCommands.push({ name, ...(cmd as object) } as CapturedCommand);
-      overrides.registerCommand?.(name, cmd);
-    },
-    on(event: string, handler: (...args: unknown[]) => unknown): void {
-      capturedHandlers.push({ event, handler });
-      overrides.on?.(event, handler);
-    },
-    getAllTools(): unknown[] {
-      return overrides.getAllTools?.() ?? [];
-    },
-    getCommands(): Array<{ name: string }> {
-      return overrides.getCommands?.() ?? [];
-    },
-  } as unknown as ExtensionAPI;
-
-  return { api, capturedTools, capturedCommands, capturedHandlers };
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+const load = () => createDisplaySession(undefined, [], { display: false, factories: [toolDisplayExtension] });
 
 test("migration notice uses notify and does not park a long status line", () => {
-  const statuses: Array<{ key: string; text: string | undefined }> = [];
-  const notices: Array<{ message: string; level: string }> = [];
-  publishToolDisplayMigrationNotice(
-    {
-      setStatus(key, text): void {
-        statuses.push({ key, text });
-      },
-      notify(message, level): void {
-        notices.push({ message, level });
-      },
-    },
-    "bashCollapsedLines was removed; adjust results.previewRows",
-  );
-  assert.deepEqual(notices, [
-    {
-      message: "bashCollapsedLines was removed; adjust results.previewRows",
-      level: "warning",
-    },
-  ]);
-  assert.deepEqual(statuses, [
-    { key: "tool-display-intent-migration", text: undefined },
-  ]);
+  const statuses: unknown[] = [];
+  const notices: unknown[] = [];
+  publishToolDisplayMigrationNotice({
+    setStatus: (key, text) => statuses.push({ key, text }),
+    notify: (message, level) => notices.push({ message, level }),
+  }, "bashCollapsedLines was removed; adjust results.previewRows");
+  assert.deepEqual(notices, [{ message: "bashCollapsedLines was removed; adjust results.previewRows", level: "warning" }]);
+  assert.deepEqual(statuses, [{ key: "tool-display-intent-migration", text: undefined }]);
 });
 
-test("entry point registers expected lifecycle handlers", () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const eventNames = capturedHandlers.map((h) => h.event);
-  assert.ok(eventNames.includes("session_start"), "session_start handler registered");
-  assert.ok(eventNames.includes("before_agent_start"), "before_agent_start handler registered");
-  assert.equal(eventNames.includes("context"), false, "thinking-label context handler is gone");
-  // User-message-box lifecycle handlers
-  const sessionStartCount = eventNames.filter((e) => e === "session_start").length;
-  assert.ok(sessionStartCount >= 1, "at least one session_start handler registered");
-  const beforeAgentStartCount = eventNames.filter((e) => e === "before_agent_start").length;
-  assert.ok(beforeAgentStartCount >= 1, "at least one before_agent_start handler registered");
+test("entry point loads through the real extension loader and registers its lifecycle and command", async t => {
+  const h = await load();
+  t.after(() => h.close());
+  const runner = h.session.extensionRunner;
+  assert.ok(runner.hasHandlers("session_start"));
+  assert.ok(runner.hasHandlers("before_agent_start"));
+  assert.ok(runner.hasHandlers("session_shutdown"));
+  assert.equal(runner.hasHandlers("context"), false);
+  const command = runner.getCommand("tools")!;
+  assert.ok(command);
+  assert.equal(typeof command.getArgumentCompletions, "function");
 });
 
-test("entry point registers tools command", () => {
-  const { api, capturedCommands } = createApiStub();
-  toolDisplayExtension(api);
-
-  const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.includes("tools"), "tools command registered");
-});
-
-test("entry point registers built-in tool overrides", () => {
-  const { api, capturedTools } = createApiStub();
-  toolDisplayExtension(api);
-
-  const toolNames = capturedTools.map((t) => t.name);
-  // find, ls, write are registered immediately; read/grep/edit/bash are deferred
-  assert.ok(toolNames.includes("find"), "find tool override registered");
-  assert.ok(toolNames.includes("ls"), "ls tool override registered");
-  assert.ok(toolNames.includes("write"), "write tool override registered");
-
-  // Disabled tools (if config disables them) would not appear; the default
-  // config enables all, so we expect at least these 3 immediately.
-  assert.ok(toolNames.length >= 3, "at least 3 tool overrides registered immediately");
-});
-
-test("session_start handler refreshes capabilities and notifies pending errors", async () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const sessionHandler = capturedHandlers.find((h) => h.event === "session_start")?.handler;
-  assert.ok(sessionHandler, "session_start handler captured");
-
-  const ctx = {
-    ui: {
-      theme: { fg: (_c: string, t: string) => t },
-      notify: (_msg: string, _level: string) => { /* no-op */ },
-    },
-  };
-
-  // Should not throw
-  await assert.doesNotReject(async () => sessionHandler({}, ctx));
-});
-
-test("before_agent_start handler refreshes capabilities without crashing", async () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const beforeHandler = capturedHandlers.find((h) => h.event === "before_agent_start")?.handler;
-  assert.ok(beforeHandler, "before_agent_start handler captured");
-
-  // Should not throw
-  await assert.doesNotReject(async () => beforeHandler());
-});
-
-test("multiple calls to toolDisplayExtension are idempotent", () => {
-  const { api, capturedTools, capturedCommands, capturedHandlers } = createApiStub();
-
-  // Call twice
-  toolDisplayExtension(api);
-  toolDisplayExtension(api);
-
-  // Second call should not throw. Tools may be registered again (that's up
-  // to the extension loader to deduplicate), but the extension itself must
-  // not crash.
-  const toolNames = capturedTools.map((t) => t.name);
-  assert.ok(toolNames.filter((n) => n === "find").length >= 1, "find registered at least once");
-  assert.ok(toolNames.filter((n) => n === "ls").length >= 1, "ls registered at least once");
-  assert.ok(toolNames.filter((n) => n === "write").length >= 1, "write registered at least once");
-
-  const cmdNames = capturedCommands.map((c) => c.name);
-  assert.ok(cmdNames.filter((n) => n === "tools").length >= 1, "command registered at least once");
-});
-
-test("entry point tolerates empty getAllTools and getCommands results", () => {
-  // Stub that returns empty arrays for discovery methods
-  const { api } = createApiStub({
-    getAllTools: () => [],
-    getCommands: () => [],
-  });
-
-  assert.doesNotThrow(() => toolDisplayExtension(api));
-});
-
-test("entry point tolerates tools with existing owners in getAllTools", () => {
-  const { api } = createApiStub({
-    getAllTools: () => [
-      { name: "read", sourceInfo: { source: "local", path: "/ext/read.ts" } },
-      { name: "edit", sourceInfo: { source: "local", path: "/ext/edit.ts" } },
-      { name: "grep", sourceInfo: { source: "local", path: "/ext/grep.ts" } },
-    ],
-    getCommands: () => [{ name: "custom" }],
-  });
-
-  assert.doesNotThrow(() => toolDisplayExtension(api));
-});
-
-test("graceful degradation: extension throws when registerCommand is missing", () => {
-  // Simulate a minimal stub missing registerCommand
-  const minimalApi = {
-    registerTool(): void { /* no-op */ },
-    on(): void { /* no-op */ },
-    getAllTools(): unknown[] { return []; },
-    getCommands(): Array<{ name: string }> { return []; },
-  } as unknown as ExtensionAPI;
-
-  // registerToolDisplayCommand calls pi.registerCommand directly, so this
-  // is expected to throw in a peer-dep mismatch scenario.
-  assert.throws(
-    () => toolDisplayExtension(minimalApi),
-    /registerCommand/i,
-    "missing registerCommand should propagate",
-  );
-});
-
-test("graceful degradation: extension throws when on is missing", () => {
-  const minimalApi = {
-    registerTool(): void { /* no-op */ },
-    registerCommand(): void { /* no-op */ },
-    getAllTools(): unknown[] { return []; },
-    getCommands(): Array<{ name: string }> { return []; },
-  } as unknown as ExtensionAPI;
-
-  // registerNativeUserMessageBox calls pi.on, so this should throw when on is missing
-  assert.throws(
-    () => toolDisplayExtension(minimalApi),
-    /pi\.on is not a function|on is not a function/i,
-    "missing on should propagate",
-  );
-});
-
-test("lifecycle events fire in expected order during a session lifecycle", async () => {
-  // Simulate the sequence: setup → before_agent_start → session_start
-  const { api, capturedHandlers } = createApiStub();
-
-  toolDisplayExtension(api);
-
-  // Manually invoke handlers in expected lifecycle order
-  const beforeHandler = capturedHandlers.find((h) => h.event === "before_agent_start")?.handler;
-  const sessionHandler = capturedHandlers.find((h) => h.event === "session_start")?.handler;
-
-  assert.ok(beforeHandler, "before_agent_start handler found");
-  assert.ok(sessionHandler, "session_start handler found");
-
-  await beforeHandler();
-  await sessionHandler(
-    {},
-    { ui: { theme: { fg: (_c: string, t: string) => t }, notify: () => {} } },
-  );
-});
-
-
-test("session_start handler tolerates missing ctx.ui", async () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const sessionHandler = capturedHandlers.find((h) => h.event === "session_start")?.handler;
-  assert.ok(sessionHandler);
-
-  // ctx with no ui (edge case from older pi versions)
-  await assert.doesNotReject(async () => sessionHandler({}, {}));
-});
-
-test("before_agent_start handler tolerates being called multiple times", async () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const beforeHandler = capturedHandlers.find((h) => h.event === "before_agent_start")?.handler;
-  assert.ok(beforeHandler);
-
-  await assert.doesNotReject(async () => beforeHandler());
-  await assert.doesNotReject(async () => beforeHandler());
-  await assert.doesNotReject(async () => beforeHandler());
-});
-
-test("session_start handler tolerates being called multiple times", async () => {
-  const { api, capturedHandlers } = createApiStub();
-  toolDisplayExtension(api);
-
-  const sessionHandler = capturedHandlers.find((h) => h.event === "session_start")?.handler;
-  assert.ok(sessionHandler);
-
-  const ctx = { ui: { theme: {}, notify: () => {} } };
-  await assert.doesNotReject(async () => sessionHandler({}, ctx));
-  await assert.doesNotReject(async () => sessionHandler({}, ctx));
-  await assert.doesNotReject(async () => sessionHandler({}, ctx));
-});
-
-test("overridden tools include renderCall and renderResult functions", () => {
-  const { api, capturedTools } = createApiStub();
-  toolDisplayExtension(api);
-
-  for (const tool of capturedTools) {
-    assert.ok(
-      typeof tool.renderCall === "function",
-      `${tool.name} has renderCall`,
-    );
-    assert.ok(
-      typeof tool.renderResult === "function",
-      `${tool.name} has renderResult`,
-    );
+test("entry point uses renderers without replacing display-only built-in definitions", async t => {
+  const h = await load();
+  t.after(() => h.close());
+  assert.deepEqual(h.session.extensionRunner.getAllRegisteredTools().map(t => t.definition.name).sort(), ["bash", "write"]);
+  for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"]) {
+    assert.equal(typeof h.renderers(name)!.renderCall, "function");
+    assert.equal(typeof h.renderers(name)!.renderResult, "function");
+    assert.ok(h.session.getToolDefinition(name)!.promptSnippet?.trim());
   }
 });
 
-test("overridden tools preserve promptSnippet and promptGuidelines from built-ins", () => {
-  const { api, capturedTools } = createApiStub();
-  toolDisplayExtension(api);
+test("entry point reload keeps exactly one tools command and does not duplicate semantic tools", async t => {
+  const h = await load();
+  t.after(() => h.close());
+  const active = h.session.getActiveToolNames();
+  await h.session.reload();
+  await h.session.reload();
+  assert.equal(h.session.extensionRunner.getRegisteredCommands().filter(c => c.name === "tools").length, 1);
+  assert.deepEqual(h.session.extensionRunner.getAllRegisteredTools().map(t => t.definition.name).sort(), ["bash", "write"]);
+  assert.deepEqual(h.session.getActiveToolNames(), active);
+});
 
-  const byName = new Map(capturedTools.map((t) => [t.name, t]));
+test("entry point keeps externally owned tools and works without codemode", async t => {
+  const execute = async () => ({ content: [], details: undefined });
+  const h = await createDisplaySession(undefined, [{ name: "read", execute }, { name: "edit", execute }], { display: false, factories: [toolDisplayExtension] });
+  t.after(() => h.close());
+  assert.equal(h.session.getToolDefinition("read")!.execute, execute);
+  assert.equal(h.session.getToolDefinition("edit")!.execute, execute);
+  assert.equal(h.session.getToolDefinition("codemode"), undefined);
+  const active = h.session.getActiveToolNames();
+  h.renderers("codemode");
+  assert.deepEqual(h.session.getActiveToolNames(), active);
+});
 
-  for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
-    const tool = byName.get(name);
-    assert.ok(tool, `${name} is registered`);
-    // Pi lists tools in Available tools only when promptSnippet is present.
-    assert.equal(typeof tool.promptSnippet, "string", `${name} promptSnippet type`);
-    const snippet = typeof tool.promptSnippet === "string" ? tool.promptSnippet.trim() : "";
-    assert.ok(snippet.length > 0, `${name} promptSnippet non-empty`);
-  }
+test("missing required SDK command capability fails explicitly", () => {
+  const api = { registerTool() {}, registerToolRenderer() {}, on() {}, getAllTools: () => [], getCommands: () => [] } as unknown as ExtensionAPI;
+  assert.throws(() => toolDisplayExtension(api), /registerCommand/i);
+});
+
+test("missing required SDK lifecycle capability fails explicitly", () => {
+  const api = { registerTool() {}, registerToolRenderer() {}, registerCommand() {} } as unknown as ExtensionAPI;
+  assert.throws(() => toolDisplayExtension(api), /on is not a function/i);
 });

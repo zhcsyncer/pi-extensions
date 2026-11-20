@@ -1,18 +1,22 @@
 import type { Usage } from "@earendil-works/pi-ai";
+import type { MessageEndEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentRecord } from "./types.js";
-import { createLifetimeUsage, toLifetimeUsage, toReportedUsage, type LifetimeUsage } from "./usage.js";
+import { createLifetimeUsage, toLifetimeUsage, toReportedUsage, usageWatermark, type LifetimeUsage } from "./usage.js";
 
 /** Persist inside the actual parent toolResult.details alongside native usage. */
-export interface SubagentUsageRollup {
+export type SubagentUsageRollup = {
   version: 1;
   agentId: string;
   cumulative: LifetimeUsage;
-}
+  /** Native usage returned by this claim, not the lifetime watermark. */
+  reportedUsage?: Pick<Usage, keyof Usage>;
+};
 
 type ParentSession = {
   getBranch(): readonly unknown[];
   getSessionId?(): string;
   getLeafId?(): string | null;
+  getEntries?(): readonly unknown[];
 };
 
 const components = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -22,18 +26,16 @@ function object(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined;
 }
 
-/** Component-wise maxima fence stale archive snapshots and regressing counters. */
-function watermark(a: LifetimeUsage, b: LifetimeUsage): LifetimeUsage {
-  const result = createLifetimeUsage();
-  for (const key of components) result[key] = Math.max(a[key], b[key]);
-  if (a.cost !== undefined || b.cost !== undefined) result.cost = Math.max(a.cost ?? 0, b.cost ?? 0);
-  if (a.costBreakdown || b.costBreakdown) {
-    result.costBreakdown = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-    for (const key of components) {
-      result.costBreakdown[key] = Math.max(a.costBreakdown?.[key] ?? 0, b.costBreakdown?.[key] ?? 0);
-    }
-  }
-  return result;
+function receipts(message: Record<string, unknown> | undefined): SubagentUsageRollup[] {
+  if (message?.role !== "toolResult" || !object(message.usage)) return [];
+  const details = object(message.details);
+  const candidates = message.toolName === "Agent" || message.toolName === "get_subagent_result"
+    ? [details?.subagentUsageRollup]
+    : Array.isArray(details?.subagentUsageRollups) ? details.subagentUsageRollups : [];
+  return candidates.filter((value): value is SubagentUsageRollup => {
+    const marker = object(value);
+    return marker?.version === 1 && typeof marker.agentId === "string" && !!object(marker.cumulative);
+  });
 }
 
 /**
@@ -47,6 +49,32 @@ export class UsageReporter {
   private parent: ParentSession | undefined;
   private sessionId: string | undefined;
   private leafId: string | null | undefined;
+  private entryCount = 0;
+  private nested = new Map<string, SubagentUsageRollup[]>();
+
+  /** Nested results are not transcript entries. Carry receipts, never their usage. */
+  observeToolResult(event: ToolResultEvent): void {
+    const children = this.nested.get(event.toolCallId) ?? [];
+    if (!event.parentToolCallId) return;
+    this.nested.delete(event.toolCallId);
+    const own = receipts({ ...event, role: "toolResult" });
+    if (children.length || own.length) {
+      const parent = this.nested.get(event.parentToolCallId) ?? [];
+      this.nested.set(event.parentToolCallId, [...parent, ...children, ...own]);
+    }
+  }
+
+  /** SDK has now aggregated nested usage; persist receipts in that same message. */
+  finalizeMessage(event: MessageEndEvent): { message: MessageEndEvent["message"] } | undefined {
+    const message = event.message;
+    if (message.role !== "toolResult") return;
+    const markers = this.nested.get(message.toolCallId);
+    this.nested.delete(message.toolCallId);
+    if (!markers?.length || !message.usage) return;
+    return { message: { ...message, details: { ...object(message.details), subagentUsageRollups: markers } } };
+  }
+
+  clearPending(): void { this.nested.clear(); }
 
   claim(record: AgentRecord, sessionManager: ParentSession): {
     usage: Usage;
@@ -64,6 +92,20 @@ export class UsageReporter {
     const switchedBranch = this.leafId != null && this.leafId !== leafId
       && !branch.some((entry) => object(entry)?.id === this.leafId);
     if (replaced || switchedBranch) this.claimed.clear();
+    const entries = sessionManager.getEntries?.();
+    if (entries && !replaced && !switchedBranch) {
+      // A claim may have been persisted and then branched away BEFORE the next
+      // query. Its original leaf is still an ancestor, so leaf-only detection
+      // cannot see that navigation. Retire reservations whose receipts landed
+      // off-branch; only active-branch receipts rebuild confirmed watermarks.
+      const branchIds = new Set(branch.map((entry) => object(entry)?.id));
+      for (const entry of entries.slice(this.entryCount)) {
+        const node = object(entry);
+        if (node?.type !== "message" || branchIds.has(node.id)) continue;
+        for (const marker of receipts(object(node.message))) this.claimed.delete(marker.agentId);
+      }
+    }
+    this.entryCount = entries?.length ?? 0;
     this.parent = sessionManager;
     this.sessionId = sessionId;
     this.leafId = leafId;
@@ -72,15 +114,12 @@ export class UsageReporter {
     for (const entry of branch) {
       const node = object(entry);
       if (node?.type !== "message") continue;
-      const message = object(node.message);
-      if (message?.role !== "toolResult" || !object(message.usage)
-        || (message.toolName !== "Agent" && message.toolName !== "get_subagent_result")) continue;
-      const marker = object(object(message.details)?.subagentUsageRollup);
-      if (marker?.version !== 1 || marker.agentId !== record.id || !object(marker.cumulative)) continue;
-      previous = watermark(previous, toLifetimeUsage(marker.cumulative));
+      for (const marker of receipts(object(node.message))) {
+        if (marker.agentId === record.id) previous = usageWatermark(previous, toLifetimeUsage(marker.cumulative));
+      }
     }
 
-    const cumulative = watermark(previous, toLifetimeUsage(record.lifetimeUsage));
+    const cumulative = usageWatermark(previous, toLifetimeUsage(record.lifetimeUsage));
     const delta = createLifetimeUsage();
     for (const key of components) delta[key] = cumulative[key] - previous[key];
     if (cumulative.cost !== undefined) delta.cost = cumulative.cost - (previous.cost ?? 0);
@@ -94,6 +133,6 @@ export class UsageReporter {
     this.claimed.set(record.id, toLifetimeUsage(cumulative));
     const usage = toReportedUsage(delta);
     if (usage.totalTokens === 0 && Object.values(usage.cost).every((part) => part === 0)) return undefined;
-    return { usage, subagentUsageRollup: { version: 1, agentId: record.id, cumulative } };
+    return { usage, subagentUsageRollup: { version: 1, agentId: record.id, cumulative, reportedUsage: structuredClone(usage) } };
   }
 }

@@ -2,6 +2,8 @@
 
 [简体中文](./README.zh-CN.md)
 
+> **Unmaintained.** Pi's native MCP support can connect to Context7, so this duplicate REST integration will no longer be maintained. You must configure the Context7 MCP service separately; this package does not configure it for you. Historical source and usage documentation are retained below, without a commitment to further updates or Pi compatibility work.
+
 Context7 documentation tools for the [Pi coding agent](https://pi.dev). Registers `resolve-library-id` and `query-docs`, and ships the full upstream `context7-docs` skill.
 
 This package is also embedded in the aggregate `@zhcsyncer/pi-extensions` bundle.

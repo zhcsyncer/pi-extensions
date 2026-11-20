@@ -112,6 +112,40 @@ test("Bash command fields use shell syntax highlighting without changing their c
 	assert.match(body.map(clean).join("\n"), /for file in \*\.ts; do/);
 });
 
+test("Codemode Args render as highlighted JavaScript blocks without reformatting or changing Raw and Result", () => {
+	initTheme("dark", false);
+	for (const code of [
+		"text(2 + 3);",
+		'const values=[2,3];\n\nfor (const value of values) {\n    text(value);\n}\n',
+		'const value = await tools.read({\n  path: "unfinished',
+	]) {
+		const request: DetailRequest = { kind: "tool", toolName: "codemode", args: { code }, result: { content: [text("Script completed\n5")] } };
+		const before = structuredClone(request);
+		const model = buildDetailModel(request);
+		const body = renderDetailFields(model.tabs[1].fields ?? [], 90);
+		assert.match(body.join("\n"), /\x1b\[/);
+		assert.equal(body.map(clean).join("\n"), `code\n${code.split("\n").map((line) => `  ${line}`).join("\n")}`);
+		assert.equal(model.tabs[1].rawText, JSON.stringify({ code }, null, 2));
+		for (const width of [4, 12, 30]) {
+			assert.ok(renderDetailFields(model.tabs[1].fields ?? [], width).every((line) => visibleWidth(line) <= width));
+		}
+		const component = viewer(request);
+		const script = component.render(90);
+		assert.match(script.map(clean).join("\n"), /\[Script\]/);
+		assert.match(script.join("\n"), /\x1b\[/);
+		assert.doesNotMatch(script.map(clean).join("\n"), /Script completed/);
+		component.handleInput("r");
+		assert.match(component.render(90).map(clean).join("\n"), /"code":/);
+		component.handleInput("r");
+		component.handleInput("\t");
+		assert.match(component.render(90).map(clean).join("\n"), /\[Output\]/);
+		assert.match(component.render(90).map(clean).join("\n"), /Script completed/);
+		component.handleInput("\t");
+		assert.deepEqual(component.render(90), script);
+		assert.deepEqual(request, before);
+	}
+});
+
 test("field layouts preserve multiline and nested values within narrow terminal bounds", () => {
 	const fields = [
 		{ key: "path", value: "src/config.ts", kind: "string" as const },

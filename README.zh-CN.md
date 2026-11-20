@@ -20,9 +20,9 @@ zhcsyncer 维护的一组 Pi extensions。
 
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 
-- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — 严格只读规划，支持 revdiff 评审、不可变 revision、紧凑审计展示，以及显式且 branch-aware 的实现/完成生命周期。
+- [`@zhcsyncer/pi-plan-mode`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-plan-mode/README.zh-CN.md) — **不再维护，已从根 bundle 移除**；仓库中保留历史资料。
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — 统一的 `web_search` / `web_read`，支持 Exa、Tavily、Firecrawl、Parallel、Codex、Grok。也嵌入根 bundle。
-- [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` 工具，自包含紧凑 TUI 渲染，并附带完整 `context7-docs` Skill。
+- [`@zhcsyncer/pi-context7`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/README.zh-CN.md) — **不再维护，已从根 bundle 移除**，包括旧 skill；可改用 [Context7 官方 MCP server](https://github.com/upstash/context7#installation)。
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — 结构化澄清问答，采用非浮层布局，支持上下文感知的数字键直选、居中预览和可读的交互后结果。
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr 集成，提供跨 Workspace 托管进程身份、可导航 Process Widget、紧凑 Tool 渲染、临时 `/btw` 支线、blocked 状态和统一设置；需单独安装，根 bundle 不会启用。
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — `@tintinweb/pi-subagents` 维护 fork：摘要 ConversationViewer + 可折叠 tool TUI（model/effort）。也嵌入根 bundle。
@@ -40,9 +40,9 @@ zhcsyncer 维护的一组 Pi extensions。
 
 ## 说明
 
-Search Hub 只随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
+Search Hub 可单独安装，也随根 bundle 提供。Adversarial Review 独立发布，不进入根 bundle。不要把 `@tintinweb/pi-subagents` 和 `pi-subagents` 一起加载，也不要把 `@pi-plugins/usage` 和 `pi-meter` 一起加载。
 
-需要 Pi 0.86 或更高。本 bundle 里的 Fast Mode、Consult、Subagents，以及仓库里独立的 Cursor 与火山 provider，按 0.86 transcript（系统说明和工具在对话里）工作。
+本版本需要 Pi 1.2 或更高。
 
 ## 独立 Providers
 
@@ -73,7 +73,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## 从 npm 安装
 
-安装包含 Glance、Plan Mode、Context7、Subagents、Fast Mode、Meter、Consult、结构化用户问答，以及私有 Search Hub fork 的完整 bundle：
+安装包含 Glance、Subagents、Fast Mode、Meter、Consult、结构化用户问答，以及 Search Hub 的 bundle。Plan Mode 和 Context7（含旧 Context7 skill）已不再包含：
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -103,16 +103,10 @@ pi install npm:@zhcsyncer/pi-todo
 pi install npm:@zhcsyncer/pi-glance
 ```
 
-仅安装严格 Plan Mode：
+仅安装 Search Hub：
 
 ```bash
-pi install npm:@zhcsyncer/pi-plan-mode
-```
-
-仅安装 Context7 文档工具：
-
-```bash
-pi install npm:@zhcsyncer/pi-context7
+pi install npm:@zhcsyncer/pi-search-hub
 ```
 
 仅安装结构化问答：
@@ -165,7 +159,7 @@ pi install npm:@zhcsyncer/pi-consult
 pnpm changeset
 ```
 
-公开包独立管理版本。根 tarball 会内嵌子包源码，因此子包发生变更时，同一 release plan 必须包含聚合根包；未变更的其他子包无需发版。推送带发版计划的变更前，必须先向用户展示计划更新的包和目标版本并等待 review。获批变更进入 `main` 后，GitHub Actions 会创建 version PR；合并已审核的 version PR 后才会发布计划中的 package 并创建 GitHub Releases。完整流程和 npm/GitHub 一次性配置见 [RELEASING.md](./RELEASING.md)。
+公开包独立管理版本。根 tarball 会内嵌随包子包的源码，因此这些子包发生变更时，同一 release plan 必须包含聚合根包；未变更的其他子包无需发版。Plan Mode 和 Context7 已不再内嵌，可独立于根包发版。推送带发版计划的变更前，必须先向用户展示计划更新的包和目标版本并等待 review。获批变更进入 `main` 后，GitHub Actions 会创建 version PR；合并已审核的 version PR 后才会发布计划中的 package 并创建 GitHub Releases。完整流程和 npm/GitHub 一次性配置见 [RELEASING.md](./RELEASING.md)。
 
 ## 许可证
 
@@ -179,7 +173,7 @@ MIT
 
 `pi-search-hub` fork 自 [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0，其 package metadata 和 README 声明为 MIT。准确 revision 和保留声明见 [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) 与 [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md)。
 
-`pi-context7` fork 自 MIT 许可的 [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2（`b250c2515694eee4b6df4db82fa056df9ed3e306`）。准确 revision 和保留声明见 [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-context7/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE)。
+已废弃的 `pi-context7` 包 fork 自 MIT 许可的 [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2（`b250c2515694eee4b6df4db82fa056df9ed3e306`）。历史来源归属仍保留在仓库中：[`UPSTREAM_SOURCE.md`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/UPSTREAM_SOURCE.md)、[`LICENSE`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/LICENSE) 与 [`UPSTREAM_LICENSE`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/UPSTREAM_LICENSE)。
 
 `pi-ask-user-question` fork 自 MIT 许可的 [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0。准确 revision 和保留声明见 [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md)、[`LICENSE`](./packages/pi-ask-user-question/LICENSE) 与 [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE)。
 

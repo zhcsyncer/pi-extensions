@@ -14,7 +14,6 @@ import {
 } from "./capabilities.js";
 import { registerAggregateThinkingPlaceholderSuppression } from "./aggregate-thinking-placeholder.js";
 import { registerToolDisplayOverrides } from "./tool-overrides.js";
-import { disposeAll, resetDisposed } from "./disposable.js";
 import registerNativeUserMessageBox from "./user-message-box-native.js";
 import {
   BUILT_IN_TOOL_OVERRIDE_NAMES,
@@ -56,14 +55,6 @@ function toolRegistrationChanged(
 
 export default function toolDisplayExtension(pi: ExtensionAPI): void {
   const initial = loadToolDisplayConfig();
-  resetDisposed();
-
-  pi.on("session_shutdown", (event: { reason: string }) => {
-    if (event.reason === "reload") {
-      disposeAll();
-    }
-  });
-
   let config: ToolDisplayConfig = initial.config;
   let pendingLoadError = initial.error;
   let pendingLoadNotice = initial.notice;

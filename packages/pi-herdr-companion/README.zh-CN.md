@@ -22,7 +22,7 @@ Pi 不在 Herdr 中，或 Herdr 无法识别当前 Pane 时，扩展保持静默
 
 ## 安装
 
-需要 Node.js 22.19+、Pi 0.84+、Herdr 0.7.5+（对着 0.8.0 开发）。还要安装 Herdr 的 Pi integration：
+需要 Node.js 22.19+、Pi 1.1+、Herdr 0.7.5+（对着 0.8.0 开发）。还要安装 Herdr 的 Pi integration：
 
 ```bash
 herdr integration install pi
@@ -46,7 +46,7 @@ pi install /absolute/path/to/pi-extensions/packages/pi-herdr-companion
 
 ## 进程
 
-开发服务器、预览和 watcher 用 `herdr_process`：
+开发服务器、预览和 watcher 用 `herdr_process`。由模型直接调用；其他工具（包括 codemode）不能嵌套调用它：
 
 ```json
 {"action":"start","label":"dev","command":"pnpm dev","readyMatch":"Local:","lifetime":"session"}

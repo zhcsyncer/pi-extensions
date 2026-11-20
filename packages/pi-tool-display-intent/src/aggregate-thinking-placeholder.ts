@@ -13,6 +13,8 @@ import {
 	resolveAggregateRenderTheme,
 } from "./aggregate-activity.js";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { stripOscPromptControlSequences, withMessageNavigation } from "./user-message-box-utils.js";
+import { hasPromptZoneMarker } from "./prompt-zone-markers.js";
 import { patchAggregateMouseHandling, recordAggregateClickRegions, releaseAggregateClickRegions, restoreAggregateMouseHandling } from "./aggregate-interaction.js";
 
 interface PatchableAssistantMessage {
@@ -275,7 +277,14 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 		const lines = stripThinkingBody
 			? renderWithoutThinkingBlocks(this, state.originalRender, narrationWidth)
 			: state.originalRender.call(this, narrationWidth);
-		const next = stripCollapsedThinkingPlaceholderLines(lines, resolveHiddenThinkingLabel(this));
+		// Preserve only boundaries the downstream assistant actually emitted.
+		// Trimming its blank spacer must not erase A or move it inside a frame.
+		const hasNavigation = hasPromptZoneMarker(lines);
+		const finish = (output: string[]) => hasNavigation ? withMessageNavigation(output) : output;
+		const next = stripCollapsedThinkingPlaceholderLines(
+			hasNavigation ? lines.map(stripOscPromptControlSequences) : lines,
+			resolveHiddenThinkingLabel(this),
+		);
 		const toolCallId = firstToolCallId(this.lastMessage);
 		const frameId = assistantFrameId(this);
 		const projection = resolveAggregateProjection(undefined, frameId, toolCallId);
@@ -293,7 +302,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 				projection?.markFrameContentVisible(frameId, false);
 				if (!hasNarrationText || trimmed.length === 0) projection?.untrackFramedItem(frameId);
 				else projection?.trackFramedItem(frameId, undefined, toolCallId);
-				return [];
+				return finish([]);
 			}
 			projection?.trackFramedItem(frameId, undefined, toolCallId);
 			projection?.connectFrameRenderer(frameId, () => {
@@ -305,7 +314,8 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			});
 			projection?.markFrameContentVisible(frameId, true);
 		}
-		if (trimmed.length === 0) return contextLines.length > 0 ? ["", ...contextLines] : [];
+		// Context-only output must preserve any downstream boundary too.
+		if (trimmed.length === 0) return finish(contextLines.length > 0 ? ["", ...contextLines] : []);
 		if (!interim) {
 			// Thinking-placeholder cleanup also trims Pi's leading Spacer(1).
 			// Put that gap back after the user prompt or a passthrough tool.
@@ -313,7 +323,7 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 			// tools in the same user turn cannot steal the blank from earlier text.
 			const stackedOnTools = projection?.assistantFollowsAggregateLedger(this.lastMessage) === true;
 			const body = stackedOnTools || visibleText(next[0] ?? "") === "" ? next : ["", ...next];
-			return [...body, ...contextLines];
+			return finish([...body, ...contextLines]);
 		}
 		const theme = resolveAggregateRenderTheme(projection);
 		const marked = decorateAssistantLines(trimmed, theme);
@@ -327,11 +337,11 @@ export function patchAggregateThinkingPlaceholders(isAggregateEnabled: () => boo
 				const header = renderExpandedAggregateSummary(headerView, width, theme);
 				const lines = attachExpandedAggregateSummary(header, framed);
 				recordAggregateClickRegions(this, width, lines.length, [{ startRow: 1, endRow: 1 + header.length, onClick: () => projection.toggleGroupExpansionFromComponent(frameId, this) }], run ? { run, titleRow: 1 } : undefined);
-				return lines;
+				return finish(lines);
 			}
 		}
 		recordAggregateClickRegions(this, width, framed.length, [], run ? { run } : undefined);
-		return framed;
+		return finish(framed);
 	};
 	Object.defineProperty(prototype, AGGREGATE_THINKING_PATCH_KEY, {
 		configurable: true,

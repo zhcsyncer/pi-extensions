@@ -64,6 +64,7 @@ export interface RuntimeTestContext {
 	setModel(model: RuntimeMutableModelInfo | undefined): void;
 	setContextUsage(usage: RuntimeMutableContextUsage | undefined): void;
 	setSessionEntries(entries: StateSessionEntry[]): void;
+	appendSessionEntry(entry: StateSessionEntry): void;
 	setSessionBranch(branch: StateSessionEntry[]): void;
 	setSessionName(name: string | undefined): void;
 	setSessionFile(sessionFile: string | undefined): void;
@@ -166,8 +167,11 @@ export function assistantMessage(options: { responseId?: string; usage?: Record<
 	};
 }
 
+let fixtureEntryId = 0;
+
 export function sessionMessage(role: string, options: { usage?: Record<string, unknown>; stopReason?: string; responseId?: string } = {}): StateSessionEntry {
 	return {
+		id: `fixture-${++fixtureEntryId}`,
 		type: "message",
 		message: {
 			role,
@@ -342,6 +346,7 @@ export function createRuntimeTestContext(options: RuntimeTestContextOptions = {}
 		setContextUsage: (usage: RuntimeMutableContextUsage | undefined) => {
 			contextUsage = usage;
 		},
+		appendSessionEntry: (entry) => { entries = [...entries, entry]; },
 		setSessionEntries: (nextEntries: StateSessionEntry[]) => {
 			entries = nextEntries;
 		},

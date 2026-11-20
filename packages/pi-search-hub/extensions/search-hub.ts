@@ -139,6 +139,7 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			signal?.throwIfAborted();
 			const warnings: string[] = [];
 			const onNotice = diagnostics.sink(ctx, warnings);
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
@@ -224,10 +225,12 @@ export default function (pi: ExtensionAPI) {
 
 			const errors: string[] = [];
 			for (const backend of orderedBackends) {
+				signal?.throwIfAborted();
 				const backendLabel = BACKEND_DEFS[backend]?.label || backend;
 				updateActivity(`🔍 ${backendLabel}: searching...`);
 				try {
 					const results = withSource(backend, await runSearchBackend(backend, params.query, numResults, signal));
+					signal?.throwIfAborted();
 					updateActivity(`🔍 ${backendLabel}: ${results.length} results`);
 					return {
 						content: [
@@ -246,6 +249,7 @@ export default function (pi: ExtensionAPI) {
 						},
 					};
 				} catch (err) {
+					signal?.throwIfAborted();
 					errors.push(`${backend}: ${(err as Error).message}`);
 					updateActivity(`❌ ${backendLabel}: failed, trying next...`);
 				}
@@ -275,6 +279,7 @@ export default function (pi: ExtensionAPI) {
 			}),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			signal?.throwIfAborted();
 			const warnings: string[] = [];
 			const onNotice = diagnostics.sink(ctx, warnings);
 			refreshConfig(ctx.cwd, ctx.isProjectTrusted(), false, onNotice);
@@ -332,11 +337,13 @@ export default function (pi: ExtensionAPI) {
 			let content: string | undefined;
 			let reader: ReaderName | undefined;
 			for (const [index, candidate] of readers.entries()) {
+				signal?.throwIfAborted();
 				const label = READER_LABELS[candidate];
 				updateActivity(`📄 ${label}: fetching...`, candidate);
 				const started = Date.now();
 				try {
 					content = await fetchWithReader(candidate);
+					signal?.throwIfAborted();
 					await reportEffectiveness({
 						backend: candidate,
 						label,

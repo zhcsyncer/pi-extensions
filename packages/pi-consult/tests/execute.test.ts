@@ -159,7 +159,6 @@ describe("runConsultPanel", () => {
 			members: [member("one")],
 			messages: [],
 			streamSimple: () => responseStream(response(finalText), { thinking: "先分析证据", text: finalText }),
-			useRuntimeFacade: true,
 			onProgress: (_label, update) => progress.push(update),
 		});
 		expect(outcome?.ok).toBe(true);
@@ -179,7 +178,6 @@ describe("runConsultPanel", () => {
 			members: [member("one")],
 			messages: [],
 			streamSimple,
-			useRuntimeFacade: true,
 			onProgress: (_label, update) => progress.push(update),
 		});
 		expect(calls).toBe(2);
@@ -211,10 +209,26 @@ describe("runConsultPanel", () => {
 			members: [member("one")],
 			messages: [],
 			streamSimple,
-			useRuntimeFacade: true,
 		});
 		expect(calls).toBe(1);
 		expect(outcome?.ok).toBe(false);
+	});
+
+	it.each(["before request", "before empty-response retry"])("does not start new requests after cancellation %s", async (when) => {
+		const controller = new AbortController();
+		if (when === "before request") controller.abort();
+		let calls = 0;
+		const [outcome] = await runConsultPanel({
+			members: [member("one")], messages: [], signal: controller.signal,
+			streamSimple: () => {
+				calls += 1;
+				controller.abort();
+				return responseStream(response(""));
+			},
+		});
+		expect(calls).toBe(when === "before request" ? 0 : 1);
+		expect(outcome).toMatchObject({ ok: false, error: "Consult call was cancelled before it completed.", attempts: calls });
+		expect(outcome?.usage).toEqual(calls ? usage() : undefined);
 	});
 
 	it("fans out in parallel", async () => {
@@ -227,7 +241,6 @@ describe("runConsultPanel", () => {
 			members: [member("one"), member("two")],
 			messages: [],
 			streamSimple,
-			useRuntimeFacade: true,
 		});
 		expect(seen.sort()).toEqual(["one", "two"]);
 		expect(outcomes).toHaveLength(2);

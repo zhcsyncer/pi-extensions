@@ -1,910 +1,213 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { homedir } from "node:os";
 import {
-	createBashTool,
-	createBashToolDefinition,
-	createEditTool,
-	createEditToolDefinition,
-	createFindTool,
-	createFindToolDefinition,
-	createGrepTool,
-	createGrepToolDefinition,
-	createLsTool,
-	createLsToolDefinition,
-	createReadTool,
-	createReadToolDefinition,
-	createWriteTool,
-	createWriteToolDefinition,
-	initTheme,
-	ToolExecutionComponent,
-	type ExtensionAPI,
+  createBashToolDefinition, createEditToolDefinition, createFindToolDefinition,
+  createGrepToolDefinition, createLsToolDefinition, createReadToolDefinition,
+  createWriteToolDefinition, initTheme, ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import {
-	decorateToolForDisplay,
-	withDisplaySummary,
-} from "../tool-display-api-consumer.js";
-import { addDisplaySummaryParameter } from "../src/display-summary.js";
-import { formatAggregateTarget, restoreAggregateToolExecutions } from "../src/aggregate-activity.ts";
-import { setAggregateCallPresentationLookup } from "../src/call-presentation-registry.ts";
+import { Text, TuiMainScreen, visibleWidth, stripTerminalSequences } from "@earendil-works/pi-tui";
+import { decorateToolForDisplay, withDisplaySummary } from "../tool-display-api-consumer.js";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { shortenPath } from "../src/render-utils.ts";
-import { DEFAULT_TOOL_DISPLAY_CONFIG } from "../src/types.ts";
+import { DEFAULT_TOOL_DISPLAY_CONFIG as defaults } from "../src/types.ts";
+import { createDisplaySession, createRendererTestHarness } from "./helpers/display-session.ts";
+import { AggregateTerminal } from "./helpers/aggregate-terminal.ts";
 
-const TOOL_DISPLAY_PENDING_DECORATIONS_KEY = Symbol.for("pi-tool-display-intent.pendingDecorations.v1");
+const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any;
+const text = (component: any, width = 160) => component.render(width).map((line: string) => stripTerminalSequences(line).trimEnd()).join("\n");
+const factories = {
+  read: createReadToolDefinition, grep: createGrepToolDefinition, find: createFindToolDefinition,
+  ls: createLsToolDefinition, bash: createBashToolDefinition, edit: createEditToolDefinition,
+  write: createWriteToolDefinition,
+};
 
-interface RegisteredToolLike {
-	name: string;
-	description: string;
-	parameters: unknown;
-	renderShell?: "default" | "self";
-	promptSnippet?: string;
-	promptGuidelines?: string[];
-	prepareArguments?: (args: unknown) => unknown;
-	renderCall?: (...args: unknown[]) => unknown;
-	renderResult?: (...args: unknown[]) => unknown;
+test("real registry retains native definitions and registers only Bash/Write semantic decorations", async t => {
+  const h = await createDisplaySession();
+  t.after(() => h.close());
+  assert.deepEqual(h.session.extensionRunner.getAllRegisteredTools().map(t => t.definition.name).sort(), ["bash", "write"]);
+  for (const [name, factory] of Object.entries(factories)) {
+    const actual = h.session.getToolDefinition(name)!;
+    const original = factory(h.cwd);
+    assert.equal(actual.description, original.description);
+    assert.equal(actual.promptSnippet, original.promptSnippet);
+    assert.deepEqual(actual.outputSchema, original.outputSchema);
+    assert.deepEqual(actual.constrainedSampling, original.constrainedSampling);
+    if (name !== "bash") {
+      assert.equal(actual.parameters, original.parameters, `${name} keeps its schema`);
+      assert.deepEqual(actual.promptGuidelines, original.promptGuidelines);
+    } else {
+      assert.ok((actual.parameters as any).required.includes("displaySummary"));
+      assert.deepEqual(actual.promptGuidelines?.slice(0, -1), original.promptGuidelines);
+    }
+  }
+});
+
+test("renderers are available before session_start without registering execution tools for history", async () => {
+  const h = await createRendererTestHarness();
+  registerToolDisplayOverrides(h.api, () => defaults);
+  assert.equal(h.session.extensionRunner.getAllRegisteredTools().length, 0);
+  for (const name of Object.keys(factories)) {
+    const resolved = h.renderers(name)!;
+    assert.equal(typeof resolved.renderCall, "function");
+    assert.equal(typeof resolved.renderResult, "function");
+  }
+});
+
+test("Bash display summary is prepared and a real command still runs in the provided context", async t => {
+  const h = await createDisplaySession();
+  t.after(() => h.close());
+  const bash = h.session.getToolDefinition("bash")!;
+  const args = bash.prepareArguments!({ command: "printf hello", displaySummary: "Checking the sample file" });
+  const ctx = h.session.extensionRunner.createToolContext("bash-1", undefined);
+  const result = await bash.execute("bash-1", args, undefined, undefined, ctx);
+  assert.match(JSON.stringify(result.structuredContent), /hello/);
+  assert.match(text(h.displayTool("bash").renderCall(args, theme, {})), /Checking the sample file/);
+});
+
+test("path-bearing display calls compact long paths and restore them when expanded", async t => {
+  const h = await createDisplaySession();
+  t.after(() => h.close());
+  const path = `${homedir()}/.local/share/pnpm/store/v11/links/@earendil-works/pi-coding-agent/1.1.0/3f756669fd860ae9f8a03cb73678ac7de01add7dc08f75902c7f14389da37058/node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`;
+  const cases = [
+    ["read", { path, offset: 1, limit: 2000 }], ["grep", { pattern: "systemPrompt", path }],
+    ["find", { pattern: "*.md", path }], ["ls", { path }],
+    ["edit", { path, edits: [{ oldText: "a", newText: "b" }] }], ["write", { path, content: "x" }],
+  ] as const;
+  for (const [name, args] of cases) {
+    const tool = h.displayTool(name);
+    const context = { args, state: {}, executionStarted: true, expanded: false, isPartial: false };
+    const collapsed = tool.renderCall(args, theme, context);
+    const rows = collapsed.render(76);
+    assert.equal(rows.length, 1);
+    assert.ok(visibleWidth(rows[0]) <= 76);
+    assert.match(rows[0], /…/u);
+    assert.match(rows[0], /rpc\.md/u);
+    assert.doesNotMatch(rows[0], /3f756669fd860ae9/u);
+    const expanded = tool.renderCall(args, theme, { ...context, expanded: true, lastComponent: collapsed });
+    assert.equal(expanded, collapsed);
+    assert.ok(text(expanded, 76).replaceAll("\n", "").includes(shortenPath(path)));
+  }
+});
+
+test("model intent and deterministic fallback use distinct colors", async t => {
+  const h = await createDisplaySession();
+  t.after(() => h.close());
+  const colors = { fg: (color: string, value: string) => `<${color}>${value}</${color}>`, bold: (s: string) => s };
+  const read = h.displayTool("read");
+  assert.match(text(read.renderCall({ path: "sample.txt", displaySummary: "Checking the sample file" }, colors, {})), /<accent>Checking the sample file<\/accent>/);
+  assert.match(text(read.renderCall({ path: "sample.txt" }, colors, {})), /<muted>Read file<\/muted>/);
+});
+
+test("live calls show fallback intent while restored and completed calls do not invent it", async t => {
+  initTheme("dark", false);
+  const h = await createDisplaySession();
+  t.after(() => h.close());
+  const tui = new TuiMainScreen(new AggregateTerminal());
+  const row = new ToolExecutionComponent("read", "read-live", { path: "sample.txt" }, {}, h.renderers("read"), tui, h.cwd);
+  row.setArgsComplete();
+  await h.session.extensionRunner.emit({ type: "tool_execution_start", toolCallId: "read-live", toolName: "read", args: { path: "sample.txt" } });
+  row.markExecutionStarted();
+  assert.match(text(row), /Read file/);
+  const result = { content: [{ type: "text" as const, text: "done" }], details: undefined };
+  await h.session.extensionRunner.emit({ type: "tool_execution_end", toolCallId: "read-live", toolName: "read", result, isError: false });
+  row.updateResult({ ...result, isError: false });
+  assert.doesNotMatch(text(row), /Read file/);
+  for (const name of Object.keys(factories)) {
+    const args = { path: "history.ts", pattern: "needle", command: "pnpm test", content: "content", edits: [] };
+    assert.doesNotMatch(text(h.displayTool(name).renderCall(args, theme, { state: {}, executionStarted: false, argsComplete: false, isPartial: false })), / — /);
+  }
+  assert.match(text(h.displayTool("read").renderCall({ path: "stored.ts", displaySummary: "Stored intent" }, theme, { executionStarted: false })), /Stored intent/);
+});
+
+test("cooperative tools retain intent stripping and result presentations", async t => {
+  const h = await createDisplaySession({ ...defaults, mcpOutputMode: "summary" });
+  t.after(() => h.close());
+  let executed: unknown;
+  const tool = decorateToolForDisplay(withDisplaySummary({
+    name: "custom_probe", label: "Probe", description: "Probe", parameters: { type: "object", properties: { query: { type: "string" } } },
+    execute: async (_id: string, args: unknown) => { executed = args; return { content: [{ type: "text", text: "ok" }], details: undefined }; },
+  }), {
+    kind: "generic", outputMode: "inherit", overrideExistingRenderers: true,
+    getCallPresentation: () => ({ target: "remote alpha", metadata: ["cached"] }),
+    getResultPresentation: () => ({ summary: "Remote · 2 values", previewStartLine: 2 }),
+  });
+  const args = { query: "alpha", displaySummary: "Checking the remote value" };
+  assert.match(text(tool.renderCall!(args, theme, {})), /custom_probe\(remote alpha · cached\).*Checking the remote value/);
+  const result = { content: [{ type: "text", text: "alpha\nbeta" }], details: {} };
+  assert.match(text(tool.renderResult!(result, { expanded: false, isPartial: false }, theme, {})), /Remote · 2 values/);
+  assert.match(text(tool.renderResult!(result, { expanded: false, isPartial: false }, theme, { isError: true })), /alpha/);
+  await tool.execute("custom", args);
+  assert.deepEqual(executed, { query: "alpha" });
+});
+
+test("cooperative preview skips duplicated headers", async t => {
+  const h = await createDisplaySession({ ...defaults, mcpOutputMode: "preview", previewRows: 3 });
+  t.after(() => h.close());
+  const tool = decorateToolForDisplay({ name: "preview_probe", execute: async () => ({ content: [], details: undefined }) }, {
+    kind: "generic", outputMode: "inherit", getResultPresentation: () => ({ summary: "Remote · 2 values", previewStartLine: 2 }),
+  });
+  const result = { content: [{ type: "text", text: "duplicate title\nduplicate metadata\nalpha\nbeta" }], details: {} };
+  assert.equal(text(tool.renderResult!(result, { expanded: false, isPartial: false }, theme, {})), "  ⎿ Remote · 2 values\n    alpha\n    beta");
+});
+
+for (const layout of ["individual", "aggregate"] as const) {
+  test(`${layout} leaves non-Bash schemas intact and respects externally owned built-ins`, async t => {
+    const external = { ...createReadToolDefinition(process.cwd()), description: "External read owner" };
+    const h = await createDisplaySession({ ...defaults, toolCallLayout: layout }, [external]);
+    t.after(() => h.close());
+    assert.equal(h.session.getToolDefinition("read")!.execute, external.execute);
+    assert.equal(h.session.getToolDefinition("read")!.parameters, external.parameters);
+    for (const name of Object.keys(factories).filter(n => n !== "bash")) {
+      assert.equal((h.session.getToolDefinition(name)!.parameters as any).properties.displaySummary, undefined);
+    }
+    assert.equal(h.session.extensionRunner.getAllRegisteredTools().filter(t => t.definition.name === "read").length, 1);
+  });
 }
 
-type ToolEventHandler = (event?: any, ctx?: any) => Promise<void> | void;
-type ToolEventHandlers = Partial<Record<
-	"session_start" | "before_agent_start" | "tool_execution_start" | "tool_execution_end",
-	ToolEventHandler
->>;
-
-interface ExecutableToolLike extends RegisteredToolLike {
-	execute: (...args: unknown[]) => Promise<{ content?: Array<{ type: string; text?: string }> }>;
-}
-
-async function withTempDir(name: string, run: (dir: string) => Promise<void> | void): Promise<void> {
-	const dir = mkdtempSync(join(tmpdir(), name));
-	try {
-		await run(dir);
-	} finally {
-		rmSync(dir, { recursive: true, force: true });
-	}
-}
-
-function getTextOutput(result: { content?: Array<{ type: string; text?: string }> }): string {
-	return (result.content ?? [])
-		.filter((entry) => entry.type === "text")
-		.map((entry) => entry.text ?? "")
-		.join("");
-}
-
-function withDefaultReadEditOwners(tools: unknown[] = []): unknown[] {
-	const names = new Set(
-		tools
-			.map((tool) => (tool as { name?: unknown }).name)
-			.filter((name): name is string => typeof name === "string"),
-	);
-	const defaults = ["read", "edit"]
-		.filter((name) => !names.has(name))
-		.map((name) => ({ name, sourceInfo: { source: "builtin", path: `<builtin:${name}>` } }));
-	return [...defaults, ...tools];
-}
-
-function createExtensionApiStub(allTools: unknown[] = []): {
-	api: ExtensionAPI;
-	registeredTools: RegisteredToolLike[];
-	eventHandlers: ToolEventHandlers;
-} {
-	const registeredTools: RegisteredToolLike[] = [];
-	const eventHandlers: ToolEventHandlers = {};
-	const api = {
-		registerTool(tool: RegisteredToolLike): void {
-			registeredTools.push(tool);
-		},
-		on(event: keyof ToolEventHandlers, handler: ToolEventHandler): void {
-			eventHandlers[event] = handler;
-		},
-		getAllTools(): unknown[] {
-			return withDefaultReadEditOwners(allTools);
-		},
-	} as unknown as ExtensionAPI;
-
-	return { api, registeredTools, eventHandlers };
-}
-
-test("registerToolDisplayOverrides copies built-in prompt metadata onto overridden tools", async () => {
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	assert.deepEqual(
-		registeredTools.map((tool) => tool.name).sort(),
-		["bash", "edit", "find", "grep", "ls", "read", "write"],
-	);
-	await eventHandlers.before_agent_start?.();
-
-	assert.equal(registeredTools.length, 7);
-
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	const cwd = process.cwd();
-	// Prompt metadata lives on ToolDefinition. create*Tool() wraps through
-	// wrapToolDefinition() and drops promptSnippet/promptGuidelines.
-	const builtInDefinitions = {
-		read: createReadToolDefinition(cwd),
-		grep: createGrepToolDefinition(cwd),
-		find: createFindToolDefinition(cwd),
-		ls: createLsToolDefinition(cwd),
-		bash: createBashToolDefinition(cwd),
-		edit: createEditToolDefinition(cwd),
-		write: createWriteToolDefinition(cwd),
-	};
-	const builtInTools = {
-		read: createReadTool(cwd),
-		grep: createGrepTool(cwd),
-		find: createFindTool(cwd),
-		ls: createLsTool(cwd),
-		bash: createBashTool(cwd),
-		edit: createEditTool(cwd),
-		write: createWriteTool(cwd),
-	};
-
-	for (const [name, definition] of Object.entries(builtInDefinitions)) {
-		const registeredTool = byName.get(name);
-		const builtInTool = builtInTools[name as keyof typeof builtInTools] as unknown as RegisteredToolLike;
-		assert.ok(registeredTool, `expected '${name}' to be registered`);
-		assert.equal(registeredTool.description, builtInTool.description);
-		assert.equal(typeof definition.promptSnippet, "string");
-		assert.ok((definition.promptSnippet ?? "").trim().length > 0, `${name} definition has promptSnippet`);
-		assert.equal(registeredTool.promptSnippet, definition.promptSnippet);
-	}
-
-	// Regression: AgentTool wrappers drop prompt metadata. Overrides must not
-	// copy that loss, or Pi omits the tools from Available tools.
-	assert.equal((builtInTools.read as unknown as RegisteredToolLike).promptSnippet, undefined);
-	assert.notEqual(byName.get("read")?.promptSnippet, undefined);
-
-	for (const [name, definition] of Object.entries(builtInDefinitions)) {
-		const registeredGuidelines = byName.get(name)?.promptGuidelines ?? [];
-		const builtInGuidelines = Array.isArray(definition.promptGuidelines)
-			? definition.promptGuidelines
-			: [];
-		if (name === "bash") {
-			assert.deepEqual(registeredGuidelines.slice(0, -1), builtInGuidelines);
-			assert.match(registeredGuidelines.at(-1) ?? "", /displaySummary/);
-			continue;
-		}
-		assert.deepEqual(registeredGuidelines, builtInGuidelines);
-	}
+test("disabled semantic overrides and passthrough names leave the native tools available", async t => {
+  const h = await createDisplaySession({ ...defaults, passthroughToolNames: ["write"], registerToolOverrides: { ...defaults.registerToolOverrides, bash: false } });
+  t.after(() => h.close());
+  assert.equal(h.session.extensionRunner.getAllRegisteredTools().length, 0);
+  assert.equal(h.renderers("write"), h.session.getToolDefinition("write"));
+  assert.equal(h.renderers("bash"), h.session.getToolDefinition("bash"));
+  assert.ok(h.session.getActiveToolNames().includes("bash"));
 });
 
-test("registerToolDisplayOverrides registers built-in display renderers during extension load for pre-bind history rendering", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
-		const registeredTool = byName.get(name);
-		assert.ok(registeredTool, `expected '${name}' to be available before session_start`);
-		assert.equal(typeof registeredTool.renderCall, "function", `${name} has renderCall before session_start`);
-		assert.equal(typeof registeredTool.renderResult, "function", `${name} has renderResult before session_start`);
-	}
+test("semantic decorations do not activate tools excluded from the selected loadout", async t => {
+  const h = await createDisplaySession(defaults, [], { settings: { defaultTools: ["read"] } });
+  t.after(() => h.close());
+  assert.deepEqual(h.session.getActiveToolNames(), ["read"]);
+  await h.session.reload();
+  assert.deepEqual(h.session.getActiveToolNames(), ["read"]);
 });
 
-test("registerToolDisplayOverrides clones built-in parameter schemas so Pi TUI keeps extension renderers active", async () => {
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	await eventHandlers.before_agent_start?.();
-
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	const cwd = process.cwd();
-	const builtInTools = {
-		read: createReadTool(cwd),
-		grep: createGrepTool(cwd),
-		find: createFindTool(cwd),
-		ls: createLsTool(cwd),
-		bash: createBashTool(cwd),
-		edit: createEditTool(cwd),
-		write: createWriteTool(cwd),
-	};
-
-	for (const [name, builtInTool] of Object.entries(builtInTools)) {
-		const registeredTool = byName.get(name);
-		assert.ok(registeredTool, `expected '${name}' to be registered`);
-		assert.notEqual(
-			registeredTool.parameters,
-			builtInTool.parameters,
-			`expected '${name}' to use a cloned parameter object`,
-		);
-		const expectedParameters = name === "bash"
-			? addDisplaySummaryParameter(builtInTool.parameters, {
-				required: true,
-				language: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.language,
-				maxLength: DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent.maxLength,
-			})
-			: builtInTool.parameters;
-		assert.deepEqual(registeredTool.parameters, expectedParameters);
-	}
+test("Bash preserves the merged Pi shell settings", async t => {
+  const h = await createDisplaySession(defaults, [], { settings: { shellCommandPrefix: "printf 'prefix-output\\n'" } });
+  t.after(() => h.close());
+  const result = await h.session.getToolDefinition("bash")!.execute("prefix", { command: "printf 'command-output\\n'" }, undefined, undefined, h.session.extensionRunner.createToolContext("prefix", undefined));
+  assert.match(JSON.stringify(result.structuredContent), /prefix-output\\ncommand-output/);
+  const broken = await createDisplaySession(defaults, [], { settings: { shellPath: "/definitely/missing/bash" } });
+  t.after(() => broken.close());
+  await assert.rejects(broken.session.getToolDefinition("bash")!.execute("bad", { command: "printf test" }, undefined, undefined, broken.session.extensionRunner.createToolContext("bad", undefined)), /custom shell path not found/i);
 });
 
-test("registered bash exposes intent in schemas and TUI while stripping it before execution", async () => {
-	await withTempDir("pi-tool-display-intent-bash-", async (dir) => {
-		const { api, registeredTools } = createExtensionApiStub();
-		registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-
-		const bash = registeredTools.find((tool) => tool.name === "bash") as ExecutableToolLike | undefined;
-		assert.ok(bash);
-		const schema = bash.parameters as {
-			properties: Record<string, unknown>;
-			required: string[];
-		};
-		assert.ok(schema.properties.displaySummary);
-		assert.ok(schema.required.includes("displaySummary"));
-
-		const args = {
-			command: "printf hello",
-			displaySummary: "Checking the sample file",
-		};
-		const prepared = bash.prepareArguments?.(args) as Record<string, unknown>;
-		assert.equal(prepared.displaySummary, "Checking the sample file");
-
-		const component = bash.renderCall?.(
-			args,
-			{
-				fg: (_color: string, text: string) => text,
-				bold: (text: string) => text,
-			},
-			{},
-		) as { render(width: number): string[] };
-		assert.match(component.render(160).join("\n"), /● Bash\(printf hello\) — Checking the sample file/);
-
-		const result = await bash.execute("call-1", prepared, undefined, undefined, { cwd: dir });
-		assert.match(getTextOutput(result), /hello/);
-	});
-});
-
-test("path-bearing built-ins compact long call paths and restore them when expanded", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallStyle: "claude" as const,
-	};
-	registerToolDisplayOverrides(api, () => config);
-
-	const longPath = `${homedir()}/.local/share/pnpm/store/v11/links/@earendil-works/pi-coding-agent/0.82.1/3f756669fd860ae9f8a03cb73678ac7de01add7dc08f75902c7f14389da37058/node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`;
-	const expectedFullPath = shortenPath(longPath);
-	const theme = {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-	};
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	const cases: Array<{ name: string; args: Record<string, unknown> }> = [
-		{ name: "read", args: { path: longPath, offset: 1, limit: 2000 } },
-		{ name: "grep", args: { pattern: "systemPrompt", path: longPath } },
-		{ name: "find", args: { pattern: "*.md", path: longPath } },
-		{ name: "ls", args: { path: longPath } },
-		{ name: "edit", args: { path: longPath, edits: [{ oldText: "a", newText: "b" }] } },
-		{ name: "write", args: { path: longPath, content: "x" } },
-	];
-
-	for (const entry of cases) {
-		const tool = byName.get(entry.name);
-		assert.ok(tool?.renderCall, `${entry.name} has renderCall`);
-		const args = { ...entry.args, displaySummary: "Inspecting the RPC docs" };
-		const collapsedContext = {
-			argsComplete: false,
-			executionStarted: true,
-			expanded: false,
-			isPartial: false,
-		};
-		const collapsed = tool.renderCall(args, theme, collapsedContext) as { render(width: number): string[] };
-		const collapsedLines = collapsed.render(76).map((line) => line.trimEnd());
-		const collapsedText = collapsedLines.join("\n");
-
-		assert.equal(collapsedLines.length, 1, `${entry.name} collapsed header stays on one line`);
-		assert.ok(visibleWidth(collapsedLines[0] ?? "") <= 76, `${entry.name} respects available width`);
-		assert.match(collapsedText, /…/u, `${entry.name} shows a middle path ellipsis`);
-		assert.match(collapsedText, /rpc\.md/u, `${entry.name} preserves the basename`);
-		assert.doesNotMatch(collapsedText, /3f756669fd860ae9/u, `${entry.name} hides store hashes`);
-
-		const expanded = tool.renderCall(
-			args,
-			theme,
-			{ ...collapsedContext, expanded: true, lastComponent: collapsed },
-		) as { render(width: number): string[] };
-		assert.equal(expanded, collapsed, `${entry.name} reuses its call component`);
-		const expandedLines = expanded.render(76).map((line) => line.trimEnd());
-		assert.match(expandedLines[0] ?? "", /^● \S/u, `${entry.name} keeps its status marker with the call label`);
-		assert.ok(
-			expandedLines.join("").includes(expectedFullPath),
-			`${entry.name} restores the complete path when expanded`,
-		);
-	}
-});
-
-test("built-in renderers use accent for model intent and muted for fallback intent", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	const read = registeredTools.find((tool) => tool.name === "read");
-	assert.ok(read);
-	const theme = {
-		fg: (color: string, value: string): string => `<${color}>${value}</${color}>`,
-		bold: (value: string): string => value,
-	};
-
-	const modelIntent = read.renderCall?.(
-		{ path: "sample.txt", displaySummary: "Checking the sample file" },
-		theme,
-		{},
-	) as { render(width: number): string[] };
-	const modelIntentText = modelIntent.render(160).join("\n");
-	assert.match(modelIntentText, /<text>sample\.txt<\/text>/);
-	assert.match(modelIntentText, /<accent>Checking the sample file<\/accent>/);
-
-	const fallbackIntent = read.renderCall?.(
-		{ path: "sample.txt" },
-		theme,
-		{},
-	) as { render(width: number): string[] };
-	assert.match(fallbackIntent.render(160).join("\n"), /<muted>Read file<\/muted>/);
-});
-
-test("live ToolExecutionComponent shows fallback after args complete while restored rows stay target-only", async () => {
-	initTheme("dark", false);
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	const read = registeredTools.find((tool) => tool.name === "read");
-	assert.ok(read);
-
-	const ui = { requestRender() {} };
-	const row = new ToolExecutionComponent(
-		"read",
-		"read-live-fallback",
-		{ path: "sample.txt" },
-		{},
-		read as never,
-		ui as never,
-		process.cwd(),
-	);
-	row.setArgsComplete();
-	await eventHandlers.tool_execution_start?.({
-		toolCallId: "read-live-fallback",
-		toolName: "read",
-		args: { path: "sample.txt" },
-	});
-	row.markExecutionStarted();
-	assert.match(row.render(160).join("\n"), /Read file/);
-
-	await eventHandlers.tool_execution_end?.({
-		toolCallId: "read-live-fallback",
-		toolName: "read",
-		result: { content: [{ type: "text", text: "done" }] },
-		isError: false,
-	});
-	row.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
-	assert.doesNotMatch(row.render(160).join("\n"), /Read file/);
-
-	const bash = registeredTools.find((tool) => tool.name === "bash");
-	assert.ok(bash?.renderCall);
-	await eventHandlers.tool_execution_start?.({
-		toolCallId: "bash-live-fallback",
-		toolName: "bash",
-		args: { command: "pnpm test" },
-	});
-	const bashCall = bash.renderCall(
-		{ command: "pnpm test" },
-		{ fg: (_color: string, value: string) => value, bold: (value: string) => value },
-		{
-			toolCallId: "bash-live-fallback",
-			executionStarted: true,
-			argsComplete: true,
-			isPartial: false,
-			state: {},
-		},
-	) as { render(width: number): string[] };
-	assert.match(bashCall.render(160).join("\n"), /Run command/);
-	await eventHandlers.tool_execution_end?.({
-		toolCallId: "bash-live-fallback",
-		toolName: "bash",
-		result: { content: [] },
-		isError: false,
-	});
-});
-
-test("cooperative custom tools can share intent, execution stripping, and inherited result rendering", async () => {
-	const { api } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		mcpOutputMode: "summary" as const,
-	};
-	registerToolDisplayOverrides(api, () => config);
-	let executedArgs: unknown;
-	const customTool = decorateToolForDisplay(
-		withDisplaySummary({
-			name: "custom_probe",
-			label: "Custom Probe",
-			description: "Probe a remote value.",
-			parameters: {
-				type: "object",
-				properties: { query: { type: "string" } },
-				required: ["query"],
-			},
-			execute(_id: string, args: unknown) {
-				executedArgs = args;
-				return { content: [{ type: "text", text: "ok" }] };
-			},
-		}),
-		{
-			kind: "generic",
-			outputMode: "inherit",
-			overrideExistingRenderers: true,
-			getCallPresentation(args: unknown) {
-				assert.deepEqual(args, { query: "alpha" });
-				return { target: "remote alpha", metadata: ["cached"] };
-			},
-			getResultPresentation() {
-				return { summary: "Remote · 2 values" };
-			},
-		},
-	);
-	const args = { query: "alpha", displaySummary: "Checking the remote value" };
-	const theme = {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-	};
-	const callComponent = customTool.renderCall?.(args, theme, {}) as { render(width: number): string[] };
-	assert.match(callComponent.render(160).join("\n"), /● custom_probe\(remote alpha · cached\) — Checking the remote value/);
-
-	const resultComponent = customTool.renderResult?.(
-		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
-		{ expanded: false, isPartial: false },
-		theme,
-		{},
-	) as { render(width: number): string[] };
-	assert.match(resultComponent.render(160).join("\n"), /Remote · 2 values/);
-
-	const errorResult = {
-		content: [{ type: "text", text: "Remote content failure\nstack frame one\nstack frame two" }],
-		details: { summary: "presentation must not replace content" },
-	};
-	const collapsedError = customTool.renderResult?.(
-		errorResult,
-		{ expanded: false, isPartial: false },
-		theme,
-		{ isError: true },
-	) as { render(width: number): string[] };
-	const collapsedErrorLines = collapsedError.render(32).map((line) => line.trimEnd());
-	assert.equal(collapsedErrorLines.length, 1);
-	assert.ok(visibleWidth(collapsedErrorLines[0] ?? "") <= 32);
-	assert.match(collapsedErrorLines[0] ?? "", /⎿ Remote content failure/u);
-	assert.doesNotMatch(collapsedErrorLines[0] ?? "", /Remote · 2 values/);
-
-	const expandedError = customTool.renderResult?.(
-		errorResult,
-		{ expanded: true, isPartial: false },
-		theme,
-		{ isError: true },
-	) as { render(width: number): string[] };
-	assert.equal(
-		expandedError.render(160).map((line) => line.trimEnd()).join("\n"),
-		"  ⎿ Remote content failure\n    stack frame one\n    stack frame two",
-	);
-
-	await customTool.execute("call-custom", args);
-	assert.deepEqual(executedArgs, { query: "alpha" });
-});
-
-test("cooperative result presentations share preview rows and skip duplicated raw headers", () => {
-	const { api } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		mcpOutputMode: "preview" as const,
-		previewRows: 3,
-	};
-	registerToolDisplayOverrides(api, () => config);
-	const customTool = decorateToolForDisplay(
-		withDisplaySummary({
-			name: "preview_probe",
-			label: "Preview Probe",
-			description: "Preview remote values.",
-			parameters: { type: "object", properties: {} },
-			execute() {
-				return { content: [{ type: "text", text: "ok" }] };
-			},
-		}),
-		{
-			kind: "generic",
-			outputMode: "inherit",
-			overrideExistingRenderers: true,
-			getResultPresentation() {
-				return { summary: "Remote · 2 values", previewStartLine: 2 };
-			},
-		},
-	);
-	const theme = {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-	};
-	const component = customTool.renderResult?.(
-		{ content: [{ type: "text", text: "duplicate title\nduplicate metadata\nalpha\nbeta" }], details: {} },
-		{ expanded: false, isPartial: false },
-		theme,
-		{},
-	) as { render(width: number): string[] };
-	const rendered = component.render(160).map((line) => line.trimEnd()).join("\n");
-	assert.equal(rendered, "  ⎿ Remote · 2 values\n    alpha\n    beta");
-	assert.doesNotMatch(rendered, /duplicate/);
-});
-
-test("aggregate keeps built-in definitions intact without displaySummary schemas", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallLayout: "aggregate" as const,
-		toolCallStyle: "compact" as const,
-	};
-	registerToolDisplayOverrides(api, () => config);
-
-	assert.deepEqual(
-		registeredTools.map((tool) => tool.name).sort(),
-		["bash", "edit", "find", "grep", "ls", "read", "write"],
-	);
-	for (const tool of registeredTools) {
-		const schema = tool.parameters as { properties?: Record<string, unknown>; required?: string[] };
-		assert.notEqual(tool.renderShell, "self", `${tool.name} keeps its individual renderer shell for reload recovery`);
-		if (tool.name === "bash") {
-			assert.ok(schema.properties?.displaySummary, "aggregate bash asks for displaySummary");
-			assert.equal(schema.required?.includes("displaySummary"), true);
-			assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)), true);
-			continue;
-		}
-		assert.equal(schema.properties?.displaySummary, undefined, `${tool.name} omits displaySummary`);
-		assert.equal(schema.required?.includes("displaySummary") ?? false, false);
-		assert.equal(tool.promptGuidelines?.some((line) => /displaySummary/.test(line)) ?? false, false);
-	}
-	restoreAggregateToolExecutions();
-});
-
-test("aggregate history switched back to individual keeps raw detail without inventing intent", () => {
-	initTheme("dark", false);
-	const aggregateConfig = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallLayout: "aggregate" as const,
-	};
-	const aggregateStub = createExtensionApiStub();
-	registerToolDisplayOverrides(aggregateStub.api, () => aggregateConfig);
-	const aggregateRead = aggregateStub.registeredTools.find((tool) => tool.name === "read");
-	const aggregateSchema = aggregateRead?.parameters as { properties?: Record<string, unknown> };
-	assert.equal(aggregateSchema.properties?.displaySummary, undefined);
-	const storedArgs = { path: "history.ts" };
-	restoreAggregateToolExecutions();
-
-	const individualConfig = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallLayout: "individual" as const,
-		resultMode: "preview" as const,
-		readOutputMode: "preview" as const,
-		searchOutputMode: "preview" as const,
-		mcpOutputMode: "preview" as const,
-		bashOutputMode: "preview" as const,
-	};
-	const individualStub = createExtensionApiStub();
-	registerToolDisplayOverrides(individualStub.api, () => individualConfig);
-	const individualRead = individualStub.registeredTools.find((tool) => tool.name === "read");
-	assert.ok(individualRead);
-	const component = new ToolExecutionComponent(
-		"read",
-		"aggregate-history-read",
-		storedArgs,
-		{},
-		individualRead as never,
-		{ requestRender() {} } as never,
-		process.cwd(),
-	);
-	component.updateResult({
-		content: [{ type: "text", text: "original result" }],
-		details: {},
-		isError: false,
-	});
-	const rendered = component.render(120).join("\n");
-	assert.match(rendered, /history\.ts/);
-	assert.match(rendered, /original result/);
-	assert.doesNotMatch(rendered, /Read file/);
-	assert.doesNotMatch(rendered, / — /);
-});
-
-test("all individual built-ins suppress fallback intent on restored calls", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	const cases: Array<{ name: string; args: Record<string, unknown> }> = [
-		{ name: "read", args: { path: "history.ts" } },
-		{ name: "grep", args: { pattern: "needle", path: "src" } },
-		{ name: "find", args: { pattern: "*.ts", path: "src" } },
-		{ name: "ls", args: { path: "src" } },
-		{ name: "bash", args: { command: "pnpm test" } },
-		{ name: "edit", args: { path: "history.ts", edits: [{ oldText: "a", newText: "b" }] } },
-		{ name: "write", args: { path: "history.ts", content: "content" } },
-	];
-	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
-	for (const entry of cases) {
-		const component = byName.get(entry.name)?.renderCall?.(
-			entry.args,
-			theme,
-			{ executionStarted: false, isPartial: false, argsComplete: false, state: {} },
-		) as { render(width: number): string[] };
-		assert.doesNotMatch(component.render(160).join("\n"), / — /, `${entry.name} does not invent intent`);
-	}
-});
-
-test("historical model-written intent remains visible when it was actually stored", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	const read = registeredTools.find((tool) => tool.name === "read");
-	const component = read?.renderCall?.(
-		{ path: "history.ts", displaySummary: "Reviewing stored history" },
-		{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
-		{ executionStarted: false, isPartial: false },
-	) as { render(width: number): string[] };
-	assert.match(component.render(120).join("\n"), /Reviewing stored history/);
-});
-
-test("aggregate respects passthrough and external ownership boundaries", () => {
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallLayout: "aggregate" as const,
-		registerToolOverrides: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.registerToolOverrides,
-			read: false,
-		},
-	};
-	const { api, registeredTools } = createExtensionApiStub([
-		{ name: "edit", sourceInfo: { source: "local", path: "/extensions/interactive-edit.ts" } },
-	]);
-	registerToolDisplayOverrides(api, () => config);
-	const names = new Set(registeredTools.map((tool) => tool.name));
-	assert.equal(names.has("read"), false, "passthrough read remains independent");
-	assert.equal(names.has("edit"), false, "externally owned edit remains independent");
-	assert.equal(names.has("bash"), true);
-	restoreAggregateToolExecutions();
-});
-
-test("aggregate decorateTool keeps call presentation for the Run ledger", () => {
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallLayout: "aggregate" as const,
-	};
-	const { api } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => config);
-	try {
-		const customTool = decorateToolForDisplay(
-			{
-				name: "web_search",
-				description: "Search the web",
-				parameters: { type: "object", properties: { query: { type: "string" } } },
-				execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
-				renderCall: () => ({ render: () => ["ORIGINAL SEARCH CALL"] }),
-			},
-			{
-				getCallPresentation(args: unknown) {
-					const query = (args as { query?: unknown }).query;
-					return typeof query === "string" ? { target: query } : undefined;
-				},
-			},
-		);
-		assert.equal(
-			formatAggregateTarget({ toolName: "web_search", args: { query: "prod metrics" } }),
-			"web_search(prod metrics)",
-		);
-		const call = customTool.renderCall?.({ query: "prod metrics" }, { fg: (_c: string, t: string) => t, bold: (t: string) => t });
-		assert.deepEqual(
-			(call as { render(width: number): string[] }).render(80),
-			["ORIGINAL SEARCH CALL"],
-		);
-	} finally {
-		setAggregateCallPresentationLookup(undefined);
-		restoreAggregateToolExecutions();
-	}
-});
-
-test("non-bash built-ins omit displaySummary schemas", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-
-	const read = registeredTools.find((tool) => tool.name === "read");
-	const schema = read?.parameters as { properties: Record<string, unknown>; required?: string[] };
-	assert.equal(schema.properties.displaySummary, undefined);
-	assert.equal(schema.required?.includes("displaySummary") ?? false, false);
-});
-
-test("registerToolDisplayOverrides uses the Claude self render shell for edit", async () => {
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	await eventHandlers.before_agent_start?.();
-
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	assert.equal(byName.get("edit")?.renderShell, "self");
-});
-
-test("Claude style uses self-rendered tool headers, deterministic fallbacks, and indented results", () => {
-	const { api, registeredTools } = createExtensionApiStub();
-	const config = {
-		...DEFAULT_TOOL_DISPLAY_CONFIG,
-		toolCallStyle: "claude" as const,
-		readOutputMode: "summary" as const,
-		toolIntent: {
-			...DEFAULT_TOOL_DISPLAY_CONFIG.toolIntent,
-			language: "zh-CN" as const,
-		},
-	};
-	registerToolDisplayOverrides(api, () => config);
-
-	const byName = new Map(registeredTools.map((tool) => [tool.name, tool]));
-	for (const name of ["read", "grep", "find", "ls", "bash", "edit", "write"] as const) {
-		assert.equal(byName.get(name)?.renderShell, "self", `${name} uses the self shell`);
-	}
-
-	const theme = {
-		fg: (_color: string, text: string) => text,
-		bold: (text: string) => text,
-	};
-	const read = byName.get("read");
-	const call = read?.renderCall?.(
-		{ path: "sample.txt" },
-		theme,
-		{ executionStarted: true, isPartial: false },
-	) as { render(width: number): string[] };
-	assert.equal(call.render(120).map((line) => line.trimEnd()).join("\n"), "● Read(sample.txt) — 读取文件");
-
-	const callCases: Array<{ name: string; args: Record<string, unknown>; expected: RegExp }> = [
-		{ name: "grep", args: { pattern: "needle", path: "src" }, expected: /^● Search\(\/needle\/ in src\).*搜索文件内容$/ },
-		{ name: "find", args: { pattern: "**\/*.ts" }, expected: /^● Find\(\*\*\/\*\.ts in \.\).*查找匹配文件$/ },
-		{ name: "ls", args: { path: "src" }, expected: /^● List\(src\).*列出目录内容$/ },
-		{ name: "bash", args: { command: "pnpm test" }, expected: /^● Bash\(pnpm test\).*执行命令$/ },
-		{ name: "edit", args: { path: "sample.txt", edits: [{ oldText: "a", newText: "b" }] }, expected: /^● Update\(sample\.txt\).*更新文件$/ },
-		{ name: "write", args: { path: "sample.txt", content: "hello" }, expected: /^● Write\(sample\.txt\).*写入文件$/ },
-	];
-	for (const entry of callCases) {
-		const rendered = byName.get(entry.name)?.renderCall?.(
-			entry.args,
-			theme,
-			{ argsComplete: false, executionStarted: true, isPartial: false },
-		) as { render(width: number): string[] };
-		assert.match(rendered.render(160).map((line) => line.trimEnd()).join("\n"), entry.expected);
-	}
-
-	const result = read?.renderResult?.(
-		{ content: [{ type: "text", text: "alpha\nbeta" }], details: {} },
-		{ expanded: false, isPartial: false },
-		theme,
-		{},
-	) as { render(width: number): string[] };
-	assert.equal(result.render(120).map((line) => line.trimEnd()).join("\n"), "  ⎿ loaded 2 lines • Ctrl+O to expand");
-});
-
-test("registerToolDisplayOverrides leaves externally owned read/edit/grep tools active", async () => {
-	const { api, registeredTools, eventHandlers } = createExtensionApiStub([
-		{ name: "read", sourceInfo: { source: "local", path: "agent/extensions/example-read/src/read.ts" } },
-		{ name: "edit", sourceInfo: { source: "local", path: "agent/extensions/example-edit/src/edit.ts" } },
-		{ name: "grep", sourceInfo: { source: "local", path: "agent/extensions/example-grep/src/grep.ts" } },
-	]);
-
-	registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-	await eventHandlers.before_agent_start?.();
-
-	const registeredNames = new Set(registeredTools.map((tool) => tool.name));
-	assert.equal(registeredNames.has("read"), false);
-	assert.equal(registeredNames.has("edit"), false);
-	assert.equal(registeredNames.has("grep"), false);
-	assert.equal(registeredNames.has("find"), true);
-	assert.equal(registeredNames.has("ls"), true);
-	assert.equal(registeredNames.has("bash"), true);
-	assert.equal(registeredNames.has("write"), true);
-});
-
-test("bash override uses shellPath from Pi settings", async () => {
-	await withTempDir("pi-tool-display-shellpath-", async (dir) => {
-		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = dir;
-		writeFileSync(
-			join(dir, "settings.json"),
-			JSON.stringify({ shellPath: "/definitely/missing/bash" }),
-			"utf8",
-		);
-
-		try {
-			const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-			registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-			await eventHandlers.before_agent_start?.();
-
-			const bashTool = registeredTools.find((tool) => tool.name === "bash") as ExecutableToolLike | undefined;
-			assert.ok(bashTool, "expected bash override to be registered");
-			await assert.rejects(
-				bashTool.execute("tool-call-1", { command: "printf test" }, undefined, undefined, { cwd: process.cwd() }),
-				/custom shell path not found/i,
-			);
-			assert.equal(bashTool.description.length > 0, true);
-		} finally {
-			if (previousAgentDir === undefined) {
-				delete process.env.PI_CODING_AGENT_DIR;
-			} else {
-				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-			}
-		}
-	});
-});
-
-test("bash override uses shellCommandPrefix from Pi settings", async () => {
-	await withTempDir("pi-tool-display-shellprefix-", async (dir) => {
-		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = dir;
-		writeFileSync(
-			join(dir, "settings.json"),
-			JSON.stringify({ shellCommandPrefix: "printf 'prefix-output\\n'" }),
-			"utf8",
-		);
-
-		try {
-			const { api, registeredTools, eventHandlers } = createExtensionApiStub();
-			registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-			await eventHandlers.before_agent_start?.();
-
-			const bashTool = registeredTools.find((tool) => tool.name === "bash") as ExecutableToolLike | undefined;
-			assert.ok(bashTool, "expected bash override to be registered");
-			const result = await bashTool.execute(
-				"tool-call-2",
-				{ command: "printf 'command-output\\n'" },
-				undefined,
-				undefined,
-				{ cwd: process.cwd() },
-			);
-			assert.equal(getTextOutput(result).trim(), "prefix-output\ncommand-output");
-		} finally {
-			if (previousAgentDir === undefined) {
-				delete process.env.PI_CODING_AGENT_DIR;
-			} else {
-				process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-			}
-		}
-	});
-});
-
-test("registerToolDisplayOverrides drains pending display decorations from early-loading extensions", () => {
-	type GlobalWithPendingDecorations = typeof globalThis & {
-		[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?: Array<{
-			tool: Record<string, unknown>;
-			adapter?: Record<string, unknown>;
-		}>;
-	};
-	const globalWithPending = globalThis as GlobalWithPendingDecorations;
-	const previousPending = globalWithPending[TOOL_DISPLAY_PENDING_DECORATIONS_KEY];
-	const queuedTool: Record<string, unknown> = {
-		name: "mcp",
-		label: "MCP Proxy",
-		description: "Unified MCP gateway.",
-		parameters: {},
-		execute(): void {
-			// No-op test stub.
-		},
-	};
-	globalWithPending[TOOL_DISPLAY_PENDING_DECORATIONS_KEY] = [
-		{
-			adapter: { kind: "mcp" },
-			tool: queuedTool,
-		},
-	];
-
-	try {
-		const { api, registeredTools } = createExtensionApiStub();
-
-		registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-
-		assert.equal(registeredTools.some((tool) => tool.name === "mcp"), false);
-		assert.equal(typeof queuedTool.renderCall, "function", "expected queued MCP tool to receive renderCall");
-		assert.equal(typeof queuedTool.renderResult, "function", "expected queued MCP tool to receive renderResult");
-		assert.equal(globalWithPending[TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?.length, 0);
-	} finally {
-		if (previousPending) {
-			globalWithPending[TOOL_DISPLAY_PENDING_DECORATIONS_KEY] = previousPending;
-		} else {
-			delete globalWithPending[TOOL_DISPLAY_PENDING_DECORATIONS_KEY];
-		}
-	}
+test("pending cooperative decorations restore only the renderers they still own", async () => {
+  const key = Symbol.for("pi-tool-display-intent.pendingDecorations.v1");
+  const global = globalThis as any;
+  const previous = global[key];
+  const tool: any = { name: "mcp", parameters: {}, execute: async () => ({ content: [], details: undefined }) };
+  global[key] = [{ tool, adapter: { kind: "mcp" } }];
+  const h = await createDisplaySession();
+  try {
+    assert.equal(typeof tool.renderCall, "function");
+    assert.equal(global[key].length, 0);
+    const later = () => new Text("later renderer", 0, 0);
+    tool.renderCall = later;
+    await h.close();
+    assert.equal(tool.renderCall, later);
+    assert.equal(tool.renderResult, undefined);
+  } finally {
+    if (previous === undefined) delete global[key]; else global[key] = previous;
+  }
 });

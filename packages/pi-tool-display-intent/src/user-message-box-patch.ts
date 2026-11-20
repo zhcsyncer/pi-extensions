@@ -1,86 +1,73 @@
 export type UserMessageRenderFn = (width: number) => string[];
+type SetExpandedFn = (expanded: boolean) => void;
+export interface UserMessagePatchOwner { retired: boolean }
+const USER_MESSAGE_PATCH_OWNER: UserMessagePatchOwner = { retired: false };
+const PATCH = Symbol.for("pi-tool-display-intent.user-message-patch.v1");
 
-const USER_MESSAGE_PATCH_OWNER = {};
+interface UserMessagePatch {
+  owner: UserMessagePatchOwner;
+  version: number;
+  active: boolean;
+  originalRender: UserMessageRenderFn;
+  render: UserMessageRenderFn;
+  originalSetExpanded?: SetExpandedFn;
+  setExpanded?: SetExpandedFn;
+}
 
 export interface PatchableUserMessagePrototype {
   render: UserMessageRenderFn;
-  setExpanded?: (expanded: boolean) => void;
+  setExpanded?: SetExpandedFn;
   invalidate?: () => void;
-  __piUserMessageOriginalRender?: UserMessageRenderFn;
-  __piUserMessageOriginalSetExpanded?: (expanded: boolean) => void;
-  __piUserMessageNativePatched?: boolean;
-  __piUserMessageSetExpandedPatched?: boolean;
-  __piUserMessagePatchVersion?: number;
-  __piUserMessagePatchOwner?: object;
+  [PATCH]?: UserMessagePatch;
 }
 
 export function unregisterUserMessageRenderPrototypePatch(
   prototype: PatchableUserMessagePrototype,
+  owner: UserMessagePatchOwner = USER_MESSAGE_PATCH_OWNER,
 ): void {
-  const originalRender = prototype.__piUserMessageOriginalRender;
-  if (typeof originalRender === "function") {
-    prototype.render = originalRender;
+  const state = prototype[PATCH];
+  if (!state || state.owner !== owner) return;
+  // A later renderer may have captured our wrapper. Leave its chain intact,
+  // but make our retired layer a transparent delegate.
+  state.active = false;
+  if (prototype.render === state.render) prototype.render = state.originalRender;
+  if (state.setExpanded && prototype.setExpanded === state.setExpanded) {
+    if (state.originalSetExpanded) prototype.setExpanded = state.originalSetExpanded;
+    else delete prototype.setExpanded;
   }
-
-  if (prototype.__piUserMessageSetExpandedPatched) {
-    if (prototype.__piUserMessageOriginalSetExpanded) {
-      prototype.setExpanded = prototype.__piUserMessageOriginalSetExpanded;
-    } else {
-      delete prototype.setExpanded;
-    }
-  }
-
-  delete prototype.__piUserMessageOriginalRender;
-  delete prototype.__piUserMessageOriginalSetExpanded;
-  delete prototype.__piUserMessageNativePatched;
-  delete prototype.__piUserMessageSetExpandedPatched;
-  delete prototype.__piUserMessagePatchVersion;
-  delete prototype.__piUserMessagePatchOwner;
+  delete prototype[PATCH];
 }
 
 export function patchUserMessageRenderPrototype(
   prototype: PatchableUserMessagePrototype,
   patchVersion: number,
   buildRender: (originalRender: UserMessageRenderFn) => UserMessageRenderFn,
+  owner: UserMessagePatchOwner = USER_MESSAGE_PATCH_OWNER,
+  buildSetExpanded?: (original?: SetExpandedFn) => SetExpandedFn,
 ): void {
-  if (typeof prototype.render !== "function") {
-    return;
+  if (owner.retired || typeof prototype.render !== "function") return;
+  const previous = prototype[PATCH];
+  if (previous?.owner === owner && previous.version === patchVersion && previous.active) return;
+  if (previous) {
+    if (previous.owner !== owner) previous.owner.retired = true;
+    unregisterUserMessageRenderPrototypePatch(prototype, previous.owner);
   }
-
-  const previousOriginalRender = prototype.__piUserMessageOriginalRender;
-  const hasPreviousPatch = typeof previousOriginalRender === "function"
-    && previousOriginalRender !== prototype.render;
-  const isCurrentPatch = prototype.__piUserMessagePatchOwner === USER_MESSAGE_PATCH_OWNER;
-  let restoredStalePatch = false;
-
-  if (hasPreviousPatch && !isCurrentPatch) {
-    prototype.render = previousOriginalRender;
-    delete prototype.__piUserMessageNativePatched;
-    delete prototype.__piUserMessagePatchVersion;
-    delete prototype.__piUserMessagePatchOwner;
-    restoredStalePatch = true;
-  }
-
-  if (
-    !restoredStalePatch
-    && prototype.__piUserMessageNativePatched
-    && prototype.__piUserMessagePatchVersion === patchVersion
-    && typeof prototype.__piUserMessageOriginalRender === "function"
-  ) {
-    return;
-  }
-
-  if (!prototype.__piUserMessageOriginalRender) {
-    prototype.__piUserMessageOriginalRender = prototype.render;
-  }
-
-  const originalRender = prototype.__piUserMessageOriginalRender;
-  if (!originalRender) {
-    return;
-  }
-
-  prototype.render = buildRender(originalRender);
-  prototype.__piUserMessageNativePatched = true;
-  prototype.__piUserMessagePatchVersion = patchVersion;
-  prototype.__piUserMessagePatchOwner = USER_MESSAGE_PATCH_OWNER;
+  const originalRender = prototype.render;
+  const render = buildRender(originalRender);
+  const originalSetExpanded = prototype.setExpanded;
+  const setExpanded = buildSetExpanded?.(originalSetExpanded);
+  const state: UserMessagePatch = {
+    owner, version: patchVersion, active: true, originalRender, originalSetExpanded,
+    render(width) {
+      return (state.active ? render : originalRender).call(this, width);
+    },
+    ...(setExpanded ? {
+      setExpanded(this: object, expanded: boolean) {
+        (state.active ? setExpanded : originalSetExpanded)?.call(this, expanded);
+      },
+    } : {}),
+  };
+  prototype[PATCH] = state;
+  prototype.render = state.render;
+  if (state.setExpanded) prototype.setExpanded = state.setExpanded;
 }

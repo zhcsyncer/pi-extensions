@@ -77,6 +77,7 @@ interface ProviderContext {
 }
 
 export interface StateSessionEntry {
+	id?: string;
 	type?: string;
 	message?: StateMessageInputs;
 	usage?: StateMessageUsageInputs;
@@ -84,21 +85,27 @@ export interface StateSessionEntry {
 
 const EMPTY_USAGE_TOTALS: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 
-function usageCost(usage: StateMessageUsageInputs | undefined): number {
-	const cost = usage?.cost;
-	if (!cost) return 0;
-	if (Number.isFinite(cost.total)) return cost.total ?? 0;
-	return (cost.input ?? 0) + (cost.output ?? 0) + (cost.cacheRead ?? 0) + (cost.cacheWrite ?? 0);
+function usageCost(usage: StateMessageUsageInputs): number | undefined {
+	const cost = usage.cost;
+	if (!cost) return undefined;
+	if (typeof cost.total === "number" && Number.isFinite(cost.total) && cost.total >= 0) return cost.total;
+	if (cost.total !== undefined) return undefined;
+	const parts = [cost.input, cost.output, cost.cacheRead, cost.cacheWrite];
+	return parts.every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0)
+		? parts.reduce<number>((sum, value) => sum + value!, 0)
+		: undefined;
 }
 
 function usageTotalsFromUsage(usage: StateMessageUsageInputs | undefined): UsageTotals {
 	if (!usage) return { ...EMPTY_USAGE_TOTALS };
+	const cost = usageCost(usage);
 	return {
 		input: usage.input ?? 0,
 		output: usage.output ?? 0,
 		cacheRead: usage.cacheRead ?? 0,
 		cacheWrite: usage.cacheWrite ?? 0,
-		cost: usageCost(usage),
+		cost: cost ?? 0,
+		...(cost === undefined ? { costUnknown: true } : {}),
 	};
 }
 
@@ -112,15 +119,21 @@ export function usageTotalsFromSessionMessage(message: StateMessageInputs): Usag
 
 export function usageTotalsFromEntries(entries: readonly StateSessionEntry[]): UsageTotals {
 	const totals: UsageTotals = { ...EMPTY_USAGE_TOTALS };
+	const seen = new Set<string>();
 	for (const entry of entries) {
+		if (entry.id !== undefined) {
+			if (seen.has(entry.id)) continue;
+			seen.add(entry.id);
+		}
 		let delta = EMPTY_USAGE_TOTALS;
 		if (entry.type === "message" && entry.message) delta = usageTotalsFromSessionMessage(entry.message);
-		else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) delta = usageTotalsFromUsage(entry.usage);
+		else if ((entry.type === "usage" || entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) delta = usageTotalsFromUsage(entry.usage);
 		totals.input += delta.input;
 		totals.output += delta.output;
 		totals.cacheRead += delta.cacheRead;
 		totals.cacheWrite += delta.cacheWrite;
 		totals.cost += delta.cost;
+		if (delta.costUnknown) totals.costUnknown = true;
 	}
 	return totals;
 }
@@ -214,19 +227,18 @@ export function lifecycleInputsFromContext(ctx: ExtensionContext, thinkingLevel:
 	};
 }
 
-export function compactInputsFromContext(ctx: ExtensionContext, thinkingLevel: string, autoCompactEnabled = true): StateCompactInputs {
+export function compactInputsFromContext(ctx: ExtensionContext, thinkingLevel: string, autoCompactEnabled = true, usage?: UsageTotals): StateCompactInputs {
 	const lifecycle = lifecycleInputsFromContext(ctx, thinkingLevel, autoCompactEnabled);
-	const entries = ctx.sessionManager.getEntries();
 	return {
 		...lifecycle,
 		runtime: runtimeInputs(autoCompactEnabled),
-		usage: usageTotalsFromEntries(entries),
+		usage: usage ?? usageTotalsFromEntries(ctx.sessionManager.getEntries()),
 	};
 }
 
-export function stateInputsFromContext(ctx: ExtensionContext, thinkingLevel: string, autoCompactEnabled = true): StateInputs {
+export function stateInputsFromContext(ctx: ExtensionContext, thinkingLevel: string, autoCompactEnabled = true, usage?: UsageTotals): StateInputs {
 	return {
-		...compactInputsFromContext(ctx, thinkingLevel, autoCompactEnabled),
+		...compactInputsFromContext(ctx, thinkingLevel, autoCompactEnabled, usage),
 		unknownContextAfterLatestCompaction: hasUnknownContextAfterLatestCompaction(ctx.sessionManager.getBranch()),
 	};
 }

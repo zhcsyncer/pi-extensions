@@ -16,7 +16,7 @@ pi install npm:@zhcsyncer/pi-subagents
 pi install npm:@zhcsyncer/pi-extensions
 ```
 
-Requires Pi 0.86 or later. Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
+Requires Pi 1.2 or later (verified with 1.2.0). Remove any existing `@tintinweb/pi-subagents` installation from Pi settings before loading this fork: both register the same tools and FleetView.
 
 ## Core features and upstream differences
 
@@ -28,10 +28,13 @@ Requires Pi 0.86 or later. Remove any existing `@tintinweb/pi-subagents` install
 - **Worktrees are opt-in:** selected upstream 0.17 session/isolation behavior, but `worktreeIsolation` defaults to `false` here rather than upstream's enabled default.
 - **Integrate with other extensions:** protocol-v3 in-process spawn with inline roles, caller-owned completion, route correlation, and concurrency discovery; an importable runtime without automatic UI/tool registration.
 - **Keep trusted observers active:** `pinnedExtensions` loads observers even in isolated agents without granting their tools.
+- **Enforce tool permissions:** explicit tool/source restrictions apply to direct, nested, and late-registered calls. Each runtime keeps its own role and pin configuration.
 
 The [upstream snapshot](./UPSTREAM_README.md) covers custom agents, schedules, and other baseline features. For delivery, continuation, persistence, configuration locations, and worktree defaults, use this fork's documentation instead.
 
 ## Delegate and receive results
+
+`Agent`, `get_subagent_result`, and `steer_subagent` support both direct model calls and codemode scripts. Codemode is optional and is not enabled automatically. Child agents still cannot recursively call these three tools. Scripts use the same foreground/background cancellation semantics as direct calls: a returned background ID remains managed even if the script later fails.
 
 Use **foreground** (default) when the result is a prerequisite for your next read, edit, or decision. Use `run_in_background: true` only when you have genuinely disjoint work to do. Do not poll, sleep, or duplicate the subagent's evidence collection while it runs. You still own synthesis and final verification; check high-risk claims rather than repeating the whole investigation.
 
@@ -43,11 +46,12 @@ Manual Agent-tool background completion (including custom roles that default to 
 
 ## Session usage and Glance
 
-`reportUsage` defaults to **on** in this fork (unlike upstream 0.18). Pi **0.81.0 or newer** counts collected child usage in native session totals and Glance:
+`reportUsage` defaults to **on** in this fork (unlike upstream 0.18). Pi counts collected child usage in native session totals and Glance:
 
-- Foreground: usage is attached to the completed `Agent` tool result.
+- Foreground: usage is attached to the completed `Agent` tool result. For codemode calls, Pi carries it in the outer result; repeated retrieval and restart do not charge that usage again.
 - Background: the launch acknowledgement carries no usage; the completed `get_subagent_result` reports it once. A notification alone does not yet update parent totals.
-- Repeated retrievals and resumes report only previously unreported lifetime usage, including cache reads and provider-reported cost.
+- Repeated retrievals and resumes report only previously unreported lifetime usage, including cache reads and provider-reported cost. This includes recorded assistant replies, outer tool results, standalone usage, and summary generation without double-counting nested calls.
+- Parent reporting follows the selected conversation branch; switching branches does not combine mutually exclusive reports. Missing cost information is not confirmation of free work.
 
 Keep **pi-meter pinned** for live child-session accounting. Meter ignores the parent rollup rather than charging it again; child messages and history imports retain their original session/model attribution. Disable **Report usage** in `/agents → Settings` (or `reportUsage: false`) to opt out of parent totals without disabling the pin.
 
@@ -57,10 +61,12 @@ Use `steer_subagent` with the same agent ID and a message:
 
 | Agent state | What happens |
 | --- | --- |
-| Running | Appends steering to the current run |
+| Running | Reports whether the SDK queued the input or an extension handled it without queueing; delivery failures remain errors |
 | Queued or initializing | Saves the message for delivery when the child is ready |
 | Completed or `steered` (soft turn limit) | Starts a background continuation with the same ID and context, subject to concurrency limits |
 | Error, aborted, or stopped | Rejects steering; an explicit resume is required to retry |
+
+A cancellation status can appear before the child has finished stopping. Result waits, shutdown, and conflicting queued work wait for actual settlement, not just a lifecycle notification.
 
 For explicit continuation, use `Agent` with `resume: "<agent-id>"` and `prompt: "<follow-up>"`. Resume defaults to **foreground**, even if the earlier run was background. Add `run_in_background: true` to return immediately with queued/running status and use the same automatic completion, wait, and stop lifecycle as a new background run. Background resumes respect the concurrency limit; foreground resumes bypass the background queue, like new foreground runs.
 
@@ -70,9 +76,11 @@ A new Agent call without `resume` starts fresh; it does not inherit the old agen
 
 Ordinary runs persist by default. Set `persist_session: false` in an agent file for a live-only run, or `rememberAgents: false` in `/agents → Settings` for a memory-only default; explicit `persist_session: true` overrides that default. Live-only agents can continue while retained, but not reliably after eviction or restart.
 
-Recovery of saved terminal work requires eligible new-format history on the current parent-session branch and an intact child session. Older history remains viewable but cannot be resumed through these tools without recovery information. Failed/stopped saved runs still require explicit `Agent(resume=...)`.
+Recovery of saved terminal work requires eligible history on the current parent-session branch, an intact child session, and current authorization. Named roles are re-read by name from the original configuration directory; removed or disabled roles cannot resume. Current grants and denies replace old permissions without changing the task's prompt, model, cwd, history or limits; explicit isolation remains. Inline tasks prefer a supplied current definition, otherwise their held or saved task definition. Cross-version task migration is not supported. Failed/stopped saved runs still require explicit `Agent(resume=...)`.
 
-Missing or corrupt recovery files, an unavailable original working directory (including a cleaned-up worktree), or an unavailable original model cause an explicit error—never a fresh session or substitute model. Recovery uses currently installed extensions and current credentials; it is **not a process/memory snapshot or a sandbox**. In-flight work and queued follow-ups are not durably replayed after an unclean crash; no crash-exactly-once guarantee is provided.
+New grants for already registered tools work during live continuation. If current permissions require extensions that were not loaded, live continuation fails explicitly; restoring the saved task in a fresh session loads current resources. No historical permission ceiling silently hides the change.
+
+Valid compacted history can be resumed even when compaction retained none of the earlier messages. Missing or corrupt recovery files, an unavailable original working directory (including a cleaned-up worktree), or an unavailable original model cause an explicit error—never a fresh session or substitute model. Recovery uses currently installed extensions and current credentials; it is **not a process/memory snapshot or a sandbox**. In-flight work and queued follow-ups are not durably replayed after an unclean crash; no crash-exactly-once guarantee is provided.
 
 ## Inspect progress and settings
 

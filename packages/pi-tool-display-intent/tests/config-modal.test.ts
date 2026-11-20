@@ -244,7 +244,7 @@ test("aggregate modal exposes global diff settings and hides individual-only set
 	});
 	assert.deepEqual(
 		aggregateSettings.map((setting) => setting.id),
-		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth", "diffViewMode", "diffIndicatorMode"],
+		["toolCallLayout", "toolIntentLanguage", "expandedTimeline", "showContextGrowth", "diffViewMode", "diffIndicatorMode", "enableNativeUserMessageBox"],
 	);
 	assert.deepEqual(retained, original);
 	assert.equal(aggregateSettings.find((setting) => setting.id === "diffViewMode")?.currentValue, "split");

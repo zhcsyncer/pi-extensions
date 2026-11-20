@@ -136,8 +136,8 @@ Whole-target 建议上限是 200 KiB 或 5,000 个逻辑行；硬上限是 1 MiB
 
 | 组件 | 要求 |
 |---|---|
-| Pi | `>=0.84.0 <1`，提供 `ctx.scopedModels` 与 custom message renderer |
-| Subagents | 可选；protocol `3` 且 `maxConcurrent >= 1` 时启用 external backend 与 FleetView |
+| Pi | Pi 1.1 或更高，提供 `ctx.scopedModels` 与 custom message renderer |
+| Subagents | 可选；external backend 与 FleetView 要求使用兼容 Pi 1.1 的 runtime，同时支持 protocol `3` 且 `maxConcurrent >= 1`。仅有 protocol `3` 不保证兼容 Pi 1.1 |
 | Node.js | `>=22.19.0` |
 
 External runtime 不可用或不兼容时，会在执行前回退 embedded Review 并记录原因。一轮运行一旦选定 backend，后续失败不会切到另一个 backend 重跑。

@@ -1,6 +1,12 @@
+import { hasNativeCodemodeProgress, nativeView, nativeDetailView, NATIVE_NESTED_OMISSION } from "./native-nested-view.js";
+import { NESTED_LIMITS, type NestedCall } from "./nested-display.js";
+
+export type NestedCallRecord = Readonly<Pick<NestedCall, "id" | "name" | "kind" | "parentId" | "status" | "args" | "argumentBytes" | "preview" | "durationMs" | "error" | "cost">>;
+
 export type DetailRequest =
 	| { kind: "tool"; toolName: string; target?: string; args: unknown; result: unknown; status?: string; timing?: string }
-	| { kind: "steer"; text: string };
+	| { kind: "steer"; text: string }
+	| { kind: "nested"; rootToolCallId: string; call: NestedCallRecord };
 
 export const DETAIL_LIMITS = { characters: 128 * 1024, lines: 4000, lineCharacters: 8192, nodes: 6000, depth: 24 } as const;
 export const DETAIL_TRUNCATION = "[Truncated: viewer safety limit reached; remaining content omitted.]";
@@ -13,7 +19,7 @@ export interface DetailField {
 	language?: string;
 }
 export interface DetailTab {
-	id: "result" | "args" | "details";
+	id: "result" | "args" | "details" | "call-info";
 	label: string;
 	advanced?: boolean;
 	text: string;
@@ -30,6 +36,7 @@ export interface DetailModel {
 	timing?: string;
 	failed: boolean;
 	showTabs: boolean;
+	initialTab?: DetailTab["id"];
 	tabs: DetailTab[];
 }
 
@@ -419,6 +426,7 @@ function argsTab(args: unknown, toolName: string): DetailTab {
 			return {
 				key, kind, value: kind === "json" ? JSON.stringify(value, null, 2) : String(value),
 				...(toolName === "bash" && key === "command" && kind === "string" ? { language: "bash" } : {}),
+				...(toolName === "codemode" && key === "code" && kind === "string" ? { language: "javascript" } : {}),
 			};
 		});
 		if (fields.some((item) => boundedText(item.value, false).truncated)) return tab;
@@ -430,7 +438,60 @@ function chrome(value: string): string {
 	return sanitizeDetailText(value.slice(0, 160), false).replace(/\s+/g, " ");
 }
 
+function nestedDetailModel(request: Extract<DetailRequest, { kind: "nested" }>): DetailModel {
+	const readString = (key: string, limit = 4096) => {
+		const value = field(request.call, key);
+		return typeof value === "string" ? boundedText(value, false, limit).text : undefined;
+	};
+	const readNumber = (key: string) => {
+		const value = field(request.call, key);
+		return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+	};
+	const name = readString("name", 240) ?? "tool";
+	const status = readString("status", 80) ?? "unknown";
+	const source = field(request.call, "args");
+	const preview = field(request.call, "preview") === true || field(request.call, "kind") === "preview";
+	const argumentBytes = readNumber("argumentBytes");
+	let availability = "Not retained or unavailable";
+	let args: DetailTab;
+	if (typeof source !== "string") {
+		const text = `Arguments were not retained or are unavailable.${argumentBytes === undefined ? "" : ` Recorded size: ${argumentBytes} UTF-8 bytes.`}`;
+		args = { id: "args", label: "Args unavailable", text, rawText: text, presentation: "text", masked: false, truncated: false };
+	} else {
+		// The store normally enforces this budget. Guard the detail boundary too, before parsing.
+		const report = boundedText(source, false, NESTED_LIMITS.argumentBytes);
+		const oversized = report.truncated || Buffer.byteLength(source.slice(0, NESTED_LIMITS.argumentBytes + 1), "utf8") > NESTED_LIMITS.argumentBytes;
+		availability = preview ? "Preview only; not full arguments" : oversized ? "Viewer limit reached; bounded text only" : "Recorded arguments";
+		args = { id: "args", label: preview ? "Args preview" : "Args", ...report, truncated: oversized, rawText: report.text, presentation: "text" };
+		if (oversized && !report.truncated) args.text = args.rawText = `${report.text}\n${DETAIL_TRUNCATION}`;
+		if (!preview && !oversized) {
+			try { args = argsTab(JSON.parse(report.text), name); }
+			catch { availability = "Recorded text is not valid JSON"; args.label = "Args text"; }
+		}
+	}
+	const durationMs = readNumber("durationMs");
+	const cost = readNumber("cost");
+	const error = readString("error", 500);
+	const info = {
+		tool: name, status, kind: readString("kind", 80) ?? "unknown",
+		callId: readString("id") ?? "unavailable", rootToolCallId: boundedText(request.rootToolCallId, false, 4096).text,
+		parentCallId: readString("parentId") ?? "unavailable", arguments: availability,
+		...(argumentBytes === undefined ? {} : { argumentBytes }),
+		...(durationMs === undefined ? {} : { durationMs }),
+		...(cost === undefined ? {} : { cost }),
+		...(error === undefined ? {} : { error }),
+		returnContent: "Call record only. Full return content is not independently stored here.",
+	};
+	const callInfo: DetailTab = { ...argsTab(info, ""), id: "call-info", label: "Call info" };
+	return {
+		title: `${chrome(name)} · call record`, status, failed: status === "error",
+		timing: durationMs === undefined ? undefined : `${durationMs}ms`,
+		showTabs: true, initialTab: "args", tabs: [args, callInfo],
+	};
+}
+
 export function buildDetailModel(request: DetailRequest): DetailModel {
+	if (request.kind === "nested") return nestedDetailModel(request);
 	if (request.kind === "steer") {
 		const report = boundedText(request.text);
 		return {
@@ -438,9 +499,15 @@ export function buildDetailModel(request: DetailRequest): DetailModel {
 			tabs: [{ id: "result", label: "Result", ...report, rawText: report.text, presentation: "text" }],
 		};
 	}
+	const native = hasNativeCodemodeProgress(request.toolName, request.result) ? nativeView(request.result) : undefined;
+	// Only replace an omitted display projection; the request and in-budget values stay intact.
+	if (native?.omitted) request = { ...request, result: nativeDetailView(native) };
 	const details = field(request.result, "details");
 	const hasDetails = nonempty(details);
-	const metadata = metadataReport(request.result, details, hasDetails);
+	let metadata = metadataReport(request.result, details, hasDetails);
+	if (native?.omitted && metadata) {
+		metadata = boundReport({ ...metadata, truncated: true, text: `${NATIVE_NESTED_OMISSION}\n${metadata.text}` });
+	}
 	const status = request.status === undefined ? undefined : chrome(request.status);
 	const failed = field(request.result, "isError") === true || /\b(?:error|failed|failure)\b/i.test(status ?? "");
 	const diff = !failed ? editDiff(request, details) ?? writeDiff(request, status) : undefined;
@@ -459,10 +526,11 @@ export function buildDetailModel(request: DetailRequest): DetailModel {
 		primary = { id: "result", label: "Result", ...diff.display, rawText: raw.text, presentation: "text", masked: false, truncated: diff.display.truncated || raw.truncated };
 	}
 	const tabs = [primary, argsTab(request.args, request.toolName)];
+	if (request.toolName === "codemode") { tabs[0].label = "Output"; tabs[1].label = "Script"; }
 	if (metadata) tabs.push({ id: "details", label: "Metadata", advanced: true, ...metadata, rawText: metadata.text, presentation: "json" });
 	return {
 		title: chrome(request.target ?? request.toolName), status: status ?? (failed ? "failed" : undefined),
 		timing: request.timing === undefined ? undefined : chrome(request.timing),
-		failed, showTabs: true, tabs,
+		failed, showTabs: true, tabs, ...(request.toolName === "codemode" ? { initialTab: "args" as const } : {}),
 	};
 }

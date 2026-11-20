@@ -27,6 +27,7 @@ const packagePaths = [
 
 const requiredPackFiles = new Map([
 	[".", [
+		"CHANGELOG.md",
 		"README.md",
 		"README.zh-CN.md",
 		"packages/pi-recap/extensions/multiplexer.ts",
@@ -39,22 +40,8 @@ const requiredPackFiles = new Map([
 		"packages/pi-glance/assets/demo.png",
 		"packages/pi-glance/README.md",
 		"packages/pi-glance/README.zh-CN.md",
-		"packages/pi-plan-mode/package.json",
-		"packages/pi-plan-mode/extensions/plan-mode.ts",
-		"packages/pi-plan-mode/src/config.ts",
-		"packages/pi-plan-mode/src/storage.ts",
-		"packages/pi-plan-mode/src/widgets.ts",
-		"packages/pi-plan-mode/README.md",
-		"packages/pi-plan-mode/README.zh-CN.md",
 		"packages/pi-search-hub/README.md",
 		"packages/pi-search-hub/README.zh-CN.md",
-		"packages/pi-context7/extensions/context7.ts",
-		"packages/pi-context7/lib/api.ts",
-		"packages/pi-context7/config.json.example",
-		"packages/pi-context7/skills/context7-docs/SKILL.md",
-		"packages/pi-context7/README.md",
-		"packages/pi-context7/README.zh-CN.md",
-		"packages/pi-context7/UPSTREAM_SOURCE.md",
 		"packages/pi-ask-user-question/index.ts",
 		"packages/pi-ask-user-question/config-paths.ts",
 		"packages/pi-ask-user-question/view/tool-renderer.ts",
@@ -93,7 +80,6 @@ const requiredPackFiles = new Map([
 		"packages/pi-subagents/README.zh-CN.md",
 		"packages/pi-subagents/UPSTREAM_SOURCE.md",
 		"packages/pi-fast-mode/extensions/fast-mode.ts",
-		"packages/pi-fast-mode/extensions/stream-options.ts",
 		"packages/pi-fast-mode/assets/demo-fast-mode-status.png",
 		"packages/pi-fast-mode/README.md",
 		"packages/pi-fast-mode/README.zh-CN.md",
@@ -134,6 +120,7 @@ const requiredPackFiles = new Map([
 		"UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-glance", [
+		"CHANGELOG.md",
 		"index.ts",
 		"bottom-details.ts",
 		"footer.ts",
@@ -230,7 +217,6 @@ const requiredPackFiles = new Map([
 	]],
 	["./packages/pi-fast-mode", [
 		"extensions/fast-mode.ts",
-		"extensions/stream-options.ts",
 		"assets/demo-fast-mode-status.png",
 		"README.md",
 		"README.zh-CN.md",
@@ -424,6 +410,16 @@ for (const readmePath of maintainedReadmes) {
 }
 
 for (const packagePath of packagePaths) {
+	const packageManifest = JSON.parse(await readFile(resolve(repositoryRoot, packagePath, "package.json"), "utf8"));
+	for (const hostModule of ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "@sinclair/typebox", "typebox"]) {
+		assert.equal(packageManifest.dependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must come from Pi, not runtime dependencies`);
+		assert.equal(packageManifest.optionalDependencies?.[hostModule], undefined, `${packagePath}: ${hostModule} must not be an optional runtime copy`);
+		// Context7 and Plan Mode are unmaintained; Cursor only opts out of this migration round.
+		// They retain legacy peer ranges; runtime-copy and packaging checks still apply to all packages.
+		if (packagePath !== "./packages/pi-context7" && packagePath !== "./packages/pi-plan-mode" && packagePath !== "./providers/pi-provider-cursor-ask" && packageManifest.peerDependencies?.[hostModule] !== undefined) {
+			assert.equal(packageManifest.peerDependencies[hostModule], "*", `${packagePath}: host peers must use *`);
+		}
+	}
 	const result = spawnSync(
 		"npm",
 		["pack", "--dry-run", "--json", packagePath],
@@ -449,6 +445,14 @@ for (const packagePath of packagePaths) {
 		assert.ok(files.has(requiredFile), `${packagePath} npm pack is missing ${requiredFile}`);
 	}
 	if (packagePath === ".") {
+		assert.ok(
+			![...files].some((file) => file.startsWith("packages/pi-plan-mode/")),
+			"root npm pack must not include the retired pi-plan-mode package",
+		);
+		assert.ok(
+			![...files].some((file) => file.startsWith("packages/pi-context7/")),
+			"root npm pack must not include the retired pi-context7 package or its skills",
+		);
 		assert.ok(
 			![...files].some((file) => file.startsWith("packages/pi-adversarial-review/")),
 			"root npm pack must not include the standalone pi-adversarial-review package",

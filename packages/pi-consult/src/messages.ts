@@ -35,8 +35,6 @@ export const WATCHDOG_STEER_TEXT =
 	"先 consult 再继续\nStop repeating the same tool call or the same error. Call consult({ why }) with a 1-2 sentence reason before continuing.";
 
 export const errMisconfigured = (label: string, err: string) => `Consult (${label}) is misconfigured: ${err}`;
-export const errNoApiKey = (label: string) => `Consult (${label}) has no API key available.`;
-export const errNoApiKeyDetail = (provider: string) => `no API key for ${provider}`;
 export const errCallFailed = (err: string | undefined) => `Consult call failed: ${err ?? ERR_UNKNOWN}`;
 export const errCallThrew = (msg: string) => `Consult call threw: ${msg}`;
 export const errModelUnavailable = (key: string) => `Configured consult model ${key} is no longer available`;

@@ -183,7 +183,10 @@ for (const matrixCase of [
 		invoke: (harness, test) => harness.runtime.events.sessionShutdown({}, test.ctx as ExtensionContext),
 	},
 ] satisfies RuntimeScanMatrixCase[]) {
-	await assertRuntimeScanMatrixCase(matrixCase, { entries: "same", branch: "same" });
+	await assertRuntimeScanMatrixCase(matrixCase, {
+		entries: ["session_info_changed", "model_select", "turn_start", "turn_end", "agent_end"].includes(matrixCase.name) ? "increased" : "same",
+		branch: "same",
+	});
 }
 
 {
@@ -292,7 +295,7 @@ for (const matrixCase of [
 	const branchBaseline = test.getBranchReads();
 	test.setSessionName("status composition");
 	await harness.runtime.events.sessionInfoChanged({}, test.ctx as ExtensionContext);
-	assert.equal(test.getEntryReads(), entryBaseline, "session_info_changed should not scan entries after session details are removed");
+	assert.equal(test.getEntryReads(), entryBaseline + 1, "session_info_changed synchronizes durable entries once");
 	assert.equal(test.getBranchReads(), branchBaseline, "session_info_changed should not scan branch");
 }
 
@@ -320,7 +323,7 @@ for (const matrixCase of [
 	test.setContextUsage({ tokens: 123_456, contextWindow: 500_000, percent: 24.6912 });
 	await harness.runtime.events.modelSelect({}, test.ctx as ExtensionContext);
 
-	assert.equal(test.getEntryReads(), entryBaseline, "model_select should not scan session entries after the session_start baseline");
+	assert.equal(test.getEntryReads(), entryBaseline + 1, "model_select synchronizes durable entries once");
 	assert.equal(test.getBranchReads(), branchBaseline, "model_select should not scan session branch after the session_start baseline");
 	assert.deepEqual(git.schedules.slice(scheduleBaseline), [true], "model_select should preserve immediate git refresh behavior");
 	assert.ok(test.getRenderRequests() > renderBaseline, "model_select should still request a render");
@@ -336,7 +339,7 @@ for (const matrixCase of [
 	assert.equal(previewState.context.window, 500_000, "preview state should refresh context window after model_select");
 	assert.equal(previewState.context.percent, 24.6912, "preview state should refresh context percent after model_select");
 	assert.equal(previewState.runtime.autoCompactEnabled, false, "runtime should use the injected Pi auto-compaction status");
-	assert.equal(test.getEntryReads(), entryBaseline, "opening /glance after model_select should not hide a session entries scan");
+	assert.equal(test.getEntryReads(), entryBaseline + 1, "opening /glance adds no entries read after model_select");
 	assert.equal(test.getBranchReads(), branchBaseline, "opening /glance after model_select should not hide a session branch scan");
 }
 
@@ -467,7 +470,7 @@ for (const matrixCase of [
 	test.setContextUsage({ tokens: 44_000, contextWindow: 400_000, percent: 11 });
 	await harness.runtime.events.turnStart({}, test.ctx as ExtensionContext);
 
-	assert.equal(test.getEntryReads(), entryBaseline, "turn_start should not scan session entries after the session_start baseline");
+	assert.equal(test.getEntryReads(), entryBaseline + 1, "turn_start synchronizes durable entries once");
 	assert.equal(test.getBranchReads(), branchBaseline, "turn_start should not scan session branch after the session_start baseline");
 	assert.deepEqual(git.schedules.slice(scheduleBaseline), [true], "workspace-changing turn_start should schedule one immediate git refresh for the new cwd");
 	assert.equal(git.options?.getCwd(), "/workspace/fresh-repo", "git refresher getCwd should expose the refreshed turn_start workspace");
@@ -489,7 +492,7 @@ for (const matrixCase of [
 	assert.equal(previewState.context.percent, 11, "turn_start should refresh context percent through the lifecycle path");
 	assert.equal(previewState.git.branch, "fresh-preview-branch", "preview state should include the latest matching git snapshot after workspace refresh");
 	assert.equal(previewState.git.status, "dirty", "preview state should include git snapshot status after workspace refresh");
-	assert.equal(test.getEntryReads(), entryBaseline, "opening /glance after turn_start should not hide a session entries scan");
+	assert.equal(test.getEntryReads(), entryBaseline + 1, "opening /glance adds no entries read after turn_start");
 	assert.equal(test.getBranchReads(), branchBaseline, "opening /glance after turn_start should not hide a session branch scan");
 }
 
@@ -634,7 +637,7 @@ for (const matrixCase of [
 	await harness.runtime.events.messageEnd({ message: assistantMessage({ responseId: "zero-usage-after-compact", usage: { totalTokens: 0, input: 10, output: 10 } }) }, test.ctx as ExtensionContext);
 	await harness.runtime.events.messageEnd({ message: assistantMessage({ responseId: "aborted-after-compact", stopReason: "aborted", usage: { totalTokens: 100, input: 10 } }) }, test.ctx as ExtensionContext);
 	await harness.runtime.events.messageEnd({ message: assistantMessage({ responseId: "error-after-compact", stopReason: "error", usage: { totalTokens: 100, input: 10 } }) }, test.ctx as ExtensionContext);
-	assert.equal(test.getEntryReads(), entryAfterCompact, "lifecycle/message/turn_end/agent_end events after compact should not scan entries while context is unknown");
+	assert.equal(test.getEntryReads(), entryAfterCompact + 4, "model/turn-start/turn-end/agent-end synchronize durable usage even when context is unknown");
 	assert.equal(test.getBranchReads(), branchAfterCompact, "lifecycle/message/turn_end/agent_end events after compact should not scan branch while context is unknown");
 	await harness.runtime.commands.openPane("", test.ctx);
 	previewState = harness.showPanePreviewStates.at(-1);
@@ -697,10 +700,12 @@ for (const matrixCase of [
 	assert.equal(test.getBranchReads(), branchBaseline, "assistant message_end should not scan session branch after the session_start baseline");
 	assert.deepEqual(git.schedules.slice(scheduleBaseline), [], "assistant message_end should not schedule git refresh when workspace is unchanged");
 	assert.ok(test.getRenderRequests() > renderBaseline, "assistant message_end should still request a render");
+	test.appendSessionEntry(sessionMessage("assistant", firstMessage));
+	await harness.runtime.events.turnEnd({}, test.ctx);
 	await harness.runtime.commands.openPane("", test.ctx);
 	let previewState = harness.showPanePreviewStates.at(-1);
 	assert.ok(previewState, "assistant message_end should open /glance with preview state");
-	assert.deepEqual(previewState.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.5 }, "assistant message_end should add message-level usage with cost.total semantics");
+	assert.deepEqual(previewState.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.5 }, "durable boundary adds message-level usage with cost.total semantics");
 
 	await harness.runtime.events.messageEnd(
 		{ message: assistantMessage({ responseId: "resp-1", usage: { input: 100, output: 100, cacheRead: 100, cacheWrite: 100, cost: { total: 100 } } }) },
@@ -709,25 +714,27 @@ for (const matrixCase of [
 	await harness.runtime.commands.openPane("", test.ctx);
 	previewState = harness.showPanePreviewStates.at(-1);
 	assert.ok(previewState, "duplicate responseId check should open /glance with preview state");
-	assert.deepEqual(previewState.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.5 }, "assistant message_end should dedupe repeated responseId deltas");
+	assert.deepEqual(previewState.usage, { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.5 }, "unpersisted message events cannot add cost");
 
 	const objectIdentityMessage = assistantMessage({ usage: { input: 7, output: 8, cacheRead: 9, cacheWrite: 10, cost: { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4 } } });
 	await harness.runtime.events.messageEnd({ message: objectIdentityMessage }, test.ctx as ExtensionContext);
-	await harness.runtime.events.messageEnd({ message: objectIdentityMessage }, test.ctx as ExtensionContext);
+	test.appendSessionEntry(sessionMessage("assistant", objectIdentityMessage));
+	await harness.runtime.events.turnEnd({}, test.ctx);
+	await harness.runtime.events.turnEnd({}, test.ctx);
 	await harness.runtime.commands.openPane("", test.ctx);
 	previewState = harness.showPanePreviewStates.at(-1);
 	assert.ok(previewState, "object identity dedupe check should open /glance with preview state");
-	assert.deepEqual(previewState.usage, { input: 9, output: 11, cacheRead: 13, cacheWrite: 15, cost: 1.5 }, "assistant message_end should add component-cost fallback once for duplicate object events");
-	assert.equal(test.getEntryReads(), entryBaseline, "assistant message_end duplicate checks should still avoid entries scans");
+	assert.deepEqual(previewState.usage, { input: 9, output: 11, cacheRead: 13, cacheWrite: 15, cost: 1.5 }, "durable entry component-cost fallback counts once across repeated boundaries");
+	assert.equal(test.getEntryReads(), entryBaseline + 3, "three durable boundaries read entries, message events do not");
 	assert.equal(test.getBranchReads(), branchBaseline, "assistant message_end duplicate checks should still avoid branch scans");
 
-	test.setSessionEntries([sessionMessage("assistant", { usage: { input: 20, output: 30, cacheRead: 40, cacheWrite: 50, cost: { total: 2.5 } } })]);
+	test.appendSessionEntry(sessionMessage("assistant", { usage: { input: 20, output: 30, cacheRead: 40, cacheWrite: 50, cost: { total: 2.5 } } }));
 	test.setSessionBranch([{ type: "compaction" }]);
 	test.setCwd("/workspace/turn-end-repo");
 	test.setContextUsage({ tokens: 22_000, contextWindow: 200_000, percent: 11 });
 	const scheduleBeforeTurnEnd = git.schedules.length;
 	await harness.runtime.events.turnEnd({ turnIndex: 1, message: firstMessage }, test.ctx as ExtensionContext);
-	assert.equal(test.getEntryReads(), entryBaseline, "turn_end should not scan session entries after assistant message_end");
+	assert.equal(test.getEntryReads(), entryBaseline + 4, "turn_end synchronizes new durable entry");
 	assert.equal(test.getBranchReads(), branchBaseline, "turn_end should not scan session branch after assistant message_end");
 	assert.deepEqual(git.schedules.slice(scheduleBeforeTurnEnd), [true], "workspace-changing turn_end should schedule one immediate git refresh for the new cwd");
 	assert.equal(git.options?.getCwd(), "/workspace/turn-end-repo", "git refresher getCwd should expose the refreshed turn_end workspace");
@@ -736,9 +743,9 @@ for (const matrixCase of [
 	assert.ok(previewState, "turn_end narrow refresh check should open /glance with preview state");
 	assert.equal(previewState.workspace.path, "/workspace/turn-end-repo", "turn_end should still refresh workspace through the lifecycle path");
 	assert.equal(previewState.context.tokens, 22_000, "turn_end should still refresh context tokens through the lifecycle path");
-	assert.deepEqual(previewState.usage, { input: 9, output: 11, cacheRead: 13, cacheWrite: 15, cost: 1.5 }, "turn_end should preserve assistant message_end usage totals without full entries reconciliation");
+	assert.deepEqual(previewState.usage, { input: 29, output: 41, cacheRead: 53, cacheWrite: 65, cost: 4 }, "turn_end adds only the new persisted suffix");
 
-	test.setSessionEntries([sessionMessage("assistant", { usage: { input: 100, output: 200, cacheRead: 300, cacheWrite: 400, cost: { total: 9.9 } } })]);
+	test.appendSessionEntry(sessionMessage("assistant", { usage: { input: 100, output: 200, cacheRead: 300, cacheWrite: 400, cost: { total: 9.9 } } }));
 	test.setSessionBranch([{ type: "compaction" }, sessionMessage("assistant", { usage: { totalTokens: 0 } })]);
 	test.setCwd("/workspace/agent-end-repo");
 	test.setContextUsage({ tokens: 33_000, contextWindow: 200_000, percent: 16.5 });
@@ -746,7 +753,7 @@ for (const matrixCase of [
 	const branchAfterTurnEnd = test.getBranchReads();
 	const scheduleBeforeAgentEnd = git.schedules.length;
 	await harness.runtime.events.agentEnd({ messages: [assistantMessage({ usage: { input: 1, output: 2, totalTokens: 3, cost: { total: 0.4 } } })] }, test.ctx as ExtensionContext);
-	assert.equal(test.getEntryReads(), entryAfterTurnEnd, "agent_end should not scan session entries after the session_start baseline");
+	assert.equal(test.getEntryReads(), entryAfterTurnEnd + 1, "agent_end synchronizes durable entries once");
 	assert.equal(test.getBranchReads(), branchAfterTurnEnd, "agent_end should not scan session branch after the session_start baseline");
 	assert.deepEqual(git.schedules.slice(scheduleBeforeAgentEnd), [true], "workspace-changing agent_end should schedule one immediate git refresh for the new cwd");
 	assert.equal(git.options?.getCwd(), "/workspace/agent-end-repo", "git refresher getCwd should expose the refreshed agent_end workspace");
@@ -755,7 +762,7 @@ for (const matrixCase of [
 	assert.ok(previewState, "agent_end narrow refresh check should open /glance with preview state");
 	assert.equal(previewState.workspace.path, "/workspace/agent-end-repo", "agent_end should still refresh workspace through the lifecycle path");
 	assert.equal(previewState.context.tokens, 33_000, "agent_end should still refresh context tokens through the lifecycle path");
-	assert.deepEqual(previewState.usage, { input: 9, output: 11, cacheRead: 13, cacheWrite: 15, cost: 1.5 }, "agent_end should preserve assistant message_end usage totals without full entries reconciliation");
+	assert.deepEqual(previewState.usage, { input: 129, output: 241, cacheRead: 353, cacheWrite: 465, cost: 13.9 }, "agent_end adds persisted usage, not event payload usage");
 }
 
 {

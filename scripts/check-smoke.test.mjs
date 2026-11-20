@@ -11,6 +11,8 @@ test("isolates every user-level config root used by smoke extensions", () => {
 		XDG_CONFIG_HOME: "/real/xdg-config",
 		PI_CODING_AGENT_DIR: "/real/agent",
 		PATH: process.env.PATH,
+		OPENAI_API_KEY: "must-not-inherit",
+		HERDR_SOCKET: "/real/socket",
 	};
 	const { root, environment } = createIsolatedSmokeEnvironment(baseEnvironment);
 
@@ -20,7 +22,12 @@ test("isolates every user-level config root used by smoke extensions", () => {
 			XDG_CONFIG_HOME: "/real/xdg-config",
 			PI_CODING_AGENT_DIR: "/real/agent",
 			PATH: process.env.PATH,
+			OPENAI_API_KEY: "must-not-inherit",
+			HERDR_SOCKET: "/real/socket",
 		});
+		assert.equal(environment.OPENAI_API_KEY, undefined);
+		assert.equal(environment.HERDR_SOCKET, undefined);
+		assert.equal(environment.pnpm_config_pm_on_fail, "ignore");
 		assert.equal(environment.PATH, process.env.PATH);
 		assert.equal(environment.COREPACK_HOME, "/real/home/.cache/node/corepack");
 

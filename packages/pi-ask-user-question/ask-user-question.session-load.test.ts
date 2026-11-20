@@ -23,7 +23,7 @@ async function registerFresh() {
 	const { registerAskUserQuestionTool } = await import("./ask-user-question.js");
 	const { pi, captured } = createMockPi();
 	registerAskUserQuestionTool(pi);
-	return captured.tools.get("ask_user_question")!;
+	return { tool: captured.tools.get("ask_user_question")!, captured };
 }
 
 function ctxWithCustom(result: QuestionnaireResult | null) {
@@ -45,9 +45,11 @@ describe("ask_user_question.execute — lazy session-graph load guards (#107)", 
 		vi.doMock(SESSION_SPECIFIER, () => {
 			throw new Error("Cannot find module '/replaced/store/pi-coding-agent/dist/index.js'");
 		});
-		const tool = await registerFresh();
+		const { tool, captured } = await registerFresh();
 		const ctx = ctxWithCustom(null);
 		const r = await tool.execute?.("tc", BASE_PARAMS as never, undefined as never, undefined as never, ctx as never);
+		expect(captured.eventsEmitted.has("rpiv:ask-user:blocked")).toBe(false);
+		expect(ctx.ui.custom).not.toHaveBeenCalled();
 		expect(r?.details).toMatchObject({ answers: [], cancelled: true, error: "session_load_failed" });
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("failed to load") });
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("restarting Pi") });
@@ -60,9 +62,11 @@ describe("ask_user_question.execute — lazy session-graph load guards (#107)", 
 	it("returns error: stale_module_cache when the namespace resolves without a constructable class", async () => {
 		// The poisoned-cache shape: import succeeds but the class never evaluated.
 		vi.doMock(SESSION_SPECIFIER, () => ({ QuestionnaireSession: undefined }));
-		const tool = await registerFresh();
+		const { tool, captured } = await registerFresh();
 		const ctx = ctxWithCustom(null);
 		const r = await tool.execute?.("tc", BASE_PARAMS as never, undefined as never, undefined as never, ctx as never);
+		expect(captured.eventsEmitted.has("rpiv:ask-user:blocked")).toBe(false);
+		expect(ctx.ui.custom).not.toHaveBeenCalled();
 		expect(r?.details).toMatchObject({ answers: [], cancelled: true, error: "stale_module_cache" });
 		expect(r?.content[0]).toMatchObject({ text: expect.stringContaining("restart Pi") });
 		// Diagnostic includes the resolved namespace shape the issue asked for.
@@ -71,7 +75,7 @@ describe("ask_user_question.execute — lazy session-graph load guards (#107)", 
 	});
 
 	it("loads the real session graph and reaches ctx.ui.custom when the module is healthy", async () => {
-		const tool = await registerFresh();
+		const { tool } = await registerFresh();
 		const custom = vi.fn(async () => ({ answers: [], cancelled: true }));
 		const ctx = createMockCtx({ hasUI: true, ui: { custom } as never });
 		const r = await tool.execute?.("tc", BASE_PARAMS as never, undefined as never, undefined as never, ctx as never);

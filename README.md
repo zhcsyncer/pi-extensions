@@ -20,9 +20,9 @@ A collection of Pi extensions by zhcsyncer.
 
   ![pi-glance demo](./packages/pi-glance/assets/demo.png)
 
-- [`@zhcsyncer/pi-plan-mode`](./packages/pi-plan-mode) — strict read-only planning with revdiff review, immutable revisions, compact audit rendering, and an explicit branch-aware implementation/completion lifecycle.
+- [`@zhcsyncer/pi-plan-mode`](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-plan-mode) — **Unmaintained and removed from the root bundle**; retained in the repository for historical reference.
 - [`@zhcsyncer/pi-search-hub`](./packages/pi-search-hub) — unified `web_search` and `web_read` across Exa, Tavily, Firecrawl, Parallel, Codex, and Grok. Also embedded in the root bundle.
-- [`@zhcsyncer/pi-context7`](./packages/pi-context7) — Context7 `resolve-library-id` / `query-docs` tools with compact self-contained TUI rendering and the full `context7-docs` skill.
+- [`@zhcsyncer/pi-context7`](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-context7) — **Unmaintained and removed from the root bundle**, including its old skill; use the [official Context7 MCP server](https://github.com/upstash/context7#installation) instead.
 - [`@zhcsyncer/pi-ask-user-question`](./packages/pi-ask-user-question) — structured clarification questions with a non-overlay layout, context-aware number-key selection, centered previews, and readable post-interaction results.
 - [`@zhcsyncer/pi-herdr-companion`](./packages/pi-herdr-companion) — Herdr integration with cross-workspace managed-process identity, a navigable Process Widget, compact tool rendering, temporary `/btw` side threads, blocked status, and unified settings. Install it separately; the root bundle does not enable it.
 - [`@zhcsyncer/pi-subagents`](./packages/pi-subagents) — maintained fork of `@tintinweb/pi-subagents` with a brief ConversationViewer and collapsible tool TUI (model/effort chips). Also embedded in the root bundle.
@@ -40,9 +40,9 @@ A collection of Pi extensions by zhcsyncer.
 
 ## Notes
 
-Search Hub ships only in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
+Search Hub is available standalone and in the root bundle. Adversarial Review is published independently and is not included in the root bundle. Do not load `@tintinweb/pi-subagents` with `pi-subagents`, or `@pi-plugins/usage` with `pi-meter`.
 
-Requires Pi 0.86 or later. Fast Mode, Consult, Subagents, and the standalone Cursor and Volcengine providers in this repo follow the 0.86 transcript (system text and tools live on the conversation).
+This version requires Pi 1.2 or later.
 
 ## Standalone providers
 
@@ -73,7 +73,7 @@ pi -e git:github.com/zhcsyncer/pi-extensions
 
 ## Install from npm
 
-Install the complete bundle, including Glance, Plan Mode, Context7, Subagents, Fast Mode, Meter, Consult, structured user questions, and the private Search Hub fork:
+Install the bundle, including Glance, Subagents, Fast Mode, Meter, Consult, structured user questions, and Search Hub. Plan Mode and Context7 (including the old Context7 skill) are no longer included:
 
 ```bash
 pi install npm:@zhcsyncer/pi-extensions
@@ -103,16 +103,10 @@ Install only Glance:
 pi install npm:@zhcsyncer/pi-glance
 ```
 
-Install only strict Plan Mode:
+Install only Search Hub:
 
 ```bash
-pi install npm:@zhcsyncer/pi-plan-mode
-```
-
-Install only Context7 documentation tools:
-
-```bash
-pi install npm:@zhcsyncer/pi-context7
+pi install npm:@zhcsyncer/pi-search-hub
 ```
 
 Install only structured user questions:
@@ -165,7 +159,7 @@ Add a changeset to each user-facing pull request:
 pnpm changeset
 ```
 
-Public packages version independently. A changed child package must include the aggregate root package in the same release plan because the root tarball embeds child sources; unchanged siblings do not release. Before pushing a release-bearing change, present the planned packages and target versions for user review. After approved changes land on `main`, GitHub Actions opens a version PR, and merging that reviewed PR publishes the planned packages and creates their GitHub Releases. See [RELEASING.md](./RELEASING.md) for the complete workflow and one-time npm/GitHub setup.
+Public packages version independently. A changed bundled child package must include the aggregate root package in the same release plan because the root tarball embeds its sources; unchanged siblings do not release. Plan Mode and Context7 are no longer embedded and may release independently of the root. Before pushing a release-bearing change, present the planned packages and target versions for user review. After approved changes land on `main`, GitHub Actions opens a version PR, and merging that reviewed PR publishes the planned packages and creates their GitHub Releases. See [RELEASING.md](./RELEASING.md) for the complete workflow and one-time npm/GitHub setup.
 
 ## License
 
@@ -179,7 +173,7 @@ MIT
 
 `pi-search-hub` is forked from [`ronnieops/pi-search-hub`](https://github.com/ronnieops/pi-search-hub) 2.8.0, whose package metadata and README declare MIT. Its exact revision and preserved notices are recorded in [`packages/pi-search-hub/UPSTREAM_SOURCE.md`](./packages/pi-search-hub/UPSTREAM_SOURCE.md) and [`UPSTREAM_NOTICE.md`](./packages/pi-search-hub/UPSTREAM_NOTICE.md).
 
-`pi-context7` is forked from MIT-licensed [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2 (`b250c2515694eee4b6df4db82fa056df9ed3e306`). The exact revision and preserved notices are recorded in [`packages/pi-context7/UPSTREAM_SOURCE.md`](./packages/pi-context7/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-context7/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-context7/UPSTREAM_LICENSE).
+The retired `pi-context7` package was forked from MIT-licensed [`@upstash/context7-pi`](https://github.com/upstash/context7) 0.1.2 (`b250c2515694eee4b6df4db82fa056df9ed3e306`). Its historical attribution remains in the repository: [`UPSTREAM_SOURCE.md`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/UPSTREAM_SOURCE.md), [`LICENSE`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/LICENSE), and [`UPSTREAM_LICENSE`](https://github.com/zhcsyncer/pi-extensions/blob/main/packages/pi-context7/UPSTREAM_LICENSE).
 
 `pi-ask-user-question` is forked from MIT-licensed [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) 2.4.0. The exact revision and preserved notices are recorded in [`packages/pi-ask-user-question/UPSTREAM_SOURCE.md`](./packages/pi-ask-user-question/UPSTREAM_SOURCE.md), [`LICENSE`](./packages/pi-ask-user-question/LICENSE), and [`UPSTREAM_LICENSE`](./packages/pi-ask-user-question/UPSTREAM_LICENSE).
 

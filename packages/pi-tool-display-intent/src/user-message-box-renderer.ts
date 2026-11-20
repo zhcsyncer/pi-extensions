@@ -8,6 +8,7 @@ import {
 import {
   patchUserMessageRenderPrototype,
   type PatchableUserMessagePrototype,
+  type UserMessagePatchOwner,
 } from "./user-message-box-patch.js";
 import {
   extractUserMessageMarkdownState,
@@ -20,6 +21,8 @@ import {
   applyUserMessageBackground,
   normalizeUserMessageContentLine,
   normalizeUserMessageContentLines,
+  stripOscPromptControlSequences,
+  withMessageNavigation,
   type UserMessageBackgroundTheme,
 } from "./user-message-box-utils.js";
 
@@ -186,7 +189,7 @@ function createMarkdownRenderer(
   markdownState: UserMessageMarkdownState,
 ): { render(width: number): string[] } {
   return new Markdown(
-    markdownState.text,
+    stripOscPromptControlSequences(markdownState.text),
     0,
     0,
     markdownState.theme as MarkdownTheme,
@@ -396,31 +399,16 @@ export function isUserMessageExpanded(instance: object): boolean {
   return (instance as { [USER_MESSAGE_EXPANDED_KEY]?: boolean })[USER_MESSAGE_EXPANDED_KEY] === true;
 }
 
-function installUserMessageSetExpanded(prototype: PatchableUserMessagePrototype): void {
-  if (prototype.__piUserMessageSetExpandedPatched) return;
-  prototype.__piUserMessageOriginalSetExpanded = prototype.setExpanded;
-  prototype.setExpanded = function setAggregateUserMessageExpanded(this: PatchableUserMessagePrototype, expanded: boolean): void {
-    (this as { [USER_MESSAGE_EXPANDED_KEY]?: boolean })[USER_MESSAGE_EXPANDED_KEY] = expanded === true;
-    prototype.__piUserMessageOriginalSetExpanded?.call(this, expanded);
-    try {
-      this.invalidate?.();
-    } catch {
-      // A stale transcript component may already be disposed.
-    }
-  };
-  prototype.__piUserMessageSetExpandedPatched = true;
-}
-
 export function patchNativeUserMessagePrototype(
   prototype: PatchableUserMessagePrototype,
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
   isCompact?: () => boolean,
   getSteerPresentation?: (instance: object, width: number) => UserMessageSteerPresentation | undefined,
+  owner?: UserMessagePatchOwner,
 ): void {
   const finalOutputCache = new WeakMap<object, CachedUserMessageFinalOutput>();
   const originalBodyLineCache = new WeakMap<object, CachedUserMessageBodyLines>();
-  installUserMessageSetExpanded(prototype);
 
   patchUserMessageRenderPrototype(
     prototype,
@@ -428,7 +416,6 @@ export function patchNativeUserMessagePrototype(
     (originalRender) =>
       function renderWithNativeUserBorder(width: number): string[] {
         const safeWidth = Math.max(0, Math.floor(width));
-        if (!isEnabled()) return originalRender.call(this, safeWidth) as string[];
         const canCacheFinalOutput = typeof this === "object" && this !== null;
         const compact = isCompact?.() === true;
         // Steers must stay bounded/hidden even when native Markdown rebuilding is
@@ -436,8 +423,9 @@ export function patchNativeUserMessagePrototype(
         if (compact && getSteerPresentation && canCacheFinalOutput) {
           const presentation = getSteerPresentation(this as object, safeWidth);
           if (presentation?.hide === true) return [];
-          if (presentation?.lines) return presentation.lines;
+          if (presentation?.lines) return withMessageNavigation(presentation.lines);
         }
+        if (!isEnabled()) return originalRender.call(this, width) as string[];
         if (safeWidth < MIN_BORDER_WIDTH) return originalRender.call(this, safeWidth) as string[];
         const markdownState = canCacheFinalOutput
           ? extractUserMessageMarkdownState(this as { children?: unknown[] })
@@ -464,8 +452,8 @@ export function patchNativeUserMessagePrototype(
           originalBodyLineCache,
         );
         const contentLines = normalizeUserMessageContentLines(lines);
-        const bodyLines = contentLines.length > 0 ? contentLines : [""];
-        const output = compact
+        const bodyLines = contentLines;
+        const output = withMessageNavigation(contentLines.length === 0 ? [] : compact
           ? [
             wrapAggregatePromptLine("", safeWidth, theme),
             ...bodyLines.map((renderLine) => wrapAggregatePromptLine(renderLine, safeWidth, theme)),
@@ -478,7 +466,7 @@ export function patchNativeUserMessagePrototype(
               wrapContentLine(renderLine, safeWidth, theme),
             ),
             buildBottomBorder(safeWidth, theme),
-          ];
+          ]);
 
         if (canCacheFinalOutput) {
           finalOutputCache.set(
@@ -489,5 +477,15 @@ export function patchNativeUserMessagePrototype(
 
         return output;
       },
+    owner,
+    (originalSetExpanded) => function(this: PatchableUserMessagePrototype, expanded: boolean): void {
+      (this as { [USER_MESSAGE_EXPANDED_KEY]?: boolean })[USER_MESSAGE_EXPANDED_KEY] = expanded === true;
+      originalSetExpanded?.call(this, expanded);
+      try {
+        this.invalidate?.();
+      } catch {
+        // A stale transcript component may already be disposed.
+      }
+    },
   );
 }

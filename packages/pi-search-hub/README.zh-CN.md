@@ -8,6 +8,8 @@ Pi 用的 Search Hub fork。通过多个搜索和内容读取 backend 提供统�
 
 ## 安装
 
+本版本需要 Pi 1.1 或更高。
+
 ```bash
 pi install npm:@zhcsyncer/pi-search-hub
 ```
@@ -62,7 +64,7 @@ Search Hub 自己画 Claude 风格的工具行，不再使用 `pi-tool-display-i
 | `web_search` | 实际 backend、结果数、fallback 状态，以及组合搜索中可用/已尝试 backend 健康度 |
 | `web_read` | 实际 reader、提取字符数，以及展示内容是否被截断到 1 万字符上限 |
 
-详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变工具结果本身，不只是 TUI 行。
+详细搜索输出在给模型的结果里仍以 `## Search Results:` header 开头。发送给模型的内容仍由 Search Hub 负责，包括 backend 选择、结果数量、compact 结果生成和 backend 级截断。`web_search.compact` 会改变给模型的文本，不只是 TUI 行。
 
 ## 配置
 

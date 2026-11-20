@@ -13,7 +13,6 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { complete } from "@earendil-works/pi-ai/compat";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
@@ -663,19 +662,11 @@ function getOpenCodeSessionHeaders(
 	return { "x-opencode-session": sessionId, "x-opencode-client": "pi" };
 }
 
-function resolveCompleteModel(ctx: ExtensionContext, completeModel: typeof complete | undefined): typeof complete {
-	if (completeModel) return completeModel;
-	if (typeof ctx.modelRegistry.complete === "function") {
-		return (model, context, opts) => ctx.modelRegistry.complete(model, context, opts as never);
-	}
-	return complete;
-}
-
 export type RunRecapOptions = {
 	force?: boolean;
 	signal?: AbortSignal;
 	showProgress?: boolean;
-	completeModel?: typeof complete;
+	completeModel?: ExtensionContext["modelRegistry"]["complete"];
 };
 
 export async function runRecap(
@@ -687,7 +678,7 @@ export async function runRecap(
 	options: RunRecapOptions = {},
 ): Promise<RecapEntryData | undefined> {
 	const { force = false, signal, showProgress = true } = options;
-	const completeModel = resolveCompleteModel(ctx, options.completeModel);
+	const completeModel = options.completeModel ?? ((model, context, opts) => ctx.modelRegistry.complete(model, context, opts));
 	if (state.running) return undefined;
 	if (ctx.mode !== "tui") {
 		if (reason === "manual" && ctx.hasUI) ctx.ui.notify("recap requires TUI mode", "warning");
@@ -736,8 +727,12 @@ export async function runRecap(
 			response = await completeModel(
 				model,
 				{
-					systemPrompt: buildSystemPrompt(config),
 					messages: [
+						{
+							role: "system",
+							content: buildSystemPrompt(config),
+							timestamp: Date.now(),
+						},
 						{
 							role: "user" as const,
 							content: [{ type: "text" as const, text: source.conversation }],

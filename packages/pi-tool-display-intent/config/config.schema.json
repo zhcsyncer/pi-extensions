@@ -110,6 +110,17 @@
         }
       }
     },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userMessageBox": {
+          "type": "boolean",
+          "default": true,
+          "description": "Style ordinary user messages. False uses the native or downstream renderer; aggregate steer folding and grouping are unchanged."
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "additionalProperties": false,

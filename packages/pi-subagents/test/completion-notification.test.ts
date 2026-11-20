@@ -23,6 +23,13 @@ function resultFrom(content: string): string {
 }
 
 describe("completion notification content budget", () => {
+  it("reports cancellation without attributing it to the turn limit", () => {
+    const content = formatCompletionNotification([record({ status: "aborted", result: "partial work" })]);
+    expect(content).toContain("<status>Aborted</status>");
+    expect(content).toContain("partial work");
+    expect(content).not.toMatch(/turn limit|max turns/i);
+  });
+
   it("includes the entire report, including whitespace and the conclusion beyond the old preview cap", () => {
     const report = "  \n" + "Evidence.\n".repeat(600) + "FINAL CONCLUSION\n  ";
     const content = formatCompletionNotification([record({ result: report })]);

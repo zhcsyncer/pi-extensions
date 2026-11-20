@@ -55,6 +55,7 @@ export type PiThemeColorToken =
 
 export interface PiThemeLike {
 	readonly name?: string;
+	readonly appearance?: "dark" | "light";
 	readonly sourcePath?: string;
 	fg(color: PiThemeColorToken, text: string): string;
 	bold?(text: string): string;
@@ -99,7 +100,7 @@ function strong(styler: TextStyler, bold?: (text: string) => string): TextStyler
 
 function piThemeCacheKey(theme: PiThemeLike, options: PiThemeStyleOptions): string {
 	if (options.cacheKey !== undefined) return `pi:${options.cacheKey}`;
-	return `pi:${JSON.stringify([theme.name ?? "", theme.getColorMode?.() ?? "", theme.sourcePath ?? ""])}`;
+	return `pi:${JSON.stringify([theme.name ?? "", theme.getColorMode?.() ?? "", theme.sourcePath ?? "", ...(theme.appearance ? [theme.appearance] : [])])}`;
 }
 
 function resolvePiSegmentStyles(theme: PiThemeLike): Record<SegmentId, ResolvedGlanceSegmentStyles> {

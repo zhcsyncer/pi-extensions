@@ -136,8 +136,8 @@ The recommended whole-target limit is 200 KiB or 5,000 logical lines; the hard l
 
 | Component | Requirement |
 |---|---|
-| Pi | `>=0.84.0 <1` with `ctx.scopedModels` and custom message renderers |
-| Subagents | Optional; protocol `3` with `maxConcurrent >= 1` enables the external backend and FleetView |
+| Pi | Pi 1.1 or later, with `ctx.scopedModels` and custom message renderers |
+| Subagents | Optional; the external backend and FleetView require a Pi 1.1-compatible runtime with protocol `3` and `maxConcurrent >= 1`. Protocol `3` alone does not guarantee Pi 1.1 compatibility |
 | Node.js | `>=22.19.0` |
 
 An unavailable or incompatible external runtime falls back before execution to embedded Review with a recorded reason. Once a backend is selected for a run, failures are not retried through another backend.

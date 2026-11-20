@@ -8,6 +8,8 @@ This package is also included in `@zhcsyncer/pi-extensions`.
 
 ## Install
 
+This version requires Pi 1.1 or later.
+
 ```bash
 pi install npm:@zhcsyncer/pi-search-hub
 ```
@@ -64,7 +66,7 @@ Search and read progress is emitted through the active tool call rather than a p
 
 Verbose search output still begins with a raw `## Search Results:` header in the model-facing result.
 
-Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. The `web_search.compact` argument changes the tool result itself, not only the TUI row.
+Search Hub still owns the content sent to the model, including backend selection, result quantity, compact result generation, and backend-level truncation. The `web_search.compact` argument changes the model-facing text, not only the TUI row.
 
 ## Configuration
 

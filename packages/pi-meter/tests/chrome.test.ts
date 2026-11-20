@@ -46,6 +46,19 @@ describe("quota polarity and tone", () => {
 	});
 });
 
+describe("recorded cost footer", () => {
+	it.each([
+		["known", 0.18, true, 0, "$0.18"],
+		["partial", 0.18, true, 1, "$0.18+?"],
+		["unknown", 0, false, 1, "cost unknown"],
+		["reported zero", 0, true, 0, "$0"],
+	] as const)("labels %s cost without changing its value or completeness", (_kind, cost, costKnown, unknownCosts, text) => {
+		const stats = { today: { ...today, cost, costKnown, unknownCosts }, todayTurns: 3, topModel: null, budget: null };
+		expect(renderLocalFooter("today-cost", stats)).toBe(`24h ${text} recorded`);
+		expect(renderLocalFooter("today-spend", stats)).toBe(`24h 12.4k ${text} recorded`);
+	});
+});
+
 describe("status chrome", () => {
 	const quota = {
 		provider: "supergrok" as const,
@@ -61,7 +74,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · xai week left ██░░░ 34% (3d)");
 	});
 
 	it("keeps the window verb when flipping to used", () => {
@@ -110,7 +123,7 @@ describe("status chrome", () => {
 			},
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · ollama 5h left █░░░░ 28%");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · ollama 5h left █░░░░ 28%");
 		expect(plain).not.toContain("(");
 	});
 
@@ -121,7 +134,7 @@ describe("status chrome", () => {
 			quotaHint: { label: "ollama", value: "no quota window" },
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · ollama · no quota window");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · ollama · no quota window");
 		expect(plain).not.toContain("week left");
 		expect(plain).not.toContain("█");
 	});
@@ -133,7 +146,7 @@ describe("status chrome", () => {
 			quotaHint: { label: "quota n/a", value: "no quota window" },
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · quota n/a · no quota window");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · quota n/a · no quota window");
 	});
 
 	it("prefixes the quota bar with the short brand", () => {
@@ -148,7 +161,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d)");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · openai week left █░░░░ 10% (2d)");
 		expect(plain).not.toContain("stale");
 	});
 
@@ -172,7 +185,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now,
 		}, theme));
-		expect(withItems).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d) · 2 resets 12d");
+		expect(withItems).toBe("· 24h 12.4k $0.18 recorded · openai week left █░░░░ 10% (2d) · 2 resets 12d");
 
 		const countOnly = strip(renderStatusText({
 			local,
@@ -185,7 +198,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now,
 		}, theme));
-		expect(countOnly).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d) · 2 resets");
+		expect(countOnly).toBe("· 24h 12.4k $0.18 recorded · openai week left █░░░░ 10% (2d) · 2 resets");
 		expect(countOnly).not.toMatch(/2 resets \d/);
 
 		const none = strip(renderStatusText({
@@ -199,7 +212,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now,
 		}, theme));
-		expect(none).toBe("· 24h 12.4k $0.18 · openai week left █░░░░ 10% (2d)");
+		expect(none).toBe("· 24h 12.4k $0.18 recorded · openai week left █░░░░ 10% (2d)");
 		expect(none).not.toContain("reset");
 	});
 
@@ -219,7 +232,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now: new Date("2026-08-15T12:00:00Z"),
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · xai week left ██░░░ 34% (3d)");
 		expect(plain).not.toContain("reset");
 	});
 
@@ -237,7 +250,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now,
 		}, theme));
-		expect(stale).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d) 12m ago");
+		expect(stale).toBe("· 24h 12.4k $0.18 recorded · xai week left ██░░░ 34% (3d) 12m ago");
 		expect(stale).not.toContain("stale");
 
 		const fresh = strip(renderStatusText({
@@ -251,7 +264,7 @@ describe("status chrome", () => {
 			polarity: "remaining",
 			now,
 		}, theme));
-		expect(fresh).toBe("· 24h 12.4k $0.18 · xai week left ██░░░ 34% (3d)");
+		expect(fresh).toBe("· 24h 12.4k $0.18 recorded · xai week left ██░░░ 34% (3d)");
 		expect(fresh).not.toContain("ago");
 		expect(fresh).not.toContain("stale");
 	});
@@ -263,7 +276,7 @@ describe("status chrome", () => {
 			quotaHint: { label: "xai", value: "unavailable" },
 			polarity: "remaining",
 		}, theme));
-		expect(plain).toBe("· 24h 12.4k $0.18 · xai · unavailable");
+		expect(plain).toBe("· 24h 12.4k $0.18 recorded · xai · unavailable");
 		expect(plain).not.toContain("week left");
 		expect(plain).not.toContain("█");
 	});

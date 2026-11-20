@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { FooterSettingsDashboard, type FooterEditorValue } from "../src/chrome/footer-settings.ts";
@@ -15,18 +15,12 @@ import { Dashboard } from "../src/ledger/dashboard.ts";
 import { DIMENSIONS } from "../src/ledger/enums.ts";
 import { fmtCompactTokens, fmtCost, fmtNum } from "../src/ledger/format.ts";
 import { aggregate, sumRows } from "../src/ledger/aggregate.ts";
-import {
-	collapseDuplicateRecords,
-	diffRecords,
-	parseSession,
-	summaryUsageWithoutTimestamp,
-	usageFromSessionSummaryEntry,
-	usageMessageWithoutTimestamp,
-	usageRecordsFromMessage,
-} from "../src/ledger/session-parser.ts";
+import { parseSession } from "../src/ledger/session-parser.ts";
+import { SessionUsageCapture } from "../src/ledger/capture.ts";
+import { readSessionSource, type SessionSource } from "../src/ledger/session-source.ts";
 import { createLedgerStore, type FileLedgerStore } from "../src/ledger/store.ts";
-import { parseWindowArg, sessionIdFrom, windowDisplayLabel } from "../src/ledger/time.ts";
-import type { BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
+import { parseWindowArg, windowDisplayLabel } from "../src/ledger/time.ts";
+import type { AggRow, BudgetLimit, UsageRecord, WindowKey } from "../src/ledger/types.ts";
 import { hasStoredQuotaCredential } from "../src/quota/auth.ts";
 import { getQuotaAdapter, installQuotaAdapterHost, listedQuotaSourceIds, quotaSourceTitle, takeQuotaAdapterWarnings } from "../src/quota/guest.ts";
 import { resolveChromeQuota } from "../src/quota/policy.ts";
@@ -55,6 +49,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 	installQuotaAdapterHost();
 	const agentDir = getAgentDir();
 	let store: FileLedgerStore | undefined;
+	const capture = new SessionUsageCapture();
 	let config: MeterConfig | undefined;
 	let warned: Record<string, boolean> = {};
 	let quota: QuotaStoreFile | undefined;
@@ -67,7 +62,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 
 	async function ensureReady(ctx: ExtensionContext): Promise<void> {
 		session = {
-			sessionId: sessionIdFrom(ctx.sessionManager.getSessionFile()),
+			sessionId: ctx.sessionManager.getSessionId(),
 			cwd: ctx.cwd,
 		};
 		if (!store) {
@@ -116,52 +111,15 @@ export default function piMeter(pi: ExtensionAPI): void {
 		}
 	}
 
-	function modelLabelFromContext(ctx: ExtensionContext): string {
-		const model = ctx.model;
-		const provider = model && typeof model.provider === "string" ? model.provider : "unknown";
-		const id = model && typeof model.id === "string" ? model.id : "unknown";
-		return `${provider}/${id}`;
-	}
-
-	async function appendRecords(ctx: ExtensionContext, records: UsageRecord[]): Promise<void> {
-		if (!store || records.length === 0) return;
-		let appended = false;
-		for (const record of records) {
-			if (!(await store.append(record))) continue;
-			appended = true;
-			await checkBudgets(ctx, record);
-		}
-		if (appended) await renderChrome(ctx);
-	}
-
-	async function captureMessage(ctx: ExtensionContext, message: unknown): Promise<void> {
+	async function captureEntries(ctx: ExtensionContext): Promise<void> {
 		await ensureReady(ctx);
-		const records = usageRecordsFromMessage(message, {
-			sid: session.sessionId,
-			cwd: session.cwd,
-		});
-		if (records.length === 0) {
-			if (usageMessageWithoutTimestamp(message)) {
-				notify(ctx, "pi-meter skipped usage: message.timestamp is missing.", "warning");
-			}
-			return;
+		try {
+			const added = await capture.capture(ctx.sessionManager, store!);
+			for (const record of added) await checkBudgets(ctx, record);
+			if (added.length > 0) await renderChrome(ctx);
+		} catch {
+			notify(ctx, "pi-meter could not save recorded usage; it will retry at the next lifecycle boundary.", "warning");
 		}
-		await appendRecords(ctx, records);
-	}
-
-	async function captureSummaryEntry(ctx: ExtensionContext, entry: unknown): Promise<void> {
-		await ensureReady(ctx);
-		const record = usageFromSessionSummaryEntry(entry, {
-			sid: session.sessionId,
-			cwd: session.cwd,
-		}, modelLabelFromContext(ctx));
-		if (!record) {
-			if (summaryUsageWithoutTimestamp(entry)) {
-				notify(ctx, "pi-meter skipped usage: summary timestamp is missing.", "warning");
-			}
-			return;
-		}
-		await appendRecords(ctx, [record]);
 	}
 
 	async function checkBudgets(ctx: ExtensionContext, _record: UsageRecord): Promise<void> {
@@ -267,13 +225,14 @@ export default function piMeter(pi: ExtensionAPI): void {
 		chromeClosed = false;
 		hasStatus = false;
 		lastStatusText = undefined;
-		await ensureReady(ctx);
+		await captureEntries(ctx);
 		warnUsageConflict(ctx);
 		await renderChrome(ctx);
 		startStatusPoll(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		await captureEntries(ctx);
 		chromeClosed = true;
 		stopStatusPoll();
 		hasStatus = false;
@@ -284,20 +243,15 @@ export default function piMeter(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("message_end", async (event, ctx) => {
-		await captureMessage(ctx, event.message);
-	});
-
-	pi.on("session_compact", async (event, ctx) => {
-		await captureSummaryEntry(ctx, event.compactionEntry);
-	});
-
-	pi.on("session_tree", async (event, ctx) => {
-		if (!event.summaryEntry) return;
-		await captureSummaryEntry(ctx, event.summaryEntry);
-	});
+	pi.on("turn_end", async (_event, ctx) => { await captureEntries(ctx); });
+	pi.on("session_compact", async (_event, ctx) => { await captureEntries(ctx); });
+	pi.on("session_before_tree", async (_event, ctx) => { await captureEntries(ctx); });
+	pi.on("session_tree", async (_event, ctx) => { await captureEntries(ctx); });
+	pi.on("session_before_switch", async (_event, ctx) => { await captureEntries(ctx); });
+	pi.on("session_before_fork", async (_event, ctx) => { await captureEntries(ctx); });
 
 	pi.on("agent_settled", async (_event, ctx) => {
+		await captureEntries(ctx);
 		await maybeRefreshQuota(ctx);
 	});
 
@@ -349,7 +303,7 @@ export default function piMeter(pi: ExtensionAPI): void {
 	};
 
 	const handleUsageCommand = async (args: string, ctx: ExtensionContext): Promise<void> => {
-		await ensureReady(ctx);
+		await captureEntries(ctx);
 		const arg = args.trim().toLowerCase();
 		if (arg === "import") {
 			await importHistory(store!, ctx.ui.notify);
@@ -580,17 +534,19 @@ function printReport(
 	notify: Notify,
 	windowMode: MeterConfig["ledger"]["windowMode"],
 ): void {
-	const out = [`pi-meter — ${windowDisplayLabel(window, windowMode)}`];
+	const out = [`pi-meter — recorded usage · ${windowDisplayLabel(window, windowMode)}`,
+		"Recorded subtotal, not a complete bill. Parent subagent rollups are excluded; missing child logs and legacy identities may limit coverage."];
+	const costText = (row: AggRow) => row.costKnown || row.cost > 0 ? `${fmtCost(row.cost)}${row.unknownCosts ? " + unknown/partial" : ""}` : "unknown";
 	for (const dim of DIMENSIONS) {
 		const rows = aggregate(records, window, dim.key, new Date(), windowMode);
 		const total = sumRows(rows);
 		out.push(`\nBy ${dim.label}:`);
 		for (const row of rows.slice(0, 10)) {
 			out.push(
-				`  ${row.label.padEnd(28)} ${fmtCompactTokens(row.tokens).padStart(10)}  in ${fmtCompactTokens(row.input).padStart(10)}  out ${fmtCompactTokens(row.output).padStart(10)}  cr ${fmtCompactTokens(row.cacheRead).padStart(10)}  cw ${fmtCompactTokens(row.cacheWrite).padStart(10)}  ${fmtCost(row.cost).padStart(10)}`,
+				`  ${row.label.padEnd(28)} ${fmtCompactTokens(row.tokens).padStart(10)}  in ${fmtCompactTokens(row.input).padStart(10)}  out ${fmtCompactTokens(row.output).padStart(10)}  cr ${fmtCompactTokens(row.cacheRead).padStart(10)}  cw ${fmtCompactTokens(row.cacheWrite).padStart(10)}  ${costText(row).padStart(10)}`,
 			);
 		}
-		out.push(`  ${"TOTAL".padEnd(28)} ${fmtCompactTokens(total.tokens).padStart(10)}  in ${fmtCompactTokens(total.input).padStart(10)}  out ${fmtCompactTokens(total.output).padStart(10)}  cr ${fmtCompactTokens(total.cacheRead).padStart(10)}  cw ${fmtCompactTokens(total.cacheWrite).padStart(10)}  ${fmtCost(total.cost).padStart(10)}`);
+		out.push(`  ${"TOTAL".padEnd(28)} ${fmtCompactTokens(total.tokens).padStart(10)}  in ${fmtCompactTokens(total.input).padStart(10)}  out ${fmtCompactTokens(total.output).padStart(10)}  cr ${fmtCompactTokens(total.cacheRead).padStart(10)}  cw ${fmtCompactTokens(total.cacheWrite).padStart(10)}  ${costText(total).padStart(10)}`);
 	}
 	notify(out.join("\n"), "info");
 }
@@ -632,38 +588,24 @@ async function importHistory(store: FileLedgerStore, notify: Notify): Promise<vo
 		);
 		return;
 	}
-	const existing = await store.readAll();
 	const incoming: UsageRecord[] = [];
+	const aliases = new Map<string, string>();
+	const sources = new Map<string, SessionSource>();
 	let skipped = 0;
 	let unreadable = 0;
 	for (const file of files) {
-		let content: string;
-		try {
-			content = await readFile(file, "utf8");
-		} catch {
-			unreadable += 1;
-			continue;
-		}
-		const sid = (file.split(/[/\\]/).pop() ?? file).replace(/\.jsonl$/, "");
-		const parsed = parseSession(content, sid);
+		const source = await readSessionSource(file, aliases, sources);
+		if (!source) { unreadable += 1; continue; }
+		const parsed = parseSession(source.content, source.sid, { origins: source.origins });
 		incoming.push(...parsed.records);
 		skipped += parsed.skipped;
 	}
-	const collapsed = collapseDuplicateRecords(existing);
-	const fresh = diffRecords(collapsed, incoming);
-	const removed = existing.length - collapsed.length;
-	const alreadyKnown = Math.max(0, incoming.length - fresh.length);
-	const added: UsageRecord[] = [];
+	let added: UsageRecord[] = [];
 	let writeFailures = 0;
-	if (removed > 0) {
-		await store.replaceAll([...collapsed, ...fresh]);
-		added.push(...fresh);
-	} else {
-		for (const record of fresh) {
-			if (await store.append(record)) added.push(record);
-			else writeFailures += 1;
-		}
-	}
+	try {
+		added = await store.appendRecords(incoming, { legacyMatching: true, sessionAliases: aliases });
+	} catch { writeFailures = 1; }
+	const alreadyKnown = writeFailures ? 0 : Math.max(0, incoming.length - added.length);
 
 	const addedTokens = added.reduce((total, record) => total + record.tot, 0);
 	const addedCost = added.reduce((total, record) => total + (record.costKnown ? record.cost : 0), 0);
@@ -679,9 +621,8 @@ async function importHistory(store: FileLedgerStore, notify: Notify): Promise<vo
 		`${counted(skipped, "usage message")} skipped without timestamp`,
 		`${counted(unreadable, "session file")} unreadable`,
 	];
-	if (removed > 0) parts.push(`${counted(removed, "duplicate ledger row")} removed`);
 	if (writeFailures > 0) parts.push(`${counted(writeFailures, "new record")} failed to write`);
-	if (added.length === 0 && removed === 0 && writeFailures === 0) parts.push("ledger unchanged");
+	if (added.length === 0 && writeFailures === 0) parts.push("ledger unchanged");
 	const warning = skipped > 0 || unreadable > 0 || writeFailures > 0;
 	notify(`${parts.join("; ")}.`, warning ? "warning" : "info");
 }

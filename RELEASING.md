@@ -20,7 +20,7 @@ This repository publishes these public npm packages:
 - `pi-provider-volcengine-agent-plan`
 - `pi-provider-cursor-ask`
 
-Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The standalone `@zhcsyncer/pi-adversarial-review`, `pi-provider-volcengine-agent-plan`, and `pi-provider-cursor-ask` packages are excluded from the aggregate tarball and may release without the root. Unchanged siblings remain unreleased.
+Packages version independently. Because the aggregate root tarball embeds bundled child sources, every bundled child release must include a root release of at least the same bump level. The retired `@zhcsyncer/pi-plan-mode` and `@zhcsyncer/pi-context7` packages, along with the standalone `@zhcsyncer/pi-adversarial-review`, `pi-provider-volcengine-agent-plan`, and `pi-provider-cursor-ask` packages, are excluded from the aggregate tarball and may release without the root. Plan Mode and Context7 remain workspace packages; their independent publication and release reconciliation are unchanged. Unchanged siblings remain unreleased.
 
 A successful publish creates package-level Git tags and GitHub Releases. The root package also owns the repository `vX.Y.Z` tag and latest release.
 

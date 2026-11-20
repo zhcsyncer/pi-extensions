@@ -6,6 +6,8 @@
 
 该 fork 有意不接入工具 intent。成功的 Todo 调用默认在 TUI transcript 中渲染为零行，由持久化 widget 展示当前状态；按 `Ctrl+O` 展开工具输出时可查看紧凑调用与结果摘要，执行错误始终显示。工具 `content`、mutation checkpoint 与用户 reset checkpoint 保持在 session 中，用于模型反馈和 branch-aware 恢复；只读 query 的轻量 details 不再重复保存任务状态。
 
+需要 Pi 1.1 或更高版本。模型直接调用 `todo`；脚本和其他工具不能通过嵌套工具调用修改任务。普通使用不需要 codemode。
+
 ## 安装
 
 只安装 Todo 扩展：

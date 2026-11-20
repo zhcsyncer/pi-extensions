@@ -24,23 +24,25 @@ Do **not** load `@pi-plugins/usage` at the same time. Both register `/usage`. If
 - Footer line for the last 24 hours of local spend next to the current model's subscription window:
 
   ```text
-  · 24h 12.4k $0.18 · xai week left ███░░ 49% (1d 23h)
+  · 24h 12.4k $0.18 recorded · xai week left ███░░ 49% (1d 23h)
   ```
 
   ![Meter footer](./assets/demo-meter-status.png)
 
-- Local dashboard by model, project, or session, including cache write. Usage-bearing tool results are counted too; Consult fanout is attributed to each advisor model instead of the main model. Compaction and `/tree` branch summaries are included when they report usage; the dashboard shows their share only when it is non-zero.
+- Recorded-usage dashboard by model, project, or session, including cache write. Counts finalized assistant messages, outer tool usage, standalone usage (including new operation kinds), and reported compaction / branch-summary usage. Consult fanout remains attributed to its advisors. Nested tool usage is not added twice; unknown or partial costs are marked rather than presented as confirmed zero.
 - Claude, Codex, SuperGrok, and Ollama Cloud remaining after `/login` for that provider. Codex also shows banked weekly resets when you have any; the footer adds `N resets …` only while the current model is Codex.
 - `/usage quota` opens a temporary dashboard. Unsigned-in providers stay as a muted summary at the bottom. If the current model has no window, or that provider is unsigned / unavailable, the footer shows a short hint instead of another vendor's bar. Snapshot titles show their age (`12m ago`) instead of the word stale.
 - Other extensions can register a quota source. The footer still follows the current model only.
 - Optional local budgets. They warn; they never block requests.
-- Optional import from older session files. Safe to re-run: already-captured turns are not counted twice, and every run reports files scanned, records parsed, additions, known duplicates, skips, and whether the ledger changed.
+- `/usage import` backfills saved sessions. Pi 1.1 entries are counted once across live capture, imports, renamed copies, and reloads. Existing ledger rows are retained; older identity compatibility does not promise to repair every historical duplicate or missing charge.
 
   ![Quota dashboard](./assets/demo-quota-dashboard.png)
 
-`--no-session` still records local usage. Sub-agent usage is counted from each child's messages, not parent `Agent` results or marked `get_subagent_result` rollups; Pi's native session totals are unchanged. For reliable real-time coverage, including isolated children, add `"pinnedExtensions": ["pi-meter"]` to the user-level `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`. Without pi-meter loaded in the child, use `/usage import` for saved child sessions.
+`--no-session` still records local usage. Sub-agent usage is counted from each child's messages, not parent `Agent` results or marked `get_subagent_result` rollups; Pi's native session totals are unchanged. For reliable real-time coverage, including isolated children, add `"pinnedExtensions": ["pi-meter"]` to the user-level `$PI_CODING_AGENT_DIR/extension-data/pi-subagents/config.json`. Without pi-meter loaded in the child, use `/usage import` for saved child sessions. Missing child logs can leave coverage incomplete; finding some child usage does not establish complete coverage. The ledger shows recorded consumption, not an exact bill or subscription balance. Idle usage becomes visible at the next lifecycle boundary or `/usage` command.
 
 ## Install
+
+This version requires Pi 1.1 or later.
 
 Standalone:
 

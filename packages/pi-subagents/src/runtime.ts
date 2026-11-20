@@ -6,6 +6,7 @@ import {
   buildCorrelatedEventData,
 } from "./runtime-events.js";
 import { archiveAgentRecord } from "./session-archive.js";
+import { loadRuntimeConfig } from "./runtime-config.js";
 import type { AgentRecord, InlineAgentConfig, ThinkingLevel } from "./types.js";
 
 export interface CallerOwnedRuntimeCapabilities {
@@ -102,7 +103,7 @@ export class CallerOwnedAgentRuntime {
         } as CallerOwnedStartedEvent);
       },
       undefined,
-      { pruneWorktreesOnDispose: false },
+      { pruneWorktreesOnDispose: false, runtimeConfig: loadRuntimeConfig(options.ctx.cwd) },
     );
   }
 

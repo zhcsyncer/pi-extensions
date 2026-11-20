@@ -543,7 +543,6 @@ moveDown(costPane.component, 3);
 const costCategory = plainText(costPane.component);
 assertContains(costCategory, "Hide zero", "cost category should show cost detail settings");
 assertLineContainsAll(costCategory, ["Hide zero", "off"], "cost hide zero setting should render");
-assertLineContainsAll(costCategory, ["Display", "compact USD"], "cost display info should render");
 
 press(costPane.component, "\x1b[C");
 press(costPane.component, "\x1b[B");
@@ -552,17 +551,6 @@ press(costPane.component, "\r");
 const costChanged = plainText(costPane.component);
 assertLineContainsAll(costChanged, ["Hide zero", "on"], "enter should toggle cost hide zero");
 assertContains(costChanged, "Hide until cost is non-zero.", "cost hide zero hint should render");
-
-const costInfoPane = await makePane();
-moveDown(costInfoPane.component, 3);
-press(costInfoPane.component, "\x1b[C");
-moveDown(costInfoPane.component, 2);
-press(costInfoPane.component, "\x1b[C");
-press(costInfoPane.component, "\r");
-const costInfoLines = plainRender(costInfoPane.component);
-assertContains(costInfoLines[0] ?? "", "Compact session cost.", "info row enter should show its hint as status");
-assertContains(costInfoLines.join("\n"), "✓ Saved", "info row enter should not dirty the draft");
-assertNotContains(costInfoLines.join("\n"), "● Unsaved changes", "info row enter should not create unsaved changes");
 
 const tokensPane = await makePane();
 moveDown(tokensPane.component, 6);

@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type EventBus, PROTOCOL_VERSION, type RpcDeps, registerRpcHandlers, type SpawnCapable } from "../src/cross-extension-rpc.js";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { type EventBus, PROTOCOL_VERSION, type RpcDeps, type RpcSpawnOptions, registerRpcHandlers, type SpawnCapable } from "../src/cross-extension-rpc.js";
 
 /** Simple in-process event bus for testing. */
 function createEventBus(): EventBus {
@@ -34,6 +34,10 @@ describe("cross-extension RPC", () => {
     };
     ctx = { session: true };
     deps = { events, pi: { events }, getCtx: () => ctx, manager };
+  });
+
+  it("keeps the cumulative usage callback outside the RPC spawn contract", () => {
+    expectTypeOf<RpcSpawnOptions>().not.toHaveProperty("onSessionUsage");
   });
 
   // --- ping ---

@@ -747,15 +747,16 @@ describe("review temp workspace scavenger", () => {
       path.join(tempRoot, `pi-adversarial-review-scavenge-${uid}-`),
     );
     await rename(runDir, path.join(quarantine, path.basename(runDir)));
+    const { mtimeMs } = await lstat(quarantine);
 
     await expect(scavengeStaleReviewTempWorkspaces({
-      rootDir: tempRoot, nowMs, ttlMs: 1_000,
+      rootDir: tempRoot, nowMs: mtimeMs + 1_000, ttlMs: 1_000,
     })).resolves.toEqual([]);
     expect(await exists(quarantine)).toBe(true);
     expect(await exists(runDir)).toBe(false);
 
     await expect(scavengeStaleReviewTempWorkspaces({
-      rootDir: tempRoot, nowMs: nowMs + 1_001, ttlMs: 1_000,
+      rootDir: tempRoot, nowMs: mtimeMs + 1_001, ttlMs: 1_000,
     })).resolves.toEqual([runDir]);
     expect(await exists(quarantine)).toBe(false);
     expect(await exists(runDir)).toBe(false);

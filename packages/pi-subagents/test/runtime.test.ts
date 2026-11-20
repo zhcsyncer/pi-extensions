@@ -67,7 +67,7 @@ describe("CallerOwnedAgentRuntime", () => {
     } as any;
     vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options: any) => {
       options.onSessionCreated?.(session);
-      options.onAssistantUsage?.({ input: 3, output: 5, cacheWrite: 7 });
+      options.onSessionUsage?.({ input: 3, output: 5, cacheRead: 0, cacheWrite: 7 });
       return {
         responseText: "review-json",
         session,

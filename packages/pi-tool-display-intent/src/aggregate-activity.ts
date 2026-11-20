@@ -22,8 +22,10 @@ import { getDisplaySummary, normalizeDisplaySummary, stripDisplaySummary } from 
 import type { ExpandedTimeline, ToolDisplayConfig } from "./types.js";
 import { layoutPreviewRows } from "./preview-text.js";
 import { pluralize, shortenPath } from "./render-utils.js";
-import { registerTimer } from "./disposable.js";
+import { NestedDisplayStore, nestedNumber, type NestedRoot } from "./nested-display.js";
+import { aggregateNestedSummary, nestedFailureCount, renderNestedChildren, renderNestedParent, type NestedParentRegion, type NestedChildRegion } from "./aggregate-nested.js";
 
+const NESTED_CALL_FORMAT = { target: formatAggregateTarget, duration: formatAggregateCallDuration };
 const RUN_BREATHE_MS = 2400;
 const RUN_BREATHE_TICK_MS = 80;
 
@@ -82,6 +84,8 @@ export interface AggregateMember {
 	agentTurnId?: string;
 	/** Immutable interpretation of the Agent tool receipt, not live task progress. */
 	agentReceipt?: AgentCallReceipt;
+	durationMs?: number;
+	nested?: NestedRoot;
 }
 
 export interface AggregateUsageTotals {
@@ -149,6 +153,7 @@ export interface AggregateActivityView {
 	steerCount: number;
 	pinnedSteers: Array<{ id: string; firstLine: string }>;
 	toolSummaries: AggregateToolSummary[];
+	nestedFailedCount?: number;
 }
 
 export interface AggregateRenderTheme {
@@ -486,12 +491,16 @@ export function formatExpandedTurnHeader(
 }
 
 export function formatMemberTiming(
-	member: Pick<AggregateMember, "state" | "startedAtMs" | "endedAtMs">,
+	member: Pick<AggregateMember, "state" | "startedAtMs" | "endedAtMs" | "durationMs">,
 	theme: AggregateRenderTheme,
 	nowMs = Date.now(),
 ): string {
-	if (member.startedAtMs === undefined) return "";
 	const running = member.state === "pending" || member.state === "running";
+	if (!running && member.durationMs !== undefined) {
+		const duration = formatAggregateCallDuration(member.durationMs);
+		return theme.fg("muted", member.endedAtMs === undefined ? duration : `${padDurationSlot(duration)}  ${formatAggregateClockHms(member.endedAtMs)}`);
+	}
+	if (member.startedAtMs === undefined || (!running && member.endedAtMs === undefined)) return "";
 	const endedAtMs = running ? undefined : member.endedAtMs;
 	const durationMs = Math.max(0, (endedAtMs ?? nowMs) - member.startedAtMs);
 	const duration = formatAggregateCallDuration(durationMs);
@@ -944,11 +953,13 @@ export class AggregateProjection {
 	private renderTheme: AggregateRenderTheme | undefined;
 	private readonly contextGrowth = new ContextGrowthLedger();
 	private pulseTimer: ReturnType<typeof setInterval> | undefined;
+	private disposed = false;
 	private readonly contextInvalidators = new Map<string, () => void>();
 	private readonly turnIdsByMessage = new WeakMap<object, string>();
 	private timelineExpanded = false;
 	private timelineExpansionObserved = false;
 	private readonly expandedGroups = new Map<string, boolean>();
+	private readonly expandedNestedRoots = new Set<string>();
 	private readonly viewportRuns = new Map<string, AggregateViewportRun>();
 	private detailOpener?: (request: DetailRequest) => Promise<void>;
 	private detailOpen = false;
@@ -957,6 +968,8 @@ export class AggregateProjection {
 		private readonly isPassthroughTool: (toolName: string) => boolean = () => false,
 		private readonly getExpandedTimeline: () => ExpandedTimeline = () => "flat",
 		private readonly showContextGrowth: () => boolean = () => false,
+		readonly nested = new NestedDisplayStore(),
+		private readonly nestedMaxRows: (expanded: boolean) => number = expanded => expanded ? 4000 : 8,
 	) {}
 
 	private customSequence = 0;
@@ -1132,6 +1145,24 @@ export class AggregateProjection {
 		for (const id of group.agentTurnIds) this.contextInvalidators.get(id)?.();
 	}
 
+	isNestedExpanded(toolCallId: string): boolean {
+		return this.expandedNestedRoots.has(toolCallId);
+	}
+
+	toggleNestedExpansion(toolCallId: string): void {
+		const root = this.nested.get(toolCallId);
+		if (this.disposed || !this.membersById.has(toolCallId) || (!root?.calls.size && !root?.anonymous.length)) return;
+		if (this.expandedNestedRoots.has(toolCallId)) this.expandedNestedRoots.delete(toolCallId);
+		else this.expandedNestedRoots.add(toolCallId);
+		this.invalidateIds(toolCallId);
+	}
+
+	resetNestedExpansion(): void {
+		const changed = [...this.expandedNestedRoots];
+		this.expandedNestedRoots.clear();
+		this.invalidateIds(...changed);
+	}
+
 	setDetailOpener(opener: ((request: DetailRequest) => Promise<void>) | undefined): void {
 		this.detailOpener = opener;
 	}
@@ -1193,25 +1224,54 @@ export class AggregateProjection {
 	}
 
 	getMember(toolCallId: string): AggregateMember | undefined {
-		return this.membersById.get(toolCallId);
+		const member = this.membersById.get(toolCallId);
+		if (member) member.nested = this.nested.get(toolCallId);
+		return member;
 	}
 
 	renderExpandedToolRow(toolCallId: string, width: number, nowMs = Date.now()): string[] {
 		return this.renderExpandedToolRowLayout(toolCallId, width, nowMs).lines;
 	}
 
-	renderExpandedToolRowLayout(toolCallId: string, width: number, nowMs = Date.now()): { lines: string[]; callStart: number } {
+	renderExpandedToolRowLayout(toolCallId: string, width: number, nowMs = Date.now()): {
+		lines: string[]; callStart: number; callEnd: number; nestedRegions?: Array<NestedParentRegion | NestedChildRegion>;
+	} {
 		const member = this.getMember(toolCallId);
-		if (!member) return { lines: [], callStart: 0 };
+		if (!member || !Number.isFinite(width) || width < 1) return { lines: [], callStart: 0, callEnd: 0 };
+		width = Math.floor(width);
 		const theme = this.getRenderTheme();
 		const edge = this.getFrameEdge(toolCallId) ?? "only";
-		if (this.getExpandedTimeline() !== "turns") {
-			return { lines: renderAggregateMemberRow(member, width, theme, edge, nowMs), callStart: 0 };
+		const turn = this.getExpandedTimeline() === "turns" ? this.getExpandedTurnPresentation(member, edge, nowMs) : undefined;
+		const callStart = (turn?.leadingBlank ? 1 : 0) + (turn?.header ? 1 : 0);
+		const summary = aggregateNestedSummary(member.nested);
+		if (!summary) {
+			const lines = renderExpandedAggregateMember(member, width, theme, edge, nowMs, turn);
+			return { lines, callStart, callEnd: lines.length };
 		}
-		const turn = this.getExpandedTurnPresentation(member, edge, nowMs);
+		// At widths smaller than the gutter, preserve the visible Details entry instead of painting only a frame.
+		const inset = width > visibleWidth(framePrefixForEdge(edge)) ? visibleWidth(framePrefixForEdge(edge)) : 0;
+		const chrome = memberStatusChrome(member, theme);
+		const label = member.toolName === "codemode" ? "codemode" : formatAggregateTarget(member);
+		const parent = renderNestedParent({
+			label: chrome.receiptLabel ? `${label} · ${chrome.receiptLabel}` : label, summary,
+			timing: formatMemberTiming(member, theme, nowMs), expanded: this.isNestedExpanded(toolCallId),
+			canExpand: Boolean(member.nested?.calls.size || member.nested?.anonymous.length), marker: chrome.marker,
+			detailsLabel: member.toolName === "codemode" ? "[Script / Output]" : "[Details]",
+			indent: turn?.indent ? 2 : 0, error: chrome.detail,
+			color: member.state === "failed" ? "error" : member.state === "success" ? "success" : "warning",
+		}, width - inset, theme);
+		const children = renderNestedChildren(member.nested, width - inset, parent.indent, theme, this.isNestedExpanded(toolCallId), this.nestedMaxRows(true), NESTED_CALL_FORMAT);
+		const lines = [...(turn?.leadingBlank ? [""] : []), ...(turn?.header ? [turn.header] : []), ...parent.lines, ...children.lines];
+		const regions = [...parent.regions, ...children.regions.map(region => ({ ...region,
+			startRow: parent.lines.length + region.startRow, endRow: parent.lines.length + region.endRow,
+		}))];
 		return {
-			lines: renderExpandedAggregateMember(member, width, theme, edge, nowMs, turn),
-			callStart: (turn.leadingBlank ? 1 : 0) + (turn.header ? 1 : 0),
+			lines: inset ? applyAggregateGroupFrame(lines, width, theme, edge) : lines.map(line => truncateToWidth(line, width, "…")),
+			callStart, callEnd: callStart + parent.lines.length,
+			nestedRegions: regions.map(region => ({ ...region,
+				startRow: callStart + region.startRow, endRow: callStart + region.endRow,
+				startColumn: inset + (region.startColumn ?? 0), endColumn: inset + (region.endColumn ?? width - inset),
+			})),
 		};
 	}
 
@@ -1439,7 +1499,18 @@ export class AggregateProjection {
 		this.syncRunPulse();
 	}
 
+	/** The pulse is created by later events, so its owner is this projection, not a render scope. */
+	dispose(): void {
+		this.disposed = true;
+		this.resetNestedExpansion();
+		this.nested.dispose();
+		this.stopRunPulse();
+		this.clearViewportState();
+		this.setDetailOpener(undefined);
+	}
+
 	private syncRunPulse(): void {
+		if (this.disposed) return;
 		const live = this.groups.some((group) => !group.settled);
 		if (live && !this.pulseTimer) {
 			this.pulseTimer = setInterval(() => {
@@ -1449,7 +1520,6 @@ export class AggregateProjection {
 				if (!this.groups.some((group) => !group.settled)) this.stopRunPulse();
 			}, RUN_BREATHE_TICK_MS);
 			this.pulseTimer.unref?.();
-			registerTimer(this.pulseTimer);
 			return;
 		}
 		if (!live) this.stopRunPulse();
@@ -1580,6 +1650,7 @@ export class AggregateProjection {
 		args: unknown,
 		invalidate: (() => void) | undefined,
 	): void {
+		if (invalidate) this.nested.bind(toolCallId, invalidate);
 		if (!this.initialized) {
 			if (invalidate) this.invalidators.set(toolCallId, invalidate);
 			return;
@@ -1642,6 +1713,7 @@ export class AggregateProjection {
 		options: { retainDone?: boolean; fallbackTimestamp?: unknown } = {},
 	): void {
 		if (messageRole(message) !== "toolResult") return;
+		this.nested.ingest(message);
 		const record = toRecord(message);
 		if (typeof record.toolCallId === "string") {
 			const member = this.membersById.get(record.toolCallId);
@@ -1686,10 +1758,11 @@ export class AggregateProjection {
 		toolCallId: string,
 		result: unknown,
 		isError: boolean,
-		options: { retainDone?: boolean; endedAtMs?: number; stampNow?: boolean } = {},
+		options: { retainDone?: boolean; endedAtMs?: number; stampNow?: boolean; durationMs?: number } = {},
 	): void {
 		const member = this.membersById.get(toolCallId);
 		if (!member) return;
+		member.durationMs = nestedNumber(options.durationMs) ?? nestedNumber(toRecord(result).durationMs) ?? member.durationMs;
 		if (isError) {
 			this.markFailed(toolCallId, firstMeaningfulLine(result, "Tool failed."), options);
 			return;
@@ -1773,6 +1846,7 @@ export class AggregateProjection {
 	}
 
 	rebuild(branchEntries: unknown[], visibleMessages?: unknown[]): void {
+		this.nested.rebuild(branchEntries);
 		this.stopRunPulse();
 		this.clearViewportState();
 		const visibleIds = collectVisibleToolCallIds(visibleMessages);
@@ -1781,6 +1855,7 @@ export class AggregateProjection {
 		// Occurrence IDs are scoped to the current transcript. A different branch
 		// or compaction must not inherit another notification's local expansion.
 		if (!this.replayEntryIds.every((id, index) => nextEntryIds[index] === id)) {
+			this.resetNestedExpansion();
 			for (const id of this.customMessages.keys()) this.expandedGroups.delete(id);
 		}
 		this.replayEntryIds = nextEntryIds;
@@ -1864,6 +1939,9 @@ export class AggregateProjection {
 		const expansionKeys = new Set(this.groups.map((group) => group.expansionKey ?? group.members[0]?.toolCallId ?? group.groupId));
 		for (const key of this.expandedGroups.keys()) {
 			if (!expansionKeys.has(key)) this.expandedGroups.delete(key);
+		}
+		for (const id of this.expandedNestedRoots) {
+			if (!this.membersById.get(id)?.visible || !aggregateNestedSummary(this.nested.get(id))) this.expandedNestedRoots.delete(id);
 		}
 		this.rebuildContextGrowth(projectedEntries);
 		this.syncRunPulse();
@@ -1965,6 +2043,7 @@ export class AggregateProjection {
 
 	private buildGroupView(group: AggregateGroup, hostId: string): AggregateActivityView {
 		const grouped = group.members;
+		for (const member of grouped) member.nested = this.nested.get(member.toolCallId);
 		const aggregateMembers = grouped.filter(
 			(entry) => entry.state !== "needsAttention" && !this.isPassthrough(entry.toolName),
 		);
@@ -2022,6 +2101,7 @@ export class AggregateProjection {
 				? []
 				: group.steers.map((steer) => ({ id: steer.id, firstLine: steer.firstLine })),
 			toolSummaries: [...summaries.values()],
+			nestedFailedCount: aggregateMembers.reduce((count, member) => count + nestedFailureCount(member.nested), 0),
 		};
 	}
 
@@ -2371,6 +2451,7 @@ export function renderAggregateActivity(
 	const totals = theme.fg("muted", ` (${parts.join(" · ")})`);
 	let header = `${marker} ${theme.fg("toolTitle", theme.bold?.("Run") ?? "Run")}${totals}`;
 	if (hasFailure) header += theme.fg("error", ` · ${view.failedCount} failed`);
+	if (view.nestedFailedCount) header += theme.fg("error", ` · ${view.nestedFailedCount} internal failed`);
 	for (const summary of view.toolSummaries) {
 		header += theme.fg("muted", " · ");
 		header += theme.fg(toolColor(summary.toolName), `${summary.toolName} ×${summary.count}`);
@@ -2512,6 +2593,8 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 	state.owner = TOOL_MODULE;
 	state.releaseOwner = () => {
 		TOOL_MODULE.retired = true;
+		for (const owner of liveProjections) owner.resetNestedExpansion();
+		state.projection?.resetNestedExpansion();
 		hostAggregateProjection = undefined;
 		liveProjections.clear();
 	};
@@ -2570,10 +2653,18 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 					regions.push({ startRow: 1, endRow: offset, onClick: toggle });
 				}
 			}
-			regions.push({ startRow: offset + detail.callStart, endRow: lines.length, onClick: () => activeProjection.openDetail({
+			const openDetails = () => activeProjection.openDetail({
 				kind: "tool", toolName, target: formatAggregateTarget(member), args: this.args, result: this.result,
 				status: member.state, timing: formatMemberTiming(member, PLAIN_THEME),
-			}) });
+			});
+			if (detail.nestedRegions) {
+				for (const region of detail.nestedRegions) regions.push({
+					...region, startRow: offset + region.startRow, endRow: offset + region.endRow,
+					onClick: region.action === "child"
+						? () => activeProjection.openDetail({ kind: "nested", rootToolCallId: toolCallId, call: region.call })
+						: region.action === "details" ? openDetails : () => activeProjection.toggleNestedExpansion(toolCallId),
+				});
+			} else regions.push({ startRow: offset + detail.callStart, endRow: offset + detail.callEnd, onClick: openDetails });
 			recordAggregateClickRegions(this, width, lines.length, regions, run ? { run, ...(offset > 0 ? { titleRow: 1 } : {}) } : undefined);
 			return lines;
 		}
@@ -2591,12 +2682,14 @@ export function patchAggregateToolExecutions(projection: AggregateProjection): v
 }
 
 export function restoreAggregateToolExecutions(): void {
+	for (const owner of liveProjections) owner.resetNestedExpansion();
 	restoreAggregateViewport();
 	hostAggregateProjection = undefined;
 	liveProjections.clear();
 	const prototype = getToolExecutionPrototype();
 	const state = prototype[AGGREGATE_TOOL_EXECUTION_PATCH_KEY];
 	if (state && state.owner !== TOOL_MODULE) return;
+	state?.projection?.resetNestedExpansion();
 	restoreAggregateCustomMessages();
 	restoreAggregateMouseHandling(prototype);
 	restoreAggregateGlobalExpansion();
@@ -2674,8 +2767,7 @@ export function registerAggregateProjectionEvents(
 	pi.on("session_shutdown", async () => {
 		clearSettleTimer();
 		collapseWidget.dispose();
-		projection.clearViewportState();
-		projection.setDetailOpener(undefined);
+		projection.dispose();
 		const wasHost = hostAggregateProjection === projection;
 		forgetProjection(pi, projection);
 		// The UI host owns shared rendering, not the last lingering child session.
@@ -2688,7 +2780,10 @@ export function registerAggregateProjectionEvents(
 		else adoptHostIfNeeded();
 		rebuild(ctx);
 	};
-	pi.on("session_start", async (_event, ctx) => bindSession(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		projection.resetNestedExpansion();
+		bindSession(ctx);
+	});
 	pi.on("before_agent_start", async (_event, ctx) => bindSession(ctx));
 	pi.on("session_compact", async (_event, ctx) => rebuild(ctx));
 	pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
@@ -2716,11 +2811,11 @@ export function registerAggregateProjectionEvents(
 	});
 	pi.on("tool_execution_start", async (event) => {
 		clearSettleTimer();
-		projection.markStarted(event.toolCallId, event.toolName, event.args);
+		if (!event.parentToolCallId) projection.markStarted(event.toolCallId, event.toolName, event.args);
 	});
-	pi.on("tool_execution_update", async (event) => projection.markUpdated(event.toolCallId, event.args));
+	pi.on("tool_execution_update", async (event) => { if (!event.parentToolCallId) projection.markUpdated(event.toolCallId, event.args); });
 	pi.on("tool_execution_end", async (event) => {
-		projection.markComplete(event.toolCallId, event.result, event.isError === true);
+		if (!event.parentToolCallId) projection.markComplete(event.toolCallId, event.result, event.isError === true, { durationMs: event.durationMs });
 	});
 	pi.on("agent_settled", async () => {
 		projection.markUnsettledInterrupted();
@@ -2732,4 +2827,5 @@ export function registerAggregateProjectionEvents(
 		}, doneSettleDelayMs);
 		settleTimer.unref?.();
 	});
+	projection.nested.register(pi);
 }

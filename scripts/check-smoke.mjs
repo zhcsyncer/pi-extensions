@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function createIsolatedSmokeEnvironment(baseEnvironment = process.env) {
-	const root = mkdtempSync(join(tmpdir(), "pi-extensions-smoke-"));
+	const root = mkdtempSync(join(process.platform === "linux" ? "/var/tmp" : tmpdir(), "pi-extensions-smoke-"));
 	const home = join(root, "home");
 	const xdgConfigHome = join(root, "xdg-config");
 	const agentDir = join(root, "agent");
@@ -22,12 +22,22 @@ export function createIsolatedSmokeEnvironment(baseEnvironment = process.env) {
 	return {
 		root,
 		environment: {
-			...baseEnvironment,
+			// Never inherit model keys, npm auth, Herdr sockets or user extension settings.
+			...Object.fromEntries(["PATH", "SystemRoot", "ComSpec", "PATHEXT", "TERM", "LANG", "LC_ALL"]
+				.filter((key) => baseEnvironment[key] !== undefined)
+				.map((key) => [key, baseEnvironment[key]])),
 			HOME: home,
 			XDG_CONFIG_HOME: xdgConfigHome,
 			PI_CODING_AGENT_DIR: agentDir,
-			// pnpm is a Corepack shim. Keep its already-bootstrapped cache while
-			// isolating extension config roots, so smoke remains offline-capable.
+			XDG_DATA_HOME: join(root, "data"),
+			XDG_STATE_HOME: join(root, "state"),
+			XDG_CACHE_HOME: join(root, "cache"),
+			// pnpm 11 otherwise resolves its own version through the registry in an empty HOME.
+			// Checks must run the already-selected executable, not install or reconcile anything.
+			pnpm_config_pm_on_fail: "ignore",
+			pnpm_config_verify_deps_before_run: "false",
+			// For Corepack-managed installs, retain the bootstrapped tool cache
+			// while isolating extension config roots so smoke can remain offline.
 			COREPACK_HOME: corepackHome,
 		},
 	};
@@ -99,6 +109,8 @@ export function runSmokeChecks() {
 				{
 					env: {
 						...environment,
+						// Catalog smoke intentionally avoids live discovery; generic tests do not.
+						PI_OFFLINE: "1",
 						...(isAgentPlan
 							? {
 								ARK_AGENT_PLAN_API_KEY: "release-smoke-test-key",

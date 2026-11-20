@@ -107,6 +107,7 @@ export interface UsageTotals {
 	cacheRead: number;
 	cacheWrite: number;
 	cost: number;
+	costUnknown?: boolean;
 }
 
 export interface TurnThroughputUsage {

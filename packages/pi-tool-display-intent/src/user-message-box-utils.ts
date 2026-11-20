@@ -14,7 +14,7 @@ function hasPromptControlOscSequence(text: string): boolean {
   return text.includes("\x1b]133;") || text.includes("\x1b]633;");
 }
 
-function stripOscPromptControlSequences(text: string): string {
+export function stripOscPromptControlSequences(text: string): string {
   if (!text || !hasPromptControlOscSequence(text)) {
     return text;
   }
@@ -22,6 +22,18 @@ function stripOscPromptControlSequences(text: string): string {
   // Strip prompt-control OSC sequences only. OSC 8 hyperlinks are intentionally
   // preserved because they carry renderable terminal hyperlink metadata.
   return text.replace(OSC_PROMPT_CONTROL_SEQUENCE_PATTERN, "");
+}
+
+/** Final navigation boundary; never mutate a downstream/cached array. */
+export function withMessageNavigation(lines: string[]): string[] {
+  if (lines.length === 0) return [];
+  const output = lines.map(stripOscPromptControlSequences);
+  if (output.every(isVisuallyEmptyLine)) return [];
+  const last = output.length - 1;
+  output[last] = "\x1b]133;B\x07\x1b]133;C\x07" + output[last];
+  // Prepend A last so it is first even for a single line.
+  output[0] = "\x1b]133;A\x07" + output[0];
+  return output;
 }
 
 function sanitizeUserMessageAnsi(text: string): string {

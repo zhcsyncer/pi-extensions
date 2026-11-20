@@ -1,13 +1,9 @@
 import { homedir } from "node:os";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeAnsiForThemedOutput } from "./ansi-utils.js";
+import { extractDisplayText } from "./display-budget.js";
 
 export { sanitizeAnsiForThemedOutput };
-
-interface TextLikeContent {
-  type: string;
-  text?: string;
-}
 
 interface ToolResultLike {
   content?: unknown;
@@ -195,16 +191,7 @@ export function compactPathForDisplay(inputPath: string | undefined, maxWidth: n
 }
 
 export function extractTextOutput(result: ToolResultLike): string {
-  const rawBlocks = Array.isArray(result.content) ? result.content : [];
-  const blocks = rawBlocks.filter(
-    (block): block is TextLikeContent =>
-      typeof block === "object" &&
-      block !== null &&
-      "type" in block &&
-      (block as TextLikeContent).type === "text" &&
-      typeof (block as TextLikeContent).text === "string",
-  );
-  return blocks.map((block) => block.text ?? "").join("\n");
+  return extractDisplayText(result);
 }
 
 export function splitLines(text: string): string[] {

@@ -586,13 +586,6 @@ assert.deepEqual(config, sourceConfigBefore, "updatePaneModel should not mutate 
 assert.notEqual(toggledEnabled.model, valuesEnabled, "editable activation should return a new model object");
 assert.notEqual(toggledEnabled.model.draft, valuesEnabled.draft, "editable activation should return a new draft config object");
 
-const costInfoModel = withFocus(model, "values", 3, 2);
-const costInfo = updatePaneModel(costInfoModel, { type: "activate" });
-assert.equal(costInfo.requestRender, true, "Enter on an info row should request render so status can be shown");
-assert.equal(costInfo.model.status, "Compact session cost.", "info row activation should copy the row hint into status");
-assert.equal(paneIsDirty(costInfo.model), false, "info row activation should not dirty the draft");
-assert.deepEqual(costInfo.model.draft, costInfoModel.draft, "info row activation should not change draft config");
-
 const saveResult = updatePaneModel(toggledEnabled.model, { type: "save" });
 assert.equal(saveResult.requestRender, false, "save should complete without requesting render");
 assert.equal(saveResult.completion?.action, "save", "save should complete with action=save");

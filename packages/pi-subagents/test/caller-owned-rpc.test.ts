@@ -166,7 +166,9 @@ describe("caller-owned cross-extension spawn", () => {
   });
 
   it("emits queued caller-owned terminal after shutdown unbinds stop RPC", async () => {
-    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(runAgent).mockImplementation((_ctx, _type, _prompt, { signal }) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    }));
     const { pi, lifecycle, busHandlers } = makePi();
     subagentsExtension(pi);
     const extensionCtx = ctx(tmpDir);

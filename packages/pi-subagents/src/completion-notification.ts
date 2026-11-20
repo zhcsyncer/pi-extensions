@@ -17,7 +17,7 @@ function escapeXml(text: string): string {
 function statusLabel(record: NotificationRecord): string {
   switch (record.status) {
     case "error": return `Error: ${record.error ?? "unknown"}`;
-    case "aborted": return "Aborted (max turns exceeded)";
+    case "aborted": return "Aborted";
     case "steered": return "Wrapped up (turn limit)";
     case "stopped": return "Stopped";
     default: return "Done";

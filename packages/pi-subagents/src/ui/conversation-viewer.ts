@@ -393,7 +393,7 @@ export class ConversationViewer implements Component {
         (this.record.status === "stopped"
           ? "Stopped by user"
           : this.record.status === "aborted"
-            ? "Aborted (max turns exceeded)"
+            ? "Aborted"
             : "failed");
       lines.push(th.fg("error", errText));
       const partial = this.record.result ?? (this.record.previousResult ? undefined : brief.result);

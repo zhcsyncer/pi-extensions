@@ -19,7 +19,8 @@ assertReadmeIncludes("maintained fork", "README should identify this package as 
 assertReadmeIncludes("./assets/demo.png", "README should use the local Glance demo screenshot");
 assertReadmeExcludes("LinYS77/pi-glance/main/assets/demo.gif", "README should not keep the upstream demo gif as the user-facing screenshot");
 assertReadmeIncludes("pi install npm:@zhcsyncer/pi-glance", "README should install the scoped fork package");
-assertReadmeIncludes("Pi 0.80.4 or newer", "README should document the agent_settled-compatible Pi baseline");
+assertReadmeIncludes("Pi 1.1 or newer", "README should document the Pi 1.1 minimum version");
+assert.ok(readmeZh.includes("Pi 1.1 或更新"), "Chinese README should document the Pi 1.1 minimum version");
 assertReadmeIncludes("Other extensions' `ctx.ui.setStatus()` values remain visible", "README should document preserved extension statuses");
 assertReadmeIncludes("`status` or `border right`", "README should document the two Working Tree placements");
 assertReadmeIncludes("unless Working Tree file counts are already visible", "README should hide the dirty lamp when worktree counts are visible");

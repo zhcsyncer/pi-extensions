@@ -6,6 +6,8 @@ A structured questionnaire extension for Pi, maintained from `@juicesharp/rpiv-a
 
 This fork renders the questionnaire in Pi's normal custom-component layout instead of a full-screen overlay over the bottom area. It also adds context-aware numeric selection and an auditable result view after the interaction finishes.
 
+Requires Pi 1.1 or later. The model calls `ask_user_question` directly; scripts and other tools cannot open questionnaires through nested tool calls. Direct TUI and RPC interactions remain available without codemode.
+
 ## Install
 
 Install only the questionnaire extension:
