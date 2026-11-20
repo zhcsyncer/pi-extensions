@@ -18,6 +18,7 @@
   "license": "MIT",
   "type": "module",
   "files": [
+    "/CHANGELOG.md",
     "README.md",
     "README.zh-CN.md",
     "packages/*/extensions/**/*.ts",
@@ -35,7 +36,6 @@
     "packages/*/LICENSE",
     "packages/*/UPSTREAM_LICENSE",
     "packages/pi-todo/package.json",
-    "packages/pi-plan-mode/package.json",
     "packages/pi-meter/package.json",
     "packages/pi-consult/package.json",
     "packages/pi-todo/config.ts",
@@ -69,15 +69,6 @@
     "packages/pi-search-hub/UPSTREAM_CHANGELOG.md",
     "packages/pi-search-hub/UPSTREAM_SOURCE.md",
     "!packages/pi-search-hub/**/*.test.ts",
-    "packages/pi-context7/package.json",
-    "packages/pi-context7/lib/**/*.ts",
-    "packages/pi-context7/config.json.example",
-    "packages/pi-context7/skills/**/*",
-    "packages/pi-context7/CHANGELOG.md",
-    "packages/pi-context7/UPSTREAM_README.md",
-    "packages/pi-context7/UPSTREAM_CHANGELOG.md",
-    "packages/pi-context7/UPSTREAM_SOURCE.md",
-    "!packages/pi-context7/**/*.test.ts",
     "packages/pi-ask-user-question/**/*.ts",
     "packages/pi-ask-user-question/locales/*.json",
     "packages/pi-ask-user-question/docs/*.md",
@@ -106,7 +97,9 @@
     "packages/pi-subagents/UPSTREAM_SOURCE.md",
     "!packages/pi-subagents/**/*.test.ts",
     "!packages/pi-subagents/test/**",
-    "!packages/pi-adversarial-review/**"
+    "!packages/pi-adversarial-review/**",
+    "!packages/pi-plan-mode/**",
+    "!packages/pi-context7/**"
   ],
   "publishConfig": {
     "access": "public"
@@ -136,17 +129,12 @@
       "./packages/pi-tool-display-intent/extensions/tool-display-intent.ts",
       "./packages/pi-todo/index.ts",
       "./packages/pi-glance/index.ts",
-      "./packages/pi-plan-mode/extensions/plan-mode.ts",
       "./packages/pi-search-hub/extensions/search-hub.ts",
-      "./packages/pi-context7/extensions/context7.ts",
       "./packages/pi-ask-user-question/index.ts",
       "./packages/pi-subagents/src/index.ts",
       "./packages/pi-fast-mode/extensions/fast-mode.ts",
       "./packages/pi-meter/extensions/meter.ts",
       "./packages/pi-consult/extensions/consult.ts"
-    ],
-    "skills": [
-      "./packages/pi-context7/skills"
     ],
     "image": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-glance/assets/demo.png"
   },

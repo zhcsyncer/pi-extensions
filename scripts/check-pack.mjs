@@ -27,6 +27,7 @@ const packagePaths = [
 
 const requiredPackFiles = new Map([
 	[".", [
+		"CHANGELOG.md",
 		"README.md",
 		"README.zh-CN.md",
 		"packages/pi-recap/extensions/multiplexer.ts",
@@ -39,22 +40,8 @@ const requiredPackFiles = new Map([
 		"packages/pi-glance/assets/demo.png",
 		"packages/pi-glance/README.md",
 		"packages/pi-glance/README.zh-CN.md",
-		"packages/pi-plan-mode/package.json",
-		"packages/pi-plan-mode/extensions/plan-mode.ts",
-		"packages/pi-plan-mode/src/config.ts",
-		"packages/pi-plan-mode/src/storage.ts",
-		"packages/pi-plan-mode/src/widgets.ts",
-		"packages/pi-plan-mode/README.md",
-		"packages/pi-plan-mode/README.zh-CN.md",
 		"packages/pi-search-hub/README.md",
 		"packages/pi-search-hub/README.zh-CN.md",
-		"packages/pi-context7/extensions/context7.ts",
-		"packages/pi-context7/lib/api.ts",
-		"packages/pi-context7/config.json.example",
-		"packages/pi-context7/skills/context7-docs/SKILL.md",
-		"packages/pi-context7/README.md",
-		"packages/pi-context7/README.zh-CN.md",
-		"packages/pi-context7/UPSTREAM_SOURCE.md",
 		"packages/pi-ask-user-question/index.ts",
 		"packages/pi-ask-user-question/config-paths.ts",
 		"packages/pi-ask-user-question/view/tool-renderer.ts",
@@ -133,6 +120,7 @@ const requiredPackFiles = new Map([
 		"UPSTREAM_SOURCE.md",
 	]],
 	["./packages/pi-glance", [
+		"CHANGELOG.md",
 		"index.ts",
 		"bottom-details.ts",
 		"footer.ts",
@@ -457,6 +445,14 @@ for (const packagePath of packagePaths) {
 		assert.ok(files.has(requiredFile), `${packagePath} npm pack is missing ${requiredFile}`);
 	}
 	if (packagePath === ".") {
+		assert.ok(
+			![...files].some((file) => file.startsWith("packages/pi-plan-mode/")),
+			"root npm pack must not include the retired pi-plan-mode package",
+		);
+		assert.ok(
+			![...files].some((file) => file.startsWith("packages/pi-context7/")),
+			"root npm pack must not include the retired pi-context7 package or its skills",
+		);
 		assert.ok(
 			![...files].some((file) => file.startsWith("packages/pi-adversarial-review/")),
 			"root npm pack must not include the standalone pi-adversarial-review package",
