@@ -601,12 +601,14 @@ for (const scenario of [
     component.invalidate();
     const width = 160;
     const rendered = component.render(width).map(stripTerminalSequences);
-    // Select the executable root row, not the Run heading's tool-name summary.
-    const rootRow = rendered.findIndex(line => /\bcodemode\(/.test(line));
-    assert.ok(rootRow >= 0, "fixture: expanded aggregate exposes the actual codemode root row");
-    const handled = component.handleMouse({ type: "click", button: "left", x: 8, y: rootRow, screenX: 8, screenY: rootRow,
+    // Nested parent bodies toggle children; only their explicit Details action opens the viewer.
+    const detailsRow = rendered.findIndex(line => line.includes("[Script / Output]"));
+    assert.ok(detailsRow >= 0, "fixture: expanded aggregate exposes an explicit Details entry");
+    const detailsColumn = rendered[detailsRow].indexOf("[Script / Output]");
+    const handled = component.handleMouse({ type: "click", button: "left", x: detailsColumn, y: detailsRow, screenX: detailsColumn, screenY: detailsRow,
       width, height: rendered.length, shift: false, alt: false, ctrl: false });
-    assert.equal(handled?.handled, true, "fixture: the real root click is handled");
+    assert.equal(handled?.handled, true, "fixture: the explicit Details click is handled");
+    assert.equal(h.projection.isNestedExpanded(ROOT), false, "Details must not expand children");
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(opened.length, 1, "fixture: the real click opens one detail request");
     const metadata = opened[0].tabs.find(tab => tab.id === "details");

@@ -639,3 +639,84 @@ test("overlapping thinking and final text keep the final text", () => {
 		restoreAggregateThinkingPlaceholders();
 	}
 });
+
+test("a quoted prompt-zone sequence does not invent an assistant boundary", () => {
+	initTheme("dark", false);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const quoted = "quoting \x1b]133;A\x07 not a real boundary";
+		const lines = render(assistant([
+			{ type: "text", text: quoted },
+			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.ts" } },
+		], { stopReason: "toolUse" }), true);
+		assert.match(lines.join("\n"), /not a real boundary/);
+		assert.deepEqual(lines.filter((line) => /^\x1b\]133;A/.test(line)), [], "no row becomes a prompt boundary");
+		assert.doesNotMatch(lines.join("\n"), /\x1b\]133;[BC]/, "host left this tool-call reply unmarked");
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+	}
+});
+
+test("a downstream blank row does not cost the assistant its boundary", () => {
+	initTheme("dark", false);
+	const prototype = AssistantMessageComponent.prototype as unknown as {
+		render(width: number): string[];
+	};
+	const core = prototype.render;
+	// A foreign renderer installed before the patch legitimately shifts pi's own
+	// rows behind a leading blank, so the marker no longer sits on row 0.
+	prototype.render = function shifted(this: unknown, width: number): string[] {
+		return ["", ...core.call(this, width)];
+	};
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const lines = render(assistant([
+			{ type: "thinking", thinking: "reasoning" },
+			{ type: "text", text: "Shifted boundary" },
+		], { stopReason: "stop" }), true);
+		assert.match(lines.join("\n"), /Shifted boundary/);
+		const boundaries = lines.filter((line) => /^\x1b\]133;A/.test(line));
+		assert.equal(boundaries.length, 1, "the host boundary survives a shifted first row");
+		assert.match(lines.at(-1)!, /\x1b\]133;B\x07\x1b\]133;C\x07/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		prototype.render = core;
+	}
+});
+
+test("a downstream boundary survives the context-only painted early return", () => {
+	initTheme("dark", false);
+	const projection = new AggregateProjection(() => true, () => "turns", () => true);
+	const message = assistant([
+		{ type: "toolCall", id: "context-call", name: "Agent", arguments: {} },
+	], { id: "context-turn", timestamp: 2, provider: "test", api: "test-api", model: "test-model",
+		usage: { input: 1000, output: 20, cacheRead: 0, cacheWrite: 0 } });
+	projection.rebuild([
+		{ id: "user", type: "message", message: { role: "user", content: "request", timestamp: 1 } },
+		{ id: "assistant", type: "message", message },
+		{ id: "result", type: "message", message: { role: "toolResult", toolCallId: "context-call", toolName: "Agent", content: [], timestamp: 3 } },
+	]);
+	assert.ok(projection.getAssistantContextLines(message, true).length > 0, "fixture: real ledger supplies context chrome without narration");
+	const prototype = AssistantMessageComponent.prototype;
+	const core = prototype.render;
+	// The SDK's tool-call reply is unmarked. A cooperating downstream renderer may
+	// supply a boundary of its own even when only the aggregate context receipt paints.
+	prototype.render = function(width: number): string[] {
+		return ["", "\x1b]133;A\x07", ...core.call(this, width)];
+	};
+	patchAggregateToolExecutions(projection);
+	patchAggregateThinkingPlaceholders(() => true);
+	try {
+		const component = createComponent(message, true) as AssistantMessageComponent & { setExpanded(expanded: boolean): void };
+		component.setExpanded(true);
+		const lines = component.render(100);
+		assert.match(stripTerminalSequences(lines.join("\n")), /ctx/);
+		assert.match(lines[0], /^\x1b\]133;A\x07/);
+		assert.match(lines.at(-1)!, /\x1b\]133;B\x07\x1b\]133;C\x07/);
+	} finally {
+		restoreAggregateThinkingPlaceholders();
+		prototype.render = core;
+		projection.dispose();
+		restoreAggregateToolExecutions();
+	}
+});

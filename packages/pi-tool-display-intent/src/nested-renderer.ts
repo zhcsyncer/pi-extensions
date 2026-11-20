@@ -1,7 +1,7 @@
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { displayField as field } from "./display-budget.js";
 import { formatFlatArgumentPreview } from "./arg-preview.js";
-import { PreviewText, type PreviewTextOptions, type PreviewTextTheme } from "./preview-text.js";
+import { PreviewText, type PreviewTextTheme } from "./preview-text.js";
 import { NESTED_LIMITS, nestedArrayLength, type NestedCall, type NestedDisplayStore, type NestedRoot } from "./nested-display.js";
 import { nativeView, NATIVE_NESTED_OMISSION } from "./native-nested-view.js";
 
@@ -95,20 +95,4 @@ export function prepareNestedResult(
     result: native?.result ?? result,
     ...(lines.length ? { after: new PreviewText({ lines, maxRows, expanded, theme }) } : {}),
   };
-}
-
-// Aggregate uses the same bounded text/layout policy, one current component per root.
-const aggregatePreviews = new WeakMap<NestedRoot, { revision: number; options: PreviewTextOptions; component: PreviewText }>();
-export function renderNestedActivity(root: NestedRoot | undefined, width: number, theme: PreviewTextTheme, expanded: boolean, maxRows: number): string[] {
-  if (!root || !nestedNotice(root)) return [];
-  let cached = aggregatePreviews.get(root);
-  if (!cached || cached.revision !== root.revision) {
-    const options = { lines: supplement(root), maxRows, expanded, theme };
-    cached = { revision: root.revision, options, component: new PreviewText(options) };
-    aggregatePreviews.set(root, cached);
-  }
-  cached.options.theme = theme;
-  cached.options.expanded = expanded;
-  cached.options.maxRows = maxRows;
-  return cached.component.render(width);
 }

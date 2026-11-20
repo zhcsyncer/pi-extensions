@@ -4,6 +4,9 @@ import { recordAggregateViewportRegion, releaseAggregateViewportRegion, type Agg
 export interface AggregateClickRegion {
 	startRow: number;
 	endRow: number;
+	/** Half-open terminal columns; omitted bounds retain whole-row hit behavior. */
+	startColumn?: number;
+	endColumn?: number;
 	onClick(): void;
 }
 
@@ -67,7 +70,8 @@ function dispatch(instance: object, event: TuiMouseEvent, original?: MouseHandle
 	const map = hitMaps.get(instance);
 	if (!map || event.x < 0 || event.x >= map.width || event.y < 0 || event.y >= map.height) return undefined;
 	if (event.type === "click" && event.button === "left" && !event.shift && !event.alt && !event.ctrl) {
-		const region = map.regions.find((candidate) => event.y >= candidate.startRow && event.y < candidate.endRow);
+		const region = map.regions.find((candidate) => event.y >= candidate.startRow && event.y < candidate.endRow
+			&& event.x >= (candidate.startColumn ?? 0) && event.x < (candidate.endColumn ?? map.width));
 		if (region) {
 			region.onClick();
 			return { handled: true };

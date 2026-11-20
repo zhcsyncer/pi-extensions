@@ -53,7 +53,11 @@ export class DetailViewer implements Component {
 	private tabRow = -1;
 	private buttons: ClickButton[] = [];
 
-	constructor(readonly model: DetailModel, private readonly options: DetailViewerOptions) {}
+	constructor(readonly model: DetailModel, private readonly options: DetailViewerOptions) {
+		const initial = model.tabs.findIndex(tab => tab.id === model.initialTab);
+		this.selected = initial >= 0 ? initial : 0;
+		this.lastPrimary = model.tabs[this.selected]?.advanced ? Math.max(0, model.tabs.findIndex(tab => !tab.advanced)) : this.selected;
+	}
 
 	private tab(): DetailTab { return this.model.tabs[this.selected]; }
 	private isRaw(): boolean { return this.rawTabs.has(this.selected); }

@@ -91,6 +91,8 @@ for (const codemode of [true, false]) {
     } else assert.equal(f.h.session.getToolDefinition("codemode"), undefined);
     f.projection.rebuild(f.entries);
     assert.equal(f.projection.getViewForGroup("root")?.callCount, 1);
+    assert.doesNotMatch(f.projection.renderExpandedToolRow("root", 100).join("\n"), /leaf rejected/);
+    f.projection.toggleNestedExpansion("root");
     assert.match(f.projection.renderExpandedToolRow("root", 100).join("\n"), /leaf rejected/);
   });
 }
@@ -184,6 +186,8 @@ test("saved native records survive disk/tree/compaction selection without requir
   reopened.branch(tip);
   reopened.appendCompaction("keep", before, 0);
   f.projection.rebuild(reopened.buildContextEntries());
+  assert.doesNotMatch(f.projection.renderExpandedToolRow("root", 100).join("\n"), /leaf rejected/);
+  f.projection.toggleNestedExpansion("root");
   assert.match(f.projection.renderExpandedToolRow("root", 100).join("\n"), /leaf rejected/);
   reopened.appendCompaction("drop", null, 0);
   f.projection.rebuild(reopened.buildContextEntries());
