@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- Updated dependencies [7a84086]
+- Updated dependencies [7a84086]
+- Updated dependencies [7a84086]
+  - @zhcsyncer/pi-subagents@0.2.4
+
 ## 0.1.1
 
 ### Patch Changes

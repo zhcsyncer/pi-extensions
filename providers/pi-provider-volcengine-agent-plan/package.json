@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-volcengine-agent-plan",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Unofficial Pi provider extension for Volcengine Ark Agent Plan.",
   "keywords": [
     "pi-package",

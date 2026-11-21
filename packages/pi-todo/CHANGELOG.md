@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Require Pi 1.1 or later and keep Todo directly callable by the model while preventing scripts and other tools from changing tasks through nested tool calls.
+
 ## 0.5.1
 
 ### Patch Changes

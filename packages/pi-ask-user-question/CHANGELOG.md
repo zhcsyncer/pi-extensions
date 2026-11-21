@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Require Pi 1.1 or later and prevent scripts and other tools from opening questionnaires through nested tool calls, while preserving direct model-driven TUI and RPC interactions.
+
 ## 0.1.2
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @zhcsyncer/pi-meter
 
+## 0.4.5
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Prevent invalid negative historical costs from reducing recorded subtotals and retain recorded usage across branch changes between capture boundaries, without rewriting the original ledger.
+- 7a84086: Record finalized Pi 1.1 session usage, including standalone operations with unknown kinds, without double-counting live capture, history imports or reloads. Preserve distinct equal-payload entries, Consult advisor attribution and normal fork origins, while keeping subagent parent rollups non-additive. Retain legacy ledger data and budget compatibility, and distinguish recorded cost subtotals from unknown or incomplete costs. No quota polling or provider changes are included.
+- 7a84086: Prevent previously recorded Consult usage from being counted again when an earlier advisor returned no usage. Preserve legacy ledger matching without changing new entry identities or rewriting historical ledger data.
+- 7a84086: Avoid counting child usage twice when a native codemode result contains both subagent charges and ordinary parent-tool charges. Meter deducts only valid per-result child usage shares, preserving the parent's own tokens and costs, existing entry identities, and unknown-cost information. SDK session totals and persisted session logs are unchanged.
+
 ## 0.4.4
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Require Pi 1.1+ and make `herdr_process` model-only: direct calls retain owned-process management, while nested calls from other tools are rejected before any management action. Preserve sequential execution, BTW behavior, and the existing Herdr state bridge.
+
 ## 0.2.0
 
 ### Minor Changes
