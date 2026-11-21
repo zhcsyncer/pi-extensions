@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- 7a84086: Require Pi 1.1+ for Consult and use its public model registry streaming API while preserving configured provider/account/subscription authentication, including credential-derived endpoints and headers. Keep ordinary direct Consult calls available, reject nested calls with model-only exposure, and count only top-level tool events in the watchdog. Preserve advisor isolation, request budgets and usage aggregation, and prevent new requests or empty-response retries after cancellation.
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+
 ## 0.1.1
 
 ### Patch Changes

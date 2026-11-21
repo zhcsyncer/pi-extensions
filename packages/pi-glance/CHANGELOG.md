@@ -1,5 +1,15 @@
 # @zhcsyncer/pi-glance
 
+## 0.9.3
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Preserve explicit theme cache key overrides while retaining normal light/dark appearance refreshes. Prevent late notifications after a reset from accumulating usage again in the old instance's display state.
+- 7a84086: Include Pi 1.1 standalone usage in recorded session totals without double-counting persisted entries or nested tool work. Keep known cost subtotals visible with `?` when reported pricing is unknown, and follow theme appearance changes even when the theme name stays the same. Require Node.js 22.19.0 or newer.
+- 7a84086: Remove the non-interactive Cost display information row from settings. The displayed amount format is unchanged.
+- 7a84086: Include CHANGELOG.md in published packages so Pi can read release notes for its native extension update notifications.
+
 ## 0.9.2
 
 ### Patch Changes

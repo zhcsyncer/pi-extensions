@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Adapt subagent execution to Pi 1.1: distinguish extension-handled steering from queued input, report cancellation without assuming a turn-limit cause, wait for actual cancellation and delivery settlement before releasing execution resources, restore valid retain-none compaction history, and preserve turn-limit guidance. Reconcile recorded child usage by stable session-entry identity and report parent usage exactly once per selected branch, including outer tool results and explicit usage/summary costs without nested double-counting. This runtime path requires Pi 1.1 or later; it does not enable MCP or codemode.
+- 7a84086: Allow Agent, get_subagent_result, and steer_subagent to be called directly or through optional codemode orchestration on Pi 1.2+. Resume current-version tasks using current named or inline role permissions rather than a historical permission ceiling, while preserving the original task context, explicit isolation, and direct/nested tool authorization gates. Live continuation reports when newly required extensions need a fresh session; saved tasks load current resources on recovery. Preserve managed foreground/background lifecycles and carry nested usage receipts with the SDK's parent result so retrieval and restart do not double-count child usage. Codemode and MCP are not enabled automatically, and child agents still cannot recursively invoke the orchestration tools.
+
 ## 0.2.3
 
 ### Patch Changes

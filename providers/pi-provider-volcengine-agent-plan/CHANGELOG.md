@@ -1,5 +1,12 @@
 # pi-provider-volcengine-agent-plan
 
+## 0.4.2
+
+### Patch Changes
+
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Verify Pi 1.1 compatibility with offline SDK transport regressions and protocol-specific compatibility types. Preserve the dedicated Agent Plan endpoint, model routing, credential priority, and thinking/replay behavior; require Pi 1.1 or later and Node.js 22.19.0 or later, and clarify the limits of offline validation.
+
 ## 0.4.1
 
 ### Patch Changes

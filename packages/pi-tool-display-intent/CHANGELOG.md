@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.2
+
+### Patch Changes
+
+- 7a84086: Keep internal calls collapsed in aggregate Run views, with counts and failures on the parent row. Click the parent to toggle its indented children. Codemode's explicit Script / Output action opens the highlighted script first; other parents retain Details. Click a child to inspect a read-only snapshot of its recorded parameters and call information, with previews and missing data clearly distinguished and no fabricated result body. Preserve local choices during Run folding and streaming updates, show sub-second child durations in milliseconds, and remove duplicate nested summaries and recurring historical-result notices. Individual and native tool rendering remain unchanged.
+- 7a84086: Show codemode input as a JavaScript-highlighted code block in aggregate tool details, preserving source whitespace, Raw input, and result display without automatic formatting.
+- 7a84086: Use Pi 1.1 public tool renderers for built-in, custom, late-connected MCP, and historical tool calls while preserving specialized content and renderer state. Keep Bash argument preparation, structured results, cancellation and execution context intact, preserve Write's pre-write comparison, and avoid changing tool availability or enabling codemode. Reload cleanup no longer removes a newer display owner's decorations. Preserve delegated row state across HTML export's repeated renderer resolution, and stop projection-owned pulse timers on shutdown or reload without stopping newer sessions.
+- 7a84086: Speed up completed text-tool history redraws with bounded current preview and result-shell layouts, refreshing correctly on content updates, resizing, effective theme colors, and settings changes. Bound owned display inputs before formatting and explicitly omit oversized previews or diffs without changing execution results, model input, usage, or specialized renderers.
+- 7a84086: Show real nested operations beneath their root call without increasing top-level tool counts or charging usage again. Preserve native codemode progress and renderer state while bounding its displayed call list and argument previews, labeling partial lists and visible-only costs. Restore only recorded nested facts in history and HTML, keeping missing arguments, parents, results, and timing explicit.
+- 7a84086: Declare Pi-provided SDK and TypeBox modules as unconstrained host peers instead of bundled runtime dependencies or restrictive host dependency ranges. Development checks now use the verified Pi 1.2.0 SDK graph; installing the package does not enable codemode or MCP.
+- 7a84086: Add the persisted User message box setting to use native user-message rendering without changing aggregate steer behavior. Preserve message navigation in styled prompts and avoid removing newer renderer wrappers during reload. Only a leading OSC 133 prompt-start marker on a rendered row is treated as a boundary, so a reply that quotes the sequence no longer invents a prompt stop. Real boundaries survive downstream padding and context-only rendering.
+
 ## 0.10.1
 
 ### Patch Changes
