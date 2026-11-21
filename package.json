@@ -106,7 +106,7 @@
   },
   "scripts": {
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile",
     "release": "changeset publish",
     "check": "pnpm check:release-policy && pnpm check:recap && pnpm check:fast-mode && pnpm check:subagents && pnpm check:adversarial-review && pnpm check:consult && pnpm check:smoke && pnpm check:pack",
     "check:all": "node scripts/check-all.mjs",
